@@ -26,6 +26,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
+        .init_resource::<crate::runtime::network::ActorFramePartialTick>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)

@@ -981,7 +981,9 @@ mod local_pack;
 mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;
-pub(crate) use actor_publication::{HandRigBuilder, local_item_use, publish_actor_render_frame};
+pub(crate) use actor_publication::{
+    ActorFramePartialTick, HandRigBuilder, local_item_use, publish_actor_render_frame,
+};
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;

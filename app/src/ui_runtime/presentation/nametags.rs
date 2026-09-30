@@ -65,9 +65,24 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     )
 }
 
+/// Where the tag hangs: the actor's interpolated render position, raised by its height plus the
+/// clearance, so it moves exactly as the rig does at this frame's `partial_tick`.
+fn tag_world_position(actor: &ActorSnapshot, partial_tick: f32, sneaking: bool) -> Option<Vec3> {
+    let height = match actor.metadata.get(&METADATA_HEIGHT) {
+        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height > 0.0 => *height,
+        _ if sneaking => SNEAKING_HEIGHT,
+        _ => DEFAULT_HEIGHT,
+    };
+    Some(
+        Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?)
+            + Vec3::Y * (height + HEAD_CLEARANCE),
+    )
+}
+
 /// Projects `actor`'s tag, or `None` when it is out of range, invisible, hidden by wall
 /// occlusion while sneaking, behind the camera or off the content rect. `is_occluded` takes the
 /// tag's world position and reports whether a wall blocks the line from the camera.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn project_nametag(
     actor: &ActorSnapshot,
     name: Arc<str>,
@@ -75,6 +90,7 @@ pub(super) fn project_nametag(
     camera_transform: &GlobalTransform,
     content_size: [f32; 2],
     safe_area: SafeArea,
+    partial_tick: f32,
     is_occluded: impl FnOnce(Vec3) -> bool,
 ) -> Option<NametagAnchor> {
     if actor_flag(actor, ACTOR_FLAG_INVISIBLE) {
@@ -86,12 +102,7 @@ pub(super) fn project_nametag(
         return None;
     }
     let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
-    let height = match actor.metadata.get(&METADATA_HEIGHT) {
-        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height > 0.0 => *height,
-        _ if sneaking => SNEAKING_HEIGHT,
-        _ => DEFAULT_HEIGHT,
-    };
-    let position = Vec3::from_array(actor.position) + Vec3::Y * (height + HEAD_CLEARANCE);
+    let position = tag_world_position(actor, partial_tick, sneaking)?;
     let distance = camera_transform.translation().distance(position);
     if !distance.is_finite() || distance > MAX_NAMETAG_DISTANCE {
         return None;
@@ -274,5 +285,55 @@ mod tests {
         assert!(close(plate.max().x(), text.max().x() + font_px));
         assert!(close(plate.min().y(), 300.0 - font_px));
         assert!(close(plate.max().y(), 300.0 + 9.0 * font_px));
+    }
+
+    // The tag anchors to the same interpolated position the rig draws at, per partial tick.
+    #[test]
+    fn tag_anchor_follows_the_interpolated_actor_position() {
+        let actor = client_world::ActorSnapshot {
+            unique_id: 1,
+            runtime_id: 1,
+            spawn_revision: 1,
+            movement_revision: 1,
+            kind: ActorKind::Player {
+                uuid: [1; 16],
+                username: "p".into(),
+            },
+            position: [4.0, 64.0, -2.0],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            previous_pose: client_world::ActorPose {
+                position: [2.0, 62.0, -2.0],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+            },
+            received_pose: client_world::ActorPose {
+                position: [4.0, 64.0, -2.0],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+            },
+            interpolation_ticks_remaining: 0,
+            body_yaw: 0.0,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            metadata: Default::default(),
+            attributes: Default::default(),
+            int_properties: Default::default(),
+            float_properties: Default::default(),
+            status: Default::default(),
+        };
+        for (partial, expected) in [(0.25, [2.5, 62.5]), (0.5, [3.0, 63.0]), (0.75, [3.5, 63.5])] {
+            let anchor = tag_world_position(&actor, partial, false).unwrap();
+            let rig = Vec3::from_array(actor.interpolated_position(partial).unwrap());
+            assert_eq!(anchor - Vec3::Y * (DEFAULT_HEIGHT + HEAD_CLEARANCE), rig);
+            assert!((anchor.x - expected[0]).abs() < 1e-5);
+            assert!((anchor.y - (expected[1] + DEFAULT_HEIGHT + HEAD_CLEARANCE)).abs() < 1e-5);
+        }
     }
 }

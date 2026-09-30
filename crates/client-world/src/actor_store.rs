@@ -97,6 +97,20 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
+    /// The render position `alpha` of the way from the previous tick's pose to the current one,
+    /// or `None` when a component is not finite.
+    #[must_use]
+    pub fn interpolated_position(&self, alpha: f32) -> Option<[f32; 3]> {
+        let position = std::array::from_fn(|axis| {
+            self.previous_pose.position[axis]
+                + (self.position[axis] - self.previous_pose.position[axis]) * alpha
+        });
+        position
+            .iter()
+            .all(|value| value.is_finite())
+            .then_some(position)
+    }
+
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
         let pose = ActorPose {
             position: spawn.position,

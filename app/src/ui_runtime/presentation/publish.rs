@@ -1,6 +1,7 @@
 //! Per-frame HUD observation and publication.
 
 use super::*;
+use bevy::prelude::Transform;
 
 pub(crate) fn observe_mount_jump_input(
     input: Res<crate::semantic_controls::SemanticInputSnapshot>,
@@ -25,6 +26,7 @@ type PublishExtras<'w> = (
     Res<'w, render::HandRigScene>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
+    Res<'w, crate::runtime::network::ActorFramePartialTick>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -41,9 +43,10 @@ pub(crate) fn publish_ui_runtime(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    // The camera's Transform is this frame's; its GlobalTransform is propagated after Update.
+    cameras: Query<(&Camera, &Transform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions, profiler): PublishExtras,
+    (frame_poll, menu_runtime, hand_rig, collisions, profiler, actor_partial): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let _timer = profiler
@@ -187,15 +190,21 @@ pub(crate) fn publish_ui_runtime(
     let anchors = client_world
         .stream
         .as_ref()
-        .zip(cameras.single().ok())
+        .zip(
+            cameras
+                .single()
+                .ok()
+                .map(|(camera, transform)| (camera, GlobalTransform::from(*transform))),
+        )
         .map(|(stream, (camera, transform))| {
             project_below_name_anchors(
                 runtime.scoreboards(),
                 stream,
                 camera,
-                transform,
+                &transform,
                 [logical_width, logical_height],
                 presentation.safe_area,
+                actor_partial.0,
             )
         })
         .unwrap_or_default();
@@ -203,16 +212,22 @@ pub(crate) fn publish_ui_runtime(
     let nametags = client_world
         .stream
         .as_ref()
-        .zip(cameras.single().ok())
+        .zip(
+            cameras
+                .single()
+                .ok()
+                .map(|(camera, transform)| (camera, GlobalTransform::from(*transform))),
+        )
         .map(|(stream, (camera, transform))| {
             project_nametags(
                 runtime.scoreboards(),
                 stream,
                 camera,
-                transform,
+                &transform,
                 [logical_width, logical_height],
                 presentation.safe_area,
                 collisions.as_deref(),
+                actor_partial.0,
             )
         })
         .unwrap_or_default();
@@ -846,6 +861,7 @@ fn project_below_name_anchors(
     camera_transform: &GlobalTransform,
     logical_size: [f32; 2],
     safe_area: SafeArea,
+    partial_tick: f32,
 ) -> Vec<BelowNameAnchor> {
     let content_width = (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0);
     let content_height = (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0);
@@ -859,7 +875,8 @@ fn project_below_name_anchors(
                     scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
                 })?;
             let name = stream.actor_display_name(actor.unique_id)?;
-            let position = Vec3::from_array(actor.position) + Vec3::Y * 2.35;
+            let position =
+                Vec3::from_array(actor.interpolated_position(partial_tick)?) + Vec3::Y * 2.35;
             let viewport = camera.world_to_viewport(camera_transform, position).ok()?;
             let x = viewport.x - safe_area.left();
             let y = viewport.y - safe_area.top();
@@ -883,6 +900,7 @@ fn project_below_name_anchors(
 
 /// Nametags for other players and flagged mobs; players with a below-name score get the combined
 /// plate instead. Wall occlusion uses the collision store, failing open when it is unavailable.
+#[allow(clippy::too_many_arguments)]
 fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
     stream: &client_world::WorldStream,
@@ -891,6 +909,7 @@ fn project_nametags(
     logical_size: [f32; 2],
     safe_area: SafeArea,
     collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+    partial_tick: f32,
 ) -> Vec<nametags::NametagAnchor> {
     let content_size = [
         (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0),
@@ -941,6 +960,7 @@ fn project_nametags(
                 camera_transform,
                 content_size,
                 safe_area,
+                partial_tick,
                 is_occluded,
             )
         })
