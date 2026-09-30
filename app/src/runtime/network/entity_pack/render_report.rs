@@ -34,6 +34,8 @@ fn render_local_pack_entities() {
         asset_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
             .unwrap()
             .unwrap();
+    let (compiled_textures, compiled_bindings) =
+        (compiled.textures.clone(), compiled.bindings.clone());
     let artwork =
         ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
     let candidates: Vec<u32> = compiled
@@ -42,6 +44,9 @@ fn render_local_pack_entities() {
         .map(|binding| binding.geometry_candidate)
         .collect();
     let entities = Arc::new(RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
+    if let Some(carriers) = std::env::var_os("CINNABAR_RENDER_CARRIERS") {
+        measure_pages(Path::new(&carriers), &compiled_textures, &compiled_bindings);
+    }
     std::fs::create_dir_all(&out).unwrap();
     for (index, entry) in actors.split(',').enumerate() {
         let (entry, scale) = entry
@@ -288,4 +293,47 @@ fn rasterize(image: &mut image::RgbaImage, triangles: &[Triangle], artwork: &Act
             }
         }
     }
+}
+
+/// Prints the actor page count and bytes of the startup artwork (vanilla actor, equipment,
+/// icon, world and block-entity carriers in `dir`) and after the pack's artwork joins it.
+fn measure_pages(
+    dir: &Path,
+    textures: &[assets::ActorTexture],
+    bindings: &[assets::ActorArtworkBinding],
+) {
+    let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
+    let entity_bytes = read("vanilla-v1.mcbeent");
+    let entities = Arc::new(RuntimeEntityAssets::decode(&entity_bytes).unwrap());
+    let catalog =
+        assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entity_bytes).unwrap();
+    let equipment = assets::RuntimeEquipmentCatalog::decode(&read("vanilla-v1.mcbeeqp")).ok();
+    let icons = assets::RuntimeIconCatalog::decode(&read("vanilla-v1.mcbeico")).unwrap();
+    let world = std::fs::read(dir.join("vanilla-v2193.mcbea"))
+        .ok()
+        .and_then(|bytes| RuntimeAssets::decode(&bytes).ok());
+    let block_entities = std::fs::read(dir.join("vanilla-v1.mcbeben"))
+        .ok()
+        .and_then(|bytes| assets::RuntimeBlockEntityAssets::decode(&bytes).ok());
+    let summary = |label: &str, pages: &ActorArtworkPages| {
+        let bytes: usize = pages.pages().iter().map(|page| page.pixels().len()).sum();
+        eprintln!(
+            "pages {label}: generic={} bytes={:.1}MiB rejected_bindings={}",
+            pages.pages().len(),
+            bytes as f64 / 1_048_576.0,
+            pages.rejected_bindings()
+        );
+    };
+    let base = ActorArtworkPages::new(&catalog);
+    summary("vanilla actor", &base);
+    let (_, base, _) = crate::presentation::equipment::EquipmentRuntime::build(
+        entities,
+        equipment.map(Arc::new),
+        Arc::new(icons),
+        world.map(Arc::new),
+        block_entities.map(Arc::new),
+        base,
+    );
+    summary("startup (actor+equipment+icons+blocks)", &base);
+    summary("with pack", &base.with_pack_artwork(textures, bindings));
 }

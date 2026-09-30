@@ -15,7 +15,8 @@ pub const MAX_ACTOR_TEXTURE_SIDE: u16 = 16_384;
 // Engine safety ceilings, not retail constants.
 pub const MAX_ACTOR_TEXTURES: usize = 2048;
 pub const MAX_ACTOR_BINDINGS: usize = 4096;
-pub const MAX_ACTOR_PIXEL_BYTES: usize = 32 * 1024 * 1024;
+/// A server pack's entity art fits whole (Zeqa's is 47 MiB); past it rasters are halved.
+pub const MAX_ACTOR_PIXEL_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_ACTOR_CARRIER_BYTES: usize = MAX_ACTOR_PIXEL_BYTES + 1024 * 1024;
 const HEADER: usize = 128;
 const HASH: usize = 32;
