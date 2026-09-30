@@ -65,7 +65,7 @@ mod tests {
             .lines()
             .map(|line| line.split_once('\t').expect("capacity row").0)
             .collect::<Vec<_>>();
-        assert_eq!(identifiers.len(), 1_485);
+        assert_eq!(identifiers.len(), 1_590);
         assert!(identifiers.windows(2).all(|pair| pair[0] < pair[1]));
 
         let retail = RETAIL_ITEMS
@@ -79,11 +79,11 @@ mod tests {
     fn generated_inputs_and_output_match_reviewed_hashes() {
         assert_eq!(
             sha256(CAPACITY_DATA.as_bytes()),
-            "a494566eaf96fb57a38a736a1ec02d54424669e9272ae4c889be39c6f3e9caf3"
+            "58caa65a685f531787b9444e43d35c4d8bfafba551ae4ce9742fed24486aa6da"
         );
         assert_eq!(
             sha256(RETAIL_ITEMS.as_bytes()),
-            "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0"
+            "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
         );
     }
 
