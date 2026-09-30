@@ -354,6 +354,16 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
         ("dropper", opened(WINDOW_TYPE_DROPPER, 9), storage(9)),
         ("crafter", opened(WINDOW_TYPE_CRAFTER, 9), storage(9)),
         ("horse", opened(WINDOW_TYPE_HORSE, 17), storage(17)),
+        // A chested llama wears only a carpet, in container slot 1.
+        (
+            "llama",
+            {
+                let mut runtime = opened(WINDOW_TYPE_HORSE, 17);
+                runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
+                runtime
+            },
+            (1..17).map(Storage).collect(),
+        ),
     ]
 }
 
@@ -452,6 +462,36 @@ fn crafter_slots_toggle_through_their_buttons() {
     assert_eq!(toggles.len(), 2);
     assert!(toggles[0].contains("slot_index: 0") && toggles[0].contains("is_disabled: false"));
     assert!(toggles[1].contains("slot_index: 4") && toggles[1].contains("is_disabled: true"));
+}
+
+// A llama's single equip cell is its carpet slot, never the saddle's.
+#[test]
+fn llama_equip_cell_addresses_the_carpet_slot() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = opened(protocol::WINDOW_TYPE_HORSE, 17);
+    runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<InventoryCellHit> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            let center = [
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ];
+            presentation.engine_container_hit(center)
+        })
+        .collect();
+    assert!(reached.contains(&InventoryCellHit::Storage(1)));
+    assert!(!reached.contains(&InventoryCellHit::Storage(0)));
 }
 
 // Creative's wide list drops the player inventory for the catalog and keeps

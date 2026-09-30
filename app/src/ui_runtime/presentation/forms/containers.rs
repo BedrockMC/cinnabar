@@ -15,7 +15,9 @@ use ui::UiNode;
 
 use super::super::{HudFrame, IconRef, TextMetrics, UiPresentationError, UiPresentationRuntime};
 use super::container_data;
-use super::container_kinds::{Cell, ContainerKind, storage_kind, window_kind};
+use super::container_kinds::{
+    Cell, ContainerKind, mount_kind, mount_slots, storage_kind, window_kind,
+};
 use super::engine;
 use crate::ui_runtime::{
     UiRuntime,
@@ -54,6 +56,9 @@ impl ScreenLayout {
             InventoryScreen::Personal | InventoryScreen::Creative => Self::Personal { book },
             InventoryScreen::Workbench => Self::Workbench { book },
             InventoryScreen::Storage(slots) => Self::Station(storage_kind(slots, block_entity)),
+            InventoryScreen::Window(protocol::WindowKind::Horse, _) => Self::Station(mount_kind(
+                mount_slots(runtime.screen_state().mount_identifier.as_deref()),
+            )),
             InventoryScreen::Window(kind, _) => Self::Station(window_kind(kind)?),
             InventoryScreen::Book => Self::Book,
         })
@@ -101,6 +106,14 @@ impl UiPresentationRuntime {
             return Ok(false);
         };
         let (reference, title_key) = layout.screen();
+        // A mount's screen is titled with its own entity name.
+        let mount_key = runtime
+            .screen_state()
+            .mount_identifier
+            .as_deref()
+            .and_then(|id| id.strip_prefix("minecraft:"))
+            .map(|name| format!("entity.{name}.name"));
+        let title_key = mount_key.as_deref().unwrap_or(title_key);
         // A custom name shows as stated, else the block's own title.
         let title = window_text.custom_title.clone().unwrap_or_else(|| {
             runtime
