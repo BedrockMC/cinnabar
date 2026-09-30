@@ -80,6 +80,24 @@ fn with_data(mut runtime: UiRuntime, properties: &[(i32, i32)]) -> UiRuntime {
     runtime
 }
 
+/// Three offered options costing 1, 5 and 30 levels.
+fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
+    let option = |cost: u8, network_id: u32| protocol::EnchantOption {
+        cost,
+        name: "abc def".into(),
+        network_id,
+        enchants: vec![(9, cost.min(5))].into(),
+    };
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::EnchantOptions(
+            protocol::EnchantOptionsEvent {
+                options: vec![option(1, 1), option(5, 2), option(30, 3)].into(),
+            },
+        ));
+    runtime
+}
+
 fn personal() -> UiRuntime {
     let mut runtime = session();
     runtime.toggle_inventory();
@@ -89,7 +107,8 @@ fn personal() -> UiRuntime {
 /// Every screen the engine draws by default, by snapshot name, with the window
 /// cells its item slots must address.
 fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
-    use InventoryCellHit::{Craft, CraftOutput, Storage};
+    use crate::ui_runtime::presentation::screens::Widget as W;
+    use InventoryCellHit::{Craft, CraftOutput, Storage, Widget};
     use protocol::*;
     let storage = |count: u8| (0..count).map(Storage).collect::<Vec<_>>();
     vec![
@@ -136,11 +155,11 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
         (
             "anvil",
             opened(WINDOW_TYPE_ANVIL, 0),
-            vec![Craft(1), Craft(2), CraftOutput],
+            vec![Craft(1), Craft(2), CraftOutput, Widget(W::AnvilName)],
         ),
         (
             "enchanting_table",
-            opened(WINDOW_TYPE_ENCHANTMENT, 0),
+            with_enchant_options(opened(WINDOW_TYPE_ENCHANTMENT, 0)),
             vec![Craft(14), Craft(15)],
         ),
         (
@@ -168,7 +187,23 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
             opened(WINDOW_TYPE_STONECUTTER, 0),
             vec![Craft(3), CraftOutput],
         ),
-        ("beacon", opened(WINDOW_TYPE_BEACON, 0), vec![Craft(27)]),
+        (
+            "beacon",
+            opened(WINDOW_TYPE_BEACON, 0),
+            vec![
+                Craft(27),
+                Widget(W::BeaconEffect {
+                    id: 1,
+                    secondary: false,
+                }),
+                Widget(W::BeaconEffect {
+                    id: 10,
+                    secondary: true,
+                }),
+                Widget(W::BeaconUpgrade),
+                Widget(W::BeaconConfirm),
+            ],
+        ),
         ("hopper", opened(WINDOW_TYPE_HOPPER, 5), storage(5)),
         ("dispenser", opened(WINDOW_TYPE_DISPENSER, 9), storage(9)),
         ("dropper", opened(WINDOW_TYPE_DROPPER, 9), storage(9)),
