@@ -3,7 +3,7 @@ use protocol::{
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, VerifiedNetworkItemStack,
     player_auth_input_with_interactions,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
@@ -57,24 +57,21 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
     let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
         panic!("block use must not produce a standalone InventoryTransaction");
     };
-    let input_data = input.input_data.unwrap();
-    assert!(input_data.contains(&InputData::PerformItemInteraction));
-    assert!(!input_data.contains(&InputData::PerformBlockActions));
+    let input_data = input.input_data;
+    assert!(input_data.contains(&InputData::Performiteminteraction));
+    assert!(!input_data.contains(&InputData::Performblockactions));
     let packed = input
         .item_use_transaction
-        .and_then(|outer| outer)
         .expect("one embedded item interaction");
-    let transaction = packed
-        .item_use_transaction
-        .expect("one item-use transaction");
-    assert_eq!(transaction.actions.actions, None);
+    let transaction = packed.item_use_transaction;
+    assert!(transaction.actions.actions.is_empty());
     assert_eq!(
         transaction.action_type,
         EnumsItemUseInventoryTransactionActionType::Place
     );
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::PlayerInput
+        EnumsItemUseInventoryTransactionTriggerType::Playerinput
     );
     assert_eq!(transaction.position.x, 0);
     assert_eq!(transaction.position.y, 64);
@@ -145,17 +142,13 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
     let McpePacketData::PlayerAuthInputPacket(input) = &decoded.data else {
         panic!("expected PAI");
     };
-    let packed = input
-        .item_use_transaction
-        .as_ref()
-        .and_then(Option::as_ref)
-        .unwrap();
-    let transaction = packed.item_use_transaction.as_ref().unwrap();
+    let packed = input.item_use_transaction.as_ref().unwrap();
+    let transaction = &packed.item_use_transaction;
     assert_eq!(transaction.item.id, 5);
     assert_eq!(transaction.item.stacksize, 37);
     assert_eq!(transaction.item.net_id_variant, Some(41));
     assert_eq!(transaction.item.block_runtime_id, 0x8765_4321);
-    assert_eq!(transaction.actions.actions, None);
+    assert!(transaction.actions.actions.is_empty());
     let extra: Arc<[u8]> = Arc::from(transaction.item.user_data_buffer.clone());
     let digest = Sha256::digest(&extra).into();
     let selected = NetworkItemStack {

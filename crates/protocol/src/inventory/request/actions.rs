@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsContainerEnumName as Name, EnumsItemStackRequestActionType as Kind,
     EnumsItemStackRequestCerealItemDescriptorType as DescriptorKind, FullContainerName,
     ItemStackRequestCerealBeaconPaymentActionData, ItemStackRequestCerealConsumeActionData,
@@ -242,7 +242,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             primary_effect,
             secondary_effect,
         } => Item::BeaconPaymentActionData(ItemStackRequestCerealBeaconPaymentActionData {
-            actiontype: Kind::ScreenBeaconPayment,
+            actiontype: Kind::Screenbeaconpayment,
             primary_effect_id: *primary_effect,
             secondary_effect_id: *secondary_effect,
         }),
@@ -251,7 +251,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             predicted_durability,
             stack_network_id,
         } => Item::MineBlockActionData(Box::new(ItemStackRequestCerealMineBlockActionData {
-            actiontype: Kind::ScreenHudMineBlock,
+            actiontype: Kind::Screenhudmineblock,
             slot: *hotbar_slot,
             predicted_durability: *predicted_durability,
             net_id_variant: *stack_network_id,
@@ -260,7 +260,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             recipe_network_id,
             crafts: count,
         } => Item::CraftRecipeActionData(ItemStackRequestCerealCraftRecipeActionData {
-            actiontype: Kind::CraftRecipe,
+            actiontype: Kind::Craftrecipe,
             recipe_net_id: recipe(*recipe_network_id),
             numberofrequestedcrafts: crafts(*count)?,
         }),
@@ -270,7 +270,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             ingredients,
         } => Item::CraftRecipeAutoActionData(Box::new(
             ItemStackRequestCerealCraftRecipeAutoActionData {
-                actiontype: Kind::CraftRecipeAuto,
+                actiontype: Kind::Craftrecipeauto,
                 recipe_net_id: recipe(*recipe_network_id),
                 numberofrequestedcrafts: crafts(*count)?,
                 ingredients: ingredients
@@ -286,7 +286,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             creative_item_network_id,
             crafts: count,
         } => Item::CraftCreativeActionData(ItemStackRequestCerealCraftCreativeActionData {
-            actiontype: Kind::CraftCreative,
+            actiontype: Kind::Craftcreative,
             creative_item_net_id: *creative_item_network_id,
             numberofrequestedcrafts: crafts(*count)?,
         }),
@@ -295,7 +295,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             filtered_string_index,
         } => Item::CraftRecipeOptionalActionData(
             ItemStackRequestCerealCraftRecipeOptionalActionData {
-                actiontype: Kind::CraftRecipeOptional,
+                actiontype: Kind::Craftrecipeoptional,
                 recipe_net_id: recipe(*recipe_network_id),
                 filtered_string_index: *filtered_string_index,
             },
@@ -306,7 +306,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             repair_cost,
         } => Item::CraftRepairAndDisenchantActionData(Box::new(
             ItemStackRequestCerealCraftRepairAndDisenchantActionData {
-                actiontype: Kind::CraftRepairAndDisenchant,
+                actiontype: Kind::Craftrepairanddisenchant,
                 recipe_net_id: *recipe_network_id,
                 numberofrequestedcrafts: crafts(*count)?,
                 repair_cost: *repair_cost,
@@ -316,7 +316,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             pattern,
             crafts: count,
         } => Item::CraftLoomActionData(ItemStackRequestCerealCraftLoomActionData {
-            actiontype: Kind::CraftLoom,
+            actiontype: Kind::Craftloom,
             pattern_name_id: pattern.to_string(),
             num_crafts: crafts(*count)?,
         }),
@@ -324,7 +324,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             results,
             crafts: count,
         } => Item::CraftResultsActionData(ItemStackRequestCerealCraftResultsActionData {
-            actiontype: Kind::CraftResults,
+            actiontype: Kind::Craftresults,
             craft_results: results.iter().map(craft_result).collect(),
             num_crafts: crafts(*count)?,
         }),
@@ -339,7 +339,7 @@ fn craft_result(result: &CraftResult) -> ItemStackRequestCerealNetworkItemInstan
     ItemStackRequestCerealNetworkItemInstanceDescriptorData {
         item_descriptor: ResultDescriptor::ItemNameDescriptorData(
             ItemStackRequestCerealItemNameDescriptorData {
-                descriptor_type: DescriptorKind::ItemName,
+                descriptor_type: DescriptorKind::Itemname,
                 full_name: result.identifier.to_string(),
                 aux_value: result.aux,
             },
@@ -360,7 +360,7 @@ fn ingredient_descriptor(descriptor: &StackItemDescriptor) -> IngredientDescript
         StackItemDescriptor::Name { identifier, aux } => {
             IngredientDescriptor::ItemNameDescriptorData(
                 ItemStackRequestCerealItemNameDescriptorData {
-                    descriptor_type: DescriptorKind::ItemName,
+                    descriptor_type: DescriptorKind::Itemname,
                     full_name: identifier.to_string(),
                     aux_value: *aux,
                 },
@@ -368,7 +368,7 @@ fn ingredient_descriptor(descriptor: &StackItemDescriptor) -> IngredientDescript
         }
         StackItemDescriptor::Tag(tag) => IngredientDescriptor::ItemTagDescriptorData(
             ItemStackRequestCerealItemTagDescriptorData {
-                descriptor_type: DescriptorKind::ItemTag,
+                descriptor_type: DescriptorKind::Itemtag,
                 item_tag: tag.to_string(),
             },
         ),
@@ -385,22 +385,22 @@ fn slot(
         slot: slot.slot,
     };
     let (container_name, wire_slot, dynamic_id) = match slot.container {
-        C::PlayerInventory if slot.slot < 9 => (Name::HotbarContainer, slot.slot, None),
+        C::PlayerInventory if slot.slot < 9 => (Name::Hotbarcontainer, slot.slot, None),
         C::PlayerInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
-            (Name::InventoryContainer, slot.slot, None)
+            (Name::Inventorycontainer, slot.slot, None)
         }
-        C::Cursor if slot.slot == 0 => (Name::CursorContainer, 0, None),
-        C::Armor if slot.slot < ARMOR_SLOTS => (Name::ArmorContainer, slot.slot, None),
+        C::Cursor if slot.slot == 0 => (Name::Cursorcontainer, 0, None),
+        C::Armor if slot.slot < ARMOR_SLOTS => (Name::Armorcontainer, slot.slot, None),
         C::Offhand if matches!(slot.slot, 0 | OFFHAND_WIRE_SLOT) => {
-            (Name::OffhandContainer, OFFHAND_WIRE_SLOT, None)
+            (Name::Offhandcontainer, OFFHAND_WIRE_SLOT, None)
         }
         C::CraftingInput if CRAFTING_INPUT_SLOTS.contains(&slot.slot) => {
-            (Name::CraftingInputContainer, slot.slot, None)
+            (Name::Craftinginputcontainer, slot.slot, None)
         }
         C::CreatedOutput if slot.slot == CREATED_OUTPUT_SLOT => {
-            (Name::CreatedOutputContainer, slot.slot, None)
+            (Name::Createdoutputcontainer, slot.slot, None)
         }
-        C::LevelEntity { dynamic_id } => (Name::LevelEntityContainer, slot.slot, dynamic_id),
+        C::LevelEntity { dynamic_id } => (Name::Levelentitycontainer, slot.slot, dynamic_id),
         C::OpenWindow { name, dynamic_id }
             if container_window(name) == Some(ContainerWindow::Open) =>
         {
@@ -432,7 +432,7 @@ fn open_window_name(code: u8) -> Option<Name> {
 mod tests {
     use bytes::BytesMut;
     use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_44::{ItemStackRequestPacket, McpePacketData};
+    use valentine::bedrock::version::v1_26_51::{ItemStackRequestPacket, McpePacketData};
 
     use super::super::item_stack_request_packet;
     use super::*;

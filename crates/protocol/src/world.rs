@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_44::LevelChunkPacketView;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::LevelChunkPacketView;
+use valentine::bedrock::version::v1_26_51::{
     EnumsPlayerRespawnState as RespawnPacketState,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, McpePacketData,
@@ -648,22 +648,22 @@ pub fn into_world_event(
                             payload: entry.serialized_sub_chunk.unwrap_or_default(),
                         }
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair => {
                         SubChunkResult::AllAir
                     }
                     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(0) => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::WrongDimension => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Wrongdimension => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::PlayerDoesntExist => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Playerdoesntexist => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::IndexOutOfBounds => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Indexoutofbounds => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
                     }
                     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(value) => {
@@ -760,9 +760,9 @@ pub fn into_world_event(
             // SearchingForSpawn=0, ReadyToSpawn=1, ClientReadyToSpawn=2, and
             // this event deliberately keeps the raw wire value.
             state: match packet.state {
-                RespawnPacketState::SearchingForSpawn => 0,
-                RespawnPacketState::ReadyToSpawn => 1,
-                RespawnPacketState::ClientReadyToSpawn => 2,
+                RespawnPacketState::Searchingforspawn => 0,
+                RespawnPacketState::Readytospawn => 1,
+                RespawnPacketState::Clientreadytospawn => 2,
                 RespawnPacketState::Unknown(value) => value,
             },
             runtime_entity_id: packet.player_runtime_id.actor_runtime_id,
@@ -955,7 +955,7 @@ fn canonical_biome_name(name: &str) -> Arc<str> {
     if name.contains(':') {
         return Arc::from(name);
     }
-    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_40.txt");
+    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_50.txt");
     let known_retail = RETAIL_BIOMES
         .lines()
         .any(|identifier| identifier.strip_prefix("minecraft:") == Some(name));

@@ -1,8 +1,8 @@
 //! Wire-truth harness for the pinned `.bin` fixtures.
 //!
-//! Every fixture under `crates/protocol/fixtures/` is produced by gophertunnel
-//! at commit `9f42f3679a573fc4b51104569cc4f422036e28ec` (Bedrock 1.26.40 /
-//! protocol 2168). The bytes are the authority: this file only asserts that the
+//! Every fixture under `crates/protocol/fixtures/` is produced by
+//! `tools/fixturegen` through the pinned gophertunnel (Bedrock 1.26.50 /
+//! protocol 2193). The bytes are the authority: this file only asserts that the
 //! generated Valentine shapes decode to the values those bytes carry and
 //! re-encode to the identical bytes.
 
@@ -11,7 +11,7 @@ use protocol::{
     BedrockSession, GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags,
     PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType, EnumsGameType,
     EnumsInputMode, EnumsNewInteractionModel, EnumsPacketCompressionAlgorithm,
     EnumsPlayerAuthInputPacketPayloadInputData, EnumsPlayerPermissionLevel,
@@ -60,9 +60,9 @@ fn assert_exact_round_trip(packet: &protocol::Packet, fixture: &[u8]) {
 }
 
 #[test]
-fn protocol_constants_are_pinned_to_1_26_44() {
-    assert_eq!(GAME_VERSION, "1.26.44");
-    assert_eq!(PROTOCOL_VERSION, 2168);
+fn protocol_constants_are_pinned_to_1_26_50() {
+    assert_eq!(GAME_VERSION, "1.26.50");
+    assert_eq!(PROTOCOL_VERSION, 2193);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn network_settings_fixture_decodes_and_round_trips_exactly() {
             // the same discriminant from `Deflate` to `ZLib`.
             assert_eq!(
                 settings.compression_algorithm,
-                EnumsPacketCompressionAlgorithm::ZLib
+                EnumsPacketCompressionAlgorithm::Zlib
             );
             // `client_throttle` is `client_throttle_enabled` in 1.26.40.
             assert!(settings.client_throttle_enabled);
@@ -130,8 +130,8 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
                 settings.default_spawn_block_position,
                 BlockPos { x: 8, y: 64, z: -8 }
             );
-            // `game_version` -> `base_game_version`; the fixture is 1.26.40.
-            assert_eq!(settings.base_game_version, "1.26.40");
+            // `game_version` -> `base_game_version`; the fixture is 1.26.50.
+            assert_eq!(settings.base_game_version, "1.26.50");
 
             // 1.26.40 wire changes carried by this fixture.
             //
@@ -164,7 +164,7 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
             // `server_authoritative_inventory` -> `enable_item_stack_net_manager`.
             assert!(start.enable_item_stack_net_manager);
             // `engine` -> `server_version`.
-            assert_eq!(start.server_version, "1.26.40");
+            assert_eq!(start.server_version, "1.26.50");
             assert!(start.block_network_ids_are_hashes);
         }
         other => panic!("unexpected variant: {:?}", other.packet_id()),
@@ -274,20 +274,17 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
         input.new_interaction_model,
         EnumsNewInteractionModel::Crosshair
     );
-    // Restated, not weakened: the input flags stopped being a bitset.
-    // `protocol.InputFlagList(io, &pk.InputData, InputFlagCount)`
-    // (gophertunnel minecraft/protocol/input_flags.go:78) writes a presence
-    // bool, a count, and then one zigzag varint per set flag ID. The old
-    // `UP | LEFT | JUMPING | SPRINTING` bitset is now exactly this list, in
-    // ascending flag-ID order.
+    // `protocol.InputFlagList` (gophertunnel minecraft/protocol/input_flags.go)
+    // writes a count and then one zigzag varint per set flag ID, in ascending
+    // flag-ID order.
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-        ])
+        ]
     );
     // `pitch`/`yaw` -> `player_rotation: Vec2 { x, y }`.
     assert_eq!(input.player_rotation, Vec2 { x: 10.5, y: 20.25 });
@@ -320,13 +317,11 @@ fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
             z: -0.75,
         }
     );
-    // DoubleOptionalFunc is represented without synthetic constant fields:
-    // the outer and inner presence bytes decode as `Some(None)`.
-    assert_eq!(input.item_use_transaction, Some(None));
-    assert_eq!(input.item_stack_request, Some(None));
-    assert_eq!(input.player_block_actions, Some(None));
-    assert_eq!(input.vehicle_rotation, Some(None));
-    assert_eq!(input.client_predicted_vehicle, Some(None));
+    assert_eq!(input.item_use_transaction, None);
+    assert_eq!(input.item_stack_request, None);
+    assert_eq!(input.player_block_actions, None);
+    assert_eq!(input.vehicle_rotation, None);
+    assert_eq!(input.client_predicted_vehicle, None);
 
     assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT);
 }
@@ -356,11 +351,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
     assert_eq!(
         encode(&built, &session()).expect("encode built PlayerAuthInput"),
         PLAYER_AUTH_INPUT,
-        "the builder must emit the pinned gophertunnel bytes. A mismatch at \
-         body offset 0x20 is `constant_4`, the `protocol.InputFlagList` \
-         presence bool (input_flags.go:78); mismatches at body offsets 0x3f, \
-         0x41, 0x43, 0x45 and 0x47 are the `protocol.DoubleOptionalFunc` outer \
-         bools (io.go:212). gophertunnel always writes all six as true."
+        "the builder must emit the pinned gophertunnel bytes"
     );
 }
 
@@ -582,7 +573,7 @@ fn fixture_block_actions() -> protocol::BlockActions {
 
 #[test]
 fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
-    use valentine::bedrock::version::v1_26_44::{EnumsPlayerActionType, PlayerBlockActionData};
+    use valentine::bedrock::version::v1_26_51::{EnumsPlayerActionType, PlayerBlockActionData};
 
     let fixture = decode_one(
         PLAYER_AUTH_INPUT_BLOCK_ACTIONS,
@@ -595,21 +586,20 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
     // Sprinting (20), in ascending order.
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions,
-        ])
+            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions,
+        ]
     );
-    // Every action writes its action id, block position, and face; the outer
-    // presence byte stays true and the inner Option now carries the list.
+    // Every action writes its action id, block position, and face.
     assert_eq!(
         input.player_block_actions,
-        Some(Some(vec![
+        Some(vec![
             PlayerBlockActionData {
-                player_action_type: EnumsPlayerActionType::StartDestroyBlock,
+                player_action_type: EnumsPlayerActionType::Startdestroyblock,
                 position: BlockPos {
                     x: 13,
                     y: 71,
@@ -618,7 +608,7 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
                 facing: 5,
             },
             PlayerBlockActionData {
-                player_action_type: EnumsPlayerActionType::PredictDestroyBlock,
+                player_action_type: EnumsPlayerActionType::Predictdestroyblock,
                 position: BlockPos {
                     x: -8,
                     y: 63,
@@ -626,9 +616,9 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
                 },
                 facing: 1,
             },
-        ]))
+        ])
     );
-    assert_eq!(input.item_use_transaction, Some(None));
+    assert_eq!(input.item_use_transaction, None);
     assert_eq!(input.client_tick, PlayerInputTick { inputtick: 1_234 });
     assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT_BLOCK_ACTIONS);
 }
@@ -655,7 +645,7 @@ fn player_auth_input_builder_embeds_block_actions_byte_exactly() {
 
 #[test]
 fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
-    use valentine::bedrock::version::v1_26_44::{
+    use valentine::bedrock::version::v1_26_51::{
         EnumsItemUseInventoryTransactionActionType,
         EnumsItemUseInventoryTransactionClientCooldownState,
         EnumsItemUseInventoryTransactionPredictedResult,
@@ -671,34 +661,29 @@ fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
     };
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction,
-        ])
+            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction,
+        ]
     );
-    assert_eq!(input.player_block_actions, Some(None));
-    let Some(Some(packed)) = &input.item_use_transaction else {
+    assert_eq!(input.player_block_actions, None);
+    let Some(packed) = &input.item_use_transaction else {
         panic!("expected an embedded item-use transaction");
     };
     assert_eq!(packed.legacy_request_id.id, 0);
     assert!(packed.legacy_set_item_slots.is_none());
-    let transaction = packed
-        .item_use_transaction
-        .as_ref()
-        .expect("outer transaction presence");
-    // gophertunnel's PlayerInventoryAction writes the action list behind a
-    // second optional layer that the break-block fixture leaves absent.
-    assert_eq!(transaction.actions.actions, None);
+    let transaction = &packed.item_use_transaction;
+    assert!(transaction.actions.actions.is_empty());
     assert_eq!(
         transaction.action_type,
         EnumsItemUseInventoryTransactionActionType::Destroy
     );
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::PlayerInput
+        EnumsItemUseInventoryTransactionTriggerType::Playerinput
     );
     assert_eq!(
         transaction.position,
@@ -756,8 +741,7 @@ fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
     let item = &input
         .item_use_transaction
         .as_ref()
-        .and_then(Option::as_ref)
-        .and_then(|packed| packed.item_use_transaction.as_ref())
+        .map(|packed| &packed.item_use_transaction)
         .expect("embedded transaction")
         .item;
     let digest: [u8; 32] = Sha256::digest(&item.user_data_buffer).into();
@@ -837,8 +821,7 @@ fn fixture_break_block_item() -> protocol::VerifiedNetworkItemStack {
     let item = &input
         .item_use_transaction
         .as_ref()
-        .and_then(Option::as_ref)
-        .and_then(|packed| packed.item_use_transaction.as_ref())
+        .map(|packed| &packed.item_use_transaction)
         .expect("embedded transaction")
         .item;
     let digest: [u8; 32] = Sha256::digest(&item.user_data_buffer).into();
@@ -883,24 +866,17 @@ fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactl
     };
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions,
-        ])
+            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions,
+        ]
     );
-    assert!(matches!(input.item_use_transaction, Some(Some(_))));
-    assert_eq!(
-        input
-            .player_block_actions
-            .as_ref()
-            .and_then(Option::as_ref)
-            .map(Vec::len),
-        Some(2)
-    );
+    assert!(input.item_use_transaction.is_some());
+    assert_eq!(input.player_block_actions.as_ref().map(Vec::len), Some(2));
     assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK);
 
     let interactions = protocol::PlayerAuthInputInteractions {

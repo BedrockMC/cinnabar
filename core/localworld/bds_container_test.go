@@ -17,7 +17,7 @@ func fakeDockerEnv(t *testing.T, extra ...string) (env []string, logPath string)
 
 func macProvisioner(t *testing.T) *Provisioner {
 	t.Helper()
-	p := &Provisioner{Root: filepath.Join(t.TempDir(), "bds"), goos: "darwin", goarch: "arm64", Version: "1.26.44.1"}
+	p := &Provisioner{Root: filepath.Join(t.TempDir(), "bds"), goos: "darwin", goarch: "arm64", Version: "1.26.52.3"}
 	p.SetRuntime(RuntimeInfo{Kind: RuntimeContainer, Reason: "container"})
 	return p
 }
@@ -62,7 +62,7 @@ func TestContainerRunnerLifecycleAndArguments(t *testing.T) {
 		"run --rm --name " + name + " --platform linux/amd64 -p 127.0.0.1:",
 		":19132/udp",
 		"-v " + filepath.Join(spec.Dir, "db") + ":/data/worlds/" + spec.World.ID,
-		"-e EULA=TRUE", "-e VERSION=1.26.44.1", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7",
+		"-e EULA=TRUE", "-e VERSION=1.26.52.3", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7",
 		"stop -t 25 " + name,
 	} {
 		if !strings.Contains(log, want) {

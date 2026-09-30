@@ -372,7 +372,7 @@ pub fn ui_slot_request_container(slot: u8) -> Option<StackRequestContainer> {
 #[cfg(test)]
 mod tests {
     use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_44::EnumsContainerEnumName as Name;
+    use valentine::bedrock::version::v1_26_51::EnumsContainerEnumName as Name;
 
     use super::*;
 
@@ -386,52 +386,52 @@ mod tests {
     #[test]
     fn container_name_codes_match_the_protocol_enum() {
         let pairs = [
-            (NAME_ANVIL_INPUT, Name::AnvilInputContainer),
-            (NAME_ANVIL_MATERIAL, Name::AnvilMaterialContainer),
-            (NAME_SMITHING_INPUT, Name::SmithingTableInputContainer),
-            (NAME_SMITHING_MATERIAL, Name::SmithingTableMaterialContainer),
-            (NAME_BEACON_PAYMENT, Name::BeaconPaymentContainer),
-            (NAME_BREWING_INPUT, Name::BrewingStandInputContainer),
-            (NAME_BREWING_RESULT, Name::BrewingStandResultContainer),
-            (NAME_BREWING_FUEL, Name::BrewingStandFuelContainer),
-            (NAME_CRAFTING_INPUT, Name::CraftingInputContainer),
-            (NAME_ENCHANTING_INPUT, Name::EnchantingInputContainer),
-            (NAME_ENCHANTING_MATERIAL, Name::EnchantingMaterialContainer),
-            (NAME_FURNACE_FUEL, Name::FurnaceFuelContainer),
-            (NAME_FURNACE_INGREDIENT, Name::FurnaceIngredientContainer),
-            (NAME_FURNACE_RESULT, Name::FurnaceResultContainer),
-            (NAME_HORSE_EQUIP, Name::HorseEquipContainer),
-            (NAME_SHULKER_BOX, Name::ShulkerBoxContainer),
-            (NAME_LOOM_INPUT, Name::LoomInputContainer),
-            (NAME_LOOM_DYE, Name::LoomDyeContainer),
-            (NAME_LOOM_MATERIAL, Name::LoomMaterialContainer),
+            (NAME_ANVIL_INPUT, Name::Anvilinputcontainer),
+            (NAME_ANVIL_MATERIAL, Name::Anvilmaterialcontainer),
+            (NAME_SMITHING_INPUT, Name::Smithingtableinputcontainer),
+            (NAME_SMITHING_MATERIAL, Name::Smithingtablematerialcontainer),
+            (NAME_BEACON_PAYMENT, Name::Beaconpaymentcontainer),
+            (NAME_BREWING_INPUT, Name::Brewingstandinputcontainer),
+            (NAME_BREWING_RESULT, Name::Brewingstandresultcontainer),
+            (NAME_BREWING_FUEL, Name::Brewingstandfuelcontainer),
+            (NAME_CRAFTING_INPUT, Name::Craftinginputcontainer),
+            (NAME_ENCHANTING_INPUT, Name::Enchantinginputcontainer),
+            (NAME_ENCHANTING_MATERIAL, Name::Enchantingmaterialcontainer),
+            (NAME_FURNACE_FUEL, Name::Furnacefuelcontainer),
+            (NAME_FURNACE_INGREDIENT, Name::Furnaceingredientcontainer),
+            (NAME_FURNACE_RESULT, Name::Furnaceresultcontainer),
+            (NAME_HORSE_EQUIP, Name::Horseequipcontainer),
+            (NAME_SHULKER_BOX, Name::Shulkerboxcontainer),
+            (NAME_LOOM_INPUT, Name::Loominputcontainer),
+            (NAME_LOOM_DYE, Name::Loomdyecontainer),
+            (NAME_LOOM_MATERIAL, Name::Loommaterialcontainer),
             (
                 NAME_BLAST_FURNACE_INGREDIENT,
-                Name::BlastFurnaceIngredientContainer,
+                Name::Blastfurnaceingredientcontainer,
             ),
-            (NAME_SMOKER_INGREDIENT, Name::SmokerIngredientContainer),
-            (NAME_GRINDSTONE_INPUT, Name::GrindstoneInputContainer),
+            (NAME_SMOKER_INGREDIENT, Name::Smokeringredientcontainer),
+            (NAME_GRINDSTONE_INPUT, Name::Grindstoneinputcontainer),
             (
                 NAME_GRINDSTONE_ADDITIONAL,
-                Name::GrindstoneAdditionalContainer,
+                Name::Grindstoneadditionalcontainer,
             ),
-            (NAME_STONECUTTER_INPUT, Name::StonecutterInputContainer),
-            (NAME_CARTOGRAPHY_INPUT, Name::CartographyInputContainer),
+            (NAME_STONECUTTER_INPUT, Name::Stonecutterinputcontainer),
+            (NAME_CARTOGRAPHY_INPUT, Name::Cartographyinputcontainer),
             (
                 NAME_CARTOGRAPHY_ADDITIONAL,
-                Name::CartographyAdditionalContainer,
+                Name::Cartographyadditionalcontainer,
             ),
-            (NAME_BARREL, Name::BarrelContainer),
-            (NAME_SMITHING_TEMPLATE, Name::SmithingTableTemplateContainer),
-            (NAME_CRAFTER, Name::CrafterLevelEntityContainer),
-            (2, Name::AnvilResultPreviewContainer),
-            (5, Name::SmithingTableResultPreviewContainer),
-            (14, Name::CraftingOutputPreviewContainer),
-            (44, Name::LoomResultPreviewContainer),
-            (52, Name::GrindstoneResultPreviewContainer),
-            (54, Name::StonecutterResultPreviewContainer),
-            (57, Name::CartographyResultPreviewContainer),
-            (33, Name::TradeResultPreviewContainer),
+            (NAME_BARREL, Name::Barrelcontainer),
+            (NAME_SMITHING_TEMPLATE, Name::Smithingtabletemplatecontainer),
+            (NAME_CRAFTER, Name::Crafterlevelentitycontainer),
+            (2, Name::Anvilresultpreviewcontainer),
+            (5, Name::Smithingtableresultpreviewcontainer),
+            (14, Name::Craftingoutputpreviewcontainer),
+            (44, Name::Loomresultpreviewcontainer),
+            (52, Name::Grindstoneresultpreviewcontainer),
+            (54, Name::Stonecutterresultpreviewcontainer),
+            (57, Name::Cartographyresultpreviewcontainer),
+            (33, Name::Traderesultpreviewcontainer),
         ];
         for (expected, name) in pairs {
             assert_eq!(code(name), expected);

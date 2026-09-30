@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-SOURCE = Path("crates/protocol/vendor/valentine/bedrock_versions/v1_26_44/src")
+SOURCE = Path("crates/protocol/vendor/valentine/bedrock_versions/v1_26_51/src")
 FILES = ("common.rs", "mcpe.rs", "proto.rs", "types.rs", "borrowed.rs")
 TOKEN = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_][A-Za-z_0-9]*|.', re.S)
 

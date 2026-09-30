@@ -6,9 +6,9 @@ use protocol::{
     TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
     parse_raw_text,
 };
-use valentine::bedrock::version::v1_26_44::{
-    EnumsSetTitlePacketPayloadTitleType, SetTitlePacket, TextPacket, TextPacketBody,
-    TextPacketPayloadMessageOnly,
+use valentine::bedrock::version::v1_26_51::{
+    EnumsSetTitlePacketPayloadTitleType, EnumsTextPacketType, SetTitlePacket, TextPacket,
+    TextPacketBody, TextPacketPayloadMessageOnly,
 };
 
 const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
@@ -25,14 +25,17 @@ fn message_only(body: TextPacketBody) -> TextPacket {
 }
 
 fn message_only_body(kind: TextKind, message: String) -> TextPacketBody {
-    let payload = TextPacketPayloadMessageOnly { message };
-    match kind {
-        TextKind::Raw => TextPacketBody::Raw(payload),
-        TextKind::Json => TextPacketBody::TextObject(payload),
-        TextKind::JsonWhisper => TextPacketBody::TextObjectWhisper(payload),
-        TextKind::JsonAnnouncement => TextPacketBody::TextObjectAnnouncement(payload),
+    let message_type = match kind {
+        TextKind::Raw => EnumsTextPacketType::Raw,
+        TextKind::Json => EnumsTextPacketType::Textobject,
+        TextKind::JsonWhisper => EnumsTextPacketType::Textobjectwhisper,
+        TextKind::JsonAnnouncement => EnumsTextPacketType::Textobjectannouncement,
         other => panic!("unsupported message-only text kind: {other:?}"),
-    }
+    };
+    TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
+        message_type,
+        message,
+    })
 }
 
 fn normalize_json(
@@ -428,15 +431,15 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
         (
-            EnumsSetTitlePacketPayloadTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject,
             TitleAction::SetTitleJson,
         ),
         (
-            EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Subtitletextobject,
             TitleAction::SetSubtitleJson,
         ),
         (
-            EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Actionbartextobject,
             TitleAction::ActionBarJson,
         ),
     ] {
@@ -474,7 +477,7 @@ fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
 fn malformed_title_object_raw_text_fails_closed() {
     assert!(matches!(
         normalize_title_object(
-            EnumsSetTitlePacketPayloadTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject,
             r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
         ),
         Err(UiPacketError::InvalidRawText)

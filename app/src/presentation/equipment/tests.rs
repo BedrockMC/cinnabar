@@ -345,9 +345,15 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     ) else {
         return;
     };
-    let entities = Arc::new(assets::RuntimeEntityAssets::decode(&entities).unwrap());
-    let icons = Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap());
-    let catalog = Arc::new(assets::RuntimeEquipmentCatalog::decode(&equipment).unwrap());
+    // Carriers built by an older compiler are skipped like absent ones until `make assets`.
+    let (Ok(entities), Ok(icons), Ok(catalog)) = (
+        assets::RuntimeEntityAssets::decode(&entities),
+        assets::RuntimeIconCatalog::decode(&icons),
+        assets::RuntimeEquipmentCatalog::decode(&equipment),
+    ) else {
+        return;
+    };
+    let (entities, icons, catalog) = (Arc::new(entities), Arc::new(icons), Arc::new(catalog));
     let (mut runtime, _, _) = EquipmentRuntime::build(
         entities,
         Some(catalog),

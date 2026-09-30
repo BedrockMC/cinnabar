@@ -7,7 +7,6 @@ use std::{
 pub const MAX_OBJECTIVES: usize = 128;
 pub const MAX_SCORES: usize = 8_192;
 pub const MAX_BOSS_BARS: usize = 64;
-pub const MAX_BOSS_PLAYER_MEMBERSHIPS: usize = 8_192;
 pub const MAX_RETAINED_UI_TEXT_FIELD_BYTES: usize = crate::UiLimits::MAX_TEXT_BYTES;
 pub const MAX_SCOREBOARD_RETAINED_TEXT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_BOSS_RETAINED_TEXT_BYTES: usize = 2 * 1024 * 1024;
@@ -710,7 +709,6 @@ pub struct BossStyle {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BossBarEvent {
     pub target_entity_id: i64,
-    pub player_id: i64,
     pub action: BossAction,
     pub title: Arc<str>,
     pub filtered_title: Arc<str>,
@@ -731,9 +729,7 @@ pub struct BossBarView {
 pub struct BossBarDiagnostics {
     pub stale_sequences: u64,
     pub missing_bars: u64,
-    pub missing_memberships: u64,
     pub bar_limit_rejections: u64,
-    pub membership_limit_rejections: u64,
     pub text_field_rejections: u64,
     pub text_budget_rejections: u64,
     pub invalid_health_rejections: u64,
@@ -747,14 +743,12 @@ struct BossBarState {
     filtered_title: Arc<str>,
     health: f32,
     style: BossStyle,
-    registered_players: BTreeSet<i64>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BossBarStore {
     last_sequence: Option<u64>,
     bars: BTreeMap<i64, BossBarState>,
-    membership_count: usize,
     retained_text_bytes: usize,
     diagnostics: BossBarDiagnostics,
 }
@@ -805,15 +799,6 @@ impl BossBarStore {
         self.stacked_iter().collect()
     }
 
-    /// The registered player memberships of one bar, materialized on demand;
-    /// the per-frame presentation view deliberately excludes this list.
-    pub fn registered_players(&self, target_entity_id: i64) -> Vec<i64> {
-        self.bars
-            .get(&target_entity_id)
-            .map(|bar| bar.registered_players.iter().copied().collect())
-            .unwrap_or_default()
-    }
-
     pub fn apply(
         &mut self,
         sequence: u64,
@@ -842,35 +827,12 @@ impl BossBarStore {
         match event.action {
             BossAction::Show => self.show(sequence, event),
             BossAction::Hide => self.hide(event.target_entity_id),
-            BossAction::RegisterPlayer => {
-                let Some(bar) = self.bars.get_mut(&event.target_entity_id) else {
-                    return self.note_missing_bar();
-                };
-                if bar.registered_players.contains(&event.player_id) {
-                    return RetainedUiApply::Applied;
-                }
-                if self.membership_count >= MAX_BOSS_PLAYER_MEMBERSHIPS {
-                    self.diagnostics.membership_limit_rejections = self
-                        .diagnostics
-                        .membership_limit_rejections
-                        .saturating_add(1);
-                    return RetainedUiApply::Ignored;
-                }
-                bar.registered_players.insert(event.player_id);
-                self.membership_count += 1;
-                RetainedUiApply::Applied
-            }
-            BossAction::UnregisterPlayer => {
-                let Some(bar) = self.bars.get_mut(&event.target_entity_id) else {
-                    return self.note_missing_bar();
-                };
-                if bar.registered_players.remove(&event.player_id) {
-                    self.membership_count = self.membership_count.saturating_sub(1);
+            // The wire names no player, so membership changes only need a bar.
+            BossAction::RegisterPlayer | BossAction::UnregisterPlayer => {
+                if self.bars.contains_key(&event.target_entity_id) {
                     RetainedUiApply::Applied
                 } else {
-                    self.diagnostics.missing_memberships =
-                        self.diagnostics.missing_memberships.saturating_add(1);
-                    RetainedUiApply::Ignored
+                    self.note_missing_bar()
                 }
             }
             BossAction::SetProgress => {
@@ -937,7 +899,6 @@ impl BossBarStore {
                         filtered_title: event.filtered_title,
                         health: event.health,
                         style: event.style,
-                        registered_players: BTreeSet::new(),
                     },
                 );
             }
@@ -950,9 +911,6 @@ impl BossBarStore {
         let Some(bar) = self.bars.remove(&target_entity_id) else {
             return self.note_missing_bar();
         };
-        self.membership_count = self
-            .membership_count
-            .saturating_sub(bar.registered_players.len());
         self.retained_text_bytes = self
             .retained_text_bytes
             .saturating_sub(bar.title.len() + bar.filtered_title.len());

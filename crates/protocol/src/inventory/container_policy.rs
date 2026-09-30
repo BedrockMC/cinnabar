@@ -38,7 +38,7 @@ pub const fn container_window(name: u8) -> Option<ContainerWindow> {
 #[cfg(test)]
 mod tests {
     use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_44::EnumsContainerEnumName as Name;
+    use valentine::bedrock::version::v1_26_51::EnumsContainerEnumName as Name;
 
     use super::*;
 
@@ -55,17 +55,17 @@ mod tests {
             assert_eq!(container_window(code).is_some(), known, "code {code}");
         }
         let fixed = [
-            (Name::ArmorContainer, ContainerWindow::Armor),
+            (Name::Armorcontainer, ContainerWindow::Armor),
             (
-                Name::CombinedHotbarAndInventoryContainer,
+                Name::Combinedhotbarandinventorycontainer,
                 ContainerWindow::Player,
             ),
-            (Name::HotbarContainer, ContainerWindow::Player),
-            (Name::InventoryContainer, ContainerWindow::Player),
-            (Name::OffhandContainer, ContainerWindow::Offhand),
-            (Name::CraftingInputContainer, ContainerWindow::Ui),
-            (Name::CursorContainer, ContainerWindow::Ui),
-            (Name::CreatedOutputContainer, ContainerWindow::Ui),
+            (Name::Hotbarcontainer, ContainerWindow::Player),
+            (Name::Inventorycontainer, ContainerWindow::Player),
+            (Name::Offhandcontainer, ContainerWindow::Offhand),
+            (Name::Craftinginputcontainer, ContainerWindow::Ui),
+            (Name::Cursorcontainer, ContainerWindow::Ui),
+            (Name::Createdoutputcontainer, ContainerWindow::Ui),
         ];
         for code in 0..=LAST_CONTAINER_NAME {
             let name = decoded(code);

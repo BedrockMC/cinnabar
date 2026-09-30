@@ -31,7 +31,7 @@ struct Harness {
 fn harness() -> Option<Harness> {
     let icons = Arc::new(RuntimeIconCatalog::decode(&local("vanilla-v1.mcbeico")?).ok()?);
     let entities = Arc::new(RuntimeEntityAssets::decode(&local("vanilla-v1.mcbeent")?).ok()?);
-    let world = Arc::new(RuntimeAssets::decode(&local("vanilla-v2168.mcbea")?).ok()?);
+    let world = Arc::new(RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?).ok()?);
     let carrier = super::super::forms::pack_harness::carrier()?;
     let mut presentation =
         UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).ok()?;

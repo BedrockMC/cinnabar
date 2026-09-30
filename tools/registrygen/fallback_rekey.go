@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-// The protocol-2168 fallback rekey re-keys the provisional vanilla-fallback
-// identity table from protocol-1001 network hashes to protocol-2168 network
+// The protocol-2193 fallback rekey re-keys the provisional vanilla-fallback
+// identity table from protocol-1001 network hashes to protocol-2193 network
 // hashes without touching any visual payload. Entries join across the two
 // checked-in registries by the exact canonical name+state key the projection
 // pipeline uses, every entry must carry the identity fingerprint its joined
-// record derives, and an entry landing on a cinnabar:reserved v2168 record is
+// record derives, and an entry landing on a cinnabar:reserved v2193 record is
 // defensively excluded and counted. Network hashes are content-derived from
 // the canonical identity, so a vanilla identity that survives a protocol bump
 // keeps its hash while a genuinely re-keyed one moves; joining through the
@@ -56,15 +56,16 @@ const (
 // excluded reserved collisions, distinct emitted block names, and zero-volume
 // envelopes of one rekey pass.
 type fallbackRekeyStats struct {
-	InputEntries     int
-	OutputEntries    int
-	ReservedExcluded int
-	DistinctNames    int
-	ZeroVolume       int
+	InputEntries      int
+	OutputEntries     int
+	ReservedExcluded  int
+	DistinctNames     int
+	ZeroVolume        int
+	ConnectedVariants int
 }
 
 // rekeyedFallbackEntry is one emitted inventory row keyed by its new
-// protocol-2168 network hash with the source payload preserved verbatim.
+// protocol-2193 network hash with the source payload preserved verbatim.
 type rekeyedFallbackEntry struct {
 	networkHash uint32
 	bytes       [fallbackEntryBytes]byte
@@ -180,7 +181,7 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	if err != nil {
 		return fallbackRekeyStats{}, err
 	}
-	_, currentRecords, err := decodeBREGRecords(currentBytes, v2168BlockProtocol)
+	_, currentRecords, err := decodeBREGRecords(currentBytes, v2193BlockProtocol)
 	if err != nil {
 		return fallbackRekeyStats{}, err
 	}
@@ -203,7 +204,7 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	}
 	manifest := vanillaFallbackSourceManifest{
 		Schema:              fallbackRekeySchema,
-		Protocol:            v2168BlockProtocol,
+		Protocol:            v2193BlockProtocol,
 		States:              stats.OutputEntries,
 		Names:               stats.DistinctNames,
 		ZeroVolumeEnvelopes: stats.ZeroVolume,
@@ -251,7 +252,7 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	return stats, nil
 }
 
-// rekeyFallbackInventory rewrites every input entry under its protocol-2168
+// rekeyFallbackInventory rewrites every input entry under its protocol-2193
 // network hash. It fails closed naming each entry whose stored fingerprint
 // disagrees with its joined identity, or whose legacy or current identity is
 // unmatched, and excludes entries that land on reserved records while counting
@@ -272,12 +273,23 @@ func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords []Record
 		legacyByHash[record.NetworkHash] = record
 	}
 	currentByKey := make(map[string]Record, len(currentRecords))
+	connectedByReducedKey := make(map[string][]Record)
 	for _, record := range currentRecords {
 		key := canonicalRecordKey(record.Name, record.StateJSON)
 		if previous, exists := currentByKey[key]; exists {
 			return nil, fallbackRekeyStats{}, fmt.Errorf("current fallback BREG key %q is shared by records %d and %d", key, previous.SequentialID, record.SequentialID)
 		}
 		currentByKey[key] = record
+		if record.Name == retailReservedName {
+			continue
+		}
+		reduced, err := v2193ReducedState(record.StateJSON)
+		if err != nil {
+			return nil, fallbackRekeyStats{}, fmt.Errorf("current fallback BREG record %d: %w", record.SequentialID, err)
+		}
+		if reducedKey := canonicalRecordKey(record.Name, reduced); reducedKey != key {
+			connectedByReducedKey[reducedKey] = append(connectedByReducedKey[reducedKey], record)
+		}
 	}
 
 	emitted := make([]rekeyedFallbackEntry, 0, inputCount)
@@ -297,9 +309,33 @@ func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords []Record
 		if fingerprint := fallbackIdentityFingerprint(legacy.Name, legacy.StateJSON); fingerprint != storedFingerprint {
 			return nil, fallbackRekeyStats{}, fmt.Errorf("fallback entry %d (%s) fails identity fingerprint verification: stored %#016x want %#016x", index, legacy.Name, storedFingerprint, fingerprint)
 		}
-		current, ok := currentByKey[canonicalRecordKey(legacy.Name, legacy.StateJSON)]
+		legacyKey := canonicalRecordKey(legacy.Name, legacy.StateJSON)
+		current, ok := currentByKey[legacyKey]
 		if !ok {
-			unmatched = append(unmatched, fmt.Sprintf("%s %s", legacy.Name, legacy.StateJSON))
+			// A state that gained only 1.26.50 connection keys fans out to every
+			// connected variant, each re-fingerprinted for its own identity.
+			connected := connectedByReducedKey[legacyKey]
+			if len(connected) == 0 {
+				unmatched = append(unmatched, fmt.Sprintf("%s %s", legacy.Name, legacy.StateJSON))
+				continue
+			}
+			for _, variant := range connected {
+				if owner, exists := hashOwners[variant.NetworkHash]; exists {
+					return nil, fallbackRekeyStats{}, fmt.Errorf("fallback entries %q and %q collide on new network hash %#x", owner, legacy.Name, variant.NetworkHash)
+				}
+				hashOwners[variant.NetworkHash] = legacy.Name
+				var rekeyed rekeyedFallbackEntry
+				rekeyed.networkHash = variant.NetworkHash
+				copy(rekeyed.bytes[:], entry)
+				binary.LittleEndian.PutUint32(rekeyed.bytes[0:4], variant.NetworkHash)
+				binary.LittleEndian.PutUint64(rekeyed.bytes[4:12], fallbackIdentityFingerprint(variant.Name, variant.StateJSON))
+				names[variant.Name] = struct{}{}
+				if isZeroVolumeEnvelope(entry[12:25]) {
+					stats.ZeroVolume++
+				}
+				emitted = append(emitted, rekeyed)
+				stats.ConnectedVariants++
+			}
 			continue
 		}
 		if fingerprint := fallbackIdentityFingerprint(current.Name, current.StateJSON); fingerprint != storedFingerprint {

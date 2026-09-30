@@ -73,7 +73,6 @@ fn boss_event(
 ) -> UiEvent {
     UiEvent::Boss(BossEvent {
         target_entity_id,
-        player_id: 1,
         action,
         title: Arc::from(title),
         filtered_title: Arc::from(""),

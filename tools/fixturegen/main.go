@@ -19,11 +19,10 @@ import (
 )
 
 const (
-	upstreamGameVersion = "1.26.44"
-	fixtureGameVersion  = "1.26.40"
-	protocolID          = 2168
-	senderSubClient     = 1
-	targetSubClient     = 2
+	gameVersion     = "1.26.50"
+	protocolID      = 2193
+	senderSubClient = 1
+	targetSubClient = 2
 )
 
 type fixture struct {
@@ -58,10 +57,10 @@ func main() {
 }
 
 func generate(out string) error {
-	if minecraft.Protocol12644().ID() != protocolID || minecraft.Protocol12644().Ver() != upstreamGameVersion {
+	if minecraft.DefaultProtocol.ID() != protocolID || minecraft.DefaultProtocol.Ver() != gameVersion {
 		return fmt.Errorf(
 			"gophertunnel protocol drift: got %d/%s, want %d/%s",
-			minecraft.Protocol12644().ID(), minecraft.Protocol12644().Ver(), protocolID, upstreamGameVersion,
+			minecraft.DefaultProtocol.ID(), minecraft.DefaultProtocol.Ver(), protocolID, gameVersion,
 		)
 	}
 	if out == "" {
@@ -144,7 +143,7 @@ func fixtures() []fixture {
 				CommandsEnabled:       true,
 				PlayerPermissions:     1,
 				ServerChunkTickRadius: 4,
-				BaseGameVersion:       fixtureGameVersion,
+				BaseGameVersion:       gameVersion,
 				NewNether:             true,
 				ChatRestrictionLevel:  packet.ChatRestrictionLevelNone,
 				LevelID:               "fixture-level",
@@ -157,7 +156,7 @@ func fixtures() []fixture {
 				EnchantmentSeed:              12345,
 				MultiPlayerCorrelationID:     "00000000-0000-0000-0000-000000000001",
 				ServerAuthoritativeInventory: true,
-				GameVersion:                  fixtureGameVersion,
+				GameVersion:                  gameVersion,
 				PropertyData: map[string]any{
 					"gophertunnel:test": int32(1),
 				},
@@ -495,7 +494,7 @@ func fixtures() []fixture {
 				},
 			},
 			wireAuthority: "hashimthearab/gophertunnel",
-			wireCommit:    "9f42f3679a573fc4b51104569cc4f422036e28ec",
+			wireCommit:    "b725d82563e93308fd1f92d27da5e97301ad5040",
 		},
 		{
 			name: "InventoryTransactionDestroyBlockEmptyHand",
@@ -516,7 +515,7 @@ func fixtures() []fixture {
 				},
 			},
 			wireAuthority: "hashimthearab/gophertunnel",
-			wireCommit:    "9f42f3679a573fc4b51104569cc4f422036e28ec",
+			wireCommit:    "b725d82563e93308fd1f92d27da5e97301ad5040",
 		},
 		{
 			name: "InventoryTransactionAttackActor",
@@ -582,6 +581,44 @@ func fixtures() []fixture {
 				ContainerType: 0,
 				ServerSide:    false,
 			},
+		},
+		{
+			name: "PlaySound",
+			file: "play_sound.bin",
+			pk: &packet.PlaySound{
+				SoundName:                "custom:odd.sound",
+				Position:                 mgl32.Vec3{1.25, -2.5, 3.875},
+				Volume:                   -0.25,
+				Pitch:                    3.5,
+				LoopCount:                -7,
+				BypassListenerRangeCheck: true,
+				Handle:                   protocol.Option(uint64(0x0123_4567_89ab_cdef)),
+				PlaybackPositionSeconds:  protocol.Option(float32(1.5)),
+			},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "b725d82563e93308fd1f92d27da5e97301ad5040",
+		},
+		{
+			name:          "StopSound",
+			file:          "stop_sound.bin",
+			pk:            &packet.StopSound{StopAll: true, StopMusicLegacy: true},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "0f3bd7e6f748ca972da664130af63244d625a6b8",
+		},
+		{
+			name: "LevelSoundEvent",
+			file: "level_sound_event.bin",
+			pk: &packet.LevelSoundEvent{
+				SoundType:             "custom:unmapped.event",
+				Position:              mgl32.Vec3{-1.25, 64.5, 2.75},
+				ExtraData:             -12345,
+				BabyMob:               true,
+				DisableRelativeVolume: true,
+				EntityUniqueID:        -42,
+				FireAtPosition:        protocol.Option(mgl32.Vec3{9.25, -4.5, 0.125}),
+			},
+			wireAuthority: "hashimthearab/gophertunnel",
+			wireCommit:    "0f3bd7e6f748ca972da664130af63244d625a6b8",
 		},
 		{
 			name: "DisconnectVisible",
@@ -894,11 +931,7 @@ func encode(pk packet.Packet) ([]byte, error) {
 	}).Write(&entry); err != nil {
 		return nil, err
 	}
-	converted := minecraft.Protocol12644().ConvertFromLatest(pk, nil)
-	if len(converted) != 1 {
-		return nil, fmt.Errorf("fixture conversion produced %d packets, want one", len(converted))
-	}
-	converted[0].Marshal(minecraft.Protocol12644().NewWriter(&entry, 0))
+	pk.Marshal(minecraft.DefaultProtocol.NewWriter(&entry, 0))
 
 	var batch bytes.Buffer
 	if err := packet.NewEncoder(&batch).Encode([][]byte{entry.Bytes()}); err != nil {

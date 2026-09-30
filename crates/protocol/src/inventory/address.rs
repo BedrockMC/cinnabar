@@ -28,25 +28,25 @@ use super::windows::{
     is_chest_like_name, is_open_window_name, is_result_preview_name, ui_slot_for_name,
 };
 
-/// `EnumsContainerEnumName::ArmorContainer`, the player armor surface.
+/// `EnumsContainerEnumName::Armorcontainer`, the player armor surface.
 pub const CONTAINER_NAME_ARMOR: u8 = 6;
-/// `EnumsContainerEnumName::LevelEntityContainer`, the generic screen-specific
+/// `EnumsContainerEnumName::Levelentitycontainer`, the generic screen-specific
 /// storage surface keyed by its dynamic container id.
 pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = 7;
-/// `EnumsContainerEnumName::CombinedHotbarAndInventoryContainer`, the combined
+/// `EnumsContainerEnumName::Combinedhotbarandinventorycontainer`, the combined
 /// player inventory surface every gesture request names.
 pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 = 12;
 /// The distinct personal crafting input surface; wire cells 28..31.
 pub const CONTAINER_NAME_CRAFT_INPUT: u8 = 13;
-/// `EnumsContainerEnumName::InventoryContainer`, the player-inventory name that
+/// `EnumsContainerEnumName::Inventorycontainer`, the player-inventory name that
 /// rides the legacy player window (the pinned fixture corpus encodes this shape).
 pub const CONTAINER_NAME_INVENTORY: u8 = 29;
-/// `EnumsContainerEnumName::OffhandContainer`.
+/// `EnumsContainerEnumName::Offhandcontainer`.
 pub const CONTAINER_NAME_OFFHAND: u8 = 34;
-/// `EnumsContainerEnumName::CursorContainer`.
+/// `EnumsContainerEnumName::Cursorcontainer`.
 pub const CONTAINER_NAME_CURSOR: u8 = 59;
 
-/// `EnumsContainerEnumName::DynamicContainer`, a bundle's contents keyed by dynamic id.
+/// `EnumsContainerEnumName::Dynamiccontainer`, a bundle's contents keyed by dynamic id.
 pub const CONTAINER_NAME_DYNAMIC: u8 = 63;
 
 /// The combined player-inventory window id (`CONTAINER_ID_INVENTORY`).
@@ -422,7 +422,7 @@ mod tests {
 
     /// Encodes one generated container-name variant so the pinned constants
     /// can be checked against the generated enum numbering.
-    fn encoded_name(value: valentine::bedrock::version::v1_26_44::EnumsContainerEnumName) -> u8 {
+    fn encoded_name(value: valentine::bedrock::version::v1_26_51::EnumsContainerEnumName) -> u8 {
         use valentine::bedrock::codec::BedrockCodec;
 
         let mut bytes = bytes::BytesMut::with_capacity(1);
@@ -437,33 +437,33 @@ mod tests {
     /// misrouting live traffic.
     #[test]
     fn pinned_container_name_constants_match_the_generated_enum_encoding() {
-        use valentine::bedrock::version::v1_26_44::EnumsContainerEnumName;
+        use valentine::bedrock::version::v1_26_51::EnumsContainerEnumName;
 
         let pairs = [
             (
                 CONTAINER_NAME_CRAFT_INPUT,
-                EnumsContainerEnumName::CraftingInputContainer,
+                EnumsContainerEnumName::Craftinginputcontainer,
             ),
-            (CONTAINER_NAME_ARMOR, EnumsContainerEnumName::ArmorContainer),
+            (CONTAINER_NAME_ARMOR, EnumsContainerEnumName::Armorcontainer),
             (
                 CONTAINER_NAME_LEVEL_ENTITY,
-                EnumsContainerEnumName::LevelEntityContainer,
+                EnumsContainerEnumName::Levelentitycontainer,
             ),
             (
                 CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
-                EnumsContainerEnumName::CombinedHotbarAndInventoryContainer,
+                EnumsContainerEnumName::Combinedhotbarandinventorycontainer,
             ),
             (
                 CONTAINER_NAME_INVENTORY,
-                EnumsContainerEnumName::InventoryContainer,
+                EnumsContainerEnumName::Inventorycontainer,
             ),
             (
                 CONTAINER_NAME_OFFHAND,
-                EnumsContainerEnumName::OffhandContainer,
+                EnumsContainerEnumName::Offhandcontainer,
             ),
             (
                 CONTAINER_NAME_CURSOR,
-                EnumsContainerEnumName::CursorContainer,
+                EnumsContainerEnumName::Cursorcontainer,
             ),
         ];
         for (pinned, generated) in pairs {
@@ -595,9 +595,9 @@ mod tests {
 
     #[test]
     fn named_inventory_alias_on_the_legacy_window_converges_with_unnamed_window_zero() {
-        use valentine::bedrock::version::v1_26_44::EnumsContainerEnumName;
+        use valentine::bedrock::version::v1_26_51::EnumsContainerEnumName;
 
-        let inventory_name = encoded_name(EnumsContainerEnumName::InventoryContainer);
+        let inventory_name = encoded_name(EnumsContainerEnumName::Inventorycontainer);
         let expected = CanonicalCell::PlayerInventory(4);
         assert_eq!(
             project_container_cell(&identity(0, Some(inventory_name)), 4),

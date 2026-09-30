@@ -48,8 +48,8 @@ async fn login_reaches_start_game_through_bds() {
         )
     });
 
-    assert_eq!(PROTOCOL_VERSION, 2168);
-    assert_eq!(GAME_VERSION, "1.26.44");
+    assert_eq!(PROTOCOL_VERSION, 2193);
+    assert_eq!(GAME_VERSION, "1.26.50");
     // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
     // the version string prismarine called `engine` is gophertunnel's
     // `ServerVersion` (`server_version` in the generated crate).
@@ -57,7 +57,12 @@ async fn login_reaches_start_game_through_bds() {
         game_data.start_game.runtime_id.actor_runtime_id, 0,
         "StartGame runtime entity ID must be non-zero"
     );
-    assert_eq!(game_data.start_game.server_version, GAME_VERSION);
+    // The pinned BDS is a later 1.26.5x build of the same protocol.
+    assert!(
+        game_data.start_game.server_version.starts_with("1.26.5"),
+        "unexpected BDS version {}",
+        game_data.start_game.server_version
+    );
 
     let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
         loop {

@@ -112,7 +112,7 @@ use crate::{
 use crate::acceptance::model_witness::drive_model_witness;
 
 const PHYSICS_REGISTRY_SHA256: &str =
-    include_str!("../../crates/assets/data/block-physics-v2168.sha256");
+    include_str!("../../crates/assets/data/block-physics-v2193.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make physics-assets` (normal `make client` does this automatically)";
 
