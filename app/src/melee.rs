@@ -182,11 +182,15 @@ pub(crate) fn classify(
 
 /// Swing length in ticks under the current effects. Adjustments need independent measurement.
 pub(crate) fn swing_duration(effects: MiningEffects) -> i32 {
-    let level =
-        |amplifier: Option<i32>| amplifier.filter(|value| *value >= 0).map(|value| value + 1);
+    // Server amplifiers are untrusted; saturate instead of overflowing.
+    let level = |amplifier: Option<i32>| {
+        amplifier
+            .filter(|value| *value >= 0)
+            .map(|value| value.saturating_add(1))
+    };
     let haste = level(effects.haste).max(level(effects.conduit_power));
     let duration = match (haste, level(effects.mining_fatigue)) {
-        (Some(haste), _) => DEFAULT_SWING_TICKS - haste,
+        (Some(haste), _) => DEFAULT_SWING_TICKS.saturating_sub(haste),
         (None, Some(fatigue)) => DEFAULT_SWING_TICKS.saturating_add(fatigue.saturating_mul(2)),
         (None, None) => DEFAULT_SWING_TICKS,
     };
