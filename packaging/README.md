@@ -1,10 +1,12 @@
 # Packaging
 
-Release installers ship the client, the Go core, and a prep kit. They never ship Mojang-derived
-carriers: on first launch `app/src/first_run` asks consent, fetches the pinned public
-`bedrock-samples` pack (`assets/vanilla-source.json`, hash-verified), runs the bundled `assetc`, and
-publishes carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`).
-Status: `logs/first-run-status.json`; details: `logs/first-run.log`.
+Release installers ship the client, the Go core, the dragonfly local-world server beside it, and a
+prep kit. They never ship Mojang-derived carriers: on first launch `app/src/first_run` asks consent,
+fetches the pinned public `bedrock-samples` pack (`assets/vanilla-source.json`, hash-verified), runs
+the bundled `assetc`, and publishes carriers to the per-user data directory
+(`InstallLayout::prepared_assets_dir`). Status: `logs/first-run-status.json`; details:
+`logs/first-run.log`. On macOS and Linux a launch without a terminal (e.g. from Finder) sends the
+client's stderr to `logs/client.log`, rotated to `client.log.1` per launch and past 8 MiB.
 
 | Target | Command | Signing (env only) |
 | --- | --- | --- |

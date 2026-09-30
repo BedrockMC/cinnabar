@@ -525,6 +525,7 @@ dependencies = [
  "reqwest",
  "resource-pack",
  "rodio",
+ "rustix 1.1.4",
  "semantic-input",
  "serde",
  "serde_json",
