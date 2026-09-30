@@ -41,9 +41,10 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
 - **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
   The container maps its port to `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
-- **Pause:** dragonfly freezes time and block/entity ticking on focus loss. BDS has no equivalent of the
-  single-player pause; freezing daylight or weather gamerules is not a pause and persists into `level.dat`, so BDS
-  worlds keep running and status reports `pause_supported: false`.
+- **Pause:** on focus loss dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
+  integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
+  continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
+  keep running and status reports `pause_supported: false`.
 - **Login:** the core dials without a Microsoft session for local play (offline chain from the client's identity);
   BDS accepts it because `online-mode=false`. Player-data persistence needs a stable client identity.
 
