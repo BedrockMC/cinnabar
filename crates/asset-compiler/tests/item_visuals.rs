@@ -146,7 +146,7 @@ fn reviewed_block_routes_and_empty_hand_do_not_depend_on_an_item_atlas() {
     ));
     assert_eq!(
         compiled.sources[stone.source as usize].path.as_ref(),
-        "registry/block-item-routes-v2168.json"
+        "registry/block-item-routes-v2193.json"
     );
 }
 

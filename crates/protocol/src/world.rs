@@ -955,7 +955,7 @@ fn canonical_biome_name(name: &str) -> Arc<str> {
     if name.contains(':') {
         return Arc::from(name);
     }
-    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_40.txt");
+    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_50.txt");
     let known_retail = RETAIL_BIOMES
         .lines()
         .any(|identifier| identifier.strip_prefix("minecraft:") == Some(name));
