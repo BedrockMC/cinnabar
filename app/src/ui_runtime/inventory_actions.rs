@@ -439,6 +439,13 @@ impl UiRuntime {
                 self.screen_state_mut().loom_pattern = Some(std::sync::Arc::from(*pattern));
                 Ok(0)
             }
+            Widget::LoomPatternAt(index) => {
+                let pattern = LOOM_PATTERNS
+                    .get(usize::from(index))
+                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                self.screen_state_mut().loom_pattern = Some(std::sync::Arc::from(*pattern));
+                Ok(0)
+            }
             Widget::AnvilName => {
                 self.screen_state_mut().anvil_focused = true;
                 Ok(0)

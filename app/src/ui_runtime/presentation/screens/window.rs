@@ -31,6 +31,8 @@ pub(crate) enum Widget {
     StonecutterRecipe(u8),
     /// One loom pattern cell by position on the visible page.
     LoomPattern(u8),
+    /// One loom pattern by position in the whole list.
+    LoomPatternAt(u8),
     AnvilName,
     /// Opens or closes the recipe book.
     BookToggle,

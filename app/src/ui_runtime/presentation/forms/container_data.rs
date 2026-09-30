@@ -11,6 +11,7 @@ use super::super::{HudFrame, IconRef};
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::inventory_ledger::InventoryTarget;
 use crate::ui_runtime::presentation::screens::{BEACON_LEVEL_FOR, STONECUTTER_CELLS, Widget};
+use crate::ui_runtime::screen_recipes::LOOM_PATTERNS;
 
 /// Beacon power buttons by collection: `(name, effect id, secondary)`.
 const BEACON_POWERS: [(&str, i32, bool); 6] = [
@@ -29,6 +30,7 @@ const BEACON_PAYMENTS: [(i64, &str); 5] = [
     (266 << 16, "minecraft:gold_ingot"),
     (265 << 16, "minecraft:iron_ingot"),
 ];
+const CELL: &str = "textures/ui/cell_image";
 const CELL_NORMAL: &str = "textures/ui/cell_image_normal";
 const CELL_SELECTED: &str = "textures/ui/cell_image_invert";
 
@@ -109,7 +111,13 @@ pub(super) fn station_controls(
         }
         WindowKind::Stonecutter => data.set_collection("stones", stones(runtime, frame)),
         WindowKind::Beacon => beacon_buttons(data, runtime),
+        WindowKind::Loom => data.set_collection("patterns", patterns(runtime)),
         WindowKind::Cartography => data.set_global("#is_none_mode", Scalar::Bool(true)),
+        // The crafter's power state is not tracked; its arrow shows unpowered.
+        WindowKind::Crafter => data.set_global(
+            "#redstone_arrow_texture",
+            Scalar::Text("textures/ui/redstone_arrow_unpowered".to_owned()),
+        ),
         _ => {}
     }
 }
@@ -152,6 +160,7 @@ pub(super) fn widget_hit(screen: &str, region: &HitRegion) -> Option<Widget> {
             Widget::EnchantOption(u8::try_from(index).ok()?)
         }
         ("anvil.anvil_screen", _) if region.kind == HitKind::EditBox => Widget::AnvilName,
+        ("loom.loom_screen", Some("patterns")) => Widget::LoomPatternAt(u8::try_from(index).ok()?),
         ("stonecutter.stonecutter_screen", Some("stones")) if index < STONECUTTER_CELLS => {
             Widget::StonecutterRecipe(u8::try_from(index).ok()?)
         }
@@ -308,6 +317,34 @@ fn stones(runtime: &UiRuntime, frame: &HudFrame) -> Vec<CollectionItem> {
         .collect()
 }
 
+/// The loom's pattern cells once a banner and a dye are in, the chosen one
+/// inverted. The banner preview renderer is not drawn.
+fn patterns(runtime: &UiRuntime) -> Vec<CollectionItem> {
+    let ledger = runtime.inventory_ledger();
+    let loaded = |slot: u8| ledger.target_stack(InventoryTarget::Craft(slot)).is_some();
+    if !(loaded(9) && loaded(10)) {
+        return Vec::new();
+    }
+    let chosen = runtime.screen_state().loom_pattern.as_deref();
+    let total = LOOM_PATTERNS.len() as f64;
+    LOOM_PATTERNS
+        .iter()
+        .map(|pattern| {
+            let texture = if chosen == Some(*pattern) {
+                CELL_SELECTED
+            } else {
+                CELL_NORMAL
+            };
+            CollectionItem::default()
+                .with(
+                    "#pattern_cell_background_texture",
+                    Scalar::Text(texture.to_owned()),
+                )
+                .with("#pattern_selector_total_items", Scalar::Num(total))
+        })
+        .collect()
+}
+
 /// One collection per beacon button, as the controller names them.
 fn beacon_buttons(data: &mut DataSource, runtime: &UiRuntime) {
     let state = runtime.screen_state();
@@ -370,11 +407,17 @@ pub(super) fn collection_len(runtime: &UiRuntime, collection: &str, cells: usize
     }
 }
 
-/// Empty-slot silhouettes the brewing stand binds per cell.
+/// Empty-slot silhouettes and cell art the brewing stand and loom bind per cell.
 pub(super) fn decorate(collection: &str, empty: bool, item: CollectionItem) -> CollectionItem {
     match collection {
         "brewing_result_items" => item.with("#empty_bottle_image_visible", Scalar::Bool(empty)),
         "brewing_fuel_item" => item.with("#empty_fuel_image_visible", Scalar::Bool(empty)),
+        "loom_input_items" | "loom_dye_items" | "loom_material_items" => {
+            item.with("#empty_image_visible", Scalar::Bool(empty)).with(
+                "#container_cell_background_texture",
+                Scalar::Text(CELL.to_owned()),
+            )
+        }
         _ => item,
     }
 }

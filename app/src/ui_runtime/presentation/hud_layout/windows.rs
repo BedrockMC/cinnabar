@@ -655,6 +655,7 @@ impl HudLayout<'_> {
                 }
                 // Book controls draw with their own panels.
                 Widget::BookToggle
+                | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }
                 | Widget::Reader(_) => {}
