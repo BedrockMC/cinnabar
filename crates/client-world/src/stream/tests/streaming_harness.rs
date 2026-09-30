@@ -468,3 +468,18 @@ fn streaming_harness_reports_teleport_and_resend() {
         );
     }
 }
+
+#[test]
+fn absent_neighbour_light_reads_the_dimension_default() {
+    let key = SubChunkKey::new(0, 0, 4, 0);
+    let overworld = super::MeshLightHalo {
+        center: Some(key),
+        ..Default::default()
+    };
+    assert_eq!(overworld.sample_channels([16, 0, 0]), [0, 15]);
+    let nether = super::MeshLightHalo {
+        center: Some(SubChunkKey::new(1, 0, 4, 0)),
+        ..Default::default()
+    };
+    assert_eq!(nether.sample_channels([16, 0, 0]), [0, 0]);
+}
