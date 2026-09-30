@@ -267,12 +267,12 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
     }
 }
 
-const DEFAULT_BINDINGS: &[u8] = include_bytes!("../data/default-sprite-bindings-1.26.40.json");
+const DEFAULT_BINDINGS: &[u8] = include_bytes!("../data/default-sprite-bindings-1.26.50.json");
 
 fn default_binding_fixture() -> CompiledEntityAssetsV4 {
     let mut compiled = item_carrier_fixture();
     compiled.sources[1] = entity::EntityAssetSource {
-        path: "registry/default-sprite-bindings-1.26.40.json".into(),
+        path: "registry/default-sprite-bindings-1.26.50.json".into(),
         source_bytes: DEFAULT_BINDINGS.len() as u32,
         source_sha256: Sha256::digest(DEFAULT_BINDINGS).into(),
     };
@@ -346,7 +346,7 @@ fn reviewed_default_sprite_carrier_rejects_source_identity_and_index_substitutio
     reject_default_binding_mutation(|c| c.sources[1].source_sha256 = [0x45; 32]);
     reject_default_binding_mutation(|c| c.sources[1].source_bytes += 1);
     reject_default_binding_mutation(|c| {
-        c.sources[1].path = "registry/default-sprite-bindings-1.26.41.json".into()
+        c.sources[1].path = "registry/default-sprite-bindings-1.26.51.json".into()
     });
     reject_default_binding_mutation(|c| c.sources[1].path = "registry/unreviewed.json".into());
     reject_default_binding_mutation(|c| {

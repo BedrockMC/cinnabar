@@ -40,14 +40,20 @@ fn assetc_font_assets_binds_outputs_to_the_exact_source_manifest() {
     let pack = directory.path().join("pack");
     let font = pack.join("font");
     fs::create_dir_all(&font).unwrap();
+    let pinned = assets::vanilla_source_manifest_sha256()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     fs::write(
         font.join("catalog.json"),
-        r#"{
+        format!(
+            r#"{{
             "schema": 1,
-            "source_manifest_sha256": "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6",
-            "pages": [{"source": "font/default8.png"}],
-            "glyphs": [{"codepoint": 65, "page": "font/default8.png", "uv": [0,0,1,1], "bearing": [0,0], "advance": 1}]
-        }"#,
+            "source_manifest_sha256": "{pinned}",
+            "pages": [{{"source": "font/default8.png"}}],
+            "glyphs": [{{"codepoint": 65, "page": "font/default8.png", "uv": [0,0,1,1], "bearing": [0,0], "advance": 1}}]
+        }}"#
+        ),
     )
     .unwrap();
     write_png(&font.join("default8.png"));
@@ -74,10 +80,7 @@ fn assetc_font_assets_binds_outputs_to_the_exact_source_manifest() {
     assert_eq!(&fs::read(&out).unwrap()[..9], b"MCBEFONT1");
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(&report).unwrap()).expect("font report JSON");
-    assert_eq!(
-        report["source_manifest_sha256"],
-        "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6"
-    );
+    assert_eq!(report["source_manifest_sha256"], pinned.as_str());
     assert_eq!(report["counts"]["glyphs"], 1);
     assert_eq!(report["counts"]["pages"], 1);
 
