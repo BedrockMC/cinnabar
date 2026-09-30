@@ -107,9 +107,7 @@ pub(super) fn collect(
         }
         let alias_geometries = geometry_aliases
             .values()
-            .filter_map(|identifier: &Box<str>| {
-                geometry_indices.get(identifier.as_ref()).copied().flatten()
-            })
+            .filter_map(|identifier| geometry_indices.get(identifier.as_ref()).copied().flatten())
             .collect();
         environments.push(EntityEnvironment {
             entity_symbol: entity_symbol as u32,

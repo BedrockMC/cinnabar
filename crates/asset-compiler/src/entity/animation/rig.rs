@@ -41,11 +41,14 @@ struct PendingRig {
     scale_expressions: Option<[u32; 4]>,
 }
 
+/// `(alias, target, weight, authored order)` of one root binding.
+type PendingBinding<T> = (Box<str>, T, Option<u32>, u16);
+
 struct PendingRigGeometry {
     geometry: u32,
     condition: Option<u32>,
-    animations: Vec<(Box<str>, u32, Option<u32>, u16)>,
-    controllers: Vec<(Box<str>, Box<str>, Option<u32>, u16)>,
+    animations: Vec<PendingBinding<u32>>,
+    controllers: Vec<PendingBinding<Box<str>>>,
 }
 
 pub(super) struct FinalRigPayload {
