@@ -1,5 +1,6 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod container_data;
 mod container_kinds;
 mod containers;
 mod engine;
@@ -19,7 +20,7 @@ mod remote_images;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
-mod snapshot;
+pub(crate) mod snapshot;
 mod start_feed;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -30,7 +31,7 @@ pub(crate) use panorama::drive_menu_panorama;
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
-pub(crate) use containers::engine_panel_contains;
+pub(crate) use containers::{engine_panel_contains, engine_screen_for};
 pub(crate) use engine::hud_renderers;
 pub(crate) use server_pack::ServerUiPack;
 use std::sync::Arc;
@@ -57,6 +58,8 @@ pub(super) struct FormPresentation {
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
+    /// The last container screen's layout; carried across the per-frame reset.
+    container_cache: Option<containers::ScreenCache>,
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
@@ -84,6 +87,7 @@ impl UiPresentationRuntime {
         engine.textures.server_page =
             (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
         self.form_presentation.engine = Some(Box::new(engine));
+        self.hud_frame.engine_containers = true;
         Ok(())
     }
 
@@ -242,11 +246,13 @@ impl UiPresentationRuntime {
         let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
         let logged = self.form_presentation.logged;
         let hud = std::mem::take(&mut self.form_presentation.hud);
+        let container_cache = self.form_presentation.container_cache.take();
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
             logged,
             hud,
+            container_cache,
             oreui_originals: self.form_presentation.oreui_originals.take(),
             oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()

@@ -100,6 +100,8 @@ pub fn bind_shared(
 
 /// Rounds of settling views then building the subtrees they revealed.
 const EXPANSION_ROUNDS: usize = 8;
+/// The collection a `collection_details` binding names, for hit regions.
+pub(crate) const COLLECTION_NAME_KEY: &str = "#collection_name";
 
 /// Whether a control's own values or literal `visible` hide it.
 fn hidden(control: &ResolvedControl, own: &BTreeMap<String, Scalar>) -> bool {
@@ -226,8 +228,15 @@ impl<'a> Binder<'a> {
                 .and_then(|dims| Some(dims.first()?.as_u64()? * dims.get(1)?.as_u64()?));
             self.expand_grid(control, cells, &template, scope)
         } else {
+            let columns = static_grid_columns(control);
             (0..control.children.len())
-                .map(|index| self.build(src.child(index), scope))
+                .map(|index| {
+                    let child = src.child(index);
+                    match columns.and_then(|columns| grid_cell_index(child.get(), columns)) {
+                        Some(at) => self.build(with_index(child, at), scope),
+                        None => self.build(child, scope),
+                    }
+                })
                 .collect()
         }
     }
@@ -285,7 +294,8 @@ impl<'a> Binder<'a> {
                         .get("binding_collection_name")
                         .and_then(Value::as_str)
                         .and_then(|collection| {
-                            let index = *scope.indices.get(collection)?;
+                            // Outside its grid a control reads the collection's first item.
+                            let index = scope.indices.get(collection).copied().unwrap_or(0);
                             let key = scope
                                 .keys
                                 .get(collection)
@@ -310,13 +320,18 @@ impl<'a> Binder<'a> {
                 }
                 // Establishes the subtree cursor, which the factory already set;
                 // custom renderers read the index it names.
+                // Outside any grid of that collection the control stands for its first item.
                 Some("collection_details") => {
-                    if let Some(&index) = binding
+                    if let Some(collection) = binding
                         .get("binding_collection_name")
                         .and_then(Value::as_str)
-                        .and_then(|collection| scope.indices.get(collection))
                     {
+                        let index = scope.indices.get(collection).copied().unwrap_or(0);
                         own.insert("#collection_index".to_owned(), Scalar::Num(index as f64));
+                        own.insert(
+                            COLLECTION_NAME_KEY.to_owned(),
+                            Scalar::Text(collection.to_owned()),
+                        );
                     }
                 }
                 // `view` reads other controls' values; deferred to pass two.
@@ -856,6 +871,32 @@ fn property_bag(control: &ResolvedControl) -> BTreeMap<String, Scalar> {
         }
     }
     own
+}
+
+/// The column count of a collection grid that lists its cells as children.
+fn static_grid_columns(control: &ResolvedControl) -> Option<u64> {
+    if control.control_type.as_deref() != Some("grid")
+        || !control.properties.contains_key("collection_name")
+    {
+        return None;
+    }
+    control
+        .properties
+        .get("grid_dimensions")?
+        .as_array()?
+        .first()?
+        .as_u64()
+        .filter(|columns| *columns > 0)
+}
+
+/// A static grid cell's collection index, row-major from its `grid_position`.
+fn grid_cell_index(control: &ResolvedControl, columns: u64) -> Option<usize> {
+    if control.properties.contains_key("collection_index") {
+        return None;
+    }
+    let position = control.properties.get("grid_position")?.as_array()?;
+    let (column, row) = (position.first()?.as_u64()?, position.get(1)?.as_u64()?);
+    usize::try_from(row * columns + column).ok()
 }
 
 /// A factory/grid instance records its collection index for keys and events.

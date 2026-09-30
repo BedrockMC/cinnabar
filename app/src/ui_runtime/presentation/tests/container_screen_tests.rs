@@ -1,0 +1,197 @@
+//! Vanilla JSON-UI container screens: every inventory and station window draws
+//! through the engine by default. `CINNABAR_FORM_SNAPSHOT_DIR` writes each as a
+//! PNG for inspection. Needs the gitignored UI carrier; skips when absent.
+
+use protocol::{
+    ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
+    InventoryEvent, NetworkItemStack,
+};
+
+use super::engine_hud_tests::engine_presentation_with;
+use super::*;
+use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+
+/// A server-authoritative session with the local language table, when built.
+fn session() -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_inventory_authority(InventoryAuthority::Server);
+    runtime.publish_local_runtime_id(1, 42).unwrap();
+    let lang = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/compiled/vanilla-v1.mcbelang");
+    if let Some(lang) = std::fs::read(lang)
+        .ok()
+        .and_then(|bytes| assets::RuntimeLangCatalog::decode(&bytes).ok())
+    {
+        runtime.set_lang_catalog(std::sync::Arc::new(lang));
+    }
+    runtime
+}
+
+fn opened(window_type: i8, cells: usize) -> UiRuntime {
+    let mut runtime = session();
+    // Chest-like windows name their content by the level-entity container.
+    let generic = protocol::WindowKind::from_window_type(window_type)
+        .and_then(protocol::WindowKind::open_cells)
+        .is_some_and(|cells| matches!(cells, protocol::OpenCells::Generic(_)));
+    let content = ContainerIdentity {
+        slot_type: generic.then_some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+        ..ContainerIdentity::window(7)
+    };
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(7),
+                window_type,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }),
+        )
+        .unwrap();
+    if cells > 0 {
+        runtime
+            .enqueue_inventory_event(
+                1,
+                2,
+                InventoryEvent::Content(InventoryContentEvent {
+                    container: content,
+                    slots: vec![NetworkItemStack::empty(); cells].into(),
+                    storage_item: NetworkItemStack::empty(),
+                }),
+            )
+            .unwrap();
+    }
+    runtime.drain_pending_inventory();
+    runtime
+}
+
+fn personal() -> UiRuntime {
+    let mut runtime = session();
+    runtime.toggle_inventory();
+    runtime
+}
+
+/// Every screen the engine draws by default, by snapshot name, with the window
+/// cells its item slots must address.
+fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
+    use InventoryCellHit::{Craft, CraftOutput, Storage};
+    use protocol::*;
+    let storage = |count: u8| (0..count).map(Storage).collect::<Vec<_>>();
+    vec![
+        (
+            "inventory",
+            personal(),
+            vec![Craft(28), Craft(31), CraftOutput],
+        ),
+        (
+            "crafting_table",
+            opened(WINDOW_TYPE_WORKBENCH, 0),
+            vec![Craft(32), Craft(40), CraftOutput],
+        ),
+        ("chest", opened(WINDOW_TYPE_CONTAINER, 27), storage(27)),
+        (
+            "large_chest",
+            opened(WINDOW_TYPE_CONTAINER, 54),
+            storage(54),
+        ),
+        ("furnace", opened(WINDOW_TYPE_FURNACE, 3), storage(3)),
+        (
+            "blast_furnace",
+            opened(WINDOW_TYPE_BLAST_FURNACE, 3),
+            storage(3),
+        ),
+        ("smoker", opened(WINDOW_TYPE_SMOKER, 3), storage(3)),
+        (
+            "brewing_stand",
+            opened(WINDOW_TYPE_BREWING_STAND, 5),
+            storage(5),
+        ),
+        (
+            "anvil",
+            opened(WINDOW_TYPE_ANVIL, 0),
+            vec![Craft(1), Craft(2), CraftOutput],
+        ),
+        (
+            "enchanting_table",
+            opened(WINDOW_TYPE_ENCHANTMENT, 0),
+            vec![Craft(14), Craft(15)],
+        ),
+        (
+            "grindstone",
+            opened(WINDOW_TYPE_GRINDSTONE, 0),
+            vec![Craft(16), Craft(17), CraftOutput],
+        ),
+        (
+            "loom",
+            opened(WINDOW_TYPE_LOOM, 0),
+            vec![Craft(9), Craft(10), Craft(11), CraftOutput],
+        ),
+        (
+            "smithing_table",
+            opened(WINDOW_TYPE_SMITHING_TABLE, 0),
+            vec![Craft(51), Craft(52), Craft(53), CraftOutput],
+        ),
+        (
+            "cartography_table",
+            opened(WINDOW_TYPE_CARTOGRAPHY, 0),
+            vec![Craft(12), Craft(13), CraftOutput],
+        ),
+        (
+            "stonecutter",
+            opened(WINDOW_TYPE_STONECUTTER, 0),
+            vec![Craft(3), CraftOutput],
+        ),
+        ("beacon", opened(WINDOW_TYPE_BEACON, 0), vec![Craft(27)]),
+        ("hopper", opened(WINDOW_TYPE_HOPPER, 5), storage(5)),
+        ("dispenser", opened(WINDOW_TYPE_DISPENSER, 9), storage(9)),
+        ("dropper", opened(WINDOW_TYPE_DROPPER, 9), storage(9)),
+        ("crafter", opened(WINDOW_TYPE_CRAFTER, 9), storage(9)),
+        ("horse", opened(WINDOW_TYPE_HORSE, 17), storage(17)),
+    ]
+}
+
+// Every container screen draws through the engine, and a click on each of its
+// window cells and player slots reaches that ledger cell.
+#[test]
+fn every_container_screen_draws_through_the_engine() {
+    let only = std::env::var("CINNABAR_CONTAINER_SCREEN").ok();
+    for (name, runtime, expected) in screens() {
+        if only.as_deref().is_some_and(|only| only != name) {
+            continue;
+        }
+        let Some(mut presentation) =
+            engine_presentation_with(super::super::forms::pack_harness::font())
+        else {
+            return;
+        };
+        assert!(runtime.inventory_open(), "{name}");
+        // Textures publish during the first builds.
+        let dpi = DpiScale::new(1.0).unwrap();
+        for now in [0, 500] {
+            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        }
+        let input = presentation
+            .build(&runtime, 5_000, [1280, 720], dpi)
+            .unwrap();
+        super::super::forms::snapshot::write(&input, &format!("container-{name}"));
+        let frame = presentation
+            .engine_container_frame()
+            .unwrap_or_else(|| panic!("{name} is not engine-drawn"));
+        let reached: Vec<InventoryCellHit> = frame
+            .hits
+            .iter()
+            .filter_map(|region| {
+                let center = [
+                    (region.rect.x + region.rect.w / 2.0) as f32,
+                    (region.rect.y + region.rect.h / 2.0) as f32,
+                ];
+                presentation.engine_container_hit(center)
+            })
+            .collect();
+        let player = (0..36).map(InventoryCellHit::Player);
+        for hit in expected.into_iter().chain(player) {
+            assert!(reached.contains(&hit), "{name}: {hit:?} unreachable");
+        }
+    }
+}

@@ -440,6 +440,77 @@ fn nine_slice_image_emits_nine_sprites() {
     assert_eq!(sprites, 9);
 }
 
+// A grid listing its cells splits its rect into equal cells, each child sized
+// and offset within its own cell (the brewing stand's bottle row).
+#[test]
+fn listed_grid_cells_share_the_grid_rect() {
+    let panel = |name: &str, position: [u64; 2], offset: [f64; 2]| {
+        ctrl(
+            name,
+            Some("panel"),
+            json!({ "grid_position": position }),
+            vec![ctrl(
+                "item",
+                Some("panel"),
+                json!({ "size": [18, 18], "offset": offset }),
+                vec![],
+            )],
+        )
+    };
+    let grid = ctrl(
+        "grid",
+        Some("grid"),
+        json!({ "size": [54, 18], "grid_dimensions": [3, 1] }),
+        vec![
+            panel("right", [2, 0], [5.0, -7.0]),
+            panel("left", [0, 0], [-5.0, -7.0]),
+        ],
+    );
+    let env = LayoutEnv {
+        text: &ZeroText,
+        textures: &NoTextures,
+    };
+    let laid = layout(&grid, [54.0, 18.0], &env);
+    let rects: Vec<(f64, f64, f64)> = laid
+        .children
+        .iter()
+        .map(|cell| (cell.rect.x, cell.rect.w, cell.children[0].rect.x))
+        .collect();
+    assert_eq!(rects, [(36.0, 18.0, 41.0), (0.0, 18.0, -5.0)]);
+}
+
+// A stack child that inherits the tallest sibling's height spans the row, so a
+// toolbar anchored to its top sits above the panel (the furnace's toolbar).
+#[test]
+fn stack_children_inherit_the_largest_sibling_cross_size() {
+    let stack = ctrl(
+        "stack",
+        Some("stack_panel"),
+        json!({ "orientation": "horizontal", "size": ["100%c", "100%cm"] }),
+        vec![
+            ctrl(
+                "panel",
+                Some("panel"),
+                json!({ "size": [176, 166] }),
+                vec![],
+            ),
+            ctrl(
+                "anchor",
+                Some("panel"),
+                json!({ "size": [0, 0], "inherit_max_sibling_height": true }),
+                vec![],
+            ),
+        ],
+    );
+    let env = LayoutEnv {
+        text: &ZeroText,
+        textures: &NoTextures,
+    };
+    let laid = layout(&stack, [400.0, 300.0], &env);
+    let anchor = &laid.children[1];
+    assert_eq!((anchor.rect.y, anchor.rect.h), (laid.rect.y, 166.0));
+}
+
 // --- end to end -------------------------------------------------------------
 
 fn pack_root() -> Option<PathBuf> {

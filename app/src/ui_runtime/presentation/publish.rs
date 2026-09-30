@@ -443,6 +443,12 @@ pub(crate) fn refresh_hud_frame(
             .inventory_ledger()
             .window_position()
             .and_then(|position| stream?.block_entity_custom_name(position));
+        window_text.custom_title.clone_from(&stated_title);
+        window_text.block_entity = runtime
+            .inventory_ledger()
+            .window_position()
+            .and_then(|position| stream?.block_entity_compound(position))
+            .and_then(|nbt| nbt.string("id").map(str::to_owned));
         window_text.inventory_label = runtime
             .translation("container.inventory")
             .map(|text| text.to_string());

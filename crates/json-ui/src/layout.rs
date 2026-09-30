@@ -338,8 +338,10 @@ fn fitted_columns(columns: Option<usize>, width: Option<f64>, pitch: f64, cells:
         .max(1)
 }
 
-/// Grid cells fill row-major from the top-left, each at its own resolved size on
-/// a pitch of the largest cell.
+/// Grid cells fill row-major from the top-left (or sit at their `grid_position`).
+/// A fixed `grid_dimensions` grid listing its cells divides its own rect into
+/// equal cells that size and place each child; otherwise cells pitch on the
+/// largest child.
 fn grid_children<'a>(
     parent: &'a ResolvedControl,
     parent_rect: Rect,
@@ -347,13 +349,30 @@ fn grid_children<'a>(
     sibling_max: [f64; 2],
     env: &LayoutEnv,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
+    let rows = parent
+        .properties
+        .get("grid_dimensions")
+        .and_then(Value::as_array)
+        .and_then(|dims| dims.get(1)?.as_f64())
+        .filter(|rows| *rows >= 1.0);
+    // Template grids pitch on their template; listed cells share the grid's rect.
+    let listed = !parent.properties.contains_key("grid_item_template");
+    let cell = match (columns, rows) {
+        (Some(columns), Some(rows)) if listed && parent_rect.w > 0.0 && parent_rect.h > 0.0 => {
+            Some([parent_rect.w / columns as f64, parent_rect.h / rows])
+        }
+        _ => None,
+    };
+    let cell_rect = cell.map(|[w, h]| Rect::new(parent_rect.x, parent_rect.y, w, h));
     let sizes: Vec<[f64; 2]> = parent
         .children
         .iter()
-        .map(|child| resolve_size(child, parent_rect, sibling_max, env))
+        .map(|child| resolve_size(child, cell_rect.unwrap_or(parent_rect), sibling_max, env))
         .collect();
-    let pitch = sizes.iter().fold([0.0f64, 0.0f64], |acc, size| {
-        [acc[0].max(size[0]), acc[1].max(size[1])]
+    let pitch = cell.unwrap_or_else(|| {
+        sizes.iter().fold([0.0f64, 0.0f64], |acc, size| {
+            [acc[0].max(size[0]), acc[1].max(size[1])]
+        })
     });
     let columns = fitted_columns(columns, Some(parent_rect.w), pitch[0], sizes.len());
     parent
@@ -362,11 +381,22 @@ fn grid_children<'a>(
         .zip(sizes)
         .enumerate()
         .map(|(index, (child, size))| {
-            let x = parent_rect.x + (index % columns) as f64 * pitch[0];
-            let y = parent_rect.y + (index / columns) as f64 * pitch[1];
-            (child, Rect::new(x, y, size[0], size[1]))
+            let [column, row] = grid_position(child)
+                .unwrap_or([(index % columns) as f64, (index / columns) as f64]);
+            let x = parent_rect.x + column * pitch[0];
+            let y = parent_rect.y + row * pitch[1];
+            let rect = match cell {
+                Some([w, h]) => place_by_anchor(child, Rect::new(x, y, w, h), size, env),
+                None => Rect::new(x, y, size[0], size[1]),
+            };
+            (child, rect)
         })
         .collect()
+}
+
+fn grid_position(control: &ResolvedControl) -> Option<[f64; 2]> {
+    let position = control.properties.get("grid_position")?.as_array()?;
+    Some([position.first()?.as_f64()?, position.get(1)?.as_f64()?])
 }
 
 fn stack_children<'a>(
@@ -399,7 +429,14 @@ fn stack_children<'a>(
             nat,
             cross,
         );
-        let cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
+        let mut cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
+        let inherit = match cross {
+            Axis::X => "inherit_max_sibling_width",
+            Axis::Y => "inherit_max_sibling_height",
+        };
+        if matches!(child.properties.get(inherit), Some(Value::Bool(true))) {
+            cross_size = cross_size.max(axis_pick(sibling_max, cross));
+        }
         // A vertical stack knows each child's width before its height, so wrapped
         // text and `%c` content measure at that width.
         let known_width = (main == Axis::Y).then_some(cross_size);

@@ -1,5 +1,5 @@
-//! Container screens through the engine, behind the container-routing setting
-//! (off keeps the Java-styled screens). The personal inventory and workbench
+//! Container screens through the engine whenever the UI carrier loaded; without
+//! it, or after a failed render, the Java-styled screens draw. The personal inventory and workbench
 //! draw from the vanilla crafting screens in their classic survival layout; a
 //! storage window picks its screen from its container type. Slot data feeds the
 //! vanilla collections; item icons reach `inventory_item_renderer` through an
@@ -10,10 +10,12 @@ use json_ui::{
 };
 use protocol::NetworkItemStack;
 use serde_json::Value;
+use std::sync::Arc;
 use ui::UiNode;
 
 use super::super::{HudFrame, IconRef, TextMetrics, UiPresentationError, UiPresentationRuntime};
-use super::container_kinds::{ContainerKind, container_kind};
+use super::container_data;
+use super::container_kinds::{Cell, ContainerKind, storage_kind, window_kind};
 use super::engine;
 use crate::ui_runtime::{
     UiRuntime,
@@ -33,22 +35,20 @@ const UNCLIPPED: f64 = 1.0e5;
 pub(super) enum ScreenLayout {
     Personal,
     Workbench,
-    Storage(&'static ContainerKind),
+    /// A chest-like storage window or a station.
+    Station(&'static ContainerKind),
 }
 
 impl ScreenLayout {
-    fn of(runtime: &UiRuntime) -> Option<Self> {
-        let ledger = runtime.inventory_ledger();
+    /// `block_entity` is the open block entity's NBT `id`, which picks the chest variant.
+    pub(super) fn of(runtime: &UiRuntime, block_entity: Option<&str>) -> Option<Self> {
         Some(match InventoryScreen::of_runtime(runtime) {
             InventoryScreen::Personal => Self::Personal,
             InventoryScreen::Workbench => Self::Workbench,
-            InventoryScreen::Storage(slots) => {
-                Self::Storage(container_kind(ledger.storage_window_type()?, slots)?)
-            }
-            // Other windows, the creative catalog and books keep the Java-styled screens.
-            InventoryScreen::Window(..) | InventoryScreen::Creative | InventoryScreen::Book => {
-                return None;
-            }
+            InventoryScreen::Storage(slots) => Self::Station(storage_kind(slots, block_entity)),
+            InventoryScreen::Window(kind, _) => Self::Station(window_kind(kind)?),
+            // The creative catalog and books keep the Java-styled screens.
+            InventoryScreen::Creative | InventoryScreen::Book => return None,
         })
     }
 
@@ -56,7 +56,7 @@ impl ScreenLayout {
         match self {
             Self::Personal => ("crafting.inventory_screen", "container.crafting"),
             Self::Workbench => ("crafting.crafting_screen", "container.crafting"),
-            Self::Storage(kind) => (kind.screen, kind.title_key),
+            Self::Station(kind) => (kind.screen, kind.title_key),
         }
     }
 
@@ -85,19 +85,28 @@ impl UiPresentationRuntime {
         if !self.hud_frame.engine_containers || !runtime.inventory_open() {
             return Ok(false);
         }
-        let Some(layout) = ScreenLayout::of(runtime) else {
+        let window_text = &self.hud_frame.window_text;
+        let Some(layout) = ScreenLayout::of(runtime, window_text.block_entity.as_deref()) else {
             return Ok(false);
         };
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
         };
         let (reference, title_key) = layout.screen();
-        let title = runtime
-            .translation(title_key)
-            .map_or_else(|| title_key.to_owned(), |title| title.to_string());
-        let context = super::menu_screens::retail_context()
+        // A custom name shows as stated, else the block's own title.
+        let title = window_text.custom_title.clone().unwrap_or_else(|| {
+            runtime
+                .translation(title_key)
+                .map_or_else(|| title_key.to_owned(), |title| title.to_string())
+        });
+        let mut context = super::menu_screens::retail_context()
             .with_var("container_title", Value::String(title.clone()))
             .with_flag("localize_title", false);
+        if let ScreenLayout::Station(kind) = layout {
+            for flag in kind.flags {
+                context = context.with_flag(flag, true);
+            }
+        }
         let mut icons = Vec::new();
         let data = screen_data(runtime, &self.hud_frame, layout, &title, &mut icons);
         let pointer = runtime.inventory_pointer_gui();
@@ -138,7 +147,36 @@ impl UiPresentationRuntime {
             next: &mut *next,
             overlay: &overlay,
         };
-        match renderer.render_screen(reference, &data, &context, &view, art, inputs, out) {
+        let cache = &mut self.form_presentation.container_cache;
+        let catalog = renderer.catalog();
+        let drawn = renderer.draw(art, inputs, out, |env, root| {
+            let key = ScreenKey {
+                reference,
+                data,
+                context,
+                view,
+                root,
+                catalog: Arc::clone(catalog),
+            };
+            if let Some(cached) = cache.as_ref().filter(|cached| cached.key == key) {
+                return Some(Arc::clone(&cached.render));
+            }
+            let render = Arc::new(json_ui::render_screen(
+                reference,
+                &key.catalog,
+                &key.context,
+                &key.data,
+                root,
+                env,
+                &key.view,
+            )?);
+            *cache = Some(ScreenCache {
+                key,
+                render: Arc::clone(&render),
+            });
+            Some(render)
+        });
+        match drawn {
             Ok(Some(frame)) => {
                 self.form_presentation.container = Some((frame, layout));
                 Ok(true)
@@ -151,12 +189,6 @@ impl UiPresentationRuntime {
                 Ok(false)
             }
         }
-    }
-
-    /// The container-routing setting: on draws container screens through the
-    /// engine (when the carrier loaded), off keeps the Java-styled screens.
-    pub(crate) fn set_engine_containers(&mut self, enabled: bool) {
-        self.hud_frame.engine_containers = enabled && self.form_presentation.engine.is_some();
     }
 
     /// The container frame the engine drew last build, if any.
@@ -183,13 +215,43 @@ impl UiPresentationRuntime {
             }
             "crafting_output_items" => InventoryCellHit::CraftOutput,
             collection => match layout {
-                ScreenLayout::Storage(kind) => InventoryCellHit::Storage(
-                    u8::try_from(kind.storage_slot(collection, index)?).ok()?,
-                ),
+                ScreenLayout::Station(kind) => kind.cell(collection, index)?.hit(),
                 _ => return None,
             },
         })
     }
+}
+
+/// Everything a container screen's layout depends on; an unchanged frame
+/// (the common case while a screen sits open) reuses the last layout.
+struct ScreenKey {
+    reference: &'static str,
+    data: DataSource,
+    context: json_ui::Context,
+    view: ViewState,
+    root: [f64; 2],
+    catalog: Arc<json_ui::Catalog>,
+}
+
+impl PartialEq for ScreenKey {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.catalog, &other.catalog)
+            && self.reference == other.reference
+            && self.root == other.root
+            && self.view == other.view
+            && self.data == other.data
+            && self.context == other.context
+    }
+}
+
+pub(super) struct ScreenCache {
+    key: ScreenKey,
+    render: Arc<json_ui::FormRender>,
+}
+
+/// Whether the engine has a vanilla screen for the open inventory or window.
+pub(crate) fn engine_screen_for(runtime: &UiRuntime) -> bool {
+    ScreenLayout::of(runtime, None).is_some()
 }
 
 /// Whether a point lies on the engine-drawn container's `root_panel`.
@@ -238,6 +300,7 @@ impl Cells<'_> {
             }),
         )
         .with("#hover_text", Scalar::Text(name))
+        .with("#is_selected_slot", Scalar::Bool(false))
         .with(
             "#item_durability_visible",
             Scalar::Bool(durability.is_some()),
@@ -259,6 +322,8 @@ fn screen_data(
 ) -> DataSource {
     let ledger = runtime.inventory_ledger();
     let mut data = DataSource::new();
+    // Bindings the controller does not answer read as false, as in vanilla.
+    data.set_strict(true);
     let mut cells = Cells { frame, icons };
     let player_icon = |index: usize| frame.inventory_icons.0.get(index).copied().flatten();
     let inventory = (9..36)
@@ -323,26 +388,61 @@ fn screen_data(
                 );
             data.set_collection("offhand_items", vec![offhand]);
         }
-        ScreenLayout::Storage(kind) => {
-            let mut slot = 0usize;
-            for (collection, count) in kind.collections {
-                let items = (0..*count)
-                    .map(|offset| {
-                        let index = slot + offset;
-                        cells.cell(
-                            ledger.storage_stack(index as u8),
-                            frame.storage_icons.0.get(index).copied().flatten(),
-                            None,
-                        )
+        ScreenLayout::Station(kind) => {
+            for (collection, addressed) in kind.collections {
+                let shown = container_data::collection_len(runtime, collection, addressed.len());
+                let items = addressed[..shown]
+                    .iter()
+                    .map(|cell| {
+                        let (stack, icon, durability) = station_cell(runtime, frame, *cell);
+                        let item = cells.cell(stack, icon, durability);
+                        container_data::decorate(collection, stack.is_none(), item)
                     })
                     .collect();
                 data.set_collection(*collection, items);
-                slot += count;
+            }
+            if let Some(window) = ledger.window_kind() {
+                container_data::station_globals(&mut data, runtime, window);
             }
         }
     }
     survival_globals(&mut data, title);
     data
+}
+
+/// The stack, icon, and durability a station cell shows.
+fn station_cell<'a>(
+    runtime: &'a UiRuntime,
+    frame: &HudFrame,
+    cell: Cell,
+) -> (Option<&'a NetworkItemStack>, Option<IconRef>, Option<f32>) {
+    let ledger = runtime.inventory_ledger();
+    match cell {
+        Cell::Storage(slot) => {
+            let index = usize::from(slot);
+            (
+                ledger.storage_stack(slot),
+                frame.storage_icons.0.get(index).copied().flatten(),
+                frame.durability.storage.get(index).copied().flatten(),
+            )
+        }
+        Cell::Ui(slot) => {
+            let index = usize::from(slot);
+            (
+                ledger.target_stack(InventoryTarget::Craft(slot)),
+                frame.window_icons.ui.get(index).copied().flatten(),
+                frame.durability.ui.get(index).copied().flatten(),
+            )
+        }
+        Cell::Output => {
+            let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
+            (
+                ledger.created_output_stack(),
+                frame.window_icons.ui.get(index).copied().flatten(),
+                frame.durability.ui.get(index).copied().flatten(),
+            )
+        }
+    }
 }
 
 /// The classic survival layout on desktop: no recipe book, no creative tabs.

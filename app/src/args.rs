@@ -30,7 +30,6 @@ Options:
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
-  --json-ui-containers         Draw container screens through JSON-UI (default: Java-styled)
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
@@ -102,8 +101,6 @@ pub struct ClientArgs {
     /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
     /// selects the Java auto rule; the normal client default is scale 2.
     pub gui_scale: Option<u8>,
-    /// Route container screens through the JSON-UI engine; off keeps the Java path.
-    pub json_ui_containers: bool,
     /// Requested UI language code; `None` follows the environment locale.
     pub language: Option<String>,
     pub full_view_teleport_gate: bool,
@@ -132,7 +129,6 @@ impl Default for ClientArgs {
             no_vsync: false,
             frame_cap: None,
             gui_scale: Some(DEFAULT_GUI_SCALE),
-            json_ui_containers: false,
             language: None,
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
@@ -218,7 +214,6 @@ impl ClientArgs {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
                 Some("--freecam") => parsed.freecam = true,
-                Some("--json-ui-containers") => parsed.json_ui_containers = true,
                 Some("--vsync") => parsed.force_vsync = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
                 Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,
@@ -534,7 +529,6 @@ mod tests {
             "--model-witness-request",
             "--phase3-evidence-target",
             "--phase3-candidate-physics",
-            "--json-ui-containers",
         ] {
             assert!(HELP.contains(flag));
         }
@@ -570,14 +564,6 @@ mod tests {
             panic!("--gui-scale must parse into a run outcome");
         };
         assert_eq!(parsed.gui_scale, Some(3));
-        // Container routing defaults to the Java-styled screens.
-        assert!(!parsed.json_ui_containers);
-        let ParseOutcome::Run(parsed) =
-            ClientArgs::parse_from(["client", "--json-ui-containers"]).unwrap()
-        else {
-            panic!("--json-ui-containers must parse into a run outcome");
-        };
-        assert!(parsed.json_ui_containers);
         assert!(matches!(
             ClientArgs::parse_from(["client", "--unknown"]),
             Err(ArgsError::Unknown(_))

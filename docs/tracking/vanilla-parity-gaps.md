@@ -50,10 +50,11 @@ views and scrollbar box, slider travel and progress clipping), relative layers, 
 labels, grids, hit regions/modal blocking/global mappings, `dropdown_area` re-parenting,
 focus auto-scroll, server-pack ui json (with `modifications`) and textures. The optional
 `.mcbeui` carrier loads at startup (absent: fallback dialog); action/element/modal/custom
-forms always draw through the engine with vanilla input. Container screens route through
-the engine only with `--json-ui-containers` (default: the Java-styled screens, pending the
-owner's choice): personal inventory and workbench (survival layout, preview raster for
-the live player renderer), storage windows by container type, item tooltips. Open: the
+forms always draw through the engine with vanilla input. Container screens draw through
+the engine by default (owner decision; the Java-styled screens remain only for a failed
+render and for screens not yet ported): personal inventory and workbench (survival layout,
+preview raster for the live player renderer), chest/large chest/barrel/shulker/ender chest
+by block entity, item tooltips. Open: the
 ledger admits only generic storage and workbench windows, so furnace/anvil/enchanting/
 brewing/grindstone/loom/smithing/cartography/stonecutter/beacon/hopper/dispenser/dropper/
 horse screens are mapped but dormant; creative tabs need a creative catalog; per-stack

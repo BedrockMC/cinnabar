@@ -1,170 +1,263 @@
-//! Which vanilla screen each Bedrock container window type opens, and how its
-//! flat storage slots split across that screen's item collections (in slot
-//! order). Window type numbers are the protocol's container-type codes; the
-//! per-collection slot counts follow the templates' grids. Types the inventory
-//! ledger does not yet admit stay dormant here until it does.
+//! Which vanilla screen each container window opens, and which inventory cell
+//! each index of that screen's item collections addresses. Storage cells are the
+//! window's own; UI cells (anvil, enchanting, stonecutter, …) live in the
+//! personal UI inventory, as the ledger keeps them. Collection names follow the
+//! 26.30 `ui/*_screen.json` templates.
 
-/// One container window's screen and slot collections.
+use protocol::WindowKind;
+
+use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+
+/// One cell a collection index addresses.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Cell {
+    Storage(u8),
+    /// A personal UI-inventory slot.
+    Ui(u8),
+    /// The screen's created output.
+    Output,
+}
+
+impl Cell {
+    pub(crate) const fn hit(self) -> InventoryCellHit {
+        match self {
+            Self::Storage(slot) => InventoryCellHit::Storage(slot),
+            Self::Ui(slot) => InventoryCellHit::Craft(slot),
+            Self::Output => InventoryCellHit::CraftOutput,
+        }
+    }
+}
+
+/// One container window's screen and cell collections.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ContainerKind {
     pub(crate) screen: &'static str,
     pub(crate) title_key: &'static str,
-    /// `(collection, slots)` in storage-slot order.
-    pub(crate) collections: &'static [(&'static str, usize)],
+    /// `(collection, cells)` in collection-index order.
+    pub(crate) collections: &'static [(&'static str, &'static [Cell])],
+    /// Screen variables the controller sets.
+    pub(crate) flags: &'static [&'static str],
 }
 
-const SMALL_CHEST: ContainerKind = ContainerKind {
-    screen: "chest.small_chest_screen",
-    title_key: "container.chest",
-    collections: &[("container_items", 27)],
-};
-const LARGE_CHEST: ContainerKind = ContainerKind {
-    screen: "chest.large_chest_screen",
-    title_key: "container.chestDouble",
-    collections: &[("container_items", 54)],
-};
+const fn storage_run<const N: usize>(first: u8) -> [Cell; N] {
+    let mut cells = [Cell::Storage(0); N];
+    let mut index = 0;
+    while index < N {
+        cells[index] = Cell::Storage(first + index as u8);
+        index += 1;
+    }
+    cells
+}
 
-/// The generic window type (`0`) serves chests, barrels, shulkers and ender
-/// chests; its slot count picks the small or large chest layout.
-pub(crate) fn container_kind(window_type: i8, slots: usize) -> Option<&'static ContainerKind> {
-    Some(match window_type {
-        0 if slots == 54 => &LARGE_CHEST,
-        0 => &SMALL_CHEST,
-        2 => &ContainerKind {
-            screen: "furnace.furnace_screen",
-            title_key: "container.furnace",
-            collections: &[
-                ("furnace_ingredient_items", 1),
-                ("furnace_fuel_items", 1),
-                ("furnace_output_items", 1),
+const CHEST_27: [Cell; 27] = storage_run(0);
+const CHEST_54: [Cell; 54] = storage_run(0);
+const NINE: [Cell; 9] = storage_run(0);
+const FIVE: [Cell; 5] = storage_run(0);
+/// The largest chest a mount carries; smaller ones show a prefix.
+pub(crate) const MOUNT_CHEST: [Cell; 15] = storage_run(2);
+
+const fn kind(
+    screen: &'static str,
+    title_key: &'static str,
+    collections: &'static [(&'static str, &'static [Cell])],
+) -> ContainerKind {
+    ContainerKind {
+        screen,
+        title_key,
+        collections,
+        flags: &[],
+    }
+}
+
+const CHEST_CELLS: &[(&str, &[Cell])] = &[("container_items", &CHEST_27)];
+const SMALL_CHEST: ContainerKind = kind("chest.small_chest_screen", "container.chest", CHEST_CELLS);
+const LARGE_CHEST: ContainerKind = kind(
+    "chest.large_chest_screen",
+    "container.chestDouble",
+    &[("container_items", &CHEST_54)],
+);
+const BARREL: ContainerKind = kind("chest.barrel_screen", "container.barrel", CHEST_CELLS);
+const SHULKER_BOX: ContainerKind = kind(
+    "chest.shulker_box_screen",
+    "container.shulkerbox",
+    CHEST_CELLS,
+);
+const ENDER_CHEST: ContainerKind = kind(
+    "chest.ender_chest_screen",
+    "container.enderchest",
+    CHEST_CELLS,
+);
+
+const FURNACE_CELLS: &[(&str, &[Cell])] = &[
+    ("furnace_ingredient_items", &[Cell::Storage(0)]),
+    ("furnace_fuel_items", &[Cell::Storage(1)]),
+    ("furnace_output_items", &[Cell::Storage(2)]),
+];
+
+/// A chest-like storage window by its cell count and the block entity it opened
+/// (`id` of its NBT), as the client picks the chest, barrel, shulker or ender screen.
+pub(crate) fn storage_kind(slots: usize, block_entity: Option<&str>) -> &'static ContainerKind {
+    match (slots, block_entity) {
+        (54, _) => &LARGE_CHEST,
+        (_, Some("Barrel")) => &BARREL,
+        (_, Some("ShulkerBox")) => &SHULKER_BOX,
+        (_, Some("EnderChest")) => &ENDER_CHEST,
+        _ => &SMALL_CHEST,
+    }
+}
+
+/// The vanilla screen of a station window, `None` for kinds drawn elsewhere.
+pub(crate) fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
+    const FURNACE: ContainerKind =
+        self::kind("furnace.furnace_screen", "container.furnace", FURNACE_CELLS);
+    const BLAST_FURNACE: ContainerKind = self::kind(
+        "blast_furnace.blast_furnace_screen",
+        "tile.blast_furnace.name",
+        FURNACE_CELLS,
+    );
+    const SMOKER: ContainerKind =
+        self::kind("smoker.smoker_screen", "tile.smoker.name", FURNACE_CELLS);
+    const BREWING: ContainerKind = self::kind(
+        "brewing_stand.brewing_stand_screen",
+        "container.brewing",
+        &[
+            ("brewing_input_item", &[Cell::Storage(0)]),
+            (
+                "brewing_result_items",
+                &[Cell::Storage(1), Cell::Storage(2), Cell::Storage(3)],
+            ),
+            ("brewing_fuel_item", &[Cell::Storage(4)]),
+        ],
+    );
+    const ANVIL: ContainerKind = self::kind(
+        "anvil.anvil_screen",
+        "container.repair",
+        &[
+            ("anvil_input_items", &[Cell::Ui(1)]),
+            ("anvil_material_items", &[Cell::Ui(2)]),
+            ("anvil_result_items", &[Cell::Output]),
+        ],
+    );
+    const ENCHANTING: ContainerKind = self::kind(
+        "enchanting.enchanting_screen",
+        "container.enchant",
+        &[
+            ("enchanting_input_items", &[Cell::Ui(14)]),
+            ("enchanting_lapis_items", &[Cell::Ui(15)]),
+        ],
+    );
+    const GRINDSTONE: ContainerKind = self::kind(
+        "grindstone.grindstone_screen",
+        "container.grindstone_title",
+        &[
+            ("grindstone_input_items", &[Cell::Ui(16)]),
+            ("grindstone_additional_items", &[Cell::Ui(17)]),
+            ("grindstone_result_items", &[Cell::Output]),
+        ],
+    );
+    const LOOM: ContainerKind = self::kind(
+        "loom.loom_screen",
+        "container.loom",
+        &[
+            ("loom_input_items", &[Cell::Ui(9)]),
+            ("loom_dye_items", &[Cell::Ui(10)]),
+            ("loom_material_items", &[Cell::Ui(11)]),
+            ("loom_result_items", &[Cell::Output]),
+        ],
+    );
+    // 26.30 draws the template-slot table through `$use_smithing_table_2_ui`.
+    const SMITHING: ContainerKind = ContainerKind {
+        flags: &["use_smithing_table_2_ui"],
+        ..self::kind(
+            "smithing_table.smithing_table_screen",
+            "container.smithing_table",
+            &[
+                ("smithing_table_template_items", &[Cell::Ui(53)]),
+                ("smithing_table_input_items", &[Cell::Ui(51)]),
+                ("smithing_table_material_items", &[Cell::Ui(52)]),
+                ("smithing_table_result_items", &[Cell::Output]),
             ],
-        },
-        3 => &ContainerKind {
-            screen: "enchanting.enchanting_screen",
-            title_key: "container.enchant",
-            collections: &[("enchanting_input_items", 1), ("enchanting_lapis_items", 1)],
-        },
-        4 => &ContainerKind {
-            screen: "brewing_stand.brewing_stand_screen",
-            title_key: "container.brewing",
-            collections: &[
-                ("brewing_input_item", 1),
-                ("brewing_result_items", 3),
-                ("brewing_fuel_item", 1),
-            ],
-        },
-        5 => &ContainerKind {
-            screen: "anvil.anvil_screen",
-            title_key: "container.repair",
-            collections: &[
-                ("anvil_input_items", 1),
-                ("anvil_material_items", 1),
-                ("anvil_result_items", 1),
-            ],
-        },
-        6 => &ContainerKind {
-            screen: "redstone.dispenser_screen",
-            title_key: "container.dispenser",
-            collections: &[("container_items", 9)],
-        },
-        7 => &ContainerKind {
-            screen: "redstone.dropper_screen",
-            title_key: "container.dropper",
-            collections: &[("container_items", 9)],
-        },
-        8 => &ContainerKind {
-            screen: "redstone.hopper_screen",
-            title_key: "container.hopper",
-            collections: &[("container_items", 5)],
-        },
-        12 => &ContainerKind {
-            screen: "horse.horse_screen",
-            title_key: "container.horse",
-            collections: &[("horse_equip_items", 2), ("container_items", 15)],
-        },
-        13 => &ContainerKind {
-            screen: "beacon.beacon_screen",
-            title_key: "container.beacon",
-            collections: &[("beacon_payment_items", 1)],
-        },
-        24 => &ContainerKind {
-            screen: "loom.loom_screen",
-            title_key: "container.loom",
-            collections: &[
-                ("loom_input_items", 1),
-                ("loom_dye_items", 1),
-                ("loom_material_items", 1),
-                ("loom_result_items", 1),
-            ],
-        },
-        26 => &ContainerKind {
-            screen: "grindstone.grindstone_screen",
-            title_key: "container.grindstone_title",
-            collections: &[
-                ("grindstone_input_items", 1),
-                ("grindstone_additional_items", 1),
-                ("grindstone_result_items", 1),
-            ],
-        },
-        27 => &ContainerKind {
-            screen: "blast_furnace.blast_furnace_screen",
-            title_key: "container.blast_furnace",
-            collections: &[
-                ("furnace_ingredient_items", 1),
-                ("furnace_fuel_items", 1),
-                ("furnace_output_items", 1),
-            ],
-        },
-        28 => &ContainerKind {
-            screen: "smoker.smoker_screen",
-            title_key: "container.smoker",
-            collections: &[
-                ("furnace_ingredient_items", 1),
-                ("furnace_fuel_items", 1),
-                ("furnace_output_items", 1),
-            ],
-        },
-        29 => &ContainerKind {
-            screen: "stonecutter.stonecutter_screen",
-            title_key: "container.stonecutter",
-            collections: &[
-                ("stonecutter_input_items", 1),
-                ("stonecutter_result_items", 1),
-            ],
-        },
-        30 => &ContainerKind {
-            screen: "cartography.cartography_screen",
-            title_key: "container.cartography_table",
-            collections: &[
-                ("cartography_input_items", 1),
-                ("cartography_additional_items", 1),
-                ("cartography_result_items", 1),
-            ],
-        },
-        33 => &ContainerKind {
-            screen: "smithing_table.smithing_table_screen",
-            title_key: "container.smithing_table",
-            collections: &[
-                ("smithing_table_input_items", 1),
-                ("smithing_table_material_items", 1),
-                ("smithing_table_result_items", 1),
-            ],
-        },
-        _ => return None,
+        )
+    };
+    const CARTOGRAPHY: ContainerKind = self::kind(
+        "cartography.cartography_screen",
+        "container.cartography_table",
+        &[
+            ("cartography_input_items", &[Cell::Ui(12)]),
+            ("cartography_additional_items", &[Cell::Ui(13)]),
+            ("cartography_result_items", &[Cell::Output]),
+        ],
+    );
+    const STONECUTTER: ContainerKind = self::kind(
+        "stonecutter.stonecutter_screen",
+        "container.stonecutter",
+        &[
+            ("stonecutter_input_items", &[Cell::Ui(3)]),
+            ("stonecutter_result_items", &[Cell::Output]),
+        ],
+    );
+    const BEACON: ContainerKind = self::kind(
+        "beacon.beacon_screen",
+        "container.beacon",
+        &[("beacon_payment_items", &[Cell::Ui(27)])],
+    );
+    const HOPPER: ContainerKind = self::kind(
+        "redstone.hopper_screen",
+        "container.hopper",
+        &[("container_items", &FIVE)],
+    );
+    const DISPENSER: ContainerKind = self::kind(
+        "redstone.dispenser_screen",
+        "container.dispenser",
+        &[("container_items", &NINE)],
+    );
+    const DROPPER: ContainerKind = self::kind(
+        "redstone.dropper_screen",
+        "container.dropper",
+        &[("container_items", &NINE)],
+    );
+    const CRAFTER: ContainerKind = self::kind(
+        "redstone.crafter_screen",
+        "container.crafter",
+        &[("container_items", &NINE)],
+    );
+    const HORSE: ContainerKind = self::kind(
+        "horse.horse_screen",
+        "entity.horse.name",
+        &[
+            ("horse_equip_items", &[Cell::Storage(0), Cell::Storage(1)]),
+            ("container_items", &MOUNT_CHEST),
+        ],
+    );
+    Some(match kind {
+        WindowKind::Furnace => &FURNACE,
+        WindowKind::BlastFurnace => &BLAST_FURNACE,
+        WindowKind::Smoker => &SMOKER,
+        WindowKind::Brewing => &BREWING,
+        WindowKind::Anvil => &ANVIL,
+        WindowKind::Enchanting => &ENCHANTING,
+        WindowKind::Grindstone => &GRINDSTONE,
+        WindowKind::Loom => &LOOM,
+        WindowKind::Smithing => &SMITHING,
+        WindowKind::Cartography => &CARTOGRAPHY,
+        WindowKind::Stonecutter => &STONECUTTER,
+        WindowKind::Beacon => &BEACON,
+        WindowKind::Hopper => &HOPPER,
+        WindowKind::Dispenser => &DISPENSER,
+        WindowKind::Dropper => &DROPPER,
+        WindowKind::Crafter => &CRAFTER,
+        WindowKind::Horse => &HORSE,
+        WindowKind::Storage | WindowKind::Workbench | WindowKind::Lectern => return None,
     })
 }
 
 impl ContainerKind {
-    /// The flat storage slot of `index` within `collection`, if it belongs here.
-    pub(crate) fn storage_slot(&self, collection: &str, index: usize) -> Option<usize> {
-        let mut start = 0;
-        for (name, slots) in self.collections {
-            if *name == collection {
-                return (index < *slots).then_some(start + index);
-            }
-            start += slots;
-        }
-        None
+    /// The cell `index` of `collection` addresses, if it belongs here.
+    pub(crate) fn cell(&self, collection: &str, index: usize) -> Option<Cell> {
+        self.collections
+            .iter()
+            .find(|(name, _)| *name == collection)
+            .and_then(|(_, cells)| cells.get(index).copied())
     }
 }
 
@@ -172,34 +265,70 @@ impl ContainerKind {
 mod tests {
     use super::*;
 
-    #[test]
-    fn generic_windows_pick_the_chest_by_slot_count() {
-        assert_eq!(
-            container_kind(0, 27).unwrap().screen,
-            "chest.small_chest_screen"
-        );
-        assert_eq!(
-            container_kind(0, 54).unwrap().screen,
-            "chest.large_chest_screen"
-        );
-        assert!(container_kind(99, 1).is_none());
-    }
+    const STATIONS: [WindowKind; 17] = [
+        WindowKind::Furnace,
+        WindowKind::BlastFurnace,
+        WindowKind::Smoker,
+        WindowKind::Enchanting,
+        WindowKind::Brewing,
+        WindowKind::Anvil,
+        WindowKind::Dispenser,
+        WindowKind::Dropper,
+        WindowKind::Hopper,
+        WindowKind::Horse,
+        WindowKind::Beacon,
+        WindowKind::Loom,
+        WindowKind::Grindstone,
+        WindowKind::Stonecutter,
+        WindowKind::Cartography,
+        WindowKind::Smithing,
+        WindowKind::Crafter,
+    ];
 
     #[test]
-    fn collections_split_the_flat_storage_slots_in_order() {
-        let furnace = container_kind(2, 3).unwrap();
-        assert_eq!(furnace.storage_slot("furnace_fuel_items", 0), Some(1));
-        assert_eq!(furnace.storage_slot("furnace_output_items", 0), Some(2));
-        assert_eq!(furnace.storage_slot("furnace_output_items", 1), None);
-        assert_eq!(furnace.storage_slot("inventory_items", 0), None);
+    fn storage_windows_pick_the_chest_by_slot_count() {
+        assert_eq!(storage_kind(27, None).screen, "chest.small_chest_screen");
+        assert_eq!(storage_kind(54, None).screen, "chest.large_chest_screen");
+        assert_eq!(
+            storage_kind(27, Some("Barrel")).screen,
+            "chest.barrel_screen"
+        );
     }
 
+    // Every station routes to an allow-listed screen and addresses each cell once.
     #[test]
-    fn every_kind_is_an_allow_listed_engine_screen() {
-        for window_type in -1..40 {
-            if let Some(kind) = container_kind(window_type, 27) {
-                assert!(json_ui::is_engine_screen(kind.screen), "{}", kind.screen);
+    fn stations_route_to_engine_screens_with_unique_cells() {
+        for kind in STATIONS {
+            let station = window_kind(kind).unwrap_or_else(|| panic!("{kind:?}"));
+            assert!(
+                json_ui::is_engine_screen(station.screen),
+                "{}",
+                station.screen
+            );
+            let cells: Vec<Cell> = station
+                .collections
+                .iter()
+                .flat_map(|(_, cells)| cells.iter().copied())
+                .collect();
+            for (index, cell) in cells.iter().enumerate() {
+                assert!(!cells[..index].contains(cell), "{kind:?} repeats {cell:?}");
             }
         }
+    }
+
+    #[test]
+    fn collections_address_their_cells_in_order() {
+        let furnace = window_kind(WindowKind::Furnace).unwrap();
+        assert_eq!(
+            furnace.cell("furnace_fuel_items", 0),
+            Some(Cell::Storage(1))
+        );
+        assert_eq!(furnace.cell("furnace_output_items", 1), None);
+        let anvil = window_kind(WindowKind::Anvil).unwrap();
+        assert_eq!(anvil.cell("anvil_result_items", 0), Some(Cell::Output));
+        assert_eq!(
+            anvil.cell("anvil_material_items", 0).map(Cell::hit),
+            Some(InventoryCellHit::Craft(2))
+        );
     }
 }
