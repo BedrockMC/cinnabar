@@ -56,6 +56,7 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             || [binding.initialize, binding.pre_animation]
                 .into_iter()
                 .flatten()
+                .chain(binding.scale_expressions.into_iter().flatten())
                 .any(|index| index as usize >= compiled.molang_expressions.len())
             || binding.scale.get() <= 0.0
         {

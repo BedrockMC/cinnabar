@@ -28,8 +28,8 @@ divisor, baby leg-speed factor, seeded variables and Molang math tolerances need
 independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
 variables read 0; non-uniform parent scale over rotated children is approximated
 without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
-transitions, render-controller part visibility and per-axis rotation objects are
-missing; queries without retained data read idle values; held items and most mob
+transitions and per-axis rotation objects are missing; `query.anim_time` reads the unwrapped
+clip clock; queries without retained data read idle values; held items and most mob
 artwork are deferred. A first-person held item with no drawable layer shows the
 bare swinging arm instead (vanilla always draws the item).
 
@@ -74,8 +74,11 @@ via the `.matkeys.json` sidecar (rebuild assets to emit it). Vanilla item icons 
 short-name key (provisional). Custom-block selection boxes drive the pick ray. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
 index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
 entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
-labeled incomplete: neutral material profile only (custom materials and conditional/multi-texture
-render controllers fall back), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
+labeled incomplete: neutral material profile only (custom materials fall back; a controller's
+several textures draw as stacked layers of its own geometry; `uv_anim` is evaluated per tick,
+not per frame, and any animated layer samples with repeat wrap); actors are lit by the solved
+light at their feet through the shared light curve with daylight fixed at 1 (the vanilla light
+texture, tint and sample point are unmatched), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
 (pack bindings win by item identifier; pack property defaults seed only from `entities/` in
 resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
@@ -3370,7 +3373,7 @@ LevelDB world persistence via dragonfly; pause/resume semantics on window focus;
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
-Status: provisional implementation landed (see `docs/local-worlds.md`): BDS (native, or container on macOS) for vanilla worldgen and mobs with dragonfly as fallback; uncompiled and unmeasured, so no acceptance gate is closed.
+Status: provisional implementation landed (see `docs/local-worlds.md`): BDS (native, or container on macOS) for vanilla worldgen and mobs, dragonfly as the superflat-only fallback; uncompiled and unmeasured, so no acceptance gate is closed.
 
 ## Phase 8 — Audio, polish, packaging
 
@@ -3378,16 +3381,16 @@ Scope: audio via bevy_audio/kira — sound events mapped through `sound_definiti
 positional sounds, music/ambient (asset-availability audit from Phase 2 decides
 bedrock-samples vs. client-assets-import); performance hardening pass against budgets;
 macOS .app + codesign/notarize, Windows installer, Linux AppImage; core binary bundled and
-lifecycle-managed by the app; crash reporting (sentry for Rust + core); auto-update channel;
+lifecycle-managed by the app; local crash records; auto-update channel;
 first-run experience.
 
 **Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
-AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, opt-in crash
-upload, signed-manifest update checks, and the core log/backoff helpers are in `app/src/{first_run,lifecycle}`
-and `core/{update,crashreport}`. Unverified until compiled and run on a clean machine: every
+AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, local crash
+records (never uploaded), signed-manifest update checks, and the core log/backoff helpers are in
+`app/src/{first_run,lifecycle}` and `core/update`. Unverified until compiled and run on a clean machine: every
 recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
-install, mid-session core restart wiring, and Sentry for Rust panics beyond report capture.
+install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).
 
 **Final Go relay/batching polish:** adopt the batch-boundary API from
 [`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)

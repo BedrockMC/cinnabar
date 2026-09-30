@@ -46,10 +46,10 @@ impl GpuArtwork {
         );
         if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES
             || bytes.is_none_or(|bytes| bytes > MAX_ACTOR_GPU_PIXEL_BYTES)
-            || pages.pages.iter().any(|page| {
-                u32::from(page.width).max(u32::from(page.height)) > limits.max_texture_dimension_2d
-                    || page.layers > limits.max_texture_array_layers
-            })
+            || pages
+                .pages
+                .iter()
+                .any(|page| page.layers > limits.max_texture_array_layers)
         {
             self.rejected = true;
             bevy::log::warn!(
@@ -58,6 +58,8 @@ impl GpuArtwork {
             return false;
         }
         for page in pages.pages.iter() {
+            // UVs are normalised, so a page past the device limit draws downscaled, not blank.
+            let page = &page.fit_within(limits.max_texture_dimension_2d);
             let texture = device.create_texture_with_data(
                 queue,
                 &TextureDescriptor {
@@ -144,6 +146,29 @@ mod tests {
                 },
             ]
         );
+    }
+
+    // A tall flipbook past the device limit draws downscaled instead of blanking every page.
+    #[test]
+    fn a_page_past_the_device_limit_uploads_downscaled() {
+        use bevy::render::renderer::WgpuWrapper;
+        use std::sync::Arc;
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let device = RenderDevice::from(device);
+        let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+        let side = device.limits().max_texture_dimension_2d;
+        let height = u16::try_from(side * 2).unwrap();
+        let mut pages = ActorArtworkPages::default();
+        pages.identity = [1; 32];
+        pages.pages = Arc::from([crate::actor::ActorTexturePage {
+            width: 2,
+            height,
+            layers: 1,
+            rgba8: vec![255; 2 * usize::from(height) * 4].into(),
+        }]);
+        let mut gpu = GpuArtwork::default();
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert_eq!(gpu.pages.len(), 1);
     }
 
     #[test]

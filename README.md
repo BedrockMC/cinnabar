@@ -9,6 +9,12 @@ networking.
 
 <img width="2534" height="1446" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
 
+## Download
+
+Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
+Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
+the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
+
 ## Play
 
 ```sh
@@ -87,7 +93,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `catalog`, `store`, `launcher`, `control` | Menu data: featured servers, Realms, friends, marketplace. |
 | `localworld` | Local worlds on BDS (a container on macOS). |
 | `packcache` | On-disk cache of server packs. |
-| `update`, `crashreport` | Signed update checks and crash reports. |
+| `update` | Signed update checks. |
 
 ## JSON-UI editor
 
