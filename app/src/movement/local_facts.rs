@@ -28,7 +28,7 @@ pub(super) struct LocalMovementFacts {
 pub(super) fn read(
     ui: Option<&UiRuntime>,
     stream: &client_world::WorldStream,
-    use_held: bool,
+    item_in_use: bool,
 ) -> LocalMovementFacts {
     let Some(ui) = ui else {
         return LocalMovementFacts::default();
@@ -80,10 +80,7 @@ pub(super) fn read(
                 .hud()
                 .hunger()
                 .is_some_and(|hunger| hunger.current() <= SPRINT_HUNGER_FLOOR))
-            || matches!(
-                crate::runtime::network::local_item_use(stream, ui, use_held),
-                client_world::LocalItemUse::Using { .. }
-            ),
+            || item_in_use,
     }
 }
 

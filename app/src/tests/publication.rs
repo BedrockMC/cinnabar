@@ -10,6 +10,7 @@ use crate::app::{
     configure_client_production_frame_systems,
 };
 use crate::block_use::produce_block_use;
+use crate::item_use::produce_item_use;
 use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
@@ -167,9 +168,12 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, produce_block_use, "produce_block_use"),
+            system_node(graph, produce_item_use, "produce_item_use"),
+        ) && graph.dependency().graph().contains_edge(
+            system_node(graph, produce_item_use, "produce_item_use"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
-        "block use must attach its interaction before the candidate packet is sent",
+        "block and air use must attach before the candidate packet is sent",
     );
     assert_system_in_stage(
         graph,

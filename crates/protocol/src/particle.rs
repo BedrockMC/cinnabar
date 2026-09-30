@@ -20,6 +20,8 @@ pub enum ParticleEvent {
     ActorCritical {
         actor_runtime_id: u64,
         magic: bool,
+        /// The Animate packet's data, which vanilla binds as `variable.particle_count`.
+        particle_count: f32,
     },
 }
 

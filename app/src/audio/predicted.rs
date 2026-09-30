@@ -308,7 +308,7 @@ fn status_request(
     notice: &ActorStatusNotice,
 ) -> Option<(&'static str, SoundRequest)> {
     let event = match notice.kind {
-        ActorStatusKind::Hurt => "hurt",
+        ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => "hurt",
         ActorStatusKind::Death => "death",
         _ => return None,
     };
