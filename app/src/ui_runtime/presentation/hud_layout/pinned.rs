@@ -1,16 +1,16 @@
-//! Pinned Java-reference presentation tables and timing helpers: GUI-scale
-//! rule, sprite selection, blink phases, and recorded color approximations.
+//! Pinned presentation tables and timing helpers: the GUI-scale rule, sprite
+//! selection, blink phases, and recorded color approximations.
 
 use assets::HudTextureRole;
 
 use crate::ui_runtime::gameplay_hud::{HeartVariant, HudEffect};
 
-/// Java auto GUI scale: the largest integer k with `width/k >= 320` and
-/// `height/k >= 240`, never below 1. A fixed preference is clamped into the
-/// same range, matching the options the reference client offers.
+/// Physical pixels per GUI pixel: Bedrock's desktop rule
+/// (`GuiData::calculateOptimalGuiScaleIndex`), `min(width/376, height/250)` in
+/// 1..=8, or a fixed preference no larger than that.
 #[must_use]
-pub(crate) fn java_gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
-    let auto = (physical[0] / 320).min(physical[1] / 240).max(1);
+pub(crate) fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
+    let auto = (physical[0] / 376).min(physical[1] / 250).clamp(1, 8);
     match preference {
         None | Some(0) => auto,
         Some(fixed) => u32::from(fixed).clamp(1, auto),

@@ -181,16 +181,16 @@ fn select_slot(runtime: &mut UiRuntime) {
 #[test]
 fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
     for (physical, dpi, preference, k, safe) in [
-        ([1280u32, 720u32], 1.0f32, None, 3.0f32, SafeArea::ZERO),
+        ([1280u32, 720u32], 1.0f32, None, 2.0f32, SafeArea::ZERO),
         ([1920, 1080], 1.0, None, 4.0, SafeArea::ZERO),
         ([1366, 768], 1.0, None, 3.0, SafeArea::ZERO),
-        ([1280, 720], 1.5, None, 3.0, SafeArea::ZERO),
+        ([1280, 720], 1.5, None, 2.0, SafeArea::ZERO),
         ([1280, 720], 1.0, Some(2), 2.0, SafeArea::ZERO),
         (
             [1280, 720],
             1.0,
             None,
-            3.0,
+            2.0,
             SafeArea::new(20.0, 10.0, 40.0, 30.0).unwrap(),
         ),
         (
@@ -248,9 +248,9 @@ fn crosshair_is_first_person_only_and_mode_gated() {
         "third person"
     );
     *presentation.hud_frame_mut() = first_person();
-    assert!(crosshair(&build(&mut presentation, &runtime, 0), 45.0).is_some());
+    assert!(crosshair(&build(&mut presentation, &runtime, 0), 30.0).is_some());
     runtime.open_chat();
-    assert!(crosshair(&build(&mut presentation, &runtime, 0), 45.0).is_some());
+    assert!(crosshair(&build(&mut presentation, &runtime, 0), 30.0).is_some());
     runtime.close_chat();
     runtime.publish_player_game_mode(PlayerGameMode::Spectator);
     assert!(
@@ -344,9 +344,9 @@ fn java_pack_geometry_on_a_real_viewport() {
     select_slot(&mut runtime);
     full_stats(&mut runtime, 1);
     runtime.hud.set_experience(7, 0.4);
-    let input = build_at(&mut presentation, &runtime, 0, [1280, 720], 1.5);
+    let input = build_at(&mut presentation, &runtime, 0, [1280, 750], 1.5);
     let nodes = presentation.hud_draw_nodes();
-    // 1280x720 at scale 3: a 426.67x240 GUI-px screen.
+    // 1280x750 at scale 3: a 426.67x250 GUI-px screen.
     let centre = 1280.0 / 3.0 / 2.0;
     let slots = customs(nodes, "hotbar_renderer");
     assert!(
@@ -354,41 +354,41 @@ fn java_pack_geometry_on_a_real_viewport() {
         "{:?} vs centre {centre}",
         slots[0].dest
     );
-    assert_eq!(slots[0].dest.y, 240.0 - 22.0);
+    assert_eq!(slots[0].dest.y, 250.0 - 22.0);
     let selected = named(nodes, "hotbar_slot_selected_image");
     assert!((selected[0].dest.x - (centre - 92.0)).abs() < 1e-3);
-    assert_eq!(selected[0].dest.y, 240.0 - 23.0);
+    assert_eq!(selected[0].dest.y, 250.0 - 23.0);
     let hearts = customs(nodes, "heart_renderer");
     assert!((hearts[0].dest.x - (centre - 91.0)).abs() < 1e-3);
-    assert_eq!(hearts[0].dest.y, 240.0 - 39.0);
+    assert_eq!(hearts[0].dest.y, 250.0 - 39.0);
     let hunger = customs(nodes, "hunger_renderer");
     assert!((hunger[0].dest.x - (centre + 90.0)).abs() < 1e-3);
     let bar = named(nodes, "empty_progress_bar")
         .into_iter()
         .map(|node| node.dest.y)
         .fold(f64::INFINITY, f64::min);
-    assert_eq!(bar, 240.0 - 29.0);
+    assert_eq!(bar, 250.0 - 29.0);
     let level: Vec<_> = nodes
         .iter()
         .filter(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "7"))
         .collect();
     assert_eq!(level.len(), 5, "the level and its four outline copies");
-    assert_eq!(level[4].dest.y, 240.0 - 35.0);
+    assert_eq!(level[4].dest.y, 250.0 - 35.0);
     // The selection frame lands where the Java HUD drew it, in physical px.
     assert!(
         input
             .vertices
             .chunks_exact(4)
             .map(quad_bounds)
-            .any(|bounds| bounds == [364.0, 651.0, 436.0, 723.0]),
+            .any(|bounds| bounds == [364.0, 681.0, 436.0, 753.0]),
         "selection frame at Java geometry"
     );
 }
 
 // The hotbar keeps 182 GUI px at every auto scale, centred.
 #[test]
-fn hotbar_stays_bottom_centred_and_tracks_the_java_auto_scale() {
-    for (physical, scale) in [([1280u32, 720u32], 3.0f64), ([2560, 1344], 5.0)] {
+fn hotbar_stays_bottom_centred_and_tracks_the_auto_scale() {
+    for (physical, scale) in [([1280u32, 720u32], 2.0f64), ([2560, 1344], 5.0)] {
         let Some(mut presentation) = engine_presentation() else {
             return;
         };

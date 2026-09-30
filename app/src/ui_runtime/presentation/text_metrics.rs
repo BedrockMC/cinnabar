@@ -3,7 +3,7 @@
 use assets::RuntimeFontCatalog;
 use ui::{DpiScale, TextLayoutRequest, TextShadow, TextStyle, UiScale};
 
-use super::java_gui_scale;
+use super::gui_scale;
 
 // The compiled Monocraft atlas is rasterized at 18 px/em (see
 // `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
@@ -34,7 +34,7 @@ pub(crate) struct TextMetrics {
 }
 
 impl TextMetrics {
-    /// Uses the same Java GUI-scale choice as sprite geometry. The font atlas
+    /// Uses the same GUI-scale choice as sprite geometry. The font atlas
     /// is authored at two texels per GUI design pixel, so its logical scale is
     /// half the sprite scale before the platform DPI is removed.
     pub(super) fn for_viewport(
@@ -43,9 +43,8 @@ impl TextMetrics {
         preference: Option<u8>,
     ) -> Self {
         let dpi = dpi_scale.get();
-        let gui_scale = java_gui_scale(physical_size, preference) as f32;
-        let scale =
-            (gui_scale / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi)).clamp(UiScale::MIN, UiScale::MAX);
+        let k = gui_scale(physical_size, preference) as f32;
+        let scale = (k / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi)).clamp(UiScale::MIN, UiScale::MAX);
         Self {
             scale: UiScale::new(scale).expect("the clamped scale is inside the UiScale range"),
             line_height_64: TEXT_LINE_HEIGHT_64,
