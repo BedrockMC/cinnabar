@@ -80,6 +80,16 @@ pub fn bind_shared(
     data: &DataSource,
     lib: &dyn ControlLibrary,
 ) -> ResolvedControl {
+    bind_reporting(root, data, lib).0
+}
+
+/// [`bind_shared`] plus what the binder skipped: factory roles with no control
+/// and factory or grid templates that did not resolve.
+pub fn bind_reporting(
+    root: &Arc<ResolvedControl>,
+    data: &DataSource,
+    lib: &dyn ControlLibrary,
+) -> (ResolvedControl, Vec<String>) {
     let mut binder = Binder {
         data,
         lib,
@@ -95,7 +105,8 @@ pub fn bind_shared(
             break;
         }
     }
-    binder.bake(&node)
+    let baked = binder.bake(&node);
+    (baked, binder.diagnostics)
 }
 
 /// Rounds of settling views then building the subtrees they revealed.

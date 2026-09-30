@@ -53,21 +53,9 @@ const JOIN_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
-/// The desktop context plus the globals a retail, full-game, non-edu client
-/// computes in code (`VanillaSceneFactory::createGlobalVars`).
+/// The retail desktop context for this build's platform.
 pub(super) fn retail_context() -> Context {
-    Context::desktop()
-        .with_flag("win10_edition", !cfg!(target_os = "macos"))
-        .with_flag("osx_edition", cfg!(target_os = "macos"))
-        .with_flag("pocket_edition", false)
-        .with_flag("console_edition", false)
-        .with_flag("trial", false)
-        .with_flag("education_edition", false)
-        .with_flag("store_disabled", false)
-        .with_flag("is_ios", false)
-        .with_flag("nx_os", false)
-        .with_flag("is_ps4", false)
-        .with_flag("is_publish", true)
+    Context::retail(cfg!(target_os = "macos"))
 }
 
 /// `StartMenuScreenController::addStaticScreenVars` for a full-game, non-edu

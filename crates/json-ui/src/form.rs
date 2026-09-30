@@ -145,8 +145,9 @@ const CUSTOM_FORM: &str = "server_form.custom_form";
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 const FORM_SCREEN: (&str, &str) = ("server_form", "third_party_server_screen");
 
-/// The `server_form_factory` id the screen controller selects for a model.
-fn factory_id(model: &FormModel) -> Option<&'static str> {
+/// The `server_form_factory` id the screen controller selects for a model; a
+/// modal form opens the popup instead.
+pub fn form_factory_id(model: &FormModel) -> Option<&'static str> {
     match model {
         FormModel::Action(_) => Some("long_form"),
         FormModel::Custom(_) => Some("custom_form"),
@@ -461,7 +462,7 @@ pub fn bind_form(
     let mut data = form_data_source(model);
     // Action and custom forms open through the screen's content factory, so a
     // pack's screen override applies; the bare template is the fallback.
-    let routed = factory_id(model).and_then(|id| {
+    let routed = form_factory_id(model).and_then(|id| {
         let content = screen_content(catalog)?;
         let root = resolve(catalog, &content, &context).control?;
         data.set_factory_id(id);
