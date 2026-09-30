@@ -13,7 +13,9 @@ use protocol::{ActorUseAction, ActorUseRequest, BedrockSession, PlayerInputMode,
 use semantic_input::Action;
 
 use crate::{
-    interaction_authority::observe_block,
+    interaction_authority::{
+        BlockRayUnavailable, MAX_PENDING_INTERACTION_FRAMES, observe_block_ray,
+    },
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     mining::{
@@ -241,6 +243,8 @@ pub(crate) struct MeleeRuntime {
     actor_in_front: bool,
     last_attack_millis: Option<u64>,
     position_authority: Option<(u64, u64)>,
+    /// Input frame at which a latched press first waited on block evidence.
+    deferred_since: Option<u64>,
 }
 
 impl MeleeRuntime {
@@ -280,6 +284,18 @@ impl MeleeRuntime {
     pub(crate) fn cancel(&mut self) {
         self.latched_press = false;
         self.actor_in_front = false;
+        self.deferred_since = None;
+    }
+
+    /// Holds a latched press while block evidence is unavailable, for a bounded number of frames.
+    pub(crate) fn defer(&mut self, input_frame: u64) {
+        if !self.latched_press {
+            return;
+        }
+        let since = *self.deferred_since.get_or_insert(input_frame);
+        if input_frame.saturating_sub(since) > MAX_PENDING_INTERACTION_FRAMES {
+            self.cancel();
+        }
     }
 
     /// Resolves at most one latched press into packets; a held button never re-attacks.
@@ -290,6 +306,7 @@ impl MeleeRuntime {
         swings: &mut SwingTracker,
     ) -> MeleeOutcome {
         self.observe_crosshair(crosshair);
+        self.deferred_since = None;
         let mut outcome = MeleeOutcome::default();
         if !std::mem::take(&mut self.latched_press) {
             return outcome;
@@ -378,7 +395,7 @@ pub(crate) fn produce_melee(
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
-    let (Some(crosshair), Some(stream)) = (
+    let (Some(observation), Some(stream)) = (
         resolve_crosshair(
             &context,
             input_mode,
@@ -390,6 +407,11 @@ pub(crate) fn produce_melee(
         context.client_world.stream.as_ref(),
     ) else {
         runtime.cancel();
+        return;
+    };
+    // Unverified occlusion never admits an attack; the press waits for fresh evidence.
+    let Ok(crosshair) = observation else {
+        runtime.defer(input.frame_sequence);
         return;
     };
     runtime.observe_crosshair(crosshair);
@@ -422,7 +444,7 @@ fn resolve_crosshair(
     creative_pick_reach: bool,
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
-) -> Option<Crosshair> {
+) -> Option<Result<Crosshair, BlockRayUnavailable>> {
     let ray = context.origin.outbound_ray()?;
     let stream = context.client_world.stream.as_ref()?;
     if ray.session_generation() != context.ui.session_id()
@@ -436,33 +458,35 @@ fn resolve_crosshair(
         survival_reach(input_mode)
     };
     let origin = ray.origin().to_array();
-    let block_distance = hand_interaction_selection(&context.ui)
-        .and_then(|selection| {
-            observe_block(
-                &context.origin,
-                &context.ui,
-                &context.client_world,
-                &context.collisions,
-                selection,
-                (
-                    input_mode,
-                    reach,
-                    input_authority,
-                    position_authority_generation,
-                ),
-            )
-        })
-        .map(|observed| {
-            let hit = observed.target.position;
-            let offset = observed.target.relative_hit;
-            (0..3)
-                .map(|axis| {
-                    (f64::from(hit[axis]) + f64::from(offset[axis]) - f64::from(origin[axis]))
-                        .powi(2)
-                })
-                .sum::<f64>()
-                .sqrt()
-        });
+    let Some(selection) = hand_interaction_selection(&context.ui) else {
+        return Some(Err(BlockRayUnavailable));
+    };
+    let observed = match observe_block_ray(
+        &context.origin,
+        &context.ui,
+        &context.client_world,
+        &context.collisions,
+        selection,
+        (
+            input_mode,
+            reach,
+            input_authority,
+            position_authority_generation,
+        ),
+    ) {
+        Ok(observed) => observed,
+        Err(unavailable) => return Some(Err(unavailable)),
+    };
+    let block_distance = observed.map(|observed| {
+        let hit = observed.target.position;
+        let offset = observed.target.relative_hit;
+        (0..3)
+            .map(|axis| {
+                (f64::from(hit[axis]) + f64::from(offset[axis]) - f64::from(origin[axis])).powi(2)
+            })
+            .sum::<f64>()
+            .sqrt()
+    });
     let actor = pick_actor(
         stream.remote_actors(),
         context.ui.gameplay_hud().mount_unique_id(),
@@ -470,7 +494,7 @@ fn resolve_crosshair(
         ray.direction().to_array(),
         reach,
     );
-    Some(classify(actor, block_distance, attack_reach))
+    Some(Ok(classify(actor, block_distance, attack_reach)))
 }
 
 #[cfg(test)]
