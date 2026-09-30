@@ -103,6 +103,13 @@ impl Harness {
         }
     }
 
+    fn for_tests() -> Self {
+        Self {
+            frame_sleep: Duration::from_millis(1),
+            ..Self::new(8, 1)
+        }
+    }
+
     fn push_column(&mut self, column: ChunkKey) {
         self.wire.push_back(WorldEvent::LevelChunk(LevelChunkEvent {
             dimension: 0,
@@ -111,6 +118,24 @@ impl Harness {
             mode: LevelChunkMode::LimitedRequests { highest: 10 },
             payload: biome_payload(0, 1),
         }));
+    }
+
+    fn publications(&self, key: SubChunkKey) -> Vec<&ChunkMesh> {
+        self.log
+            .iter()
+            .filter(|published| published.key == key)
+            .filter_map(|published| published.mesh.as_ref())
+            .collect()
+    }
+
+    fn step_until(&mut self, done: impl Fn(&Self) -> bool) {
+        for _ in 0..MAX_FRAMES {
+            if done(self) {
+                return;
+            }
+            self.step();
+        }
+        panic!("condition not reached within {MAX_FRAMES} frames");
     }
 
     /// Queues the server's view announcement and every column around `center`, nearest first.
@@ -467,6 +492,45 @@ fn streaming_harness_reports_teleport_and_resend() {
             "a re-send of the same area must not drop presented meshes"
         );
     }
+}
+
+fn island(chunk: ChunkKey) -> SubChunkKey {
+    SubChunkKey::from_chunk(chunk, 4)
+}
+
+/// Steps past the quiet-stream grace so unannounced neighbours stop being due.
+fn step_past_quiet_grace(harness: &mut Harness) {
+    let quiet_since = Instant::now();
+    harness.step_until(|_| quiet_since.elapsed() > UNSENT_COLUMN_GRACE + FRAME);
+}
+
+#[test]
+fn mesh_waits_for_a_requested_neighbour_and_publishes_once() {
+    let (a, b) = (ChunkKey::new(0, 0, 0), ChunkKey::new(0, 1, 0));
+    let mut harness = Harness::for_tests();
+    harness.withheld.insert(b);
+    harness.push_column(a);
+    harness.push_column(b);
+    harness.step_until(|harness| harness.stream.light_is_current(island(a)));
+    step_past_quiet_grace(&mut harness);
+    assert!(harness.publications(island(a)).is_empty());
+
+    harness.withheld.clear();
+    harness.step_until(|harness| harness.idle());
+    assert_eq!(harness.publications(island(a)).len(), 1);
+}
+
+#[test]
+fn late_neighbour_rebuilds_the_published_mesh() {
+    let (a, b) = (ChunkKey::new(0, 0, 0), ChunkKey::new(0, 1, 0));
+    let mut harness = Harness::for_tests();
+    harness.push_column(a);
+    harness.step_until(|harness| !harness.publications(island(a)).is_empty());
+    let walled = harness.publications(island(a))[0].cube_quads().len();
+
+    harness.push_column(b);
+    harness.step_until(|harness| harness.publications(island(a)).len() == 2);
+    assert!(harness.publications(island(a))[1].cube_quads().len() < walled);
 }
 
 #[test]

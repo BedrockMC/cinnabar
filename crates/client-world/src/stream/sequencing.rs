@@ -95,6 +95,7 @@ impl WorldStream {
                 // above and the submit-time supported-dimension
                 // admission.
                 self.record_required_level_chunk(&event);
+                self.last_column_arrival = Some(Instant::now());
                 let range = vanilla_dimension_range(event.dimension)
                     .expect("inline events are range-checked before decode");
                 let stored_keys = decoded
@@ -294,7 +295,9 @@ impl WorldStream {
                     }
                 }
                 if committed_any {
-                    self.stats.last_chunk_commit_at = Some(Instant::now());
+                    let now = Instant::now();
+                    self.stats.last_chunk_commit_at = Some(now);
+                    self.last_column_arrival = Some(now);
                 }
             }
             PreparedWorldEvent::BlockUpdates { result, duration } => {
@@ -840,6 +843,7 @@ impl WorldStream {
             return;
         };
         self.record_required_level_chunk(&event);
+        self.last_column_arrival = Some(Instant::now());
         let (count, has_authoritative_upper_air) = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
                 (usize::from(highest).min(range.sub_chunk_count), true)
