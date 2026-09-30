@@ -73,7 +73,10 @@ impl MenuRuntime {
         if let Some(realms) = control.realms() {
             self.realms = realms;
         }
-        if let Some(friends) = control.friends() {
+        if let Some(mut friends) = control.friends() {
+            // The friends service can list one session twice; show each host's world once.
+            let mut seen = std::collections::HashSet::new();
+            friends.retain(|friend| seen.insert((friend.xuid.clone(), friend.world_name.clone())));
             self.friends = friends;
         }
         if let Some(featured) = control.featured() {
@@ -106,11 +109,13 @@ impl MenuRuntime {
             self.feeds.home = home;
         }
         let targets = if self.visible && !self.connecting {
+            let mut seen = std::collections::HashSet::new();
             self.featured
                 .iter()
                 .chain(self.gatherings.iter())
                 .map(|server| server.address.clone())
                 .chain(self.servers.iter().map(|server| server.address.clone()))
+                .filter(|address| !address.is_empty() && seen.insert(address.clone()))
                 .collect()
         } else {
             Vec::new()

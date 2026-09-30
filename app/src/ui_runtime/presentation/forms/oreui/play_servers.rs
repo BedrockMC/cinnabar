@@ -11,7 +11,7 @@ use super::super::play_screen::play_featured;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECTION_HEADER, TEXT, TEXT_DIMMER};
-use super::widgets::{Variant, button, divider, row, section_label, side_menu};
+use super::widgets::{Variant, button, divider, row, row_text, section_label, side_menu};
 use crate::menu::{MenuAction, MenuServerCard, MenuView, PingInfo};
 
 pub(super) fn draw(
@@ -81,21 +81,12 @@ pub(super) fn draw(
         }
         let text_left = logo_bounds[2] + canvas.r(0.8);
         let text_width = bounds[2] - pad - text_left;
-        canvas.text(
+        row_text(
+            canvas,
+            [text_left, y],
+            text_width,
             &server.name,
-            [text_left, y + canvas.r(0.2)],
-            text_width,
-            BODY,
-            TEXT,
-            false,
-        )?;
-        canvas.text(
             &server.caption,
-            [text_left, y + canvas.r(2.4)],
-            text_width,
-            CAPTION,
-            TEXT_DIMMER,
-            false,
         )?;
         y += item_height;
     }
@@ -123,21 +114,12 @@ pub(super) fn draw(
             Some(MenuAction::SelectSaved(index)),
         )?;
         let text_width = bounds[2] - bounds[0] - pad * 2.0;
-        canvas.text(
+        row_text(
+            canvas,
+            [bounds[0] + pad, y],
+            text_width,
             &server.name,
-            [bounds[0] + pad, y + canvas.r(0.2)],
-            text_width,
-            BODY,
-            TEXT,
-            false,
-        )?;
-        canvas.text(
             &server.address,
-            [bounds[0] + pad, y + canvas.r(2.4)],
-            text_width,
-            CAPTION,
-            TEXT_DIMMER,
-            false,
         )?;
         y += item_height;
     }
