@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
@@ -30,17 +31,26 @@ func TestServePinsLocalProtocol(t *testing.T) {
 	if !output.waitFor(ctx, "listener ready; waiting for local Rust client") {
 		t.Fatalf("listener was not ready: %s", output.String())
 	}
-	// Both a newer protocol and an older same-ID version must fail before dialing upstream.
-	for _, unsupported := range []minecraft.Protocol{minecraft.Protocol12640(), minecraft.DefaultProtocol} {
+	// Other game versions sharing the pinned protocol ID must fail before dialing upstream: older ones in
+	// gophertunnel's same-ID selection, newer ones in the local pin.
+	for _, unsupported := range []struct {
+		version  string
+		rejected func(error) bool
+	}{
+		{"1.26.49", func(err error) bool { return err != nil && strings.Contains(err.Error(), "outdated") }},
+		{"1.26.51", func(err error) bool {
+			return err != nil && output.waitFor(ctx, "unsupported local protocol") && output.waitFor(ctx, "version=1.26.51")
+		}},
+	} {
 		conn, err := (minecraft.Dialer{
-			Protocol:     unsupported,
+			Protocol:     minecraft.BasicProtocol{Protocol: protocol.CurrentProtocol, Version: unsupported.version},
 			IdentityData: login.IdentityData{DisplayName: "Unsupported"},
 		}).DialContextNetwork(ctx, streamnet.New(dir), "")
 		if conn != nil {
 			_ = conn.Close()
 		}
-		if err == nil || !strings.Contains(output.String(), "unsupported local protocol") || !strings.Contains(output.String(), "version="+unsupported.Ver()) {
-			t.Fatalf("protocol %s error = %v, want local protocol rejection", unsupported.Ver(), err)
+		if !unsupported.rejected(err) {
+			t.Fatalf("protocol %s error = %v, want local protocol rejection: %s", unsupported.version, err, output.String())
 		}
 		select {
 		case err := <-done:
@@ -50,7 +60,7 @@ func TestServePinsLocalProtocol(t *testing.T) {
 	}
 	// The supported client reaches upstream preparation, whose deliberate address error is observable.
 	conn, err := (minecraft.Dialer{
-		Protocol:     minecraft.Protocol12644(),
+		Protocol:     minecraft.DefaultProtocol,
 		IdentityData: login.IdentityData{DisplayName: "PinnedProtocol"},
 	}).DialContextNetwork(ctx, streamnet.New(dir), "")
 	if conn != nil {

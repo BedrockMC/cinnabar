@@ -241,7 +241,7 @@ func gathering(experience *gatherings.Experience) Gathering {
 func screenshots(item playfabcatalog.Item) []Image {
 	result := []Image{}
 	for _, image := range item.Images {
-		if image.Type == playfabcatalog.ImageTypeScreenshot && validArtworkURL(image.URL) {
+		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeScreenshot) && validArtworkURL(image.URL) {
 			result = append(result, Image{URL: image.URL})
 		}
 	}
