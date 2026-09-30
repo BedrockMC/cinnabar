@@ -495,9 +495,61 @@ fn build_layout(
     let mut x_64 = 0i64;
     let mut maximum_width_64 = 0i64;
 
-    for span in spans.iter() {
-        for codepoint in span.text.chars() {
-            if codepoint == '\n' {
+    // Lines break at the last space that fits, as the vanilla font does, and
+    // mid-word only when a single word is wider than the line.
+    let characters: Vec<(char, _)> = spans
+        .iter()
+        .flat_map(|span| {
+            span.text
+                .chars()
+                .map(move |codepoint| (codepoint, span.style))
+        })
+        .collect();
+    let mut space: Option<WrapPoint> = None;
+    let mut index = 0usize;
+    while let Some(&(codepoint, style)) = characters.get(index) {
+        index += 1;
+        if codepoint == '\n' {
+            maximum_width_64 = maximum_width_64.max(finish_line(
+                &mut glyphs,
+                line_start,
+                line_min_64,
+                line_max_64,
+            )?);
+            line = next_line(line)?;
+            line_start = glyphs.len();
+            line_min_64 = 0;
+            line_max_64 = 0;
+            x_64 = 0;
+            space = None;
+            continue;
+        }
+        if invisible::is_invisible(codepoint) {
+            continue;
+        }
+
+        let (resolved_codepoint, metrics) = resolve_glyph(request.font, codepoint)?;
+        let draw_size_64 = request.font.draw_size_64(resolved_codepoint);
+        let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
+        let mut candidate = line_candidate(
+            metrics,
+            draw_size_64,
+            x_64,
+            line,
+            line_height_64,
+            baseline_64,
+            scale_1024,
+            line_min_64,
+            line_max_64,
+            advance_64,
+        )?;
+        if glyphs.len() > line_start && candidate.width_64 > u64::from(request.width_64) {
+            if let Some(point) = space.take().filter(|point| point.glyphs > line_start) {
+                // Drop the space and the partial word; the word restarts the next line.
+                glyphs.truncate(point.glyphs);
+                line_min_64 = point.min_64;
+                line_max_64 = point.max_64;
+                index = point.resume;
                 maximum_width_64 = maximum_width_64.max(finish_line(
                     &mut glyphs,
                     line_start,
@@ -511,14 +563,18 @@ fn build_layout(
                 x_64 = 0;
                 continue;
             }
-            if invisible::is_invisible(codepoint) {
-                continue;
-            }
-
-            let (resolved_codepoint, metrics) = resolve_glyph(request.font, codepoint)?;
-            let draw_size_64 = request.font.draw_size_64(resolved_codepoint);
-            let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
-            let mut candidate = line_candidate(
+            maximum_width_64 = maximum_width_64.max(finish_line(
+                &mut glyphs,
+                line_start,
+                line_min_64,
+                line_max_64,
+            )?);
+            line = next_line(line)?;
+            line_start = glyphs.len();
+            line_min_64 = 0;
+            line_max_64 = 0;
+            x_64 = 0;
+            candidate = line_candidate(
                 metrics,
                 draw_size_64,
                 x_64,
@@ -530,51 +586,34 @@ fn build_layout(
                 line_max_64,
                 advance_64,
             )?;
-            if glyphs.len() > line_start && candidate.width_64 > u64::from(request.width_64) {
-                maximum_width_64 = maximum_width_64.max(finish_line(
-                    &mut glyphs,
-                    line_start,
-                    line_min_64,
-                    line_max_64,
-                )?);
-                line = next_line(line)?;
-                line_start = glyphs.len();
-                line_min_64 = 0;
-                line_max_64 = 0;
-                x_64 = 0;
-                candidate = line_candidate(
-                    metrics,
-                    draw_size_64,
-                    x_64,
-                    line,
-                    line_height_64,
-                    baseline_64,
-                    scale_1024,
-                    line_min_64,
-                    line_max_64,
-                    advance_64,
-                )?;
-            }
-            if candidate.width_64 > u64::from(request.width_64) {
-                return Err(TextError::VisualWidthExceeded {
-                    actual_64: candidate.width_64,
-                    limit_64: u64::from(request.width_64),
-                });
-            }
-
-            glyphs.push(GlyphQuad {
-                codepoint,
-                resolved_codepoint,
-                page: metrics.page,
-                uv: metrics.uv,
-                bounds_64: candidate.bounds_64,
-                line: u16::try_from(line).map_err(|_| TextError::FixedPointOverflow)?,
-                style: span.style,
-            });
-            x_64 = candidate.pen_end_64;
-            line_min_64 = candidate.min_64;
-            line_max_64 = candidate.max_64;
         }
+        if candidate.width_64 > u64::from(request.width_64) {
+            return Err(TextError::VisualWidthExceeded {
+                actual_64: candidate.width_64,
+                limit_64: u64::from(request.width_64),
+            });
+        }
+        if codepoint == ' ' {
+            space = Some(WrapPoint {
+                glyphs: glyphs.len(),
+                resume: index,
+                min_64: line_min_64,
+                max_64: line_max_64,
+            });
+        }
+
+        glyphs.push(GlyphQuad {
+            codepoint,
+            resolved_codepoint,
+            page: metrics.page,
+            uv: metrics.uv,
+            bounds_64: candidate.bounds_64,
+            line: u16::try_from(line).map_err(|_| TextError::FixedPointOverflow)?,
+            style,
+        });
+        x_64 = candidate.pen_end_64;
+        line_min_64 = candidate.min_64;
+        line_max_64 = candidate.max_64;
     }
     maximum_width_64 = maximum_width_64.max(finish_line(
         &mut glyphs,
@@ -602,6 +641,15 @@ fn build_layout(
         line_count: u16::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?,
         size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
     })
+}
+
+/// Where a line may break: the space's glyph index, the character after it,
+/// and the line's extent before the space.
+struct WrapPoint {
+    glyphs: usize,
+    resume: usize,
+    min_64: i64,
+    max_64: i64,
 }
 
 struct LineCandidate {
