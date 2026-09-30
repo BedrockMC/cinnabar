@@ -30,11 +30,6 @@ use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
-/// Player preview height relative to its renderer box (needs native measurement).
-const PREVIEW_BOX_SCALE: f32 = 2.2;
-/// Paper-doll preview height relative to its box, fitted to a 1.26.50 capture
-/// (needs native measurement).
-const PAPER_DOLL_BOX_SCALE: f32 = 0.9;
 /// Tooltip placement relative to the pointer and its padding, in virtual px
 /// (needs native measurement).
 const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
@@ -691,39 +686,8 @@ impl Painter<'_> {
                     dest,
                 ))
             }
-            // The live model is approximated by the cached preview raster, kept at
-            // its aspect and scaled to the renderer's box (needs native measurement).
             "live_player_renderer" | "paper_doll_renderer" => {
-                let preview = self.art.preview?;
-                let w = f32::from(preview.uv[2].saturating_sub(preview.uv[0]));
-                let h = f32::from(preview.uv[3].saturating_sub(preview.uv[1]));
-                if w <= 0.0 || h <= 0.0 {
-                    return None;
-                }
-                // The start screen's doll stands on its box's floor; the inventory's
-                // overflows its box.
-                let (height, top) = if renderer == "paper_doll_renderer" {
-                    let height = (dest[3] - dest[1]) * PAPER_DOLL_BOX_SCALE;
-                    (height, dest[3] - height)
-                } else {
-                    let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
-                    (height, (dest[1] + dest[3]) * 0.5 - height * 0.25)
-                };
-                let width = height * w / h;
-                let centre = (dest[0] + dest[2]) * 0.5;
-                Some((
-                    UiVisual::Sprite {
-                        texture_page: preview.page,
-                        uv: preview.uv,
-                        color: alpha([255; 4]),
-                    },
-                    [
-                        centre - width * 0.5,
-                        top,
-                        centre + width * 0.5,
-                        top + height,
-                    ],
-                ))
+                self.player_preview(renderer == "paper_doll_renderer", dest, &alpha)
             }
             "splash_text_renderer" => {
                 self.splash(dest, &alpha);

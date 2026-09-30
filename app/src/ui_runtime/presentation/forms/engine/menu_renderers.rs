@@ -1,5 +1,5 @@
-//! The start screen's code-drawn controls: the title splash and the paper
-//! doll's name tag, after `SplashTextRenderer` and `NameTagRenderer`.
+//! The menus' code-drawn controls: the title splash, the paper doll and its
+//! name tag, after `SplashTextRenderer`, `PaperDollRenderer` and `NameTagRenderer`.
 
 use std::{
     collections::BTreeMap,
@@ -21,6 +21,11 @@ const SPLASH_COLOR: [u8; 4] = [255, 255, 0, 255];
 const SPLASH_LINE_CHARS: usize = 20;
 /// Font line height the renderer's geometry is written against, in GUI px.
 const LINE_HEIGHT: f32 = 8.0;
+/// Player preview height relative to its renderer box (needs native measurement).
+const PREVIEW_BOX_SCALE: f32 = 2.2;
+/// Paper-doll preview height relative to its box, fitted to a 1.26.50 capture
+/// (needs native measurement).
+const PAPER_DOLL_BOX_SCALE: f32 = 0.9;
 /// Name tag backing (needs native measurement; world tags use 25% black).
 const NAME_TAG_BACKGROUND: [u8; 4] = [0, 0, 0, 64];
 
@@ -73,6 +78,45 @@ fn split_sentence(text: &str, limit: usize) -> (&str, Option<&str>) {
 }
 
 impl Painter<'_> {
+    /// The cached preview raster standing in for the live model, kept at its
+    /// aspect: a paper doll stands on its box's floor, the inventory's
+    /// overflows its box.
+    pub(super) fn player_preview(
+        &self,
+        paper_doll: bool,
+        dest: [f32; 4],
+        alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let preview = self.art.preview?;
+        let w = f32::from(preview.uv[2].saturating_sub(preview.uv[0]));
+        let h = f32::from(preview.uv[3].saturating_sub(preview.uv[1]));
+        if w <= 0.0 || h <= 0.0 {
+            return None;
+        }
+        let (height, top) = if paper_doll {
+            let height = (dest[3] - dest[1]) * PAPER_DOLL_BOX_SCALE;
+            (height, dest[3] - height)
+        } else {
+            let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
+            (height, (dest[1] + dest[3]) * 0.5 - height * 0.25)
+        };
+        let width = height * w / h;
+        let centre = (dest[0] + dest[2]) * 0.5;
+        Some((
+            UiVisual::Sprite {
+                texture_page: preview.page,
+                uv: preview.uv,
+                color: alpha([255; 4]),
+            },
+            [
+                centre - width * 0.5,
+                top,
+                centre + width * 0.5,
+                top + height,
+            ],
+        ))
+    }
+
     /// Yellow text tilted up to the right around the control's position,
     /// pulsing up to 4% larger and shrunk to stay below the top of the screen.
     pub(super) fn splash(
