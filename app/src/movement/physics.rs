@@ -18,7 +18,10 @@ use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
 use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
+/// Retained prediction window until StartGame supplies `RewindHistorySize`.
 const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
+/// Vanilla's ceiling on StartGame `RewindHistorySize`.
+const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
 /// Maximum fixed simulation ticks allowed in one render frame.
 ///
@@ -267,6 +270,18 @@ impl LocalPhysicsController {
         self.state.is_some()
     }
 
+    /// Sizes the retained window from StartGame `RewindHistorySize` as vanilla's
+    /// entity initializer does: its low 16 bits, zero as one, capped at 1000.
+    /// Takes effect at the next reanchor.
+    pub fn set_rewind_history_size(&mut self, size: i32) {
+        self.history_capacity = usize::from((size as u16).clamp(1, MAX_REWIND_HISTORY_SIZE));
+    }
+
+    #[must_use]
+    pub const fn history_capacity(&self) -> usize {
+        self.history_capacity
+    }
+
     pub fn deactivate(&mut self) {
         self.state = None;
         self.accumulated_seconds = 0.0;
@@ -281,7 +296,7 @@ impl LocalPhysicsController {
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.anchor_state.reset();
-        self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
+        self.history = PredictionHistory::new(self.history_capacity)
             .expect("local physics history capacity is non-zero");
     }
 
@@ -331,7 +346,7 @@ impl LocalPhysicsController {
         // position is probed before its first simulated tick, and any prior
         // failure budget or frozen embedded-anchor hold is replaced.
         self.anchor_state.note_hard_anchor();
-        self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
+        self.history = PredictionHistory::new(self.history_capacity)
             .expect("local physics history capacity is non-zero");
     }
 
@@ -604,7 +619,7 @@ impl LocalPhysicsController {
                     if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
                         sample.movement = delta;
                     }
-                    if self.sample_history.len() == LOCAL_PHYSICS_HISTORY_CAPACITY {
+                    while self.sample_history.len() >= self.history_capacity {
                         self.sample_history.pop_front();
                     }
                     self.sample_history.push_back(

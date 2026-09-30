@@ -289,6 +289,7 @@ pub(crate) fn receive_network_events(
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
                 server_authoritative_block_breaking,
+                rewind_history_size,
                 hardcore,
                 hud_rules,
                 packs,
@@ -466,6 +467,7 @@ pub(crate) fn receive_network_events(
                     &mut avatar,
                 );
                 movement.set_source(MovementSource::FreeCamera);
+                local_physics.set_rewind_history_size(rewind_history_size);
                 reset_start_game_prediction(
                     &mut movement,
                     &mut local_physics,
