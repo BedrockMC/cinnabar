@@ -42,8 +42,8 @@ pub use rig::{
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
     IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
     MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, pack_equipment_rig_id,
-    pack_overlay_rgba8, pack_rig_id, skin_rig_id,
+    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, layer_geometry_rig_id,
+    pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skin_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,

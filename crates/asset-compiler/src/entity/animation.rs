@@ -144,6 +144,8 @@ pub(super) fn compile(
                     {
                         geometries.extend(selectable.iter().map(|candidate| candidate.geometry));
                     }
+                    // Every render controller poses its own model with the actor's clips.
+                    geometries.extend(environment.alias_geometries.iter().copied());
                 }
                 geometries
             })
@@ -177,7 +179,7 @@ pub(super) fn compile(
                 symbol,
                 source,
                 definition,
-                &effective_bones[geometry as usize],
+                (geometry, &effective_bones[geometry as usize]),
                 ClipOutputs {
                     clips: &mut clips,
                     channels: &mut channels,
@@ -188,13 +190,6 @@ pub(super) fn compile(
                 Ok((clip, dropped)) => {
                     partial |= dropped > 0;
                     clip_indices.insert((identifier.into(), geometry), clip);
-                }
-                Err(ClipCompileError::UnknownBone) => {
-                    outcomes.push(fallback(
-                        source,
-                        symbol,
-                        FallbackReason::UnsupportedGeometryBinding,
-                    ));
                 }
                 Err(ClipCompileError::Invalid(error)) => return Err(error),
             }

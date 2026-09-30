@@ -276,11 +276,26 @@ pub(super) fn evaluate_state(
     let render = super::render::evaluate_render(
         &evaluator,
         &mut variables,
-        state.rig_binding,
-        state.posed_bone_names(),
+        super::render::RenderRig {
+            binding: state.rig_binding,
+            geometry: candidate.geometry,
+            bone_names: state.posed_bone_names(),
+            skeletons: &state.layer_skeletons,
+        },
         budget,
     )
-    .ok();
+    .ok()
+    .map(|mut layers| {
+        super::render::pose_layers(
+            &evaluator,
+            &variables,
+            &state.layer_skeletons,
+            &weighted_clips,
+            &mut layers,
+            budget,
+        );
+        layers
+    });
     Ok(EvaluatedState {
         pose,
         render,

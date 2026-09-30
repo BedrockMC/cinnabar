@@ -513,6 +513,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             channel_count: 1,
             source: 1,
             override_previous: false,
+            geometry: None,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -664,6 +665,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 overlay_color: None,
                 on_fire_color: None,
                 uv_anim: None,
+                first_geometry: 0,
+                geometry_count: 0,
             }]),
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,
@@ -677,6 +680,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 pattern: "root".into(),
                 condition: 0,
             }]),
+            geometries: Box::new([]),
         },
     }
 }

@@ -410,6 +410,10 @@ impl ActorArtworkPages {
         } else {
             &self.entity_locations
         };
+        // A controller's own geometry draws any entity texture of its catalog.
+        if super::rig::is_layer_geometry_rig_id(rig) {
+            return variants.contains(&(location.page, location.layer));
+        }
         match self.route(rig) {
             Some(route) => {
                 route == location

@@ -263,6 +263,66 @@ fn build_artwork(
                 pose_mode: assets::ActorPoseMode::CompiledLiteral,
             });
         }
+        // Controllers drawing their own geometry sample rasters sized for that geometry.
+        let layer_sizes: Vec<(u16, u16)> = layers
+            .iter()
+            .flat_map(|layer| {
+                render.geometries[layer.first_geometry as usize..]
+                    [..usize::from(layer.geometry_count)]
+                    .iter()
+            })
+            .filter(|choice| {
+                lenient
+                    || neutral_actor_geometry_uvs_are_supported(
+                        &entities.geometries,
+                        choice.geometry as usize,
+                    )
+            })
+            .map(|choice| {
+                let geometry = &entities.geometries[choice.geometry as usize];
+                (geometry.texture_width, geometry.texture_height)
+            })
+            .collect();
+        if layer_sizes.is_empty() {
+            continue;
+        }
+        for &source in &sources {
+            if table.contains_key(&source)
+                || (!lenient
+                    && !entities.sources[source as usize]
+                        .path
+                        .starts_with("textures/entity/"))
+            {
+                continue;
+            }
+            if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
+                let path = entities.sources[source as usize].path.as_ref();
+                slot.insert(decode_raster(path, &read(source)?, !lenient));
+            }
+            let Some(raster) = decoded[&source].as_ref() else {
+                continue;
+            };
+            if !lenient && !layer_sizes.contains(&(raster.width, raster.height)) {
+                continue;
+            }
+            if textures.len() == MAX_ACTOR_TEXTURES
+                || pixel_bytes
+                    .checked_add(raster.pixels.len())
+                    .is_none_or(|total| total > MAX_ACTOR_PIXEL_BYTES)
+            {
+                reject(&mut fallbacks, "texture_budget");
+                continue;
+            }
+            pixel_bytes += raster.pixels.len();
+            textures.push(ActorTexture {
+                source,
+                width: raster.width,
+                height: raster.height,
+                pixel_sha256: Sha256::digest(&raster.pixels).into(),
+                rgba8: Arc::from(raster.pixels.as_slice()),
+            });
+            table.insert(source, textures.len() - 1);
+        }
     }
     Ok(ArtworkBuild {
         textures,

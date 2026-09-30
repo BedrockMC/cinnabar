@@ -30,8 +30,26 @@ pub struct EntityRenderLayer {
     pub overlay_color: Option<[u32; 4]>,
     pub on_fire_color: Option<[u32; 4]>,
     /// `uv_anim` `[offset u, offset v, scale u, scale v]` expressions; absent is identity.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uv_anim: Option<[u32; 4]>,
+    /// The controller's `geometry` choices; none draws with the rig's own geometry.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub first_geometry: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub geometry_count: u16,
+}
+
+fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
+/// One leaf of a controller's `geometry` expression: the first whose condition holds is drawn.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityRenderGeometry {
+    pub condition: Option<u32>,
+    /// Index into the catalog geometries.
+    pub geometry: u32,
 }
 
 /// One authored `textures` entry: the first candidate whose condition holds is drawn.
@@ -67,6 +85,8 @@ pub struct EntityRenderData {
     pub slots: Box<[EntityRenderSlot]>,
     pub candidates: Box<[EntityRenderCandidate]>,
     pub visibility: Box<[EntityRenderVisibility]>,
+    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    pub geometries: Box<[EntityRenderGeometry]>,
 }
 
 pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
@@ -104,6 +124,11 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             || !colors_valid(&layer.overlay_color)
             || !colors_valid(&layer.on_fire_color)
             || !colors_valid(&layer.uv_anim)
+            || !range_in_bounds(
+                layer.first_geometry,
+                u32::from(layer.geometry_count),
+                render.geometries.len(),
+            )
         {
             return Err(invalid("entity render layer is invalid"));
         }
@@ -130,6 +155,13 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             });
         if !raster || candidate.condition.is_some_and(|index| !expression(index)) {
             return Err(invalid("entity render texture candidate is invalid"));
+        }
+    }
+    for choice in render.geometries.iter() {
+        if choice.geometry as usize >= compiled.geometries.len()
+            || choice.condition.is_some_and(|index| !expression(index))
+        {
+            return Err(invalid("entity render geometry choice is invalid"));
         }
     }
     for rule in render.visibility.iter() {
@@ -160,6 +192,14 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             .map(|layer| (layer.first_visibility, u32::from(layer.visibility_count))),
         render.visibility.len(),
         "render visibility",
+    )?;
+    validate_flattened_ranges(
+        render
+            .layers
+            .iter()
+            .map(|layer| (layer.first_geometry, u32::from(layer.geometry_count))),
+        render.geometries.len(),
+        "render geometry",
     )?;
     validate_flattened_ranges(
         render

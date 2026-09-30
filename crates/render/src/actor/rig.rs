@@ -46,6 +46,51 @@ pub const fn pack_equipment_rig_id(geometry_index: u32) -> EntityRigId {
     equipment_rig_id(assets::PACK_EQUIPMENT_INDEX_BASE + geometry_index)
 }
 
+/// Offset, inside the vanilla and the pack entity ranges, of render-controller layer geometry.
+const LAYER_GEOMETRY_ID_OFFSET: u32 = 0x2000_0000;
+
+/// Rig id of catalog geometry `geometry` drawn by a render controller of `body`'s entity.
+#[must_use]
+pub fn layer_geometry_rig_id(body: EntityRigId, geometry: u32) -> EntityRigId {
+    let base = if is_pack_rig_id(body) {
+        assets::PACK_RIG_ID_BASE
+    } else {
+        0
+    };
+    EntityRigId(base + LAYER_GEOMETRY_ID_OFFSET + geometry)
+}
+
+pub(crate) fn is_layer_geometry_rig_id(id: EntityRigId) -> bool {
+    let local = if is_pack_rig_id(id) {
+        id.0 - assets::PACK_RIG_ID_BASE
+    } else {
+        id.0
+    };
+    (LAYER_GEOMETRY_ID_OFFSET..assets::PACK_RIG_ID_BASE).contains(&local)
+}
+
+/// Every geometry the catalog's render controllers can draw, under layer ids of `body`'s range.
+pub(crate) fn layer_geometries(
+    assets: &RuntimeEntityAssets,
+    body: EntityRigId,
+) -> Vec<ActorRigGeometry> {
+    let mut indices: Vec<u32> = assets
+        .render_data()
+        .geometries
+        .iter()
+        .map(|choice| choice.geometry)
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    indices
+        .into_iter()
+        .filter_map(|index| {
+            geometry_from_geometry_index(assets, index as usize, layer_geometry_rig_id(body, index))
+                .ok()
+        })
+        .collect()
+}
+
 pub(crate) fn is_pack_equipment_rig_id(id: EntityRigId) -> bool {
     (EQUIPMENT_RIG_ID_BASE + assets::PACK_EQUIPMENT_INDEX_BASE..ITEM_MESH_RIG_ID_BASE)
         .contains(&id.0)
@@ -416,6 +461,7 @@ impl ActorRigFrameBuilder {
                 }
             }
         }
+        geometries.extend(layer_geometries(assets, EntityRigId(0)));
         Self::new(geometries)
     }
 
