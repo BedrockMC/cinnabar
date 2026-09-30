@@ -16,6 +16,7 @@ pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
 mod play_screen;
+mod recipe_book;
 mod remote_images;
 mod server_pack;
 mod sign_editor;
@@ -33,6 +34,7 @@ use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::E
 use assets::RuntimeUiAssets;
 pub(crate) use containers::{engine_panel_contains, engine_screen_for};
 pub(crate) use engine::hud_renderers;
+pub(crate) use recipe_book::recipe_book_shown;
 pub(crate) use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};

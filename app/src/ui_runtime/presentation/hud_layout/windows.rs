@@ -53,6 +53,8 @@ pub(crate) struct WindowIcons {
     pub(crate) book_button: Option<IconRef>,
     /// Whether a further recipe-book page exists.
     pub(crate) book_more: bool,
+    /// Icons of the engine-drawn recipe book's entries, in list order.
+    pub(crate) book_entries: Vec<Option<IconRef>>,
 }
 
 impl Default for WindowIcons {
@@ -69,6 +71,7 @@ impl Default for WindowIcons {
             book: [None; screens::BOOK_CELLS],
             book_button: None,
             book_more: false,
+            book_entries: Vec::new(),
         }
     }
 }

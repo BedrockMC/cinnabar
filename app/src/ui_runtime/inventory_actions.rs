@@ -1,7 +1,7 @@
 //! Dispatch of resolved inventory-screen gestures onto the ledger: cells,
 //! screen widgets, result cells and the creative catalog.
 
-use protocol::{CreativeItem, WindowKind};
+use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
@@ -30,8 +30,77 @@ pub(super) const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTar
         | InventoryCellHit::Widget(_)
         | InventoryCellHit::CreativeGrid(_)
         | InventoryCellHit::CreativeTab(_)
-        | InventoryCellHit::CreativeSearch => return None,
+        | InventoryCellHit::CreativeSearch
+        | InventoryCellHit::RecipeBook(_) => return None,
     })
+}
+
+/// One entry of the recipe book: a creative catalog item in creative, else a
+/// recipe the player can craft now.
+pub(crate) enum BookEntry<'a> {
+    Creative(&'a CreativeItem),
+    Recipe(RecipeHandle),
+}
+
+impl BookEntry<'_> {
+    /// The stack the entry shows.
+    pub(crate) fn stack(&self) -> NetworkItemStack {
+        match self {
+            Self::Creative(item) => item.stack.clone(),
+            Self::Recipe(recipe) => {
+                let output = recipe.output();
+                NetworkItemStack {
+                    network_id: output.network_id,
+                    metadata: u32::from(output.aux),
+                    count: u16::from(output.count),
+                    block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                    ..NetworkItemStack::empty()
+                }
+            }
+        }
+    }
+}
+
+/// What the engine-drawn recipe book lists on the current tab: the creative
+/// catalog in creative, else the craftable recipes whose output the catalog
+/// files under that tab (every one without a catalog), or matching the search.
+pub(crate) fn recipe_book_entries(runtime: &UiRuntime) -> Vec<BookEntry<'_>> {
+    let ledger = runtime.inventory_ledger();
+    let state = runtime.screen_state();
+    if runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
+        && ledger.creative_catalog().is_some()
+    {
+        return visible_creative_entries(ledger, state)
+            .into_iter()
+            .map(BookEntry::Creative)
+            .collect();
+    }
+    let shown: Vec<u32> = ledger
+        .creative_catalog()
+        .map(|catalog| {
+            creative_entries(catalog, state.creative_tab, &state.search, |item| {
+                item_name(ledger, item)
+            })
+            .iter()
+            .map(|item| item.stack.network_id as u32)
+            .collect()
+        })
+        .unwrap_or_default();
+    runtime
+        .book_recipes(0, usize::MAX)
+        .into_iter()
+        .filter(|recipe| {
+            ledger.creative_catalog().is_none()
+                || shown.contains(&(recipe.output().network_id as u32))
+        })
+        .map(BookEntry::Recipe)
+        .collect()
+}
+
+fn item_name(ledger: &PlayerInventoryLedger, item: &CreativeItem) -> Option<String> {
+    let entry = ledger.negotiated_item_entry(item.stack.network_id)?;
+    let name = entry.identifier.strip_prefix("minecraft:")?;
+    Some(name.replace('_', " "))
 }
 
 /// The catalog entries the creative screen currently lists, in grid order.
@@ -42,12 +111,9 @@ pub(crate) fn visible_creative_entries<'a>(
     let Some(catalog) = ledger.creative_catalog() else {
         return Vec::new();
     };
-    let name_of = |item: &CreativeItem| {
-        let entry = ledger.negotiated_item_entry(item.stack.network_id)?;
-        let name = entry.identifier.strip_prefix("minecraft:")?;
-        Some(name.replace('_', " "))
-    };
-    creative_entries(catalog, state.creative_tab, &state.search, name_of)
+    creative_entries(catalog, state.creative_tab, &state.search, |item| {
+        item_name(ledger, item)
+    })
 }
 
 impl UiRuntime {
@@ -87,6 +153,7 @@ impl UiRuntime {
                 Ok(0)
             }
             InventoryCellHit::CreativeGrid(index) => self.creative_click(index, false),
+            InventoryCellHit::RecipeBook(index) => self.recipe_book_click(index, false),
             InventoryCellHit::CraftOutput => self.output_click(false),
             hit if self.bundle_insert_target(hit).is_some() => {
                 let target = self
@@ -160,6 +227,7 @@ impl UiRuntime {
         match hit {
             InventoryCellHit::CraftOutput => self.output_click(true),
             InventoryCellHit::CreativeGrid(index) => self.creative_click(index, true),
+            InventoryCellHit::RecipeBook(index) => self.recipe_book_click(index, true),
             hit => match gesture_target(hit) {
                 Some(target) => self.inventory_ledger_mut().begin_quick_move(target),
                 None => Err(InventoryGestureError::InvalidRequest),
@@ -323,6 +391,26 @@ impl UiRuntime {
         }
     }
 
+    /// A click on a recipe book entry: a creative item as on the catalog grid,
+    /// else auto-crafting the recipe into the grid.
+    fn recipe_book_click(&mut self, index: u16, into_inventory: bool) -> Outcome {
+        let entry = recipe_book_entries(self)
+            .into_iter()
+            .nth(usize::from(index))
+            .map(|entry| match entry {
+                BookEntry::Creative(item) => Ok(item.creative_network_id),
+                BookEntry::Recipe(recipe) => Err(recipe),
+            });
+        match entry {
+            Some(Ok(id)) => self.creative_take(id, into_inventory),
+            Some(Err(recipe)) => self.inventory_ledger_mut().begin_auto_craft(&recipe),
+            None if self.inventory_ledger().cursor_stack().is_some() => {
+                self.inventory_ledger_mut().begin_destroy_cursor()
+            }
+            None => Err(InventoryGestureError::EmptyGesture),
+        }
+    }
+
     /// A click on a catalog cell: take the item, or delete the held stack.
     fn creative_click(&mut self, index: u8, into_inventory: bool) -> Outcome {
         if self.inventory_ledger().cursor_stack().is_some() {
@@ -334,11 +422,18 @@ impl UiRuntime {
             if usize::from(index) >= GRID_CELLS {
                 return Err(InventoryGestureError::InvalidRequest);
             }
-            entries
-                .get(position)
-                .map(|item| item.creative_network_id)
-                .ok_or(InventoryGestureError::EmptyGesture)?
+            entries.get(position).map(|item| item.creative_network_id)
         };
+        let id = id.ok_or(InventoryGestureError::EmptyGesture)?;
+        self.creative_take(id, into_inventory)
+    }
+
+    /// Takes catalog item `id` to the cursor (or the first free inventory cell),
+    /// or deletes the held stack.
+    fn creative_take(&mut self, id: u32, into_inventory: bool) -> Outcome {
+        if self.inventory_ledger().cursor_stack().is_some() {
+            return self.inventory_ledger_mut().begin_destroy_cursor();
+        }
         let destination = if into_inventory {
             let ledger = self.inventory_ledger();
             (0..protocol::PLAYER_INVENTORY_SLOTS)
