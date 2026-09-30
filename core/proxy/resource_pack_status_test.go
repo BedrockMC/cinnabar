@@ -252,6 +252,15 @@ func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
 
 func testAdmissionPack(t *testing.T) *resource.Pack {
 	t.Helper()
+	pack, err := resource.ReadBytes(testAdmissionPackArchive(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pack
+}
+
+func testAdmissionPackArchive(t *testing.T) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	manifest, err := writer.Create("manifest.json")
@@ -265,9 +274,5 @@ func testAdmissionPack(t *testing.T) *resource.Pack {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	pack, err := resource.ReadBytes(archive.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pack
+	return archive.Bytes()
 }
