@@ -67,7 +67,9 @@ fn initialize_and_list_tools_follow_the_protocol() {
             "resolve",
             "validate",
             "layout",
-            "render_png"
+            "render_png",
+            "edit_file",
+            "export_pack"
         ]
     );
     let unknown = handle(
@@ -153,5 +155,40 @@ fn render_png_writes_a_png_and_returns_it_inline() {
     assert_eq!(content[1]["type"], "image");
     let bytes = std::fs::read(&out).unwrap();
     assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    let _ = std::fs::remove_file(out);
+}
+
+// Re-exporting to the same path keeps both UUIDs and bumps the patch version.
+#[test]
+fn export_pack_reexports_keep_uuids() {
+    let mut server = loaded();
+    let edited = call(
+        &mut server,
+        "edit_file",
+        json!({ "path": "ui/new.json", "scratch": true,
+                "text": "{ \"namespace\": \"n\", \"s\": { \"type\": \"screen\" } }" }),
+    );
+    assert_eq!(edited["path"], "ui/scratch.json");
+    let out = std::env::temp_dir().join(format!("jsonui-mcp-export-{}.mcpack", std::process::id()));
+    let first = call(
+        &mut server,
+        "export_pack",
+        json!({ "out": out.display().to_string(), "name": "Test UI" }),
+    );
+    assert_eq!(first["pack"]["version"], json!([1, 0, 0]));
+    assert!(
+        first["files"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("ui/scratch.json"))
+    );
+    let second = call(
+        &mut server,
+        "export_pack",
+        json!({ "out": out.display().to_string() }),
+    );
+    assert_eq!(second["pack"]["header_uuid"], first["pack"]["header_uuid"]);
+    assert_eq!(second["pack"]["module_uuid"], first["pack"]["module_uuid"]);
+    assert_eq!(second["pack"]["version"], json!([1, 0, 1]));
     let _ = std::fs::remove_file(out);
 }
