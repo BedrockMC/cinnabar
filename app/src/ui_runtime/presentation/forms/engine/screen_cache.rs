@@ -100,6 +100,34 @@ impl ScreenCache {
         Some(rendered)
     }
 
+    /// An allow-listed screen's render for `key`: cached, else bound and laid
+    /// out over its cached resolved tree.
+    pub(super) fn render(
+        &self,
+        key: ScreenKey<'_>,
+        env: &json_ui::LayoutEnv,
+    ) -> Option<Arc<FormRender>> {
+        let (reference, catalog, context, data, view, root) = (
+            key.reference,
+            key.catalog,
+            key.context,
+            key.data,
+            key.view,
+            key.root,
+        );
+        self.get_or_render(key, || {
+            if !json_ui::is_engine_screen(reference) {
+                return None;
+            }
+            let tree = self.resolved(reference, catalog, context, || {
+                json_ui::resolve(catalog, reference, context).control
+            })?;
+            let library = json_ui::CatalogLibrary { catalog, context };
+            let bound = json_ui::bind(&tree, data, &library);
+            Some(json_ui::render_bound(bound, root, env, view))
+        })
+    }
+
     /// Resolve `reference` under `context` on a background thread, once, so
     /// its first open does not stall a frame.
     pub(super) fn prewarm(
