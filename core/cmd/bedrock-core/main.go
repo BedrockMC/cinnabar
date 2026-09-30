@@ -246,7 +246,7 @@ func runWithResourcePackCacheFactory(
 		localTarget = localWorlds.Target
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
-	var resourcePackDownload func(proxy.ResourcePackDownload)
+	var connectProgress func(proxy.ConnectProgress)
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
@@ -278,7 +278,7 @@ func runWithResourcePackCacheFactory(
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
 		resourcePackAdmissionUpdate = statusStore.Observe
-		resourcePackDownload = statusStore.ObservePackDownload
+		connectProgress = statusStore.ObserveConnectProgress
 		transfers.OnTransfer = statusStore.ObserveTransfer
 		onDisconnect = statusStore.ObserveDisconnect
 	}
@@ -310,7 +310,7 @@ func runWithResourcePackCacheFactory(
 			)
 		},
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
-		ResourcePackDownload:        resourcePackDownload,
+		ConnectProgress:             connectProgress,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

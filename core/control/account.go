@@ -83,8 +83,8 @@ type EventsV1 struct {
 	Auth          AuthV1        `json:"auth"`
 	Disconnect    *DisconnectV1 `json:"disconnect,omitempty"`
 	Transfer      *TransferV1   `json:"transfer,omitempty"`
-	// PackDownload is the live pack download progress while one runs.
-	PackDownload *proxy.ResourcePackDownload `json:"pack_download,omitempty"`
+	// Connect is the join's live stage while the core prepares it.
+	Connect *proxy.ConnectProgress `json:"connect,omitempty"`
 }
 
 type accountResultV1 struct {
@@ -156,9 +156,9 @@ func (store *Store) Events() EventsV1 {
 		pending := *store.transfer
 		events.Transfer = &pending
 	}
-	if store.download != nil {
-		download := *store.download
-		events.PackDownload = &download
+	if store.connect != nil {
+		progress := *store.connect
+		events.Connect = &progress
 	}
 	return events
 }

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -43,11 +44,36 @@ const (
 // server finishes, the user cancels, or the client's login deadline passes.
 var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers exceeded their memory bound")
 
-// ResourcePackDownload is the live progress of the newest pack download: the
-// chunk and CDN bytes received against the admitted offer's total.
-type ResourcePackDownload struct {
-	ReceivedBytes uint64 `json:"received_bytes"`
-	TotalBytes    uint64 `json:"total_bytes"`
+// ConnectStage names the vanilla progress handler a join is in.
+type ConnectStage string
+
+const (
+	ConnectStageRealm      ConnectStage = "realm"      // RealmsConnectProgressHandler: the Realm lookup
+	ConnectStageConnecting ConnectStage = "connecting" // GameServerConnectProgressHandler
+	ConnectStagePacks      ConnectStage = "packs"      // ResourcePackProgressHandler
+)
+
+// ConnectProgress is the join's live stage; a zero Stage means no join is being prepared.
+// Like vanilla, TotalBytes grows as each pack's download begins and PacksTotal excludes cache hits.
+type ConnectProgress struct {
+	Stage         ConnectStage `json:"stage"`
+	PacksDone     uint32       `json:"packs_done,omitempty"`
+	PacksTotal    uint32       `json:"packs_total,omitempty"`
+	ReceivedBytes uint64       `json:"received_bytes,omitempty"`
+	TotalBytes    uint64       `json:"total_bytes,omitempty"`
+}
+
+type connectProgressKey struct{}
+
+// withConnectProgress lets target resolution report its stage.
+func withConnectProgress(ctx context.Context, report func(ConnectProgress)) context.Context {
+	return context.WithValue(ctx, connectProgressKey{}, report)
+}
+
+func reportConnectStage(ctx context.Context, stage ConnectStage) {
+	if report, ok := ctx.Value(connectProgressKey{}).(func(ConnectProgress)); ok && report != nil {
+		report(ConnectProgress{Stage: stage})
+	}
 }
 
 // resourcePackAcquisitionBudget admits offered packs for download in offer
@@ -63,11 +89,20 @@ type resourcePackAcquisitionBudget struct {
 	offered     map[string]uint64
 	excluded    map[string]bool
 	transferred uint64
-	admitted    uint64          // offered bytes admitted for download
-	received    uint64          // chunk and CDN bytes received so far
-	urls        map[string]bool // CDN URLs of admitted packs
+	urls        map[string]string // CDN URL -> admitted pack id
 
-	onProgress func(ResourcePackDownload)
+	packs      uint32                   // admitted packs not served from the cache
+	finished   uint32                   // downloads completed
+	total      uint64                   // bytes of downloads begun
+	received   uint64                   // chunk and CDN bytes received
+	downloads  map[string]*packDownload // pack id -> download begun
+	onProgress func(ConnectProgress)
+	done       bool // the dial returned; late callbacks must not report
+}
+
+type packDownload struct {
+	size, received uint64
+	finished       bool
 }
 
 func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
@@ -89,7 +124,8 @@ func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, paylo
 		}
 	case packet.IDResourcePackChunkData:
 		if chunk, ok := decodeInboundPacket[*packet.ResourcePackChunkData](budget.proto, header.PacketID, payload); ok {
-			budget.observeChunk(len(chunk.Data))
+			id, _, _ := strings.Cut(chunk.UUID, "_")
+			budget.observeChunk(id, len(chunk.Data))
 		}
 	}
 }
@@ -99,7 +135,9 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
 	budget.excluded, budget.transferred = map[string]bool{}, 0
-	budget.admitted, budget.received, budget.urls = 0, 0, map[string]bool{}
+	budget.urls, budget.downloads = map[string]string{}, map[string]*packDownload{}
+	budget.packs, budget.finished, budget.total, budget.received = 0, 0, 0, 0
+	defer budget.reportLocked()
 	if !decoded {
 		return
 	}
@@ -112,12 +150,12 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 			continue
 		}
 		total += pack.Size
-		budget.admitted = total
 		admitted++
+		budget.packs++
 		budget.accepted[index] = true
 		budget.offered[pack.UUID.String()] = pack.Size
 		if pack.DownloadURL != "" {
-			budget.urls[pack.DownloadURL] = true
+			budget.urls[pack.DownloadURL] = pack.UUID.String()
 		}
 	}
 }
@@ -134,6 +172,7 @@ func (budget *resourcePackAcquisitionBudget) observeTransfer(info *packet.Resour
 	}
 	budget.transferred = saturatingAdd(budget.transferred, info.Size)
 	overflow := budget.transferred > maxResourcePackTransferBytes
+	budget.beginLocked(id, info.Size)
 	budget.mu.Unlock()
 	if overflow {
 		budget.cancel(errResourcePackTransferTooLarge)
@@ -157,22 +196,107 @@ func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index,
 	return total == len(budget.accepted) && index >= 0 && index < total && budget.accepted[index]
 }
 
-// observeChunk counts received chunk or CDN bytes and reports the download's progress.
-func (budget *resourcePackAcquisitionBudget) observeChunk(size int) {
+// beginLocked starts counting one pack's download of size bytes; a restart replaces its bytes.
+func (budget *resourcePackAcquisitionBudget) beginLocked(id string, size uint64) {
+	if previous := budget.downloads[id]; previous != nil {
+		budget.revertLocked(id)
+	}
+	budget.downloads[id] = &packDownload{size: size}
+	budget.total = saturatingAdd(budget.total, size)
+	budget.reportLocked()
+}
+
+// revertLocked drops an abandoned download so a fallback transfer is not counted twice.
+func (budget *resourcePackAcquisitionBudget) revertLocked(id string) {
+	download := budget.downloads[id]
+	if download == nil || download.finished {
+		return
+	}
+	budget.total -= min(download.size, budget.total)
+	budget.received -= min(download.received, budget.received)
+	delete(budget.downloads, id)
+	budget.reportLocked()
+}
+
+// observeChunk counts size received bytes of pack id and reports the download's progress.
+func (budget *resourcePackAcquisitionBudget) observeChunk(id string, size int) {
 	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	download := budget.downloads[id]
+	if download == nil || download.finished {
+		return
+	}
+	download.received = saturatingAdd(download.received, uint64(size))
 	budget.received = saturatingAdd(budget.received, uint64(size))
-	download := ResourcePackDownload{ReceivedBytes: budget.received, TotalBytes: budget.admitted}
-	report := budget.onProgress
-	budget.mu.Unlock()
-	if report != nil {
-		report(download)
+	if download.received >= download.size {
+		budget.finishLocked(download)
+	}
+	budget.reportLocked()
+}
+
+func (budget *resourcePackAcquisitionBudget) finishLocked(download *packDownload) {
+	if !download.finished {
+		download.finished = true
+		budget.finished++
 	}
 }
 
-func (budget *resourcePackAcquisitionBudget) offersURL(url string) bool {
+// skip removes a pack served from the cache from the download count.
+func (budget *resourcePackAcquisitionBudget) skip(key minecraft.ResourcePackCacheKey) {
+	if budget == nil {
+		return
+	}
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	return budget.urls[url]
+	if _, admitted := budget.offered[key.UUID.String()]; admitted && budget.packs > 0 {
+		budget.packs--
+		budget.reportLocked()
+	}
+}
+
+func (budget *resourcePackAcquisitionBudget) reportLocked() {
+	if budget.onProgress == nil || budget.done {
+		return
+	}
+	budget.onProgress(ConnectProgress{
+		Stage:         ConnectStagePacks,
+		PacksDone:     budget.finished,
+		PacksTotal:    max(budget.packs, budget.finished),
+		ReceivedBytes: budget.received,
+		TotalBytes:    budget.total,
+	})
+}
+
+// finish stops reporting once the dial has returned.
+func (budget *resourcePackAcquisitionBudget) finish() {
+	budget.mu.Lock()
+	budget.done = true
+	budget.mu.Unlock()
+}
+
+func (budget *resourcePackAcquisitionBudget) offeredPack(url string) (string, bool) {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	id, ok := budget.urls[url]
+	return id, ok
+}
+
+// beginURL starts counting a CDN download of pack id, sized by the offer.
+func (budget *resourcePackAcquisitionBudget) beginURL(id string) {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	budget.beginLocked(id, budget.offered[id])
+}
+
+func (budget *resourcePackAcquisitionBudget) endURL(id string, complete bool) {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if download := budget.downloads[id]; complete && download != nil {
+		budget.finishLocked(download)
+		budget.reportLocked()
+		return
+	}
+	budget.revertLocked(id)
 }
 
 // httpClient is base with admitted packs' CDN response bodies counted as progress.
@@ -200,24 +324,39 @@ func (transport packDownloadTransport) RoundTrip(request *http.Request) (*http.R
 	for origin.Response != nil && origin.Response.Request != nil {
 		origin = origin.Response.Request // a CDN redirect keeps counting against the offered URL
 	}
-	if err != nil || response.StatusCode != http.StatusOK || !transport.budget.offersURL(origin.URL.String()) {
+	if err != nil || response.StatusCode != http.StatusOK {
 		return response, err
 	}
-	response.Body = packDownloadBody{ReadCloser: response.Body, budget: transport.budget}
+	id, offered := transport.budget.offeredPack(origin.URL.String())
+	if !offered {
+		return response, nil
+	}
+	transport.budget.beginURL(id)
+	response.Body = &packDownloadBody{ReadCloser: response.Body, budget: transport.budget, id: id}
 	return response, nil
 }
 
 type packDownloadBody struct {
 	io.ReadCloser
 	budget *resourcePackAcquisitionBudget
+	id     string
+	ended  sync.Once
 }
 
-func (body packDownloadBody) Read(buffer []byte) (int, error) {
+func (body *packDownloadBody) Read(buffer []byte) (int, error) {
 	read, err := body.ReadCloser.Read(buffer)
 	if read > 0 {
-		body.budget.observeChunk(read)
+		body.budget.observeChunk(body.id, read)
+	}
+	if err != nil {
+		body.ended.Do(func() { body.budget.endURL(body.id, errors.Is(err, io.EOF)) })
 	}
 	return read, err
+}
+
+func (body *packDownloadBody) Close() error {
+	body.ended.Do(func() { body.budget.endURL(body.id, false) })
+	return body.ReadCloser.Close()
 }
 
 // withResourcePackAcquisitionBudget routes pack admission, CDN downloads and
@@ -466,7 +605,7 @@ type preparedConnections struct {
 	resourcePackCache           minecraft.ResourcePackCache
 	resourcePackAdmission       func(ResourcePackAdmissionSnapshot)
 	resourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
-	resourcePackDownload        func(ResourcePackDownload)
+	connectProgress             func(ConnectProgress)
 	attempts                    atomic.Uint64
 
 	shutdownCtx    context.Context
@@ -518,7 +657,31 @@ func dialMinecraftUpstream(
 }
 
 func (connections *preparedConnections) prepare(ctx context.Context, downstream *minecraft.Conn) error {
+	// The listener reads nothing while preparing, so a client that leaves (vanilla's cancel) is
+	// only noticed through the stream watcher; it ends the join like the downstream closing.
+	if watcher, ok := peerWatcher(downstream); ok {
+		var cancelPeer context.CancelFunc
+		ctx, cancelPeer = context.WithCancel(ctx)
+		go func() {
+			defer cancelPeer()
+			select {
+			case <-watcher.PeerDone():
+			case <-ctx.Done():
+			}
+		}()
+	}
 	return connections.prepareConnection(ctx, downstream, downstream)
+}
+
+// peerWatcher tolerates a zero Conn, whose RemoteAddr panics.
+func peerWatcher(conn *minecraft.Conn) (watcher streamnet.PeerWatcher, ok bool) {
+	defer func() {
+		if recover() != nil {
+			watcher, ok = nil, false
+		}
+	}()
+	watcher, ok = conn.RemoteAddr().(streamnet.PeerWatcher)
+	return watcher, ok
 }
 
 func (connections *preparedConnections) prepareConnection(
@@ -580,6 +743,12 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	var target *resolvedUpstreamTarget
 	var upstream upstreamSession
 	var packStack *selectedResourcePackStack
+	report := func(progress ConnectProgress) {
+		if connections.connectProgress != nil {
+			connections.connectProgress(progress)
+		}
+	}
+	defer report(ConnectProgress{}) // the handoff or failure ends the core's stages
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicTypeError("preparing upstream connection", recovered)
@@ -598,13 +767,17 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		err = errors.Join(err, finishPreparedResources(true, upstream, releaseTarget, telemetry, connections.logger))
 	}()
 
-	target, err = connections.resolveTarget(ctx)
+	target, err = connections.resolveTarget(withConnectProgress(ctx, report))
 	if err != nil {
 		return nil, err
 	}
+	report(ConnectProgress{Stage: ConnectStageConnecting})
+	dialCtx, cancelDial := context.WithCancelCause(ctx)
+	budget := newResourcePackAcquisitionBudget(downstream.Proto(), cancelDial)
+	budget.onProgress = report
 	var cache minecraft.ResourcePackCache
 	if connections.resourcePackCache != nil {
-		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
+		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission, hit: budget.skip}
 	}
 	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission, connections.upstreamClientCache)
 	if target.xbl != nil {
@@ -616,15 +789,16 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if target.clientData.nonce != "" {
 		dialer.ClientData.Nonce = target.clientData.nonce
 	}
-	dialCtx, cancelDial := context.WithCancelCause(ctx)
-	budget := newResourcePackAcquisitionBudget(dialer.Protocol, cancelDial)
-	budget.onProgress = connections.resourcePackDownload
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
+	budget.finish()
 	// The dialed upstream owns its own context; releasing dialCtx now cannot
 	// affect it and frees the cancellation goroutine on either outcome.
 	cancelDial(nil)
 	if err != nil {
+		if target.realm {
+			err = &realmJoinError{err: err}
+		}
 		return nil, err
 	}
 	packStack, err = connections.captureResourcePackStack(upstream)
