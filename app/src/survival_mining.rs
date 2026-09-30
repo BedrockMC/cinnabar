@@ -1,4 +1,5 @@
-//! Survival hold-to-mine: one destroy state-machine step per completed physics tick.
+//! Hold-to-mine for every game mode: one destroy state-machine step per completed
+//! physics tick. Instant (Creative) destroys complete on their start tick.
 //!
 //! Completion, timed from the provisional destroy table, removes the block locally
 //! as vanilla's local destroy does; inbound block updates stay authoritative and
@@ -23,7 +24,8 @@ use crate::{
     melee::{MeleeRuntime, SwingTracker, swing_duration},
     menu::MenuRuntime,
     mining::{
-        FrozenMiningSelection, hand_interaction_selection, protocol_input_mode, survival_reach,
+        FrozenMiningSelection, creative_reach, hand_interaction_selection, protocol_input_mode,
+        survival_reach,
     },
     movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
     runtime::{network::NetworkHandle, world::ClientWorld},
@@ -72,6 +74,8 @@ pub(crate) struct DestroyTarget {
     pub(crate) selection: FrozenMiningSelection,
     /// The held tool's wear from a non-instant destroy, when it is predictable.
     pub(crate) wear: Option<ToolWear>,
+    /// The game mode destroys instantly, as Creative does.
+    pub(crate) instant: bool,
 }
 
 /// Held-tool damage before a destroy and the damage one destroy adds.
@@ -172,12 +176,13 @@ impl Destroying {
     }
 }
 
-/// Per-tick survival destroy sequencing.
+/// Per-tick destroy sequencing.
 ///
 /// Server authority: start, then silence while cracking, a continue on a new
 /// block, and continue plus predict on completion; aborts carry progress.
 /// Client authority: start, a crack every tick, and a stop plus item-use
-/// destroy transaction on completion.
+/// destroy transaction on completion. An instant destroy completes on its start
+/// tick with the same completion actions.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct DestroyMachine {
     destroying: Option<Destroying>,
@@ -239,13 +244,15 @@ impl DestroyMachine {
                     progress: 0.0,
                 });
                 // A rate at the threshold breaks on the start tick, then delays.
-                if target.rate(on_ground) >= COMPLETION_THRESHOLD {
+                if target.instant || target.rate(on_ground) >= COMPLETION_THRESHOLD {
                     self.complete(&mut payload, target, authority, false);
                     self.delay = DESTROY_DELAY_TICKS;
                 } else if authority == BlockBreakingAuthority::Client {
                     payload.push(BlockActionKind::CrackBlock, target.position, target.face);
                 }
             }
+            // One instant destroy per press.
+            Some(_) if target.instant => {}
             Some(destroying) if destroying.position == target.position => {
                 let rate = target.rate(on_ground);
                 let progress = destroying.progress + rate;
@@ -338,7 +345,7 @@ impl DestroyMachine {
 /// Wall-clock spacing between block-diagnostic lines while an attack is held.
 const BLOCKED_MINING_LOG_THROTTLE_MILLIS: u64 = 2000;
 
-/// Survival destroy sequencing bound to the current position authority.
+/// Destroy sequencing bound to the current position authority.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SurvivalMiningRuntime {
     machine: DestroyMachine,
@@ -386,7 +393,7 @@ impl SurvivalMiningRuntime {
             return unsent;
         };
         self.last_stepped_tick = Some(newest);
-        if !ticker.accepts_creative_mining() {
+        if !ticker.accepts_block_interactions() {
             // Withheld ticks never reach the server, so neither may their actions.
             self.machine.interrupt();
             return unsent;
@@ -450,7 +457,6 @@ impl SurvivalMiningRuntime {
             reason,
             game_mode_known = caps.is_some(),
             can_edit = caps.is_some_and(|caps| caps.can_edit),
-            instant_break = caps.is_some_and(|caps| caps.instant_break),
             authority = ?authority,
             "held attack produced no block break",
         );
@@ -493,7 +499,7 @@ pub(crate) fn produce_survival_mining(
     let snapshot = context.input.snapshot();
     let snapshot_present = snapshot.is_some();
     let actor_in_front = context.melee.actor_in_front();
-    let active = survival_mining_active(caps, focused, snapshot_present);
+    let active = mining_active(caps, focused, snapshot_present);
     let target = match snapshot.filter(|_| active) {
         Some(input) => {
             runtime.latched_press |= attack.pressed;
@@ -503,6 +509,7 @@ pub(crate) fn produce_survival_mining(
                     .then(|| {
                         observe_destroy_target(
                             &context,
+                            caps,
                             input.input_mode,
                             (input.authority_generation, input.frame_sequence),
                             movement.interaction_authority_identity().1,
@@ -570,12 +577,12 @@ pub(crate) fn produce_survival_mining(
 /// Whether held-mining should look for a destroy target this frame. The
 /// block-breaking wire mode is deliberately not an input here: it sequences a
 /// break, it never decides whether one may happen.
-fn survival_mining_active(
+fn mining_active(
     caps: Option<GameModeCapabilities>,
     focused: bool,
     snapshot_present: bool,
 ) -> bool {
-    focused && snapshot_present && caps.is_some_and(|caps| caps.uses_survival_mining())
+    focused && snapshot_present && caps.is_some_and(|caps| caps.can_edit)
 }
 
 /// Why a held attack yielded no destroy target, for the throttled diagnostic.
@@ -589,7 +596,6 @@ fn blocked_mining_reason(
     match caps {
         None => Some("game mode unknown"),
         Some(caps) if !caps.can_edit => Some("can_edit=false for this game mode"),
-        Some(caps) if caps.instant_break => Some("instant-break mode uses the creative path"),
         _ if !focused => Some("window or menu not focused"),
         _ if !snapshot_present => Some("no input snapshot yet"),
         _ if actor_in_front => Some("an actor in front owns the press"),
@@ -600,13 +606,15 @@ fn blocked_mining_reason(
 
 fn observe_destroy_target(
     context: &SurvivalMiningContext,
+    caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
 ) -> Option<DestroyTarget> {
     let ui = &context.ui;
-    // The capability gate in the producer already confirmed this mode edits and
-    // is not the instant-break path; here only an open UI blocks the pick.
+    // The capability gate in the producer already confirmed this mode edits;
+    // here only an open UI blocks the pick.
+    let caps = caps?;
     if ui.ui_focused() {
         return None;
     }
@@ -620,7 +628,11 @@ fn observe_destroy_target(
         selection,
         (
             input_mode,
-            survival_reach(input_mode),
+            if caps.creative_reach {
+                creative_reach(input_mode)
+            } else {
+                survival_reach(input_mode)
+            },
             input_authority,
             position_authority_generation,
         ),
@@ -649,7 +661,8 @@ fn observe_destroy_target(
     );
     let effects = context.effects.mining_effects();
     let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
-    let wear = tool.and_then(|tool| {
+    let instant = caps.instant_break;
+    let wear = tool.filter(|_| !instant).and_then(|tool| {
         (item.stack_network_id() > 0).then(|| ToolWear {
             // Outstanding and corrected predictions outrank the stack's own tag.
             current_damage: ui
@@ -692,6 +705,7 @@ fn observe_destroy_target(
         },
         selection: observed.selection,
         wear,
+        instant,
     })
 }
 

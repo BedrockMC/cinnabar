@@ -12,8 +12,6 @@ use protocol::{
 };
 use tokio::sync::watch;
 
-use crate::mining::FrozenCreativeMining;
-
 /// Failure taxonomy of one bounded outbound movement flush.
 ///
 /// Extracted verbatim from the movement root module to respect the per-file
@@ -101,11 +99,6 @@ impl InteractionPacketGuard {
     }
 
     #[cfg(test)]
-    pub(crate) fn is_current(&self) -> bool {
-        *self.authority.borrow() == self.authority_epoch
-    }
-
-    #[cfg(test)]
     pub(crate) fn testing(
         authority_epoch: u64,
         authority: watch::Receiver<u64>,
@@ -166,13 +159,10 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         // intact, and pending state is consumed only after the transport
         // accepts the packet. See the `teleport_ack` module.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
-        let interaction_epoch = sample.mining.as_ref().map(|mining| {
-            if mining.is_creative() {
-                &ticker.mining_epoch_publisher
-            } else {
-                &ticker.survival_epoch_publisher
-            }
-        });
+        let interaction_epoch = sample
+            .mining
+            .as_ref()
+            .map(|_| &ticker.mining_epoch_publisher);
         let interaction_guard = interaction_epoch
             .map(|publisher| {
                 let movement_packet = player_auth_input_with_interactions(
@@ -225,63 +215,10 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
 }
 
 impl MovementTicker {
-    pub(crate) fn accepts_creative_mining(&self) -> bool {
+    pub(crate) fn accepts_block_interactions(&self) -> bool {
         self.physics_is_authorized()
             && !self.terminal_drain
             && !self.has_unresolved_position_authority_change()
-    }
-
-    /// Drops interaction payloads whose frozen target, selection, ability, or
-    /// session is no longer authorized. Movement samples remain queued.
-    pub(crate) fn retain_creative_mining(&mut self, current: Option<&FrozenCreativeMining>) {
-        let stale = self
-            .outbox
-            .iter()
-            .filter_map(|sample| sample.mining.as_ref())
-            .chain(
-                self.pending_sends
-                    .iter()
-                    .filter_map(|pending| pending.sample.mining.as_ref()),
-            )
-            .filter(|mining| mining.is_creative())
-            .any(|mining| current.is_none_or(|current| !mining.still_authorized_by(current)));
-        if stale {
-            self.invalidate_creative_mining();
-        }
-    }
-
-    /// Attaches one complete creative break only to its exact unsent physics
-    /// tick. `None` leaves the caller's input edge pending for a later tick.
-    pub(crate) fn attach_creative_mining(&mut self, frozen: FrozenCreativeMining) -> Option<u64> {
-        if !self.accepts_creative_mining() {
-            return None;
-        }
-        let tick = frozen.frame.physics_tick;
-        let sample = self
-            .outbox
-            .iter_mut()
-            .find(|sample| sample.snapshot.tick == tick)?;
-        if frozen.frame.position_authority_generation != self.reanchor_epoch
-            || sample.session_generation != frozen.frame.session_generation
-            || sample.snapshot.input_mode != frozen.input_mode
-            || sample.world_identity != frozen.ray.movement_world_identity
-            || sample.mining.is_some()
-        {
-            return None;
-        }
-        sample.mining = Some(frozen.into_tick_payload(sample.snapshot.position));
-        Some(tick)
-    }
-
-    pub(crate) fn has_queued_creative_mining(&self) -> bool {
-        let creative = |mining: &Option<crate::mining::QueuedMiningInteraction>| {
-            mining.as_ref().is_some_and(|mining| mining.is_creative())
-        };
-        self.outbox.iter().any(|sample| creative(&sample.mining))
-            || self
-                .pending_sends
-                .iter()
-                .any(|pending| creative(&pending.sample.mining))
     }
 
     /// Unsent ticks newer than `after`, oldest first, with their post-tick ground state.
@@ -317,13 +254,13 @@ impl MovementTicker {
         true
     }
 
-    /// Attaches one survival destroy tick to its exact unsent sample.
+    /// Attaches one destroy tick to its exact unsent sample; it is committed from then on.
     pub(crate) fn attach_survival_mining(
         &mut self,
         tick: u64,
         payload: crate::survival_mining::SurvivalTickPayload,
     ) -> bool {
-        if !self.accepts_creative_mining() {
+        if !self.accepts_block_interactions() {
             return false;
         }
         let Some(sample) = self
@@ -334,51 +271,27 @@ impl MovementTicker {
             return false;
         };
         let (interactions, mining_request) = payload.into_interactions(sample.snapshot.position);
-        sample.mining = Some(crate::mining::QueuedMiningInteraction::survival(
+        sample.mining = Some(crate::mining::QueuedMiningInteraction {
             interactions,
             mining_request,
-        ));
+        });
         true
-    }
-
-    pub(crate) const fn mining_authority_identity(&self) -> (u64, u64) {
-        (self.session_generation, self.reanchor_epoch)
     }
 
     pub(crate) const fn interaction_authority_identity(&self) -> (u64, u64) {
         (self.session_generation, self.reanchor_epoch)
     }
 
-    /// Strips creative payloads only; survival ticks are already committed to the
-    /// destroy machine and dropping them would desynchronize the server's view.
-    fn invalidate_creative_mining(&mut self) {
-        self.invalidate_mining(true);
-    }
-
-    fn invalidate_mining(&mut self, creative_only: bool) {
-        let publishers = if creative_only {
-            [Some(&self.mining_epoch_publisher), None]
-        } else {
-            [
-                Some(&self.mining_epoch_publisher),
-                Some(&self.survival_epoch_publisher),
-            ]
-        };
-        for publisher in publishers.into_iter().flatten() {
-            let next = publisher.borrow().wrapping_add(1);
-            publisher.send_replace(next);
-        }
-        let strip = |mining: &mut Option<crate::mining::QueuedMiningInteraction>| {
-            if !creative_only || mining.as_ref().is_some_and(|mining| mining.is_creative()) {
-                *mining = None;
-            }
-        };
+    /// Drops every unsent block interaction and revokes admitted ones.
+    fn invalidate_mining(&mut self) {
+        let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
+        self.mining_epoch_publisher.send_replace(next);
         self.outbox
             .iter_mut()
-            .for_each(|queued| strip(&mut queued.mining));
+            .for_each(|queued| queued.mining = None);
         self.pending_sends
             .iter_mut()
-            .for_each(|pending| strip(&mut pending.sample.mining));
+            .for_each(|pending| pending.sample.mining = None);
     }
 
     /// Invalidates every transport-owned sample after a position-authority
@@ -393,8 +306,8 @@ impl MovementTicker {
                 true
             }
         });
-        // The survival destroy machine observes the new identity and resets.
-        self.invalidate_mining(false);
+        // The destroy machine observes the new identity and resets.
+        self.invalidate_mining();
         for pending in &mut self.pending_sends {
             pending.retry_after_cancellation = false;
         }
