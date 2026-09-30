@@ -275,6 +275,8 @@ func cacheArtworkFileWithTransport(
 	identity := sha256.Sum256([]byte(rawURL))
 	path := filepath.Join(directory, fmt.Sprintf("%x.img", identity))
 	if info, err := os.Stat(path); err == nil && info.Size() > 0 && info.Size() <= maxArtworkBytes {
+		now := time.Now()
+		_ = os.Chtimes(path, now, now) // marks it in use for mtime-based pruning
 		return path, nil
 	}
 	downloadContext, cancel := context.WithTimeout(ctx, 8*time.Second)
