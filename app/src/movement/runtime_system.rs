@@ -151,6 +151,7 @@ pub(crate) fn advance_local_physics(
                 depth_strider: facts.depth_strider,
                 soul_speed: facts.soul_speed,
             },
+            sneak_button: active && sneak.held,
         },
         &world,
         &mut *movement_effects,

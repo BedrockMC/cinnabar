@@ -101,6 +101,8 @@ pub struct PhysicsSampleContext {
     /// Analog-axis sample of the controlling device.
     pub analogue_move_vector: [f32; 2],
     pub mode_intent: ModeIntent,
+    /// Physical sneak button, carried to the raw sneak flags.
+    pub sneak_button: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +126,8 @@ pub struct PhysicsMovementSample {
     pub camera_orientation: [f32; 3],
     pub jumping: bool,
     pub sneaking: bool,
+    /// Physical sneak button, unlike toggle/forced/processed `sneaking`.
+    pub sneak_button: bool,
     pub sprinting: bool,
     pub input_mode: PlayerInputMode,
     pub grounded_before_tick: bool,
@@ -603,6 +607,7 @@ impl LocalPhysicsController {
                         camera_orientation: context.camera_orientation,
                         jumping: input.jumping,
                         sneaking: input.sneaking,
+                        sneak_button: context.sneak_button,
                         sprinting: input.sprinting,
                         input_mode: context.input_mode,
                         grounded_before_tick,
