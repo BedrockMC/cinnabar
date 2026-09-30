@@ -110,9 +110,9 @@ impl MenuRuntime {
         }
         let targets = if self.visible && !self.connecting {
             let mut seen = std::collections::HashSet::new();
+            // Gatherings have no server until joined, so only featured and saved servers are pinged.
             self.featured
                 .iter()
-                .chain(self.gatherings.iter())
                 .map(|server| server.address.clone())
                 .chain(self.servers.iter().map(|server| server.address.clone()))
                 .filter(|address| !address.is_empty() && seen.insert(address.clone()))

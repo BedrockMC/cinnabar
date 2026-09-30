@@ -22,6 +22,7 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 crossbeam-channel = "0.5"
+ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
@@ -47,7 +48,7 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["std", "stdio"] }
+rustix = { version = "1", default-features = false, features = ["process", "std", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
