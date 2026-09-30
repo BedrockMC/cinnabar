@@ -189,13 +189,11 @@ pub struct LocalPhysicsFrame {
     pub samples: Vec<PhysicsMovementSample>,
 }
 
-/// Bounded number of retained server motion overlays.
+/// Bound on retained server motion overlays; floods drop the oldest first.
 ///
-/// Overlays outlive their live application so a correction rewind that covers
-/// their tick can re-apply them; the bound keeps adversarial impulse floods
-/// finite, dropping the oldest entry first. Entries only ever match their own
-/// exact tick, so retained stale entries are inert until eviction.
-const LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY: usize = 8;
+/// Overlays older than the replay horizon are evicted first, so the bound only
+/// ever bites on impulses a correction replay could still need.
+const LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY: usize = 2 * LOCAL_PHYSICS_HISTORY_CAPACITY;
 
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
@@ -289,8 +287,9 @@ impl LocalPhysicsController {
     /// The overlay is keyed by that tick so a correction rewind covering it
     /// re-applies the same replacement deterministically. Non-finite impulses
     /// are ignored; when inactive there is no prediction timeline to enter.
-    /// A zero wire tick is untimed: replace the current velocity immediately
-    /// and retain the replacement at the next simulation boundary for replay.
+    /// A zero or already-simulated wire tick replaces the current velocity now
+    /// and retains it at the next simulation boundary; retained past ticks go
+    /// through [`Self::replay_server_motion`] instead.
     pub fn queue_server_motion(&mut self, motion: [f32; 3], applies_at_tick: u64) {
         if !motion.into_iter().all(f32::is_finite) {
             return;
@@ -303,7 +302,7 @@ impl LocalPhysicsController {
             f64::from(motion[1]),
             f64::from(motion[2]),
         );
-        let applies_at_tick = if applies_at_tick == 0 {
+        let applies_at_tick = if applies_at_tick <= state.tick {
             let Some(next_tick) = state.tick.checked_add(1) else {
                 return;
             };
@@ -312,13 +311,21 @@ impl LocalPhysicsController {
         } else {
             applies_at_tick
         };
-        if self.server_motions.len() == LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
-            self.server_motions.pop_front();
-        }
-        self.server_motions.push_back(sim::MotionOverlay {
+        self.retain_server_motion(sim::MotionOverlay {
             tick: applies_at_tick,
             velocity,
         });
+    }
+
+    fn retain_server_motion(&mut self, overlay: sim::MotionOverlay) {
+        if let Some(oldest) = self.history.oldest_tick() {
+            self.server_motions
+                .retain(|retained| retained.tick >= oldest);
+        }
+        if self.server_motions.len() >= LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
+            self.server_motions.pop_front();
+        }
+        self.server_motions.push_back(overlay);
     }
 
     /// Replaces prediction state from a server network-position anchor.
