@@ -120,7 +120,13 @@ pub struct BlockDestroyInfo {
     effective: u8,
     harvest_tools: u8,
     harvest: HarvestRequirement,
+    /// A sword speed Bedrock special-cases for this block.
+    sword_speed: Option<f32>,
 }
+
+/// `WeaponItem::getDestroySpeed` gives bamboo the harvest divisor as its speed,
+/// so a sword clears one bamboo per tick.
+const SWORD_BAMBOO_SPEED: f32 = 30.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HarvestRequirement {
@@ -155,6 +161,8 @@ impl BlockDestroyInfo {
                 effective,
                 harvest_tools,
                 harvest,
+                sword_speed: matches!(identifier, "minecraft:bamboo" | "minecraft:bamboo_sapling")
+                    .then_some(SWORD_BAMBOO_SPEED),
             },
         ))
     }
@@ -287,6 +295,9 @@ fn tool_speed(block: &BlockDestroyInfo, tool: Option<HeldTool>) -> f32 {
     let Some(tool) = tool else {
         return 1.0;
     };
+    if let (ToolKind::Sword, Some(speed)) = (tool.kind, block.sword_speed) {
+        return speed;
+    }
     let effective = block.effective_for(tool.kind);
     let harvests = block.harvests_with(tool.kind);
     match (tool.kind, tool.tier) {

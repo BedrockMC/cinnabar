@@ -33,10 +33,12 @@ pub(super) struct EnvironmentDescription {
 pub(super) struct ClientBiomeEnvironmentComponents {
     #[serde(rename = "minecraft:fog_appearance")]
     pub(super) fog: FogAppearance,
+    // Vanilla leaves an absent identifier component unset and renders the
+    // biome with the default atmosphere and lighting settings.
     #[serde(rename = "minecraft:atmosphere_identifier")]
-    pub(super) atmosphere: AtmosphereIdentifier,
+    pub(super) atmosphere: Option<AtmosphereIdentifier>,
     #[serde(rename = "minecraft:lighting_identifier")]
-    pub(super) lighting: LightingIdentifier,
+    pub(super) lighting: Option<LightingIdentifier>,
     #[serde(rename = "minecraft:sky_color")]
     pub(super) sky: Option<SkyColor>,
 }

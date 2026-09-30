@@ -49,6 +49,7 @@ impl WorldStream {
         report.light_jobs_dispatched =
             self.dispatch_light_jobs(camera_position, LIGHT_DISPATCH_BUDGET_PER_POLL);
 
+        self.retry_staged_mesh_completions();
         while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
             let Ok(completion) = self.mesh_rx.try_recv() else {
                 break;
@@ -79,6 +80,7 @@ impl WorldStream {
         if dispatch_budget == 0
             && mesh_budget != 0
             && self.in_flight.is_empty()
+            && self.staged_mesh_completions.is_empty()
             && !self.pending_mesh.is_empty()
         {
             dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);

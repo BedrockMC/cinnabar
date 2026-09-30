@@ -161,9 +161,9 @@ pub fn reviewed_audio_pcm_identity() -> AudioPcmExpectedIdentity {
     AudioPcmExpectedIdentity::new(
         "ambient.underwater.loop",
         "sounds/ambient/underwater/loop/underwater_ambience.fsb",
-        hash("ae3f6b8e1e2f65dea82daaa75a282c1e89634ac99e1ec66651d83dafd9c3f22c"),
-        hash("c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6"),
-        hash("aed436a85092a9ef12ca05d171ca53c334f9df2f99ffcad823ddab7243a885bb"),
+        hash("6257771e16831f3d96281c5b04b860575777893ebfb815c13e22ff9457b4e9bb"),
+        crate::vanilla_source_manifest_sha256(),
+        hash("f6ebf5fe07d67355698a4fa2d138217753b3b7da2b94e3162c94da48f9a69fe6"),
         hash("528126e3702b196e6116bcc8ec3f8dfd9fb4fe716842eca854016eb0a57f86ec"),
         hash("91f8716fe45282ee412c4c1964c9cae1a5e6fef3e48458bcb602e711635a300e"),
         869792,

@@ -10,12 +10,12 @@ use crate::app::{
     configure_client_production_frame_systems,
 };
 use crate::block_use::produce_block_use;
+use crate::item_use::produce_item_use;
 use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
 use crate::melee::produce_melee;
 use crate::menu::recover_menu_session_failure;
-use crate::mining::produce_creative_mining;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
@@ -154,16 +154,9 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, produce_melee, "produce_melee"),
-            system_node(graph, produce_creative_mining, "produce_creative_mining"),
-        ),
-        "an attacked actor must veto mining the block behind it",
-    );
-    assert!(
-        graph.dependency().graph().contains_edge(
-            system_node(graph, produce_creative_mining, "produce_creative_mining"),
             system_node(graph, produce_survival_mining, "produce_survival_mining"),
         ),
-        "creative arbitration must precede survival destroy stepping",
+        "an attacked actor must veto mining the block behind it",
     );
     assert!(
         graph.dependency().graph().contains_edge(
@@ -175,14 +168,17 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, produce_block_use, "produce_block_use"),
+            system_node(graph, produce_item_use, "produce_item_use"),
+        ) && graph.dependency().graph().contains_edge(
+            system_node(graph, produce_item_use, "produce_item_use"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
         ),
-        "block use must attach its interaction before the candidate packet is sent",
+        "block and air use must attach before the candidate packet is sent",
     );
     assert_system_in_stage(
         graph,
-        produce_creative_mining,
-        "produce_creative_mining",
+        produce_survival_mining,
+        "produce_survival_mining",
         ClientFrameSet::NetworkSend,
     );
     assert_system_in_stage(
