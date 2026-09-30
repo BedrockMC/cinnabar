@@ -7,6 +7,9 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 /// Largest accepted face side.
 pub const MAX_PANORAMA_FACE_SIDE: u32 = 2048;
 
+/// The panorama shader, for hosts that draw it outside the Bevy render graph.
+pub const PANORAMA_WGSL: &str = include_str!("panorama.wgsl");
+
 /// The six square sRGB RGBA8 cube faces, in pack order (`panorama_0`..`panorama_5`).
 #[derive(Debug, PartialEq, Eq)]
 pub struct PanoramaFaces {
@@ -30,11 +33,14 @@ impl PanoramaFaces {
         })
     }
 
-    pub(crate) const fn side(&self) -> u32 {
+    #[must_use]
+    pub const fn side(&self) -> u32 {
         self.side
     }
 
-    pub(crate) fn layer_major(&self) -> &[u8] {
+    /// Face pixels, one face after another.
+    #[must_use]
+    pub fn layer_major(&self) -> &[u8] {
         &self.pixels
     }
 }
@@ -49,6 +55,24 @@ pub struct PanoramaView {
     pub aspect: f32,
     /// Overlay tint composited over the faces (straight alpha).
     pub tint: [f32; 4],
+}
+
+impl PanoramaView {
+    /// The `Panorama` uniform of `panorama.wgsl`: yaw, pitch, tan(half fov), aspect, then tint.
+    #[must_use]
+    pub fn shader_uniform(&self) -> [f32; 8] {
+        let [r, g, b, a] = self.tint;
+        [
+            self.yaw_radians,
+            self.pitch_radians,
+            (self.vertical_fov_radians * 0.5).tan(),
+            self.aspect,
+            r,
+            g,
+            b,
+            a,
+        ]
+    }
 }
 
 /// The panorama drawn behind the launcher; `view` is `None` while it is hidden.

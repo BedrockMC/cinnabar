@@ -75,18 +75,29 @@ pub(crate) fn drive_menu_panorama(
     let Some((epoch, tint)) = *state else {
         return;
     };
-    let turned = epoch.elapsed().as_secs_f32() * TURN_DEGREES_PER_SECOND;
-    let yaw = turned.to_radians().rem_euclid(TAU);
-    let pitch = PITCH_DEGREES + PITCH_SWAY_DEGREES * (turned.abs() * SWAY_RATE).sin();
     let has_faces = scene.has_faces();
-    scene.show((shown && has_faces).then_some(PanoramaView {
-        yaw_radians: yaw,
+    scene.show(
+        (shown && has_faces).then(|| launcher_view(epoch.elapsed().as_secs_f32(), aspect, tint)),
+    );
+}
+
+/// The title-screen camera `seconds` after the panorama first showed.
+pub(crate) fn launcher_view(seconds: f32, aspect: f32, tint: [f32; 4]) -> PanoramaView {
+    let turned = seconds * TURN_DEGREES_PER_SECOND;
+    let pitch = PITCH_DEGREES + PITCH_SWAY_DEGREES * (turned.abs() * SWAY_RATE).sin();
+    PanoramaView {
+        yaw_radians: turned.to_radians().rem_euclid(TAU),
         // The pass tilts up for positive pitch; this camera looks down.
         pitch_radians: -pitch.to_radians(),
         vertical_fov_radians: VERTICAL_FOV,
         aspect,
         tint,
-    }));
+    }
+}
+
+/// Cinnabar's own faces, decoded.
+pub(crate) fn built_in_faces() -> Option<PanoramaFaces> {
+    decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec()))
 }
 
 /// The user's override faces, else the built-in ones, else the pack's.
@@ -103,15 +114,13 @@ fn launcher_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
         }
         faces
     });
-    overridden
-        .or_else(|| decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec())))
-        .or_else(|| {
-            decode_faces(|face| {
-                assets
-                    .ui_file(&format!("textures/ui/panorama_{face}.png"))
-                    .map(<[u8]>::to_vec)
-            })
+    overridden.or_else(built_in_faces).or_else(|| {
+        decode_faces(|face| {
+            assets
+                .ui_file(&format!("textures/ui/panorama_{face}.png"))
+                .map(<[u8]>::to_vec)
         })
+    })
 }
 
 /// The six faces at their native, equal size; any missing or odd face drops them all.
@@ -164,8 +173,7 @@ mod tests {
 
     #[test]
     fn built_in_faces_decode_as_one_cube() {
-        let faces = decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec()));
-        assert!(faces.is_some());
+        assert!(built_in_faces().is_some());
     }
 
     #[test]
