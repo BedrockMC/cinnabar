@@ -298,6 +298,29 @@ items stay.
 
 Open: `armor_material_slot` semantics are unmeasured.
 
+### Actor metadata keys (protocol 1001, gophertunnel `entity_metadata.go`)
+
+Presentation-relevant keys and how the client consumes them; keys absent here (commands, trades,
+aim assist, sounds, buoyancy, container data) have no visual effect and are retained unread.
+
+| Key | Consumed | Vanilla effect |
+| --- | --- | --- |
+| 0 / 92 flags | yes | every `is_*` query, on-fire camera overlay, invisible body (NoDraw; armor and held items stay, as `shouldHideHeldItems` returns false), show/always-show name, sneak tag dimming, sleeping, riding layouts (saddled, baby, tamed, sheared) |
+| 1 structural_integrity, 2 variant, 43 mark_variant, 104 skin_id, 101 trade_tier, 48 invulnerable_ticks, 55 fuse_time, 21 swell_dir | yes | integer queries; render-controller texture, geometry and part-visibility arrays re-evaluated per tick for vanilla and server-pack entities alike |
+| 3 color, 82 color2 | no | engine-side dye tint (sheep wool, shulker, tropical fish, llama carpet); not a Molang query — missing |
+| 4 name, 81 always_show_nametag | yes | nametag text and forced visibility |
+| 38 scale | yes | multiplies the authored model scale for body, equipment, texture layers and culling; `query.model_scale`; default nametag height. Hitbox and published nametag height come from 53/54, which the server scales. The first-person hand keeps the authored scale |
+| 53 width, 54 height | yes | hitbox (melee, block use, particles), nametag height, primed-TNT offset |
+| 56 seat_offset | yes | rider placement; whether the mount's scale scales authored seats is unverified |
+| 5 owner, 6 target, 12 hurt_direction, 15 value, 16 display_block, 19 swell, 23 carry_block, 26 player_flags, 37 leash_holder, 89 sit_amount, 93 lie_amount | yes | ownership/leash ropes, look-at, hurt tilt, XP orb frame, minecart block, creeper swell, enderman block query, sleeping, pose blends |
+| 7 air, 42 max_air, 120 freezing | yes | HUD bubbles and freeze vignette (local player) |
+| 136 filtered_name, 143 nameplate_render_distance_max | no | filtered tag text; per-actor tag range (fixed 64 used) — missing |
+
+Missing presentation that the flags drive: the entity flame billboard (`ActorRenderer::renderFlame`)
+and `on_fire_color`, entity ground shadows (none are drawn at any scale), the charged-creeper
+armor layer (needs `uv_anim`), and per-tick Molang `scripts.scale` (only a constant authored scale
+is carried).
+
 ## Entity render controllers (Bedrock target)
 
 Incomplete: the neutral single-texture artwork admission is gone; every rig with a decodable
@@ -308,8 +331,8 @@ Molang state, and every texture a candidate can select is built into the actor p
 | Status | Coverage |
 | --- | --- |
 | Drawn | geometry candidates from ternary and `Array.x[expr]` expressions, re-selected every tick (baby, sheared), texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color` |
-| Approximated | materials are all drawn with the neutral binary-alpha material; a controller layer whose `geometry` never selects the rig's default geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted |
-| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape), pack-catalog variants |
+| Approximated | materials are all drawn with the neutral binary-alpha material; a controller layer whose `geometry` never selects the rig's default geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted; an entity without a `default` geometry alias rests on its first alias until its controller selects |
+| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape) |
 
 Player skins: a skin's own geometry (resource patch `geometry.default`, inheritance only within
 the skin's JSON, lenient field parsing) replaces the default humanoid, driven by the player's
