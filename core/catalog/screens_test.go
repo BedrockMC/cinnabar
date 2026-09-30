@@ -1,13 +1,17 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
 
@@ -102,5 +106,39 @@ func TestFeaturedImagesPointIntoTheServers(t *testing.T) {
 	images[1].Path = "/cache/s.img"
 	if servers[0].Screenshots[0].Path != "/cache/s.img" {
 		t.Fatal("paths must land in the servers")
+	}
+}
+
+type recordingTransport struct{ hosts []string }
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.hosts = append(r.hosts, req.URL.Host)
+	return nil, errors.New("offline test")
+}
+
+type fixedTokens struct{}
+
+func (fixedTokens) ServiceToken(context.Context) (*service.Token, error) {
+	return &service.Token{AuthorizationHeader: "MCToken synthetic", ValidUntil: time.Now().Add(time.Hour)}, nil
+}
+
+// The gatherings client talks to the discovered endpoint and never falls back to a hardcoded host.
+func TestGatheringsClientUsesTheDiscoveredEndpoint(t *testing.T) {
+	if _, err := gatheringsClient(&service.Discovery{}, fixedTokens{}); err == nil {
+		t.Fatal("undiscovered gatherings service built a client")
+	}
+	recorder := new(recordingTransport)
+	previous := http.DefaultClient.Transport
+	http.DefaultClient.Transport = recorder
+	t.Cleanup(func() { http.DefaultClient.Transport = previous })
+	client, err := gatheringsClient(&service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
+		"gatherings": {"prod": json.RawMessage(`{"serviceUri":"https://gatherings.discovered.example"}`)},
+	}}, fixedTokens{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = client.FeaturedServers(context.Background())
+	if len(recorder.hosts) == 0 || recorder.hosts[0] != "gatherings.discovered.example" {
+		t.Fatalf("requested hosts = %v", recorder.hosts)
 	}
 }

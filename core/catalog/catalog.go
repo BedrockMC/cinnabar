@@ -23,6 +23,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
 
@@ -95,7 +96,16 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 		result.Friends = values
 	}
 
-	gatheringsClient := gatherings.NewClient(account)
+	discovery, err := service.Default(ctx)
+	if err != nil {
+		result.Errors = append(result.Errors, "Featured servers: discover services: "+err.Error(), "Gatherings: discover services: "+err.Error())
+		return result, nil
+	}
+	gatheringsClient, err := gatheringsClient(discovery, account)
+	if err != nil {
+		result.Errors = append(result.Errors, "Featured servers: "+err.Error(), "Gatherings: "+err.Error())
+		return result, nil
+	}
 	if values, err := gatheringsClient.FeaturedServers(ctx); err != nil {
 		result.Errors = append(result.Errors, "Featured servers: "+err.Error())
 	} else {
