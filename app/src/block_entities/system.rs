@@ -98,6 +98,8 @@ pub(crate) struct BlockEntityRuntime {
     missing_maps: Vec<i64>,
     /// When each map id was last requested from the server, in real seconds.
     map_requests: HashMap<i64, f64>,
+    /// World session the runtime-id keyed caches were filled from.
+    session: Option<u64>,
 }
 
 impl BlockEntityRuntime {
@@ -112,7 +114,22 @@ impl BlockEntityRuntime {
             bell_rings: HashMap::new(),
             missing_maps: Vec::new(),
             map_requests: HashMap::new(),
+            session: None,
         }
+    }
+
+    /// Runtime ids, block states and positions mean nothing across sessions, so a
+    /// session change drops every cache keyed by them.
+    fn bind_session(&mut self, session: Option<u64>) {
+        if self.session == session {
+            return;
+        }
+        self.session = session;
+        self.described.clear();
+        self.blocks.clear();
+        self.shapes.clear();
+        self.bell_rings.clear();
+        self.map_requests.clear();
     }
 }
 
@@ -238,13 +255,13 @@ pub(crate) fn update_block_entity_scene(
         ticks: now_seconds * TICKS_PER_SECOND,
     };
     let Some(stream) = client_world.stream.as_ref() else {
-        runtime.described.clear();
-        runtime.bell_rings.clear();
+        runtime.bind_session(None);
         placements.0.clear();
         *frame = scene.update(clock, &[], &[]).clone();
         return;
     };
     let runtime = &mut *runtime;
+    runtime.bind_session(Some(stream.actor_session_id()));
     runtime.missing_maps.clear();
     let dimension = stream.current_dimension();
     let store = stream.collision_store();
@@ -762,5 +779,20 @@ mod tests {
         ]);
         prune_bell_rings(&mut rings, 101.0);
         assert_eq!(rings.keys().copied().collect::<Vec<_>>(), vec![[0, 0, 0]]);
+    }
+
+    /// A runtime id cached in one session must not resolve blocks in the next.
+    #[test]
+    fn session_change_drops_runtime_id_keyed_caches() {
+        let mut runtime = BlockEntityRuntime::new();
+        runtime.bind_session(Some(1));
+        runtime.blocks.insert(7, None);
+        runtime.shapes.insert(7, CrackShape::Cube);
+        runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
+        runtime.bind_session(Some(1));
+        assert_eq!(runtime.blocks.len(), 1);
+        runtime.bind_session(Some(2));
+        assert!(runtime.blocks.is_empty() && runtime.shapes.is_empty());
+        assert!(runtime.bell_rings.is_empty());
     }
 }
