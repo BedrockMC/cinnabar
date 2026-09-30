@@ -62,18 +62,10 @@ fn rect(frame: &jsonui_editor::Frame, key: &str) -> [f64; 4] {
 #[test]
 fn example_screen_lays_out_to_the_expected_boxes() {
     let mut session = session(&["base"]);
-    let frame = session.frame(&view([960, 540]));
-    let messages: Vec<&str> = frame
-        .diagnostics
-        .iter()
-        .map(|d| d.message.as_str())
-        .collect();
-    assert_eq!(
-        messages,
-        ["example.touch_hint: undecidable `ignored` `(not $touch)` (12 bytes); keeping"]
-    );
-    let located = frame.diagnostics[0].location.as_ref().unwrap();
-    assert_eq!(located.path, "ui/example_screen.json");
+    let mut touch = view([960, 540]);
+    touch.context.insert("touch".into(), true.into());
+    let frame = session.frame(&touch);
+    assert!(frame.diagnostics.is_empty(), "{:?}", frame.diagnostics);
     assert_eq!(frame.root, [480.0, 270.0]);
     assert_eq!(rect(&frame, "/example_screen"), [0.0, 0.0, 480.0, 270.0]);
     assert_eq!(
@@ -104,7 +96,6 @@ fn example_screen_lays_out_to_the_expected_boxes() {
         rect(&frame, "/example_screen/card/content/status"),
         [126.0, 162.75, 228.0, 9.0]
     );
-    // Unset `$touch` keeps the undecidable `ignored` hint, as the engine does.
     assert!(frame.boxes.iter().any(|laid| laid.name == "touch_hint"));
 }
 
@@ -113,9 +104,9 @@ fn context_flags_select_variables_and_ignored() {
     let mut session = session(&["base"]);
     let mut pocket = view([960, 540]);
     pocket.context.insert("pocket_screen".into(), true.into());
-    pocket.context.insert("touch".into(), false.into());
     let frame = session.frame(&pocket);
     assert_eq!(rect(&frame, "/example_screen/card")[2], 200.0);
+    // Unset `$touch` reads as null, so `(not $touch)` drops the hint as vanilla does.
     assert!(!frame.boxes.iter().any(|laid| laid.name == "touch_hint"));
 }
 
