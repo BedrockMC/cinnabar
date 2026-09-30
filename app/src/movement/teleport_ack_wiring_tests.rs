@@ -264,6 +264,12 @@ fn default_off_respawn_reconciliation_stays_inert_and_unflagged() {
 fn committed_teleport_snap_correction_dispatches_through_production_reconciliation() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    // Corrections only land on retained ticks, so tick 101 must be simulated.
+    physics.advance(
+        std::time::Duration::from_millis(100),
+        super::integration_tests::forward_physics_input(),
+        &super::integration_tests::VersionedFloor(1),
+    );
     let mut app = wiring_app(authorized_ticker(true), physics);
     submit(
         &mut app,

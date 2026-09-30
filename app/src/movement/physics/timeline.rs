@@ -35,6 +35,13 @@ impl LocalPhysicsController {
         }
     }
 
+    /// Whether `tick` names a retained frame a correction can edit.
+    pub(in crate::movement) fn retains_tick(&self, tick: u64) -> bool {
+        tick != 0
+            && self.history.state_at(tick).is_some()
+            && self.sample_history.iter().any(|sample| sample.tick == tick)
+    }
+
     /// Records one server velocity replacement (`SetActorMotion`) and returns
     /// the tick to rewind from when it lands inside retained history.
     ///

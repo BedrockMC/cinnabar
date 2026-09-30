@@ -447,13 +447,13 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     // Shape classification (confirming / replay / teleport)
                     // lives with the movement authority; a confirming
                     // correction deliberately mutates no prediction state.
-                    match reconcile_committed_correction(
+                    match crate::movement::reconcile_prediction_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
                         correction.tick,
                         correction.on_ground,
-                        Some(correction.delta),
+                        correction.delta,
                         &world,
                     ) {
                         Ok(Some(outcome)) => {
