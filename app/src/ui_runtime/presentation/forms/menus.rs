@@ -100,6 +100,11 @@ impl UiPresentationRuntime {
         let Some(screen) = menu_screens::screen_data(view, &translate) else {
             return Ok(None);
         };
+        // Settings resolves for hundreds of milliseconds; do it while the start screen idles.
+        if view.screen == crate::menu::MenuScreen::Home {
+            let (reference, context) = menu_screens::settings_prewarm();
+            renderer.prewarm(reference, context);
+        }
         // Last frame's region keys carry the launcher's hover/press/focus.
         let key_of = |action: Option<MenuAction>| {
             let action = action?;
@@ -155,6 +160,7 @@ impl UiPresentationRuntime {
                 .into_iter()
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
                 splash: renderer.splash(&translate),
+                now: self.menu_seconds,
                 ..engine::ScreenArt::default()
             };
             match renderer.render_screen(
@@ -249,7 +255,10 @@ impl UiPresentationRuntime {
                 &data,
                 &context,
                 state,
-                engine::ScreenArt::default(),
+                engine::ScreenArt {
+                    now: self.menu_seconds,
+                    ..engine::ScreenArt::default()
+                },
                 inputs,
                 out,
             )

@@ -24,6 +24,7 @@ mod play_screen;
 mod recipe_book;
 mod remote_images;
 mod server_pack;
+mod settings_defaults;
 mod sign_editor;
 #[cfg(test)]
 pub(crate) mod snapshot;

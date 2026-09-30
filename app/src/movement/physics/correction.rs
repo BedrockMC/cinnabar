@@ -5,19 +5,35 @@ use super::*;
 impl LocalPhysicsController {
     pub(in crate::movement) fn apply_correction(
         &mut self,
-        network_position: [f32; 3],
-        tick: u64,
-        on_ground: bool,
+        anchor: crate::movement::PhysicsAnchor,
         mode: PhysicsCorrectionMode,
         confirmation: Option<&PhysicsCorrectionConfirmation>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let crate::movement::PhysicsAnchor {
+            network_position,
+            tick,
+            on_ground,
+            velocity,
+        } = anchor;
         if !network_position.into_iter().all(f32::is_finite) {
             return Err(PhysicsCorrectionError::InvalidAnchor);
         }
+        let velocity = velocity
+            .filter(|velocity| super::timeline::motion_is_simulable(*velocity))
+            .map(|velocity| {
+                Vec3::new(
+                    f64::from(velocity[0]),
+                    f64::from(velocity[1]),
+                    f64::from(velocity[2]),
+                )
+            });
         self.corrections_applied = self.corrections_applied.saturating_add(1);
         if matches!(mode, PhysicsCorrectionMode::Snap) {
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
+            if let (Some(velocity), Some(state)) = (velocity, self.state.as_mut()) {
+                state.velocity = velocity;
+            }
             return Ok(PhysicsCorrectionPlan {
                 outcome: PhysicsCorrectionOutcome::Snapped { tick },
                 corrected_tick: tick,
@@ -51,12 +67,8 @@ impl LocalPhysicsController {
             f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
             f64::from(network_position[2]),
         );
-        // CorrectPlayerMovePrediction replaces the retained position at one
-        // tick, then requires movement after that tick to be replayed from the
-        // corrected anchor. Its wire `pos_delta` record is retained upstream
-        // but deliberately not trusted as a replacement velocity: replay keeps
-        // the simulated dynamic state so a confirmation or small correction
-        // cannot restart acceleration from rest.
+        // Vanilla's correction input writes both position and StateVector
+        // motion into the corrected frame before replaying later inputs.
         corrected.position = feet;
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
@@ -95,54 +107,38 @@ impl LocalPhysicsController {
             }
             corrected.collisions = sim::AxisCollisions::default();
         }
-        self.replay_from_anchor(tick, corrected, network_position, world)
+        if let Some(velocity) = velocity {
+            corrected.velocity = velocity;
+        }
+        self.replay_from_corrected(tick, corrected, Some(network_position), world)
     }
 
-    /// Re-simulates from the retained tick before `tick` with a past server impulse overlaid,
-    /// as `ReplayStateComponent::applyFrameCorrection` does for an in-history motion.
-    pub(in crate::movement) fn replay_server_motion(
+    /// Re-simulates every retained tick after `tick` from its unchanged state so
+    /// timeline edits recorded after it (motion, attributes, flags) take effect.
+    pub(in crate::movement) fn replay_retained_from(
         &mut self,
-        motion: [f32; 3],
         tick: u64,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
-        let anchor_tick = tick.saturating_sub(1);
         let current_tick = self
             .state
             .as_ref()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?
             .tick;
-        if tick == 0 || tick > current_tick || !motion.into_iter().all(f32::is_finite) {
+        if tick > current_tick || !self.sample_history.iter().any(|sample| sample.tick == tick) {
             return Err(PhysicsCorrectionError::NotRetained { tick });
         }
-        let anchor = self
-            .history
-            .state_at(anchor_tick)
-            .cloned()
-            .ok_or(PhysicsCorrectionError::NotRetained { tick: anchor_tick })?;
-        let anchor_position = self
-            .sample_history
-            .iter()
-            .find(|sample| sample.tick == anchor_tick)
-            .map(|sample| sample.position)
-            .ok_or(PhysicsCorrectionError::NotRetained { tick: anchor_tick })?;
-        self.retain_server_motion(sim::MotionOverlay {
-            tick,
-            velocity: Vec3::new(
-                f64::from(motion[0]),
-                f64::from(motion[1]),
-                f64::from(motion[2]),
-            ),
-        });
-        self.replay_from_anchor(anchor_tick, anchor, anchor_position, world)
+        let Some(corrected) = self.history.state_at(tick).cloned() else {
+            return Err(PhysicsCorrectionError::NotRetained { tick });
+        };
+        self.replay_from_corrected(tick, corrected, None, world)
     }
 
-    /// Replays every retained tick after `tick` from `anchor`, re-applying motion overlays.
-    fn replay_from_anchor(
+    fn replay_from_corrected(
         &mut self,
         tick: u64,
         corrected: PlayerState,
-        network_position: [f32; 3],
+        corrected_network_position: Option<[f32; 3]>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
         let on_ground = corrected.on_ground;
@@ -232,6 +228,11 @@ impl LocalPhysicsController {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
             let (initiated, arc_active) = jump_fold.step(frame_input, result.on_ground);
+            retained.sneaking = frame_input.sneaking;
+            retained.sprinting = frame_input.sprinting;
+            retained.processed.sneaking = frame_input.sneaking;
+            retained.processed.sprinting = frame_input.sprinting;
+            retained.processed.mode = frame_input.mode;
             retained.processed.direction_flags = Some(super::super::encoding::direction_flags([
                 -frame_input.strafe as f32,
                 frame_input.forward as f32,
@@ -247,7 +248,9 @@ impl LocalPhysicsController {
                 .iter_mut()
                 .find(|sample| sample.tick == tick)
                 .expect("retained correction sample was checked");
-            corrected_sample.position = network_position;
+            if let Some(position) = corrected_network_position {
+                corrected_sample.position = position;
+            }
             corrected_sample.world_identity.clone()
         };
 

@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
@@ -28,7 +31,9 @@ type Config struct {
 	Store       *control.Store
 	Selector    *proxy.UpstreamSelector
 	Transfers   *proxy.TransferState
-	ArtworkDir  string // bounded cache for screen artwork; empty skips caching
+	ArtworkDir  string // screen artwork cache; empty skips caching
+	CacheFile   string // last good catalog; empty keeps it in memory only
+	Logger      *slog.Logger
 	// StoreImageDir holds cached Marketplace images; empty disables them.
 	StoreImageDir string
 
@@ -50,8 +55,16 @@ type Config struct {
 // Service implements control.Services.
 type Service struct {
 	cfg       Config
+	logger    *slog.Logger
 	signedOut atomic.Bool
 	messaging catalog.MessagingSession
+
+	mu        sync.Mutex
+	snap      snapshot
+	flights   [3]*flight
+	attempted [3]time.Time
+	gamerpic  string     // profile artwork pruning must keep
+	disk      sync.Mutex // orders cache rewrites
 }
 
 // New returns a Service; it fills unset injectables with the real implementations.
@@ -89,7 +102,12 @@ func New(cfg Config) *Service {
 	if cfg.Report == nil {
 		cfg.Report = catalog.ReportMessageEvent
 	}
-	return &Service{cfg: cfg}
+	s := &Service{cfg: cfg, logger: cfg.Logger}
+	if s.logger == nil {
+		s.logger = slog.New(slog.DiscardHandler)
+	}
+	s.load()
+	return s
 }
 
 func (s *Service) source() (oauth2.TokenSource, error) {
@@ -117,36 +135,14 @@ func (s *Service) Friends(ctx context.Context) ([]catalog.Friend, error) {
 	return s.cfg.Friends(ctx, src)
 }
 
-// FeaturedServers lists the featured servers with their artwork cached.
+// FeaturedServers lists the featured servers with their artwork cached, from the last good fetch.
 func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error) {
-	src, err := s.source()
-	if err != nil {
-		return nil, err
-	}
-	servers, err := s.cfg.Featured(ctx, src)
-	if err != nil {
-		return nil, err
-	}
-	s.cacheArt(ctx, catalog.FeaturedImages(servers))
-	return servers, nil
+	return cached(ctx, s, featuredFeed)
 }
 
-// Gatherings lists the community gatherings with their artwork cached.
+// Gatherings lists the community gatherings with their artwork cached, from the last good fetch.
 func (s *Service) Gatherings(ctx context.Context) ([]catalog.Gathering, error) {
-	src, err := s.source()
-	if err != nil {
-		return nil, err
-	}
-	gatherings, err := s.cfg.Gatherings(ctx, src)
-	if err != nil {
-		return nil, err
-	}
-	images := make([]*catalog.Image, 0, len(gatherings))
-	for index := range gatherings {
-		images = append(images, &gatherings[index].Image)
-	}
-	s.cacheArt(ctx, images)
-	return gatherings, nil
+	return cached(ctx, s, gatheringsFeed)
 }
 
 // Profile returns the signed-in profile with its gamerpic cached.
@@ -160,31 +156,15 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 		return catalog.Profile{}, err
 	}
 	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
+	s.mu.Lock()
+	s.gamerpic = profile.Gamerpic.Path
+	s.mu.Unlock()
 	return profile, nil
 }
 
-// Home returns the start screen's service data with its artwork cached.
+// Home returns the start screen's service data with its artwork cached, from the last good fetch.
 func (s *Service) Home(ctx context.Context) (catalog.Home, error) {
-	src, err := s.source()
-	if err != nil {
-		return catalog.Home{}, err
-	}
-	home, err := s.cfg.Home(ctx, src, &s.messaging, s.cfg.ArtworkDir)
-	if err != nil {
-		return catalog.Home{}, err
-	}
-	var images []*catalog.Image
-	for index := range home.Messages {
-		for image := range home.Messages[index].Images {
-			images = append(images, &home.Messages[index].Images[image].Image)
-		}
-	}
-	for index := range home.LiveEvents {
-		images = append(images, &home.LiveEvents[index].Badge, &home.LiveEvents[index].EventImage)
-	}
-	images = append(images, &home.PersonaHead)
-	s.cacheArt(ctx, images)
-	return home, nil
+	return cached(ctx, s, homeFeed)
 }
 
 // ReportMessage posts one messaging report for the signed-in session.
@@ -261,15 +241,25 @@ func (s *Service) SignOut() error {
 	if s.cfg.TokenSource == nil {
 		return control.ErrSignedOut
 	}
+	s.mu.Lock()
 	s.signedOut.Store(true)
-	var failed bool
+	s.snap = snapshot{}
+	s.mu.Unlock()
+	var paths []string
 	if s.cfg.AuthCache != "" {
-		for _, path := range []string{s.cfg.AuthCache, authcache.DerivedCachePath(s.cfg.AuthCache)} {
-			if err := s.cfg.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				failed = true
-			}
+		paths = append(paths, s.cfg.AuthCache, authcache.DerivedCachePath(s.cfg.AuthCache))
+	}
+	if s.cfg.CacheFile != "" {
+		paths = append(paths, s.cfg.CacheFile)
+	}
+	var failed bool
+	s.disk.Lock()
+	for _, path := range paths {
+		if err := s.cfg.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failed = true
 		}
 	}
+	s.disk.Unlock()
 	if s.cfg.Selector != nil {
 		s.cfg.Selector.Set("")
 	}

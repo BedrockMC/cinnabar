@@ -327,7 +327,7 @@ fn primed_tnt_without_height_uses_the_vanilla_default_offset() {
 }
 
 #[test]
-fn player_delta_y_is_not_shifted_like_a_network_position() {
+fn feet_origin_y_is_not_shifted_like_a_network_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
     store.apply(
@@ -1058,6 +1058,33 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
     assert_eq!(store.get(42).unwrap().head_yaw, -170.0);
 }
 
+#[test]
+fn movement_flag_update_reads_both_flag_words_and_skips_absent_ones() {
+    use protocol::{ActorMetadata, ActorMetadataValue};
+    let primary = ActorMetadata {
+        key: 0,
+        value: ActorMetadataValue::Flags((1 << 1) | (1 << 32)),
+    };
+    let extended = ActorMetadata {
+        key: 92,
+        value: ActorMetadataValue::FlagsExtended(1 << (114 - 64)),
+    };
+    let update = crate::MovementFlagUpdate::from_metadata(&[primary.clone(), extended]).unwrap();
+    assert_eq!(update.sneaking, Some(true));
+    assert_eq!(update.sprinting, Some(false));
+    assert_eq!(update.gliding, Some(true));
+    assert_eq!(update.swimming, Some(false));
+    assert_eq!(update.crawling, Some(true));
+
+    let primary_only = crate::MovementFlagUpdate::from_metadata(&[primary]).unwrap();
+    assert_eq!(primary_only.crawling, None);
+    let unrelated = ActorMetadata {
+        key: 4,
+        value: ActorMetadataValue::String("name".into()),
+    };
+    assert_eq!(crate::MovementFlagUpdate::from_metadata(&[unrelated]), None);
+}
+
 /// A player spawned without size metadata keeps its definition box, so it stays attackable.
 #[test]
 fn a_sizeless_player_uses_its_definition_collision_box() {
@@ -1067,4 +1094,36 @@ fn a_sizeless_player_uses_its_definition_collision_box() {
     let offset = store.get(7).unwrap().position;
     assert!((max[0] - min[0] - 0.6).abs() < 1e-4 && (max[1] - min[1] - 1.8).abs() < 1e-4);
     assert_eq!(min[1], offset[1]);
+}
+
+/// Remote MovePlayer Rotation turns without moving and Reset snaps without a lerp.
+#[test]
+fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    let before = store.get(42).unwrap().position;
+    let movement = |mode, x: f32| protocol::MovePlayerEvent {
+        runtime_id: 42,
+        position: [x, 80.0, 0.0],
+        yaw: 90.0,
+        head_yaw: 90.0,
+        mode,
+        ..protocol::MovePlayerEvent::default()
+    };
+    store.apply_player_move(1, 2, 0, movement(protocol::MovePlayerMode::Rotation, 30.0));
+    store.advance_interpolation_ticks(3);
+    let turned = store.get(42).unwrap();
+    assert_eq!(
+        turned.position, before,
+        "rotation mode never moves the player"
+    );
+    assert_eq!(turned.yaw, 90.0);
+
+    store.apply_player_move(1, 3, 0, movement(protocol::MovePlayerMode::Reset, 30.0));
+    let reset = store.get(42).unwrap();
+    assert_eq!(
+        reset.position[0], 30.0,
+        "reset sets the position without a lerp"
+    );
+    assert_eq!(reset.interpolation_ticks_remaining, 0);
 }

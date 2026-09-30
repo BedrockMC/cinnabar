@@ -8,7 +8,7 @@ use super::paint::{Bounds, Canvas};
 use super::theme::{
     BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, EDGE, HEADER_HEIGHT, HEADER_STRIP, HEADER5,
     NEUTRAL, NEUTRAL20, NEUTRAL80, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON, PRIMARY_ROLE, Rgba,
-    Role, SECONDARY, SECONDARY_BUTTON, TEXT_DIMMER, Type,
+    Role, SECONDARY, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, Type,
 };
 use crate::menu::{MenuAction, MenuView};
 
@@ -401,16 +401,42 @@ pub(super) fn section_label(
     let height = canvas.r(4.8);
     let pad = canvas.r(1.6);
     let text_top = top + height - canvas.r(0.8) - canvas.r(CAPTION.line);
-    canvas.text(
+    canvas.text_line(
         label,
         [span[0] + pad, text_top],
         span[1] - span[0] - pad * 2.0,
         CAPTION,
         TEXT_DIMMER,
-        false,
     )?;
     divider(canvas, span[0], span[1], top + height - canvas.r(EDGE))?;
     Ok(top + height)
+}
+
+/// A list row's title and caption, one line each, centred in a 4.8rem row.
+pub(super) fn row_text(
+    canvas: &mut Canvas<'_>,
+    [left, top]: [f32; 2],
+    width: f32,
+    title: &str,
+    caption: &str,
+) -> Result<(), UiPresentationError> {
+    let pad = (4.8 - BODY.line - CAPTION.line) * 0.5;
+    let glyph = |style: Type| (style.line - style.size) * 0.5;
+    canvas.text_line(
+        title,
+        [left, top + canvas.r(pad + glyph(BODY))],
+        width,
+        BODY,
+        TEXT,
+    )?;
+    canvas.text_line(
+        caption,
+        [left, top + canvas.r(pad + BODY.line + glyph(CAPTION))],
+        width,
+        CAPTION,
+        TEXT_DIMMER,
+    )?;
+    Ok(())
 }
 
 /// A small solid tag; returns its right edge.

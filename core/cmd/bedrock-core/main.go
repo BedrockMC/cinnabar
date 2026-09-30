@@ -259,16 +259,22 @@ func runWithResourcePackCacheFactory(
 				statusStore.ClearTransfer()
 			}))
 		}
+		artworkDir, cacheFile := filepath.Join(opts.socketDir, "artwork"), ""
+		if dir := authSibling(opts.authCache, "catalog-cache"); dir != "" {
+			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
+		}
 		service := launcher.New(launcher.Config{
 			TokenSource: tokenSource, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
-			ArtworkDir:    filepath.Join(opts.socketDir, "artwork"),
-			StoreImageDir: storeImageDir(opts.authCache),
+			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
+			StoreImageDir: authSibling(opts.authCache, "store-images"),
 		})
+		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace(nil))
 		if tokenSource != nil {
 			go service.PublishSignedIn(ctx)
+			service.Prefetch()
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
 		resourcePackAdmissionUpdate = statusStore.Observe
@@ -334,10 +340,10 @@ func contextWithStdinEOF(parent context.Context, stdin io.Reader) (context.Conte
 	return ctx, cancel
 }
 
-// storeImageDir places the Marketplace image cache beside the auth cache; empty without one.
-func storeImageDir(authCache string) string {
+// authSibling is the persistent per-install directory called name beside the auth cache; empty without one.
+func authSibling(authCache, name string) string {
 	if authCache == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(authCache), "store-images")
+	return filepath.Join(filepath.Dir(authCache), name)
 }

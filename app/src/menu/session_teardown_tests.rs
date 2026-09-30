@@ -106,6 +106,7 @@ fn pending_sample(world_identity: WorldCollisionIdentity) -> PhysicsMovementSamp
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
+        sneak_button: false,
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: true,
@@ -315,10 +316,8 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     assert!(menu.is_visible());
     assert_eq!(menu.view().screen, MenuScreen::Play);
     assert_eq!(
-        menu.view().message.as_deref(),
-        Some(
-            "Disconnected: server disconnected: Cinnabar launcher return check (network read failed: closed)"
-        )
+        menu.view().disconnect_message.as_deref(),
+        Some("server disconnected: Cinnabar launcher return check (network read failed: closed)")
     );
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }

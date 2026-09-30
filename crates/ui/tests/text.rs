@@ -123,6 +123,30 @@ fn layout_wraps_in_checked_fixed_point_and_uses_replacement_glyph() {
     assert_eq!(layout.size_64(), [128, 128]);
 }
 
+// A line breaks at its last space, dropping it, so a word never splits while it fits.
+#[test]
+fn layout_wraps_at_word_boundaries() {
+    let font = font([0x11; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let layout = cache
+        .layout(TextLayoutRequest {
+            text: "A BB",
+            style: TextStyle::default(),
+            width_64: 192,
+            line_height_64: 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+    let lines: Vec<(char, u16)> = layout
+        .glyphs()
+        .iter()
+        .map(|glyph| (glyph.codepoint, glyph.line))
+        .collect();
+    assert_eq!(lines, [('A', 0), ('B', 1), ('B', 1)]);
+}
+
 #[test]
 fn zero_width_and_control_characters_add_no_glyphs() {
     let font = font([0x11; 32]);
