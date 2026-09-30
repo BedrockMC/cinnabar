@@ -98,6 +98,8 @@ pub(crate) struct BlockEntityRuntime {
     missing_maps: Vec<i64>,
     /// When each map id was last requested from the server, in real seconds.
     map_requests: HashMap<i64, f64>,
+    /// World session the runtime-id keyed caches were filled from.
+    session: Option<u64>,
 }
 
 impl BlockEntityRuntime {
@@ -112,7 +114,22 @@ impl BlockEntityRuntime {
             bell_rings: HashMap::new(),
             missing_maps: Vec::new(),
             map_requests: HashMap::new(),
+            session: None,
         }
+    }
+
+    /// Runtime ids, block states and positions mean nothing across sessions, so a
+    /// session change drops every cache keyed by them.
+    fn bind_session(&mut self, session: Option<u64>) {
+        if self.session == session {
+            return;
+        }
+        self.session = session;
+        self.described.clear();
+        self.blocks.clear();
+        self.shapes.clear();
+        self.bell_rings.clear();
+        self.map_requests.clear();
     }
 }
 
@@ -238,12 +255,13 @@ pub(crate) fn update_block_entity_scene(
         ticks: now_seconds * TICKS_PER_SECOND,
     };
     let Some(stream) = client_world.stream.as_ref() else {
-        runtime.described.clear();
+        runtime.bind_session(None);
         placements.0.clear();
         *frame = scene.update(clock, &[], &[]).clone();
         return;
     };
     let runtime = &mut *runtime;
+    runtime.bind_session(Some(stream.actor_session_id()));
     runtime.missing_maps.clear();
     let dimension = stream.current_dimension();
     let store = stream.collision_store();
@@ -371,6 +389,7 @@ pub(crate) fn update_block_entity_scene(
     }
     runtime.lids.finish();
     runtime.described.retain(|key, _| seen.contains(key));
+    prune_bell_rings(&mut runtime.bell_rings, now_seconds);
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }
@@ -614,6 +633,13 @@ fn resolve(
 
 /// The `BlockEventPacket` type a bell ring arrives as.
 const BELL_RING_EVENT_TYPE: i32 = 1;
+/// Seconds after a ring when the swing has visibly settled and its state can go.
+const BELL_RING_RETAIN_SECONDS: f64 = 10.0;
+
+/// Drops rings whose swing has settled; a still-latched cue re-enters at rest.
+fn prune_bell_rings(rings: &mut HashMap<[i32; 3], (u64, f64)>, now_seconds: f64) {
+    rings.retain(|_, (_, start)| now_seconds - *start < BELL_RING_RETAIN_SECONDS);
+}
 /// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
 const BEAM_TOP: i32 = 320;
 
@@ -741,5 +767,32 @@ mod tests {
         assert_ne!(map_cache_key(1, 1), map_cache_key(1, 2));
         assert_ne!(map_cache_key(1, 1), map_cache_key(2, 1));
         assert_eq!(map_cache_key(5, 9), map_cache_key(5, 9));
+    }
+
+    /// Bell state must not accumulate for every bell ever seen.
+    #[test]
+    fn bell_ring_state_expires_once_the_swing_settles() {
+        let mut rings = HashMap::from([
+            ([0, 0, 0], (1, 100.0)),
+            ([1, 0, 0], (2, f64::NEG_INFINITY)),
+            ([2, 0, 0], (3, 80.0)),
+        ]);
+        prune_bell_rings(&mut rings, 101.0);
+        assert_eq!(rings.keys().copied().collect::<Vec<_>>(), vec![[0, 0, 0]]);
+    }
+
+    /// A runtime id cached in one session must not resolve blocks in the next.
+    #[test]
+    fn session_change_drops_runtime_id_keyed_caches() {
+        let mut runtime = BlockEntityRuntime::new();
+        runtime.bind_session(Some(1));
+        runtime.blocks.insert(7, None);
+        runtime.shapes.insert(7, CrackShape::Cube);
+        runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
+        runtime.bind_session(Some(1));
+        assert_eq!(runtime.blocks.len(), 1);
+        runtime.bind_session(Some(2));
+        assert!(runtime.blocks.is_empty() && runtime.shapes.is_empty());
+        assert!(runtime.bell_rings.is_empty());
     }
 }

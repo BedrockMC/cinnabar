@@ -53,6 +53,7 @@ use crate::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode, ServerTeleportKind,
         reconcile_candidate_physics_correction, reconcile_committed_correction,
+        reconcile_server_motion,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -226,6 +227,20 @@ pub(crate) fn update_camera_medium(
     };
 }
 
+/// Full-world cohort witness; only acceptance and metrics runs consume it, and
+/// it scans every retained column and sub-chunk.
+pub(crate) fn frame_cohort_status(
+    stream: &WorldStream,
+    acceptance: &AcceptanceRun,
+) -> Option<ViewCohortStatus> {
+    if !super::telemetry::publication_diagnostics_enabled(acceptance) {
+        return None;
+    }
+    stream
+        .committed_view_cohort()
+        .map(|target| stream.cohort_status(target))
+}
+
 pub(crate) fn world_stream_fatal_message(error: client_world::WorldStreamFatalError) -> String {
     format!("world stream fatal: {error}")
 }
@@ -287,9 +302,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     );
-    frame_poll.cohort = stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target));
+    frame_poll.cohort = frame_cohort_status(stream, &acceptance);
     let controls = stream.take_committed_controls();
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
     drain_committed_audio(stream, |event| {
@@ -355,7 +368,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             if movement.physics_is_authorized() {
                 crate::movement::note_motion(event.tick, event.motion);
-                local_physics.queue_server_motion(event.motion, event.tick);
+                let world = sim::PaletteWorld::new(
+                    stream.collision_store(),
+                    collisions.registry(stream.network_id_mode()),
+                    stream.current_dimension(),
+                );
+                reconcile_server_motion(
+                    &mut movement,
+                    &mut local_physics,
+                    event.motion,
+                    event.tick,
+                    &world,
+                );
             }
             continue;
         }

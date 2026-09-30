@@ -1,13 +1,15 @@
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction, EnumsHandSlot,
+    EnumsItemReleaseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
     EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
     EnumsPlayerActionType, EnumsPlayerRespawnState, InventoryTransaction,
-    InventoryTransactionPacket, InventoryTransactionPacketTransaction, ItemUseInventoryTransaction,
+    InventoryTransactionPacket, InventoryTransactionPacketTransaction,
+    ItemReleaseInventoryTransaction, ItemUseInventoryTransaction,
     ItemUseOnActorInventoryTransaction, PlayerActionPacket, RespawnPacket,
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
@@ -237,6 +239,101 @@ pub(crate) fn item_use_transaction(
         client_interact_prediction: ItemUseInventoryTransactionClientInteractPrediction::Failure,
         client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
     })
+}
+
+/// The held stack and pose one air use or release reports.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeldItemRequest {
+    pub selected_slot: u8,
+    pub selected_item: VerifiedNetworkItemStack,
+    pub player_position: [f32; 3],
+}
+
+/// How an item in use ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemReleaseKind {
+    /// The use button went up (bow shot, trident throw).
+    Release,
+    /// The use duration ran out (loaded crossbow, finished food).
+    Complete,
+}
+
+fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePacketError> {
+    if request.selected_slot >= 9 {
+        return Err(BlockUsePacketError::InvalidSelectedSlot(
+            request.selected_slot,
+        ));
+    }
+    if !request.player_position.into_iter().all(f32::is_finite) {
+        return Err(BlockUsePacketError::NonFinitePlayerPosition);
+    }
+    let [x, y, z] = request.player_position;
+    Ok((i32::from(request.selected_slot), Vec3 { x, y, z }))
+}
+
+/// Builds the click-air transaction vanilla's `GameMode::baseUseItem` sends: zero block and
+/// click positions, face 255, unset trigger and a failure prediction.
+pub fn click_air_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
+    let (slot, from_position) = held_item_parts(&request)?;
+    let item = request.selected_item.into_vendor_item(0)?;
+    Ok(InventoryTransactionPacket {
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+        legacy_set_item_slots: None,
+        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+            ItemUseInventoryTransaction {
+                actions: InventoryTransaction {
+                    actions: Vec::new(),
+                },
+                action_type: ItemUseInventoryTransactionActionType::Use,
+                trigger_type: ItemUseInventoryTransactionTriggerType::Unknown,
+                position: BlockPos { x: 0, y: 0, z: 0 },
+                face: u8::MAX,
+                slot,
+                hand: EnumsHandSlot::Mainhand,
+                item,
+                from_position,
+                click_position: Vec3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                target_block_id: 0,
+                client_interact_prediction:
+                    ItemUseInventoryTransactionClientInteractPrediction::Failure,
+                client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
+            },
+        )),
+    }
+    .into())
+}
+
+/// Builds the release-item transaction that ends an item use.
+pub fn release_item_packet(
+    request: HeldItemRequest,
+    kind: ItemReleaseKind,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    let (slot, from_position) = held_item_parts(&request)?;
+    let item = request.selected_item.into_vendor_item(0)?;
+    let action_type = match kind {
+        ItemReleaseKind::Release => EnumsItemReleaseInventoryTransactionActionType::Release,
+        ItemReleaseKind::Complete => EnumsItemReleaseInventoryTransactionActionType::Use,
+    };
+    Ok(InventoryTransactionPacket {
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+        legacy_set_item_slots: None,
+        transaction: InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(
+            Box::new(ItemReleaseInventoryTransaction {
+                actions: InventoryTransaction {
+                    actions: Vec::new(),
+                },
+                action_type,
+                slot,
+                item,
+                from_position,
+            }),
+        ),
+    }
+    .into())
 }
 
 /// Builds a protocol-2168 attack or interact transaction for an already-selected actor.

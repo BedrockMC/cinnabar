@@ -78,6 +78,7 @@ function Get-TreeIdentity([string]$Root) {
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $Builder = Join-Path $RepoRoot 'scripts\flowerbed-reference-pack.ps1'
+$PinnedSource = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'assets\vanilla-source.json') | ConvertFrom-Json
 $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("rust-mcbe flowerbed pack tests {0}" -f [guid]::NewGuid().ToString('N'))
 $Source = Join-Path $TempRoot 'pinned source'
 $SourceIdentity = Join-Path $TempRoot 'test-source-identity.json'
@@ -160,8 +161,8 @@ try {
     Write-TestSourceIdentity `
         -Root $Source `
         -Path $falsePinnedIdentity `
-        -Tag 'v1.26.30.32-preview' `
-        -ArchiveSha256 '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+        -Tag ([string]$PinnedSource.tag) `
+        -ArchiveSha256 ([string]$PinnedSource.sha256)
     $falsePinned = Invoke-Builder -Source $Source -Output (Join-Path $OwnedRoot 'false-pinned') -SourceIdentity $falsePinnedIdentity
     Assert-True ($falsePinned.ExitCode -ne 0) 'custom identity relabeled synthetic content with the reserved pinned Mojang identity'
 

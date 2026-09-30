@@ -650,7 +650,7 @@ fn missing_blob_starts_with_diagnostic_assets_and_exact_local_commands() {
     let notice = loaded.notice.as_deref().unwrap();
     assert!(notice.contains(&path.display().to_string()));
     assert!(notice.contains(FETCH_COMMAND));
-    assert!(notice.contains(COMPILE_COMMAND));
+    assert!(notice.contains(COMPILE_COMMAND.as_str()));
     assert!(
         loaded
             .runtime
@@ -674,7 +674,7 @@ fn malformed_blob_failure_names_the_exact_selected_path() {
     assert!(message.contains(&path.display().to_string()), "{message}");
     assert!(message.contains("decode"), "{message}");
     assert!(message.contains("rebuild"), "{message}");
-    assert!(message.contains(COMPILE_COMMAND), "{message}");
+    assert!(message.contains(COMPILE_COMMAND.as_str()), "{message}");
 
     fs::remove_dir_all(directory).unwrap();
 }
@@ -695,11 +695,9 @@ fn valid_blob_decodes_once_and_reports_identity_and_counts() {
 
     assert_eq!(loaded.kind, LoadedAssetKind::CompiledBlob);
     assert_eq!(Arc::strong_count(&loaded.runtime), 1);
-    assert_eq!(loaded.metrics.source_tag, "v1.26.30.32-preview");
-    assert_eq!(
-        loaded.metrics.source_sha256,
-        "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c"
-    );
+    let pinned = ::assets::vanilla_source();
+    assert_eq!(loaded.metrics.source_tag, pinned.tag.as_ref());
+    assert_eq!(loaded.metrics.source_sha256, pinned.sha256.as_ref());
     assert_eq!(loaded.metrics.blob_sha256, expected_hash);
     assert_eq!(loaded.metrics.texture_layers, 2);
     assert_eq!(loaded.metrics.texture_bytes_including_mips, 2_728);
@@ -854,9 +852,12 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     assert!(marker.starts_with("WORLD_READY "));
     let expected_blob_hash = format!("blob_sha256={}", report.assets.blob_sha256);
     assert!(marker.contains(&expected_blob_hash), "{marker}");
+    let pinned = ::assets::vanilla_source();
+    let source_tag = format!("source_tag={}", pinned.tag);
+    let source_sha256 = format!("source_sha256={}", pinned.sha256);
     for expected in [
-        "source_tag=v1.26.30.32-preview",
-        "source_sha256=12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c",
+        source_tag.as_str(),
+        source_sha256.as_str(),
         "resident_sub_chunks=19",
         "visible_sub_chunks=17",
         "diagnostic_attribution_total=6",
@@ -963,15 +964,15 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
         "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula"
     );
     assert_eq!(
-        COMPILE_COMMAND,
-        concat!(
-            "cargo run -p asset-compiler --bin assetc -- compile ",
-            "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
-            "--source-manifest assets/vanilla-source.json ",
-            "--registry crates/assets/data/block-registry-v2193.bin ",
-            "--light-registry crates/assets/data/block-light-registry-v2193.bin ",
-            "--biome-registry crates/assets/data/biome-registry-v2193.bin ",
-            "--out .local/assets/compiled/vanilla-v2193.mcbea"
+        COMPILE_COMMAND.as_str(),
+        format!(
+            "cargo run -p asset-compiler --bin assetc -- compile --pack {} \
+             --source-manifest assets/vanilla-source.json \
+             --registry crates/assets/data/block-registry-v2193.bin \
+             --light-registry crates/assets/data/block-light-registry-v2193.bin \
+             --biome-registry crates/assets/data/biome-registry-v2193.bin \
+             --out .local/assets/compiled/vanilla-v2193.mcbea",
+            ::assets::vanilla_source().resource_pack_dir()
         )
     );
     assert!(Path::new(DEFAULT_ASSET_PATH).starts_with(".local/assets"));

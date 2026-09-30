@@ -4,8 +4,6 @@ use bevy::log::warn;
 use client_world::{RideSeat, SeatDefaults, SeatRequirement};
 use serde_json::Value;
 
-const ENTITIES_DIR: &str = "assets/bedrock-samples/v1.26.30.32-preview/full/behavior_pack/entities";
-
 /// Seat layouts of every rideable entity in the local behavior pack, loaded once; absent or
 /// unreadable data degrades to no defaults, so riders keep their streamed pose.
 pub(super) fn seat_defaults() -> Arc<SeatDefaults> {
@@ -13,7 +11,11 @@ pub(super) fn seat_defaults() -> Arc<SeatDefaults> {
     Arc::clone(DEFAULTS.get_or_init(|| {
         let defaults = crate::install_layout::InstallLayout::discover()
             .ok()
-            .and_then(|layout| load(&layout.resource_root.join(ENTITIES_DIR)));
+            .and_then(|layout| {
+                let entities =
+                    assets::vanilla_source().installed_pack_dir("behavior_pack/entities");
+                load(&layout.resource_root.join(entities))
+            });
         if defaults.is_none() {
             warn!(
                 "behavior pack entities not found; riders without a streamed seat keep their pose"

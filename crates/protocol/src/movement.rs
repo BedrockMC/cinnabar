@@ -75,6 +75,8 @@ impl PlayerInputFlags {
     pub const VERTICAL_COLLISION: Self = Self(1 << 50);
     pub const DOWN_LEFT: Self = Self(1 << 51);
     pub const DOWN_RIGHT: Self = Self(1 << 52);
+    /// Wire ordinal 53: the local player began using its held item this tick.
+    pub const START_USING_ITEM: Self = Self(1 << 53);
     pub const JUMP_RELEASED_RAW: Self = Self(1 << 59);
     pub const JUMP_PRESSED_RAW: Self = Self(1 << 60);
     pub const JUMP_CURRENT_RAW: Self = Self(1 << 61);
@@ -394,6 +396,7 @@ mod locomotion_flag_tests {
             (PlayerInputFlags::STOP_CRAWLING, "StopCrawling"),
             (PlayerInputFlags::START_FLYING, "StartFlying"),
             (PlayerInputFlags::STOP_FLYING, "StopFlying"),
+            (PlayerInputFlags::START_USING_ITEM, "StartUsingItem"),
         ] {
             let row = flag.bits().trailing_zeros() as usize;
             assert_eq!(INPUT_FLAG_ITEMS[row].1, name);
