@@ -43,6 +43,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "redstone.dropper_screen",
     "redstone.crafter_screen",
     "horse.horse_screen",
+    "book.book_screen",
     "npc_interact.npc_screen",
     "pause.pause_screen",
     "start.start_screen",

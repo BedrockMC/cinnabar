@@ -135,6 +135,10 @@ impl UiPresentationRuntime {
         editable: bool,
         signing: bool,
     ) -> Option<InventoryCellHit> {
+        // The vanilla book screen answers from its own hit regions.
+        if self.engine_container_frame().is_some() {
+            return self.engine_container_hit(gui);
+        }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
         let origin = screens::panel_origin(
             InventoryScreen::Book,

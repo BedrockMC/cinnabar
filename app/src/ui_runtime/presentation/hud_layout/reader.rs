@@ -20,6 +20,8 @@ fn button_label(button: ReaderButton) -> &'static str {
         ReaderButton::Sign => "Sign",
         ReaderButton::Finalize => "Sign and Close",
         ReaderButton::Cancel => "Cancel",
+        // Only the vanilla two-page screen shows these.
+        _ => "",
     }
 }
 

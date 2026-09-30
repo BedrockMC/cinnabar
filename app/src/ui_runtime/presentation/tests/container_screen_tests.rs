@@ -154,6 +154,25 @@ fn creative() -> UiRuntime {
     runtime
 }
 
+/// A writable three-page book, on its first spread or its signing cover.
+fn book(signing: bool) -> UiRuntime {
+    use crate::ui_runtime::book_screen::{BookSource, BookState};
+    let mut runtime = session();
+    let pages = ["First page", "Second page", "Third"].map(str::to_owned);
+    let mut state = BookState::new(
+        BookSource::Held(0),
+        pages.to_vec(),
+        true,
+        String::new(),
+        "Steve".to_owned(),
+    );
+    state.signing = signing;
+    // The right page shows its edit controls, the left its edit button.
+    state.editing = Some(1);
+    runtime.open_book(state);
+    runtime
+}
+
 fn personal() -> UiRuntime {
     let mut runtime = session();
     runtime.toggle_inventory();
@@ -163,7 +182,7 @@ fn personal() -> UiRuntime {
 /// Every screen the engine draws by default, by snapshot name, with the window
 /// cells its item slots must address.
 fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
-    use crate::ui_runtime::presentation::screens::Widget as W;
+    use crate::ui_runtime::presentation::screens::{ReaderButton as R, Widget as W};
     use InventoryCellHit::{
         Craft, CraftOutput, CreativeSearch, CreativeTab, RecipeBook, Storage, Widget,
     };
@@ -174,6 +193,29 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
             "inventory",
             personal(),
             vec![Craft(28), Craft(31), CraftOutput, Widget(W::BookToggle)],
+        ),
+        (
+            "book",
+            book(false),
+            [
+                R::NextSpread,
+                R::FocusPage(0),
+                R::FocusPage(1),
+                R::EditPage(0),
+                R::InsertPage(1),
+                R::DeletePage(1),
+                R::SwapLeft(1),
+                R::SwapRight(1),
+                R::Sign,
+                R::Done,
+            ]
+            .map(|button| Widget(W::Reader(button)))
+            .to_vec(),
+        ),
+        (
+            "book_signing",
+            book(true),
+            vec![Widget(W::Reader(R::Finalize))],
         ),
         (
             "inventory_recipe_book",
@@ -328,7 +370,9 @@ fn every_container_screen_draws_through_the_engine() {
                 presentation.engine_container_hit(center)
             })
             .collect();
-        let player = (0..36).map(InventoryCellHit::Player);
+        // Every screen but the book shows the player's inventory.
+        let player_cells = if name.starts_with("book") { 0 } else { 36 };
+        let player = (0..player_cells).map(InventoryCellHit::Player);
         for hit in expected.into_iter().chain(player) {
             assert!(reached.contains(&hit), "{name}: {hit:?} unreachable");
         }

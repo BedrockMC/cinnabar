@@ -13,6 +13,18 @@ pub(crate) enum ReaderButton {
     Sign,
     Finalize,
     Cancel,
+    /// The two-page spread's arrows.
+    PrevSpread,
+    NextSpread,
+    /// Edits of the spread's left (`0`) or right (`1`) page; `EditPage`
+    /// shows or hides that page's edit controls.
+    EditPage(u8),
+    InsertPage(u8),
+    DeletePage(u8),
+    SwapLeft(u8),
+    SwapRight(u8),
+    /// Typing goes to the spread's left (`0`) or right (`1`) page.
+    FocusPage(u8),
 }
 
 /// The buttons the current mode shows, panel-relative `(button, position, size)`.
