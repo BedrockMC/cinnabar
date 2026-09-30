@@ -190,8 +190,7 @@ impl FormEngine {
         (drawn, missing)
     }
 
-    /// Re-apply a server resource pack's ui files over the vanilla catalog and
-    /// the Java HUD pack; an empty set restores the base catalog.
+    /// Apply a server pack's ui files over vanilla and the Java HUD pack; none restores the base.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
             self.catalog = Arc::clone(&self.base);
@@ -257,8 +256,10 @@ impl FormEngine {
             .as_ref()
             .and_then(|cache| cache.screen_cancel.clone());
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
-        let mut screen_art = ScreenArt::default();
-        screen_art.view = Some(view);
+        let screen_art = ScreenArt {
+            view: Some(view),
+            ..ScreenArt::default()
+        };
         let frame = render_with(
             art,
             inputs,
@@ -313,8 +314,7 @@ impl FormEngine {
         &self.context
     }
 
-    /// Paint what `draw` lays out (given the layout env and root size) over this
-    /// engine's textures; `Ok(None)` when it lays out nothing.
+    /// Paint what `draw` lays out over this engine's textures; `Ok(None)` when it lays out nothing.
     pub(super) fn draw<R: Borrow<FormRender>>(
         &self,
         art: ScreenArt<'_>,
