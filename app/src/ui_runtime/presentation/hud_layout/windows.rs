@@ -95,6 +95,10 @@ impl Default for Durability {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct WindowText {
     pub(crate) title: Option<String>,
+    /// The block entity's custom name, which vanilla shows unlocalized.
+    pub(crate) custom_title: Option<String>,
+    /// The open block entity's NBT `id` (`Chest`, `Barrel`, …).
+    pub(crate) block_entity: Option<String>,
     pub(crate) inventory_label: Option<String>,
     pub(crate) tooltip: Vec<TooltipLine>,
     /// Beacon effect names by effect id.

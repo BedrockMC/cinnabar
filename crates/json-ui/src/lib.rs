@@ -75,7 +75,7 @@ pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
 /// extra variables that gate `ignored`/`variables[]` selection and `$var` values.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Context {
     vars: BTreeMap<String, Value>,
 }

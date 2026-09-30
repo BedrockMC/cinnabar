@@ -39,10 +39,7 @@ impl HudLayout<'_> {
         let screen = InventoryScreen::of_runtime(runtime);
         // The container-routing setting hands the screens the engine lays out to JSON-UI.
         if frame.engine_containers
-            && !matches!(
-                screen,
-                InventoryScreen::Window(..) | InventoryScreen::Creative | InventoryScreen::Book
-            )
+            && crate::ui_runtime::presentation::forms::engine_screen_for(runtime)
         {
             return Ok(());
         }
