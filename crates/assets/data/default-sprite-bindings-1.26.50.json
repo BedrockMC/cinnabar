@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "game_version": "1.26.40",
-  "source_tag": "v1.26.40.05",
-  "source_commit": "7844835b6baad4c0010f46901a4accf87413a022",
-  "source_url": "https://github.com/Mojang/bedrock-samples/tree/7844835b6baad4c0010f46901a4accf87413a022",
-  "archive_sha256": "6f6c3a8d5462cf0fc66fd0782a619a2b1a1f1255b981e7787d05dcfbd363a8cb",
-  "atlas_sha256": "13415a73201c43c03afc7ff9c4e5146366ec31e4f3057228f309730daea963c7",
+  "game_version": "1.26.50",
+  "source_tag": "v1.26.50.4",
+  "source_commit": "46ba6ea985fb5a92d79a9419198f10dda14c199d",
+  "source_url": "https://github.com/Mojang/bedrock-samples/tree/46ba6ea985fb5a92d79a9419198f10dda14c199d",
+  "archive_sha256": "c0b6151f5f9a0c31ebe3c909dfc82d97f12473ed2c6e039aa7e22d667042026c",
+  "atlas_sha256": "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a",
   "retail_allowlist_sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821",
   "coverage": "Explicit default icon bindings only; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
   "routes": [

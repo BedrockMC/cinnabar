@@ -18,7 +18,7 @@ pub use chat::{
     ChatStore, ChatViewNode, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY,
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
 };
-pub use geometry::{DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale};
+pub use geometry::{DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale, gui_scale};
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
     MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
@@ -38,7 +38,8 @@ pub use scoreboard::{
 };
 pub use settings::{CURRENT_SETTINGS_SCHEMA, GameplaySettings, UserSettings, VideoSettings};
 pub use text::{
-    BedrockColor, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES,
-    ObfuscationGlyphs, TextError, TextLayout, TextLayoutCache, TextLayoutKey, TextLayoutRequest,
-    TextSpan, TextSpans, TextStyle, parse_bedrock_text,
+    BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, GlyphQuad,
+    MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64,
+    TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache,
+    TextLayoutKey, TextLayoutRequest, TextSpan, TextSpans, TextStyle, parse_bedrock_text,
 };

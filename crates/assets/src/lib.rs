@@ -189,7 +189,10 @@ pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,
     physics_registry_header_protocol, read_physics_registry, read_physics_registry_for_protocol,
 };
-pub use provenance::{BlobProvenance, canonical_source_manifest_sha256};
+pub use provenance::{
+    BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
+    vanilla_source, vanilla_source_manifest_sha256,
+};
 pub use registry::{
     BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,

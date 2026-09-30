@@ -16,6 +16,7 @@ impl WorldStream {
             self.submitted.remove(&completion.sequence);
             self.heavy_sequences.remove(&completion.sequence);
             self.apply_prepared(completion.event);
+            self.reapply_deferred_predictions();
             self.apply_ready();
             return;
         }

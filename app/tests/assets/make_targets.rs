@@ -285,7 +285,7 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
         "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)",
         "HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud",
         "HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json",
-        "HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json",
+        "HUD_SOURCE_MANIFEST ?= assets/hud-source-v2193.json",
         concat!(
             "HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets ",
             "--pack \"$(HUD_PACK_DIR)\" --source-manifest \"$(HUD_SOURCE_MANIFEST)\" ",

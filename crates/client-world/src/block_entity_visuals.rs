@@ -45,43 +45,52 @@ impl BackingBlockIdentity {
 #[derive(Debug, Default)]
 pub struct BlockEntityVisualDiagnostics {
     routes: BTreeMap<BlockEntityKey, BlockEntityVisualRoute>,
+    counts: [usize; 4], // maintained on every mutation; read every frame
 }
 
 impl BlockEntityVisualDiagnostics {
     pub fn upsert(&mut self, key: BlockEntityKey, route: BlockEntityVisualRoute) {
         debug_assert_ne!(route.route_digest(), [0; 32]);
-        self.routes.insert(key, route);
+        if let Some(previous) = self.routes.insert(key, route) {
+            self.counts[previous.count_index()] -= 1;
+        }
+        self.counts[route.count_index()] += 1;
     }
 
     pub fn remove(&mut self, key: BlockEntityKey) {
-        self.routes.remove(&key);
+        if let Some(previous) = self.routes.remove(&key) {
+            self.counts[previous.count_index()] -= 1;
+        }
     }
 
     pub fn remove_sub_chunk(&mut self, key: SubChunkKey) {
-        self.routes.retain(|entity, _| entity.sub_chunk() != key);
+        self.retain(|entity| entity.sub_chunk() != key);
     }
 
     pub fn remove_chunk(&mut self, key: ChunkKey) {
-        self.routes.retain(|entity, _| entity.chunk() != key);
+        self.retain(|entity| entity.chunk() != key);
+    }
+
+    fn retain(&mut self, keep: impl Fn(&BlockEntityKey) -> bool) {
+        let counts = &mut self.counts;
+        self.routes.retain(|entity, route| {
+            let kept = keep(entity);
+            if !kept {
+                counts[route.count_index()] -= 1;
+            }
+            kept
+        });
     }
 
     pub fn clear(&mut self) {
         self.routes.clear();
+        self.counts = [0; 4];
     }
 
+    /// Existing-state, logical, deferred and unknown route counts.
     #[must_use]
-    pub fn counts(&self) -> [usize; 4] {
-        let mut counts = [0; 4];
-        for route in self.routes.values() {
-            let index = match route {
-                BlockEntityVisualRoute::ExistingBlockState { .. } => 0,
-                BlockEntityVisualRoute::LogicalNoAdditionalDraw { .. } => 1,
-                BlockEntityVisualRoute::Deferred { .. } => 2,
-                BlockEntityVisualRoute::Unknown { .. } => 3,
-            };
-            counts[index] += 1;
-        }
-        counts
+    pub const fn counts(&self) -> [usize; 4] {
+        self.counts
     }
 }
 
@@ -104,6 +113,15 @@ pub enum BlockEntityVisualRoute {
 }
 
 impl BlockEntityVisualRoute {
+    const fn count_index(&self) -> usize {
+        match self {
+            Self::ExistingBlockState { .. } => 0,
+            Self::LogicalNoAdditionalDraw { .. } => 1,
+            Self::Deferred { .. } => 2,
+            Self::Unknown { .. } => 3,
+        }
+    }
+
     #[must_use]
     pub const fn route_digest(&self) -> [u8; 32] {
         match self {
@@ -545,3 +563,72 @@ const STATIC_BACKINGS: [StaticBacking; 38] = [
         source: StaticSource::Furnace,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Incremental counts must match a full recount after any mix of mutations.
+    #[test]
+    fn maintained_route_counts_match_a_recount() {
+        let key = |x, y| BlockEntityKey::new(0, x, y, 0);
+        let deferred = BlockEntityVisualRoute::Deferred {
+            route_digest: [1; 32],
+        };
+        let unknown = BlockEntityVisualRoute::Unknown {
+            route_digest: [2; 32],
+        };
+        let mut diagnostics = BlockEntityVisualDiagnostics::default();
+        for x in 0..40 {
+            diagnostics.upsert(key(x, 1), deferred);
+            diagnostics.upsert(key(x, 20), unknown);
+        }
+        diagnostics.upsert(key(0, 1), unknown);
+        diagnostics.remove(key(1, 1));
+        diagnostics.remove(key(1, 1));
+        diagnostics.remove_sub_chunk(key(2, 20).sub_chunk());
+        diagnostics.remove_chunk(key(3, 1).chunk());
+        let mut recount = [0; 4];
+        for route in diagnostics.routes.values() {
+            recount[route.count_index()] += 1;
+        }
+        assert_eq!(diagnostics.counts(), recount);
+        diagnostics.clear();
+        assert_eq!(diagnostics.counts(), [0; 4]);
+    }
+
+    /// Run: `cargo test -p client-world --lib route_count_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "benchmark"]
+    fn route_count_cost_with_4096_block_entities() {
+        let mut diagnostics = BlockEntityVisualDiagnostics::default();
+        for x in 0..4_096 {
+            diagnostics.upsert(
+                BlockEntityKey::new(0, x, 64, 0),
+                BlockEntityVisualRoute::Deferred {
+                    route_digest: [1; 32],
+                },
+            );
+        }
+        let calls = 600;
+        let started = std::time::Instant::now();
+        for _ in 0..calls {
+            let mut recount = [0_usize; 4];
+            for route in diagnostics.routes.values() {
+                recount[route.count_index()] += 1;
+            }
+            std::hint::black_box(recount);
+        }
+        let old = started.elapsed() / calls;
+        let started = std::time::Instant::now();
+        for _ in 0..calls {
+            std::hint::black_box(diagnostics.counts());
+        }
+        let new = started.elapsed() / calls;
+        eprintln!(
+            "FRAME_COST block_entity_route_counts_4096: old={:.4}ms new={:.4}ms per stats() call",
+            old.as_secs_f64() * 1e3,
+            new.as_secs_f64() * 1e3
+        );
+    }
+}

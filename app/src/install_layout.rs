@@ -2,8 +2,11 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 const APP_DIR: &str = "Cinnabar";
-pub(crate) const VANILLA_PACK_DIR: &str =
-    "assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack";
+
+/// The pinned vanilla resource pack below a resource root, which mirrors `.local/`.
+pub(crate) fn vanilla_pack_relative() -> String {
+    assets::vanilla_source().installed_pack_dir("resource_pack")
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
@@ -219,7 +222,7 @@ impl InstallLayout {
     /// `.local`); runtime fallbacks read images from it when present.
     #[must_use]
     pub fn vanilla_pack_dir(&self) -> PathBuf {
-        self.resource_root.join(VANILLA_PACK_DIR)
+        self.resource_root.join(vanilla_pack_relative())
     }
 
     #[must_use]

@@ -5,11 +5,11 @@ set -euo pipefail
 #
 # PROVISIONAL-UNLESS-MEASURED: these constants carry explicit headroom over
 # the pinned pack inventory measured locally from the exact pinned
-# bedrock-samples v1.26.30.32-preview-full artifact (payload stays outside
-# git): 21493 entries (620 directory + 20873 file), 297074336 bytes total
-# expanded, largest single file 3460610 bytes, largest legitimate per-entry
+# bedrock-samples v1.26.50.4-full artifact (payload stays outside
+# git): 22859 entries (605 directory + 22254 file), 319437100 bytes total
+# expanded, largest single file 3746670 bytes, largest legitimate per-entry
 # compression ratio about 120.5 (a .tga texture), aggregate compression
-# ratio 1.99. Raise a bound only after re-measuring a newer pinned
+# ratio 1.95. Raise a bound only after re-measuring a newer pinned
 # inventory; never loosen them to admit an unmeasured archive. These values
 # MUST stay identical to scripts/fetch-vanilla-assets.ps1.
 readonly DEFAULT_MAX_ARCHIVE_ENTRIES=65536

@@ -140,6 +140,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
+    skin_pack: Local<'s, crate::presentation::actors::SkinLayerPack>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -149,7 +150,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
-    semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
+    item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
@@ -168,6 +169,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut session_artwork,
         mut cape_state,
         mut skin_rigs,
+        mut skin_pack,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -176,7 +178,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         hand_motion,
         mut equipment,
         collisions,
-        semantic_input,
+        item_use,
         ui,
         mut dropped_items,
         profiler,
@@ -234,9 +236,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         .stream
         .as_ref()
         .zip(ui.as_deref())
-        .zip(semantic_input.as_deref())
-        .map_or(LocalItemUse::Unpredicted, |((stream, ui), input)| {
-            local_item_use(stream, ui, input.phase(semantic_input::Action::Use).held)
+        .zip(item_use.as_deref())
+        .map_or(LocalItemUse::Unpredicted, |((stream, ui), item_use)| {
+            item_use.local_item_use(stream, ui)
         });
     let mut local_feed = build_local_player_feed(
         &local_physics,
@@ -261,18 +263,18 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             stream.sync_local_player_pose(feed);
         }
         // Attacks, mining and use swing the local arm at once; the server echoes no swing.
-        if swings
-            .as_deref_mut()
-            .is_some_and(SwingTracker::take_started)
-        {
-            stream.start_local_player_swing();
+        if let Some(ticks) = swings.as_deref_mut().and_then(SwingTracker::take_started) {
+            stream.start_local_player_swing(ticks);
         }
         let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
         stream.set_actor_camera_rotation([
             -pitch.to_degrees(),
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
-        if let Some(collisions) = collisions.as_deref() {
+        // Fluid and bed state is tick state; a frame without a tick would resample the same.
+        if step.ticks > 0
+            && let Some(collisions) = collisions.as_deref()
+        {
             super::actor_sampling::sample_actor_world_state(stream, collisions);
         }
         stream.advance_actor_interpolation_ticks(step.ticks);
@@ -385,11 +387,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
             let input = local_input(stream, ui.as_deref(), local_runtime_id);
-            let arms = FirstPersonArms::for_hands(
-                input.main.as_ref().map(|item| item.identifier.as_ref()),
-                input.off.as_ref().map(|item| item.identifier.as_ref()),
-            );
-            let body = equipment.mask_first_person(&presentation.submission, arms);
             let item = input.main.as_ref().and_then(|item| {
                 let layer = equipment.first_person_item(&presentation.submission, item)?;
                 let page = usize::from(layer.location.page()).checked_sub(1)?;
@@ -403,6 +400,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 };
                 Some((layer, atlas))
             });
+            // Provisional: vanilla draws every held item; an undrawable one shows the bare arm.
+            let arms = FirstPersonArms::for_hands(
+                input.main.as_ref().map(|item| item.identifier.as_ref()),
+                input.off.as_ref().map(|item| item.identifier.as_ref()),
+            )
+            .with_undrawn_main(item.is_some());
+            let body = equipment.mask_first_person(&presentation.submission, arms);
             (body.is_some() || item.is_some()).then_some(HandSource {
                 presentation,
                 body,
@@ -531,7 +535,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         new_geometries.extend(equipment.take_pending_geometries());
     }
     register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
-    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
+    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch, &mut skin_pack).clone();
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
         local_visible,
@@ -669,36 +673,6 @@ fn hand_motion_matrix(motion: &crate::camera::FirstPersonHandMotion) -> Mat4 {
 
 /// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
 const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
-
-/// Items whose use the client animates without waiting for the server; food and drink wait for
-/// the server flag, since the client cannot tell whether eating is allowed.
-pub(crate) fn local_item_use(
-    stream: &WorldStream,
-    ui: &crate::ui_runtime::UiRuntime,
-    use_held: bool,
-) -> LocalItemUse {
-    let Some(stack) = ui
-        .selected_stack()
-        .and_then(|stack| stream.canonical_item_stack(stack))
-    else {
-        return LocalItemUse::Unpredicted;
-    };
-    let Some(identifier) = stack.identifier.as_deref() else {
-        return LocalItemUse::Unpredicted;
-    };
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    let shield = name == "shield";
-    let predicted = shield
-        || matches!(name, "bow" | "trident" | "spyglass")
-        || name.ends_with("_spear")
-        // A loaded crossbow fires instead of charging.
-        || (name == "crossbow" && stack.charged_projectile.is_none());
-    match (predicted, use_held) {
-        (false, _) => LocalItemUse::Unpredicted,
-        (true, false) => LocalItemUse::Idle,
-        (true, true) => LocalItemUse::Using { shield },
-    }
-}
 
 /// Builds this frame's client-authored local-player feed from the predicted physics state and
 /// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed

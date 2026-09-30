@@ -110,13 +110,14 @@ fn survival_reach_and_block_occlusion_decide_the_press() {
 #[test]
 fn a_new_swing_waits_for_half_the_current_one() {
     let mut swings = SwingTracker::default();
-    assert!(!swings.take_started());
+    assert_eq!(swings.take_started(), None);
     assert!(swings.try_swing(10, 6));
-    assert!(
+    assert_eq!(
         swings.take_started(),
-        "an accepted swing is handed to the local rig once"
+        Some(6),
+        "an accepted swing is handed to the local rig once, with its duration"
     );
-    assert!(!swings.take_started());
+    assert_eq!(swings.take_started(), None);
     assert!(!swings.try_swing(10, 6));
     assert!(!swings.try_swing(12, 6));
     assert!(swings.try_swing(13, 6));
@@ -136,6 +137,18 @@ fn haste_shortens_and_fatigue_lengthens_the_swing() {
     assert_eq!(swing_duration(effects(None, Some(1))), 10);
     assert_eq!(swing_duration(effects(Some(1), Some(1))), 4);
     assert_eq!(swing_duration(effects(Some(40), None)), 1);
+}
+
+/// An extreme server amplifier must not overflow the swing arithmetic.
+#[test]
+fn maximal_effect_amplifiers_saturate() {
+    let effects = |haste, fatigue| MiningEffects {
+        haste,
+        mining_fatigue: fatigue,
+        conduit_power: None,
+    };
+    assert_eq!(swing_duration(effects(Some(i32::MAX), None)), 1);
+    assert_eq!(swing_duration(effects(None, Some(i32::MAX))), i32::MAX);
 }
 
 fn press(input_mode: PlayerInputMode) -> PressContext {
@@ -277,4 +290,76 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
             .enqueue_completed_physics(crate::survival_mining::tests::completed(tick + 1))
             .unwrap();
     }
+}
+
+/// Players need no size metadata to be picked.
+#[test]
+fn a_sizeless_player_is_picked() {
+    let mut player = actor(6, "", [0.0, 0.0, -2.0], None);
+    player.kind = ActorKind::Player {
+        uuid: [6; 16],
+        username: "p".into(),
+    };
+    let hit = pick_actor([player].iter(), None, EYE, NORTH, 5.7).unwrap();
+    assert_eq!(hit.runtime_id, 6);
+}
+
+/// A press waiting on unavailable block evidence survives briefly, then expires.
+#[test]
+fn a_press_deferred_on_unavailable_block_evidence_is_bounded() {
+    let mut runtime = MeleeRuntime::default();
+    runtime.observe_input(true, true);
+    runtime.defer(10);
+    runtime.defer(10 + MAX_PENDING_INTERACTION_FRAMES);
+    let outcome = runtime.resolve(
+        ZOMBIE,
+        &press(PlayerInputMode::Mouse),
+        &mut SwingTracker::default(),
+    );
+    assert_eq!(outcome.packets.len(), 2, "the deferred press still attacks");
+
+    runtime.observe_input(true, true);
+    runtime.defer(50);
+    runtime.defer(51 + MAX_PENDING_INTERACTION_FRAMES);
+    let outcome = runtime.resolve(
+        ZOMBIE,
+        &press(PlayerInputMode::Mouse),
+        &mut SwingTracker::default(),
+    );
+    assert!(
+        outcome.packets.is_empty(),
+        "a press stale past the bound is dropped"
+    );
+}
+
+/// A full send queue must not keep the swing while dropping the attack; the press retries.
+#[test]
+fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
+    use crate::runtime::network::{BatchSendError, NetworkHandle};
+    let (network, _open) = NetworkHandle::with_command_capacity(1);
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.observe_input(true, true);
+    let press = press(PlayerInputMode::Mouse);
+    let missed = resolve_and_send(&mut runtime, &mut swings, ZOMBIE, &press, 1, |packets| {
+        assert_eq!(packets.len(), 2);
+        network.send_inventory_packets(packets)
+    });
+    assert!(!missed);
+    assert_eq!(
+        swings.take_started(),
+        None,
+        "no swing without its transaction"
+    );
+    assert!(!runtime.blocks_use_at(press.now_millis));
+
+    let mut sent = Vec::new();
+    resolve_and_send(&mut runtime, &mut swings, ZOMBIE, &press, 2, |packets| {
+        sent = packets;
+        Ok::<(), BatchSendError>(())
+    });
+    assert_eq!(
+        kinds(&sent),
+        ["AnimatePacket", "InventoryTransactionPacket"]
+    );
 }

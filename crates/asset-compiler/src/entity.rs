@@ -61,8 +61,6 @@ pub struct EntityAssetCompilation {
 
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_ENTITY_SOURCE_DIRECTORY_DEPTH: usize = 32;
-const PINNED_MANIFEST_SHA256: [u8; 32] =
-    decode_sha256(b"c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6");
 
 #[derive(Clone)]
 struct PendingSymbol {
@@ -846,7 +844,7 @@ fn validate_source_manifest(source: &[u8]) -> Result<[u8; 32], AssetError> {
         ));
     }
     let digest: [u8; 32] = Sha256::digest(&canonical).into();
-    if digest != PINNED_MANIFEST_SHA256 {
+    if digest != assets::vanilla_source_manifest_sha256() {
         return Err(invalid(
             "manifest bytes and fields must exactly match the reviewed Mojang Bedrock Samples pin",
         ));
@@ -874,24 +872,6 @@ fn canonical_manifest_line_endings(source: &[u8]) -> Result<Cow<'_, [u8]>, Asset
         }
     }
     Ok(Cow::Owned(canonical))
-}
-
-const fn decode_sha256(hex: &[u8; 64]) -> [u8; 32] {
-    let mut output = [0; 32];
-    let mut index = 0;
-    while index < output.len() {
-        output[index] = (nibble(hex[index * 2]) << 4) | nibble(hex[index * 2 + 1]);
-        index += 1;
-    }
-    output
-}
-
-const fn nibble(value: u8) -> u8 {
-    match value {
-        b'0'..=b'9' => value - b'0',
-        b'a'..=b'f' => value - b'a' + 10,
-        _ => panic!("invalid SHA-256"),
-    }
 }
 
 fn invalid(detail: impl Into<Box<str>>) -> AssetError {

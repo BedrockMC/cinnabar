@@ -40,6 +40,17 @@ bedrock-client (Rust)  ── local socket ──  bedrock-core (Go, gophertunne
 Rust never implements Xbox authentication, encryption, RakNet or NetherNet; the core owns those
 and relays packets over a local stream.
 
+| Library | Used for |
+| --- | --- |
+| [protocolgen](https://github.com/bedrock-mc/protocolgen) | Generates the Bedrock packet definitions behind `crates/protocol`. |
+| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Valentine (packet codec) and Jolyne (client transport), vendored in `crates/protocol/vendor`. |
+| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
+| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
+| [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
+| [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
+| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers, marketplace). |
+| [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
+
 Mojang assets are never committed or embedded. `make assets` fetches Mojang's official
 `bedrock-samples` pack (EULA-gated) and compiles it into carriers under the ignored `.local/`.
 
@@ -62,6 +73,8 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/ui` | Renderer-independent UI primitives and text layout. |
 | `crates/world` | Palette-native chunk and world model. |
 | `tools/architecture` | Architecture gate: line limits, dependency rules, markers. |
+| `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
+| `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out and render screens. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
@@ -75,6 +88,20 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `localworld` | Local worlds on BDS (a container on macOS). |
 | `packcache` | On-disk cache of server packs. |
 | `update`, `crashreport` | Signed update checks and crash reports. |
+
+## JSON-UI editor
+
+[bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/) previews and edits pack UI
+exactly as Cinnabar renders it; open your own vanilla or server pack, nothing is bundled or
+uploaded. `make jsonui-editor` builds it locally. For AI agents, `cargo build -p jsonui-mcp` gives a
+stdio MCP server:
+
+```json
+{ "mcpServers": { "jsonui": {
+  "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
+  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+} } }
+```
 
 ## Development
 

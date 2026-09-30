@@ -512,25 +512,31 @@ fn insert_verified(
     Ok(())
 }
 
-fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash: u64) {
+/// Evicts least-recently-used unpinned entries down to the floor, choosing
+/// every victim from one sorted pass; returns the entries examined.
+fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash: u64) -> usize {
     if store.total_bytes <= limits.trim_trigger_bytes {
-        return;
+        return 0;
     }
     let floor = limits.trim_floor_bytes.min(limits.trim_trigger_bytes);
-    while store.total_bytes > floor {
-        let Some((&evict, _)) = store
-            .entries
-            .iter()
-            .filter(|(candidate, _)| {
-                **candidate != inserted_hash && !store.pins.contains_key(candidate)
-            })
-            .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
-        else {
+    let mut victims = store
+        .entries
+        .iter()
+        .filter(|(candidate, _)| {
+            **candidate != inserted_hash && !store.pins.contains_key(candidate)
+        })
+        .map(|(&candidate, entry)| (entry.last_used, candidate))
+        .collect::<Vec<_>>();
+    let examined = store.entries.len();
+    victims.sort_unstable();
+    for (_, evict) in victims {
+        if store.total_bytes <= floor {
             break;
-        };
+        }
         let removed = store.entries.remove(&evict).expect("selected cache entry");
         store.total_bytes = store.total_bytes.saturating_sub(removed.payload.len());
     }
+    examined
 }
 
 #[cfg(test)]
