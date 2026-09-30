@@ -373,6 +373,15 @@ fn bounded_sprite(decoded: crate::image::DecodedTexture) -> Option<(IconSprite, 
     Some((sprite, strip))
 }
 
+/// A 3D inventory thumbnail of state `visual` of a session block overlay; `None` when it has no
+/// drawable geometry or needs a biome tint.
+#[must_use]
+pub fn overlay_block_icon(overlay: &assets::BlockOverlay, visual: usize) -> Option<IconSprite> {
+    model::Model::overlay(overlay, visual)
+        .ok()
+        .map(|model| model.raster())
+}
+
 /// A 3D thumbnail for a block item the opaque-cube path refused: the item's icon state from the
 /// world carrier, else a full cube of the block's carried textures (leaves).
 fn model_raster(

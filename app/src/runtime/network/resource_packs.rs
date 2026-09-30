@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::{
     block_overlay::{CompiledBlockOverlay, compile_block_overlay},
     glyph_sheets::compile_session_glyphs,
-    item_icons::compile_session_icons,
+    item_icons::{BlockIcons, compile_session_icons, custom_block_icons, custom_block_items},
 };
 use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
@@ -50,15 +50,18 @@ pub(super) fn prepare_session_packs(
 ) -> (protocol::CustomBlocks, PackApplication) {
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
+    let block_items = custom_block_items(game_data, &custom_blocks);
     let hashed = game_data.start_game.block_network_ids_are_hashes;
-    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
+    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, &block_items, hashed);
     (custom_blocks, packs)
 }
 
+/// `block_items` pairs each custom block item with the block it draws as.
 pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
     custom_blocks: &protocol::CustomBlocks,
     icon_keys: &[(Arc<str>, Arc<str>)],
+    block_items: &[(Arc<str>, Arc<str>)],
     hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
@@ -88,7 +91,17 @@ pub(super) fn prepare_pack_application(
     {
         bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
     }
-    let item_icons = compile_session_icons(&view, icon_keys);
+    let block_icons = block_overlay
+        .as_deref()
+        .map_or_else(BlockIcons::default, |compiled| {
+            custom_block_icons(
+                &compiled.overlay,
+                custom_blocks,
+                hashed_block_ids,
+                block_items,
+            )
+        });
+    let item_icons = compile_session_icons(&view, icon_keys, block_icons);
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     PackApplication {
         server_lang: merged_server_lang(&view),
@@ -603,6 +616,7 @@ mod tests {
             protocol::ResourcePackHandoff::default(),
             &protocol::CustomBlocks::default(),
             &[],
+            &[],
             false,
         );
         assert!(matches!(application.admission, PackAdmission::None));
@@ -616,6 +630,7 @@ mod tests {
         let application = super::prepare_pack_application(
             protocol::ResourcePackHandoff::from_archives(vec![pack]),
             &protocol::CustomBlocks::default(),
+            &[],
             &[],
             false,
         );
@@ -701,6 +716,7 @@ mod tests {
             )]),
             &protocol::CustomBlocks::default(),
             &[],
+            &[],
             false,
         );
         assert_eq!(crate::audio::server_sounds_generation(), before);
@@ -746,6 +762,7 @@ mod tests {
         let application = super::prepare_pack_application(
             handoff,
             &protocol::CustomBlocks::default(),
+            &[],
             &[],
             false,
         );
