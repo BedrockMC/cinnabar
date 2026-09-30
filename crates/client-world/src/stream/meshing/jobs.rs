@@ -53,6 +53,16 @@ impl WorldStream {
             self.pending_mesh_scan.clear();
             self.mesh_scheduler_camera_cell = Some(camera_cell);
         } else {
+            let pending_mesh = &self.pending_mesh;
+            super::super::dirty::compact_scheduler_scan(
+                &mut self.pending_mesh_scan,
+                pending_mesh.len(),
+                |key, revision| {
+                    pending_mesh
+                        .get(&key)
+                        .is_some_and(|p| p.revision == revision)
+                },
+            );
             let ingress_budget = self
                 .pending_mesh_scan
                 .len()
