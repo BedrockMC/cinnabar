@@ -300,7 +300,11 @@ mod tests {
         ])
         .unwrap();
         let overlays = super::disclaimer_overlays();
-        catalog.apply_pack(overlays.iter().map(|(path, bytes)| (*path, bytes.as_slice())));
+        catalog.apply_pack(
+            overlays
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice())),
+        );
         let panel = json_ui::resolve(&catalog, "start.text_panel", &json_ui::Context::default())
             .control
             .unwrap();
