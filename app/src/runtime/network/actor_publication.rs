@@ -30,6 +30,10 @@ use crate::{
     runtime::world::ClientWorld,
 };
 
+/// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
+#[derive(Resource, Default)]
+pub(crate) struct ActorFramePartialTick(pub(crate) f32);
+
 /// The local player's own first-person rig, built as a single instance placed in camera space.
 #[derive(Resource)]
 pub(crate) struct HandRigBuilder(pub(crate) ActorRigFrameBuilder);
@@ -136,6 +140,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
+    partial_tick: ResMut<'w, ActorFramePartialTick>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -163,6 +168,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         ui,
         mut dropped_items,
         profiler,
+        mut partial_tick,
     } = params;
     let _timer = profiler
         .as_deref()
@@ -200,6 +206,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
     let step = actor_clock.advance(time.delta());
+    partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let item_use = client_world

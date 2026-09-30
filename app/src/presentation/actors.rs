@@ -440,14 +440,7 @@ pub(crate) fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[
 }
 
 fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f32; 3]> {
-    let position = std::array::from_fn(|axis| {
-        actor.previous_pose.position[axis]
-            + (actor.position[axis] - actor.previous_pose.position[axis]) * partial_tick
-    });
-    position
-        .iter()
-        .all(|value| value.is_finite())
-        .then_some(position)
+    actor.interpolated_position(partial_tick)
 }
 
 fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
