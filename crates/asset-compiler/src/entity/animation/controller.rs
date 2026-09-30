@@ -176,22 +176,30 @@ fn compile_one_controller(
                 .as_array()
                 .ok_or_else(|| invalid("state animations must be an array"))?
             {
-                let (identifier, weight) = match entry {
-                    Value::String(identifier) => (identifier, None),
-                    Value::Object(weighted) if weighted.len() == 1 => {
-                        let (identifier, weight) = weighted.iter().next().unwrap();
-                        let weight = weight
-                            .as_str()
-                            .ok_or_else(|| invalid("animation weight must be Molang"))?;
-                        (identifier, Some(weight))
-                    }
+                // A weighted object may bind several animations (camel's `moving` and
+                // `baby_moving`); every binding compiles.
+                let bindings: Vec<(&String, Option<String>)> = match entry {
+                    Value::String(identifier) => vec![(identifier, None)],
+                    Value::Object(weighted) => weighted
+                        .iter()
+                        .map(|(identifier, weight)| {
+                            let weight = match weight {
+                                Value::String(text) => text.clone(),
+                                Value::Number(number) => number.to_string(),
+                                _ => return Err(invalid("animation weight must be Molang")),
+                            };
+                            Ok((identifier, Some(weight)))
+                        })
+                        .collect::<Result<_, _>>()?,
                     _ => return Err(invalid("invalid controller animation binding")),
                 };
-                let target = resolve_target(identifier, context);
-                let weight = weight.map(|weight| molang.compile(weight)).transpose();
-                match (target, weight) {
-                    (Some(target), Ok(weight)) => animations.push((target, weight)),
-                    _ => dropped += 1,
+                for (identifier, weight) in bindings {
+                    let target = resolve_target(identifier, context);
+                    let weight = weight.map(|weight| molang.compile(&weight)).transpose();
+                    match (target, weight) {
+                        (Some(target), Ok(weight)) => animations.push((target, weight)),
+                        _ => dropped += 1,
+                    }
                 }
             }
         }

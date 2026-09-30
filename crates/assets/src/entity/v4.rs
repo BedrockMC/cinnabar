@@ -43,9 +43,10 @@ pub(super) use encode::{encode_compiled, encode_runtime};
 mod render;
 use render::validate_render_payload;
 pub use render::{
-    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
-    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
-    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
+    EntityRenderSlot, EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES,
+    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
+    MAX_ENTITY_RENDER_VISIBILITY,
 };
 #[path = "v4/rig.rs"]
 mod rig;
@@ -100,6 +101,9 @@ pub struct EntityAnimationClip {
     /// Channels replace, rather than add to, what earlier animations produced.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub override_previous: bool,
+    /// Geometry whose bones the channels index; clips of one symbol are ordered by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -226,6 +230,10 @@ pub struct EntityRigBinding {
     pub initialize: Option<u32>,
     pub pre_animation: Option<u32>,
     pub scale: EntityGeometryScalar,
+    /// `scale`, `scaleX`, `scaleY` and `scaleZ` expressions when any is authored as Molang or
+    /// per axis; `scale` then holds only the constant fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_expressions: Option<[u32; 4]>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -245,6 +253,13 @@ pub struct EntityRigAnimationBinding {
     pub name: u32,
     pub clip: u32,
     pub weight: Option<u32>,
+    /// Position in the entity's authored `animate` list, shared with controller bindings.
+    #[serde(default, skip_serializing_if = "is_zero_order")]
+    pub order: u16,
+}
+
+fn is_zero_order(order: &u16) -> bool {
+    *order == 0
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -253,6 +268,8 @@ pub struct EntityRigControllerBinding {
     pub name: u32,
     pub controller: u32,
     pub weight: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_zero_order")]
+    pub order: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -291,6 +308,19 @@ impl RuntimeEntityAssets {
     #[must_use]
     pub fn animation_clips(&self) -> &[EntityAnimationClip] {
         &self.animation_clips
+    }
+
+    /// The clip of animation `symbol` compiled against `geometry`'s bones.
+    #[must_use]
+    pub fn clip_for_geometry(&self, symbol: u32, geometry: u32) -> Option<u32> {
+        let first = self
+            .animation_clips
+            .partition_point(|clip| clip.symbol < symbol);
+        self.animation_clips[first..]
+            .iter()
+            .take_while(|clip| clip.symbol == symbol)
+            .position(|clip| clip.geometry == Some(geometry))
+            .map(|offset| (first + offset) as u32)
     }
 
     #[must_use]
@@ -555,6 +585,9 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
             || !index_has_kind(&compiled.symbols, clip.symbol, EntityAssetKind::Animation)
             || clip.source as usize >= compiled.sources.len()
             || compiled.symbols[clip.symbol as usize].source_index != clip.source
+            || clip
+                .geometry
+                .is_some_and(|geometry| geometry as usize >= compiled.geometries.len())
             || !range_in_bounds(
                 clip.first_channel,
                 clip.channel_count,

@@ -80,6 +80,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
             channel_count: 0,
             source: 0,
             override_previous: false,
+            geometry: None,
         }]
         .into_boxed_slice(),
         animation_channels: Box::new([]),

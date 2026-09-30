@@ -20,10 +20,9 @@ pub(super) fn condition_text(path: &[Step]) -> Option<String> {
         .map(|step| match step {
             Step::Branch(text, true) => format!("({text})"),
             Step::Branch(text, false) => format!("!({text})"),
-            // Out-of-range indices clamp to the first or last member.
+            // As for any Molang array: indices past the end wrap, negatives select the first.
             Step::Element(index, len, element) => {
-                let last = len.saturating_sub(1);
-                format!("(math.clamp(math.floor(({index})), 0, {last}) == {element})")
+                format!("(math.mod(math.max(math.floor(({index})), 0), {len}) == {element})")
             }
         })
         .collect();
@@ -193,7 +192,7 @@ mod tests {
             .collect();
         assert_eq!(texts.len(), 3);
         assert_eq!(texts[0], ("(query.is_baby)".into(), 0));
-        assert!(texts[1].0.starts_with("!(query.is_baby) && (math.clamp("));
+        assert!(texts[1].0.starts_with("!(query.is_baby) && (math.mod("));
         assert_eq!(texts[2].1, 1);
     }
 

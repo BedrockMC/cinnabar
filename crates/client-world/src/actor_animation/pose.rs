@@ -57,6 +57,8 @@ pub(super) fn sample_clips(
         let raw_time = clip_tick as f32 * 0.05;
         let time = match clip.loop_mode {
             EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
+            // A finished one-shot stops contributing; only hold keeps its last frame.
+            EntityAnimationLoop::Once if raw_time > length => continue,
             EntityAnimationLoop::Once | EntityAnimationLoop::HoldOnLastFrame => {
                 raw_time.clamp(0.0, length)
             }
@@ -66,20 +68,23 @@ pub(super) fn sample_clips(
         let end = first
             .checked_add(clip.channel_count as usize)
             .ok_or(EvalError::Invalid)?;
-        for channel in assets
+        let channels = assets
             .animation_channels()
             .get(first..end)
-            .ok_or(EvalError::Invalid)?
-        {
+            .ok_or(EvalError::Invalid)?;
+        // An override clip first restores every bone it animates to its whole default pose.
+        if clip.override_previous {
+            for channel in channels {
+                *local
+                    .get_mut(channel.bone as usize)
+                    .ok_or(EvalError::Invalid)? = LocalDelta::default();
+            }
+        }
+        for channel in channels {
             budget.charge_work()?;
             let bone = local
                 .get_mut(channel.bone as usize)
                 .ok_or(EvalError::Invalid)?;
-            let identity = LocalDelta::default();
-            if clip.override_previous {
-                let mut reset = identity;
-                *bone.property(channel.property) = *reset.property(channel.property);
-            }
             let current = bone.property(channel.property);
             let this = *current;
             let value = sample_channel(
