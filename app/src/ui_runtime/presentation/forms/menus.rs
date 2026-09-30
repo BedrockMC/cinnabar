@@ -13,6 +13,9 @@ use crate::ui_runtime::UiRuntime;
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 
+/// A menu frame's hit targets and, for hover next frame, their region keys.
+type MenuHits = (Vec<(MenuAction, UiRect)>, Vec<(MenuAction, String)>);
+
 impl UiPresentationRuntime {
     /// Draw the visible menu and return its window-logical hit targets.
     pub(crate) fn append_menu(
@@ -214,7 +217,7 @@ impl UiPresentationRuntime {
         next: &mut u32,
         metrics: TextMetrics,
         [width, height]: [f32; 2],
-    ) -> Option<(Vec<(MenuAction, UiRect)>, Vec<(MenuAction, String)>)> {
+    ) -> Option<MenuHits> {
         let dialog = view.dialog?;
         let renderer = self.form_presentation.engine.as_deref()?;
         let translate = |key: &str| runtime.translation(key);
