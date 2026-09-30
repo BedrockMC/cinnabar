@@ -6,7 +6,12 @@ use render::{VisibilityKeyDelta, VisibilityKeyDigest};
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 
 pub(crate) const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
+pub(crate) const ANCHOR_PROBE: &str = "RUST_MCBE_ANCHOR_PROBE";
 pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
+pub(crate) const USE_ON_IDENTITY_EVIDENCE: &str = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE";
+pub(crate) const AUDIO_WIRE_EVIDENCE: &str = "RUST_MCBE_AUDIO_WIRE_EVIDENCE";
+pub(crate) const FORM_SHAPE_PROBE: &str = "RUST_MCBE_FORM_SHAPE_PROBE";
+pub(crate) const CRAFT_OBSERVATION: &str = "RUST_MCBE_CRAFT_OBSERVATION";
 pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
 pub(crate) const ERROR_COUNTERS: &str = "RUST_MCBE_ERROR_COUNTERS";
@@ -15,7 +20,9 @@ pub(crate) const FAST_TRANSFER_PACKET_TRACE: &str = "RUST_MCBE_FAST_TRANSFER_PAC
 pub(crate) const FORCED_FULL_VIEW_REMESH_SETTLED: &str =
     "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED";
 pub(crate) const GALLERY_ANCHOR_READY: &str = "RUST_MCBE_GALLERY_ANCHOR_READY";
+pub(crate) const LOADING_MILESTONE: &str = "RUST_MCBE_LOADING_MILESTONE";
 pub(crate) const MODEL_WITNESS_COMPLETE: &str = "RUST_MCBE_MODEL_WITNESS_COMPLETE";
+pub(crate) const MOVEMENT_TRACE: &str = "RUST_MCBE_MOVEMENT_TRACE";
 pub(crate) const MOVE_PLAYER_INGRESS: &str = "RUST_MCBE_MOVE_PLAYER_INGRESS";
 pub(crate) const MUTATION_COORDINATE: &str = "RUST_MCBE_MUTATION_COORDINATE";
 pub(crate) const PHASE3_EVENT: &str = "RUST_MCBE_PHASE3_EVENT";
@@ -34,6 +41,7 @@ pub(crate) const SHUTDOWN_COMPLETED: &str = "RUST_MCBE_SHUTDOWN_COMPLETED";
 pub(crate) const SHUTDOWN_WATCHDOG_ARMED_MARKER: &str = "RUST_MCBE_SHUTDOWN_WATCHDOG_ARMED";
 pub(crate) const SHUTDOWN_WATCHDOG_FIRED_MARKER: &str = "RUST_MCBE_SHUTDOWN_WATCHDOG_FIRED";
 pub(crate) const TARGET_MUTATION_ARMED: &str = "RUST_MCBE_TARGET_MUTATION_ARMED";
+pub(crate) const TELEPORT_ACK: &str = "RUST_MCBE_TELEPORT_ACK";
 pub(crate) const TELEPORT_COHORT: &str = "RUST_MCBE_TELEPORT_COHORT";
 pub(crate) const TELEPORT_GLOBAL_STAGE_DIAGNOSTIC: &str =
     "RUST_MCBE_TELEPORT_GLOBAL_STAGE_DIAGNOSTIC";
@@ -58,7 +66,15 @@ pub(crate) enum MarkerContract {
 #[cfg(test)]
 pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
+    (ANCHOR_PROBE, MarkerContract::EnvironmentVariable),
     (ASSETS, MarkerContract::EnvironmentVariable),
+    (AUDIO_WIRE_EVIDENCE, MarkerContract::EnvironmentVariable),
+    (FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable),
+    (CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable),
+    (
+        USE_ON_IDENTITY_EVIDENCE,
+        MarkerContract::EnvironmentVariable,
+    ),
     (CAMERA_COMMITTED, MarkerContract::ParsedEvidence),
     (ERROR_COUNTERS, MarkerContract::LogOnlyDiagnostic),
     (FAST_TRANSFER_ACTION, MarkerContract::ParsedEvidence),
@@ -71,8 +87,10 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
         MarkerContract::ParsedEvidence,
     ),
     (GALLERY_ANCHOR_READY, MarkerContract::ParsedEvidence),
+    (LOADING_MILESTONE, MarkerContract::LogOnlyDiagnostic),
     (MODEL_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (MOVE_PLAYER_INGRESS, MarkerContract::ParsedEvidence),
+    (MOVEMENT_TRACE, MarkerContract::EnvironmentVariable),
     (MUTATION_COORDINATE, MarkerContract::ParsedEvidence),
     (PHASE2_TIMING, MarkerContract::ParsedEvidence),
     (PHASE3_EVENT, MarkerContract::ParsedEvidence),
@@ -90,6 +108,7 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
         MarkerContract::LogOnlyDiagnostic,
     ),
     (TARGET_MUTATION_ARMED, MarkerContract::ParsedEvidence),
+    (TELEPORT_ACK, MarkerContract::EnvironmentVariable),
     (TELEPORT_COHORT, MarkerContract::LogOnlyDiagnostic),
     (
         TELEPORT_GLOBAL_STAGE_DIAGNOSTIC,
@@ -237,7 +256,9 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 32);
+        assert_eq!(names.len(), 40);
+        assert!(EXPECTATIONS.contains(&(CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable)));
+        assert!(EXPECTATIONS.contains(&(FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable)));
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }

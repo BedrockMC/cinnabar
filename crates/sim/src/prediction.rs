@@ -3,14 +3,27 @@ use std::collections::VecDeque;
 use thiserror::Error;
 
 use crate::{
-    CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TickResult,
-    simulator::validate_player_state,
+    CollisionWorld, ControlledTickResult, MovementInput, PlayerState, SimulationError, Simulator,
+    TickResult, Vec3, simulator::validate_player_state,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 struct PredictedFrame {
     input: MovementInput,
     state: PlayerState,
+}
+
+/// One server-authoritative velocity replacement applied immediately before
+/// the named tick's simulation.
+///
+/// Bedrock sends impulses such as knockback as absolute post-hit velocities,
+/// not accelerations. Keying the replacement by tick keeps live prediction and
+/// rewind replay deterministic: re-running a retained range re-applies the
+/// same overlay at the same tick instead of losing it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MotionOverlay {
+    pub tick: u64,
+    pub velocity: Vec3,
 }
 
 /// Bounded tick-keyed prediction history used by rewind corrections.
@@ -81,6 +94,19 @@ impl PredictionHistory {
             .map(|frame| &frame.state)
     }
 
+    /// Returns the exact input recorded for one retained tick's prediction.
+    ///
+    /// Correction replays re-feed these inputs verbatim, so callers rebuilding
+    /// derived per-tick facts can read the same request edges the replayed
+    /// simulation acted on without retaining a second copy.
+    #[must_use]
+    pub fn input_at(&self, tick: u64) -> Option<&MovementInput> {
+        self.frames
+            .iter()
+            .find(|frame| frame.state.tick == tick)
+            .map(|frame| &frame.input)
+    }
+
     /// Predicts and records one tick. Simulation failure leaves both state and
     /// history unchanged.
     pub fn predict(
@@ -90,6 +116,18 @@ impl PredictionHistory {
         simulator: &Simulator,
         world: &impl CollisionWorld,
     ) -> Result<TickResult, PredictionError> {
+        self.predict_with_controls(state, input, simulator, world)
+            .map(|output| output.tick_result)
+    }
+
+    /// Predicts with the completed tick's pre-impulse primary controls.
+    pub fn predict_with_controls(
+        &mut self,
+        state: &mut PlayerState,
+        input: MovementInput,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+    ) -> Result<ControlledTickResult, PredictionError> {
         if let Some(newest_tick) = self.newest_tick()
             && newest_tick != state.tick
         {
@@ -98,7 +136,7 @@ impl PredictionHistory {
                 newest_tick,
             });
         }
-        let result = simulator.tick(state, input, world)?;
+        let result = simulator.tick_with_controls(state, input, world)?;
         if self.frames.len() == self.capacity {
             self.frames.pop_front();
         }
@@ -139,6 +177,45 @@ impl PredictionHistory {
         simulator: &Simulator,
         world: &impl CollisionWorld,
     ) -> Result<(ReplayResult, Vec<TickResult>), PredictionError> {
+        self.rewind_and_replay_traced_with_overlays(current, corrected, simulator, world, &[])
+    }
+
+    /// [`Self::rewind_and_replay_traced`] with server motion overlays.
+    ///
+    /// Each overlay replaces the pre-tick velocity of exactly one replayed
+    /// tick, mirroring what live prediction applied when the impulse first
+    /// arrived. Unknown ticks never match; overlays are never consumed so
+    /// repeated replays stay deterministic.
+    pub fn rewind_and_replay_traced_with_overlays(
+        &mut self,
+        current: &mut PlayerState,
+        corrected: PlayerState,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+        overlays: &[MotionOverlay],
+    ) -> Result<(ReplayResult, Vec<TickResult>), PredictionError> {
+        self.rewind_and_replay_with_controls(current, corrected, simulator, world, overlays)
+            .map(|(replay, outputs)| {
+                (
+                    replay,
+                    outputs
+                        .into_iter()
+                        .map(|output| output.tick_result)
+                        .collect(),
+                )
+            })
+    }
+
+    /// Replays retained input snapshots through the same simulation path,
+    /// exposing primary controls for replacement outbound samples.
+    pub fn rewind_and_replay_with_controls(
+        &mut self,
+        current: &mut PlayerState,
+        corrected: PlayerState,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+        overlays: &[MotionOverlay],
+    ) -> Result<(ReplayResult, Vec<ControlledTickResult>), PredictionError> {
         validate_player_state(&corrected)?;
         let Some(index) = self
             .frames
@@ -157,8 +234,15 @@ impl PredictionHistory {
         let mut replayed_state = corrected;
         let mut ticks = Vec::with_capacity(candidate.frames.len() - index - 1);
         for frame_index in (index + 1)..candidate.frames.len() {
+            let simulated_tick = candidate.frames[frame_index].state.tick;
+            for overlay in overlays
+                .iter()
+                .filter(|overlay| overlay.tick == simulated_tick)
+            {
+                replayed_state.velocity = overlay.velocity;
+            }
             let input = candidate.frames[frame_index].input;
-            let tick = simulator.tick(&mut replayed_state, input, world)?;
+            let tick = simulator.tick_with_controls(&mut replayed_state, input, world)?;
             candidate.frames[frame_index].state = replayed_state.clone();
             ticks.push(tick);
         }

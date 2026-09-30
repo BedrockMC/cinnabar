@@ -2,6 +2,90 @@ use super::*;
 
 pub(in crate::compiler) const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Cross | ModelFamily::Crop)
+        || is_named_cross_plant(&record.name)
+}
+
+/// Single-texture crossed-plane plants the registry family table does not tag as `Cross`.
+const fn is_named_cross_plant(name: &str) -> bool {
+    matches!(
+        name.as_bytes(),
+        b"minecraft:red_tulip"
+            | b"minecraft:orange_tulip"
+            | b"minecraft:white_tulip"
+            | b"minecraft:pink_tulip"
+            | b"minecraft:golden_dandelion"
+            | b"minecraft:brain_coral"
+            | b"minecraft:bubble_coral"
+            | b"minecraft:fire_coral"
+            | b"minecraft:horn_coral"
+            | b"minecraft:tube_coral"
+            | b"minecraft:dead_brain_coral"
+            | b"minecraft:dead_bubble_coral"
+            | b"minecraft:dead_fire_coral"
+            | b"minecraft:dead_horn_coral"
+            | b"minecraft:dead_tube_coral"
+    )
+}
+
+pub(in crate::compiler) const fn is_torch(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Torch)
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
+pub(in crate::compiler) fn is_chain(record: &RegistryRecord) -> bool {
+    matches!(record.contributor_role, ContributorRole::Primary)
+        && record
+            .name
+            .strip_prefix("minecraft:")
+            .is_some_and(|name| name.ends_with("chain") && !name.contains("command"))
+}
+
+/// Full cubes whose source art carries alpha (or that lack cube flags in the registry) and draw as one unit cube.
+pub(in crate::compiler) fn is_translucent_cube(record: &RegistryRecord) -> bool {
+    matches!(record.contributor_role, ContributorRole::Primary)
+        && !record.flags.contains(BlockFlags::AIR)
+        && matches!(
+            record.name.as_bytes(),
+            b"minecraft:ice"
+                | b"minecraft:frosted_ice"
+                | b"minecraft:slime"
+                | b"minecraft:honey_block"
+                | b"minecraft:tinted_glass"
+                | b"minecraft:powder_snow"
+        )
+}
+
+/// Powder snow's art is fully opaque, so it stays on the opaque model path.
+pub(in crate::compiler) fn translucent_cube_material_flags(name: &str) -> u32 {
+    if name == "minecraft:powder_snow" {
+        0
+    } else {
+        MATERIAL_FLAG_ALPHA_BLEND
+    }
+}
+
+/// Amethyst clusters, buds, and standing coral fans: single-sprite crossed planes.
+pub(in crate::compiler) fn is_crystal(record: &RegistryRecord) -> bool {
+    matches!(record.contributor_role, ContributorRole::Primary)
+        && record.name.strip_prefix("minecraft:").is_some_and(|name| {
+            matches!(
+                name,
+                "amethyst_cluster"
+                    | "small_amethyst_bud"
+                    | "medium_amethyst_bud"
+                    | "large_amethyst_bud"
+            ) || name.ends_with("_coral_fan")
+        })
+}
+
+pub(in crate::compiler) fn is_ladder(record: &RegistryRecord) -> bool {
+    record.name.as_ref() == "minecraft:ladder"
+        && matches!(record.contributor_role, ContributorRole::Primary)
+}
+
+pub(in crate::compiler) const fn is_rail(record: &RegistryRecord) -> bool {
+    matches!(record.model_family, ModelFamily::Rail)
+        && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
 pub(in crate::compiler) fn is_aquatic_cross(record: &RegistryRecord) -> bool {
@@ -220,11 +304,18 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
         || is_multiface(record)
         || is_door(record)
         || is_trapdoor(record)
+        || is_torch(record)
+        || is_ladder(record)
+        || is_rail(record)
+        || is_chain(record)
+        || is_crystal(record)
 }
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
     is_stained_glass_cube(record)
         || is_copper_grate(record)
+        || is_translucent_cube(record)
+        || is_named_block(record)
         || is_cutout_model_visual(record)
         || is_slab(record)
         || is_stair(record)

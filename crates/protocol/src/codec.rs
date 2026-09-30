@@ -3,7 +3,7 @@ use thiserror::Error;
 use valentine::bedrock::borrowed::{BorrowedStr, take_varint_prefixed_string};
 use valentine::bedrock::codec::{BedrockCodec, I32LE, VarInt, ZigZag64};
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_40::{BorrowedMcpePacket, McpePacketData, McpePacketName};
+use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::Packet;
@@ -28,6 +28,9 @@ pub enum ProtocolError {
 
     #[error("Bedrock session failed: {0}")]
     Session(#[from] jolyne::error::JolyneError),
+
+    #[error("the server ended the current play session")]
+    SessionBoundary,
 
     #[error("invalid raw batch header: expected 0xfe, got {actual:?}")]
     InvalidBatchHeader { actual: Option<u8> },
@@ -106,6 +109,7 @@ pub fn decode_batch(
         let mut frame = frame_start.slice(..length_prefix + declared);
         bytes.advance(declared);
         validate_raw_ui_frame(&frame)?;
+        validate_raw_audio_frame(&frame)?;
         let (header, data) =
             McpePacketData::decode_inner(&mut frame, jolyne::valentine::packet_args(session))?;
         if frame.has_remaining() {
@@ -116,6 +120,30 @@ pub fn decode_batch(
         packets.push(Packet::new(header, data));
     }
     Ok(packets)
+}
+
+fn validate_raw_audio_frame(frame: &Bytes) -> Result<(), ProtocolError> {
+    let mut probe = frame.clone();
+    let _declared = wire::read_var_u32(&mut probe)?;
+    let header = wire::read_var_u32(&mut probe)?;
+    let packet_id = header & 0x3ff;
+    if !matches!(
+        packet_id,
+        id if id == McpePacketName::PlaySoundPacket as u32
+            || id == McpePacketName::StopSoundPacket as u32
+            || id == McpePacketName::LevelSoundEventPacket as u32
+    ) {
+        return Ok(());
+    }
+    let mut borrowed_frame = frame.clone();
+    let packet = BorrowedMcpePacket::decode_inner(&mut borrowed_frame)?;
+    if borrowed_frame.has_remaining() {
+        return Err(ProtocolError::TrailingPacketBytes {
+            remaining: borrowed_frame.remaining(),
+        });
+    }
+    crate::audio::validate_borrowed_audio_packet(&packet.data)?;
+    Ok(())
 }
 
 pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> {
@@ -194,11 +222,10 @@ fn validate_raw_soft_enum_packet(mut payload: Bytes) -> Result<(), ProtocolError
 
 /// Bounds and UTF-8-checks a SetScore frame before the owned decoder allocates.
 ///
-/// 1.26.40 moved the action from the packet header onto each entry, so a single
-/// packet may mix removals with changes. The layout below is gophertunnel's
-/// `ScoreboardEntry.Marshal` (`minecraft/protocol/scoreboard.go`): a varuint32
-/// variant, the lowercase variant name, a varint64 entry ID, and then a
-/// variant-specific body. This still runs before `SetScorePacket::decode`, which
+/// The action is carried per entry, so a single packet may mix removals with
+/// changes. The layout below is gophertunnel's `ScoreboardEntry.Marshal`
+/// (`minecraft/protocol/scoreboard.go`): a varuint32 variant, the lowercase
+/// variant name, a varint64 entry ID, and then a variant-specific body. This still runs before `SetScorePacket::decode`, which
 /// reserves capacity from the entry count without an upper bound of its own.
 fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
     const REMOVE: i64 = 0;
@@ -236,7 +263,6 @@ fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
         let _action = take_raw_ui_text(&mut payload, "score.action")?;
         let _scoreboard_id = ZigZag64::decode(&mut payload, ())?;
         if variant == REMOVE {
-            // A removal carries only an optional objective name.
             if bool::decode(&mut payload, ())? {
                 let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
             }

@@ -11,6 +11,143 @@ use sha2::Digest;
 use super::*;
 use crate::ui_runtime::gameplay_hud::{HeartVariant, MAX_HUD_EFFECTS};
 
+#[test]
+fn session_language_overrides_per_key_and_restores_the_immutable_base() {
+    let entries = [
+        assets::LangEntry {
+            key: "item.stone.name".into(),
+            value: "Base item".into(),
+        },
+        assets::LangEntry {
+            key: "message.key".into(),
+            value: "Base message".into(),
+        },
+        assets::LangEntry {
+            key: "tile.stone.name".into(),
+            value: "Base tile".into(),
+        },
+    ];
+    let bytes = assets::encode_lang_catalog([11; 32], [12; 32], &entries).unwrap();
+    let base = Arc::new(assets::RuntimeLangCatalog::decode(&bytes).unwrap());
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(base);
+    let document =
+        protocol::parse_raw_text(r#"{"rawtext":[{"translate":"message.key"}]}"#).unwrap();
+    assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
+    let input = b"tile.stone.name=Overlay tile\nmessage.key=Overlay message\n";
+    let overlay = assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    })
+    .unwrap();
+    runtime.set_server_lang(Some(overlay));
+    // Item-before-tile remains authoritative even when only tile is overridden.
+    assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
+    assert_eq!(runtime.resolve_raw_text(&document).text, "Overlay message");
+    let retained = runtime.clone();
+    runtime.set_server_lang(None);
+    assert_eq!(runtime.resolve_raw_text(&document).text, "Base message");
+    assert_eq!(retained.resolve_raw_text(&document).text, "Overlay message");
+    let input = b"item.stone.name=Overlay item\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    assert_eq!(
+        runtime.localized_item_name("minecraft:stone"),
+        "Overlay item"
+    );
+    runtime.begin_session(2);
+    assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
+    assert_eq!(runtime.resolve_raw_text(&document).text, "Base message");
+}
+
+#[test]
+fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
+    let entries = [assets::LangEntry {
+        key: "message.key".into(),
+        value: "AA".into(),
+    }];
+    let bytes = assets::encode_lang_catalog([13; 32], [14; 32], &entries).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(Arc::new(
+        assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+    ));
+    let pixels = vec![255; 16 * 16 * 4].into_boxed_slice();
+    let page = assets::FontTexturePage {
+        source_path: "font/page.png".into(),
+        source_bytes: pixels.len() as u32,
+        source_sha256: [1; 32],
+        pixels_sha256: sha2::Sha256::digest(&pixels).into(),
+        width: 16,
+        height: 16,
+        rgba8: pixels,
+    };
+    let glyphs = ['A', '\u{fffd}'].map(|codepoint| assets::GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, 12, 16],
+        bearing: [0, -14],
+        advance_64: 12 * 64,
+    });
+    let bytes = assets::encode_font_catalog([15; 32], &glyphs, &[page]).unwrap();
+    let font = Arc::new(assets::RuntimeFontCatalog::decode(&bytes, [15; 32]).unwrap());
+    let Some(mut presentation) =
+        crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation_with(font)
+    else {
+        return;
+    };
+    let json = r#"{"rawtext":[{"translate":"message.key"}]}"#;
+    runtime.apply(envelope(1, 1, raw_text_event(json))).unwrap();
+    let publish = |runtime: &mut UiRuntime, session, sequence| {
+        runtime
+            .apply(envelope(
+                session,
+                sequence,
+                protocol::UiEvent::Title(protocol::TitleEvent {
+                    action: protocol::TitleAction::ActionBarJson,
+                    text: "".into(),
+                    document: Some(protocol::parse_raw_text(json).unwrap()),
+                    fade_in_ticks: 0,
+                    stay_ticks: 100,
+                    fade_out_ticks: 0,
+                    xuid: "".into(),
+                    platform_online_id: "".into(),
+                    filtered_message: "".into(),
+                }),
+            ))
+            .unwrap();
+    };
+    publish(&mut runtime, 1, 2);
+    let build = |presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime,
+                 runtime: &UiRuntime| {
+        presentation
+            .build(runtime, 20, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+            .unwrap()
+            .vertices
+            .len()
+    };
+    let baseline = build(&mut presentation, &runtime);
+    let input = b"message.key=AAAAA\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    publish(&mut runtime, 1, 3);
+    assert!(build(&mut presentation, &runtime) > baseline);
+    assert_eq!(
+        runtime.chat().messages().back().unwrap().message.as_ref(),
+        "AA"
+    );
+    runtime.set_server_lang(None);
+    publish(&mut runtime, 1, 4);
+    assert_eq!(build(&mut presentation, &runtime), baseline);
+    runtime.begin_session(2);
+    runtime.apply(envelope(2, 1, raw_text_event(json))).unwrap();
+    publish(&mut runtime, 2, 2);
+    assert_eq!(build(&mut presentation, &runtime), baseline);
+}
+
 fn effect(
     action: ActorEffectAction,
     effect_id: i32,
@@ -722,45 +859,113 @@ fn the_selected_slot_presents_the_equipment_echo_before_inventory_content() {
 }
 
 #[test]
-fn player_list_overlay_rows_pair_names_with_resolved_list_scores() {
+fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
     let mut runtime = UiRuntime::new(1);
-    runtime
-        .apply(envelope(
-            1,
-            1,
-            UiEvent::Objective(protocol::ObjectiveEvent::Display {
-                display_slot: std::sync::Arc::from("list"),
-                objective_name: std::sync::Arc::from("deaths"),
-                display_name: std::sync::Arc::from("Deaths"),
-                criteria_name: std::sync::Arc::from("dummy"),
-                sort_order: 1,
-            }),
-        ))
-        .unwrap();
-    runtime
-        .apply(envelope(
-            1,
-            2,
-            UiEvent::Score(protocol::ScoreEvent {
-                entries: vec![protocol::ScoreEntry {
-                    action: protocol::ScoreAction::Change,
-                    scoreboard_id: 1,
-                    objective_name: std::sync::Arc::from("deaths"),
-                    score: 4,
-                    identity: protocol::ScoreIdentity::Player(42),
-                }]
-                .into(),
-            }),
-        ))
-        .unwrap();
-    runtime.refresh_raw_text_identities(
-        |unique_id| (unique_id == 42).then(|| std::sync::Arc::from("Steve")),
-        vec![std::sync::Arc::from("Alex"), std::sync::Arc::from("Steve")],
+    runtime.set_local_selected_slot(2);
+    runtime.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 2,
+            selected_slot: 2,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
     );
-    let rows = runtime.player_list_overlay_rows();
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].0.as_ref(), "Alex");
-    assert_eq!(rows[0].1, None);
-    assert_eq!(rows[1].0.as_ref(), "Steve");
-    assert_eq!(rows[1].1, Some(4));
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: inventory_container(0),
+                slot: 2,
+            },
+            stack: NetworkItemStack::empty(),
+            storage_item: None,
+        }));
+
+    let empty_snapshot = runtime.selected_stack_snapshot().unwrap();
+    assert_eq!(empty_snapshot.slot, 2);
+    assert_eq!(
+        empty_snapshot.state,
+        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+    );
+    assert_eq!(runtime.selected_stack(), None);
+    assert_eq!(runtime.presented_hotbar_stack(2), None);
+
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: inventory_container(0),
+                slot: 2,
+            },
+            stack: stack(77),
+            storage_item: None,
+        }));
+
+    assert_eq!(
+        runtime.selected_stack().map(|item| item.network_id),
+        Some(77)
+    );
+    assert_eq!(
+        runtime
+            .presented_hotbar_stack(2)
+            .map(|item| item.network_id),
+        Some(77)
+    );
+}
+
+#[test]
+fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_local_selected_slot(2);
+    runtime.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 3,
+            selected_slot: 3,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(runtime.selected_stack(), None);
+
+    let mut equipment_only = UiRuntime::new(1);
+    equipment_only.retain_local_selected_equipment(
+        1,
+        EquipmentEvent {
+            actor_runtime_id: 7,
+            stack: stack(41),
+            inventory_slot: 250,
+            selected_slot: 250,
+            window_id: 0,
+            handedness: Some(ActorHandedness::Right),
+        },
+    );
+    assert_eq!(equipment_only.selected_hotbar_slot(), None);
+    assert_eq!(equipment_only.selected_stack(), None);
+}
+
+#[test]
+fn non_forcing_server_selection_does_not_override_local_prediction() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_local_selected_slot(2);
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            InventoryEvent::SelectedSlot(SelectedSlotEvent {
+                container: inventory_container(0),
+                slot: 6,
+                select_slot: false,
+            }),
+        )
+        .unwrap();
+
+    runtime.drain_pending_inventory();
+
+    assert_eq!(runtime.selected_hotbar_slot(), Some(2));
 }

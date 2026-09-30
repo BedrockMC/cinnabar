@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use assets::{MODEL_QUAD_FLAG_FACE_MASK, ModelQuad, NetworkIdMode, RuntimeAssets, VisualKind};
 use world::{MeshDependencyMask, MeshNeighbourhood, SubChunk};
 
@@ -104,29 +106,173 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
     face: Face,
     positions: [[i16; 3]; 4],
 ) -> PackedQuadLighting {
+    bake_quad(
+        &DirectInputs {
+            classifier,
+            assets,
+            network_id_mode,
+            neighbourhood,
+            sampler: light_sampler,
+        },
+        block,
+        face,
+        positions,
+    )
+}
+
+/// Occlusion and light lookups shared by the direct and cached bake paths.
+pub(crate) trait LightingInputs {
+    fn occludes(&self, coordinate: [i32; 3]) -> bool;
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
+}
+
+struct DirectInputs<'a, 'n, S: MeshLightSampler + ?Sized> {
+    classifier: &'a BlockClassifier,
+    assets: &'a RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &'a MeshNeighbourhood<'n>,
+    sampler: &'a S,
+}
+
+impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
+    fn occludes(&self, coordinate: [i32; 3]) -> bool {
+        sample_occludes(
+            self.classifier,
+            self.assets,
+            self.network_id_mode,
+            self.neighbourhood,
+            coordinate,
+        )
+    }
+
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
+        self.sampler.sample(coordinate)
+    }
+}
+
+const HALO_SIDE: usize = 18;
+const HALO_VOLUME: usize = HALO_SIDE * HALO_SIDE * HALO_SIDE;
+const HALO_WORDS: usize = HALO_VOLUME.div_ceil(64);
+
+/// Per-mesh memo of light samples and full-face occluders over the one-block
+/// halo, filled lazily so sparse sub-chunks resolve only what their faces touch.
+pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
+    direct: DirectInputs<'a, 'n, S>,
+    light: [Cell<MeshLightSample>; HALO_VOLUME],
+    light_known: [Cell<u64>; HALO_WORDS],
+    occluder_known: [Cell<u64>; HALO_WORDS],
+    occluders: [Cell<u64>; HALO_WORDS],
+}
+
+impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
+    pub(crate) fn new(
+        classifier: &'a BlockClassifier,
+        assets: &'a RuntimeAssets,
+        network_id_mode: NetworkIdMode,
+        neighbourhood: &'a MeshNeighbourhood<'n>,
+        sampler: &'a S,
+    ) -> Self {
+        Self {
+            direct: DirectInputs {
+                classifier,
+                assets,
+                network_id_mode,
+                neighbourhood,
+                sampler,
+            },
+            light: [const { Cell::new(MeshLightSample::FULL_BRIGHT) }; HALO_VOLUME],
+            light_known: [const { Cell::new(0) }; HALO_WORDS],
+            occluder_known: [const { Cell::new(0) }; HALO_WORDS],
+            occluders: [const { Cell::new(0) }; HALO_WORDS],
+        }
+    }
+}
+
+impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, S> {
+    fn occludes(&self, coordinate: [i32; 3]) -> bool {
+        let Some(index) = halo_index(coordinate) else {
+            return self.direct.occludes(coordinate);
+        };
+        let (word, bit) = (index / 64, 1_u64 << (index % 64));
+        if self.occluder_known[word].get() & bit == 0 {
+            if self.direct.occludes(coordinate) {
+                self.occluders[word].set(self.occluders[word].get() | bit);
+            }
+            self.occluder_known[word].set(self.occluder_known[word].get() | bit);
+        }
+        self.occluders[word].get() & bit != 0
+    }
+
+    fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
+        let Some(index) = halo_index(coordinate) else {
+            return self.direct.sample(coordinate);
+        };
+        let (word, bit) = (index / 64, 1_u64 << (index % 64));
+        if self.light_known[word].get() & bit == 0 {
+            self.light[index].set(self.direct.sample(coordinate));
+            self.light_known[word].set(self.light_known[word].get() | bit);
+        }
+        self.light[index].get()
+    }
+}
+
+fn halo_index(coordinate: [i32; 3]) -> Option<usize> {
+    let [x, y, z] = coordinate.map(|value| {
+        usize::try_from(value.wrapping_add(1))
+            .ok()
+            .filter(|&v| v < HALO_SIDE)
+    });
+    Some((x? * HALO_SIDE + y?) * HALO_SIDE + z?)
+}
+
+pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+) -> PackedQuadLighting {
+    bake_quad_with(inputs, block, face, positions, false)
+}
+
+/// `own_cell_if_occluded` lights a face against an opaque neighbour from its own cell.
+pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+    own_cell_if_occluded: bool,
+) -> PackedQuadLighting {
     let (normal, tangent_a, tangent_b) = face_basis(face);
     let outward = add_normal(block, normal);
+    // A face against an opaque neighbour (a vine on a log) takes the light of its own cell,
+    // as the neighbour holds none.
+    let light_normal = if own_cell_if_occluded && inputs.occludes(outward) {
+        [0; 3]
+    } else {
+        normal
+    };
+    let light_origin = add_normal(block, light_normal);
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
         let side_a = offset(block, normal, tangent_a, sign_a, None);
         let side_b = offset(block, normal, tangent_b, sign_b, None);
         let corner = offset(block, normal, tangent_a, sign_a, Some((tangent_b, sign_b)));
-        let side_a = sample_occludes(classifier, assets, network_id_mode, neighbourhood, side_a);
-        let side_b = sample_occludes(classifier, assets, network_id_mode, neighbourhood, side_b);
-        let corner = sample_occludes(classifier, assets, network_id_mode, neighbourhood, corner);
-        let ao = if side_a && side_b {
-            3
-        } else {
-            u8::from(side_a) + u8::from(side_b) + u8::from(corner)
+        let ao = match (
+            inputs.occludes(side_a),
+            inputs.occludes(side_b),
+            inputs.occludes(corner),
+        ) {
+            (true, true, _) => 3,
+            (a, b, c) => u8::from(a) + u8::from(b) + u8::from(c),
         };
         let light = average_light([
-            light_sampler.sample(outward),
-            light_sampler.sample(offset(block, normal, tangent_a, sign_a, None)),
-            light_sampler.sample(offset(block, normal, tangent_b, sign_b, None)),
-            light_sampler.sample(offset(
+            inputs.sample(light_origin),
+            inputs.sample(offset(block, light_normal, tangent_a, sign_a, None)),
+            inputs.sample(offset(block, light_normal, tangent_b, sign_b, None)),
+            inputs.sample(offset(
                 block,
-                normal,
+                light_normal,
                 tangent_a,
                 sign_a,
                 Some((tangent_b, sign_b)),
@@ -176,6 +322,28 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
     template_id: u32,
     rotation: u32,
 ) -> Option<Vec<PackedQuadLighting>> {
+    bake_template(
+        &DirectInputs {
+            classifier,
+            assets,
+            network_id_mode,
+            neighbourhood,
+            sampler: light_sampler,
+        },
+        assets,
+        block,
+        template_id,
+        rotation,
+    )
+}
+
+pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    assets: &RuntimeAssets,
+    block: [i32; 3],
+    template_id: u32,
+    rotation: u32,
+) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
     let start = template.quad_start as usize;
     let end = start.checked_add(template.quad_count as usize)?;
@@ -185,18 +353,15 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
             .iter()
             .map(|quad| {
                 model_quad_face(*quad, rotation).map_or_else(
-                    || lighting_at(light_sampler.sample(block)),
+                    || lighting_at(inputs.sample(block)),
                     |face| {
-                        bake_quad_lighting_with_sampler(
-                            classifier,
-                            assets,
-                            network_id_mode,
-                            neighbourhood,
-                            light_sampler,
+                        bake_quad_with(
+                            inputs,
                             block,
                             face,
                             quad.positions
                                 .map(|position| rotate_model_position(position, rotation)),
+                            true,
                         )
                     },
                 )
@@ -370,5 +535,50 @@ const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
         2 => [256 - x, y, 256 - z],
         3 => [z, y, 256 - x],
         _ => [x, y, z],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        HALO_VOLUME, LightingInputs, MeshLightSample, bake_quad, bake_quad_with, halo_index,
+    };
+    use crate::Face;
+
+    /// A log to the west (opaque, unlit) beside an open cell lit at block 9, sky 12.
+    struct VineOnLog;
+
+    impl LightingInputs for VineOnLog {
+        fn occludes(&self, coordinate: [i32; 3]) -> bool {
+            coordinate[0] < 0
+        }
+
+        fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
+            if coordinate[0] < 0 {
+                MeshLightSample::try_new(0, 0).unwrap()
+            } else {
+                MeshLightSample::try_new(9, 12).unwrap()
+            }
+        }
+    }
+
+    // A model face against an opaque neighbour reads its own cell instead of the dark neighbour.
+    #[test]
+    fn attached_model_face_samples_its_own_cell() {
+        let positions = [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]];
+        let attached = bake_quad_with(&VineOnLog, [0, 0, 0], Face::NegativeX, positions, true);
+        let plain = bake_quad(&VineOnLog, [0, 0, 0], Face::NegativeX, positions);
+        assert_eq!(attached.samples()[0] & 0xff, 9 | (12 << 4));
+        assert_eq!(plain.samples()[0] & 0xff, 0);
+    }
+
+    /// The memo covers exactly the one-block halo; anything else takes the direct path.
+    #[test]
+    fn halo_index_covers_only_the_one_block_halo() {
+        assert_eq!(halo_index([-1, -1, -1]), Some(0));
+        assert_eq!(halo_index([16, 16, 16]), Some(HALO_VOLUME - 1));
+        for outside in [[-2, 0, 0], [0, 17, 0], [0, 0, i32::MAX], [i32::MIN, 0, 0]] {
+            assert_eq!(halo_index(outside), None, "{outside:?}");
+        }
     }
 }

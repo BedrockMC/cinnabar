@@ -42,6 +42,8 @@ fn remote_actor_clock_is_twenty_hertz_and_exposes_frame_fraction() {
 #[test]
 fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     let skin = PlayerSkin::Standard(StandardSkin {
+        geometry: None,
+        cape: None,
         width: 64,
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),
@@ -82,6 +84,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         attributes: Default::default(),
         int_properties: Default::default(),
         float_properties: Default::default(),
+        status: Default::default(),
     };
     let profile = client_world::PlayerProfile {
         unique_id: 9,
@@ -191,6 +194,17 @@ fn shutdown_watchdog_arms_only_once() {
 
     assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
     assert!(termination.recv_timeout(Duration::from_millis(50)).is_err());
+}
+
+// macOS `terminate:` tears the world down without an AppExit; that teardown must still be bounded.
+#[test]
+fn teardown_without_app_exit_arms_the_watchdog() {
+    let (terminated, termination) = mpsc::channel();
+    let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
+        terminated.send(code).unwrap();
+    });
+    drop(TeardownWatchdog(watchdog));
+    assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
 }
 
 #[test]
@@ -393,7 +407,7 @@ fn camera_medium_sampling_is_ordered_after_fly_camera_transform_updates() {
 #[test]
 fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation() {
     let main_source = include_str!("../app.rs");
-    let environment_source = include_str!("../environment.rs");
+    let atmosphere_source = include_str!("../environment/atmosphere.rs");
     let world_source = include_str!("../runtime/world.rs");
     assert!(main_source.contains("insert_resource(EnvironmentContext::default())"));
     assert!(main_source.contains("insert_resource(EnvironmentProfileRoute::default())"));
@@ -402,8 +416,8 @@ fn camera_environment_context_is_sampled_before_profiled_atmosphere_derivation()
     assert!(sample < derive);
     assert!(world_source.contains(".camera_biome_id(camera.translation.to_array())"));
     assert!(world_source.contains(".render_distance_blocks()"));
-    assert!(environment_source.contains("assets.biome_profiles()"));
-    assert!(environment_source.contains("assets.fog_profiles()"));
+    assert!(atmosphere_source.contains("assets.biome_profiles()"));
+    assert!(atmosphere_source.contains("assets.fog_profiles()"));
 }
 
 pub(super) fn overworld_biome_payload() -> Vec<u8> {

@@ -1,0 +1,228 @@
+//! The HUD's native renderers: the `custom` controls `hud_screen.json` places
+//! (hearts, armor, hunger, bubbles, mount hearts and jump bar, hotbar slot art,
+//! status effects, the crosshair) draw at their control's position, as the
+//! client's renderers do, so a pack that moves the control moves the art. What
+//! each draws is captured once per frame into [`HudPaint`] with Java Edition
+//! behavior (row layout, jitter, blink) per the HUD exception.
+
+use std::collections::BTreeMap;
+
+use serde_json::Value;
+use ui::UiVisual;
+
+use super::Painter;
+
+/// One sprite a renderer draws, relative to its control's origin, in GUI px.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Cell {
+    pub(crate) at: [f32; 2],
+    pub(crate) size: [f32; 2],
+    /// A `textures/ui/...` path, which a server pack may replace.
+    pub(crate) texture: &'static str,
+    /// Tried before `texture` (hardcore hearts), when the pack holds it.
+    pub(crate) preferred: Option<&'static str>,
+    pub(crate) alpha: u8,
+}
+
+impl Cell {
+    pub(crate) fn icon(at: [f32; 2], texture: &'static str) -> Self {
+        Self {
+            at,
+            size: [9.0, 9.0],
+            texture,
+            preferred: None,
+            alpha: 255,
+        }
+    }
+}
+
+/// The hotbar cells' background art, by cell index.
+const SLOT_ART: [&str; 9] = [
+    "textures/ui/hotbar_0",
+    "textures/ui/hotbar_1",
+    "textures/ui/hotbar_2",
+    "textures/ui/hotbar_3",
+    "textures/ui/hotbar_4",
+    "textures/ui/hotbar_5",
+    "textures/ui/hotbar_6",
+    "textures/ui/hotbar_7",
+    "textures/ui/hotbar_8",
+];
+
+/// A sprite from the HUD carrier's own page (art the pack's `textures/ui` lacks).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SheetSprite {
+    pub(crate) page: u16,
+    pub(crate) uv: [u16; 4],
+}
+
+/// What the native renderers draw this frame.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HudPaint {
+    /// Relative to the heart control's top-left; rows grow upward.
+    pub(crate) hearts: Vec<Cell>,
+    /// Relative to the armor control's top-left, above the heart rows.
+    pub(crate) armor: Vec<Cell>,
+    /// Relative to the hunger control's position, which is the row's right end.
+    pub(crate) hunger: Vec<Cell>,
+    pub(crate) bubbles: Vec<Cell>,
+    pub(crate) mount_hearts: Vec<Cell>,
+    /// Relative to the effects control's top-right corner.
+    pub(crate) effects: Vec<Cell>,
+    /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
+    pub(crate) mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
+    pub(crate) crosshair: Option<SheetSprite>,
+}
+
+impl HudPaint {
+    /// Every texture path the renderers may draw this frame, pack overrides included.
+    pub(crate) fn textures(&self) -> impl Iterator<Item = &str> {
+        [
+            &self.hearts,
+            &self.armor,
+            &self.hunger,
+            &self.bubbles,
+            &self.mount_hearts,
+            &self.effects,
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+        .chain(SLOT_ART)
+    }
+}
+
+/// Draw `renderer` at `dest` when it is one of the HUD's; `false` otherwise.
+pub(super) fn paint(
+    painter: &mut Painter<'_>,
+    hud: &HudPaint,
+    renderer: &str,
+    data: &BTreeMap<String, Value>,
+    dest: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) -> bool {
+    let top_left = [dest[0], dest[1]];
+    let cells = match renderer {
+        "heart_renderer" => (&hud.hearts, top_left),
+        "armor_renderer" => (&hud.armor, top_left),
+        "hunger_renderer" => (&hud.hunger, top_left),
+        "bubbles_renderer" => (&hud.bubbles, top_left),
+        "horse_heart_renderer" => (&hud.mount_hearts, top_left),
+        "mob_effects_renderer" => (&hud.effects, [dest[2], dest[1]]),
+        "hotbar_renderer" => {
+            slot_art(painter, data, dest, alpha);
+            return true;
+        }
+        "horse_jump_renderer" => {
+            if let Some((background, fill, filled)) = hud.mount_jump {
+                let px = painter.px;
+                sheet(painter, background, dest, alpha);
+                let width = (filled * px).min(dest[2] - dest[0]);
+                if width > 0.0 {
+                    let mut uv = fill.uv;
+                    let span = f32::from(uv[2] - uv[0]);
+                    uv[2] = uv[0] + (span * filled / 182.0).round() as u16;
+                    let clipped = SheetSprite { uv, ..fill };
+                    sheet(
+                        painter,
+                        clipped,
+                        [dest[0], dest[1], dest[0] + width, dest[3]],
+                        alpha,
+                    );
+                }
+            }
+            return true;
+        }
+        // The built-in Java pack's notched boss-bar overlay.
+        "java_boss_notches" => {
+            let notches = data
+                .get("#bar_notches")
+                .and_then(Value::as_f64)
+                .map_or(0, |notches| notches.clamp(0.0, 64.0) as u32);
+            let width = dest[2] - dest[0];
+            let px = painter.px;
+            for notch in 1..notches {
+                let x = dest[0] + width * notch as f32 / notches as f32;
+                let _ = painter.solid([x, dest[1], x + px, dest[3]], alpha([0, 0, 0, 255]));
+            }
+            return true;
+        }
+        "cursor_renderer" => {
+            if let Some(sprite) = hud.crosshair {
+                crosshair(painter, sprite, dest);
+            }
+            return true;
+        }
+        // Renderers with no Cinnabar state draw nothing, as with no data.
+        "hotbar_cooldown_renderer"
+        | "dash_renderer"
+        | "locator_bar"
+        | "vignette_renderer"
+        | "progress_indicator_renderer"
+        | "camera_renderer"
+        | "hud_player_renderer"
+        | "editor_gizmo_renderer"
+        | "editor_compass_renderer"
+        | "editor_volume_highlight_renderer" => return true,
+        _ => return false,
+    };
+    let (cells, origin) = cells;
+    let px = painter.px;
+    for cell in cells {
+        let x = origin[0] + cell.at[0] * px;
+        let y = origin[1] + cell.at[1] * px;
+        let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
+        let color = alpha([255, 255, 255, cell.alpha]);
+        let visual = cell
+            .preferred
+            .and_then(|path| painter.sprite(path, json_ui::UvRect::full(), color))
+            .or_else(|| painter.sprite(cell.texture, json_ui::UvRect::full(), color));
+        if let Some(visual) = visual {
+            let _ = painter.push(visual, bounds);
+        }
+    }
+    true
+}
+
+/// The hotbar slot background for the cell the control's collection index names.
+fn slot_art(
+    painter: &mut Painter<'_>,
+    data: &BTreeMap<String, Value>,
+    dest: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
+    let index = data
+        .get("#collection_index")
+        .and_then(Value::as_f64)
+        .map_or(0, |index| index.clamp(0.0, 8.0) as usize);
+    if let Some(visual) = painter.sprite(SLOT_ART[index], json_ui::UvRect::full(), alpha([255; 4]))
+    {
+        let _ = painter.push(visual, dest);
+    }
+}
+
+fn sheet(
+    painter: &mut Painter<'_>,
+    sprite: SheetSprite,
+    bounds: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
+    let visual = UiVisual::Sprite {
+        texture_page: sprite.page,
+        uv: sprite.uv,
+        color: alpha([255; 4]),
+    };
+    let _ = painter.push(visual, bounds);
+}
+
+/// The 15x15 inverting crosshair centred in the control.
+fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
+    let side = 15.0 * painter.px;
+    let x = (dest[0] + dest[2] - side) * 0.5;
+    let y = (dest[1] + dest[3] - side) * 0.5;
+    let visual = UiVisual::InvertedSprite {
+        texture_page: sprite.page,
+        uv: sprite.uv,
+    };
+    let _ = painter.push(visual, [x, y, x + side, y + side]);
+}

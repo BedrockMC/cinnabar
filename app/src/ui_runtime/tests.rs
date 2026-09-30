@@ -413,7 +413,6 @@ fn session_replacement_clears_receive_side_ui_atomically() {
             5,
             UiEvent::Boss(BossEvent {
                 target_entity_id: 99,
-                player_id: 7,
                 action: ProtocolBossAction::Show,
                 title: Arc::from("Old boss"),
                 filtered_title: Arc::from(""),
@@ -481,7 +480,6 @@ fn protocol_scoreboard_and_boss_events_route_into_ui_owned_state() {
             3,
             UiEvent::Boss(BossEvent {
                 target_entity_id: 44,
-                player_id: 3,
                 action: ProtocolBossAction::Show,
                 title: Arc::from("Boss"),
                 filtered_title: Arc::from(""),
@@ -581,18 +579,163 @@ fn chat_focus_requests_context_and_router_releases_gameplay_actions() {
 }
 
 #[test]
-fn local_server_tick_drives_title_clock_when_present() {
+fn timed_title_event_with_server_tick_is_rejected_instead_of_clock_mixing() {
     let mut runtime = UiRuntime::new(1);
     let mut event = envelope(1, 1, title("server clock"));
-    event.local_millis = 9_000;
     event.server_tick = Some(20);
-    runtime.apply(event).unwrap();
 
-    assert_eq!(runtime.hud().title().unwrap().started_millis, 1_000);
+    let result = runtime.apply(event);
+
+    assert_eq!(
+        result,
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+    assert!(runtime.hud().title().is_none());
 }
 
 #[test]
-fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
+fn timed_text_event_with_server_tick_is_rejected_instead_of_clock_mixing() {
+    let mut runtime = UiRuntime::new(1);
+    let mut event = envelope(1, 1, text("server clock"));
+    event.server_tick = Some(4);
+
+    assert_eq!(
+        runtime.apply(event),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+    assert!(runtime.chat().messages().is_empty());
+}
+
+#[test]
+fn timed_toast_event_with_server_tick_is_rejected_instead_of_clock_mixing() {
+    let mut runtime = UiRuntime::new(1);
+    let mut event = envelope(
+        1,
+        1,
+        UiEvent::Hud(HudEvent::Toast {
+            title: Arc::from("t"),
+            message: Arc::from("m"),
+        }),
+    );
+    event.server_tick = Some(7);
+
+    assert_eq!(
+        runtime.apply(event),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+}
+
+#[test]
+fn nontimed_objective_event_with_server_tick_keeps_tick_ordering_authority() {
+    let mut runtime = UiRuntime::new(1);
+    let display = |name: &'static str| {
+        UiEvent::Objective(ObjectiveEvent::Display {
+            display_slot: Arc::from("sidebar"),
+            objective_name: Arc::from(name),
+            display_name: Arc::from(name),
+            criteria_name: Arc::from("dummy"),
+            sort_order: 1,
+        })
+    };
+    let mut first = envelope(1, 1, display("kills"));
+    first.server_tick = Some(20);
+    runtime.apply(first).unwrap();
+
+    let mut stale = envelope(1, 2, display("kills"));
+    stale.server_tick = Some(19);
+    assert_eq!(
+        runtime.apply(stale),
+        Err(UiRuntimeError::NonMonotonicServerTick {
+            previous: 20,
+            actual: 19
+        })
+    );
+}
+
+#[test]
+fn timed_command_output_and_raw_text_events_reject_server_ticks() {
+    let mut runtime = UiRuntime::new(1);
+    let mut output = envelope(
+        1,
+        1,
+        UiEvent::CommandOutput(CommandOutputEvent {
+            output_type: Arc::from(""),
+            success_count: 1,
+            messages: Arc::from([]),
+            data: None,
+        }),
+    );
+    output.local_millis = 10;
+    output.server_tick = Some(2);
+    assert_eq!(
+        runtime.apply(output),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 1 })
+    );
+
+    let mut raw = envelope(
+        1,
+        2,
+        literal_raw_text(TextKind::Chat, "{\"rawtext\":[{\"text\":\"hi\"}]}"),
+    );
+    raw.server_tick = Some(3);
+    assert_eq!(
+        runtime.apply(raw),
+        Err(UiRuntimeError::TimedEventRequiresLocalClock { fifo_sequence: 2 })
+    );
+}
+
+#[test]
+fn rejected_timed_event_leaves_fifo_and_server_tick_state_unadvanced() {
+    let mut runtime = UiRuntime::new(1);
+    let mut rejected = envelope(1, 5, title("rejected"));
+    rejected.server_tick = Some(9);
+    assert!(runtime.apply(rejected).is_err());
+    assert_eq!(runtime.estimated_server_tick(1_000_000), None);
+
+    let earlier = envelope(1, 4, title("still fresh"));
+    runtime.apply(earlier).unwrap();
+}
+
+#[test]
+fn block_crack_history_does_not_accumulate_across_production_batches() {
+    let mut runtime = UiRuntime::new(9);
+    for batch in 0..40_u64 {
+        for offset in 0..32_u64 {
+            runtime
+                .retain_block_crack(SequencedBlockCrackEvent {
+                    session_id: 9,
+                    fifo_sequence: batch * 32 + offset,
+                    dimension: 0,
+                    event: BlockCrackEvent {
+                        position: [0, 64, 0],
+                        action: BlockCrackAction::Stop,
+                    },
+                })
+                .expect("consumed crack events must not exhaust a session history queue");
+        }
+    }
+}
+
+#[test]
+fn block_crack_single_committed_batch_exceeds_former_history_limit() {
+    let mut runtime = UiRuntime::new(9);
+    for sequence in 0..1_280_u64 {
+        runtime
+            .retain_block_crack(SequencedBlockCrackEvent {
+                session_id: 9,
+                fifo_sequence: sequence,
+                dimension: 0,
+                event: BlockCrackEvent {
+                    position: [0, 64, 0],
+                    action: BlockCrackAction::Stop,
+                },
+            })
+            .expect("one committed batch must consume each crack synchronously");
+    }
+}
+
+#[test]
+fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
     let mut runtime = UiRuntime::new(4);
     let event = BlockCrackEvent {
         position: [3, 64, -2],
@@ -610,15 +753,9 @@ fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
         })
         .unwrap();
 
-    assert_eq!(
-        runtime.pending_block_cracks().front(),
-        Some(&SequencedBlockCrackEvent {
-            session_id: 4,
-            fifo_sequence: 7,
-            dimension: 0,
-            event,
-        })
-    );
+    // Envelopes validate ordering only; active authority arrives from the stream.
+    assert_eq!(runtime.block_cracks.status().active, 0);
+    assert_eq!(runtime.block_cracks.status().consumed, 0);
     assert!(matches!(
         runtime.retain_block_crack(SequencedBlockCrackEvent {
             session_id: 4,
@@ -630,17 +767,18 @@ fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
     ));
 
     runtime.begin_session(5);
-    assert!(runtime.pending_block_cracks().is_empty());
+    assert_eq!(runtime.block_cracks.status().active, 0);
+    assert_eq!(runtime.block_cracks.status().consumed, 0);
 }
 
 #[test]
-fn block_crack_handoff_is_bounded_without_dropping_existing_events() {
+fn block_crack_stops_consume_without_retaining_a_history() {
     let mut runtime = UiRuntime::new(9);
-    for sequence in 0..MAX_PENDING_BLOCK_CRACK_EVENTS {
+    for sequence in 0..1_280_u64 {
         runtime
             .retain_block_crack(SequencedBlockCrackEvent {
                 session_id: 9,
-                fifo_sequence: sequence as u64,
+                fifo_sequence: sequence,
                 dimension: 1,
                 event: BlockCrackEvent {
                     position: [sequence as i32, 0, 0],
@@ -650,22 +788,8 @@ fn block_crack_handoff_is_bounded_without_dropping_existing_events() {
             .unwrap();
     }
 
-    let before = runtime.pending_block_cracks().clone();
-    assert_eq!(
-        runtime.retain_block_crack(SequencedBlockCrackEvent {
-            session_id: 9,
-            fifo_sequence: MAX_PENDING_BLOCK_CRACK_EVENTS as u64,
-            dimension: 1,
-            event: BlockCrackEvent {
-                position: [0, 0, 0],
-                action: BlockCrackAction::Stop,
-            },
-        }),
-        Err(UiRuntimeError::BlockCrackQueueFull {
-            maximum: MAX_PENDING_BLOCK_CRACK_EVENTS,
-        })
-    );
-    assert_eq!(runtime.pending_block_cracks(), &before);
+    assert_eq!(runtime.block_cracks.status().active, 0);
+    assert_eq!(runtime.block_cracks.status().consumed, 0);
 }
 
 #[test]
@@ -842,6 +966,12 @@ fn chat_focus_clears_stale_gameplay_touch_targets() {
 }
 
 mod chat_tests;
+mod container_address_tests;
+mod forms_interaction_tests;
+mod forms_tests;
 mod gameplay_hud_tests;
+mod inventory_overlay_tests;
 mod leniency_tests;
+mod menu_input_tests;
+mod mining_mode_tests;
 mod retained_bounds_tests;

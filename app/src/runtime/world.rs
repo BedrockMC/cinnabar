@@ -1,30 +1,36 @@
 mod acceptance_helpers;
+mod committed_ui;
+mod control_apply;
+pub(crate) use committed_ui::drain_committed_ui_before_authority;
+#[cfg(test)]
+mod player_list_tests;
+mod shutdown_watchdog;
 
 pub(crate) use acceptance_helpers::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
-
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU8, Ordering},
-    },
-    thread,
-    time::Duration,
+pub(crate) use control_apply::apply_committed_control;
+pub(crate) use shutdown_watchdog::{
+    SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
+    arm_shutdown_watchdog, begin_bounded_shutdown,
 };
+
+use std::sync::Arc;
 
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
-    app::AppExit,
     ecs::system::SystemParam,
     log::{debug, info, warn},
-    prelude::{MessageReader, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
+    prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
 use client_world::{
-    CommittedControlEvent, CommittedUiEvent, ViewCohortStatus, WorldMeshChange, WorldStream,
-    WorldStreamPoll,
+    CommittedControlEvent, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
 };
+
+use super::audio::{SequencedAudioEvent, drain_committed_audio};
+use crate::block_cracks::reconcile_world_block_cracks;
+use crate::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
 use render::{
@@ -35,7 +41,6 @@ use render::{
 use crate::{
     acceptance::{
         AcceptanceRun,
-        markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER},
         model_witness::ModelWitnessFileSource,
         mutation::{deterministic_mutation_coordinate, write_stdout_marker},
     },
@@ -45,25 +50,42 @@ use crate::{
         InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose,
     },
     movement::{
-        LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode,
-        reconcile_candidate_physics_correction,
+        LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+        MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode, ServerTeleportKind,
+        reconcile_candidate_physics_correction, reconcile_committed_correction,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
-        telemetry::bedrock_camera_rotation,
-        visibility::{AppMetrics, DiagnosticQuads},
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
     },
-    ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
+    ui_runtime::UiRuntime,
 };
-
-pub(crate) const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
+}
+
+/// Refreshes Tab/rawtext identity state when a committed player-list marker
+/// reports that the authoritative roster changed without a UI packet.
+fn refresh_player_list_cache_for_controls(
+    stream: &WorldStream,
+    ui_runtime: &mut UiRuntime,
+    controls: &[CommittedControlEvent],
+) {
+    if !controls
+        .iter()
+        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
+    {
+        return;
+    }
+    ui_runtime.refresh_raw_text_identities(
+        |unique_id| stream.actor_display_name(unique_id),
+        stream.player_list_usernames(),
+    );
 }
 
 #[derive(Resource, Debug, Default)]
@@ -72,128 +94,30 @@ pub(crate) struct WorldStreamFramePoll {
     pub(crate) cohort: Option<ViewCohortStatus>,
 }
 
+/// A latched, bounded server-directed transfer target awaiting the launcher's
+/// replacement handoff. `None` once consumed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransferNotice {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+}
+
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
+    /// The session's server-pack entities, layered over `entity_assets`.
+    pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
+    /// The session's custom item facts and pack icons for held and worn items.
+    pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) fatal_error: Option<String>,
+    pub(crate) transfer_notice: Option<TransferNotice>,
     pub(crate) network_decode_errors: u64,
     pub(crate) reported_decode_errors: u64,
     pub(crate) client_blob_cache_enabled: bool,
     pub(crate) client_blob_cache: BlobCacheStats,
-}
-
-pub(crate) const SHUTDOWN_WATCHDOG_IDLE: u8 = 0;
-pub(crate) const SHUTDOWN_WATCHDOG_ARMED: u8 = 1;
-pub(crate) const SHUTDOWN_WATCHDOG_COMPLETED: u8 = 2;
-pub(crate) const SHUTDOWN_WATCHDOG_FIRED: u8 = 3;
-
-pub(crate) type ShutdownTerminator = Arc<dyn Fn(i32) + Send + Sync + 'static>;
-
-#[derive(Resource, Clone)]
-pub(crate) struct ShutdownWatchdog {
-    pub(crate) state: Arc<AtomicU8>,
-    pub(crate) timeout: Duration,
-    pub(crate) terminate: ShutdownTerminator,
-}
-
-impl ShutdownWatchdog {
-    pub(crate) fn process(timeout: Duration) -> Self {
-        Self::new(timeout, |code| std::process::exit(code))
-    }
-
-    pub(crate) fn new<F>(timeout: Duration, terminate: F) -> Self
-    where
-        F: Fn(i32) + Send + Sync + 'static,
-    {
-        Self {
-            state: Arc::new(AtomicU8::new(SHUTDOWN_WATCHDOG_IDLE)),
-            timeout,
-            terminate: Arc::new(terminate),
-        }
-    }
-
-    pub(crate) fn arm(&self, exit: AppExit) -> bool {
-        if self
-            .state
-            .compare_exchange(
-                SHUTDOWN_WATCHDOG_IDLE,
-                SHUTDOWN_WATCHDOG_ARMED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
-            return false;
-        }
-        let state = Arc::clone(&self.state);
-        let terminate = Arc::clone(&self.terminate);
-        let timeout = self.timeout;
-        let exit_code = app_exit_code(&exit);
-        let spawned = thread::Builder::new()
-            .name("bedrock-shutdown-watchdog".to_owned())
-            .spawn(move || {
-                thread::sleep(timeout);
-                if state
-                    .compare_exchange(
-                        SHUTDOWN_WATCHDOG_ARMED,
-                        SHUTDOWN_WATCHDOG_FIRED,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    )
-                    .is_ok()
-                {
-                    eprintln!(
-                        "{SHUTDOWN_WATCHDOG_FIRED_MARKER} timeout_ms={} exit_code={exit_code}",
-                        timeout.as_millis()
-                    );
-                    terminate(exit_code);
-                }
-            });
-        if spawned.is_err() {
-            self.state.store(SHUTDOWN_WATCHDOG_FIRED, Ordering::Release);
-            (self.terminate)(exit_code);
-        }
-        true
-    }
-
-    pub(crate) fn complete(&self) {
-        self.state
-            .store(SHUTDOWN_WATCHDOG_COMPLETED, Ordering::Release);
-    }
-}
-
-pub(crate) fn app_exit_code(exit: &AppExit) -> i32 {
-    match exit {
-        AppExit::Success => 0,
-        AppExit::Error(code) => i32::from(code.get()),
-    }
-}
-
-pub(crate) fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
-    if watchdog.arm(exit.clone()) {
-        eprintln!(
-            "{SHUTDOWN_WATCHDOG_ARMED_MARKER} timeout_ms={} exit_code={}",
-            watchdog.timeout.as_millis(),
-            app_exit_code(exit)
-        );
-    }
-}
-
-pub(crate) fn arm_shutdown_watchdog(
-    mut exits: MessageReader<AppExit>,
-    watchdog: Res<ShutdownWatchdog>,
-) {
-    let requested = exits.read().cloned().reduce(
-        |selected, next| {
-            if selected.is_error() { selected } else { next }
-        },
-    );
-    if let Some(exit) = requested {
-        begin_bounded_shutdown(&watchdog, &exit);
-    }
 }
 
 impl Default for ClientWorld {
@@ -208,8 +132,11 @@ impl ClientWorld {
             stream: None,
             runtime_assets,
             entity_assets: None,
+            pack_entities: None,
+            session_items: None,
             pending_surface_spawn: None,
             fatal_error: None,
+            transfer_notice: None,
             network_decode_errors: 0,
             reported_decode_errors: 0,
             client_blob_cache_enabled: false,
@@ -226,6 +153,15 @@ impl ClientWorld {
             ..Self::new(runtime_assets)
         }
     }
+
+    /// Unmapped block lookups on the assets the current session meshes with,
+    /// which carry any server block overlay.
+    pub(crate) fn missing_asset_count(&self) -> u64 {
+        self.stream
+            .as_ref()
+            .map_or(&self.runtime_assets, |stream| stream.runtime_assets())
+            .missing_count()
+    }
 }
 
 #[derive(SystemParam)]
@@ -235,7 +171,9 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) weather: ResMut<'w, WeatherState>,
     pub(crate) movement: ResMut<'w, MovementTicker>,
     pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
-    pub(crate) collisions: Res<'w, PhysicsCollisionRegistries>,
+    pub(crate) movement_effects: ResMut<'w, LocalMovementEffectTimeline>,
+    pub(crate) movement_speed: ResMut<'w, LocalMovementSpeedAuthority>,
+    pub(crate) collisions: ResMut<'w, PhysicsCollisionRegistries>,
     pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
     pub(crate) time: Res<'w, Time<Real>>,
 }
@@ -271,24 +209,19 @@ pub(crate) fn update_camera_medium(
     };
     let position = camera.translation.to_array();
     medium.0 = stream.camera_medium(position);
-    let camera_biome_identifier = stream
+    let camera_biome = stream
         .camera_biome_id(camera.translation.to_array())
         .and_then(|raw_id| {
-            client_world
-                .runtime_assets
-                .biome_assets()
-                .rules
+            let rules = &client_world.runtime_assets.biome_assets().rules;
+            rules
                 .binary_search_by_key(&raw_id, |rule| rule.id)
                 .ok()
-                .map(|index| {
-                    client_world.runtime_assets.biome_assets().rules[index]
-                        .name
-                        .clone()
-                })
+                .map(|index| &rules[index])
         });
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
-        camera_biome_identifier,
+        camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
+        camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
         render_distance_blocks: Some(stream.render_distance_blocks()),
     };
 }
@@ -320,6 +253,10 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut interaction: ResMut<InteractionOriginSnapshot>,
     mut phase3_evidence: ResMut<Phase3EvidenceEmitter>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
+    mut audio: MessageWriter<SequencedAudioEvent>,
+    mut server_camera: ResMut<ServerCameraInstructions>,
+    mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
+    mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -327,6 +264,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut weather,
         mut movement,
         mut local_physics,
+        mut movement_effects,
+        mut movement_speed,
+        mut ui_runtime,
         collisions,
         time,
         ..
@@ -351,6 +291,19 @@ pub(crate) fn reconcile_world_stream_before_physics(
         .committed_view_cohort()
         .map(|target| stream.cohort_status(target));
     let controls = stream.take_committed_controls();
+    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
+    drain_committed_audio(stream, |event| {
+        audio.write(event);
+    });
+    if let Some(inbox) = particle_inbox.as_mut() {
+        crate::particles::drain_committed_particles(stream, inbox);
+    }
+    drain_committed_camera(
+        stream,
+        clock.session_generation(),
+        stream.current_dimension(),
+        &mut server_camera,
+    );
     if let Some(error) = stream.take_fatal_error() {
         movement.deactivate();
         local_physics.deactivate();
@@ -361,7 +314,49 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
+        if let CommittedControlEvent::LocalHurt {
+            source_direction, ..
+        } = control
+        {
+            if let Some(hurt) = camera_hurt.as_deref_mut() {
+                hurt.register(crate::camera::LocalHurtEvent {
+                    source_direction,
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
+        if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
+            continue;
+        }
+        if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
+            movement_effects.apply(clock.session_generation(), sequence, event);
+            continue;
+        }
+        if let CommittedControlEvent::LocalMovementSpeed {
+            sequence,
+            dimension,
+            current,
+        } = control
+        {
+            movement_speed.apply(clock.session_generation(), sequence, dimension, current);
+            continue;
+        }
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
+            continue;
+        }
+        if let CommittedControlEvent::LocalActorMotion { event, .. } = control {
+            // A server-driven impulse (knockback, explosion) must enter the
+            // prediction timeline; without it the client keeps its pre-hit
+            // trajectory and fights corrections after every hit. It needs no
+            // spatial reconciliation and does not reset interpolation frames.
+            if let Some(hurt) = camera_hurt.as_deref_mut() {
+                hurt.note_knockback(event.motion[0], event.motion[2]);
+            }
+            if movement.physics_is_authorized() {
+                crate::movement::note_motion(event.tick, event.motion);
+                local_physics.queue_server_motion(event.motion, event.tick);
+            }
             continue;
         }
         let _ = refresh_mutation_anchor_from_committed_control(&mut acceptance, &control);
@@ -380,19 +375,27 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    match reconcile_candidate_physics_correction(
+                    // Shape classification (confirming / replay / teleport)
+                    // lives with the movement authority; a confirming
+                    // correction deliberately mutates no prediction state.
+                    match reconcile_committed_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
                         correction.tick,
                         correction.on_ground,
-                        PhysicsCorrectionMode::ReplayIfRetained,
                         &world,
                     ) {
-                        Ok(outcome) => phase3_evidence.note_correction(
-                            outcome,
-                            position_distance(previous, resolved.position),
-                        ),
+                        Ok(Some(outcome)) => {
+                            phase3_evidence.note_correction(
+                                outcome,
+                                position_distance(previous, resolved.position),
+                            );
+                            // Opt-in HandledTeleport acknowledgement dispatch
+                            // (see the movement `teleport_ack` module).
+                            movement.note_committed_correction_outcome(outcome);
+                        }
+                        Ok(None) => {}
                         Err(fault) => warn!(
                             ?fault,
                             correction_tick = correction.tick,
@@ -414,7 +417,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 resolved,
                 ..
             } => {
-                let tick = u64::try_from(correction.source_tick).unwrap_or(0);
+                let tick = correction.source_tick;
                 if movement.physics_is_authorized() {
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
@@ -424,15 +427,45 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction(
-                        &mut movement,
-                        &mut local_physics,
-                        resolved.position,
-                        tick,
-                        correction.on_ground,
-                        PhysicsCorrectionMode::Snap,
-                        &world,
-                    ) {
+                    // Only a MovePlayer explicitly flagged as a teleport hard
+                    // re-anchors. An unmarked MovePlayer is an ordinary position
+                    // sync: classify it (confirm / replay / far-teleport) like a
+                    // CorrectPlayerMovePrediction so a small server nudge replays
+                    // instead of forcing a hard snap. Opt-in HandledTeleport
+                    // acknowledgement arms on the teleport path only.
+                    let outcome = if correction.teleported {
+                        movement.note_server_teleport(ServerTeleportKind::MovePlayer);
+                        crate::movement::note_correction(
+                            crate::movement::CorrectionKind::Teleport,
+                            tick,
+                            resolved.position,
+                            correction.on_ground,
+                            local_physics.sample_at(tick),
+                        );
+                        reconcile_candidate_physics_correction(
+                            &mut movement,
+                            &mut local_physics,
+                            resolved.position,
+                            tick,
+                            correction.on_ground,
+                            PhysicsCorrectionMode::Snap,
+                            &world,
+                        )
+                        .ok()
+                    } else {
+                        movement.note_unmarked_local_move_player();
+                        reconcile_committed_correction(
+                            &mut movement,
+                            &mut local_physics,
+                            resolved.position,
+                            tick,
+                            correction.on_ground,
+                            &world,
+                        )
+                        .ok()
+                        .flatten()
+                    };
+                    if let Some(outcome) = outcome {
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
@@ -449,6 +482,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 LocalPlayerFrameReset::Correction
             }
             CommittedControlEvent::ChangeDimension { resolved, .. } => {
+                // Not a server teleport for HandledTeleport acknowledgement:
+                // drop any armed assertion instead of leaking it across the
+                // boundary.
+                movement.clear_pending_teleport_ack();
+                movement_speed
+                    .replace_dimension(clock.session_generation(), stream.current_dimension());
                 phase3_evidence.note_event(Phase3EvidenceEventKind::Dimension);
                 if movement.physics_is_authorized() {
                     let world = sim::PaletteWorld::new(
@@ -485,6 +524,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             CommittedControlEvent::Respawn { resolved, .. } => {
                 if movement.physics_is_authorized() {
+                    // Opt-in HandledTeleport acknowledgement: a committed
+                    // respawn is a server-driven anchor, marked on admission
+                    // under authority like the other qualifying sites (see
+                    // the movement `teleport_ack` module).
+                    movement.note_server_teleport(ServerTeleportKind::Respawn);
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
                         collisions.registry(stream.network_id_mode()),
@@ -519,8 +563,15 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             CommittedControlEvent::SetTime { .. }
             | CommittedControlEvent::DaylightCycle { .. }
-            | CommittedControlEvent::Weather { .. } => {
-                unreachable!("environment-only controls return before spatial reconciliation")
+            | CommittedControlEvent::Weather { .. }
+            | CommittedControlEvent::LocalMovementEffect { .. }
+            | CommittedControlEvent::LocalMovementSpeed { .. }
+            | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::LocalHurt { .. }
+            | CommittedControlEvent::PlayerListChanged { .. } => {
+                unreachable!(
+                    "environment-only and impulse controls return before spatial reconciliation"
+                )
             }
         };
         movement.enforce_local_physics_authority(&mut local_physics);
@@ -555,6 +606,8 @@ pub(crate) fn drive_world_stream(
     mut publication: ResMut<PublicationController>,
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
+    mut rendered_session: Local<Option<u64>>,
+    mut visibility: ResMut<CaveVisibilityCache>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
@@ -562,14 +615,24 @@ pub(crate) fn drive_world_stream(
         .map(|profiler| profiler.time(RuntimeStage::WorldStream));
     let AppWorldState {
         mut client_world,
-        clock,
         mut local_physics,
         mut movement,
         mut ui_runtime,
-        time,
         ..
     } = state;
+    let active_session = client_world
+        .stream
+        .as_ref()
+        .map(WorldStream::actor_session_id);
+    if *rendered_session != active_session {
+        render_queue.reset_session();
+        acknowledgements.clear();
+        *visibility = CaveVisibilityCache::default();
+        diagnostic_quads.0.clear();
+        *rendered_session = active_session;
+    }
     let Some(stream) = client_world.stream.as_mut() else {
+        ui_runtime.clear_disconnected_block_cracks();
         return;
     };
     synchronize_biome_tints(stream, &mut biome_tints);
@@ -592,81 +655,8 @@ pub(crate) fn drive_world_stream(
             acknowledgement.applied_at,
         );
     }
-    let committed_ui = stream.take_committed_ui();
     let poll_report = std::mem::take(&mut frame_poll.report);
-    let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    if !committed_ui.is_empty() {
-        // Rawtext score owners and selectors resolve against the stream's
-        // authoritative actor names and player list as of this drain.
-        let known_player_names = stream.player_list_usernames();
-        ui_runtime.refresh_raw_text_identities(
-            |unique_id| stream.actor_display_name(unique_id),
-            known_player_names,
-        );
-    }
-    for committed in committed_ui {
-        let result = match committed {
-            CommittedUiEvent::Ui { sequence, event } => ui_runtime
-                .apply(SequencedUiEvent {
-                    session_id: clock.session_generation(),
-                    fifo_sequence: sequence,
-                    local_millis,
-                    server_tick: None,
-                    event,
-                })
-                .map(|_| ()),
-            CommittedUiEvent::BlockCrack {
-                sequence,
-                dimension,
-                event,
-            } => ui_runtime.retain_block_crack(SequencedBlockCrackEvent {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
-                dimension,
-                event,
-            }),
-            CommittedUiEvent::LocalAttributes {
-                sequence,
-                server_tick,
-                attributes,
-            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
-                local_millis,
-                server_tick,
-                attributes,
-            }),
-            CommittedUiEvent::LocalMetadata {
-                sequence, metadata, ..
-            } => ui_runtime.apply_local_metadata(
-                clock.session_generation(),
-                sequence,
-                metadata.as_ref(),
-            ),
-            CommittedUiEvent::LocalEffect { sequence, event } => ui_runtime.apply_local_effect(
-                clock.session_generation(),
-                sequence,
-                event,
-                local_millis,
-            ),
-            CommittedUiEvent::LocalArmor { sequence, event } => {
-                ui_runtime.apply_local_armor(clock.session_generation(), sequence, &event)
-            }
-            CommittedUiEvent::LocalMount {
-                sequence,
-                ridden_unique_id,
-            } => {
-                ui_runtime.apply_local_mount(clock.session_generation(), sequence, ridden_unique_id)
-            }
-        };
-        if let Err(error) = result {
-            record_fatal_error(
-                &mut client_world.fatal_error,
-                format!("committed UI/gameplay event rejected: {error:?}"),
-            );
-            return;
-        }
-    }
+    reconcile_world_block_cracks(&mut ui_runtime, stream);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world
@@ -818,6 +808,7 @@ pub(crate) fn drive_world_stream(
     if let Some(stream) = client_world.stream.as_ref() {
         let stats = stream.stats();
         let previous = publication.diagnostics().last_work;
+        let allowance = publication.allowance();
         publication.finish_frame(PublicationFrameWork {
             mesh_jobs_dispatched: poll_report.mesh_jobs_dispatched,
             mesh_changes_published: published_items,
@@ -827,6 +818,9 @@ pub(crate) fn drive_world_stream(
             in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
             upload_queue_items: render_queue.retained_len(),
             upload_queue_bytes: render_queue.pending_bytes(),
+            allowance_live_permits: allowance.live_permits(),
+            allowance_live_payload_bytes: allowance.live_payload_bytes(),
+            stream_pending_mesh_changes: stream.pending_mesh_change_count(),
             ..previous
         });
     }
@@ -910,59 +904,4 @@ pub(crate) fn flush_sub_chunk_requests(
         }
     }
     Ok(sent)
-}
-
-pub(crate) fn apply_committed_control(
-    control: CommittedControlEvent,
-    view: &mut LocalViewPose,
-    camera_settings: &mut CameraSettingsAuthority,
-    pending_surface_spawn: &mut Option<[i32; 2]>,
-) {
-    let resolved = match control {
-        CommittedControlEvent::MovePlayer {
-            movement, resolved, ..
-        } => {
-            info!(
-                runtime_id = movement.runtime_id,
-                position = ?movement.position,
-                "applying committed local MovePlayer"
-            );
-            if movement.yaw.is_finite() && movement.pitch.is_finite() {
-                view.set_rotation(bedrock_camera_rotation(movement.yaw, movement.pitch));
-            }
-            resolved
-        }
-        CommittedControlEvent::PlayerMovementCorrection {
-            correction,
-            resolved,
-            ..
-        } => {
-            info!(
-                tick = correction.tick,
-                position = ?correction.position,
-                "applying committed server-authoritative movement correction"
-            );
-            resolved
-        }
-        CommittedControlEvent::ChangeDimension { resolved, .. } => {
-            camera_settings.reset_perspective();
-            resolved
-        }
-        CommittedControlEvent::Respawn {
-            respawn, resolved, ..
-        } => {
-            info!(
-                state = respawn.state,
-                runtime_entity_id = respawn.runtime_entity_id,
-                position = ?respawn.position,
-                "applying committed Respawn"
-            );
-            resolved
-        }
-        CommittedControlEvent::SetTime { .. }
-        | CommittedControlEvent::DaylightCycle { .. }
-        | CommittedControlEvent::Weather { .. } => return,
-    };
-    view.set_eye_translation(Vec3::from_array(resolved.position));
-    *pending_surface_spawn = resolved.surface_anchor;
 }

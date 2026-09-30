@@ -1,23 +1,24 @@
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, PlayerMovementCorrectionEvent,
+    GameData, GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode,
+    MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
     SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
     WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
     into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
-    ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, CorrectPlayerMovePredictionPacket,
-    CorrectPlayerMovePredictionPacketPredictionType, DimensionType, GameRule, GameRuleRuleValue,
-    GameRulesChangedPacket, GameRulesChangedPacketData, LevelChunkPacket, LevelEventPacket,
-    McpePacketData, MovePlayerPacket, MovePlayerPacketPositionMode,
-    NetworkChunkPublisherUpdatePacket, PlayerInputTick, RespawnPacket, RespawnPacketState,
-    SetTimePacket, SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
-    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, DimensionType,
+    EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode,
+    EnumsPlayerRespawnState as RespawnPacketState,
+    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    GameRule, GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData,
+    LevelChunkPacket, LevelEventPacket, McpePacketData, MovePlayerPacket, MovePlayerPacketView,
+    NetworkChunkPublisherUpdatePacket, PlayerInputTick, RespawnPacket, SetTimePacket,
+    SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
     SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos, UpdateBlockPacket,
     UpdateSubChunkBlocksChangedInfo, UpdateSubChunkBlocksPacket, UpdateSubChunkNetworkBlockInfo,
     Vec2, Vec3,
@@ -353,6 +354,69 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
 }
 
 #[test]
+fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input() {
+    for (field_index, field) in [
+        "position x",
+        "position y",
+        "position z",
+        "pitch",
+        "yaw",
+        "head yaw",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for non_finite in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut packet = MovePlayerPacket {
+                position: Vec3 {
+                    x: 1.0,
+                    y: 2.0,
+                    z: 3.0,
+                },
+                rotation: Vec2 { x: 4.0, y: 5.0 },
+                y_head_rotation: 6.0,
+                ..Default::default()
+            };
+            match field_index {
+                0 => packet.position.x = non_finite,
+                1 => packet.position.y = non_finite,
+                2 => packet.position.z = non_finite,
+                3 => packet.rotation.x = non_finite,
+                4 => packet.rotation.y = non_finite,
+                5 => packet.y_head_rotation = non_finite,
+                _ => unreachable!("the field table has six entries"),
+            }
+
+            let error = into_world_event(packet.into(), 0)
+                .expect_err("non-finite move player pose must be rejected");
+            assert!(matches!(
+                error,
+                WorldPacketError::NonFiniteMovePlayerField { field: actual }
+                    if actual == field
+            ));
+        }
+    }
+
+    let valid = MovePlayerPacket {
+        position: Vec3 {
+            x: f32::MAX,
+            y: f32::MIN,
+            z: -0.0,
+        },
+        rotation: Vec2 {
+            x: f32::MAX,
+            y: f32::MIN,
+        },
+        y_head_rotation: f32::MAX,
+        ..Default::default()
+    };
+    assert!(matches!(
+        into_world_event(valid.into(), 0),
+        Ok(Some(WorldEvent::MovePlayer(_)))
+    ));
+}
+
+#[test]
 fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
     let packet = MovePlayerPacket {
         player_runtime_id: ActorRuntimeId {
@@ -370,7 +434,7 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
         y_head_rotation: 99.0,
         position_mode: MovePlayerPacketPositionMode::Teleport,
         on_ground: true,
-        tick: PlayerInputTick { inputtick: -12 },
+        tick: PlayerInputTick { inputtick: 12 },
         ..Default::default()
     };
 
@@ -385,7 +449,7 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
             mode: protocol::MovePlayerMode::Teleport,
             on_ground: true,
             teleported: true,
-            source_tick: -12,
+            source_tick: 12,
         }))
     );
 }
@@ -408,7 +472,7 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
             protocol::MovePlayerMode::Teleport,
         ),
         (
-            MovePlayerPacketPositionMode::OnlyHeadRot,
+            MovePlayerPacketPositionMode::Onlyheadrot,
             protocol::MovePlayerMode::Rotation,
         ),
         (
@@ -429,74 +493,9 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
 }
 
 #[test]
-fn normalizes_server_authoritative_movement_correction_to_the_local_player_surface() {
-    let packet = CorrectPlayerMovePredictionPacket {
-        pos: Vec3 {
-            x: 27.5,
-            y: 111.0,
-            z: 91.5,
-        },
-        pos_delta: Vec3 {
-            x: 0.25,
-            y: -1.5,
-            z: 2.75,
-        },
-        rotation: Vec2 {
-            x: -12.25,
-            y: 143.5,
-        },
-        on_ground: true,
-        tick: PlayerInputTick { inputtick: 4_096 },
-        ..Default::default()
-    };
-
-    assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
-        Some(WorldEvent::PlayerMovementCorrection(
-            PlayerMovementCorrectionEvent {
-                position: [27.5, 111.0, 91.5],
-                delta: [0.25, -1.5, 2.75],
-                pitch: -12.25,
-                yaw: 143.5,
-                on_ground: true,
-                tick: 4_096,
-            }
-        ))
-    );
-}
-
-#[test]
-fn rejects_negative_server_authoritative_movement_correction_tick() {
-    let packet = CorrectPlayerMovePredictionPacket {
-        tick: PlayerInputTick { inputtick: -1 },
-        ..Default::default()
-    };
-
-    assert_eq!(
-        into_world_event(packet.into(), 0),
-        Err(WorldPacketError::NegativeMovementCorrectionTick(-1))
-    );
-}
-
-#[test]
-fn vehicle_prediction_correction_does_not_move_the_local_player_camera() {
-    let packet = CorrectPlayerMovePredictionPacket {
-        prediction_type: CorrectPlayerMovePredictionPacketPredictionType::Vehicle,
-        pos: Vec3 {
-            x: 300.0,
-            y: 90.0,
-            z: -200.0,
-        },
-        ..Default::default()
-    };
-
-    assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
-}
-
-#[test]
 fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
-    const RUNTIME_ID: i64 = 0x1_0000_0001;
-    const RIDDEN_RUNTIME_ID: i64 = 0x2_0000_0002;
+    const RUNTIME_ID: u64 = 0x1_0000_0001;
+    const RIDDEN_RUNTIME_ID: u64 = 0x2_0000_0002;
     let packet = MovePlayerPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: RUNTIME_ID,
@@ -532,7 +531,7 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
     assert_eq!(
         into_world_event(decoded.into(), 0).unwrap(),
         Some(WorldEvent::MovePlayer(MovePlayerEvent {
-            runtime_id: RUNTIME_ID as u64,
+            runtime_id: RUNTIME_ID,
             position: [1.0, 2.0, 3.0],
             pitch: 0.0,
             yaw: 0.0,
@@ -545,36 +544,65 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
     );
 }
 
-/// Runtime and ridden ids must still refuse an over-long varint.
-///
-/// NOTE — decode strictness regressed with the generator. 1.26.30 decoded both
-/// ids with `protocol::wire::read_var_u64`, which rejected any tenth byte
-/// carrying bits above 2^63 *and* rejected overlong encodings. 1.26.40 models
-/// them as `ActorRuntimeId`, which decodes through the shared `VarLong` and only
-/// fails once the shift passes 70 bits — so a ten-byte varint is accepted with
-/// its high bits silently dropped. That is a valentine_gen/codec issue, not
-/// something this crate can fix without changing wire semantics, so this test
-/// asserts the guard that does survive rather than pretending the old one does.
 #[test]
 fn move_player_rejects_overlong_runtime_and_ridden_varint_ids() {
     let packet = MovePlayerPacket::default();
     let mut valid = BytesMut::new();
     packet.encode(&mut valid).unwrap();
-    let overflow = [
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02,
-    ];
-
-    let mut malformed_runtime = BytesMut::new();
-    malformed_runtime.extend_from_slice(&overflow);
-    malformed_runtime.extend_from_slice(&valid[1..]);
-    assert!(MovePlayerPacket::decode(&mut malformed_runtime.freeze(), ()).is_err());
-
     let ridden_offset = 1 + 12 + 8 + 4 + 1 + 1;
-    let mut malformed_ridden = BytesMut::new();
-    malformed_ridden.extend_from_slice(&valid[..ridden_offset]);
-    malformed_ridden.extend_from_slice(&overflow);
-    malformed_ridden.extend_from_slice(&valid[ridden_offset + 1..]);
-    assert!(MovePlayerPacket::decode(&mut malformed_ridden.freeze(), ()).is_err());
+    for malformed_id in [
+        [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02],
+        [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00],
+    ] {
+        let mut malformed_runtime = BytesMut::new();
+        malformed_runtime.extend_from_slice(&malformed_id);
+        malformed_runtime.extend_from_slice(&valid[1..]);
+        let malformed_runtime = malformed_runtime.freeze();
+        assert!(MovePlayerPacket::decode(&mut malformed_runtime.clone(), ()).is_err());
+        assert!(MovePlayerPacketView::decode(&mut malformed_runtime.clone()).is_err());
+
+        let mut malformed_ridden = BytesMut::new();
+        malformed_ridden.extend_from_slice(&valid[..ridden_offset]);
+        malformed_ridden.extend_from_slice(&malformed_id);
+        malformed_ridden.extend_from_slice(&valid[ridden_offset + 1..]);
+        let malformed_ridden = malformed_ridden.freeze();
+        assert!(MovePlayerPacket::decode(&mut malformed_ridden.clone(), ()).is_err());
+        assert!(MovePlayerPacketView::decode(&mut malformed_ridden.clone()).is_err());
+    }
+}
+
+#[test]
+fn move_player_accepts_canonical_u64_max_runtime_and_ridden_ids_exactly() {
+    let packet = MovePlayerPacket {
+        player_runtime_id: ActorRuntimeId {
+            actor_runtime_id: u64::MAX,
+        },
+        riding_runtime_id: ActorRuntimeId {
+            actor_runtime_id: u64::MAX,
+        },
+        ..Default::default()
+    };
+    let mut encoded = BytesMut::new();
+    packet.encode(&mut encoded).unwrap();
+    let canonical_max = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+    assert_eq!(&encoded[..10], &canonical_max);
+    let ridden_offset = 10 + 12 + 8 + 4 + 1 + 1;
+    assert_eq!(&encoded[ridden_offset..ridden_offset + 10], &canonical_max);
+
+    let wire = encoded.freeze();
+    let mut owned_body = wire.clone();
+    let decoded = MovePlayerPacket::decode(&mut owned_body, ()).unwrap();
+    assert_eq!(decoded, packet);
+    assert!(!owned_body.has_remaining());
+    let mut reencoded = BytesMut::new();
+    decoded.encode(&mut reencoded).unwrap();
+    assert_eq!(reencoded.as_ref(), wire.as_ref());
+
+    let mut borrowed_body = Bytes::copy_from_slice(&wire);
+    let borrowed = MovePlayerPacketView::decode(&mut borrowed_body).unwrap();
+    assert_eq!(borrowed.player_runtime_id.actor_runtime_id, u64::MAX);
+    assert_eq!(borrowed.riding_runtime_id.actor_runtime_id, u64::MAX);
+    assert!(!borrowed_body.has_remaining());
 }
 
 #[test]
@@ -672,8 +700,7 @@ fn rejects_malformed_or_cached_level_chunks() {
     );
 
     // A world taller than vanilla overworld is accepted: custom servers send
-    // standard dimension ids with taller columns. Only the absolute protocol
-    // bound is enforced.
+    // standard dimension ids with taller columns.
     let taller_than_overworld = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
         subchunks_count: 25,
@@ -688,29 +715,22 @@ fn rejects_malformed_or_cached_level_chunks() {
     };
     assert_eq!(event.mode, LevelChunkMode::Inline { count: 25 });
 
-    let over_protocol_bound = LevelChunkPacket {
+    let over_request_bound = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
-        subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as i32,
+        subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as u32,
         ..Default::default()
     };
-    assert_eq!(
-        into_world_event(over_protocol_bound.into(), 0),
-        Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
-            dimension: 0,
-            count: MAX_SUB_CHUNK_REQUESTS + 1,
-            max: MAX_SUB_CHUNK_REQUESTS,
-        })
-    );
-
-    // SubChunkCount is a Varuint32 on the wire but is decoded into an i32, so a
-    // count above i32::MAX still has to be refused rather than wrapped.
-    let wrapped_count = LevelChunkPacket {
-        subchunks_count: -3,
-        ..Default::default()
+    let WorldEvent::LevelChunk(event) = into_world_event(over_request_bound.into(), 0)
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("expected LevelChunk event")
     };
     assert_eq!(
-        into_world_event(wrapped_count.into(), 0),
-        Err(WorldPacketError::InvalidSubChunkCount(-3))
+        event.mode,
+        LevelChunkMode::Inline {
+            count: MAX_SUB_CHUNK_REQUESTS + 1
+        }
     );
 }
 
@@ -748,12 +768,12 @@ fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
             ),
             sub_chunk_entry(
                 [0, 1, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir,
+                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
                 None,
             ),
             sub_chunk_entry(
                 [1, 0, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist,
+                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist,
                 None,
             ),
         ],
@@ -807,7 +827,7 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         },
         sub_chunk_data: vec![sub_chunk_entry(
             [1, 0, 0],
-            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir,
+            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
             None,
         )],
         ..Default::default()
@@ -829,7 +849,7 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
             y: -1,
             z: -17,
         },
-        block_runtime_id: 0xdead_beef_u32 as i32,
+        block_runtime_id: 0xdead_beef_u32,
         flags: 0,
         layer: 1,
     };
@@ -868,16 +888,15 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
 
 #[test]
 fn rejects_negative_or_excessive_update_layers() {
-    for layer in [-1, 16] {
-        let packet = UpdateBlockPacket {
-            layer,
-            ..Default::default()
-        };
-        assert_eq!(
-            into_world_event(packet.into(), 0),
-            Err(WorldPacketError::InvalidBlockLayer(layer))
-        );
-    }
+    let layer = 16;
+    let packet = UpdateBlockPacket {
+        layer,
+        ..Default::default()
+    };
+    assert_eq!(
+        into_world_event(packet.into(), 0),
+        Err(WorldPacketError::InvalidBlockLayer(layer))
+    );
 }
 
 #[test]
@@ -944,7 +963,7 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
             z: -4.25,
         },
         // gophertunnel packet/respawn.go: ReadyToSpawn is wire value 1.
-        state: RespawnPacketState::ReadyToSpawn,
+        state: RespawnPacketState::Readytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 42,
         },
@@ -984,8 +1003,9 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
     };
     assert_eq!(
         into_world_event(packet.into(), 0).unwrap(),
-        Some(WorldEvent::DaylightCycle(DaylightCycleUpdateEvent {
-            enabled: false,
+        Some(WorldEvent::GameRules(GameRulesEvent {
+            daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
+            hud: HudRules::default(),
         }))
     );
 
@@ -999,6 +1019,47 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
         },
     };
     assert_eq!(into_world_event(wrong_type.into(), 0).unwrap(), None);
+}
+
+#[test]
+fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
+    let packet = GameRulesChangedPacket {
+        rule_data: GameRulesChangedPacketData {
+            rules_list: vec![
+                bool_rule("showCoordinates", true),
+                bool_rule("showdaysplayed", false),
+            ],
+        },
+    };
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::GameRules(GameRulesEvent {
+            daylight_cycle: None,
+            hud: HudRules {
+                show_coordinates: Some(true),
+                show_days_played: Some(false),
+            },
+        }))
+    );
+    let mut game_data = game_data();
+    assert_eq!(
+        HudRules::from_game_data(&game_data),
+        HudRules {
+            show_coordinates: Some(false),
+            show_days_played: Some(false),
+        },
+        "absent StartGame rules read as their vanilla default, off"
+    );
+    game_data
+        .start_game
+        .settings
+        .rule_data
+        .rules_list
+        .push(bool_rule("showcoordinates", true));
+    assert_eq!(
+        HudRules::from_game_data(&game_data).show_coordinates,
+        Some(true)
+    );
 }
 
 #[test]
@@ -1049,11 +1110,20 @@ fn normalizes_weather_level_events_to_explicit_channel_targets() {
 
 #[test]
 fn ignores_level_events_without_normalized_world_state() {
+    // Sleeping-players count: no sound, particle, crack or weather mapping.
     let packet = LevelEventPacket {
-        event_id: LEVEL_EVENT_SOUND_CLICK,
+        event_id: 9_801,
         ..Default::default()
     };
     assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
+    let click = LevelEventPacket {
+        event_id: LEVEL_EVENT_SOUND_CLICK,
+        ..Default::default()
+    };
+    assert!(matches!(
+        into_world_event(click.into(), 0).unwrap(),
+        Some(WorldEvent::Audio(_))
+    ));
 }
 
 #[test]

@@ -1,4 +1,7 @@
-use bevy::prelude::{Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With};
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Entity, Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With},
+};
 use semantic_input::PerspectiveMode;
 use sim::WorldCollisionIdentity;
 
@@ -520,14 +523,27 @@ pub fn reset_local_player_session(
     avatar.begin_session(session_generation, runtime_id);
 }
 
+#[derive(SystemParam)]
+pub(crate) struct CameraPublicationContext<'w> {
+    clock: Res<'w, WorldClock>,
+    physics: Res<'w, LocalPhysicsController>,
+    receipt: ResMut<'w, crate::local_player_camera_receipt::CameraPublicationAttempt>,
+}
+
 pub(crate) fn resolve_camera_pose(
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
     mut published: ResMut<CameraPose>,
-    mut camera_transform: Single<&mut Transform, With<FlyCamera>>,
+    publication: CameraPublicationContext,
+    mut camera_transform: Single<(Entity, &mut Transform), With<FlyCamera>>,
 ) {
+    let CameraPublicationContext {
+        clock,
+        physics,
+        mut receipt,
+    } = publication;
     let perspective = settings.perspective();
     let transform = if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(
@@ -544,8 +560,23 @@ pub(crate) fn resolve_camera_pose(
     } else {
         unavailable_world_perspective_pose(view.eye_translation(), view.rotation(), perspective)
     };
-    **camera_transform = transform;
+    *camera_transform.1 = transform;
     published.transform = transform;
+    if let Some(stream) = client_world.stream.as_ref()
+        && let (Some(state), Some(world)) = (physics.state(), physics.last_world_identity())
+    {
+        receipt.prepare(
+            crate::local_player_camera_receipt::CameraOwner::current(
+                stream,
+                clock.session_generation(),
+            ),
+            camera_transform.0,
+            transform,
+            perspective,
+            state.tick,
+            world.clone(),
+        );
+    }
 }
 
 pub(crate) fn publish_interaction_origin(
@@ -557,13 +588,17 @@ pub(crate) fn publish_interaction_origin(
 
 pub(crate) fn publish_local_player_frame(
     client_world: Res<ClientWorld>,
-    clock: Res<WorldClock>,
-    local_physics: Res<LocalPhysicsController>,
+    publication: CameraPublicationContext,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
     camera: Res<CameraPose>,
     mut carrier: ResMut<LocalPlayerFrameCarrier>,
 ) {
+    let CameraPublicationContext {
+        clock,
+        physics: local_physics,
+        mut receipt,
+    } = publication;
     let Some(stream) = client_world.stream.as_ref() else {
         carrier.reset(LocalPlayerFrameReset::Session);
         return;
@@ -574,17 +609,32 @@ pub(crate) fn publish_local_player_frame(
         carrier.reset(LocalPlayerFrameReset::Correction);
         return;
     };
+    let Some((camera_proof, world_collision_identity)) = receipt.take_prepared(
+        crate::local_player_camera_receipt::CameraOwner::current(
+            stream,
+            clock.session_generation(),
+        ),
+        *camera.transform(),
+        settings.perspective(),
+        state.tick,
+        world_collision_identity,
+    ) else {
+        carrier.reset(LocalPlayerFrameReset::Correction);
+        return;
+    };
     let sample = LocalPlayerFrameSample {
         session_generation: clock.session_generation(),
         fifo_sequence: stream.committed_sequence(),
         physics_tick: state.tick,
         perspective: settings.perspective(),
-        world_collision_identity: world_collision_identity.clone(),
+        world_collision_identity,
         pose: *camera.transform(),
         eye: view.eye_translation(),
         rotation: view.rotation(),
     };
     if carrier.publish(sample).is_err() {
         carrier.reset(LocalPlayerFrameReset::Correction);
+    } else if let Some(frame) = carrier.snapshot() {
+        receipt.finish(camera_proof, frame.pose_generation());
     }
 }

@@ -1,0 +1,220 @@
+//! The menu's view of the core's account control surface, so the play and
+//! sign-in screens never see the transport. Without a launcher core the
+//! account catalog and the auth supervisor keep feeding the menu.
+
+use super::view::{MenuHome, MenuProfile, PingInfo, ServerDetails};
+use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
+
+/// Control method names the implementation calls.
+#[allow(dead_code, reason = "named for the core-relay control clients")]
+pub(crate) mod method {
+    pub(crate) const REALMS_LIST: &str = "realms_list.v1";
+    pub(crate) const FRIENDS_LIST: &str = "friends_list.v1";
+    pub(crate) const CONNECT: &str = "connect.v1";
+    pub(crate) const ACCOUNT_STATUS: &str = "account_status.v1";
+    pub(crate) const SIGN_OUT: &str = "sign_out.v1";
+}
+
+/// An account-surface event pushed by the core.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AccountEvent {
+    /// The sign-in state changed (device code shown, signed in, signed out).
+    #[allow(dead_code, reason = "auth changes arrive as polled status")]
+    Auth(AuthState),
+    /// The live session ended; the reason shows on the disconnect screen.
+    Disconnected { reason: String },
+}
+
+/// What the play and sign-in screens need from the core.
+pub(crate) trait AccountControl {
+    /// `account_status.v1`: the current sign-in state, when known.
+    fn account_status(&mut self) -> Option<AuthState>;
+    /// `realms_list.v1`: joinable realms, or `None` while unavailable.
+    fn realms(&mut self) -> Option<Vec<MenuRealmCard>>;
+    /// `friends_list.v1`: friend worlds, or `None` while unavailable.
+    fn friends(&mut self) -> Option<Vec<MenuFriendCard>>;
+    /// `sign_out.v1`; `true` once the core accepted it.
+    fn sign_out(&mut self) -> bool;
+    /// The next pending account event, if any.
+    fn poll_event(&mut self) -> Option<AccountEvent>;
+    /// `featured_servers.v1`: cards plus their info-panel details, when fetched.
+    fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+        None
+    }
+    /// `gatherings.v1`: joinable gatherings with their details, when fetched.
+    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+        None
+    }
+    /// `profile.v1`: the signed-in profile, when fetched.
+    fn profile(&mut self) -> Option<MenuProfile> {
+        None
+    }
+    /// `home.v1`: the start screen's service data, when fetched.
+    fn home(&mut self) -> Option<MenuHome> {
+        None
+    }
+    /// The server rows `ping.v1` keeps fresh while the launcher shows them.
+    fn set_ping_targets(&mut self, _targets: Vec<String>) {}
+    /// Pongs from the latest ping round, keyed by address.
+    fn pings(&mut self) -> Option<Vec<(String, PingInfo)>> {
+        None
+    }
+    /// `(received, total)` pack bytes while the core downloads them.
+    fn pack_download(&mut self) -> Option<(u64, u64)> {
+        None
+    }
+}
+
+impl MenuRuntime {
+    /// Pull the core's account state into the menu: lists replace the catalog's,
+    /// the status overrides the auth supervisor's, events surface on screen, and
+    /// a pending sign-out request is sent.
+    pub(crate) fn sync_account_control(&mut self, control: &mut dyn AccountControl) {
+        if let Some(realms) = control.realms() {
+            self.realms = realms;
+        }
+        if let Some(friends) = control.friends() {
+            self.friends = friends;
+        }
+        if let Some(featured) = control.featured() {
+            self.feeds.details.extend(
+                featured
+                    .iter()
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
+            );
+            self.featured = featured.into_iter().map(|(card, _)| card).collect();
+            if self
+                .feeds
+                .selected_featured
+                .is_some_and(|index| index >= self.featured.len())
+            {
+                self.feeds.selected_featured = None;
+            }
+        }
+        if let Some(gatherings) = control.gatherings() {
+            self.feeds.details.extend(
+                gatherings
+                    .iter()
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
+            );
+            self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
+        }
+        if let Some(profile) = control.profile() {
+            self.feeds.profile = profile;
+        }
+        if let Some(home) = control.home() {
+            self.feeds.home = home;
+        }
+        let targets = if self.visible && !self.connecting {
+            self.featured
+                .iter()
+                .chain(self.gatherings.iter())
+                .map(|server| server.address.clone())
+                .chain(self.servers.iter().map(|server| server.address.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        control.set_ping_targets(targets);
+        if let Some(pings) = control.pings() {
+            self.feeds.pings = pings.into_iter().collect();
+        }
+        self.feeds.pack_download = control.pack_download().filter(|_| self.connecting);
+        if let Some(status) = control.account_status() {
+            self.control_auth = Some(status);
+        }
+        while let Some(event) = control.poll_event() {
+            match event {
+                AccountEvent::Auth(state) => self.control_auth = Some(state),
+                AccountEvent::Disconnected { reason } => {
+                    self.disconnect_message = Some(reason);
+                }
+            }
+        }
+        if std::mem::take(&mut self.sign_out_requested) {
+            control.sign_out();
+            self.finish_sign_out();
+        }
+    }
+
+    /// Sign out without a launcher core: the saved tokens are removed here.
+    pub(crate) fn sign_out_locally(&mut self) {
+        if std::mem::take(&mut self.sign_out_requested) {
+            let _ = std::fs::remove_file(self.layout.auth_cache());
+            self.finish_sign_out();
+        }
+    }
+
+    /// Forget the validated sign-in and return to the signed-out profile; the
+    /// launcher core then restarts offline and signing in again runs the
+    /// device-code helper.
+    fn finish_sign_out(&mut self) {
+        self.auth_process = None;
+        self.auth_attempted = true;
+        self.control_auth = None;
+        self.stop_catalog();
+        self.catalog_started = false;
+        self.realms.clear();
+        self.friends.clear();
+        self.feeds.profile = MenuProfile::default();
+        self.feeds.home = MenuHome::default();
+        self.catalog_message = None;
+        self.enter(super::MenuScreen::Profile);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fake {
+        events: Vec<AccountEvent>,
+        signed_out: bool,
+    }
+
+    impl AccountControl for Fake {
+        fn account_status(&mut self) -> Option<AuthState> {
+            Some(AuthState::Authenticated)
+        }
+        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
+            None
+        }
+        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
+            Some(vec![MenuFriendCard {
+                gamertag: "Alex".into(),
+                world_name: "Base".into(),
+                members: "1 players".into(),
+                xuid: "1".into(),
+            }])
+        }
+        fn sign_out(&mut self) -> bool {
+            self.signed_out = true;
+            true
+        }
+        fn poll_event(&mut self) -> Option<AccountEvent> {
+            self.events.pop()
+        }
+    }
+
+    #[test]
+    fn control_state_feeds_the_menu_view() {
+        assert_eq!(method::SIGN_OUT, "sign_out.v1");
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let mut control = Fake {
+            events: vec![AccountEvent::Disconnected {
+                reason: "Server closed".into(),
+            }],
+            signed_out: false,
+        };
+        menu.sync_account_control(&mut control);
+        let view = menu.view();
+        assert_eq!(view.auth_state, AuthState::Authenticated);
+        assert_eq!(view.friends.len(), 1);
+        assert_eq!(view.disconnect_message.as_deref(), Some("Server closed"));
+        menu.activate(super::super::MenuAction::SignOut);
+        menu.sync_account_control(&mut control);
+        assert!(control.signed_out);
+        assert!(menu.friends.is_empty());
+        assert_eq!(menu.view().screen, super::super::MenuScreen::Profile);
+    }
+}

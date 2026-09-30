@@ -1,4 +1,9 @@
 mod decode;
+mod id_remap;
+mod overlay;
+
+pub use id_remap::SequentialIdRemap;
+pub use overlay::{BlockOverlay, MaterialOverride};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -6,7 +11,7 @@ use crate::{
     Animation, BlockFace, BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, LightProperties, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
     NO_MODEL_TEMPLATE, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
-    VisualSupport,
+    VisualSupport, provenance::BlobProvenance,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -123,6 +128,7 @@ pub struct RuntimeAssets {
     animation_frames: Box<[TextureRef]>,
     texture_pages: Box<[TexturePage]>,
     biomes: CompiledBiomeAssets,
+    provenance: BlobProvenance,
     missing: AtomicU64,
 }
 
@@ -166,6 +172,7 @@ impl RuntimeAssets {
             texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
                 .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
+            provenance: BlobProvenance::ZEROED,
             missing: AtomicU64::new(0),
         }
     }
@@ -189,6 +196,32 @@ impl RuntimeAssets {
             },
             |(visual, light)| ResolvedBlock::known(visual, light),
         )
+    }
+
+    /// Number of materials in the carrier's table.
+    #[must_use]
+    pub fn material_count(&self) -> usize {
+        self.materials.len()
+    }
+
+    /// True for the programmatic diagnostic runtime, which carries no registries.
+    #[must_use]
+    pub fn is_diagnostic(&self) -> bool {
+        self.provenance == BlobProvenance::ZEROED
+    }
+
+    /// Returns whether the registry knows a network id, without counting misses.
+    /// The diagnostic runtime has no registry and knows every id.
+    #[must_use]
+    pub fn is_known(&self, mode: NetworkIdMode, value: u32) -> bool {
+        if self.is_diagnostic() {
+            return true;
+        }
+        let index = match mode {
+            NetworkIdMode::Sequential => Some(value),
+            NetworkIdMode::Hashed => self.sequential_id_for_hash(value),
+        };
+        index.is_some_and(|index| (index as usize) < self.visuals.len())
     }
 
     /// Returns the exact sequential identity paired with a validated network
@@ -281,6 +314,16 @@ impl RuntimeAssets {
     #[must_use]
     pub const fn biome_assets(&self) -> &CompiledBiomeAssets {
         &self.biomes
+    }
+
+    /// Returns the exact source identities embedded by the compiler: the
+    /// canonical vanilla source manifest plus each consumed registry input.
+    /// Startup compares these against the checkout-pinned expectations and
+    /// rejects stale or foreign carriers. The programmatic diagnostic runtime
+    /// carries [`BlobProvenance::ZEROED`] because it claims no source.
+    #[must_use]
+    pub const fn provenance(&self) -> &BlobProvenance {
+        &self.provenance
     }
     #[must_use]
     pub fn missing_count(&self) -> u64 {

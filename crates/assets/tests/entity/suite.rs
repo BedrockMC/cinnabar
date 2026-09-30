@@ -76,6 +76,7 @@ fn fixture() -> CompiledEntityAssets {
         rig_controllers: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
+        render: Default::default(),
     }
 }
 
@@ -511,6 +512,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             first_channel: 0,
             channel_count: 1,
             source: 1,
+            override_previous: false,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -528,6 +530,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 entity::EntityGeometryScalar::new(0.0).unwrap(),
             ],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         }]
         .into_boxed_slice(),
         molang_symbols: vec![
@@ -586,7 +589,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         controller_animations: vec![EntityControllerAnimation {
-            clip: 0,
+            target: assets::EntityControllerAnimationTarget::Clip(0),
             weight: Some(0),
         }]
         .into_boxed_slice(),
@@ -601,6 +604,9 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             first_geometry: 0,
             geometry_count: 1,
             fallback: EntityRigFallback::GeometryOnly,
+            initialize: None,
+            pre_animation: None,
+            scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -612,10 +618,16 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             controller_count: 1,
         }]
         .into_boxed_slice(),
-        rig_animations: vec![EntityRigAnimationBinding { name: 0, clip: 0 }].into_boxed_slice(),
+        rig_animations: vec![EntityRigAnimationBinding {
+            name: 0,
+            clip: 0,
+            weight: None,
+        }]
+        .into_boxed_slice(),
         rig_controllers: vec![EntityRigControllerBinding {
             name: 0,
             controller: 0,
+            weight: None,
         }]
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {
@@ -640,6 +652,31 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             visual: LeafItemVisualId(0),
         }]
         .into_boxed_slice(),
+        render: entity::EntityRenderData {
+            layers: Box::new([entity::EntityRenderLayer {
+                rig: 0,
+                condition: None,
+                first_slot: 0,
+                slot_count: 1,
+                first_visibility: 0,
+                visibility_count: 1,
+                color: None,
+                overlay_color: None,
+                on_fire_color: None,
+            }]),
+            slots: Box::new([entity::EntityRenderSlot {
+                first_candidate: 0,
+                candidate_count: 1,
+            }]),
+            candidates: Box::new([entity::EntityRenderCandidate {
+                condition: None,
+                source: 5,
+            }]),
+            visibility: Box::new([entity::EntityRenderVisibility {
+                pattern: "root".into(),
+                condition: 0,
+            }]),
+        },
     }
 }
 
@@ -648,7 +685,10 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
     let compiled = carrier_v4_fixture();
     let encoded = entity::encode_entity_blob(&compiled).expect("encode version-4 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
-    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 4);
+    assert_eq!(
+        u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
+        entity::ENTITY_BLOB_VERSION
+    );
 
     let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
@@ -660,9 +700,12 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
 }
 
 #[test]
-fn carrier_v4_rejects_versions_three_and_five_and_hashes_extended_payload() {
+fn carrier_rejects_adjacent_versions_and_hashes_extended_payload() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
-    for version in [3_u32, 5] {
+    for version in [
+        entity::ENTITY_BLOB_VERSION - 1,
+        entity::ENTITY_BLOB_VERSION + 1,
+    ] {
         let mut wrong = encoded.to_vec();
         wrong[8..12].copy_from_slice(&version.to_le_bytes());
         assert!(RuntimeEntityAssetsV4::decode(&wrong).is_err());
@@ -825,8 +868,11 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
 
     let mut compiled = carrier_v4_fixture();
     compiled.molang_ops = std::iter::once(compiled.molang_ops[0])
-        .chain((0..127).flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]))
-        .chain(std::iter::once(MolangOp::Abs))
+        .chain(
+            (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 2) / 2)
+                .flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]),
+        )
+        .chain(std::iter::once(MolangOp::Negate))
         .collect();
     compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16;
     compiled.molang_expressions[0].max_stack = 2;
@@ -895,60 +941,63 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
 }
 
 #[test]
-fn carrier_v4_represents_task3_fixed_arity_math_and_collection_selection() {
-    let unary = [
-        MolangOp::Abs,
-        MolangOp::Ceil,
-        MolangOp::Floor,
-        MolangOp::Round,
-        MolangOp::Sqrt,
-        MolangOp::Sin,
-        MolangOp::Cos,
-        MolangOp::SelectCollection(0),
+fn every_math_function_and_collection_selection_validates_at_its_arity() {
+    use entity::{MolangEaseCurve, MolangEaseMode, MolangFunction};
+    let mut functions = vec![
+        MolangFunction::Abs,
+        MolangFunction::Acos,
+        MolangFunction::Asin,
+        MolangFunction::Atan,
+        MolangFunction::Atan2,
+        MolangFunction::Ceil,
+        MolangFunction::Clamp,
+        MolangFunction::CopySign,
+        MolangFunction::Cos,
+        MolangFunction::DieRoll,
+        MolangFunction::DieRollInteger,
+        MolangFunction::Exp,
+        MolangFunction::Floor,
+        MolangFunction::HermiteBlend,
+        MolangFunction::InverseLerp,
+        MolangFunction::Lerp,
+        MolangFunction::LerpRotate,
+        MolangFunction::Ln,
+        MolangFunction::Max,
+        MolangFunction::Min,
+        MolangFunction::MinAngle,
+        MolangFunction::Mod,
+        MolangFunction::Pow,
+        MolangFunction::Random,
+        MolangFunction::RandomInteger,
+        MolangFunction::Round,
+        MolangFunction::Sign,
+        MolangFunction::Sin,
+        MolangFunction::Sqrt,
+        MolangFunction::Trunc,
     ];
-    for operation in unary {
+    functions.push(MolangFunction::Ease(
+        MolangEaseCurve::Elastic,
+        MolangEaseMode::InOut,
+    ));
+    let one = entity::EntityGeometryScalar::new(1.0).unwrap();
+    for function in functions {
+        let arity = function.arity();
         let mut compiled = carrier_v4_fixture();
-        compiled.molang_ops = vec![
-            MolangOp::Push(entity::EntityGeometryScalar::new(1.0).unwrap()),
-            operation,
-        ]
-        .into_boxed_slice();
-        compiled.molang_expressions[0].op_count = 2;
-        assert!(compiled.validate().is_ok(), "unary operation {operation:?}");
+        let mut ops = vec![MolangOp::Push(one); arity];
+        ops.push(MolangOp::Call(function));
+        compiled.molang_expressions[0].op_count = ops.len() as u16;
+        compiled.molang_expressions[0].max_stack = arity.max(1) as u8;
+        compiled.molang_ops = ops.into_boxed_slice();
+        assert!(compiled.validate().is_ok(), "function {function:?}");
+        let mut short = compiled.clone();
+        short.molang_ops = short.molang_ops[1..].into();
+        short.molang_expressions[0].op_count -= 1;
+        assert!(short.validate().is_err(), "underfed {function:?}");
     }
-
-    for operation in [MolangOp::Modulo, MolangOp::Min, MolangOp::Max] {
-        let mut compiled = carrier_v4_fixture();
-        compiled.molang_ops = vec![
-            MolangOp::Push(entity::EntityGeometryScalar::new(1.0).unwrap()),
-            MolangOp::Push(entity::EntityGeometryScalar::new(2.0).unwrap()),
-            operation,
-        ]
-        .into_boxed_slice();
-        compiled.molang_expressions[0].op_count = 3;
-        compiled.molang_expressions[0].max_stack = 2;
-        assert!(
-            compiled.validate().is_ok(),
-            "binary operation {operation:?}"
-        );
-    }
-
-    for operation in [MolangOp::Clamp, MolangOp::Lerp] {
-        let mut compiled = carrier_v4_fixture();
-        compiled.molang_ops = vec![
-            MolangOp::Push(entity::EntityGeometryScalar::new(1.0).unwrap()),
-            MolangOp::Push(entity::EntityGeometryScalar::new(2.0).unwrap()),
-            MolangOp::Push(entity::EntityGeometryScalar::new(3.0).unwrap()),
-            operation,
-        ]
-        .into_boxed_slice();
-        compiled.molang_expressions[0].op_count = 4;
-        compiled.molang_expressions[0].max_stack = 3;
-        assert!(
-            compiled.validate().is_ok(),
-            "ternary operation {operation:?}"
-        );
-    }
+    let mut compiled = carrier_v4_fixture();
+    compiled.molang_ops = vec![MolangOp::Push(one), MolangOp::SelectCollection(0)].into();
+    compiled.molang_expressions[0].op_count = 2;
+    assert!(compiled.validate().is_ok());
 }
 
 #[test]
@@ -1046,4 +1095,23 @@ fn carrier_v4_round_trips_selectable_geometry_metadata_and_texture_variant() {
     ));
     assert_eq!(runtime.item_visual_aliases()[0].key.metadata, u32::MAX);
     assert_eq!(runtime.encode().unwrap().as_ref(), bytes.as_ref());
+}
+
+#[test]
+fn render_layers_round_trip_and_reject_invalid_indices() {
+    let compiled = carrier_v4_fixture();
+    let encoded = entity::encode_entity_blob(&compiled).expect("encode render layers");
+    let runtime = entity::RuntimeEntityAssets::decode(&encoded).expect("decode render layers");
+    assert_eq!(runtime.render_layers(0).len(), 1);
+    assert!(runtime.render_layers(1).is_empty());
+    assert_eq!(runtime.render_data(), &compiled.render);
+    let mut not_a_texture = compiled.clone();
+    not_a_texture.render.candidates[0].source = 0;
+    assert!(entity::encode_entity_blob(&not_a_texture).is_err());
+    let mut bad_rig = compiled.clone();
+    bad_rig.render.layers[0].rig = 99;
+    assert!(entity::encode_entity_blob(&bad_rig).is_err());
+    let mut bad_pattern = compiled;
+    bad_pattern.render.visibility[0].pattern = "Root".into();
+    assert!(entity::encode_entity_blob(&bad_pattern).is_err());
 }

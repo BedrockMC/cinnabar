@@ -1,19 +1,35 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
-use valentine::bedrock::version::v1_26_40::{
-    BorrowedMcpePacketData, BossEventPacket, BossEventPacketColor, BossEventPacketEventType,
-    BossEventPacketOverlay, CommandOriginData, CommandOutputPacket, CommandRequestPacket,
-    LevelEventPacket, ModalFormRequestPacket, PlayStatusPacket, PlayStatusPacketStatus,
+use valentine::bedrock::version::v1_26_51::{
+    BorrowedMcpePacketData, BossEventPacket, CommandOriginDatajson, CommandOutputPacket,
+    CommandRequestPacket, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
+    EnumsPlayStatus, EnumsSoftEnumUpdateType, LevelEventPacket, PlayStatusPacket,
     RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
     SetScorePacketScoreInfoItem, TextPacket, TextPacketBody, TextPacketPayloadAuthorAndMessage,
     TextPacketPayloadAuthorAndMessageMessageType, ToastRequestPacket, UpdateSoftEnumPacket,
-    UpdateSoftEnumPacketUpdateType,
 };
 
+mod commands;
+mod forms;
 mod text;
 
+pub(crate) use commands::normalize_available_commands;
+pub use commands::{
+    ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatAutocompleteCompletion,
+    CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent, CompletionContext,
+};
+
+pub use forms::{
+    CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
+    FormNumber, FormRequestEvent, MAX_FORM_BUTTONS, MAX_FORM_JSON_DEPTH, MenuElement,
+    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
+    NpcRequestKind, ServerFormModel, TextMenuForm, UnsupportedForm, custom_form_submit_response,
+    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
+    npc_request_packet, server_settings_request_packet,
+};
+pub(crate) use forms::{normalize_form, normalize_npc_dialogue, normalize_server_settings};
 pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};
 pub(crate) use text::{normalize_text, normalize_title};
 
@@ -111,7 +127,7 @@ pub fn chat_input_packet(
     // (`minecraft/protocol/command.go`).
     Ok(CommandRequestPacket {
         command: message.to_owned(),
-        origin: CommandOriginData {
+        origin: CommandOriginDatajson {
             type_: "player".to_owned(),
             uuid: uuid::Uuid::new_v4(),
             request_id: String::new(),
@@ -135,10 +151,35 @@ pub enum UiEvent {
     Boss(BossEvent),
     Form(FormRequestEvent),
     ChatAutocomplete(ChatAutocompleteEvent),
+    AvailableCommands(CommandTreeEvent),
     GameMode(GameModeEvent),
     /// SetDefaultGameType: the level's default mode changed; players whose
     /// mode is bound to the default follow it.
     DefaultGameMode(GameModeEvent),
+    HudRules(HudRules),
+    /// The world's sleep status (LevelEventGeneric `SleepingPlayers`).
+    SleepStatus(SleepStatusEvent),
+}
+
+/// The `SleepingPlayers` level event's NetworkLittleEndian NBT compound
+/// (`sleepingPlayerCount`, `overworldPlayerCount`, `ableToSleep`), which the
+/// receiver decodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SleepStatusEvent {
+    pub nbt: std::sync::Arc<[u8]>,
+}
+
+/// The world rules that raise HUD text; `None` leaves a rule as it was.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HudRules {
+    pub show_coordinates: Option<bool>,
+    pub show_days_played: Option<bool>,
+}
+
+impl HudRules {
+    pub const fn is_empty(self) -> bool {
+        self.show_coordinates.is_none() && self.show_days_played.is_none()
+    }
 }
 
 /// One wire game-mode value, retained without guessing.
@@ -187,9 +228,7 @@ pub enum PlayerStatus {
     FailedClient,
     FailedSpawn,
     PlayerSpawn,
-    FailedInvalidTenant,
-    FailedVanillaEducation,
-    FailedEducationVanilla,
+    UnsupportedEdition,
     FailedServerFull,
     FailedEditorVanillaMismatch,
     FailedVanillaEditorMismatch,
@@ -213,6 +252,8 @@ pub enum ObjectiveEvent {
 pub enum ScoreAction {
     Change,
     Remove,
+    /// A removal without an objective: the entry leaves every objective.
+    RemoveFromAll,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,18 +331,11 @@ pub struct BossStyle {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BossEvent {
     pub target_entity_id: i64,
-    pub player_id: i64,
     pub action: BossAction,
     pub title: Arc<str>,
     pub filtered_title: Arc<str>,
     pub progress: f32,
     pub style: BossStyle,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormRequestEvent {
-    pub form_id: i32,
-    pub json: Arc<str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -316,125 +350,6 @@ pub enum ChatAutocompleteAction {
     Add,
     Remove,
     Replace,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChatAutocompleteCompletion {
-    pub catalog_revision: u64,
-    pub suggestions: Arc<[Arc<str>]>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum ChatAutocompleteCatalogError {
-    #[error("autocomplete input or cursor is invalid")]
-    InvalidInput,
-    #[error("autocomplete catalog has {count} suggestions, exceeding {max}")]
-    TooManySuggestions { count: usize, max: usize },
-    #[error("autocomplete catalog retains {bytes} bytes, exceeding {max}")]
-    SuggestionsTooLarge { bytes: usize, max: usize },
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ChatAutocompleteCatalog {
-    revision: u64,
-    enums: BTreeMap<Arc<str>, Vec<Arc<str>>>,
-}
-
-impl ChatAutocompleteCatalog {
-    pub fn apply(
-        &mut self,
-        event: ChatAutocompleteEvent,
-    ) -> Result<u64, ChatAutocompleteCatalogError> {
-        let mut values = self
-            .enums
-            .get(&event.enum_name)
-            .cloned()
-            .unwrap_or_default();
-        match event.action {
-            ChatAutocompleteAction::Add => {
-                for suggestion in event.suggestions.iter() {
-                    if !values.contains(suggestion) {
-                        values.push(Arc::clone(suggestion));
-                    }
-                }
-            }
-            ChatAutocompleteAction::Remove => {
-                values.retain(|value| !event.suggestions.contains(value));
-            }
-            ChatAutocompleteAction::Replace => {
-                values.clear();
-                for suggestion in event.suggestions.iter() {
-                    if !values.contains(suggestion) {
-                        values.push(Arc::clone(suggestion));
-                    }
-                }
-            }
-        }
-        let mut next = self.enums.clone();
-        if values.is_empty() {
-            next.remove(&event.enum_name);
-        } else {
-            next.insert(event.enum_name, values);
-        }
-        let count = next.values().map(Vec::len).sum::<usize>();
-        if count > MAX_CHAT_AUTOCOMPLETE {
-            return Err(ChatAutocompleteCatalogError::TooManySuggestions {
-                count,
-                max: MAX_CHAT_AUTOCOMPLETE,
-            });
-        }
-        let bytes = next
-            .iter()
-            .map(|(name, values)| {
-                name.len() + values.iter().map(|value| value.len()).sum::<usize>()
-            })
-            .sum::<usize>();
-        if bytes > MAX_CHAT_AUTOCOMPLETE_BYTES {
-            return Err(ChatAutocompleteCatalogError::SuggestionsTooLarge {
-                bytes,
-                max: MAX_CHAT_AUTOCOMPLETE_BYTES,
-            });
-        }
-        self.enums = next;
-        self.revision = self.revision.saturating_add(1);
-        Ok(self.revision)
-    }
-
-    pub fn complete(
-        &self,
-        input: &str,
-        cursor_byte: usize,
-    ) -> Result<ChatAutocompleteCompletion, ChatAutocompleteCatalogError> {
-        if input.len() > MAX_OUTBOUND_CHAT_BYTES
-            || cursor_byte > input.len()
-            || !input.is_char_boundary(cursor_byte)
-        {
-            return Err(ChatAutocompleteCatalogError::InvalidInput);
-        }
-        let prefix = input[..cursor_byte]
-            .rsplit_once(char::is_whitespace)
-            .map_or(&input[..cursor_byte], |(_, prefix)| prefix);
-        let mut suggestions = Vec::new();
-        for suggestion in self
-            .enums
-            .values()
-            .flatten()
-            .filter(|suggestion| suggestion.starts_with(prefix))
-        {
-            if !suggestions.contains(suggestion) {
-                suggestions.push(Arc::clone(suggestion));
-            }
-        }
-        suggestions.truncate(MAX_CHAT_AUTOCOMPLETE);
-        Ok(ChatAutocompleteCompletion {
-            catalog_revision: self.revision,
-            suggestions: Arc::from(suggestions),
-        })
-    }
-
-    pub const fn revision(&self) -> u64 {
-        self.revision
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,6 +389,10 @@ pub enum UiPacketError {
     TooManyScores { count: usize, max: usize },
     #[error("form JSON is {bytes} bytes, exceeding the {max}-byte limit")]
     FormTooLarge { bytes: usize, max: usize },
+    #[error("server form JSON is malformed or is not a top-level object")]
+    InvalidFormJson,
+    #[error("server form JSON nests {depth} levels, exceeding the maximum depth {max}")]
+    FormJsonDepthExceeded { depth: usize, max: usize },
     #[error("autocomplete update has {count} suggestions, exceeding the {max}-suggestion limit")]
     TooManyAutocompleteSuggestions { count: usize, max: usize },
     #[error("autocomplete update retains {bytes} UTF-8 bytes, exceeding the {max}-byte limit")]
@@ -497,16 +416,6 @@ fn bounded_text(value: String) -> Result<Arc<str>, UiPacketError> {
         return Err(UiPacketError::TextTooLong {
             bytes: value.len(),
             max: MAX_UI_TEXT_BYTES,
-        });
-    }
-    Ok(Arc::from(value))
-}
-
-fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
-    if value.len() > MAX_FORM_JSON_BYTES {
-        return Err(UiPacketError::FormTooLarge {
-            bytes: value.len(),
-            max: MAX_FORM_JSON_BYTES,
         });
     }
     Ok(Arc::from(value))
@@ -570,32 +479,23 @@ pub(crate) fn normalize_health(packet: SetHealthPacket) -> UiEvent {
 }
 
 pub(crate) fn normalize_player_status(packet: PlayStatusPacket) -> Result<UiEvent, UiPacketError> {
-    // 1.26.40 renamed every failure variant to the Mojang spelling. The mapping
-    // below is by wire value against gophertunnel's `PlayStatus*` constants
-    // (`minecraft/protocol/packet/play_status.go`): 1 = client outdated,
-    // 2 = server outdated (this crate's historical `FailedSpawn` name),
-    // 5 = vanilla client -> education server, 6 = education client -> vanilla
-    // server, 8 = editor client -> vanilla server, 9 = vanilla -> editor.
+    // Map the reserved edition-mismatch statuses to one neutral local state.
     let status = match packet.status {
-        PlayStatusPacketStatus::LoginSuccess => PlayerStatus::LoginSuccess,
-        PlayStatusPacketStatus::LoginFailedClientOld => PlayerStatus::FailedClient,
-        PlayStatusPacketStatus::LoginFailedServerOld => PlayerStatus::FailedSpawn,
-        PlayStatusPacketStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
-        PlayStatusPacketStatus::LoginFailedInvalidTenant => PlayerStatus::FailedInvalidTenant,
-        PlayStatusPacketStatus::LoginFailedEditionMismatchEduToVanilla => {
-            PlayerStatus::FailedVanillaEducation
-        }
-        PlayStatusPacketStatus::LoginFailedEditionMismatchVanillaToEdu => {
-            PlayerStatus::FailedEducationVanilla
-        }
-        PlayStatusPacketStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
-        PlayStatusPacketStatus::LoginFailedEditorMismatchEditorToVanilla => {
+        EnumsPlayStatus::Loginsuccess => PlayerStatus::LoginSuccess,
+        EnumsPlayStatus::LoginfailedClientold => PlayerStatus::FailedClient,
+        EnumsPlayStatus::LoginfailedServerold => PlayerStatus::FailedSpawn,
+        EnumsPlayStatus::Playerspawn => PlayerStatus::PlayerSpawn,
+        EnumsPlayStatus::LoginfailedInvalidtenant
+        | EnumsPlayStatus::Reserved5
+        | EnumsPlayStatus::Reserved6 => PlayerStatus::UnsupportedEdition,
+        EnumsPlayStatus::LoginfailedServerfullsubclient => PlayerStatus::FailedServerFull,
+        EnumsPlayStatus::LoginfailedEditormismatcheditortovanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
         }
-        PlayStatusPacketStatus::LoginFailedEditorMismatchVanillaToEditor => {
+        EnumsPlayStatus::LoginfailedEditormismatchvanillatoeditor => {
             PlayerStatus::FailedVanillaEditorMismatch
         }
-        PlayStatusPacketStatus::Unknown(value) => {
+        EnumsPlayStatus::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "player status",
                 value: i64::from(value),
@@ -641,15 +541,21 @@ pub(crate) fn normalize_score(packet: SetScorePacket) -> Result<UiEvent, UiPacke
         .score_info
         .into_iter()
         .map(|entry| match entry {
-            SetScorePacketScoreInfoItem::RemoveScore(entry) => Ok(ScoreEntry {
-                action: ScoreAction::Remove,
-                scoreboard_id: entry.scoreboard_id.scoreboard_id,
+            SetScorePacketScoreInfoItem::RemoveScore(entry) => {
                 // A removal carries an optional objective name and nothing
                 // else, so there is no score or identity to report.
-                objective_name: bounded_text(entry.objective_name.unwrap_or_default())?,
-                score: 0,
-                identity: ScoreIdentity::None,
-            }),
+                let objective = entry.objective_name;
+                Ok(ScoreEntry {
+                    action: match objective {
+                        Some(_) => ScoreAction::Remove,
+                        None => ScoreAction::RemoveFromAll,
+                    },
+                    scoreboard_id: entry.scoreboard_id.scoreboard_id,
+                    objective_name: bounded_text(objective.unwrap_or_default())?,
+                    score: 0,
+                    identity: ScoreIdentity::None,
+                })
+            }
             SetScorePacketScoreInfoItem::ChangePlayerScore(entry) => Ok(ScoreEntry {
                 action: ScoreAction::Change,
                 scoreboard_id: entry.scoreboard_id.scoreboard_id,
@@ -689,16 +595,16 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     // constants (`minecraft/protocol/packet/boss_event.go`), so `UpdateStyle`
     // is value 7, the one gophertunnel calls `BossEventTexture`.
     let action = match packet.event_type {
-        BossEventPacketEventType::Add => BossAction::Show,
-        BossEventPacketEventType::PlayerAdded => BossAction::RegisterPlayer,
-        BossEventPacketEventType::Remove => BossAction::Hide,
-        BossEventPacketEventType::PlayerRemoved => BossAction::UnregisterPlayer,
-        BossEventPacketEventType::UpdatePercent => BossAction::SetProgress,
-        BossEventPacketEventType::UpdateName => BossAction::SetTitle,
-        BossEventPacketEventType::UpdateProperties => BossAction::UpdateProperties,
-        BossEventPacketEventType::UpdateStyle => BossAction::Texture,
-        BossEventPacketEventType::Query => BossAction::Query,
-        BossEventPacketEventType::Unknown(value) => {
+        EnumsBossEventUpdateType::Add => BossAction::Show,
+        EnumsBossEventUpdateType::Playeradded => BossAction::RegisterPlayer,
+        EnumsBossEventUpdateType::Remove => BossAction::Hide,
+        EnumsBossEventUpdateType::Playerremoved => BossAction::UnregisterPlayer,
+        EnumsBossEventUpdateType::UpdatePercent => BossAction::SetProgress,
+        EnumsBossEventUpdateType::UpdateName => BossAction::SetTitle,
+        EnumsBossEventUpdateType::UpdateProperties => BossAction::UpdateProperties,
+        EnumsBossEventUpdateType::UpdateStyle => BossAction::Texture,
+        EnumsBossEventUpdateType::Query => BossAction::Query,
+        EnumsBossEventUpdateType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss action",
                 value: i64::from(value),
@@ -706,15 +612,15 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
         }
     };
     let color = match packet.color {
-        BossEventPacketColor::Pink => BossColor::Pink,
-        BossEventPacketColor::Blue => BossColor::Blue,
-        BossEventPacketColor::Red => BossColor::Red,
-        BossEventPacketColor::Green => BossColor::Green,
-        BossEventPacketColor::Yellow => BossColor::Yellow,
-        BossEventPacketColor::Purple => BossColor::Purple,
-        BossEventPacketColor::RebeccaPurple => BossColor::RebeccaPurple,
-        BossEventPacketColor::White => BossColor::White,
-        BossEventPacketColor::Unknown(value) => {
+        EnumsBossBarColor::Pink => BossColor::Pink,
+        EnumsBossBarColor::Blue => BossColor::Blue,
+        EnumsBossBarColor::Red => BossColor::Red,
+        EnumsBossBarColor::Green => BossColor::Green,
+        EnumsBossBarColor::Yellow => BossColor::Yellow,
+        EnumsBossBarColor::Purple => BossColor::Purple,
+        EnumsBossBarColor::RebeccaPurple => BossColor::RebeccaPurple,
+        EnumsBossBarColor::White => BossColor::White,
+        EnumsBossBarColor::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss color",
                 value: i64::from(value),
@@ -722,12 +628,12 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
         }
     };
     let overlay = match packet.overlay {
-        BossEventPacketOverlay::Progress => BossOverlay::Progress,
-        BossEventPacketOverlay::Notched6 => BossOverlay::Notched6,
-        BossEventPacketOverlay::Notched10 => BossOverlay::Notched10,
-        BossEventPacketOverlay::Notched12 => BossOverlay::Notched12,
-        BossEventPacketOverlay::Notched20 => BossOverlay::Notched20,
-        BossEventPacketOverlay::Unknown(value) => {
+        EnumsBossBarOverlay::Progress => BossOverlay::Progress,
+        EnumsBossBarOverlay::Notched6 => BossOverlay::Notched6,
+        EnumsBossBarOverlay::Notched10 => BossOverlay::Notched10,
+        EnumsBossBarOverlay::Notched12 => BossOverlay::Notched12,
+        EnumsBossBarOverlay::Notched20 => BossOverlay::Notched20,
+        EnumsBossBarOverlay::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "boss overlay",
                 value: i64::from(value),
@@ -736,7 +642,6 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     };
     Ok(UiEvent::Boss(BossEvent {
         target_entity_id: packet.target_actor_id.actor_unique_id,
-        player_id: packet.player_id.actor_unique_id,
         action,
         title: bounded_text(packet.name)?,
         filtered_title: bounded_text(packet.filtered_name)?,
@@ -752,13 +657,6 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
             darken_sky: None,
             create_world_fog: None,
         },
-    }))
-}
-
-pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, UiPacketError> {
-    Ok(UiEvent::Form(FormRequestEvent {
-        form_id: packet.form_id,
-        json: bounded_form(packet.form_uijson)?,
     }))
 }
 
@@ -793,10 +691,10 @@ pub(crate) fn normalize_soft_enum(packet: UpdateSoftEnumPacket) -> Result<UiEven
     // (`minecraft/protocol/packet/update_soft_enum.go`) — the same value the
     // protocol-1001 shape spelled `Update`.
     let action = match packet.update_type {
-        UpdateSoftEnumPacketUpdateType::Add => ChatAutocompleteAction::Add,
-        UpdateSoftEnumPacketUpdateType::Remove => ChatAutocompleteAction::Remove,
-        UpdateSoftEnumPacketUpdateType::Replace => ChatAutocompleteAction::Replace,
-        UpdateSoftEnumPacketUpdateType::Unknown(value) => {
+        EnumsSoftEnumUpdateType::Add => ChatAutocompleteAction::Add,
+        EnumsSoftEnumUpdateType::Remove => ChatAutocompleteAction::Remove,
+        EnumsSoftEnumUpdateType::Replace => ChatAutocompleteAction::Replace,
+        EnumsSoftEnumUpdateType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "soft enum action",
                 value: i64::from(value),

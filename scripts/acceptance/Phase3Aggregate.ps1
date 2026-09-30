@@ -15,7 +15,8 @@ function Write-Phase3FinalAggregate {
     $metadataFields = @(
         'schema', 'run_id', 'target', 'endpoint', 'bridge_endpoint', 'build_commit', 'source_dirty',
         'core_sha256', 'app_sha256', 'assets_sha256', 'core_process_id', 'app_process_id', 'app_exit_code', 'core_exit_code',
-        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots'
+        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots',
+        'core_extra_arguments'
     )
     Assert-ExactProperties $metadata $metadataFields 'run metadata'
     if ([string]$metadata.schema -cne 'rust-mcbe-phase3-run-v1') {
@@ -62,6 +63,8 @@ function Write-Phase3FinalAggregate {
     if ($metadata.screenshot_slots -isnot [System.Array]) {
         throw 'run metadata screenshot_slots must be one JSON array'
     }
+    Assert-Phase3CoreArgumentTokens $metadata.core_extra_arguments `
+        'run metadata.core_extra_arguments'
     if ($null -ne $metadata.core_exit_code) {
         Assert-Integer $metadata.core_exit_code 'run metadata.core_exit_code' ([int]::MinValue) ([int]::MaxValue)
         if ([int]$metadata.core_exit_code -ne 0) { throw 'Phase 3 core exited with a nonzero code' }
@@ -81,6 +84,14 @@ function Write-Phase3FinalAggregate {
         }
     }
     Assert-Number $metrics.session_seconds 'metrics.session_seconds' 0.001 ([double]::MaxValue)
+    # The generic acceptance launcher allows five seconds for process startup
+    # and teardown outside the measured session. Dedicated Phase 3 evidence
+    # must meet the same bounded tolerance instead of accepting an arbitrarily
+    # early RemoteClosed terminal.
+    $minimumSessionSeconds = [Math]::Max(0.0, [double]$metadata.duration_seconds - 5.0)
+    if ([double]$metrics.session_seconds -lt $minimumSessionSeconds) {
+        throw ("metrics.session_seconds=$($metrics.session_seconds), expected at least $minimumSessionSeconds for requested duration $($metadata.duration_seconds)")
+    }
     Assert-Integer $metrics.frame_count 'metrics.frame_count' 1 ([decimal][uint64]::MaxValue)
     foreach ($field in @('p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms', 'max_frame_ms')) {
         Assert-Number $metrics.$field "metrics.$field" 0.0 ([double]::MaxValue)
@@ -138,10 +149,17 @@ function Write-Phase3FinalAggregate {
     }
     $candidateScenario = [string]$ScenarioManifest.scenario -ceq 'CandidatePhysics'
     Assert-Integer $Terminal.pending_outbox_depth 'terminal.pending_outbox_depth' 0 0
-    $expectedTerminalReconciliation = if ($candidateScenario) { 'Drained' } else { 'NotAuthoritative' }
+    # RemoteClosed records a remote-initiated close of a healthy outbound
+    # stream; it is an acceptable candidate terminal, not a client fault.
+    $expectedTerminalReconciliation = if ($candidateScenario) {
+        @('Drained', 'RemoteClosed')
+    }
+    else {
+        @('NotAuthoritative')
+    }
     if ($Terminal.outbox_reconciliation -isnot [string] -or
-        [string]$Terminal.outbox_reconciliation -cne $expectedTerminalReconciliation) {
-        throw "terminal outbox reconciliation must finish as $expectedTerminalReconciliation"
+        [string]$Terminal.outbox_reconciliation -cnotin $expectedTerminalReconciliation) {
+        throw "terminal outbox reconciliation must finish as $($expectedTerminalReconciliation -join ' or ')"
     }
     $outboxHighWater = if ($Frames.Count -eq 0) { [uint64]0 } else {
         [uint64](($Frames | Measure-Object -Property outbox_depth -Maximum).Maximum)

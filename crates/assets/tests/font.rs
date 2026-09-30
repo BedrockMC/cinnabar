@@ -6,6 +6,43 @@ use sha2::{Digest, Sha256};
 const SOURCE_MANIFEST_SHA256: [u8; 32] = [0x42; 32];
 
 #[test]
+fn runtime_uses_existing_multi_page_glyph_routes_without_provider_changes() {
+    let page = |name: &str, alpha| {
+        let pixels = vec![255, 255, 255, alpha].into_boxed_slice();
+        FontTexturePage {
+            source_path: name.into(),
+            source_bytes: 1,
+            source_sha256: [0x24; 32],
+            pixels_sha256: Sha256::digest(&pixels).into(),
+            width: 1,
+            height: 1,
+            rgba8: pixels,
+        }
+    };
+    let glyph = |codepoint, page| GlyphMetrics {
+        codepoint,
+        page,
+        uv: [0, 0, 1, 1],
+        bearing: [0, -1],
+        advance_64: 512,
+    };
+    let glyphs = [glyph('A', 0), glyph('世', 1)];
+    let bytes = encode_font_catalog(
+        SOURCE_MANIFEST_SHA256,
+        &glyphs,
+        &[
+            page("font/primary.png", 255),
+            page("font/secondary.png", 128),
+        ],
+    )
+    .unwrap();
+    let catalog = RuntimeFontCatalog::decode(&bytes, SOURCE_MANIFEST_SHA256).unwrap();
+    assert_eq!(catalog.glyph('A').unwrap().page, 0);
+    assert_eq!(catalog.glyph('世').unwrap().page, 1);
+    assert_eq!(catalog.pages()[1].rgba8[3], 128);
+}
+
+#[test]
 fn runtime_decodes_exact_provenance_and_unmodified_rgba8() {
     let pixels = vec![1, 2, 3, 128, 9, 8, 7, 64].into_boxed_slice();
     let page = FontTexturePage {

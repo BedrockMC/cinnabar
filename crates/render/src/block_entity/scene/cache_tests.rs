@@ -1,0 +1,300 @@
+use super::*;
+use crate::block_entity::{
+    chest::{ChestPair, ChestVariant},
+    mesh::{Facing, MAX_BLOCK_ENTITY_VERTICES},
+    sign::{SignFace, SignMount},
+};
+
+/// Builds a lawful atlas with static chests, animated portals and beams, and crack textures.
+fn assets_with_chest_offset(chest_x: u32) -> assets::RuntimeBlockEntityAssets {
+    let mut placements = [
+        ("textures/entity/chest/normal", chest_x, 64, 64),
+        ("textures/environment/destroy_stage_0", 64, 16, 16),
+        ("textures/entity/end_portal", 80, 256, 256),
+        ("textures/entity/beacon_beam", 336, 16, 16),
+    ]
+    .map(|(name, x, width, height)| assets::BlockEntityPlacement {
+        name: name.into(),
+        x,
+        y: 0,
+        width,
+        height,
+    });
+    placements.sort_by(|a, b| a.name.cmp(&b.name));
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        1024,
+        256,
+        &vec![255; 1024 * 256 * 4],
+        &placements,
+    )
+    .unwrap();
+    assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap()
+}
+
+/// Installs the authored atlas without any local or proprietary asset dependency.
+fn scene() -> BlockEntityScene {
+    let mut scene = BlockEntityScene::default();
+    scene.install_assets(&assets_with_chest_offset(0));
+    scene
+}
+
+/// Creates one static chest with separately controllable position and light.
+fn chest(index: i32, light: f32) -> BlockEntitySubmission {
+    BlockEntitySubmission {
+        block: [index % 20, 64, index / 20],
+        light,
+        kind: BlockEntityKind::Chest(ChestModel {
+            variant: ChestVariant::Normal,
+            facing: Facing::North,
+            pair: ChestPair::Single,
+            lid: 0.0,
+        }),
+    }
+}
+
+/// Creates a portal that emits geometry into both solid and additive draw layers.
+fn portal(index: i32) -> BlockEntitySubmission {
+    BlockEntitySubmission {
+        block: [index, 63, 0],
+        light: 1.0,
+        kind: BlockEntityKind::EndPortal,
+    }
+}
+
+/// Rebuilds every submission using the original emission loop, without mesh fragments.
+fn reference_frame(
+    scene: &BlockEntityScene,
+    clock: SceneClock,
+    cracks: &[CrackInstance],
+    submissions: &[BlockEntitySubmission],
+) -> (BlockEntityFrame, u64) {
+    let atlas = scene.atlas.as_ref().unwrap();
+    let text = scene.text.as_ref().unwrap();
+    let mut builder = MeshBuilder::new(atlas.size());
+    for submission in submissions {
+        builder.light = submission.light.clamp(0.0, 1.0);
+        emit_submission(
+            &mut builder,
+            atlas,
+            (&scene.heads, &scene.mobs),
+            submission,
+            clock,
+        );
+    }
+    builder.light = 1.0;
+    for crack in cracks {
+        emit_crack(&mut builder, atlas, crack);
+    }
+    let rejected = builder.rejected_quads;
+    (
+        BlockEntityFrame {
+            revision: scene.frame.revision.wrapping_add(1),
+            atlas: scene.image.clone(),
+            dynamic_revision: text.revision(),
+            dynamic_rgba8: if scene.frame.dynamic_revision != text.revision()
+                || scene.frame.dynamic_rgba8.is_empty()
+            {
+                Arc::from(text.pixels())
+            } else {
+                Arc::clone(&scene.frame.dynamic_rgba8)
+            },
+            solid: builder.solid.into(),
+            overlay: builder.overlay.into(),
+            crack: builder.crack.into(),
+            additive: builder.additive.into(),
+        },
+        rejected,
+    )
+}
+
+/// Checks every published vertex and dynamic pixel against a complete rebuild.
+fn assert_matches_reference(
+    scene: &mut BlockEntityScene,
+    ticks: f64,
+    cracks: &[CrackInstance],
+    submissions: &[BlockEntitySubmission],
+) {
+    let clock = SceneClock { ticks };
+    let (expected, rejected) = reference_frame(scene, clock, cracks, submissions);
+    let frame = scene.update(clock, cracks, submissions);
+    assert_eq!(frame.solid, expected.solid);
+    assert_eq!(frame.overlay, expected.overlay);
+    assert_eq!(frame.crack, expected.crack);
+    assert_eq!(frame.additive, expected.additive);
+    assert_eq!(frame.dynamic_revision, expected.dynamic_revision);
+    assert_eq!(frame.dynamic_rgba8, expected.dynamic_rgba8);
+    assert_eq!(scene.rejected_quads(), rejected);
+}
+
+#[test]
+fn mixed_scenes_build_static_models_once_and_preserve_every_draw_layer() {
+    let mut scene = scene();
+    let submissions = [
+        chest(0, 1.0),
+        portal(1),
+        chest(2, 0.25),
+        BlockEntitySubmission {
+            block: [3, 64, 0],
+            light: 0.5,
+            kind: BlockEntityKind::Beacon(BeaconModel {
+                height: 24,
+                tint: [0.25, 0.5, 1.0],
+            }),
+        },
+    ];
+    let cracks = [CrackInstance {
+        block: [0, 64, 0],
+        stage: 0,
+        shape: CrackShape::Cube,
+    }];
+    for tick in 0..30 {
+        assert_matches_reference(&mut scene, f64::from(tick), &cracks, &submissions);
+    }
+    assert_eq!(scene.static_rebuilds, 2);
+    assert!(!scene.frame.solid.is_empty());
+    assert!(!scene.frame.overlay.is_empty());
+    assert!(!scene.frame.crack.is_empty());
+    assert!(!scene.frame.additive.is_empty());
+}
+
+#[test]
+fn reordered_removed_and_changed_submissions_rebuild_only_the_affected_slots() {
+    let mut scene = scene();
+    let mut submissions = vec![chest(0, 1.0), portal(1), chest(2, 0.5)];
+    assert_matches_reference(&mut scene, 0.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 2);
+    submissions.swap(0, 2);
+    assert_matches_reference(&mut scene, 1.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 4);
+    submissions[0].light = 0.75;
+    assert_matches_reference(&mut scene, 2.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 5);
+    let BlockEntityKind::Chest(model) = &mut submissions[2].kind else {
+        panic!("expected authored chest");
+    };
+    model.lid = 0.5;
+    assert_matches_reference(&mut scene, 3.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 6);
+    submissions.remove(0);
+    assert_matches_reference(&mut scene, 4.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 7);
+    assert_eq!(scene.cached_submissions.len(), 2);
+    assert_matches_reference(&mut scene, 5.0, &[], &[]);
+    assert!(scene.cached_submissions.is_empty());
+}
+
+#[test]
+fn changed_prefix_vertex_counts_invalidate_later_static_fragments() {
+    let mut scene = scene();
+    let mut submissions = [portal(0), chest(1, 1.0)];
+    assert_matches_reference(&mut scene, 0.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 1);
+    submissions[0].kind = BlockEntityKind::EndGateway;
+    assert_matches_reference(&mut scene, 1.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 2);
+    assert_matches_reference(&mut scene, 2.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 2);
+    submissions[0].kind = BlockEntityKind::EndPortal;
+    assert_matches_reference(&mut scene, 3.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 3);
+}
+
+#[test]
+fn dynamic_atlas_updates_keep_static_meshes_and_asset_installs_invalidate_them() {
+    let mut scene = scene();
+    let sign = BlockEntitySubmission {
+        block: [4, 64, 0],
+        light: 0.5,
+        kind: BlockEntityKind::Sign(SignModel {
+            mount: SignMount::Wall(Facing::North),
+            front: Some(SignFace {
+                rect: scene.text_rect(1, || vec![255; 96 * 48 * 4]).unwrap(),
+                glowing: true,
+            }),
+            back: None,
+        }),
+    };
+    let submissions = [chest(0, 1.0), portal(1), sign];
+    assert_matches_reference(&mut scene, 0.0, &[], &submissions);
+    let first = scene.frame.clone();
+    scene.text_rect(2, || vec![128; 96 * 48 * 4]).unwrap();
+    assert_matches_reference(&mut scene, 1.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 2);
+    assert_ne!(scene.frame.dynamic_revision, first.dynamic_revision);
+    assert_ne!(scene.frame.dynamic_rgba8, first.dynamic_rgba8);
+    scene.install_assets(&assets_with_chest_offset(384));
+    assert!(scene.cached_submissions.is_empty());
+    assert_matches_reference(&mut scene, 2.0, &[], &submissions);
+    assert_eq!(scene.static_rebuilds, 4);
+    assert_ne!(scene.frame.solid, first.solid);
+}
+
+#[test]
+fn cached_fragments_preserve_vertex_limits_and_rejected_quad_counts() {
+    let mut scene = scene();
+    let mut submissions: Vec<_> = (0..3700).map(|index| chest(index, 1.0)).collect();
+    submissions.insert(0, portal(0));
+    for tick in 0..2 {
+        assert_matches_reference(&mut scene, f64::from(tick), &[], &submissions);
+    }
+    assert_eq!(scene.static_rebuilds, 3700);
+    assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
+    assert!(scene.rejected_quads() > 0);
+    submissions.remove(0);
+    submissions.push(portal(0));
+    assert_matches_reference(&mut scene, 2.0, &[], &submissions);
+    assert_eq!(scene.cached_submissions.len(), submissions.len());
+    assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
+}
+
+#[test]
+#[ignore = "benchmark"]
+fn frame_cost_bench_block_entity_mixed_scene_400_chests() {
+    let submissions: Vec<_> = (0..400)
+        .flat_map(|index| {
+            let mut group = vec![chest(index, 0.75)];
+            if index % 20 == 0 {
+                group.push(portal(index));
+            }
+            group
+        })
+        .collect();
+    let frames = 200;
+    let mut old_scene = scene();
+    old_scene.update(SceneClock::default(), &[], &submissions);
+    let started = std::time::Instant::now();
+    for tick in 0..frames {
+        let (frame, rejected) = reference_frame(
+            &old_scene,
+            SceneClock {
+                ticks: f64::from(tick),
+            },
+            &[],
+            &submissions,
+        );
+        old_scene.frame = std::hint::black_box(frame);
+        old_scene.rejected_quads = rejected;
+    }
+    let old = started.elapsed() / frames;
+    let mut new_scene = scene();
+    new_scene.update(SceneClock::default(), &[], &submissions);
+    let started = std::time::Instant::now();
+    for tick in 0..frames {
+        std::hint::black_box(new_scene.update(
+            SceneClock {
+                ticks: f64::from(tick),
+            },
+            &[],
+            &submissions,
+        ));
+    }
+    let new = started.elapsed() / frames;
+    assert_eq!(new_scene.static_rebuilds, 400);
+    eprintln!(
+        "FRAME_COST block_entity_mixed_scene_400_chests: old={:.3}ms new={:.3}ms static_builds={}",
+        old.as_secs_f64() * 1e3,
+        new.as_secs_f64() * 1e3,
+        new_scene.static_rebuilds,
+    );
+}

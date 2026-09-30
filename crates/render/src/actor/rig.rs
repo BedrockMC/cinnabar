@@ -1,18 +1,77 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::{EntityGeometryBone, RuntimeEntityAssets, validate_entity_geometry_inheritance};
+use assets::RuntimeEntityAssets;
 use bevy::math::{Vec3, Vec4};
 use bytemuck::{Pod, Zeroable};
 
-use super::{ActorCullView, MAX_RENDERED_PLAYERS};
+#[path = "rig/bone_arena.rs"]
+mod bone_arena;
+use bone_arena::append_pose_matrices;
+
+use super::{
+    ActorCullView, MAX_RENDERED_PLAYERS,
+    asset_geometry::{geometry_from_geometry_index, geometry_from_runtime_assets},
+};
 
 pub const MAX_RENDER_BONES_PER_ACTOR: usize = 96;
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
+/// Bodies plus their equipment layers; `MAX_RENDERED_PLAYERS` still bounds the bodies.
+pub const MAX_ACTOR_RENDER_INSTANCES: usize = 512;
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
-    MAX_RENDERED_PLAYERS * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
+    MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
 pub const MAX_ACTOR_RIG_VERTICES: usize = 1_048_576;
 
+/// The body layer of an actor; equipment instances of the same actor use layers above it.
+pub const ACTOR_LAYER_BODY: u8 = 0;
+
 const DIAGNOSTIC_RIG_ID: EntityRigId = EntityRigId(u32::MAX);
+const EQUIPMENT_RIG_ID_BASE: u32 = 0x8000_0000;
+const ITEM_MESH_RIG_ID_BASE: u32 = 0xC000_0000;
+
+/// Rig id of an entity-catalog geometry registered as equipment geometry.
+#[must_use]
+pub const fn equipment_rig_id(geometry_index: u32) -> EntityRigId {
+    EntityRigId(EQUIPMENT_RIG_ID_BASE + geometry_index)
+}
+
+/// Rig id of a geometry binding in the session's server-pack entity catalog.
+#[must_use]
+pub const fn pack_rig_id(binding_index: u32) -> EntityRigId {
+    EntityRigId(assets::PACK_RIG_ID_BASE + binding_index)
+}
+
+/// Equipment rig id of a geometry in the session's server-pack catalog.
+#[must_use]
+pub const fn pack_equipment_rig_id(geometry_index: u32) -> EntityRigId {
+    equipment_rig_id(assets::PACK_EQUIPMENT_INDEX_BASE + geometry_index)
+}
+
+pub(crate) fn is_pack_equipment_rig_id(id: EntityRigId) -> bool {
+    (EQUIPMENT_RIG_ID_BASE + assets::PACK_EQUIPMENT_INDEX_BASE..ITEM_MESH_RIG_ID_BASE)
+        .contains(&id.0)
+}
+
+pub(crate) fn is_pack_rig_id(id: EntityRigId) -> bool {
+    (assets::PACK_RIG_ID_BASE..EQUIPMENT_RIG_ID_BASE).contains(&id.0)
+}
+
+pub(crate) fn is_equipment_rig_id(id: EntityRigId) -> bool {
+    id.0 >= EQUIPMENT_RIG_ID_BASE && id != DIAGNOSTIC_RIG_ID
+}
+
+const SKIN_RIG_ID_BASE: u32 = 0xE000_0000;
+
+/// Rig id of a player skin's own model in cache slot `slot`.
+#[must_use]
+pub const fn skin_rig_id(slot: u32) -> EntityRigId {
+    EntityRigId(SKIN_RIG_ID_BASE + slot)
+}
+
+/// Rig id of a generated item mesh registered with [`ActorRigFrameBuilder::insert_geometry`].
+#[must_use]
+pub const fn item_mesh_rig_id(mesh_index: u32) -> EntityRigId {
+    EntityRigId(ITEM_MESH_RIG_ID_BASE + mesh_index)
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ActorRenderIdentity {
@@ -21,9 +80,11 @@ pub struct ActorRenderIdentity {
     pub runtime_id: u64,
     pub spawn_revision: u64,
     pub ingress_sequence: u64,
-    pub source_tick: Option<i64>,
+    pub source_tick: Option<u64>,
     pub movement_revision: u64,
     pub pose_generation: u64,
+    /// `ACTOR_LAYER_BODY` for the body; equipment layers share the body's other fields.
+    pub layer: u8,
 }
 
 impl ActorRenderIdentity {
@@ -46,20 +107,36 @@ pub struct EntityRigId(pub u32);
 pub struct RenderBoneTransform {
     pub rotation: [f32; 4],
     pub translation_scale: [f32; 4],
+    /// Per-axis scale in the bone's own frame, applied with the uniform scale; `w` is unused.
+    pub axis_scale: [f32; 4],
 }
 
+/// Per-axis scale of a bone that scales only uniformly.
+pub const UNIT_AXIS_SCALE: [f32; 4] = [1.0; 4];
+
 impl RenderBoneTransform {
+    /// Whether every component is finite. A zero scale is valid: vanilla hides bones with it.
     #[must_use]
     pub fn is_finite(self) -> bool {
         self.rotation
             .iter()
             .chain(self.translation_scale.iter())
+            .chain(self.axis_scale.iter())
             .all(|value| value.is_finite())
-            && self.translation_scale[3] != 0.0
     }
 
     #[must_use]
     pub fn from_model_space(rotation: [f32; 4], translation_scale: [f32; 4]) -> Option<Self> {
+        Self::from_model_space_scaled(rotation, translation_scale, [1.0; 3])
+    }
+
+    /// Converts a pixel-space pose that also scales per axis in the bone's frame.
+    #[must_use]
+    pub fn from_model_space_scaled(
+        rotation: [f32; 4],
+        translation_scale: [f32; 4],
+        axis_scale: [f32; 3],
+    ) -> Option<Self> {
         let converted = Self {
             rotation,
             translation_scale: [
@@ -68,6 +145,7 @@ impl RenderBoneTransform {
                 translation_scale[2] / 16.0,
                 translation_scale[3],
             ],
+            axis_scale: [axis_scale[0], axis_scale[1], axis_scale[2], 1.0],
         };
         converted.is_finite().then_some(converted)
     }
@@ -97,6 +175,10 @@ pub struct ActorRigSubmission {
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
     pub route: ActorRigRoute,
+    /// Packed `0xAABBGGRR` dye multiplier for fully opaque texels; `0` leaves the texture untouched.
+    pub tint: u32,
+    /// Packed RGBA8 overlay blended over the lit skin (see [`pack_overlay_rgba8`]); 0 disables it.
+    pub overlay_rgba8: u32,
 }
 
 #[repr(C)]
@@ -109,9 +191,25 @@ pub struct ActorGpuInstance {
     pub texture_layer: u32,
     pub partial_tick: f32,
     pub reset_generation: u32,
+    pub tint: u32,
+    pub overlay_rgba8: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 72);
+pub const ACTOR_GPU_INSTANCE_WORDS: usize = 20;
+const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == ACTOR_GPU_INSTANCE_WORDS * 4);
+
+/// Packs a non-premultiplied RGBA overlay (components clamped to 0..=1) into little-endian RGBA8.
+#[must_use]
+pub fn pack_overlay_rgba8(rgba: [f32; 4]) -> u32 {
+    let byte = |value: f32| {
+        if value.is_finite() {
+            (value.clamp(0.0, 1.0) * 255.0).round() as u32
+        } else {
+            0
+        }
+    };
+    byte(rgba[0]) | (byte(rgba[1]) << 8) | (byte(rgba[2]) << 16) | (byte(rgba[3]) << 24)
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -119,10 +217,11 @@ pub struct ActorRigVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    pub back_uv: [f32; 2],
     pub bone_index: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == 36);
+const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == 44);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Pod, Zeroable)]
@@ -136,6 +235,8 @@ pub struct ActorRigGeometry {
     pub id: EntityRigId,
     pub vertices: Arc<[ActorRigVertex]>,
     pub bone_pivots: Arc<[[f32; 3]]>,
+    /// One past the highest bone any vertex uses; a pose needs at least this many bones.
+    bones_used: usize,
 }
 
 impl ActorRigGeometry {
@@ -158,16 +259,23 @@ impl ActorRigGeometry {
                 .iter()
                 .chain(vertex.normal.iter())
                 .chain(vertex.uv.iter())
+                .chain(vertex.back_uv.iter())
                 .any(|value| !value.is_finite())
                 || vertex.bone_index as usize >= bone_pivots.len()
         }) || bone_pivots.iter().flatten().any(|value| !value.is_finite())
         {
             return Err(ActorRigGeometryError::InvalidVertex);
         }
+        let bones_used = vertices
+            .iter()
+            .map(|vertex| vertex.bone_index as usize + 1)
+            .max()
+            .unwrap_or(0);
         Ok(Self {
             id,
             vertices,
             bone_pivots,
+            bones_used,
         })
     }
 
@@ -295,6 +403,29 @@ impl ActorRigFrameBuilder {
         Self::new(geometries)
     }
 
+    /// Like [`Self::from_runtime_assets`], also registering the listed entity-catalog geometries
+    /// (by geometry index) as equipment geometry under [`equipment_rig_id`].
+    pub fn from_runtime_assets_with_equipment(
+        assets: &RuntimeEntityAssets,
+        equipment_geometries: &[u32],
+    ) -> Result<Self, ActorRigGeometryError> {
+        let mut builder = Self::from_runtime_assets(assets)?;
+        for &geometry_index in equipment_geometries {
+            let id = equipment_rig_id(geometry_index);
+            if builder.geometries.contains_key(&id) {
+                continue;
+            }
+            // Like entity rigs, an unbuildable equipment geometry is omitted, not fatal.
+            if let Ok(geometry) = geometry_from_geometry_index(assets, geometry_index as usize, id)
+                && let Err(ActorRigGeometryError::CatalogCapacity) =
+                    builder.insert_geometry(geometry)
+            {
+                return Err(ActorRigGeometryError::CatalogCapacity);
+            }
+        }
+        Ok(builder)
+    }
+
     pub fn new(
         geometries: impl IntoIterator<Item = ActorRigGeometry>,
     ) -> Result<Self, ActorRigGeometryError> {
@@ -305,31 +436,7 @@ impl ActorRigFrameBuilder {
             }
         }
         by_id.insert(DIAGNOSTIC_RIG_ID, diagnostic_geometry());
-        let mut geometry_indices = BTreeMap::new();
-        let mut vertices = Vec::new();
-        let mut spans = Vec::with_capacity(by_id.len());
-        for (id, geometry) in &by_id {
-            let first_vertex = u32::try_from(vertices.len())
-                .map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
-            let vertex_count = u32::try_from(geometry.vertices.len())
-                .map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
-            if vertices
-                .len()
-                .checked_add(geometry.vertices.len())
-                .is_none_or(|count| count > MAX_ACTOR_RIG_VERTICES)
-            {
-                return Err(ActorRigGeometryError::CatalogCapacity);
-            }
-            geometry_indices.insert(
-                *id,
-                u32::try_from(spans.len()).map_err(|_| ActorRigGeometryError::CatalogCapacity)?,
-            );
-            vertices.extend_from_slice(&geometry.vertices);
-            spans.push(ActorRigGeometrySpan {
-                first_vertex,
-                vertex_count,
-            });
-        }
+        let (geometry_indices, vertices, spans) = catalog_layout(&by_id)?;
         let geometry_revision = geometry_catalog_revision(&vertices, &spans);
         Ok(Self {
             geometries: by_id,
@@ -339,6 +446,121 @@ impl ActorRigFrameBuilder {
             frame_generation: 0,
             geometry_revision,
         })
+    }
+
+    /// Adds or replaces one geometry and republishes the catalog; existing rig ids keep their
+    /// vertices, and the new revision makes the GPU re-upload.
+    pub fn insert_geometry(
+        &mut self,
+        geometry: ActorRigGeometry,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.insert_geometries(vec![geometry])
+    }
+
+    /// [`Self::insert_geometry`] for several geometries under one catalog rebuild; on error the
+    /// catalog is unchanged.
+    pub fn insert_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        if geometries.is_empty() {
+            return Ok(());
+        }
+        if geometries
+            .iter()
+            .any(|geometry| geometry.id == DIAGNOSTIC_RIG_ID)
+        {
+            return Err(ActorRigGeometryError::DuplicateRig);
+        }
+        let mut revision = self.geometry_revision;
+        let mut previous = Vec::with_capacity(geometries.len());
+        for geometry in geometries {
+            let id = geometry.id;
+            revision = revision
+                .rotate_left(5)
+                .wrapping_add((u64::from(id.0) << 24) | geometry.vertices.len() as u64);
+            previous.push((id, self.geometries.insert(id, geometry)));
+        }
+        match catalog_layout(&self.geometries) {
+            Ok((geometry_indices, vertices, spans)) => {
+                self.geometry_indices = geometry_indices;
+                self.geometry_vertices = Arc::from(vertices);
+                self.geometry_spans = Arc::from(spans);
+                self.geometry_revision = revision.max(1);
+                Ok(())
+            }
+            Err(error) => {
+                for (id, previous) in previous.into_iter().rev() {
+                    match previous {
+                        Some(previous) => self.geometries.insert(id, previous),
+                        None => self.geometries.remove(&id),
+                    };
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Replaces every pack-range geometry with `geometries` (empty removes them) and
+    /// republishes the catalog; on error the catalog is unchanged.
+    pub fn replace_pack_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.replace_range_geometries(is_pack_rig_id, geometries)
+    }
+
+    /// Like [`Self::replace_pack_geometries`] for the pack equipment id range.
+    pub fn replace_pack_equipment_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.replace_range_geometries(is_pack_equipment_rig_id, geometries)
+    }
+
+    fn replace_range_geometries(
+        &mut self,
+        in_range: fn(EntityRigId) -> bool,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        let old_ids = self
+            .geometries
+            .keys()
+            .copied()
+            .filter(|id| in_range(*id))
+            .collect::<Vec<_>>();
+        let removed = old_ids
+            .into_iter()
+            .filter_map(|id| self.geometries.remove(&id).map(|geometry| (id, geometry)))
+            .collect::<Vec<_>>();
+        let mut added = Vec::new();
+        for geometry in geometries {
+            if in_range(geometry.id) {
+                added.push(geometry.id);
+                self.geometries.insert(geometry.id, geometry);
+            }
+        }
+        match catalog_layout(&self.geometries) {
+            Ok((geometry_indices, vertices, spans)) => {
+                self.geometry_revision = geometry_catalog_revision(&vertices, &spans);
+                self.geometry_indices = geometry_indices;
+                self.geometry_vertices = Arc::from(vertices);
+                self.geometry_spans = Arc::from(spans);
+                Ok(())
+            }
+            Err(error) => {
+                for id in added {
+                    self.geometries.remove(&id);
+                }
+                self.geometries.extend(removed);
+                Err(error)
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn contains_geometry(&self, id: EntityRigId) -> bool {
+        self.geometries.contains_key(&id)
     }
 
     #[must_use]
@@ -371,12 +593,13 @@ impl ActorRigFrameBuilder {
         } else {
             0.0
         };
-        let mut latest = BTreeMap::<(u64, i32, u64), ActorRigSubmission>::new();
+        let mut latest = BTreeMap::<(u64, i32, u64, u8), ActorRigSubmission>::new();
         for submission in submissions {
             let key = (
                 submission.input.identity.session_id,
                 submission.input.identity.dimension,
                 submission.input.identity.runtime_id,
+                submission.input.identity.layer,
             );
             match latest.entry(key) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
@@ -396,7 +619,11 @@ impl ActorRigFrameBuilder {
         let mut maximum_vertex_count = 0;
         let mut rejects = ActorRigRejects::default();
 
-        for submission in latest.into_values() {
+        // Bodies first so equipment can never crowd a body out of the instance arena.
+        let mut ordered = latest.into_values().collect::<Vec<_>>();
+        ordered.sort_by_key(|submission| submission.input.identity.layer != ACTOR_LAYER_BODY);
+        let mut body_count = 0usize;
+        for submission in ordered {
             if submission.route == ActorRigRoute::NoDraw {
                 rejects.no_draw = rejects.no_draw.saturating_add(1);
                 continue;
@@ -421,7 +648,10 @@ impl ActorRigFrameBuilder {
             if !actor_rig_submission_is_visible(&submission, view) {
                 continue;
             }
-            if instances.len() == MAX_RENDERED_PLAYERS {
+            let is_body = submission.input.identity.layer == ACTOR_LAYER_BODY;
+            if instances.len() == MAX_ACTOR_RENDER_INSTANCES
+                || (is_body && body_count == MAX_RENDERED_PLAYERS)
+            {
                 rejects.actor_capacity = rejects.actor_capacity.saturating_add(1);
                 continue;
             }
@@ -452,10 +682,8 @@ impl ActorRigFrameBuilder {
                 rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
                 continue;
             };
-            if geometry.vertices.iter().any(|vertex| {
-                vertex.bone_index as usize >= previous.len()
-                    || vertex.bone_index as usize >= geometry.bone_pivots.len()
-            }) {
+            // Construction already bounds every vertex bone by the pivots.
+            if geometry.bones_used > previous.len() {
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             }
@@ -463,51 +691,37 @@ impl ActorRigFrameBuilder {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
             };
-            if next_bone_count > MAX_RENDERED_PLAYERS * MAX_RENDER_BONES_PER_ACTOR {
+            if next_bone_count > MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
             }
             let previous_bone_base = previous_bones.len() as u32;
             let current_bone_base = current_bones.len() as u32;
-            let previous_matrices = previous
-                .iter()
-                .enumerate()
-                .map(|(index, transform)| {
-                    affine_matrix(
-                        *transform,
-                        geometry.bone_pivots.get(index).copied().unwrap_or([0.0; 3]),
-                    )
-                })
-                .collect::<Option<Vec<_>>>();
-            let current_matrices = current
-                .iter()
-                .enumerate()
-                .map(|(index, transform)| {
-                    affine_matrix(
-                        *transform,
-                        geometry.bone_pivots.get(index).copied().unwrap_or([0.0; 3]),
-                    )
-                })
-                .collect::<Option<Vec<_>>>();
-            let (Some(previous_matrices), Some(current_matrices)) =
-                (previous_matrices, current_matrices)
-            else {
+            let previous_valid =
+                append_pose_matrices(&mut previous_bones, previous, &geometry.bone_pivots);
+            let current_valid =
+                append_pose_matrices(&mut current_bones, current, &geometry.bone_pivots);
+            if !previous_valid || !current_valid {
+                previous_bones.truncate(previous_bone_base as usize);
+                current_bones.truncate(current_bone_base as usize);
                 rejects.non_finite_pose = rejects.non_finite_pose.saturating_add(1);
                 continue;
-            };
+            }
             let Some(&geometry_index) = self.geometry_indices.get(&geometry_id) else {
+                previous_bones.truncate(previous_bone_base as usize);
+                current_bones.truncate(current_bone_base as usize);
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             };
             let span = self.geometry_spans[geometry_index as usize];
             maximum_vertex_count = maximum_vertex_count.max(span.vertex_count);
             let Ok(reset_generation) = u32::try_from(submission.input.reset_generation) else {
+                previous_bones.truncate(previous_bone_base as usize);
+                current_bones.truncate(current_bone_base as usize);
                 rejects.invalid_identity = rejects.invalid_identity.saturating_add(1);
                 continue;
             };
             let instance_index = instances.len() as u32;
-            previous_bones.extend(previous_matrices);
-            current_bones.extend(current_matrices);
             instances.push(ActorGpuInstance {
                 world_from_actor: submission.world_from_actor,
                 previous_bone_base,
@@ -516,7 +730,10 @@ impl ActorRigFrameBuilder {
                 texture_layer: submission.texture_layer,
                 partial_tick,
                 reset_generation,
+                tint: submission.tint,
+                overlay_rgba8: submission.overlay_rgba8,
             });
+            body_count += usize::from(is_body);
             manifest.push(ActorDrawManifestEntry {
                 identity: submission.input.identity,
                 rig: submission.input.rig,
@@ -548,130 +765,43 @@ impl ActorRigFrameBuilder {
     }
 }
 
-fn geometry_from_runtime_assets(
-    assets: &RuntimeEntityAssets,
-    binding_index: usize,
-) -> Result<ActorRigGeometry, ActorRigGeometryError> {
-    let binding = assets
-        .rig_geometries()
-        .get(binding_index)
-        .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
-    let bones = resolve_geometry_bones(assets, binding.geometry as usize)?;
-    if bones.is_empty() || bones.len() > MAX_RENDER_BONES_PER_ACTOR {
-        return Err(ActorRigGeometryError::BoneCount);
-    }
+#[allow(clippy::type_complexity)]
+fn catalog_layout(
+    by_id: &BTreeMap<EntityRigId, ActorRigGeometry>,
+) -> Result<
+    (
+        BTreeMap<EntityRigId, u32>,
+        Vec<ActorRigVertex>,
+        Vec<ActorRigGeometrySpan>,
+    ),
+    ActorRigGeometryError,
+> {
+    let mut geometry_indices = BTreeMap::new();
     let mut vertices = Vec::new();
-    for (bone_index, bone) in bones.iter().enumerate() {
-        if bone.never_render == Some(true) {
-            continue;
-        }
-        for cube in &bone.cubes {
-            super::geometry::append_entity_cube_vertices(
-                &mut vertices,
-                cube,
-                bone_index as u32,
-                assets
-                    .geometries()
-                    .get(binding.geometry as usize)
-                    .map(|geometry| (geometry.texture_width, geometry.texture_height))
-                    .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?,
-                bone.mirror.unwrap_or(false),
-                bone.inflate.map_or(0.0, |inflate| inflate.get()),
-            )?;
-            if vertices.len() > MAX_ACTOR_RIG_VERTICES {
-                return Err(ActorRigGeometryError::CatalogCapacity);
-            }
-        }
-    }
-    let bone_pivots = bones
-        .iter()
-        .map(|bone| {
-            bone.pivot
-                .map_or([0.0; 3], |pivot| pivot.map(|value| value.get() / 16.0))
-        })
-        .collect::<Vec<_>>();
-    ActorRigGeometry::new(
-        EntityRigId(
-            u32::try_from(binding_index)
-                .map_err(|_| ActorRigGeometryError::InvalidAssetGeometry)?,
-        ),
-        Arc::from(vertices),
-        Arc::from(bone_pivots),
-    )
-}
-
-fn resolve_geometry_bones(
-    assets: &RuntimeEntityAssets,
-    geometry_index: usize,
-) -> Result<Vec<EntityGeometryBone>, ActorRigGeometryError> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries())
-        .map_err(|_| ActorRigGeometryError::InvalidAssetGeometry)?;
-    let mut chain = Vec::new();
-    let mut current = geometry_index;
-    for _ in 0..=parents.len() {
-        chain.push(current);
-        let Some(parent) = parents.get(current).copied().flatten() else {
-            break;
-        };
-        current = parent;
-    }
-    if chain
-        .last()
-        .and_then(|index| parents.get(*index))
-        .copied()
-        .flatten()
-        .is_some()
-    {
-        return Err(ActorRigGeometryError::InvalidAssetGeometry);
-    }
-    chain.reverse();
-    let mut merged: Vec<EntityGeometryBone> = Vec::new();
-    for index in chain {
-        for child in assets
-            .geometries()
-            .get(index)
-            .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?
-            .bones
-            .iter()
+    let mut spans = Vec::with_capacity(by_id.len());
+    for (id, geometry) in by_id {
+        let first_vertex =
+            u32::try_from(vertices.len()).map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
+        let vertex_count = u32::try_from(geometry.vertices.len())
+            .map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
+        if vertices
+            .len()
+            .checked_add(geometry.vertices.len())
+            .is_none_or(|count| count > MAX_ACTOR_RIG_VERTICES)
         {
-            if let Some(existing) = merged
-                .iter_mut()
-                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
-            {
-                overlay_geometry_bone(existing, child);
-            } else {
-                merged.push(child.clone());
-            }
+            return Err(ActorRigGeometryError::CatalogCapacity);
         }
+        geometry_indices.insert(
+            *id,
+            u32::try_from(spans.len()).map_err(|_| ActorRigGeometryError::CatalogCapacity)?,
+        );
+        vertices.extend_from_slice(&geometry.vertices);
+        spans.push(ActorRigGeometrySpan {
+            first_vertex,
+            vertex_count,
+        });
     }
-    Ok(merged)
-}
-
-fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
-    if child.parent.is_some() {
-        base.parent.clone_from(&child.parent);
-    }
-    if child.pivot.is_some() {
-        base.pivot = child.pivot;
-    }
-    if child.rotation.is_some() {
-        base.rotation = child.rotation;
-    }
-    if child.mirror.is_some() {
-        base.mirror = child.mirror;
-    }
-    if child.inflate.is_some() {
-        base.inflate = child.inflate;
-    }
-    if child.never_render.is_some() {
-        base.never_render = child.never_render;
-    }
-    if child.reset.is_some() {
-        base.reset = child.reset;
-    }
-    if !child.cubes.is_empty() {
-        base.cubes.clone_from(&child.cubes);
-    }
+    Ok((geometry_indices, vertices, spans))
 }
 
 fn geometry_catalog_revision(vertices: &[ActorRigVertex], spans: &[ActorRigGeometrySpan]) -> u64 {
@@ -709,16 +839,24 @@ pub fn actor_rig_submission_is_visible(
     {
         return false;
     }
-    let half_width = 0.5;
+    // The culling box grows with the instance's scale so scaled models are not cut early.
+    let scale = Vec3::new(
+        submission.world_from_actor[0][1],
+        submission.world_from_actor[1][1],
+        submission.world_from_actor[2][1],
+    )
+    .length()
+    .max(1.0);
+    let (half_width, height) = (0.5 * scale, 2.0 * scale);
     let corners = [
         Vec3::new(-half_width, 0.0, -half_width),
         Vec3::new(half_width, 0.0, -half_width),
-        Vec3::new(-half_width, 2.0, -half_width),
-        Vec3::new(half_width, 2.0, -half_width),
+        Vec3::new(-half_width, height, -half_width),
+        Vec3::new(half_width, height, -half_width),
         Vec3::new(-half_width, 0.0, half_width),
         Vec3::new(half_width, 0.0, half_width),
-        Vec3::new(-half_width, 2.0, half_width),
-        Vec3::new(half_width, 2.0, half_width),
+        Vec3::new(-half_width, height, half_width),
+        Vec3::new(half_width, height, half_width),
     ]
     .map(|offset| view.clip_from_world * (feet + offset).extend(1.0));
     !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
@@ -750,22 +888,24 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
         z * inverse_norm,
         w * inverse_norm,
     );
-    let scale = transform.translation_scale[3];
+    // Column c of the linear part carries the bone-frame scale on axis c.
+    let [sx, sy, sz] =
+        std::array::from_fn(|axis| transform.axis_scale[axis] * transform.translation_scale[3]);
     let rows = [
         [
-            (1.0 - 2.0 * (y * y + z * z)) * scale,
-            2.0 * (x * y - z * w) * scale,
-            2.0 * (x * z + y * w) * scale,
+            (1.0 - 2.0 * (y * y + z * z)) * sx,
+            2.0 * (x * y - z * w) * sy,
+            2.0 * (x * z + y * w) * sz,
         ],
         [
-            2.0 * (x * y + z * w) * scale,
-            (1.0 - 2.0 * (x * x + z * z)) * scale,
-            2.0 * (y * z - x * w) * scale,
+            2.0 * (x * y + z * w) * sx,
+            (1.0 - 2.0 * (x * x + z * z)) * sy,
+            2.0 * (y * z - x * w) * sz,
         ],
         [
-            2.0 * (x * z - y * w) * scale,
-            2.0 * (y * z + x * w) * scale,
-            (1.0 - 2.0 * (x * x + y * y)) * scale,
+            2.0 * (x * z - y * w) * sx,
+            2.0 * (y * z + x * w) * sy,
+            (1.0 - 2.0 * (x * x + y * y)) * sz,
         ],
     ];
     let rotated_pivot =
@@ -789,6 +929,7 @@ fn diagnostic_geometry() -> ActorRigGeometry {
             position: vertex.position,
             normal: [0.0, 1.0, 0.0],
             uv: vertex.uv,
+            back_uv: vertex.uv,
             bone_index: vertex.part,
         })
         .collect::<Vec<_>>();

@@ -10,18 +10,19 @@ pub(super) use asset_compiler::{
     BlockFace, compile_pack as compile_pack_with_lights, read_pack, resolve_texture_key,
 };
 pub(super) use assets::{
-    AssetError, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, CompiledAssets,
-    ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties, MATERIAL_FLAG_ALPHA_BLEND,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
-    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
-    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
-    MAX_TEXTURE_LAYERS, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR,
-    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelFamily, ModelQuad, ModelState,
-    ModelStateField, NetworkIdMode, RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
-    encode_blob, read_registry,
+    AssetError, BlobProvenance, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed,
+    CompiledAssets, ContributorRole, DIAGNOSTIC_MATERIAL, LightProperties,
+    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
+    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
+    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
+    MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_TEXTURE_LAYERS,
+    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    Material, ModelFamily, ModelQuad, ModelState, ModelStateField, NetworkIdMode,
+    RegistryProvenance, RegistryRecord, RuntimeAssets, VisualKind,
+    canonical_source_manifest_sha256, encode_blob, read_registry,
 };
 pub(super) use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 pub(super) use sha2::{Digest, Sha256};
@@ -33,6 +34,7 @@ pub(super) fn compile_pack(
     root: &Path,
     records: &[RegistryRecord],
 ) -> Result<CompiledAssets, AssetError> {
+    let records = with_canonical_air(records);
     let synthetic_lights = vec![
         LightProperties::default();
         records
@@ -41,7 +43,72 @@ pub(super) fn compile_pack(
             .max()
             .unwrap_or(0)
     ];
-    compile_pack_with_lights(root, records, &synthetic_lights)
+    compile_pack_with_lights(root, &records, &synthetic_lights)
+}
+
+/// Builds one canonical-shaped `minecraft:air` record at an explicit identity.
+///
+/// Real protocol-1001/2193 registries carry exactly one such record, so
+/// family-isolated synthetic fixtures append one through
+/// [`with_canonical_air`] to satisfy the same compile-time contract.
+pub(super) fn canonical_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord {
+    RegistryRecord {
+        sequential_id,
+        network_hash,
+        name: "minecraft:air".into(),
+        canonical_state: "{}".into(),
+        flags: BlockFlags::AIR,
+        model_family: ModelFamily::Air,
+        contributor_role: ContributorRole::Air,
+        model_state: ModelState::default(),
+        face_coverage: 0,
+        collision_seed: CollisionSeed::default(),
+        provenance: RegistryProvenance::DRAGONFLY,
+    }
+}
+
+/// Sequential identity of the canonical-air record appended by
+/// [`with_canonical_air`] for the same record list.
+pub(super) fn fixture_air_id(records: &[RegistryRecord]) -> u32 {
+    records
+        .iter()
+        .map(|record| record.sequential_id)
+        .max()
+        .unwrap_or(0)
+        + 1
+}
+
+/// Appends one canonical-air record at identities guaranteed absent from
+/// `records`, deterministically derived from the existing maximum identity.
+/// Registries that already carry a full-predicate canonical-air record are
+/// returned unchanged.
+pub(super) fn with_canonical_air(records: &[RegistryRecord]) -> Vec<RegistryRecord> {
+    let has_canonical_air = records.iter().any(|record| {
+        record.name.as_ref() == "minecraft:air"
+            && record.canonical_state.as_ref() == "{}"
+            && record.flags.contains(BlockFlags::AIR)
+            && record.contributor_role == ContributorRole::Air
+    });
+    if has_canonical_air {
+        return records.to_vec();
+    }
+    let mut extended = records.to_vec();
+    let used_hashes = extended
+        .iter()
+        .map(|record| record.network_hash)
+        .collect::<HashSet<u32>>();
+    let sequential_id = extended
+        .iter()
+        .map(|record| record.sequential_id)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let mut network_hash = u32::MAX;
+    while used_hashes.contains(&network_hash) {
+        network_hash -= 1;
+    }
+    extended.push(canonical_air_record(sequential_id, network_hash));
+    extended
 }
 
 pub(super) const HUGE_MUSHROOM_NAMES: [&str; 3] = [
@@ -415,8 +482,13 @@ pub(super) fn write_biome_fixture(resource_pack: &Path) {
 }
 
 pub(super) fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
+    registry_bytes_for_protocol(1001, records)
+}
+
+/// Encodes the same fixture registry for one explicit wire protocol.
+pub(super) fn registry_bytes_for_protocol(protocol: u32, records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = b"BREG1003".to_vec();
-    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&protocol.to_le_bytes());
     bytes.extend_from_slice(
         &u32::try_from(records.len())
             .expect("small fixture")
@@ -492,8 +564,17 @@ pub(super) fn registry_bytes(records: &[RegistryRecord]) -> Vec<u8> {
 }
 
 pub(super) fn light_registry_bytes(breg: &[u8], count: usize) -> Vec<u8> {
+    light_registry_bytes_for_protocol(1001, breg, count)
+}
+
+/// Encodes the same fixture light registry for one explicit wire protocol.
+pub(super) fn light_registry_bytes_for_protocol(
+    protocol: u32,
+    breg: &[u8],
+    count: usize,
+) -> Vec<u8> {
     let mut bytes = b"LREG1001".to_vec();
-    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(&protocol.to_le_bytes());
     bytes.extend_from_slice(&(count as u32).to_le_bytes());
     bytes.extend_from_slice(&Sha256::digest(breg));
     bytes.extend(std::iter::repeat_n(0xf0, count));

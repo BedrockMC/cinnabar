@@ -12,7 +12,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
 };
-use world::SubChunk;
+use world::{RawBlockIds, SubChunk};
 
 use super::*;
 
@@ -86,6 +86,12 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
             })]
             .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
+            provenance: assets::BlobProvenance {
+                source_manifest_sha256: [0xA5; 32],
+                block_registry_sha256: [0x5A; 32],
+                light_registry_sha256: [0x33; 32],
+                biome_registry_sha256: [0x3C; 32],
+            },
         };
         let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
         RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")
@@ -93,7 +99,7 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
 }
 
 fn solid_test_mesh() -> ChunkMesh {
-    let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform test sub-chunk");
+    let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2], &RawBlockIds { air: 0 });
     meshing::mesh_sub_chunk(
         &meshing::BlockClassifier::new(0),
         opaque_runtime_assets(),
@@ -162,6 +168,8 @@ mod gpu_models;
 mod gpu_publication;
 #[path = "gpu/queue_tests.rs"]
 mod gpu_queue;
+#[path = "gpu/session_tests.rs"]
+mod gpu_session;
 #[path = "presentation/tests.rs"]
 mod presentation;
 #[path = "presentation/command_tests.rs"]

@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use world::{DecodeError, DecodedBiomeColumn};
+use world::{BiomeIds, DecodedBiomeColumn, RawBiomeIds};
+
+const DEFAULT: u32 = 1;
+const IDS: RawBiomeIds = RawBiomeIds {
+    default_biome: DEFAULT,
+};
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -24,9 +29,25 @@ fn uniform(id: i32) -> Vec<u8> {
     bytes
 }
 
+fn packed(bits: u8, words: &[u32], palette_count: i32, palette: &[i32]) -> Vec<u8> {
+    let mut bytes = vec![(bits << 1) | 1];
+    for word in words {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    bytes.extend(zig_zag_i32(palette_count));
+    for &id in palette {
+        bytes.extend(zig_zag_i32(id));
+    }
+    bytes
+}
+
+fn biome_at(column: &DecodedBiomeColumn, y: i32, x: u8, local_y: u8, z: u8) -> Option<u32> {
+    column.storage(y)?.biome_id(x, local_y, z)
+}
+
 #[test]
 fn uniform_biome_storage_stays_palette_native() {
-    let decoded = DecodedBiomeColumn::decode(-4, 1, &uniform(42)).unwrap();
+    let decoded = DecodedBiomeColumn::decode(-4, 1, &uniform(42), &IDS);
     let storage = decoded.storage(-4).unwrap();
 
     assert_eq!(decoded.bytes_consumed(), 2);
@@ -37,91 +58,135 @@ fn uniform_biome_storage_stays_palette_native() {
 }
 
 #[test]
-fn rejects_biome_storage_count_beyond_the_client_limit() {
-    // A storage count larger than the vertical sub-chunk ceiling must be
-    // rejected up front so the decoder never pre-reserves capacity proportional
-    // to a wire-supplied count. The empty payload proves the bound is enforced
-    // before any storage byte is read.
-    assert_eq!(
-        DecodedBiomeColumn::decode(0, world::MAX_LEVEL_SUBCHUNKS + 1, &[]),
-        Err(DecodeError::TooManyBiomeStorages {
-            count: world::MAX_LEVEL_SUBCHUNKS + 1,
-            max: world::MAX_LEVEL_SUBCHUNKS,
-        })
-    );
-}
-
-#[test]
-fn copy_previous_reuses_arc_and_first_copy_is_rejected() {
-    let mut bytes = uniform(7);
-    bytes.extend_from_slice(&[0xff, 0xff]);
-    let decoded = DecodedBiomeColumn::decode(0, 3, &bytes).unwrap();
-    let first = decoded.storage(0).unwrap();
-    assert!(Arc::ptr_eq(&first, &decoded.storage(1).unwrap()));
-    assert!(Arc::ptr_eq(&first, &decoded.storage(2).unwrap()));
-
-    assert_eq!(
-        DecodedBiomeColumn::decode(0, 1, &[0xff]),
-        Err(DecodeError::BiomeCopyWithoutPrevious { index: 0 })
-    );
-}
-
-#[test]
 fn padded_width_biome_storage_uses_xzy_order() {
-    let mut bytes = vec![0x07]; // Network palette, three bits per index.
     let mut words = vec![0_u32; 410];
     let linear = (1_usize << 8) | (3_usize << 4) | 2;
     let values_per_word = 32 / 3;
     words[linear / values_per_word] |= 1 << ((linear % values_per_word) * 3);
-    for word in words {
-        bytes.extend_from_slice(&word.to_le_bytes());
-    }
-    bytes.extend(zig_zag_i32(2));
-    bytes.extend(zig_zag_i32(11));
-    bytes.extend(zig_zag_i32(22));
+    let bytes = packed(3, &words, 2, &[11, 22]);
 
-    let decoded = DecodedBiomeColumn::decode(4, 1, &bytes).unwrap();
+    let decoded = DecodedBiomeColumn::decode(4, 1, &bytes, &IDS);
     let storage = decoded.storage(4).unwrap();
     assert_eq!(storage.biome_id(1, 2, 3), Some(22));
     assert_eq!(storage.biome_id(1, 3, 2), Some(11));
 }
 
 #[test]
-fn rejects_disk_header_unsupported_width_and_bad_palette_indices() {
-    assert!(matches!(
-        DecodedBiomeColumn::decode(0, 1, &[0xfe]),
-        Err(DecodeError::DiskPaletteInNetworkData { header: 0xfe })
-    ));
+fn out_of_range_palette_indices_resolve_to_entry_zero() {
+    // Live crash: two bits per index, two palette entries, indices up to 3.
+    let words = vec![0xe4e4_e4e4_u32; 256];
+    let bytes = packed(2, &words, 2, &[7, 9]);
+    let column = DecodedBiomeColumn::decode(0, 1, &bytes, &IDS);
+    assert_eq!(column.bytes_consumed(), bytes.len());
+    let storage = column.storage(0).unwrap();
+    assert_eq!(storage.palette().values(), &[7, 9]);
     assert_eq!(
-        DecodedBiomeColumn::decode(0, 1, &[0x0f]),
-        Err(DecodeError::UnsupportedBitsPerIndex(7))
+        (0..4)
+            .map(|y| storage.biome_id(0, y, 0))
+            .collect::<Vec<_>>(),
+        [Some(7), Some(9), Some(7), Some(7)]
     );
 
-    let mut bad_index = vec![0x03];
-    bad_index.extend_from_slice(&1_u32.to_le_bytes());
-    bad_index.extend(std::iter::repeat_n(0_u8, 127 * 4));
-    bad_index.extend(zig_zag_i32(1));
-    bad_index.extend(zig_zag_i32(9));
-    assert!(matches!(
-        DecodedBiomeColumn::decode(0, 1, &bad_index),
-        Err(DecodeError::PaletteIndexOutOfBounds {
-            block_index: 0,
-            palette_index: 1,
-            palette_len: 1,
-        })
+    let mut words = vec![0_u32; 128];
+    words[0] = 1;
+    let column = DecodedBiomeColumn::decode(0, 1, &packed(1, &words, 1, &[9]), &IDS);
+    assert_eq!(biome_at(&column, 0, 0, 0, 0), Some(9));
+}
+
+#[test]
+fn skip_header_first_slot_takes_the_default_biome() {
+    for header in [0xfe, 0xff] {
+        let mut bytes = vec![header];
+        bytes.extend(uniform(7));
+        let column = DecodedBiomeColumn::decode(0, 2, &bytes, &IDS);
+        assert_eq!(biome_at(&column, 0, 0, 0, 0), Some(DEFAULT));
+        assert_eq!(biome_at(&column, 1, 0, 0, 0), Some(7));
+        assert_eq!(column.bytes_consumed(), bytes.len());
+    }
+}
+
+#[test]
+fn empty_slots_take_the_default_below_and_the_top_layer_above() {
+    // Column 0 changes biome at y=15 so extrusion must repeat only that layer.
+    let mut words = vec![0_u32; 128];
+    words[0] = 1 << 15;
+    let mut bytes = uniform(3);
+    bytes.push(0xff);
+    bytes.extend(packed(1, &words, 2, &[4, 5]));
+    bytes.push(0xff);
+    let column = DecodedBiomeColumn::decode(0, 5, &bytes, &IDS);
+
+    assert_eq!(column.len(), 5);
+    assert_eq!(biome_at(&column, 0, 0, 0, 0), Some(3));
+    assert_eq!(biome_at(&column, 1, 0, 0, 0), Some(DEFAULT));
+    assert_eq!(biome_at(&column, 2, 0, 14, 0), Some(4));
+    assert_eq!(biome_at(&column, 2, 0, 15, 0), Some(5));
+    for y in [3, 4] {
+        assert_eq!(biome_at(&column, y, 0, 0, 0), Some(5));
+        assert_eq!(biome_at(&column, y, 0, 15, 0), Some(5));
+        assert_eq!(biome_at(&column, y, 1, 0, 0), Some(4));
+    }
+    assert!(Arc::ptr_eq(
+        &column.storage(3).unwrap(),
+        &column.storage(4).unwrap()
     ));
 }
 
 #[test]
-fn truncated_and_overlong_biome_varints_are_bounded() {
-    assert!(matches!(
-        DecodedBiomeColumn::decode(0, 1, &[0x01]),
-        Err(DecodeError::UnexpectedEof { .. })
-    ));
-    assert_eq!(
-        DecodedBiomeColumn::decode(0, 1, &[0x01, 0x80, 0x80, 0x80, 0x80, 0x80]),
-        Err(DecodeError::VarIntTooLong {
-            context: "palette entry"
-        })
-    );
+fn eof_slots_extrude_the_last_storage_and_no_storage_means_default() {
+    let column = DecodedBiomeColumn::decode(0, 3, &uniform(7), &IDS);
+    assert_eq!(column.len(), 3);
+    assert_eq!(biome_at(&column, 2, 5, 5, 5), Some(7));
+
+    let column = DecodedBiomeColumn::decode(-4, 2, &[], &IDS);
+    assert_eq!(column.len(), 2);
+    assert_eq!(biome_at(&column, -4, 0, 0, 0), Some(DEFAULT));
+    assert_eq!(biome_at(&column, -3, 0, 0, 0), Some(DEFAULT));
+    assert_eq!(column.bytes_consumed(), 0);
+}
+
+#[test]
+fn invalid_width_empties_its_slot_and_drains_the_payload() {
+    let mut bytes = uniform(7);
+    bytes.push((7 << 1) | 1);
+    bytes.extend(uniform(8));
+    let column = DecodedBiomeColumn::decode(0, 3, &bytes, &IDS);
+    assert_eq!(column.bytes_consumed(), bytes.len());
+    for y in 0..3 {
+        assert_eq!(biome_at(&column, y, 0, 0, 0), Some(7));
+    }
+}
+
+/// Resolves only the listed ids, like a registry that lacks custom biomes.
+struct KnownBiomes(&'static [u16]);
+
+impl BiomeIds for KnownBiomes {
+    fn default_biome(&self) -> u32 {
+        DEFAULT
+    }
+
+    fn resolve(&self, biome_id: u16) -> u32 {
+        if self.0.contains(&biome_id) {
+            u32::from(biome_id)
+        } else {
+            DEFAULT
+        }
+    }
+}
+
+#[test]
+fn biome_ids_truncate_to_u16_and_unknown_ids_take_the_default() {
+    let column = DecodedBiomeColumn::decode(0, 1, &uniform(0x1_0005), &KnownBiomes(&[5]));
+    assert_eq!(biome_at(&column, 0, 0, 0, 0), Some(5));
+    let column = DecodedBiomeColumn::decode(0, 1, &uniform(99), &KnownBiomes(&[5]));
+    assert_eq!(biome_at(&column, 0, 0, 0, 0), Some(DEFAULT));
+}
+
+#[test]
+fn truncated_and_overlong_biome_varints_read_as_zero() {
+    for bytes in [&[0x01][..], &[0x01, 0x80, 0x80, 0x80, 0x80, 0x80]] {
+        let column = DecodedBiomeColumn::decode(0, 1, bytes, &IDS);
+        assert_eq!(biome_at(&column, 0, 0, 0, 0), Some(0));
+        assert_eq!(column.bytes_consumed(), bytes.len());
+    }
 }

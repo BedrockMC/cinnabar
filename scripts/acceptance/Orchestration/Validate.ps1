@@ -119,14 +119,21 @@ $script:AcceptanceValidationPhase = {
     if (-not (Test-Path -LiteralPath $BdsSourceExecutable -PathType Leaf)) {
         throw "BDS executable does not exist: $BdsSourceExecutable"
     }
+    if (-not $DryRun) {
+        $actualBdsSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $BdsSourceExecutable).Hash.ToLowerInvariant()
+        if ($actualBdsSha256 -cne $ExpectedBdsSha256) {
+            throw "BDS executable SHA-256 is $actualBdsSha256, want $ExpectedBdsSha256"
+        }
+    }
     
     $ProjectRoot = (Resolve-Path (Join-Path $script:AcceptanceEntryRoot '..')).Path
     $null = Assert-ProtocolDependencyProvenance `
         -ProjectRoot $ProjectRoot `
-        -ExpectedForkRevision $PinnedValentineForkCommit `
-        -ExpectedUpstreamRevision $PinnedValentineUpstreamCommit `
+        -ExpectedAxolotlStackRevision $PinnedAxolotlStackCommit `
+        -ExpectedProtocolgenRevision $PinnedProtocolgenCommit `
         -ExpectedLicenseSha256 $PinnedValentineLicenseSha256
-    $BlockRegistryPath = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v1001.bin'
+    $BedrockTarget = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
+    $BlockRegistryPath = Resolve-BedrockTargetArtifact -ProjectRoot $ProjectRoot -Target $BedrockTarget -Artifact block_registry
     $CrossCropCoverage = if ($isCrossCropGallery) {
         Get-CrossCropCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets
     }

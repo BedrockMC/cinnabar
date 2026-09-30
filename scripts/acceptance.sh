@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pinned_gophertunnel_commit='9948b1729395d2e819fce28e079d4a7bfc67716c'
-pinned_valentine_fork_commit='6cd8087fc3f0b500e41708a8afc94a0fa3291525'
-pinned_valentine_upstream_commit='6f6806e821a579c183c44d786f76d9b358a2b825'
+expected_gophertunnel_commit='b725d82563e93308fd1f92d27da5e97301ad5040'
+expected_gophertunnel_version='v1.25.3-0.20260929084839-b725d82563e9'
+expected_bds_sha256='19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
+expected_bds_release='1.26.52.3'
+pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'
+pinned_protocolgen_commit='0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 usage() {
@@ -56,11 +59,81 @@ sha256_file() {
     fi
 }
 
+resolve_pinned_gophertunnel_commit() {
+    local root=$1
+    python3 - "$root" "$expected_gophertunnel_version" "$expected_gophertunnel_commit" <<'PY'
+import json, re, subprocess, sys
+
+root, expected_version, expected_commit = sys.argv[1:]
+try:
+    result = subprocess.run(
+        ["go", "-C", root, "list", "-m", "-json", "github.com/sandertv/gophertunnel"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+except subprocess.TimeoutExpired as error:
+    raise SystemExit("go list -m timed out while resolving gophertunnel") from error
+if len(result.stdout) > 65536 or len(result.stderr) > 65536:
+    raise SystemExit("go list -m gophertunnel output exceeds the 64 KiB provenance bound")
+if result.returncode:
+    raise SystemExit("go list -m failed while resolving gophertunnel: " + result.stderr.decode("utf-8", "replace"))
+try:
+    module = json.loads(result.stdout, object_pairs_hook=lambda pairs: (
+        (_ for _ in ()).throw(ValueError("duplicate JSON field"))
+        if len({key for key, _ in pairs}) != len(pairs) else dict(pairs)
+    ))
+except (UnicodeDecodeError, ValueError) as error:
+    raise SystemExit(f"go list -m returned malformed gophertunnel JSON: {error}") from error
+replacement = module.get("Replace")
+if (
+    module.get("Path") != "github.com/sandertv/gophertunnel"
+    or not isinstance(replacement, dict)
+    or replacement.get("Path") != "github.com/hashimthearab/gophertunnel"
+    or replacement.get("Version") != expected_version
+):
+    raise SystemExit("go list -m resolved a different gophertunnel module or replacement version")
+match = re.search(r"-([0-9a-f]{12})$", expected_version)
+if not re.fullmatch(r"[0-9a-f]{40}", expected_commit) or not match or match.group(1) != expected_commit[:12]:
+    raise SystemExit("gophertunnel replacement version does not identify the expected exact commit")
+try:
+    download_result = subprocess.run(
+        ["go", "-C", root, "mod", "download", "-json", replacement["Path"] + "@" + replacement["Version"]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+except subprocess.TimeoutExpired as error:
+    raise SystemExit("go mod download timed out while verifying gophertunnel origin") from error
+if len(download_result.stdout) > 65536 or len(download_result.stderr) > 65536:
+    raise SystemExit("go mod download gophertunnel output exceeds the 64 KiB provenance bound")
+if download_result.returncode:
+    raise SystemExit("go mod download failed while verifying gophertunnel origin: " + download_result.stderr.decode("utf-8", "replace"))
+try:
+    download = json.loads(download_result.stdout)
+except (UnicodeDecodeError, ValueError) as error:
+    raise SystemExit(f"go mod download returned malformed gophertunnel JSON: {error}") from error
+origin = download.get("Origin")
+if (
+    download.get("Path") != replacement["Path"]
+    or download.get("Version") != replacement["Version"]
+    or not isinstance(origin, dict)
+    or origin.get("VCS") != "git"
+    or origin.get("URL") != "https://github.com/hashimthearab/gophertunnel"
+    or origin.get("Hash") != expected_commit
+):
+    raise SystemExit("resolved gophertunnel module origin does not match the expected exact commit")
+print(expected_commit)
+PY
+}
+
 assert_protocol_dependency_provenance() {
     local root=$1
     python3 - "$root" \
-        "$pinned_valentine_fork_commit" \
-        "$pinned_valentine_upstream_commit" \
+        "$pinned_axolotl_stack_commit" \
+        "$pinned_protocolgen_commit" \
         "$pinned_valentine_license_sha256" <<'PY'
 import hashlib
 import json
@@ -71,7 +144,7 @@ import sys
 import tempfile
 
 root = pathlib.Path(sys.argv[1])
-fork_revision, upstream_revision, license_sha256 = sys.argv[2:5]
+axolotl_stack_revision, protocolgen_revision, license_sha256 = sys.argv[2:5]
 manifest_path = root / "crates/protocol/Cargo.toml"
 lock_path = root / "Cargo.lock"
 upstream_path = root / "crates/protocol/vendor/UPSTREAM.md"
@@ -131,8 +204,8 @@ if len(protocol_packages) != 1:
         f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
     )
 expected_dependencies = {
-    "valentine": ["bedrock_1_26_40", "bedrock_1_26_30"],
-    "jolyne": ["client", "bedrock_1_26_40"],
+    "valentine": ["bedrock_1_26_51"],
+    "jolyne": ["client", "bedrock_1_26_51"],
 }
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [
@@ -190,9 +263,9 @@ for dependency_name, expected_features in expected_dependencies.items():
 
 upstream = upstream_path.read_text(encoding="utf-8-sig")
 metadata_lines = [
-    f"- Reviewed fork revision: `{fork_revision}`",
-    f"- Upstream snapshot revision: `{upstream_revision}`",
-    f"- Retained license: MIT at `crates/protocol/vendor/LICENSE` (normalized SHA-256 `{license_sha256}`)",
+    f"- Axolotl Stack merge revision: `{axolotl_stack_revision}`",
+    f"- Protocolgen submodule, manifest, and generated-source revision: `{protocolgen_revision}`",
+    f"- Retained license normalized SHA-256: `{license_sha256}`",
 ]
 for line in metadata_lines:
     if upstream.splitlines().count(line) != 1:
@@ -348,6 +421,7 @@ configure_server_properties() {
             want["online-mode"] = "false"
             want["allow-list"] = "false"
             want["enable-lan-visibility"] = "false"
+            want["level-seed"] = "2168"
         }
         {
             line = $0
@@ -560,6 +634,7 @@ if [[ -n $upstream ]]; then
 fi
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+pinned_gophertunnel_commit=$(resolve_pinned_gophertunnel_commit "$project_root") || die 'gophertunnel module provenance validation failed'
 assert_protocol_dependency_provenance "$project_root" || die 'protocol dependency provenance validation failed'
 metrics_out=$(absolute_path "$metrics_out")
 exe_suffix=''
@@ -612,6 +687,11 @@ if [[ $dry_run == true ]]; then
     fi
     printf 'EFFECTIVE_PRESENT_MODE=UNPROVEN\n'
     exit 0
+fi
+
+if [[ -n $bds_dir ]]; then
+    source_bds_hash=$(sha256_file "$bds_dir/$bds_executable_name")
+    [[ $source_bds_hash == "$expected_bds_sha256" ]] || die "BDS executable SHA-256 is $source_bds_hash, want $expected_bds_sha256"
 fi
 
 if [[ -n $upstream ]]; then
@@ -783,8 +863,8 @@ write_metadata() {
     export RUST_MCBE_META_STARTED="$run_started_utc"
     export RUST_MCBE_META_REPO_COMMIT="$repo_commit"
     export RUST_MCBE_META_GOPHERTUNNEL="$pinned_gophertunnel_commit"
-    export RUST_MCBE_META_VALENTINE_FORK="$pinned_valentine_fork_commit"
-    export RUST_MCBE_META_VALENTINE_UPSTREAM="$pinned_valentine_upstream_commit"
+    export RUST_MCBE_META_AXOLOTL_STACK="$pinned_axolotl_stack_commit"
+    export RUST_MCBE_META_PROTOCOLGEN="$pinned_protocolgen_commit"
     export RUST_MCBE_META_VALENTINE_LICENSE="$pinned_valentine_license_sha256"
     export RUST_MCBE_META_BDS_HASH="$bds_hash"
     export RUST_MCBE_META_BDS_COMMAND="$(format_command "${bds_command[@]}")"
@@ -805,8 +885,8 @@ keys = {
     "started_utc": "RUST_MCBE_META_STARTED",
     "repo_commit": "RUST_MCBE_META_REPO_COMMIT",
     "pinned_gophertunnel_commit": "RUST_MCBE_META_GOPHERTUNNEL",
-    "pinned_valentine_fork_commit": "RUST_MCBE_META_VALENTINE_FORK",
-    "pinned_valentine_upstream_commit": "RUST_MCBE_META_VALENTINE_UPSTREAM",
+    "pinned_axolotl_stack_commit": "RUST_MCBE_META_AXOLOTL_STACK",
+    "pinned_protocolgen_commit": "RUST_MCBE_META_PROTOCOLGEN",
     "pinned_valentine_license_sha256": "RUST_MCBE_META_VALENTINE_LICENSE",
     "bds_sha256": "RUST_MCBE_META_BDS_HASH",
     "bds_command": "RUST_MCBE_META_BDS_COMMAND",
@@ -856,6 +936,8 @@ if [[ -n $bds_dir ]]; then
     lease_error="$run_dir/bds-runtime-lease.stderr.log"
     start_runtime_lease_helper "$runtime_dir.lock" "$lease_control" "$lease_output" "$lease_error"
     bds_executable=$(prepare_stable_runtime "$bds_dir" "$runtime_dir" "$bds_executable_name")
+    runtime_bds_hash=$(sha256_file "$bds_executable")
+    [[ $runtime_bds_hash == "$expected_bds_sha256" ]] || die "stable BDS executable SHA-256 is $runtime_bds_hash, want $expected_bds_sha256"
 
     port_control="$run_dir/port-reservation.control"
     port_output="$run_dir/port-reservation.out"
@@ -889,6 +971,15 @@ if [[ -n $bds_dir ]]; then
     bds_pid=$!
     exec 9>"$bds_stdin"
     bds_fd_open=true
+    wait_for_marker "$run_dir/bds.stdout.log" "Version: $expected_bds_release" 120 "$bds_pid"
+    python3 - "$run_dir/bds.stdout.log" "$expected_bds_release" <<'PY' || die 'BDS startup did not report the exact pinned release'
+import re, sys
+path, release = sys.argv[1:]
+pattern = re.compile(r"(?:^|\s)Version:\s+" + re.escape(release) + r"(?:\s|$)")
+with open(path, encoding="utf-8", errors="strict") as source:
+    if not any(pattern.search(line) for line in source):
+        raise SystemExit(1)
+PY
     wait_for_marker "$run_dir/bds.stdout.log" 'Server started.' 120 "$bds_pid"
 else
     wait_for_external_bds "$upstream" "$run_dir/bds.stdout.log" "$run_dir/bds.stderr.log" || die "external BDS did not become ready (log: $run_dir/bds.stderr.log)"

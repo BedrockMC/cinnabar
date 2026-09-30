@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "profile": "neutral_unlit_binary_alpha_two_sided",
+  "material_names": ["entity_alphatest", "tadpole"],
+  "public_material_version": "1.26.33.01",
+  "public_material_sha256": "6b481fb5ba8ffff97c6222c37e379e34a03e04ebad42566c5d85e207af010272",
+  "limitations": "Neutral engine support only. Target-version lighting, tint, overlay and fractional-alpha material parity remain unverified."
+}

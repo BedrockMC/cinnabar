@@ -17,9 +17,9 @@ use client_world::{
     WorldStream,
 };
 use protocol::{
-    ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
-    ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent, WorldBootstrap,
-    WorldEvent,
+    ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent, ChangeDimensionEvent,
+    WorldBootstrap, WorldEvent,
 };
 
 fn scalar(value: f32) -> EntityGeometryScalar {
@@ -143,6 +143,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             first_channel: 0,
             channel_count: 1,
             source: 1,
+            override_previous: false,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -157,11 +158,13 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 time_seconds: scalar(0.0),
                 value: [scalar(0.0), scalar(0.0), scalar(0.0)],
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: [None; 3],
             },
             EntityAnimationKeyframe {
                 time_seconds: scalar(0.1),
                 value: [scalar(2.0), scalar(0.0), scalar(0.0)],
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: [None; 3],
             },
         ]
         .into_boxed_slice(),
@@ -176,7 +179,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             },
             MolangSymbol {
                 kind: MolangSymbolKind::Query,
-                identifier: "query.is_moving".into(),
+                identifier: "query.ground_speed".into(),
             },
         ]
         .into_boxed_slice(),
@@ -218,7 +221,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         ]
         .into_boxed_slice(),
         controller_animations: vec![EntityControllerAnimation {
-            clip: 0,
+            target: assets::EntityControllerAnimationTarget::Clip(0),
             weight: None,
         }]
         .into_boxed_slice(),
@@ -233,6 +236,9 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             first_geometry: 0,
             geometry_count: 1,
             fallback,
+            initialize: None,
+            pre_animation: None,
+            scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -248,10 +254,12 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         rig_controllers: vec![EntityRigControllerBinding {
             name: 0,
             controller: 0,
+            weight: None,
         }]
         .into_boxed_slice(),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
+        render: Default::default(),
     }
 }
 
@@ -294,6 +302,7 @@ fn spawn(runtime_id: u64, unique_id: i64, velocity: [f32; 3]) -> WorldEvent {
         metadata: Arc::from([]),
         attributes: Arc::from([]),
         properties: Arc::from([]),
+        links: Arc::from([]),
     }))
 }
 
@@ -330,16 +339,36 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
     assert_eq!(initial.actor.runtime_id, 42);
     assert_eq!(initial.actor.spawn_revision, 1);
     assert_eq!(initial.previous, initial.current);
+    assert_eq!(initial.rest, initial.current);
+    let rest = initial.rest.to_vec();
     assert_eq!(initial.current.len(), 2);
     assert_eq!(initial.completed_tick, 0);
     assert_eq!(initial.current[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
 
-    stream.advance_actor_interpolation_ticks(1);
+    // The first tick enters the animated state, whose clip starts at time zero.
+    stream.advance_actor_interpolation_ticks(2);
     let tick = stream.actor_rig(42).unwrap();
-    assert_eq!(tick.completed_tick, 1);
+    assert_eq!(tick.completed_tick, 2);
     assert_eq!(tick.previous[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
-    assert_eq!(tick.current[1].translation_scale[0..3], [1.0, 2.0, 0.0]);
+    // The rig frame mirrors authored X, so the +X clip offset lands at -X.
+    assert_eq!(tick.current[1].translation_scale[0..3], [-1.0, 2.0, 0.0]);
     assert_eq!(tick.current[1].translation_scale[3], 1.0);
+    assert_eq!(tick.rest, rest);
+    assert_ne!(tick.rest, tick.current);
+}
+
+#[test]
+fn cached_rest_uses_resolved_rotated_inheritance_not_the_latest_animation() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    compiled.geometries[0].bones[0].rotation = Some([scalar(0.0), scalar(0.0), scalar(90.0)]);
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
+    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    stream.advance_actor_interpolation_ticks(2);
+    let rig = stream.actor_rig(42).unwrap();
+    assert_eq!(rig.rest, rest);
+    assert_ne!(rig.current, rest);
+    assert_ne!(rest[0].rotation, [0.0, 0.0, 0.0, 1.0]);
 }
 
 #[test]
@@ -359,6 +388,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(1);
     let generation = stream.actor_rig(42).unwrap().reset_generation;
+    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
 
     stream
         .submit(
@@ -382,6 +412,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     let teleported = stream.actor_rig(42).unwrap();
     assert!(teleported.reset_generation > generation);
     assert_eq!(teleported.previous, teleported.current);
+    assert_eq!(teleported.rest, rest);
     let generation = teleported.reset_generation;
 
     for (sequence, value) in [
@@ -405,6 +436,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     let metadata_reset = stream.actor_rig(42).unwrap();
     assert!(metadata_reset.reset_generation > generation);
     assert_eq!(metadata_reset.previous, metadata_reset.current);
+    assert_eq!(metadata_reset.rest, rest);
     let old_lifetime = metadata_reset.actor;
     let metadata_reset_generation = metadata_reset.reset_generation;
 
@@ -413,6 +445,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     assert_ne!(replacement.actor, old_lifetime);
     assert!(replacement.reset_generation > metadata_reset_generation);
     assert_eq!(replacement.previous, replacement.current);
+    assert_eq!(replacement.rest, rest);
 }
 
 #[test]
@@ -430,6 +463,7 @@ fn missing_required_rig_produces_no_stale_snapshot() {
         .unwrap();
     assert!(stream.actor_rig(77).is_none());
     assert!(stream.actor_rigs().is_empty());
+    assert_eq!(stream.actor_animation_stats().unrigged_spawns, 1);
 }
 
 #[test]
@@ -438,16 +472,42 @@ fn animation_time_is_lifetime_relative_and_looped() {
     stream.advance_actor_interpolation_ticks(10);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
 
-    stream.advance_actor_interpolation_ticks(1);
+    stream.advance_actor_interpolation_ticks(2);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        1.0
+        -1.0
     );
 
     stream.advance_actor_interpolation_ticks(19);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
         0.0
+    );
+}
+
+#[test]
+fn authoritative_riding_link_reaches_the_next_runtime_tick_query() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    compiled.molang_symbols[2].identifier = "query.is_riding".into();
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::ActorLink(ActorLinkEvent {
+                dimension: 0,
+                ridden_unique_id: -8,
+                rider_unique_id: -7,
+                link_type: ActorLinkType::Rider,
+                immediate: false,
+                rider_initiated: false,
+            }),
+        )
+        .unwrap();
+    stream.advance_actor_interpolation_ticks(2);
+    assert_eq!(
+        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        -1.0
     );
 }
 
@@ -511,7 +571,7 @@ fn conditioned_geometry_candidates_precede_the_unconditional_fallback() {
 }
 
 #[test]
-fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
+fn reversed_dynamic_clamp_takes_the_lower_bound_instead_of_freezing() {
     let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
     let first_op = compiled.molang_ops.len() as u32;
     let mut ops = compiled.molang_ops.into_vec();
@@ -519,7 +579,7 @@ fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
         MolangOp::Push(scalar(1.0)),
         MolangOp::Push(scalar(2.0)),
         MolangOp::Push(scalar(1.0)),
-        MolangOp::Clamp,
+        MolangOp::Call(assets::MolangFunction::Clamp),
     ]);
     compiled.molang_ops = ops.into_boxed_slice();
     let weight = compiled.molang_expressions.len() as u32;
@@ -534,9 +594,15 @@ fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
 
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    stream.advance_actor_interpolation_ticks(1);
-    assert_eq!(stream.actor_rig(42).unwrap().completed_tick, 0);
-    assert_eq!(stream.actor_animation_stats().frozen_actors, 1);
+    stream.advance_actor_interpolation_ticks(2);
+    assert_eq!(stream.actor_rig(42).unwrap().completed_tick, 2);
+    assert_eq!(stream.actor_animation_stats().frozen_actors, 0);
+    // One tick into the entered state, weight 2 doubles the clip's +1 authored X offset,
+    // which the rig frame mirrors.
+    assert_eq!(
+        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        -2.0
+    );
 }
 
 #[test]
@@ -567,10 +633,11 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
             })),
         )
         .unwrap();
-    stream.advance_actor_interpolation_ticks(1);
+    // The move enters the animated state; its clip then runs from zero.
+    stream.advance_actor_interpolation_ticks(3);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        2.0
+        -2.0
     );
 
     stream
@@ -606,16 +673,19 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
             time_seconds: scalar(0.0),
             value: [scalar(0.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
         EntityAnimationKeyframe {
             time_seconds: scalar(0.0),
             value: [scalar(2.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
         EntityAnimationKeyframe {
             time_seconds: scalar(0.1),
             value: [scalar(4.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
     ]
     .into_boxed_slice();
@@ -645,11 +715,115 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
 
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    stream.advance_actor_interpolation_ticks(1);
-    // At 0.05 the duplicate time's post value (2) interpolates to 3;
-    // clamping index 99 to the final collection weight doubles that delta.
+    stream.advance_actor_interpolation_ticks(2);
+    // At 0.05 the duplicate time's post value (2) interpolates to 3; index 99 wraps
+    // to the second collection weight, which doubles that delta.
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        6.0
+        -6.0
     );
+}
+
+fn turn(sequence: u64, yaw: f32) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {
+        dimension: 0,
+        runtime_id: 42,
+        position: [None; 3],
+        position_origin: ActorPositionOrigin::Feet,
+        pitch: None,
+        yaw: Some(yaw),
+        head_yaw: Some(yaw),
+        on_ground: Some(true),
+        teleported: false,
+        player_mode: None,
+        source_tick: Some(sequence),
+    }))
+}
+
+fn with_weight_program(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>, stack: u8) {
+    let first_op = compiled.molang_ops.len() as u32;
+    let op_count = program.len() as u16;
+    let mut ops = std::mem::take(&mut compiled.molang_ops).into_vec();
+    ops.extend(program);
+    compiled.molang_ops = ops.into_boxed_slice();
+    let weight = compiled.molang_expressions.len() as u32;
+    let mut expressions = std::mem::take(&mut compiled.molang_expressions).into_vec();
+    expressions.push(CompiledMolangExpression {
+        first_op,
+        op_count,
+        max_stack: stack,
+    });
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    compiled.controller_animations[0].weight = Some(weight);
+}
+
+#[test]
+fn static_and_failing_rigs_still_turn_their_bodies_toward_the_reported_yaw() {
+    let mut failing = compiled_entity_assets(EntityRigFallback::Skip);
+    // A NaN weight makes every pose non-finite, so evaluation fails each tick.
+    with_weight_program(
+        &mut failing,
+        vec![
+            MolangOp::Push(scalar(-1.0)),
+            MolangOp::Call(assets::MolangFunction::Sqrt),
+        ],
+        1,
+    );
+    for assets in [
+        entity_assets(EntityRigFallback::GeometryOnly),
+        decode_entity_assets(&failing),
+    ] {
+        let mut stream = stream_with_entity_assets(assets);
+        stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
+        stream.submit(2, turn(2, 90.0)).unwrap();
+        stream.advance_actor_interpolation_ticks(30);
+        let rig = stream.actor_rig(42).unwrap();
+        assert!(
+            (rig.body_yaw - 90.0).abs() < 1.0e-3,
+            "body yaw {}",
+            rig.body_yaw
+        );
+    }
+}
+
+#[test]
+fn world_budget_starvation_rotates_so_the_same_actors_do_not_always_freeze() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    // One capped loop spends about a thousand operations per actor per tick.
+    with_weight_program(
+        &mut compiled,
+        vec![
+            MolangOp::Push(scalar(5_000.0)),
+            MolangOp::LoopStart(3),
+            MolangOp::LoopNext(2),
+            MolangOp::Push(scalar(1.0)),
+        ],
+        1,
+    );
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    let actors = 300_u64;
+    for runtime_id in 0..actors {
+        stream
+            .submit(
+                runtime_id + 1,
+                spawn(100 + runtime_id, -100 - runtime_id as i64, [1.0, 0.0, 0.0]),
+            )
+            .unwrap();
+    }
+    stream.advance_actor_interpolation_ticks(1);
+    let starved_first = (0..actors)
+        .filter(|index| stream.actor_rig(100 + index).unwrap().completed_tick == 0)
+        .collect::<Vec<_>>();
+    assert!(
+        !starved_first.is_empty(),
+        "the fixture exhausts the world budget"
+    );
+    stream.advance_actor_interpolation_ticks(1);
+    for index in starved_first {
+        assert_eq!(
+            stream.actor_rig(100 + index).unwrap().completed_tick,
+            2,
+            "actor {index} starved twice"
+        );
+    }
 }

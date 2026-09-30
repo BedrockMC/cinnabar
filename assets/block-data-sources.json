@@ -64,6 +64,13 @@
           "size_bytes": 48614
         },
         {
+          "upstream_path": "biome_id_map.json",
+          "install_path": "biome_id_map.json",
+          "url": "https://raw.githubusercontent.com/pmmp/BedrockData/bdb44a48fb6beffb6e9f6864f06d2232eb62b6a3/biome_id_map.json",
+          "sha256": "4f27df3f1e58476fc65e337f7cf3e275f65a98b6c40ea46c31b24016b85e0052",
+          "size_bytes": 2279
+        },
+        {
           "upstream_path": "LICENSE",
           "install_path": "LICENSE",
           "url": "https://raw.githubusercontent.com/pmmp/BedrockData/bdb44a48fb6beffb6e9f6864f06d2232eb62b6a3/LICENSE",
@@ -157,6 +164,36 @@
           "upstream_path": "LICENSE",
           "install_path": "LICENSE",
           "url": "https://raw.githubusercontent.com/df-mc/dragonfly/b85c56ffea6b306798a935f14cc941c76618be52/LICENSE",
+          "sha256": "9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755",
+          "size_bytes": 1071
+        }
+      ]
+    },
+    {
+      "id": "dragonfly-item-tags",
+      "repository": "https://github.com/hashimthearab/dragonfly",
+      "commit": "3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5",
+      "destination": "dragonfly-item-tags",
+      "license": {
+        "spdx": "MIT",
+        "evidence_kind": "license-file",
+        "standalone_file": true,
+        "evidence_path": "LICENSE",
+        "evidence_sha256": "9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755",
+        "copyright": "Copyright (c) 2019 Dragonfly Tech"
+      },
+      "files": [
+        {
+          "upstream_path": "server/item/recipe/item_tags.json",
+          "install_path": "item_tags.json",
+          "url": "https://raw.githubusercontent.com/hashimthearab/dragonfly/3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5/server/item/recipe/item_tags.json",
+          "sha256": "4af255938ccb9617cb7d33f9d531e38e5f2cbfeda28dbaca80bcb6076350227d",
+          "size_bytes": 47306
+        },
+        {
+          "upstream_path": "LICENSE",
+          "install_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/hashimthearab/dragonfly/3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5/LICENSE",
           "sha256": "9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755",
           "size_bytes": 1071
         }

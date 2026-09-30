@@ -41,6 +41,8 @@ struct EntityCatalogCountProbe {
     rig_controllers: SequenceCount,
     item_visuals: SequenceCount,
     item_visual_aliases: SequenceCount,
+    #[serde(rename = "render")]
+    _render: de::IgnoredAny,
 }
 
 struct SequenceCount(usize);

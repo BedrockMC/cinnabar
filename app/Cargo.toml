@@ -6,8 +6,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+bytes.workspace = true
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
+asset-compiler = { path = "../crates/asset-compiler" }
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_anti_alias",
@@ -21,24 +23,34 @@ bevy = { workspace = true, default-features = false, features = [
 ] }
 crossbeam-channel = "0.5"
 client-world = { path = "../crates/client-world" }
-image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
+json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
+resource-pack = { path = "../crates/resource-pack" }
 rayon.workspace = true
+rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror.workspace = true
+url = "2"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 ui = { path = "../crates/ui" }
 world = { path = "../crates/world" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+asset-compiler = { path = "../crates/asset-compiler" }
 client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }

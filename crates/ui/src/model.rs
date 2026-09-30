@@ -60,6 +60,12 @@ pub enum UiVisual {
         color: [u8; 4],
         angle_radians: f32,
     },
+    /// A sprite with the animated enchantment glint over its opaque texels.
+    GlintSprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+    },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
         texture_page: u16,
@@ -74,6 +80,13 @@ pub enum UiVisual {
         /// rather than of a span: a `§` colour code changes the hue, never
         /// whether the run is shadowed.
         shadow: TextShadow,
+    },
+    /// A text run rotated around the centre of its node (the title splash).
+    RotatedText {
+        layout: Arc<TextLayout>,
+        color: [u8; 4],
+        shadow: TextShadow,
+        angle_radians: f32,
     },
 }
 
@@ -132,6 +145,18 @@ impl UiNode {
 
     pub const fn id(&self) -> UiNodeId {
         self.id
+    }
+
+    pub const fn parent(&self) -> Option<UiNodeId> {
+        self.parent
+    }
+
+    pub const fn bounds(&self) -> UiRect {
+        self.bounds
+    }
+
+    pub const fn visual(&self) -> &UiVisual {
+        &self.visual
     }
 }
 
@@ -217,6 +242,9 @@ impl UiFrame {
     }
 }
 
+/// Vertex style bit asking the renderer to draw the enchantment glint.
+pub const UI_STYLE_GLINT: u8 = 1 << 1;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiVertex {
     pub position: [f32; 2],
@@ -239,6 +267,14 @@ pub struct UiDrawList {
     pub vertices: Vec<UiVertex>,
     pub indices: Vec<u32>,
     pub batches: Vec<UiDrawBatch>,
+}
+
+/// Per-frame text-draw inputs the content-hashed layout cache cannot hold: the
+/// same-width obfuscation pools and the frame seed that animates `§k` runs.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextEffects<'a> {
+    pub obfuscation_seed: u64,
+    pub obfuscation: Option<&'a crate::ObfuscationGlyphs>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -495,6 +531,13 @@ impl UiTree {
     }
 
     pub fn build_draw_list(&self) -> Result<UiDrawList, UiError> {
+        self.build_draw_list_with(TextEffects::default())
+    }
+
+    /// As [`Self::build_draw_list`], but applies `§k`/`§l`/`§o` style effects:
+    /// obfuscation swaps each frame from `effects`, bold and italic from the
+    /// glyphs' own style.
+    pub fn build_draw_list_with(&self, effects: TextEffects<'_>) -> Result<UiDrawList, UiError> {
         let synthetic;
         let frame = if let Some(frame) = &self.frame {
             frame
@@ -552,6 +595,7 @@ impl UiTree {
                     &node.visual,
                     bounds,
                     clip,
+                    effects,
                     &mut vertices,
                     &mut indices,
                     &mut batches,
@@ -636,17 +680,26 @@ impl UiTree {
                 UiVisual::None => 0,
                 UiVisual::Solid { .. }
                 | UiVisual::Sprite { .. }
+                | UiVisual::GlintSprite { .. }
                 | UiVisual::RotatedSprite { .. }
                 | UiVisual::InvertedSprite { .. } => 1,
-                UiVisual::Text { layout, shadow, .. } => {
+                UiVisual::Text { layout, shadow, .. }
+                | UiVisual::RotatedText { layout, shadow, .. } => {
                     let passes = match shadow {
                         TextShadow::None => 1,
                         TextShadow::Offset64(_) => 2,
                     };
+                    // A bold glyph emits a second, offset copy per pass.
+                    let bold = layout
+                        .glyphs()
+                        .iter()
+                        .filter(|glyph| glyph.style.bold)
+                        .count();
                     layout
                         .glyphs()
                         .len()
-                        .checked_mul(passes)
+                        .checked_add(bold)
+                        .and_then(|per_pass| per_pass.checked_mul(passes))
                         .ok_or(UiError::DrawIndexOverflow)?
                 }
             };

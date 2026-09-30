@@ -7,14 +7,11 @@ const LIGHT_CURVE: array<f32, 16> = array(
     0.5, 0.61904764, 0.7777778, 1.0,
 );
 
-// Provisional conservative floor calibrated to the existing 0.2 horizon
-// daylight baseline. Native Bedrock capture tuning remains an acceptance item.
-const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.2;
+// Night sky-light transfer; mirrors `celestial::NIGHT_SKY_TRANSFER`.
+const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.083333336;
 
-// Vanilla retains low ambient visibility even when both light channels are
-// zero. This conservative linear-light floor remains native-tuning work rather
-// than being folded into either independently solved channel.
-const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.04;
+// Light level zero is fully dark; kept as a separate tunable.
+const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.0;
 
 fn lit_colour(
     colour: vec3<f32>,

@@ -1,11 +1,21 @@
 use std::ops::{BitOr, BitOrAssign};
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_40::{
-    PlayerAuthInputPacket, PlayerAuthInputPacketInputDataItem, PlayerAuthInputPacketInputMode,
-    PlayerAuthInputPacketNewInteractionModel, PlayerAuthInputPacketPlayMode, PlayerInputTick, Vec2,
-    Vec3,
+use valentine::bedrock::version::v1_26_51::{
+    EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
+    EnumsPlayerAuthInputPacketPayloadInputData, PlayerAuthInputPacket, PlayerInputTick, Vec2, Vec3,
 };
+
+mod interactions;
+mod prediction_sync;
+mod trace;
+
+pub use interactions::{
+    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
+    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
+};
+pub use prediction_sync::{MovementPredictionSync, client_movement_prediction_sync};
+pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
 use crate::Packet;
 
@@ -15,6 +25,8 @@ pub struct PlayerInputFlags(u64);
 
 impl PlayerInputFlags {
     pub const NONE: Self = Self(0);
+    pub const ASCEND: Self = Self(1 << 0);
+    pub const DESCEND: Self = Self(1 << 1);
     pub const JUMP_DOWN: Self = Self(1 << 3);
     pub const SPRINT_DOWN: Self = Self(1 << 4);
     pub const JUMPING: Self = Self(1 << 6);
@@ -24,21 +36,62 @@ impl PlayerInputFlags {
     pub const DOWN: Self = Self(1 << 11);
     pub const LEFT: Self = Self(1 << 12);
     pub const RIGHT: Self = Self(1 << 13);
+    pub const UP_LEFT: Self = Self(1 << 14);
+    pub const UP_RIGHT: Self = Self(1 << 15);
     pub const SPRINTING: Self = Self(1 << 20);
+    pub const PERSIST_SNEAK: Self = Self(1 << 24);
     pub const START_SPRINTING: Self = Self(1 << 25);
     pub const STOP_SPRINTING: Self = Self(1 << 26);
     pub const START_SNEAKING: Self = Self(1 << 27);
     pub const STOP_SNEAKING: Self = Self(1 << 28);
+    pub const START_SWIMMING: Self = Self(1 << 29);
+    pub const STOP_SWIMMING: Self = Self(1 << 30);
     pub const START_JUMPING: Self = Self(1 << 31);
+    pub const START_GLIDING: Self = Self(1 << 32);
+    pub const STOP_GLIDING: Self = Self(1 << 33);
+    /// Wire ordinal 34 (`PerformItemInteraction`): the packet carries an
+    /// embedded item-use transaction. Derived from payload presence by the
+    /// encoder; callers never assert it directly.
+    pub const PERFORM_ITEM_INTERACTION: Self = Self(1 << 34);
+    /// Wire ordinal 35 (`PerformBlockActions`): the packet carries a
+    /// block-action list. Derived from payload presence by the encoder;
+    /// callers never assert it directly.
+    pub const PERFORM_BLOCK_ACTIONS: Self = Self(1 << 35);
+    /// Wire ordinal 36, derived only from an embedded stack request.
+    pub const PERFORM_ITEM_STACK_REQUEST: Self = Self(1 << 36);
+    /// Wire ordinal 37 of the input-data list (`HandledTeleport`). The app
+    /// asserts this flag on the first transmitted sample after a qualifying
+    /// server teleport; see the movement `teleport_ack` module.
+    pub const HANDLED_TELEPORT: Self = Self(1 << 37);
+    /// Wire ordinal 39: an attack press hit neither an actor nor a block.
+    pub const MISSED_SWING: Self = Self(1 << 39);
+    pub const START_CRAWLING: Self = Self(1 << 40);
+    pub const STOP_CRAWLING: Self = Self(1 << 41);
+    pub const START_FLYING: Self = Self(1 << 42);
+    pub const STOP_FLYING: Self = Self(1 << 43);
+    pub const PADDLING_LEFT: Self = Self(1 << 46);
+    pub const PADDLING_RIGHT: Self = Self(1 << 47);
+    pub const HORIZONTAL_COLLISION: Self = Self(1 << 49);
+    pub const VERTICAL_COLLISION: Self = Self(1 << 50);
+    pub const DOWN_LEFT: Self = Self(1 << 51);
+    pub const DOWN_RIGHT: Self = Self(1 << 52);
     pub const JUMP_RELEASED_RAW: Self = Self(1 << 59);
     pub const JUMP_PRESSED_RAW: Self = Self(1 << 60);
     pub const JUMP_CURRENT_RAW: Self = Self(1 << 61);
     pub const SNEAK_RELEASED_RAW: Self = Self(1 << 62);
     pub const SNEAK_PRESSED_RAW: Self = Self(1 << 63);
-
     #[must_use]
     pub const fn bits(self) -> u64 {
         self.0
+    }
+
+    #[must_use]
+    pub const fn with_mask(self, mask: Self, enabled: bool) -> Self {
+        if enabled {
+            Self(self.0 | mask.0)
+        } else {
+            Self(self.0 & !mask.0)
+        }
     }
 }
 
@@ -83,20 +136,45 @@ pub struct PlayerAuthInputSnapshot {
 }
 
 /// Invalid app-owned state that cannot be represented safely on the wire.
-#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum PlayerAuthInputError {
-    #[error("PlayerAuthInput tick {0} exceeds the protocol-1001 signed wire range")]
-    TickOutOfRange(u64),
     #[error("PlayerAuthInput contains a non-finite position, rotation, delta, or input vector")]
     NonFiniteState,
+    #[error("PlayerAuthInput interactions are invalid: {0}")]
+    Interaction(#[from] InteractionEncodeError),
 }
 
-/// Converts an app-owned movement snapshot to the pinned protocol-1001 packet.
+/// Converts an app-owned movement snapshot to the pinned protocol-2168 packet
+/// without any interaction payload.
 pub fn player_auth_input(
     snapshot: PlayerAuthInputSnapshot,
 ) -> Result<Packet, PlayerAuthInputError> {
-    let tick = i64::try_from(snapshot.tick)
-        .map_err(|_| PlayerAuthInputError::TickOutOfRange(snapshot.tick))?;
+    player_auth_input_with_interactions(snapshot, &PlayerAuthInputInteractions::default())
+}
+
+/// Converts an app-owned movement snapshot plus the interactions of the same
+/// tick to the pinned protocol-2168 packet.
+///
+/// The block-action, item-interaction, and stack-request flags are derived
+/// exclusively from payload presence so the flag list and the optional
+/// payloads can never disagree on the wire; a snapshot that asserts a derived
+/// flag itself is rejected.
+pub fn player_auth_input_with_interactions(
+    snapshot: PlayerAuthInputSnapshot,
+    interactions: &PlayerAuthInputInteractions,
+) -> Result<Packet, PlayerAuthInputError> {
+    player_auth_input_with_mining_request(snapshot, interactions, None)
+}
+
+/// Encodes an optional bounded mining request without allocating its ID or
+/// establishing gameplay authority. An absent request remains independent of
+/// any block prediction action in the same input.
+pub fn player_auth_input_with_mining_request(
+    snapshot: PlayerAuthInputSnapshot,
+    interactions: &PlayerAuthInputInteractions,
+    mining_request: Option<crate::MineBlockRequest>,
+) -> Result<Packet, PlayerAuthInputError> {
+    let tick = snapshot.tick;
     let finite = snapshot
         .position
         .into_iter()
@@ -110,6 +188,30 @@ pub fn player_auth_input(
     if !finite {
         return Err(PlayerAuthInputError::NonFiniteState);
     }
+    let derived_flag_bits = PlayerInputFlags::PERFORM_ITEM_INTERACTION.bits()
+        | PlayerInputFlags::PERFORM_BLOCK_ACTIONS.bits()
+        | PlayerInputFlags::PERFORM_ITEM_STACK_REQUEST.bits();
+    if snapshot.flags.bits() & derived_flag_bits != 0 {
+        return Err(InteractionEncodeError::InconsistentInteractionFlags.into());
+    }
+    let mut flags = snapshot.flags;
+    let player_block_actions = if interactions.block_actions.is_empty() {
+        None
+    } else {
+        flags |= PlayerInputFlags::PERFORM_BLOCK_ACTIONS;
+        Some(interactions.block_actions.vendor()?)
+    };
+    let item_use_transaction = match &interactions.block_interaction {
+        None => None,
+        Some(request) => {
+            flags |= PlayerInputFlags::PERFORM_ITEM_INTERACTION;
+            Some(interactions::packed_block_interaction(request.clone())?)
+        }
+    };
+    let item_stack_request = mining_request.map(|request| {
+        flags |= PlayerInputFlags::PERFORM_ITEM_STACK_REQUEST;
+        request.packed()
+    });
 
     Ok(PlayerAuthInputPacket {
         player_rotation: Vec2 {
@@ -119,138 +221,139 @@ pub fn player_auth_input(
         position: vec3(snapshot.position),
         move_vector: vec2(snapshot.move_vector),
         player_head_rotation: snapshot.head_yaw,
-        input_data: input_data_items(snapshot.flags),
+        input_data: input_data_items(flags),
         input_mode: match snapshot.input_mode {
-            PlayerInputMode::Mouse => PlayerAuthInputPacketInputMode::Mouse,
-            PlayerInputMode::Touch => PlayerAuthInputPacketInputMode::Touch,
-            PlayerInputMode::GamePad => PlayerAuthInputPacketInputMode::GamePad,
+            PlayerInputMode::Mouse => EnumsInputMode::Mouse,
+            PlayerInputMode::Touch => EnumsInputMode::Touch,
+            PlayerInputMode::GamePad => EnumsInputMode::Gamepad,
         },
-        play_mode: PlayerAuthInputPacketPlayMode::Normal,
+        play_mode: EnumsClientPlayMode::Normal,
         // 1.26.40 agrees with gophertunnel here, which writes the interaction
         // model with io.Varint32 (zigzag) in packet/player_auth_input.go. The
         // protocol-1001 code sent Unknown(-1) because the generated definition
         // was zigzag while the authority was an unsigned varint; that
         // workaround is obsolete and the named variant is now correct.
-        new_interaction_model: PlayerAuthInputPacketNewInteractionModel::Crosshair,
+        new_interaction_model: EnumsNewInteractionModel::Crosshair,
         interact_rotation: Vec2 {
             x: snapshot.pitch,
             y: snapshot.yaw,
         },
         client_tick: PlayerInputTick { inputtick: tick },
         pos_delta: vec3(snapshot.delta),
-        // These are the OUTER bool of each of gophertunnel's DoubleOptionalFunc
-        // fields (minecraft/protocol/io.go): `outer := true; r.Bool(&outer);
-        // if outer { OptionalFunc(...) }`. A Go writer can never emit false
-        // here -- it is hardcoded true -- and the generated Option's own
-        // presence byte is the inner flag that actually says "no payload".
-        constant_12: true,
-        item_use_transaction: None,
-        constant_14: true,
-        item_stack_request: None,
-        constant_16: true,
-        player_block_actions: None,
-        constant_18: true,
+        item_use_transaction,
+        item_stack_request,
+        player_block_actions,
         vehicle_rotation: None,
-        constant_20: true,
         client_predicted_vehicle: None,
         analog_move_vector: vec2(snapshot.analogue_move_vector),
         camera_orientation: vec3(snapshot.camera_orientation),
         raw_move_vector: vec2(snapshot.raw_move_vector),
-        // The presence bool gophertunnel's InputFlagList writes before the flag
-        // count (minecraft/protocol/input_flags.go). Writing false here would
-        // make a peer read zero flags and then consume the count byte as the
-        // input mode, desyncing the rest of the packet.
-        constant_4: true,
     }
     .into())
 }
+
+use EnumsPlayerAuthInputPacketPayloadInputData as Item;
+
+/// One pinned input flag: its generated wire variant paired with the exact
+/// diagnostic name used by [`player_auth_input_trace_sample`]. Row `n` is bit
+/// `n`; each generated variant's ordinal equals its row, so keeping the name
+/// beside the variant in one table is what keeps trace names from drifting
+/// away from the encoder's spelling.
+type InputFlagItem = EnumsPlayerAuthInputPacketPayloadInputData;
+
+const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
+    (Item::Ascend, "Ascend"),
+    (Item::Descend, "Descend"),
+    (Item::Northjump, "NorthJump"),
+    (Item::Jumpdown, "JumpDown"),
+    (Item::Sprintdown, "SprintDown"),
+    (Item::Changeheight, "ChangeHeight"),
+    (Item::Jumping, "Jumping"),
+    (Item::Autojumpinginwater, "AutoJumpingInWater"),
+    (Item::Sneaking, "Sneaking"),
+    (Item::Sneakdown, "SneakDown"),
+    (Item::Up, "Up"),
+    (Item::Down, "Down"),
+    (Item::Left, "Left"),
+    (Item::Right, "Right"),
+    (Item::Upleft, "UpLeft"),
+    (Item::Upright, "UpRight"),
+    (Item::Wantup, "WantUp"),
+    (Item::Wantdown, "WantDown"),
+    (Item::Wantdownslow, "WantDownSlow"),
+    (Item::Wantupslow, "WantUpSlow"),
+    (Item::Sprinting, "Sprinting"),
+    (Item::Ascendblock, "AscendBlock"),
+    (Item::Descendblock, "DescendBlock"),
+    (Item::Sneaktoggledown, "SneakToggleDown"),
+    (Item::Persistsneak, "PersistSneak"),
+    (Item::Startsprinting, "StartSprinting"),
+    (Item::Stopsprinting, "StopSprinting"),
+    (Item::Startsneaking, "StartSneaking"),
+    (Item::Stopsneaking, "StopSneaking"),
+    (Item::Startswimming, "StartSwimming"),
+    (Item::Stopswimming, "StopSwimming"),
+    (Item::Startjumping, "StartJumping"),
+    (Item::Startgliding, "StartGliding"),
+    (Item::Stopgliding, "StopGliding"),
+    (Item::Performiteminteraction, "PerformItemInteraction"),
+    (Item::Performblockactions, "PerformBlockActions"),
+    (Item::Performitemstackrequest, "PerformItemStackRequest"),
+    (Item::Handledteleport, "HandledTeleport"),
+    (Item::Emoting, "Emoting"),
+    (Item::Missedswing, "MissedSwing"),
+    (Item::Startcrawling, "StartCrawling"),
+    (Item::Stopcrawling, "StopCrawling"),
+    (Item::Startflying, "StartFlying"),
+    (Item::Stopflying, "StopFlying"),
+    (Item::Clientackserverdata, "ClientAckServerData"),
+    (
+        Item::Isinclientpredictedvehicle,
+        "IsInClientPredictedVehicle",
+    ),
+    (Item::Paddlingleft, "PaddlingLeft"),
+    (Item::Paddlingright, "PaddlingRight"),
+    (Item::Blockbreakingdelayenabled, "BlockBreakingDelayEnabled"),
+    (Item::Horizontalcollision, "HorizontalCollision"),
+    (Item::Verticalcollision, "VerticalCollision"),
+    (Item::Downleft, "DownLeft"),
+    (Item::Downright, "DownRight"),
+    (Item::Startusingitem, "StartUsingItem"),
+    (
+        Item::Iscamerarelativemovementenabled,
+        "IsCameraRelativeMovementEnabled",
+    ),
+    (
+        Item::Isrotcontrolledbymovedirection,
+        "IsRotControlledByMoveDirection",
+    ),
+    (Item::Startspinattack, "StartSpinAttack"),
+    (Item::Stopspinattack, "StopSpinAttack"),
+    (Item::Ishotbaronlytouch, "IsHotbarOnlyTouch"),
+    (Item::Jumpreleasedraw, "JumpReleasedRaw"),
+    (Item::Jumppressedraw, "JumpPressedRaw"),
+    (Item::Jumpcurrentraw, "JumpCurrentRaw"),
+    (Item::Sneakreleasedraw, "SneakReleasedRaw"),
+    (Item::Sneakpressedraw, "SneakPressedRaw"),
+    (Item::Sneakcurrentraw, "SneakCurrentRaw"),
+    (Item::Internalupdate, "InternalUpdate"),
+];
 
 /// Expands the bitset the app owns into the flag list 1.26.40 puts on the wire.
 ///
 /// The input flags stopped being a bitset and became a length-prefixed list of
 /// the flag IDs that are set (gophertunnel's `protocol.InputFlagList`). Each
 /// generated variant's ordinal is exactly the bit position the protocol-1001
-/// bitset used, so bit `n` maps to the variant declared `n`th and the app-facing
-/// `PlayerInputFlags` constants keep their meaning unchanged.
-fn input_data_items(flags: PlayerInputFlags) -> Vec<PlayerAuthInputPacketInputDataItem> {
-    use PlayerAuthInputPacketInputDataItem as Item;
-
-    const ITEMS: [Item; 66] = [
-        Item::Ascend,
-        Item::Descend,
-        Item::NorthJump,
-        Item::JumpDown,
-        Item::SprintDown,
-        Item::ChangeHeight,
-        Item::Jumping,
-        Item::AutoJumpingInWater,
-        Item::Sneaking,
-        Item::SneakDown,
-        Item::Up,
-        Item::Down,
-        Item::Left,
-        Item::Right,
-        Item::UpLeft,
-        Item::UpRight,
-        Item::WantUp,
-        Item::WantDown,
-        Item::WantDownSlow,
-        Item::WantUpSlow,
-        Item::Sprinting,
-        Item::AscendBlock,
-        Item::DescendBlock,
-        Item::SneakToggleDown,
-        Item::PersistSneak,
-        Item::StartSprinting,
-        Item::StopSprinting,
-        Item::StartSneaking,
-        Item::StopSneaking,
-        Item::StartSwimming,
-        Item::StopSwimming,
-        Item::StartJumping,
-        Item::StartGliding,
-        Item::StopGliding,
-        Item::PerformItemInteraction,
-        Item::PerformBlockActions,
-        Item::PerformItemStackRequest,
-        Item::HandledTeleport,
-        Item::Emoting,
-        Item::MissedSwing,
-        Item::StartCrawling,
-        Item::StopCrawling,
-        Item::StartFlying,
-        Item::StopFlying,
-        Item::ClientAckServerData,
-        Item::IsInClientPredictedVehicle,
-        Item::PaddlingLeft,
-        Item::PaddlingRight,
-        Item::BlockBreakingDelayEnabled,
-        Item::HorizontalCollision,
-        Item::VerticalCollision,
-        Item::DownLeft,
-        Item::DownRight,
-        Item::StartUsingItem,
-        Item::IsCameraRelativeMovementEnabled,
-        Item::IsRotControlledByMoveDirection,
-        Item::StartSpinAttack,
-        Item::StopSpinAttack,
-        Item::IsHotbarOnlyTouch,
-        Item::JumpReleasedRaw,
-        Item::JumpPressedRaw,
-        Item::JumpCurrentRaw,
-        Item::SneakReleasedRaw,
-        Item::SneakPressedRaw,
-        Item::SneakCurrentRaw,
-        Item::InternalUpdate,
-    ];
-
+/// bitset used, so bit `n` maps to the table row declared `n`th and the
+/// app-facing [`PlayerInputFlags`] constants keep their meaning unchanged.
+fn input_data_items(flags: PlayerInputFlags) -> Vec<EnumsPlayerAuthInputPacketPayloadInputData> {
     let bits = flags.bits();
     (0..u64::BITS)
         .filter(|bit| bits & (1u64 << bit) != 0)
         .map(|bit| {
-            ITEMS
+            INPUT_FLAG_ITEMS
                 .get(bit as usize)
-                .cloned()
+                .map(|(item, _name)| *item)
                 .unwrap_or(Item::Unknown(bit as i32))
         })
         .collect()
@@ -268,5 +371,32 @@ fn vec2(value: [f32; 2]) -> Vec2 {
     Vec2 {
         x: value[0],
         y: value[1],
+    }
+}
+
+#[cfg(test)]
+mod locomotion_flag_tests {
+    use super::*;
+
+    #[test]
+    fn locomotion_constants_sit_on_their_named_table_rows() {
+        for (flag, name) in [
+            (PlayerInputFlags::PERSIST_SNEAK, "PersistSneak"),
+            (PlayerInputFlags::PADDLING_LEFT, "PaddlingLeft"),
+            (PlayerInputFlags::PADDLING_RIGHT, "PaddlingRight"),
+            (PlayerInputFlags::ASCEND, "Ascend"),
+            (PlayerInputFlags::DESCEND, "Descend"),
+            (PlayerInputFlags::START_SWIMMING, "StartSwimming"),
+            (PlayerInputFlags::STOP_SWIMMING, "StopSwimming"),
+            (PlayerInputFlags::START_GLIDING, "StartGliding"),
+            (PlayerInputFlags::STOP_GLIDING, "StopGliding"),
+            (PlayerInputFlags::START_CRAWLING, "StartCrawling"),
+            (PlayerInputFlags::STOP_CRAWLING, "StopCrawling"),
+            (PlayerInputFlags::START_FLYING, "StartFlying"),
+            (PlayerInputFlags::STOP_FLYING, "StopFlying"),
+        ] {
+            let row = flag.bits().trailing_zeros() as usize;
+            assert_eq!(INPUT_FLAG_ITEMS[row].1, name);
+        }
     }
 }

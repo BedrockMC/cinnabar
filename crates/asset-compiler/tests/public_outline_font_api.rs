@@ -4,6 +4,16 @@ use asset_compiler::{FontCompileError, GlyphAdvances, OutlineFontConfig, compile
 use sha2::{Digest, Sha256};
 
 #[test]
+fn fallback_license_is_the_exact_pinned_official_file() {
+    let bytes = include_bytes!("../../../assets/licenses/NotoSansCJK-OFL-1.1.txt");
+    assert_eq!(bytes.len(), 4301);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(bytes)),
+        "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+    );
+}
+
+#[test]
 fn invalid_outline_font_fails_closed() {
     let error = compile_outline_font(
         Path::new("font/Monocraft.ttf"),

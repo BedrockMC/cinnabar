@@ -1,28 +1,8 @@
 //! Decode bounds on login-sequence packet collections.
 //!
-//! REGRESSION - READ BEFORE EDITING.
-//!
-//! Against 1.26.30 every test here asserted that a malicious length prefix was
-//! refused *before allocation*, with `DecodeError::ArrayLengthExceeded` naming
-//! the declared count and the bytes actually available. That mirrored
-//! gophertunnel's `maxSliceLength = 4096` guard
-//! (`limit.SliceLength(l, maxSliceLength)` in `minecraft/protocol/io.go` at
-//! commit be6713da4dc051a4197f897d04835e89e9c54321).
-//!
-//! The 1.26.40 generated crate emits no collection ceilings at all: every
-//! length-prefixed field decodes as a bare `Vec::with_capacity(len)` over an
-//! attacker-supplied count, and `ArrayLengthExceeded` is never constructed
-//! anywhere under `bedrock_versions/v1_26_40/`. A hostile peer can therefore
-//! make the decoder reserve up to `i32::MAX` elements before the read fails.
-//!
-//! That is a valentine_gen defect in generated code this crate must not edit,
-//! and it cannot be worked around here without changing wire semantics. So each
-//! test below pins the weaker property that does survive - the read still fails
-//! rather than yielding a packet - and asserts the failure is an end-of-buffer
-//! error, *not* a length ceiling. Restoring the ceiling in valentine_gen trips
-//! these assertions, which is the signal to revert this file to its stricter
-//! 1.26.30 form. See `world_collection_bounds.rs` for the same treatment of the
-//! world packets.
+//! Generated decoders never trust collection counts for eager allocation. They
+//! grow fallibly while decoding and reject malformed/truncated collections
+//! without imposing a global 4,096-element ceiling.
 
 use bytes::{Bytes, BytesMut};
 use jolyne::valentine::{
@@ -39,22 +19,30 @@ use jolyne::valentine::{
 
 const MAX_LOGIN_COLLECTION_ELEMENTS: usize = 4096;
 
-/// Asserts a declared-but-absent collection still fails the read.
-///
-/// The assertion is deliberately two-sided: an `ArrayLengthExceeded` here would
-/// mean the pre-allocation ceiling is back and this whole file should return to
-/// asserting declared/available counts.
+/// Asserts a declared-but-absent collection fails without a global ceiling.
 #[track_caller]
 fn assert_rejected_without_a_length_ceiling(error: DecodeError) {
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the stricter \
-             1.26.30 assertions in this file"
-        ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            error,
+            DecodeError::ArrayLengthExceeded {
+                declared,
+                available
+            } if declared > available
+        ) || matches!(error, DecodeError::UnexpectedEof { .. }),
+        "unexpected decode error: {error:?}"
+    );
+}
+
+/// Unknown-width element shapes cannot prove a byte lower bound. They start at
+/// zero capacity, grow fallibly per decoded item, and still reject truncation.
+#[track_caller]
+fn assert_unknown_width_rejected_fallibly(error: DecodeError) {
+    assert!(
+        matches!(error, DecodeError::UnexpectedEof { .. })
+            || matches!(&error, DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof),
+        "unexpected decode error: {error:?}"
+    );
 }
 
 fn malicious_collection_prefix<T: BedrockCodec>(
@@ -83,6 +71,18 @@ fn encode_oversized_varint(bytes: &mut BytesMut) {
         .expect("oversized varint count");
 }
 
+fn encode_resource_pack_offer_limit_plus_one(bytes: &mut BytesMut) {
+    VarInt(33)
+        .encode(bytes)
+        .expect("resource-pack offer count above the wire cap");
+}
+
+fn encode_resource_pack_stack_limit_plus_one(bytes: &mut BytesMut) {
+    VarInt(40)
+        .encode(bytes)
+        .expect("resource-pack stack count above the wire cap");
+}
+
 /// `Experiments` is the one login collection whose count is not a varint:
 /// gophertunnel writes it with `protocol.SliceUint32Length`.
 fn encode_oversized_u32(bytes: &mut BytesMut) {
@@ -106,7 +106,8 @@ fn resource_packs_info_rejects_oversized_resource_pack_count() {
     let empty = ResourcePacksInfoPacket::default();
     let mut one = empty.clone();
     one.resource_packs.push(PackInfoData::default());
-    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+    let mut bytes =
+        malicious_collection_prefix(&empty, &one, encode_resource_pack_offer_limit_plus_one);
 
     assert_rejected_without_a_length_ceiling(
         ResourcePacksInfoPacket::decode(&mut bytes, ()).unwrap_err(),
@@ -120,7 +121,8 @@ fn resource_pack_stack_rejects_oversized_texture_pack_count() {
     let empty = ResourcePackStackPacket::default();
     let mut one = empty.clone();
     one.texture_pack_list.push(PackInstanceId::default());
-    let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
+    let mut bytes =
+        malicious_collection_prefix(&empty, &one, encode_resource_pack_stack_limit_plus_one);
 
     assert_rejected_without_a_length_ceiling(
         ResourcePackStackPacket::decode(&mut bytes, ()).unwrap_err(),
@@ -179,9 +181,7 @@ fn item_registry_owned_rejects_oversized_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 #[test]
@@ -191,9 +191,7 @@ fn item_registry_owned_rejects_impossible_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 #[test]
@@ -203,9 +201,7 @@ fn item_registry_borrowed_rejects_oversized_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacketView::decode(&mut bytes).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
 }
 
 #[test]
@@ -215,9 +211,7 @@ fn item_registry_borrowed_rejects_impossible_count() {
     one.item_data.push(ItemData::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_impossible_varint);
 
-    assert_rejected_without_a_length_ceiling(
-        ItemRegistryPacketView::decode(&mut bytes).unwrap_err(),
-    );
+    assert_unknown_width_rejected_fallibly(ItemRegistryPacketView::decode(&mut bytes).unwrap_err());
 }
 
 /// StartGame's inline world fields moved into the nested `settings:
@@ -254,7 +248,7 @@ fn start_game_rejects_oversized_block_property_count() {
     one.block_properties.push(ServerBlockProperty::default());
     let mut bytes = malicious_collection_prefix(&empty, &one, encode_oversized_varint);
 
-    assert_rejected_without_a_length_ceiling(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
+    assert_unknown_width_rejected_fallibly(StartGamePacket::decode(&mut bytes, ()).unwrap_err());
 }
 
 /// `biome_definitions` is `mapof_biomenamestodata` and `string_list` is

@@ -5,7 +5,7 @@ param(
     [string]$LogPath,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
+    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')]
     [string]$ExpectedTarget,
 
     [Parameter(Mandatory = $true)]
@@ -19,6 +19,10 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{64}$')]
     [string]$ExpectedBregSha256,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateRange(1, [uint32]::MaxValue)]
+    [uint32]$ExpectedProtocol,
 
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{32}$')]
@@ -99,7 +103,8 @@ $scenarioProperties = @(
     'input_witness_deferral_reason', 'required_perspective_sequence',
     'require_replay', 'require_snap', 'require_held_jump_rejump',
     'require_release_before_landing', 'require_camera_blocked', 'require_camera_fallback',
-    'require_avatar_visibility_states', 'required_controlled_matrix'
+    'require_avatar_visibility_states', 'required_controlled_matrix',
+    'core_extra_arguments'
 )
 $controlledMatrixProperties = @(
     'sprint', 'sneak_ledge', 'slabs_stairs', 'ladder', 'liquids', 'special_surfaces',
@@ -216,6 +221,30 @@ function Assert-StringArray {
     }
 }
 
+function Assert-Phase3CoreArgumentTokens {
+    # Mirrors the launcher-side allowlist in Resolve-Phase3CoreExtraArguments so
+    # recorded core extra arguments stay exactly one verbatim allowlisted token
+    # each: a lowercase long-form flag or a conservative value.
+    param($Value, [string]$Label)
+    if ($Value -isnot [System.Array] -or @($Value).Count -gt 16) {
+        throw "$Label must be a bounded JSON array"
+    }
+    foreach ($item in @($Value)) {
+        if ($item -isnot [string] -or ([string]$item).Length -gt 256) {
+            throw "$Label must contain bounded JSON strings"
+        }
+        $token = [string]$item
+        if ($token.StartsWith('-')) {
+            if ($token -cnotmatch '^-[a-z][a-z0-9-]*$') {
+                throw "$Label contains a non-allowlisted flag token"
+            }
+        }
+        elseif ($token -cnotmatch '^[A-Za-z0-9._/:=-]+$') {
+            throw "$Label contains a non-allowlisted value token"
+        }
+    }
+}
+
 function Assert-OrderedStringArray {
     param($Value, [string]$Label, [string[]]$Allowed, [int]$Maximum)
     if ($Value -isnot [System.Array] -or @($Value).Count -gt $Maximum) {
@@ -278,6 +307,8 @@ if ($scenarioManifest.input_witness_deferral_reason -isnot [string] -or
     ([string]$scenarioManifest.input_witness_deferral_reason).Length -gt 256) {
     throw 'scenario manifest.input_witness_deferral_reason must be a bounded string'
 }
+Assert-Phase3CoreArgumentTokens $scenarioManifest.core_extra_arguments `
+    'scenario manifest.core_extra_arguments'
 Assert-OrderedStringArray $scenarioManifest.required_perspective_sequence `
     'scenario manifest.required_perspective_sequence' `
     @('FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront') 4
@@ -434,9 +465,22 @@ $identityJson = [Collections.Generic.List[string]]::new()
 $terminalJson = [Collections.Generic.List[string]]::new()
 foreach ($line in Get-Content -LiteralPath $LogPath) {
     if ($line.StartsWith($networkPumpTerminalPrefix, [StringComparison]::Ordinal)) {
+        $networkTerminalJson = $line.Substring($networkPumpTerminalPrefix.Length)
+        try { $networkTerminal = $networkTerminalJson | ConvertFrom-Json }
+        catch { throw 'Phase 3 network pump terminal marker is malformed' }
+        if ($null -ne $networkTerminal.PSObject.Properties['server_disconnect'] -and
+            $null -ne $networkTerminal.server_disconnect) {
+            $reason = if ($networkTerminal.server_disconnect.reason -is [string] -and
+                -not [string]::IsNullOrWhiteSpace([string]$networkTerminal.server_disconnect.reason)) {
+                [string]$networkTerminal.server_disconnect.reason
+            } else {
+                'Unknown'
+            }
+            throw "Phase 3 evidence contains a server-initiated disconnect (reason=$reason)"
+        }
         Write-Warning (
             'Phase 3 network pump terminal diagnostic: ' +
-            $line.Substring($networkPumpTerminalPrefix.Length)
+            $networkTerminalJson
         )
     }
     if ($line.StartsWith($violationPrefix, [StringComparison]::Ordinal)) {
@@ -484,7 +528,7 @@ if ($identity.build_commit -isnot [string] -or
 if ($identity.target -isnot [string] -or [string]$identity.target -cne $ExpectedTarget) {
     throw 'identity target does not match the exact requested server target'
 }
-Assert-Integer $identity.protocol 'identity.protocol' 1001 1001
+Assert-Integer $identity.protocol 'identity.protocol' $ExpectedProtocol $ExpectedProtocol
 Assert-Integer $identity.session_generation 'identity.session_generation' 1 ([decimal][uint64]::MaxValue)
 foreach ($hash in @(
     @('preg_sha256', $ExpectedPregSha256),
@@ -617,8 +661,8 @@ Assert-Integer $terminal.free_camera_packet_count 'terminal.free_camera_packet_c
 Assert-Integer $terminal.pending_outbox_depth 'terminal.pending_outbox_depth' 0 32
 if ($terminal.outbox_reconciliation -isnot [string] -or
     [string]$terminal.outbox_reconciliation -cnotin @(
-        'Drained', 'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored',
-        'NotAuthoritative'
+        'Drained', 'RemoteClosed', 'SocketPending', 'BudgetDeferred', 'TransportRestored',
+        'FullRestored', 'NotAuthoritative'
     )) {
     throw 'terminal outbox_reconciliation is unsupported'
 }
@@ -627,7 +671,7 @@ if ($candidateScenario) {
         [uint64]$terminal.physics_packet_count -eq 0 -or
         [uint64]$terminal.free_camera_packet_count -ne 0 -or
         [uint64]$terminal.pending_outbox_depth -ne 0 -or
-        [string]$terminal.outbox_reconciliation -cne 'Drained') {
+        [string]$terminal.outbox_reconciliation -cnotin @('Drained', 'RemoteClosed')) {
         throw 'CandidatePhysics terminal does not prove Physics packet production'
     }
 }

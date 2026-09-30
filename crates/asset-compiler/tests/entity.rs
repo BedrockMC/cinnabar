@@ -2,6 +2,7 @@ use std::{fs, path::Path, process::Command};
 
 use asset_compiler::compile_entity_assets;
 use assets::{EntityAssetKind, EntityDependencyKind, EntityDependencyResolution};
+use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
@@ -76,7 +77,13 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     let first = compile_entity_assets(pack.path(), MANIFEST).expect("compile entity catalog");
     let second = compile_entity_assets(pack.path(), MANIFEST).expect("compile twice");
     assert_eq!(first, second);
-    assert_eq!(first.sources.len(), 8);
+    assert_eq!(first.sources.len(), 10);
+    assert!(
+        first
+            .sources
+            .iter()
+            .any(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.40.json")
+    );
     assert_eq!(first.geometries.len(), 1);
     let geometry = &first.geometries[0];
     assert_eq!(geometry.identifier.as_ref(), "geometry.allay");
@@ -723,10 +730,21 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     assert_eq!(fs::read(&report).unwrap(), first_report);
 
     let decoded = assets::RuntimeEntityAssets::decode(&first_blob).unwrap();
-    assert_eq!(decoded.sources().len(), 8);
+    assert_eq!(decoded.sources().len(), 10);
+    let binding_source = decoded
+        .sources()
+        .iter()
+        .find(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.40.json")
+        .expect("default sprite binding provenance source");
+    let binding_bytes = include_bytes!("../../assets/data/default-sprite-bindings-1.26.40.json");
+    assert_eq!(binding_source.source_bytes as usize, binding_bytes.len());
+    assert_eq!(
+        binding_source.source_sha256,
+        <[u8; 32]>::from(Sha256::digest(binding_bytes))
+    );
     let report: serde_json::Value = serde_json::from_slice(&first_report).unwrap();
     assert_eq!(report["schema"], 4);
-    assert_eq!(report["counts"]["sources"], 8);
+    assert_eq!(report["counts"]["sources"], decoded.sources().len());
     assert_eq!(report["counts"]["symbols"], decoded.symbols().len());
     assert_eq!(report["counts"]["geometries"], 1);
     assert_eq!(report["counts"]["bones"], 2);
@@ -763,7 +781,15 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         );
     }
     assert!(report["reference_outcomes"].is_array());
-    assert_eq!(report["sources"].as_array().unwrap().len(), 8);
+    let reported_sources = report["sources"].as_array().unwrap();
+    assert_eq!(reported_sources.len(), decoded.sources().len());
+    assert_eq!(
+        reported_sources
+            .iter()
+            .find(|source| source["path"] == binding_source.path.as_ref())
+            .expect("reported default sprite binding provenance source"),
+        &serde_json::to_value(binding_source).unwrap()
+    );
     assert_eq!(
         report["symbols"].as_array().unwrap().len(),
         decoded.symbols().len()

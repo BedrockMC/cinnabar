@@ -39,6 +39,8 @@ struct AtmosphereUniform {
     sky_horizon_thunder: vec4<f32>,
     fog_color_start: vec4<f32>,
     fog_end_time: vec4<f32>,
+    sunrise_band: vec4<f32>,
+    sky_extra: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -302,10 +304,11 @@ fn sample_texture_ref(
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
     let distance_to_camera = distance(world_position, view.world_position);
-    let fog = smoothstep(
-        atmosphere.fog_color_start.w,
-        atmosphere.fog_end_time.x,
-        distance_to_camera,
+    let fog = clamp(
+        (distance_to_camera - atmosphere.fog_color_start.w)
+            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
+        0.0,
+        1.0,
     );
     return mix(colour, atmosphere.fog_color_start.rgb, fog);
 }

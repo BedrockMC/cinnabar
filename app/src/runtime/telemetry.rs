@@ -48,7 +48,8 @@ use crate::{
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
     movement::{
-        MovementSendError, MovementTicker, PhysicsTickEvidenceContext, flush_player_auth_inputs,
+        MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
+        flush_player_auth_inputs_guarded,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -243,6 +244,10 @@ pub(crate) fn biome_blend_diagnostics_enabled(acceptance: &AcceptanceRun) -> boo
     acceptance.enabled()
 }
 
+pub(crate) fn publication_diagnostics_enabled(acceptance: &AcceptanceRun) -> bool {
+    acceptance.enabled() || acceptance.metrics_out.is_some()
+}
+
 pub(crate) fn biome_blend_diagnostic_marker_if_changed(
     last_emitted: &mut Option<CommittedBiomeBlendIdentity>,
     snapshot: CommittedBiomeBlendSnapshot,
@@ -306,6 +311,7 @@ pub(crate) fn send_player_auth_inputs(
     acceptance: Res<AcceptanceRun>,
     input: Res<SemanticInputSnapshot>,
     local_frame: Res<LocalPlayerFrameCarrier>,
+    mut metrics: ResMut<AppMetrics>,
     mut movement: ResMut<MovementTicker>,
     mut client_world: ResMut<ClientWorld>,
 ) {
@@ -340,17 +346,30 @@ pub(crate) fn send_player_auth_inputs(
                 free_camera_packet_count: movement.sent_free_camera_packet_count(),
             }
         });
-    let result = flush_player_auth_inputs(
+    if network.closed_command_has_pending_control() {
+        metrics.0.record_outbound_movement_telemetry(
+            movement.sent_physics_packet_count(),
+            movement.pending_count(),
+            movement.pending_authority_fault().is_some(),
+        );
+        return;
+    }
+    let result = flush_player_auth_inputs_guarded(
         &mut movement,
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
-        |identity, packet| network.send_physics_packet(identity, packet),
+        |identity, packet, mining_guard| {
+            network.send_physics_packet(identity, packet, mining_guard)
+        },
     );
     match result {
         Ok(_) => {}
         Err(MovementSendError::Transport(
             crate::runtime::network::session::PacketSendError::Full(_),
-        )) => movement.note_full_restore(),
+        )) => {
+            metrics.0.add_outbound_budget_drops(1);
+            movement.note_full_restore();
+        }
         Err(MovementSendError::Encode(error)) => {
             movement.deactivate();
             record_fatal_error(
@@ -358,6 +377,9 @@ pub(crate) fn send_player_auth_inputs(
                 format!("failed to encode PlayerAuthInput: {error}"),
             );
         }
+        Err(MovementSendError::Transport(
+            crate::runtime::network::session::PacketSendError::Closed(_),
+        )) if network.closed_command_has_pending_control() => {}
         Err(MovementSendError::Transport(
             crate::runtime::network::session::PacketSendError::Closed(_),
         )) => {
@@ -382,6 +404,11 @@ pub(crate) fn send_player_auth_inputs(
             );
         }
     }
+    metrics.0.record_outbound_movement_telemetry(
+        movement.sent_physics_packet_count(),
+        movement.pending_count(),
+        movement.pending_authority_fault().is_some(),
+    );
 }
 
 pub(crate) fn update_visibility_diagnostics(
@@ -475,7 +502,7 @@ pub(crate) fn record_metrics_and_title(
     metrics.0.record_frame(frame_time);
     sampling.rolling_fps.record(frame_time);
     metrics.0.record_asset_counters(
-        client_world.runtime_assets.missing_count(),
+        client_world.missing_asset_count(),
         diagnostic_quads.0.total(),
     );
     if let Some(marker) = refresh_diagnostic_attribution(
@@ -486,11 +513,15 @@ pub(crate) fn record_metrics_and_title(
         info!("{marker}");
     }
     let visibility_snapshot = visibility_diagnostics.snapshot();
-    if let (Some(stream), Some(local_frame), Some(graphics)) = (
-        client_world.stream.as_ref(),
-        render_metrics.local_player.snapshot(),
-        visibility_diagnostics.graphics_adapter(),
-    ) && local_frame.eye().is_finite()
+    // Full-cohort manifests and their JSON/timing markers are acceptance
+    // evidence, not gameplay work. Gate the collection as well as the output.
+    if publication_diagnostics_enabled(&acceptance)
+        && let (Some(stream), Some(local_frame), Some(graphics)) = (
+            client_world.stream.as_ref(),
+            render_metrics.local_player.snapshot(),
+            visibility_diagnostics.graphics_adapter(),
+        )
+        && local_frame.eye().is_finite()
     {
         let player_column = local_subject_column(stream.current_dimension(), local_frame.eye())
             .expect("finite local-player eyes have a subject column");

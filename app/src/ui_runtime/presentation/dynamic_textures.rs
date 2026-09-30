@@ -2,52 +2,72 @@
 
 use std::sync::Arc;
 
-use render::{MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray};
-use sha2::{Digest, Sha256};
+use render::UiTexturePage;
 
 use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview};
+
+/// Dynamic page offset holding the session's server item icons.
+pub(super) const SESSION_ICON_PAGE: usize = 9;
+/// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
+pub(super) const GLYPH_PAGES: usize = 8;
+/// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
+pub(super) const SERVER_UI_PAGE: usize = 10 + GLYPH_PAGES;
+/// Dynamic pages reserved for server resource-pack UI textures.
+pub(super) const SERVER_UI_PAGES: usize = render::MAX_UI_DYNAMIC_PAGES - SERVER_UI_PAGE;
+
+pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
+    let changed = runtime
+        .texture_session
+        .is_some_and(|previous| previous != session);
+    runtime.texture_session = Some(session);
+    if !changed {
+        return;
+    }
+    runtime.player_preview_source_hash = None;
+    runtime.player_preview_pose = None;
+    runtime.player_preview_pixels = None;
+    runtime.held_viewmodel_source = None;
+    runtime.offhand_viewmodel_source = None;
+    runtime.menu_artwork_paths.clear();
+    runtime.menu_artwork_oversized.clear();
+    runtime.menu_artwork_dirty = true;
+    runtime.preview_dirty = true;
+    rebuild(runtime);
+}
 
 /// Rebuilds dynamic pages from immutable base assets so refreshed launcher
 /// artwork cannot accumulate stale layers or discard the HUD carriers.
 pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
-    let width = runtime.base_textures.width;
-    let height = runtime.base_textures.height;
-    let Some(layer_bytes) = usize::try_from(width)
-        .ok()
-        .and_then(|width| width.checked_mul(height as usize))
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return;
+    let width = 256;
+    let height = 256;
+    let layer_bytes = (width * height * 4) as usize;
+    let mut rgba8 = if runtime.preview_dirty {
+        vec![0; layer_bytes]
+    } else {
+        Vec::new()
     };
+    let first_dynamic = runtime.textures.dynamic_start();
 
-    let mut rgba8 = runtime.base_textures.rgba8.to_vec();
-    let mut layers = runtime.base_textures.layers;
-    let mut identity = Sha256::new();
-    identity.update(runtime.base_texture_identity);
-    identity.update(b"cinnabar-dynamic-hud-v4");
+    if runtime.preview_dirty {
+        runtime.player_preview_page = None;
+        runtime.player_preview_icon = None;
+        runtime.left_hand_icon = None;
+        runtime.right_hand_icon = None;
+        runtime.held_viewmodel_icon = None;
+        runtime.offhand_viewmodel_icon = None;
+    }
 
-    runtime.player_preview_page = None;
-    runtime.player_preview_icon = None;
-    runtime.left_hand_icon = None;
-    runtime.right_hand_icon = None;
-    runtime.held_viewmodel_icon = None;
-    runtime.offhand_viewmodel_icon = None;
-    runtime.menu_artwork = menu_artwork::MenuArtworkAtlas::default();
-
-    let preview_fits = runtime.player_preview_pixels.is_some()
+    let preview_fits = runtime.preview_dirty
+        && runtime.player_preview_pixels.is_some()
         && width >= player_preview::PREVIEW_WIDTH
         && height >= player_preview::PREVIEW_HEIGHT
         && width >= player_preview::HAND_WIDTH.saturating_mul(2)
-        && height >= player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT)
-        && layers < MAX_UI_TEXTURE_LAYERS
-        && rgba8.len().saturating_add(layer_bytes) <= MAX_UI_TEXTURE_BYTES;
+        && height >= player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT);
     let viewmodel_fits = width >= item_viewmodel::MAIN_ORIGIN[0] + item_viewmodel::SIDE
         && height >= item_viewmodel::OFFHAND_ORIGIN[1] + item_viewmodel::SIDE;
     if preview_fits {
-        let page = layers as u16;
-        let layer_start = rgba8.len();
-        rgba8.extend(std::iter::repeat_n(0, layer_bytes));
-        layers = layers.saturating_add(1);
+        let page = first_dynamic as u16;
+        let layer_start = 0;
         let texture_width = width as usize;
         let copy_raster = |target: &mut [u8],
                            raster: &[u8],
@@ -92,7 +112,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         if viewmodel_fits {
             if let Some(main) = runtime
                 .held_viewmodel_source
-                .and_then(|icon| item_viewmodel::render(&runtime.base_textures, icon, false))
+                .and_then(|icon| item_viewmodel::render(&runtime.textures, icon, false))
             {
                 copy_raster(
                     &mut rgba8,
@@ -106,7 +126,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             }
             if let Some(offhand) = runtime
                 .offhand_viewmodel_source
-                .and_then(|icon| item_viewmodel::render(&runtime.base_textures, icon, true))
+                .and_then(|icon| item_viewmodel::render(&runtime.textures, icon, true))
             {
                 copy_raster(
                     &mut rgba8,
@@ -130,6 +150,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 player_preview::PREVIEW_WIDTH as u16,
                 player_preview::PREVIEW_HEIGHT as u16,
             ],
+            glint: false,
         });
         runtime.left_hand_icon = Some(IconRef {
             page,
@@ -139,6 +160,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 player_preview::HAND_WIDTH as u16,
                 player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
             ],
+            glint: false,
         });
         runtime.right_hand_icon = Some(IconRef {
             page,
@@ -148,30 +170,90 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 player_preview::HAND_WIDTH.saturating_mul(2) as u16,
                 player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
             ],
+            glint: false,
         });
     }
 
-    let remaining_layers = MAX_UI_TEXTURE_LAYERS.saturating_sub(layers);
-    let remaining_bytes = MAX_UI_TEXTURE_BYTES.saturating_sub(rgba8.len());
-    runtime.menu_artwork = menu_artwork::load(
-        &runtime.menu_artwork_paths,
-        width,
-        height,
-        u16::try_from(layers).unwrap_or(u16::MAX),
-        remaining_layers,
-        remaining_bytes,
-    );
-    if runtime.menu_artwork.layers > 0 {
-        layers = layers.saturating_add(runtime.menu_artwork.layers);
-        rgba8.extend_from_slice(&runtime.menu_artwork.rgba8);
-        identity.update(runtime.menu_artwork.signature);
+    let preview = if runtime.preview_dirty {
+        let Ok(page) = UiTexturePage::owned([width, height], rgba8.into()) else {
+            return;
+        };
+        runtime.preview_dirty = false;
+        page
+    } else {
+        runtime.textures.pages()[first_dynamic].clone()
+    };
+    let mut dynamic = vec![preview];
+    let menu_changed = runtime.menu_artwork_dirty;
+    let art_start = first_dynamic + render::MAX_UI_DYNAMIC_PAGES;
+    if runtime.menu_artwork_dirty {
+        runtime.menu_artwork = menu_artwork::load(
+            &runtime.menu_artwork_paths,
+            &runtime.menu_artwork_oversized,
+            art_start as u16,
+        );
+        runtime.menu_artwork_dirty = false;
     }
-    identity.update(&rgba8);
-    runtime.textures = Arc::new(UiRenderTextureArray {
-        identity: identity.finalize().into(),
-        width,
-        height,
-        layers,
-        rgba8: rgba8.into(),
-    });
+    let previous = runtime.textures.pages();
+    // The small pages between the preview and the session icons stay reserved.
+    for _ in 0..8 {
+        dynamic.push(runtime.blank_dynamic_page.clone());
+    }
+    dynamic.push(
+        runtime
+            .session_icons
+            .page
+            .clone()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
+    );
+    let glyph_pages = &runtime.session_glyphs.pages;
+    dynamic.extend((0..GLYPH_PAGES).map(|offset| {
+        glyph_pages
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
+    let server_pages = runtime.server_ui_pages();
+    dynamic.extend((0..SERVER_UI_PAGES).map(|offset| {
+        server_pages
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
+    // Unused art pages keep their old pixels; nothing references them.
+    let art_pages = previous
+        .len()
+        .saturating_sub(art_start)
+        .min(render::MAX_UI_ART_PAGES);
+    for offset in 0..art_pages {
+        let page = match runtime.menu_artwork.pages.get(offset) {
+            Some(page) if menu_changed => page.clone(),
+            _ => previous[art_start + offset].clone(),
+        };
+        dynamic.push(page);
+    }
+    // Equal per-page identities preserve old immutable payload ownership.
+    for (offset, page) in dynamic.iter_mut().enumerate() {
+        let old = &previous[first_dynamic + offset];
+        if old.identity() == page.identity() {
+            *page = old.clone();
+        }
+    }
+    match runtime.textures.replace_dynamic(dynamic) {
+        Ok(textures) => {
+            runtime.textures = Arc::new(textures);
+            // Pixels live solely in the current catalog, not a second cache owner.
+            runtime.menu_artwork.pages.clear();
+        }
+        Err(reason) => warn_rebuild_failed(&reason),
+    }
+}
+
+/// Warns on the first failure and then each power-of-two repeat.
+fn warn_rebuild_failed(reason: &render::UiRenderRejectReason) {
+    static FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let count = FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if count.is_power_of_two() {
+        bevy::log::warn!(count, ?reason, "dynamic UI texture pages were not replaced");
+    }
 }

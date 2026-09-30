@@ -102,9 +102,13 @@ fn compiler_assigns_generic_birch_evergreen_and_self_colored_leaf_flags() {
 #[test]
 fn assetc_summary_reports_deterministic_cutout_material_count() {
     let (directory, resource_pack, records) = leaf_material_fixture();
+    // Real registries always carry canonical air; the fixture appends one so
+    // the CLI path sees the same shape as a protocol triple.
+    let records = with_canonical_air(&records);
     let registry = directory.path().join("registry.bin");
     let light_registry = directory.path().join("light-registry.bin");
     let biome_registry = directory.path().join("biome-registry.bin");
+    let source_manifest = directory.path().join("vanilla-source.json");
     let output_blob = directory.path().join("vanilla-v1001.mcbea");
     let registry_fixture = registry_bytes(&records);
     fs::write(&registry, &registry_fixture).expect("write registry fixture");
@@ -115,10 +119,13 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     .expect("write light registry fixture");
     fs::write(&biome_registry, biome_registry_bytes(0, "minecraft:plains"))
         .expect("write biome registry fixture");
+    fs::write(&source_manifest, br#"{"schema":1}"#).expect("write source manifest fixture");
     write_biome_fixture(&resource_pack);
     let output = Command::new(env!("CARGO_BIN_EXE_assetc"))
         .args(["compile", "--pack"])
         .arg(&resource_pack)
+        .arg("--source-manifest")
+        .arg(&source_manifest)
         .arg("--registry")
         .arg(&registry)
         .arg("--light-registry")
@@ -137,9 +144,47 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 summary"),
         format!(
-            "compiled 4 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
+            "compiled 5 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
             output_blob.display()
         )
+    );
+
+    // The compiled carrier must bind exactly the consumed inputs so startup
+    // provenance validation can reject stale or foreign blobs.
+    let bytes = fs::read(&output_blob).expect("read compiled blob");
+    let runtime = RuntimeAssets::decode(&bytes).expect("decode compiled blob");
+    let expected = BlobProvenance {
+        source_manifest_sha256: canonical_source_manifest_sha256(br#"{"schema":1}"#),
+        block_registry_sha256: Sha256::digest(&registry_fixture).into(),
+        light_registry_sha256: Sha256::digest(
+            light_registry_bytes(&registry_fixture, records.len()).as_slice(),
+        )
+        .into(),
+        biome_registry_sha256: Sha256::digest(biome_registry_bytes(0, "minecraft:plains")).into(),
+    };
+    assert_eq!(runtime.provenance(), &expected);
+
+    // Recompiling the same inputs is byte-deterministic including identity.
+    let repeat = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .args(["compile", "--pack"])
+        .arg(&resource_pack)
+        .arg("--source-manifest")
+        .arg(&source_manifest)
+        .arg("--registry")
+        .arg(&registry)
+        .arg("--light-registry")
+        .arg(&light_registry)
+        .arg("--biome-registry")
+        .arg(&biome_registry)
+        .arg("--out")
+        .arg(directory.path().join("repeat.mcbea"))
+        .output()
+        .expect("rerun assetc compile");
+    assert!(repeat.status.success());
+    assert_eq!(
+        fs::read(directory.path().join("repeat.mcbea")).expect("read repeated blob"),
+        bytes,
+        "identical inputs must produce byte-identical carriers"
     );
 }
 
@@ -731,12 +776,23 @@ fn compiler_emits_exact_checked_stained_glass_cube_models() {
             );
         }
     }
-    assert!(
-        compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..]
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic
-                && visual.faces == [DIAGNOSTIC_MATERIAL; 6])
-    );
+    for (record, visual) in records[ORDINARY_STAINED_GLASS_NAMES.len()..]
+        .iter()
+        .zip(&compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..records.len()])
+    {
+        // Invisible bedrock is a known no-draw block, not a diagnostic.
+        if record.name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(visual.kind, VisualKind::Invisible);
+            continue;
+        }
+        assert!(
+            visual.kind == VisualKind::Diagnostic && visual.faces == [DIAGNOSTIC_MATERIAL; 6],
+            "{} {:?} {:?}",
+            record.name,
+            record.model_family,
+            visual.kind
+        );
+    }
 
     let baseline = encode_blob(&compiled).expect("encode stained-glass cubes");
     records.reverse();
@@ -798,8 +854,11 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
         record.network_hash = 91_000 + id as u32;
     }
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned stained glass");
+    let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id < ordinary_count {
+        if id == fixture_air {
+            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
+        } else if id < ordinary_count {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             assert_eq!(
                 compiled.model_templates[visual.model_template as usize].flags,
@@ -943,12 +1002,23 @@ fn compiler_emits_exact_checked_copper_grate_models() {
         };
         assert_eq!(faces(unwaxed), faces(waxed), "alias pair {unwaxed}/{waxed}");
     }
-    assert!(
-        compiled.visuals[admitted_count..]
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic
-                && visual.faces == [DIAGNOSTIC_MATERIAL; 6])
-    );
+    for (record, visual) in records[admitted_count..]
+        .iter()
+        .zip(&compiled.visuals[admitted_count..records.len()])
+    {
+        // Invisible bedrock is a known no-draw block, not a diagnostic.
+        if record.name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(visual.kind, VisualKind::Invisible);
+            continue;
+        }
+        assert!(
+            visual.kind == VisualKind::Diagnostic && visual.faces == [DIAGNOSTIC_MATERIAL; 6],
+            "{} {:?} {:?}",
+            record.name,
+            record.model_family,
+            visual.kind
+        );
+    }
 
     let baseline = encode_blob(&compiled).expect("encode copper grates");
     records.reverse();
@@ -1052,8 +1122,11 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
         record.network_hash = 93_000 + id as u32;
     }
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile pinned copper grates");
+    let fixture_air = fixture_air_id(&records) as usize;
     for (id, visual) in compiled.visuals.iter().enumerate() {
-        if id < admitted_count {
+        if id == fixture_air {
+            assert_eq!(visual.kind, VisualKind::Invisible, "appended fixture air");
+        } else if id < admitted_count {
             assert_eq!(visual.kind, VisualKind::Model, "{}", records[id].name);
             let template = compiled.model_templates[visual.model_template as usize];
             assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE);

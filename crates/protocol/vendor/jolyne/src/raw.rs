@@ -43,6 +43,8 @@ pub struct RawPacket {
     /// Complete inner frame bytes for re-encoding.
     /// Format: `[Length varint][Header varint][Body]`
     inner_frame: Bytes,
+    /// Length of the decompressed batch allocation shared by this frame.
+    backing_len: usize,
 }
 
 impl RawPacket {
@@ -123,12 +125,24 @@ impl RawPacket {
     pub(crate) fn into_compact(self) -> Self {
         let body_start = self.inner_frame.len() - self.body.len();
         let inner_frame = Bytes::copy_from_slice(&self.inner_frame);
+        let backing_len = inner_frame.len();
         let body = inner_frame.slice(body_start..);
         Self {
             header: self.header,
             id: self.id,
             body,
             inner_frame,
+            backing_len,
+        }
+    }
+
+    /// Detaches a frame from unrelated siblings so retained body slices are
+    /// charged by the bytes they can actually keep alive.
+    pub fn into_retention_bounded(self) -> Self {
+        if self.backing_len > self.inner_frame.len() {
+            self.into_compact()
+        } else {
+            self
         }
     }
 }
@@ -139,6 +153,14 @@ impl RawPacket {
 ///
 /// Returns the RawPacket and advances the cursor past this entry.
 pub fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, JolyneError> {
+    let backing_len = cursor.len();
+    decode_packet_raw_with_backing(cursor, backing_len)
+}
+
+fn decode_packet_raw_with_backing(
+    cursor: &mut Bytes,
+    backing_len: usize,
+) -> Result<RawPacket, JolyneError> {
     // Remember start position to capture full frame
     let frame_start = cursor.clone();
 
@@ -166,10 +188,13 @@ pub fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, JolyneError> {
     // Decode the packet ID from the same varint representation used by generated
     // BedrockCodec impls. Feeding little-endian bytes breaks IDs >= 128 because
     // packet IDs are encoded as VarUInts on the wire.
+    // The ten-bit ID fits a two-byte varint, so encode it on the stack.
     let id_raw = header_raw & 0x3FF;
-    let mut id_buf = BytesMut::new();
-    wire::write_var_u32(&mut id_buf, id_raw);
-    let mut id_cursor = id_buf.freeze();
+    let mut id_bytes = [0_u8; 2];
+    let mut id_writer = &mut id_bytes[..];
+    wire::write_var_u32(&mut id_writer, id_raw);
+    let id_len = 2 - id_writer.len();
+    let mut id_cursor = &id_bytes[..id_len];
     let id = McpePacketName::decode(&mut id_cursor, ()).map_err(|e| {
         JolyneError::Protocol(ProtocolError::UnexpectedHandshake(format!(
             "unknown packet ID {}: {}",
@@ -197,6 +222,7 @@ pub fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, JolyneError> {
         id,
         body,
         inner_frame,
+        backing_len,
     })
 }
 
@@ -215,6 +241,7 @@ pub fn decode_packet_raw_split(first: u8, rest: Bytes) -> Result<RawPacket, Joly
 
 /// Decodes all packets from a decompressed batch payload into [`RawPacket`]s.
 pub(crate) fn decode_packets_raw(mut cursor: Bytes) -> Result<Vec<RawPacket>, JolyneError> {
+    let backing_len = cursor.len();
     let mut packets = Vec::new();
     while cursor.has_remaining() {
         if packets.len() == MAX_RAW_BATCH_PACKETS {
@@ -223,7 +250,7 @@ pub(crate) fn decode_packets_raw(mut cursor: Bytes) -> Result<Vec<RawPacket>, Jo
             }
             .into());
         }
-        packets.push(decode_packet_raw(&mut cursor)?);
+        packets.push(decode_packet_raw_with_backing(&mut cursor, backing_len)?);
     }
     Ok(packets)
 }
@@ -379,6 +406,28 @@ mod tests {
         assert_eq!(raw.id, McpePacketName::RequestNetworkSettingsPacket);
     }
 
+    /// Every ten-bit ID must resolve exactly as the codec decodes its wire varint.
+    #[test]
+    fn decode_packet_raw_matches_codec_for_every_ten_bit_id() {
+        for id in 0..=0x3FF_u32 {
+            let mut encoded = BytesMut::new();
+            wire::write_var_u32(&mut encoded, id);
+            let expected = McpePacketName::decode(&mut encoded.freeze(), ());
+            let mut cursor = create_test_frame(id, 0, 0, &[]);
+            match (decode_packet_raw(&mut cursor), expected) {
+                (Ok(raw), Ok(expected)) => assert_eq!(raw.id, expected, "id={id}"),
+                (Err(error), Err(expected)) => assert_eq!(
+                    error.to_string(),
+                    JolyneError::Protocol(ProtocolError::UnexpectedHandshake(format!(
+                        "unknown packet ID {id}: {expected}"
+                    )))
+                    .to_string()
+                ),
+                (actual, expected) => panic!("id={id}: {actual:?} vs {expected:?}"),
+            }
+        }
+    }
+
     #[test]
     fn decode_packet_raw_preserves_body() {
         let body = [0xDE, 0xAD, 0xBE, 0xEF];
@@ -511,6 +560,22 @@ mod tests {
         assert_eq!(packets[0].body().as_ref(), &[0x01]);
         assert_eq!(packets[1].header.from_subclient, 1);
         assert_eq!(packets[2].header.to_subclient, 2);
+    }
+
+    #[test]
+    fn retention_bounded_packet_detaches_from_large_ignored_sibling_batch() {
+        let small = create_test_frame(0x02, 0, 0, &[0x5a; 32]);
+        let large = create_test_frame(0x02, 0, 0, &vec![0x7b; 1024 * 1024]);
+        let mut combined = BytesMut::with_capacity(small.len() + large.len());
+        combined.extend_from_slice(&small);
+        combined.extend_from_slice(&large);
+        let packets = decode_packets_raw(combined.freeze()).expect("decode sibling batch");
+        let before = packets[0].body().as_ptr();
+        let bounded = packets.into_iter().next().unwrap().into_retention_bounded();
+
+        assert_ne!(bounded.body().as_ptr(), before);
+        assert_eq!(bounded.body().as_ref(), &[0x5a; 32]);
+        assert_eq!(bounded.backing_len, bounded.inner_frame().len());
     }
 
     #[test]

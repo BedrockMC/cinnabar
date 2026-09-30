@@ -8,8 +8,8 @@ use assets::{
     ItemVisualRoute, RuntimeEntityAssets,
 };
 use protocol::{
-    ActorHandedness, EquipmentEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
-    NetworkItemStack,
+    ActorHandedness, ArmorEquipmentEvent, EquipmentEvent, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, NetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
@@ -17,12 +17,16 @@ use crate::{ActorEventIdentity, ActorLifetimeId, ActorSourceTick};
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = 16_384;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
+/// Equipment notices kept between drains; later ones are dropped.
+pub const MAX_EQUIPMENT_NOTICES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemStack {
     pub identity: ItemStackIdentity,
     pub identifier: Option<Arc<str>>,
     pub visual: ItemVisualRoute,
+    /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
+    pub charged_projectile: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,12 +50,63 @@ pub struct ActorEquipmentSnapshot {
     pub hand_defaulted: bool,
 }
 
+/// One worn armor stack with the dye colour its NBT carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActorArmorPiece {
+    pub item: CanonicalItemStack,
+    /// Leather dye RGB (24-bit) from the stack's `customColor` tag.
+    pub dye_rgb: Option<u32>,
+}
+
+/// An actor's five worn armor stacks from its latest MobArmorEquipment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActorArmorSnapshot {
+    /// Lifetime the stacks were applied to; `spawn_revision` 0 when the actor did not exist yet.
+    pub actor: ActorLifetimeId,
+    pub event: ActorEventIdentity,
+    pub helmet: ActorArmorPiece,
+    pub chestplate: ActorArmorPiece,
+    pub leggings: ActorArmorPiece,
+    pub boots: ActorArmorPiece,
+    pub body: ActorArmorPiece,
+}
+
+/// Where one MobEquipment or MobArmorEquipment landed, for diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquipmentNotice {
+    pub runtime_id: u64,
+    pub armor: bool,
+    pub outcome: EquipmentOutcome,
+    /// Identifiers of the event's non-empty stacks; `None` where the registry has no entry.
+    pub items: Box<[Option<Arc<str>>]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EquipmentOutcome {
+    Applied,
+    /// No live actor has the runtime id.
+    UnknownActor,
+    /// The local player's held stacks come from the client-owned inventory instead.
+    LocalPlayer,
+    /// A stack's NBT digest did not match its payload, or it named network id 0.
+    RejectedStack,
+    /// Older than the latest applied actor event, or from another session.
+    Stale,
+}
+
+type EquipmentKey = (ActorLifetimeId, ActorHandedness);
+
 #[derive(Debug)]
 pub(crate) struct ItemStateStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
     registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
-    equipment: BTreeMap<ActorLifetimeId, ActorEquipmentSnapshot>,
-    pending: VecDeque<ActorLifetimeId>,
+    equipment: BTreeMap<EquipmentKey, ActorEquipmentSnapshot>,
+    pending: VecDeque<EquipmentKey>,
+    /// Latest armor by runtime id; the client-owned runtime survives actor churn.
+    armor: BTreeMap<u64, ActorArmorSnapshot>,
+    persistent_armor_runtime: Option<u64>,
+    use_durations: Option<Arc<BTreeMap<Box<str>, u32>>>,
+    notices: Vec<EquipmentNotice>,
 }
 
 impl ItemStateStore {
@@ -69,23 +124,82 @@ impl ItemStateStore {
             registry: built_in_registry(),
             equipment: BTreeMap::new(),
             pending: VecDeque::new(),
+            armor: BTreeMap::new(),
+            persistent_armor_runtime: None,
+            use_durations: None,
+            notices: Vec::new(),
         }
+    }
+
+    /// Records where an equipment event landed; the stacks are named through the registry.
+    pub(crate) fn note(
+        &mut self,
+        runtime_id: u64,
+        armor: bool,
+        outcome: EquipmentOutcome,
+        stacks: &[&NetworkItemStack],
+    ) {
+        if self.notices.len() >= MAX_EQUIPMENT_NOTICES {
+            return;
+        }
+        let items = stacks
+            .iter()
+            .filter(|stack| !stack.is_empty())
+            .map(|stack| self.identifier_for_network_id(stack.network_id))
+            .collect();
+        self.notices.push(EquipmentNotice {
+            runtime_id,
+            armor,
+            outcome,
+            items,
+        });
+    }
+
+    pub(crate) fn take_notices(&mut self) -> Vec<EquipmentNotice> {
+        std::mem::take(&mut self.notices)
+    }
+
+    pub(crate) fn set_use_durations(&mut self, durations: Arc<BTreeMap<Box<str>, u32>>) {
+        if !self
+            .use_durations
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &durations))
+        {
+            self.use_durations = Some(durations);
+        }
+    }
+
+    /// Ticks the item can be used for, when the pack states it.
+    pub(crate) fn max_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.use_durations.as_ref()?.get(identifier).copied()
+    }
+
+    /// Keeps this runtime's armor across actor removal and dimension resets (the local player).
+    pub(crate) fn set_persistent_armor_runtime(&mut self, runtime_id: u64) {
+        self.persistent_armor_runtime = Some(runtime_id);
     }
 
     #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         self.registry.clear();
+        self.armor.clear();
         self.clear_actor_state();
     }
 
     pub(crate) fn clear_actor_state(&mut self) {
         self.equipment.clear();
         self.pending.clear();
+        let persistent = self.persistent_armor_runtime;
+        self.armor
+            .retain(|runtime_id, _| Some(*runtime_id) == persistent);
     }
 
     pub(crate) fn remove(&mut self, lifetime: ActorLifetimeId) {
-        self.equipment.remove(&lifetime);
-        self.pending.retain(|pending| *pending != lifetime);
+        self.equipment.retain(|(actor, _), _| *actor != lifetime);
+        self.pending.retain(|(actor, _)| *actor != lifetime);
+        if self.persistent_armor_runtime != Some(lifetime.runtime_id) {
+            self.armor.remove(&lifetime.runtime_id);
+        }
     }
 
     pub(crate) fn insert_spawn(
@@ -99,8 +213,9 @@ impl ItemStateStore {
             return;
         };
         let unresolved = !item.identity.is_empty() && item.identifier.is_none();
+        let key = (lifetime, ActorHandedness::Right);
         self.equipment.insert(
-            lifetime,
+            key,
             ActorEquipmentSnapshot {
                 actor: lifetime,
                 event: event_identity(
@@ -117,7 +232,7 @@ impl ItemStateStore {
             },
         );
         if unresolved {
-            self.retain_pending(lifetime);
+            self.retain_pending(key);
         }
     }
 
@@ -134,8 +249,9 @@ impl ItemStateStore {
         let (hand, hand_defaulted) = equipment
             .handedness
             .map_or((ActorHandedness::Right, true), |hand| (hand, false));
+        let key = (lifetime, hand);
         self.equipment.insert(
-            lifetime,
+            key,
             ActorEquipmentSnapshot {
                 actor: lifetime,
                 event: event_identity(
@@ -151,11 +267,57 @@ impl ItemStateStore {
                 hand_defaulted,
             },
         );
-        self.pending.retain(|pending| *pending != lifetime);
+        self.pending.retain(|pending| *pending != key);
         if unresolved {
-            self.retain_pending(lifetime);
+            self.retain_pending(key);
         }
         true
+    }
+
+    /// Stores all five worn stacks, or rejects the event if any stack's NBT digest is wrong.
+    pub(crate) fn apply_armor(
+        &mut self,
+        lifetime: ActorLifetimeId,
+        sequence: u64,
+        event: &ArmorEquipmentEvent,
+    ) -> bool {
+        let (Some(helmet), Some(chestplate), Some(leggings), Some(boots), Some(body)) = (
+            self.armor_piece(&event.helmet),
+            self.armor_piece(&event.chestplate),
+            self.armor_piece(&event.leggings),
+            self.armor_piece(&event.boots),
+            self.armor_piece(&event.body),
+        ) else {
+            return false;
+        };
+        self.armor.insert(
+            lifetime.runtime_id,
+            ActorArmorSnapshot {
+                actor: lifetime,
+                event: event_identity(
+                    lifetime,
+                    sequence,
+                    ActorSourceTick::IngressSequence(sequence),
+                ),
+                helmet,
+                chestplate,
+                leggings,
+                boots,
+                body,
+            },
+        );
+        true
+    }
+
+    pub(crate) fn armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
+        self.armor.get(&runtime_id)
+    }
+
+    fn armor_piece(&self, stack: &NetworkItemStack) -> Option<ActorArmorPiece> {
+        Some(ActorArmorPiece {
+            item: self.canonicalize(stack)?,
+            dye_rgb: protocol::item_custom_color(&stack.extra_data),
+        })
     }
 
     pub(crate) fn apply_registry(&mut self, registry: ItemRegistryEvent) -> bool {
@@ -177,30 +339,64 @@ impl ItemStateStore {
         }
         self.registry = next;
 
-        let lifetimes = self.equipment.keys().copied().collect::<Vec<_>>();
+        let runtimes = self.armor.keys().copied().collect::<Vec<_>>();
+        for runtime_id in runtimes {
+            let Some(mut snapshot) = self.armor.remove(&runtime_id) else {
+                continue;
+            };
+            for piece in [
+                &mut snapshot.helmet,
+                &mut snapshot.chestplate,
+                &mut snapshot.leggings,
+                &mut snapshot.boots,
+                &mut snapshot.body,
+            ] {
+                let charged = piece.item.charged_projectile.take();
+                piece.item = self.resolve_identity(piece.item.identity);
+                piece.item.charged_projectile = charged;
+            }
+            self.armor.insert(runtime_id, snapshot);
+        }
+
+        let keys = self.equipment.keys().copied().collect::<Vec<_>>();
         self.pending.clear();
-        for lifetime in lifetimes {
+        for key in keys {
             let Some(identity) = self
                 .equipment
-                .get(&lifetime)
+                .get(&key)
                 .map(|equipment| equipment.item.identity)
             else {
                 continue;
             };
-            let item = self.resolve_identity(identity);
+            let mut item = self.resolve_identity(identity);
+            item.charged_projectile = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.charged_projectile.clone());
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
-            if let Some(equipment) = self.equipment.get_mut(&lifetime) {
+            if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
             }
             if unresolved {
-                self.retain_pending(lifetime);
+                self.retain_pending(key);
             }
         }
         true
     }
 
     pub(crate) fn get(&self, lifetime: ActorLifetimeId) -> Option<&ActorEquipmentSnapshot> {
-        self.equipment.get(&lifetime)
+        [ActorHandedness::Left, ActorHandedness::Right]
+            .into_iter()
+            .filter_map(|hand| self.get_in_hand(lifetime, hand))
+            .max_by_key(|equipment| equipment.event.ingress_sequence)
+    }
+
+    pub(crate) fn get_in_hand(
+        &self,
+        lifetime: ActorLifetimeId,
+        hand: ActorHandedness,
+    ) -> Option<&ActorEquipmentSnapshot> {
+        self.equipment.get(&(lifetime, hand))
     }
 
     pub(crate) fn pending_count(&self) -> usize {
@@ -218,6 +414,7 @@ impl ItemStateStore {
             stack_network_id: stack.stack_network_id,
             count: stack.count,
             nbt_digest: stack.nbt_digest,
+            block_runtime_id: stack.block_runtime_id,
         };
         let identity = if identity.count == 0 {
             ItemStackIdentity::empty()
@@ -226,7 +423,16 @@ impl ItemStateStore {
         } else {
             identity
         };
-        Some(self.resolve_identity(identity))
+        let mut item = self.resolve_identity(identity);
+        item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
+        Some(item)
+    }
+
+    /// The registry identifier for an item network id.
+    pub(crate) fn identifier_for_network_id(&self, network_id: i32) -> Option<Arc<str>> {
+        self.registry
+            .get(&network_id)
+            .map(|record| Arc::clone(&record.identifier))
     }
 
     fn resolve_identity(&self, identity: ItemStackIdentity) -> CanonicalItemStack {
@@ -235,22 +441,32 @@ impl ItemStateStore {
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
+                charged_projectile: None,
             };
         }
         let identifier = self
             .registry
             .get(&identity.network_id)
             .map(|record| Arc::clone(&record.identifier));
-        let visual = identifier
-            .as_deref()
-            .map_or(ItemVisualRoute::Missing, |identifier| {
-                self.resolve_visual(identifier, identity.metadata)
-            });
+        let visual = classify_retained_block(
+            identifier
+                .as_deref()
+                .map_or(ItemVisualRoute::Missing, |identifier| {
+                    self.resolve_visual(identifier, identity.metadata)
+                }),
+            identity.block_runtime_id,
+        );
         CanonicalItemStack {
             identity,
             identifier,
             visual,
+            charged_projectile: None,
         }
+    }
+
+    /// Visual route for an item identifier with no stack context (e.g. the TNT block).
+    pub(crate) fn visual_for_identifier(&self, identifier: &str) -> ItemVisualRoute {
+        self.resolve_visual(identifier, 0)
     }
 
     fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
@@ -285,21 +501,19 @@ impl ItemStateStore {
             })
     }
 
-    fn retain_pending(&mut self, lifetime: ActorLifetimeId) {
-        if self.pending.len() < MAX_PENDING_ITEM_RESOLUTIONS && !self.pending.contains(&lifetime) {
-            self.pending.push_back(lifetime);
+    fn retain_pending(&mut self, key: EquipmentKey) {
+        if self.pending.len() < MAX_PENDING_ITEM_RESOLUTIONS && !self.pending.contains(&key) {
+            self.pending.push_back(key);
         }
     }
 
     fn remove_runtime(&mut self, runtime_id: u64) {
-        let lifetimes = self
-            .equipment
-            .keys()
-            .copied()
-            .filter(|lifetime| lifetime.runtime_id == runtime_id)
-            .collect::<Vec<_>>();
-        for lifetime in lifetimes {
-            self.remove(lifetime);
+        self.equipment
+            .retain(|(lifetime, _), _| lifetime.runtime_id != runtime_id);
+        self.pending
+            .retain(|(lifetime, _)| lifetime.runtime_id != runtime_id);
+        if self.persistent_armor_runtime != Some(runtime_id) {
+            self.armor.remove(&runtime_id);
         }
     }
 }
@@ -309,6 +523,19 @@ fn built_in_registry() -> BTreeMap<i32, CanonicalItemRegistryRecord> {
         .iter()
         .map(|entry| (entry.network_id, registry_record(entry)))
         .collect()
+}
+
+/// Routes a stack that retained block runtime identity onto the explicit
+/// block-item marker, keeping compiled block-item geometry authoritative and
+/// leaving stacks without a retained identity exactly as resolved.
+///
+/// Classification reads only wire-retained fields; it never infers geometry,
+/// textures, or identity from item or file names.
+fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> ItemVisualRoute {
+    if block_runtime_id == 0 || matches!(route, ItemVisualRoute::BlockItem(_)) {
+        return route;
+    }
+    ItemVisualRoute::RetainedBlock { block_runtime_id }
 }
 
 fn registry_record(entry: &ItemRegistryEntry) -> CanonicalItemRegistryRecord {
@@ -332,5 +559,99 @@ fn event_identity(
         actor_lifetime: actor.spawn_revision,
         ingress_sequence,
         source_tick,
+    }
+}
+
+#[cfg(test)]
+mod armor_tests {
+    use super::*;
+
+    fn lifetime(runtime_id: u64, spawn_revision: u64) -> ActorLifetimeId {
+        ActorLifetimeId {
+            session_id: 1,
+            dimension: 0,
+            runtime_id,
+            spawn_revision,
+        }
+    }
+
+    fn stack(network_id: i32, extra: &[u8]) -> NetworkItemStack {
+        NetworkItemStack {
+            network_id,
+            metadata: 0,
+            stack_network_id: -1,
+            count: 1,
+            nbt_digest: Sha256::digest(extra).into(),
+            block_runtime_id: 0,
+            extra_data: Arc::from(extra),
+        }
+    }
+
+    fn dyed_extra() -> Vec<u8> {
+        let mut encoded = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x03];
+        encoded.extend_from_slice(&11u16.to_le_bytes());
+        encoded.extend_from_slice(b"customColor");
+        encoded.extend_from_slice(&0x0033_66ccu32.to_le_bytes());
+        encoded.push(0x00);
+        encoded
+    }
+
+    fn event(runtime_id: u64, helmet: NetworkItemStack) -> ArmorEquipmentEvent {
+        ArmorEquipmentEvent {
+            actor_runtime_id: runtime_id,
+            helmet,
+            chestplate: NetworkItemStack::empty(),
+            leggings: NetworkItemStack::empty(),
+            boots: NetworkItemStack::empty(),
+            body: NetworkItemStack::empty(),
+        }
+    }
+
+    #[test]
+    fn armor_keeps_dye_and_drops_with_the_actor_unless_persistent() {
+        let mut store = ItemStateStore::diagnostic();
+        let extra = dyed_extra();
+        assert!(store.apply_armor(lifetime(7, 1), 1, &event(7, stack(1, &extra))));
+        assert!(store.apply_armor(lifetime(8, 1), 2, &event(8, stack(1, &extra))));
+        assert_eq!(store.armor(7).unwrap().helmet.dye_rgb, Some(0x0033_66cc));
+        assert!(store.armor(7).unwrap().chestplate.item.identity.is_empty());
+
+        store.set_persistent_armor_runtime(8);
+        store.remove(lifetime(7, 1));
+        store.remove(lifetime(8, 1));
+        assert!(store.armor(7).is_none());
+        assert!(store.armor(8).is_some());
+        store.clear_actor_state();
+        assert!(store.armor(8).is_some());
+    }
+
+    #[test]
+    fn canonical_stack_keeps_the_charged_crossbow_projectile() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x0a];
+        extra.extend_from_slice(&11u16.to_le_bytes());
+        extra.extend_from_slice(b"chargedItem");
+        extra.push(0x08);
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"Name");
+        extra.extend_from_slice(&15u16.to_le_bytes());
+        extra.extend_from_slice(b"minecraft:arrow");
+        extra.extend_from_slice(&[0x00, 0x00]);
+        let store = ItemStateStore::diagnostic();
+        let charged = store.canonicalize(&stack(1, &extra)).unwrap();
+        assert_eq!(
+            charged.charged_projectile.as_deref(),
+            Some("minecraft:arrow")
+        );
+        let plain = store.canonicalize(&stack(1, &dyed_extra())).unwrap();
+        assert_eq!(plain.charged_projectile, None);
+    }
+
+    #[test]
+    fn armor_with_a_wrong_nbt_digest_is_rejected_whole() {
+        let mut store = ItemStateStore::diagnostic();
+        let mut bad = stack(1, &dyed_extra());
+        bad.nbt_digest = [9; 32];
+        assert!(!store.apply_armor(lifetime(7, 1), 1, &event(7, bad)));
+        assert!(store.armor(7).is_none());
     }
 }

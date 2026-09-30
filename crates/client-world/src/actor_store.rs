@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorMetadataValue, ActorMoveEvent, ActorPositionOrigin,
-    ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent, MAX_ACTOR_ATTRIBUTES,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent,
-    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
+    ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
+    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -15,15 +16,27 @@ use crate::{
 
 pub(crate) const MAX_TRACKED_ACTORS: usize = 8_192;
 pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
+pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
-const PLAYER_FLAGS_METADATA_KEY: i32 = 26;
-const NAMETAG_METADATA_KEY: i32 = 4;
-const BOUNDING_BOX_HEIGHT_METADATA_KEY: i32 = 54;
-const EXTENDED_FLAGS_METADATA_KEY: i32 = 92;
+const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
+const SCALE_METADATA_KEY: u32 = 38;
+const NAMETAG_METADATA_KEY: u32 = 4;
+const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
+const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
+const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
+pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
-const EXTENDED_FLAGS_SLEEPING: u64 = 1 << 11;
+/// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
+/// 64 live in the overflow flag word.
+pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
+const ACTOR_FLAG_SNEAKING: u32 = 1;
+const ACTOR_FLAG_INVISIBLE: u32 = 5;
+const ACTOR_FLAG_SWIMMING: u32 = 57;
+const ACTOR_FLAG_USING_ITEM: u32 = 4;
+const ACTOR_FLAG_BLOCKING: u32 = 72;
+const ACTOR_FLAG_SPRINTING: u32 = 3;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -46,7 +59,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = 3;
+/// Steps a remote actor takes to reach each absolute movement target.
+pub(crate) const ACTOR_INTERPOLATION_TICKS: u8 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
@@ -75,14 +89,29 @@ pub struct ActorSnapshot {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
-    pub source_tick: Option<i64>,
-    pub metadata: HashMap<i32, ActorMetadataValue>,
+    pub source_tick: Option<u64>,
+    pub metadata: HashMap<u32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
-    pub int_properties: HashMap<i32, i32>,
-    pub float_properties: HashMap<i32, f32>,
+    pub int_properties: HashMap<u32, i32>,
+    pub float_properties: HashMap<u32, f32>,
+    pub status: ActorStatus,
 }
 
 impl ActorSnapshot {
+    /// The render position `alpha` of the way from the previous tick's pose to the current one,
+    /// or `None` when a component is not finite.
+    #[must_use]
+    pub fn interpolated_position(&self, alpha: f32) -> Option<[f32; 3]> {
+        let position = std::array::from_fn(|axis| {
+            self.previous_pose.position[axis]
+                + (self.position[axis] - self.previous_pose.position[axis]) * alpha
+        });
+        position
+            .iter()
+            .all(|value| value.is_finite())
+            .then_some(position)
+    }
+
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
         let pose = ActorPose {
             position: spawn.position,
@@ -113,11 +142,100 @@ impl ActorSnapshot {
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
+            status: ActorStatus::default(),
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.apply_properties(&spawn.properties);
         snapshot
+    }
+
+    /// Builds the client-owned local-player snapshot; `revision` seeds both the spawn and the
+    /// initial movement revision so the rig identity is exact from the first presented frame.
+    /// `uuid`/`username` are the resolved identity by which the skin is looked up.
+    fn local_player(
+        unique_id: i64,
+        runtime_id: u64,
+        revision: u64,
+        uuid: [u8; 16],
+        username: std::sync::Arc<str>,
+        feed: &LocalPlayerFeed,
+    ) -> Self {
+        let pose = ActorPose {
+            position: feed.position,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+        };
+        let mut snapshot = Self {
+            unique_id,
+            runtime_id,
+            spawn_revision: revision,
+            movement_revision: revision,
+            kind: ActorKind::Player { uuid, username },
+            position: feed.position,
+            velocity: feed.velocity,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+            previous_pose: pose,
+            received_pose: pose,
+            interpolation_ticks_remaining: 0,
+            body_yaw: feed.yaw,
+            on_ground: Some(feed.on_ground),
+            teleported: feed.teleported,
+            player_mode: None,
+            source_tick: None,
+            metadata: HashMap::new(),
+            attributes: HashMap::new(),
+            int_properties: HashMap::new(),
+            float_properties: HashMap::new(),
+            status: ActorStatus::default(),
+        };
+        snapshot.apply_local_flags(feed);
+        snapshot
+    }
+
+    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim and
+    /// predicted item use.
+    fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
+        self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
+        self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
+        // Sprinting in water is swimming; the water sample lags one frame.
+        let in_water = self.status.fluid.is_some_and(|(water, _)| water);
+        self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
+        match feed.item_use {
+            LocalItemUse::Unpredicted => {}
+            LocalItemUse::Idle => {
+                self.set_flag(ACTOR_FLAG_USING_ITEM, false);
+                self.set_flag(ACTOR_FLAG_BLOCKING, false);
+            }
+            LocalItemUse::Using { shield } => {
+                self.set_flag(ACTOR_FLAG_USING_ITEM, true);
+                self.set_flag(ACTOR_FLAG_BLOCKING, shield);
+            }
+        }
+    }
+
+    /// Sets one actor flag bit in the primary or overflow word, creating the word when absent.
+    fn set_flag(&mut self, bit: u32, on: bool) {
+        let (key, bit, empty) = if bit < 64 {
+            (0, bit, ActorMetadataValue::Flags(0))
+        } else {
+            (
+                EXTENDED_FLAGS_METADATA_KEY,
+                bit - 64,
+                ActorMetadataValue::FlagsExtended(0),
+            )
+        };
+        let entry = self.metadata.entry(key).or_insert(empty);
+        if let ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags) = entry {
+            if on {
+                *flags |= 1_u64 << bit;
+            } else {
+                *flags &= !(1_u64 << bit);
+            }
+        }
     }
 
     fn current_pose(&self) -> ActorPose {
@@ -134,6 +252,24 @@ impl ActorSnapshot {
         self.pitch = pose.pitch;
         self.yaw = pose.yaw;
         self.head_yaw = pose.head_yaw;
+    }
+
+    /// Feet-anchored `(min, max)` box from the width and height metadata.
+    #[must_use]
+    pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        let dimension = |key| match self.metadata.get(&key) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
+                Some(*value)
+            }
+            _ => None,
+        };
+        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY)? * 0.5;
+        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY)?;
+        let [x, y, z] = self.position;
+        Some((
+            [x - half_width, y, z - half_width],
+            [x + half_width, y + height, z + half_width],
+        ))
     }
 
     fn network_position_offset(&self) -> f32 {
@@ -165,14 +301,58 @@ impl ActorSnapshot {
         }
     }
 
-    fn player_is_sleeping(&self) -> bool {
+    /// The server-set render scale (metadata `Scale`), multiplying the model's own scale; an
+    /// absent, non-finite or non-positive value reads 1.
+    #[must_use]
+    pub fn render_scale(&self) -> f32 {
+        match self.metadata.get(&SCALE_METADATA_KEY) {
+            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale > 0.0 => *scale,
+            _ => 1.0,
+        }
+    }
+
+    #[must_use]
+    pub fn is_invisible(&self) -> bool {
+        self.flag(ACTOR_FLAG_INVISIBLE)
+    }
+
+    #[must_use]
+    pub fn is_sneaking(&self) -> bool {
+        self.flag(ACTOR_FLAG_SNEAKING)
+    }
+
+    #[must_use]
+    pub fn is_sleeping(&self) -> bool {
+        self.player_is_sleeping()
+    }
+
+    pub(crate) fn player_is_sleeping(&self) -> bool {
         let player_flags = self.metadata.get(&PLAYER_FLAGS_METADATA_KEY).is_some_and(
             |value| matches!(value, ActorMetadataValue::Byte(flags) if (*flags as u8) & PLAYER_FLAGS_SLEEPING != 0),
         );
-        let extended_flags = self.metadata.get(&EXTENDED_FLAGS_METADATA_KEY).is_some_and(
-            |value| matches!(value, ActorMetadataValue::FlagsExtended(flags) if flags & EXTENDED_FLAGS_SLEEPING != 0),
-        );
-        player_flags || extended_flags
+        player_flags || self.flag(ACTOR_FLAG_SLEEPING)
+    }
+
+    /// Whether the using-item flag is set; for the local player's food and drink it is the
+    /// server's admission of the use.
+    #[must_use]
+    pub fn is_using_item(&self) -> bool {
+        self.flag(ACTOR_FLAG_USING_ITEM)
+    }
+
+    /// Reads one actor flag bit from the primary or overflow flag word.
+    pub(crate) fn flag(&self, bit: u32) -> bool {
+        let (key, bit) = if bit < 64 {
+            (0, bit)
+        } else {
+            (EXTENDED_FLAGS_METADATA_KEY, bit - 64)
+        };
+        match self.metadata.get(&key) {
+            Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)) => {
+                flags & (1_u64 << bit) != 0
+            }
+            _ => false,
+        }
     }
 
     fn primed_tnt_network_offset(&self) -> f32 {
@@ -195,6 +375,9 @@ impl ActorSnapshot {
             {
                 rejected = true;
                 continue;
+            }
+            if metadata.key == FUSE_TIME_METADATA_KEY {
+                self.status.fuse_age_ticks = self.status.age_ticks;
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
@@ -258,6 +441,47 @@ pub struct PlayerProfile {
     pub skin: PlayerSkin,
 }
 
+/// Client-authored identity and pose for the local player's own third-person rig, which the
+/// server never spawns as an actor. When the player list carries no self entry, the skin backs
+/// a synthetic profile keyed by `uuid`; a real echo overrides it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalPlayerFeed {
+    pub uuid: [u8; 16],
+    pub username: std::sync::Arc<str>,
+    /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
+    pub skin: PlayerSkin,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub on_ground: bool,
+    /// Look-input yaw driving the body target, not the camera boom.
+    pub yaw: f32,
+    pub head_yaw: f32,
+    pub pitch: f32,
+    /// Identifiers of the client-owned main-hand and off-hand items.
+    pub main_hand: Option<std::sync::Arc<str>>,
+    pub off_hand: Option<std::sync::Arc<str>>,
+    /// Snaps the pose and resets the rig instead of interpolating.
+    pub teleported: bool,
+    /// The camera renders from the player's eyes; selects the first-person render controller.
+    pub first_person: bool,
+    /// Predicted movement state; overrides the streamed sneak and sprint flags on the local rig.
+    pub sneaking: bool,
+    pub sprinting: bool,
+    pub item_use: LocalItemUse,
+}
+
+/// Predicted use of the held item; only items the client can animate without the server.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LocalItemUse {
+    /// The held item is not predicted; the streamed flags stand.
+    #[default]
+    Unpredicted,
+    /// A predicted item is held but not in use.
+    Idle,
+    /// A predicted item is in use; `shield` also raises the block.
+    Using { shield: bool },
+}
+
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
 #[derive(Debug)]
 pub(crate) struct ActorStore {
@@ -270,19 +494,62 @@ pub(crate) struct ActorStore {
     retained_player_skin_bytes: usize,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
+    rider_to_ridden: HashMap<i64, i64>,
+    max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// Key of the synthetic local-player profile, present only while the player list carries no
+    /// self entry; cleared when a real echo takes over or the actor set is reset.
+    synthetic_local_uuid: Option<[u8; 16]>,
+    /// Monotonic spawn/movement revision for the client-fed local player actor.
+    synthetic_local_revision: u64,
+    /// Whether the local player's own rig should render first-person; set by each pose feed.
+    local_first_person: bool,
+    /// Held items of the client-fed local player, which the item store never tracks.
+    local_hands: [Option<std::sync::Arc<str>>; 2],
+    /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
+    camera_rotation: [f32; 2],
+    /// Seat layouts for mounts whose riders stream no seat offset.
+    seat_defaults: std::sync::Arc<SeatDefaults>,
+    property_registry: properties::PropertyRegistry,
+    /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
+    local_knockback: Option<(u64, [f32; 2])>,
+    /// Status events awaiting a particle or sound consumer.
+    status_notices: Vec<ActorStatusNotice>,
 }
 
+mod dropped;
+mod entities;
+mod hurt;
 mod lifecycle;
+mod lightning;
+mod placement;
+pub(crate) mod properties;
 mod query;
+
+pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
+pub use entities::{BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation};
+pub use hurt::{
+    ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
+    HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+};
+pub use lightning::LightningBoltView;
+pub use placement::{RideSeat, SeatDefaults, SeatRequirement};
+pub use properties::PropertyDefault;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
-        PlayerSkin::Standard(skin) => skin.rgba8.len(),
+        PlayerSkin::Standard(skin) => {
+            skin.rgba8.len()
+                + skin.cape.as_ref().map_or(0, |cape| cape.rgba8.len())
+                + skin
+                    .geometry
+                    .as_ref()
+                    .map_or(0, |geometry| geometry.byte_len())
+        }
         PlayerSkin::Unavailable(_) => 0,
     }
 }
@@ -294,9 +561,13 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) => None,
+        ActorEvent::PlayerList(_) | ActorEvent::Status(_) | ActorEvent::TakeItem(_) => None,
     }
 }
 
+#[cfg(test)]
+mod local_tests;
+#[cfg(test)]
+mod riding_tests;
 #[cfg(test)]
 mod tests;

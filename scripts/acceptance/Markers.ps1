@@ -1,3 +1,53 @@
+function Get-PinnedGophertunnelCommit {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit
+    )
+
+    $output = @(& go -C $ProjectRoot list -m -json github.com/sandertv/gophertunnel 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "go list -m failed while resolving gophertunnel: $($output -join [Environment]::NewLine)"
+    }
+    $encoded = $output -join [Environment]::NewLine
+    if ([Text.Encoding]::UTF8.GetByteCount($encoded) -gt 65536) {
+        throw 'go list -m gophertunnel output exceeds the 64 KiB provenance bound'
+    }
+    try { $module = $encoded | ConvertFrom-Json }
+    catch { throw 'go list -m returned malformed gophertunnel JSON' }
+    if ([string]$module.Path -cne 'github.com/sandertv/gophertunnel' -or
+        $null -eq $module.Replace -or
+        [string]$module.Replace.Path -cne 'github.com/hashimthearab/gophertunnel' -or
+        [string]$module.Replace.Version -cne $ExpectedVersion) {
+        throw 'go list -m resolved a different gophertunnel module or replacement version'
+    }
+    if ($ExpectedCommit -cnotmatch '^[0-9a-f]{40}$' -or
+        $ExpectedVersion -cnotmatch '-(?<revision>[0-9a-f]{12})$' -or
+        [string]$Matches.revision -cne $ExpectedCommit.Substring(0, 12)) {
+        throw 'gophertunnel replacement version does not identify the expected exact commit'
+    }
+    $replacementQuery = '{0}@{1}' -f [string]$module.Replace.Path, [string]$module.Replace.Version
+    $downloadOutput = @(& go -C $ProjectRoot mod download -json $replacementQuery 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "go mod download failed while verifying gophertunnel origin: $($downloadOutput -join [Environment]::NewLine)"
+    }
+    $downloadEncoded = $downloadOutput -join [Environment]::NewLine
+    if ([Text.Encoding]::UTF8.GetByteCount($downloadEncoded) -gt 65536) {
+        throw 'go mod download gophertunnel output exceeds the 64 KiB provenance bound'
+    }
+    try { $download = $downloadEncoded | ConvertFrom-Json }
+    catch { throw 'go mod download returned malformed gophertunnel JSON' }
+    if ([string]$download.Path -cne [string]$module.Replace.Path -or
+        [string]$download.Version -cne [string]$module.Replace.Version -or
+        $null -eq $download.Origin -or
+        [string]$download.Origin.VCS -cne 'git' -or
+        [string]$download.Origin.URL -cne 'https://github.com/hashimthearab/gophertunnel' -or
+        [string]$download.Origin.Hash -cne $ExpectedCommit) {
+        throw 'resolved gophertunnel module origin does not match the expected exact commit'
+    }
+    return $ExpectedCommit
+}
+
 function ConvertFrom-TransparentSortCommittedMarker {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Line)
 
@@ -121,8 +171,8 @@ function Wait-ProtocolMetadataCopyTasks {
 function Assert-ProtocolDependencyProvenance {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedForkRevision,
-        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedUpstreamRevision,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedAxolotlStackRevision,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedProtocolgenRevision,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedLicenseSha256
     )
 
@@ -213,8 +263,8 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        valentine = @('bedrock_1_26_40', 'bedrock_1_26_30')
-        jolyne = @('client', 'bedrock_1_26_40')
+        valentine = @('bedrock_1_26_51')
+        jolyne = @('client', 'bedrock_1_26_51')
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
@@ -257,15 +307,15 @@ function Assert-ProtocolDependencyProvenance {
         }
     }
 
-    $forkLine = "- Reviewed fork revision: ``$ExpectedForkRevision``"
-    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($forkLine) + '\r?$').Count -ne 1) {
-        throw "protocol dependency provenance drifted: vendored fork revision is not $ExpectedForkRevision"
+    $axolotlLine = "- Axolotl Stack merge revision: ``$ExpectedAxolotlStackRevision``"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($axolotlLine) + '\r?$').Count -ne 1) {
+        throw "protocol dependency provenance drifted: Axolotl Stack revision is not $ExpectedAxolotlStackRevision"
     }
-    $upstreamLine = "- Upstream snapshot revision: ``$ExpectedUpstreamRevision``"
-    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($upstreamLine) + '\r?$').Count -ne 1) {
-        throw "protocol dependency provenance drifted: upstream revision is not $ExpectedUpstreamRevision"
+    $protocolgenLine = "- Protocolgen submodule, manifest, and generated-source revision: ``$ExpectedProtocolgenRevision``"
+    if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($protocolgenLine) + '\r?$').Count -ne 1) {
+        throw "protocol dependency provenance drifted: protocolgen revision is not $ExpectedProtocolgenRevision"
     }
-    $licenseLine = "- Retained license: MIT at ``crates/protocol/vendor/LICENSE`` (normalized SHA-256 ``$ExpectedLicenseSha256``)"
+    $licenseLine = "- Retained license normalized SHA-256: ``$ExpectedLicenseSha256``"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($licenseLine) + '\r?$').Count -ne 1) {
         throw 'protocol dependency provenance drifted: retained license metadata is missing or ambiguous'
     }
@@ -303,7 +353,7 @@ function Assert-ProtocolDependencyProvenance {
             throw "Cargo.lock does not contain local package $dependency"
         }
     }
-    return $ExpectedForkRevision
+    return $ExpectedAxolotlStackRevision
 }
 
 function Read-BoundedProtocolMetadataFile {
@@ -322,8 +372,8 @@ function Read-BoundedProtocolMetadataFile {
 function Get-ProtocolDependencyProvenanceMetadata {
     return [ordered]@{
         protocol_dependency_resolution = 'vendored-path'
-        pinned_valentine_fork_commit = $PinnedValentineForkCommit
-        pinned_valentine_upstream_commit = $PinnedValentineUpstreamCommit
+        pinned_axolotl_stack_commit = $PinnedAxolotlStackCommit
+        pinned_protocolgen_commit = $PinnedProtocolgenCommit
         pinned_valentine_license_sha256 = $PinnedValentineLicenseSha256
     }
 }

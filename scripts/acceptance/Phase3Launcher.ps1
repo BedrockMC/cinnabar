@@ -1,7 +1,25 @@
+<#
+.SYNOPSIS
+    Builds or simulates one bounded Phase 3 acceptance session against a fixed target.
+.PARAMETER CoreExtraArgs
+    Optional bounded passthrough of additional bedrock-core arguments, appended
+    verbatim after the standard core arguments (-socket-dir, -upstream, and the
+    remote -auth-cache pair). Supply one token per array element, for example
+    -CoreExtraArgs '-upstream-client-cache' or -CoreExtraArgs '-some-flag','value'.
+    Each element must be either a lowercase long-form flag matching ^-[a-z][a-z0-9-]*$
+    or a value matching ^[A-Za-z0-9._/:=-]+$; a flag that takes a value is supplied
+    as a separate following element. Combined -flag=value tokens, shorthand --flag
+    tokens, uppercase flags, backslashes, whitespace, quotes, and shell
+    metacharacters are rejected. At most 16 elements of at most 256 characters each
+    are accepted; anything else fails before any build or run. The default empty
+    list reproduces today's CORE_COMMAND byte-for-byte. Chosen arguments surface in
+    the printed CORE_COMMAND/CORE_EXTRA_ARGUMENTS lines, scenario-manifest.json,
+    and run-metadata.json.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno')]
+    [ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')]
     [string]$Target,
     [ValidateRange(60, [int]::MaxValue)]
     [int]$DurationSeconds = 300,
@@ -10,6 +28,7 @@ param(
     [string]$BdsEndpoint = '127.0.0.1:19132',
     [string]$AuthCache,
     [string]$Assets,
+    [string[]]$CoreExtraArgs = @(),
     [string]$OutputDirectory,
     [switch]$DryRun
 )
@@ -25,6 +44,10 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 $Target = ConvertTo-Phase3Target -Target $Target
 $Scenario = ConvertTo-Phase3Scenario -Scenario $Scenario
+$bedrockTarget = Get-BedrockTargetManifest -ProjectRoot $projectRoot
+if ($Scenario -ceq 'FastTransferWitness' -and [string]::IsNullOrWhiteSpace($Assets)) {
+    $Assets = [string]$bedrockTarget.artifacts.world_assets
+}
 
 Assert-Phase3CleanTrackedSource -ProjectRoot $projectRoot
 $buildCommit = (& git -C $projectRoot rev-parse HEAD).Trim()
@@ -59,14 +82,16 @@ $scenarioManifestPath = Join-Path $runDirectory 'scenario-manifest.json'
 $launcherErrorPath = Join-Path $runDirectory 'launcher-error.json'
 $plan = New-Phase3LaunchPlan -Target $Target -Endpoint $endpoint -RunId $runId `
     -SocketDirectory $socketDirectory -MetricsPath $metricsPath `
-    -DurationSeconds $DurationSeconds -Scenario $Scenario -AuthCache $authCacheFull -Assets $assetsFull
+    -DurationSeconds $DurationSeconds -Scenario $Scenario -AuthCache $authCacheFull -Assets $assetsFull `
+    -CoreExtraArgs $CoreExtraArgs
 
 $isWindowsPlatform = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $executableSuffix = if ($isWindowsPlatform) { '.exe' } else { '' }
-$coreExecutable = Join-Path $projectRoot "target\debug\bedrock-core$executableSuffix"
-$appExecutable = Join-Path $projectRoot "target\debug\bedrock-client$executableSuffix"
-$pregPath = Join-Path $projectRoot '.local\assets\block-physics-v1001.bin'
-$bregPath = Join-Path $projectRoot 'crates\assets\data\block-registry-v1001.bin'
+$buildProfile = if ($Scenario -ceq 'FastTransferWitness') { 'release' } else { 'debug' }
+$coreExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-core$executableSuffix"
+$appExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-client$executableSuffix"
+$pregPath = Join-Path $projectRoot (Join-Path '.local\assets' (Split-Path -Leaf ([string]$bedrockTarget.artifacts.physics_registry)))
+$bregPath = Resolve-BedrockTargetArtifact -ProjectRoot $projectRoot -Target $bedrockTarget -Artifact block_registry
 $assetsSha256 = if ($null -eq $assetsFull) { $null } else {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $assetsFull).Hash.ToLowerInvariant()
 }
@@ -75,8 +100,10 @@ if ($DryRun) {
     Write-Output "PHASE3_TARGET=$Target"
     Write-Output "PHASE3_ENDPOINT=$endpoint"
     Write-Output "CORE_COMMAND=$(Format-ResolvedCommand $coreExecutable $plan.CoreArguments)"
+    Write-Output "CORE_EXTRA_ARGUMENTS=$($plan.CoreExtraArguments -join ' ')"
     Write-Output "APP_COMMAND=$(Format-ResolvedCommand $appExecutable $plan.AppArguments)"
     Write-Output "PHASE3_SCENARIO=$Scenario"
+    Write-Output "BUILD_PROFILE=$buildProfile"
     Write-Output "PHASE3_CANDIDATE_PHYSICS=$($Scenario -ceq 'CandidatePhysics')"
     Write-Output 'PRODUCTION_PHYSICS_DEFAULT_ENABLED=false'
     return
@@ -120,6 +147,7 @@ try {
 $scenarioManifest = if ($Scenario -ceq 'CandidatePhysics') {
     [ordered]@{
         schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'CandidatePhysics'
+        core_extra_arguments = $plan.CoreExtraArguments
         required_input_modes = @('KeyboardMouse', 'GamePad')
         deferred_input_modes = @('Touch')
         input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.'
@@ -147,6 +175,7 @@ elseif ($Scenario -ceq 'FastTransferWitness') {
     [ordered]@{
         schema = 'rust-mcbe-fast-transfer-witness-scenario-v1'
         scenario = 'FastTransferWitness'
+        core_extra_arguments = $plan.CoreExtraArguments
         target = 'Lbsg'
         required_command = '/transfer sm3'
         assets_sha256 = $assetsSha256
@@ -162,6 +191,7 @@ elseif ($Scenario -ceq 'FastTransferWitness') {
 else {
     [ordered]@{
         schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'FreeCameraSilence'
+        core_extra_arguments = $plan.CoreExtraArguments
         required_input_modes = @(); deferred_input_modes = @()
         input_witness_deferral_reason = ''; required_perspective_sequence = @()
         require_replay = $false; require_snap = $false; require_held_jump_rejump = $false
@@ -192,8 +222,10 @@ try {
     Assert-Phase3ExactCleanHead -ProjectRoot $projectRoot -ExpectedCommit $buildCommit
     $env:RUST_MCBE_BUILD_COMMIT = $buildCommit
     $env:RUST_MCBE_SOURCE_DIRTY = 'false'
+    $appBuildArguments = @('build', '--locked', '-p', 'bedrock-client')
+    if ($buildProfile -ceq 'release') { $appBuildArguments += '--release' }
     Invoke-CheckedBuild -Executable 'cargo' `
-        -Arguments @('build', '--locked', '-p', 'bedrock-client') `
+        -Arguments $appBuildArguments `
         -LogPath (Join-Path $runDirectory 'build-app.log') -WorkingDirectory $projectRoot
 }
 finally {
@@ -301,6 +333,7 @@ $metadata = [ordered]@{
     app_process_id = $appProcessId; app_exit_code = $appExitCode; core_exit_code = $coreExitCode
     core_terminated_by_launcher = $coreTerminatedByLauncher; timed_out = $timedOut
     duration_seconds = $DurationSeconds; scenario = $Scenario; screenshot_slots = $screenshotSlots
+    core_extra_arguments = $plan.CoreExtraArguments
 }
 [IO.File]::WriteAllText($metadataPath, ($metadata | ConvertTo-Json -Depth 6) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
@@ -320,6 +353,7 @@ try {
             -ScenarioManifestPath $scenarioManifestPath -OutputPath $aggregatePath `
             -ExpectedBuildCommit $buildCommit -ExpectedPregSha256 $pregSha256 `
             -ExpectedBregSha256 $bregSha256 -ExpectedCoreSha256 $coreSha256 `
+            -ExpectedProtocol ([uint32]$bedrockTarget.wire_protocol) `
             -ExpectedAppSha256 $appSha256 -ExpectedAssetsSha256 $assetsSha256 -ExpectedRunId $runId `
             -ExpectedBridgeEndpoint $bridgeEndpoint -ExpectedCoreProcessId $coreProcessId `
             -ExpectedAppProcessId $appProcessId -ExpectedPresentMode Fifo
@@ -328,6 +362,7 @@ try {
         & (Join-Path $PSScriptRoot 'Phase3.ps1') `
             -LogPath $logPath -ExpectedTarget $Target -ExpectedBuildCommit $buildCommit `
             -ExpectedPregSha256 $pregSha256 -ExpectedBregSha256 $bregSha256 `
+            -ExpectedProtocol ([uint32]$bedrockTarget.wire_protocol) `
             -ExpectedRunId $runId -ExpectedEndpoint $endpoint -ExpectedBridgeEndpoint $bridgeEndpoint `
             -ExpectedCoreSha256 $coreSha256 `
             -ExpectedCoreProcessId $coreProcessId -ExpectedAppProcessId $appProcessId `

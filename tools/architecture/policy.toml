@@ -15,6 +15,15 @@ forbidden_artifacts = [
     "*.mcworld",
 ]
 
+# Original art, never Mojang content.
+[[owned_artifacts]]
+path = "assets/panorama/"
+ownership_record = "THIRD_PARTY_NOTICES.md"
+
+[[owned_artifacts]]
+path = "assets/branding/"
+ownership_record = "THIRD_PARTY_NOTICES.md"
+
 # Existing oversized files may only shrink. New files and files below their
 # category limit remain governed by the strict limits above.
 [[line_baselines]]
@@ -42,6 +51,12 @@ allowed_dependencies = ["bridge"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
+name = "resource-pack"
+path = "crates/resource-pack"
+allowed_dependencies = ["protocol"]
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+
+[[crates]]
 name = "world"
 path = "crates/world"
 allowed_dependencies = []
@@ -58,6 +73,12 @@ name = "asset-compiler"
 path = "crates/asset-compiler"
 allowed_dependencies = ["assets"]
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "json-ui"
+path = "crates/json-ui"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
 name = "meshing"
@@ -86,8 +107,9 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["assets", "client-world", "meshing", "protocol", "render", "semantic-input", "sim", "ui", "world"]
-forbidden_dependencies = ["asset-compiler"]
+# asset-compiler is allowed only for the session-time in-memory server-pack entity compile.
+allowed_dependencies = ["asset-compiler", "assets", "client-world", "json-ui", "meshing", "protocol", "render", "resource-pack", "semantic-input", "sim", "ui", "world"]
+forbidden_dependencies = []
 
 [[crates]]
 name = "sim"
@@ -118,6 +140,12 @@ name = "devtool"
 path = "tools/devtool"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "dist-local"
+path = "tools/dist"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
 name = "phase2-evidence"
@@ -258,10 +286,52 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/asset_startup.rs"
 
 [[markers]]
+literal = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/ui_runtime/use_on_identity_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_AUDIO_WIRE_EVIDENCE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/session_audio/wire_evidence.rs"
+
+[[markers]]
+literal = "RUST_MCBE_FORM_SHAPE_PROBE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/ui_runtime/forms/shape_probe.rs"
+
+[[markers]]
+literal = "RUST_MCBE_CRAFT_OBSERVATION"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/ui_runtime/crafting_authority/observation.rs"
+
+[[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/app.rs"
+
+[[markers]]
+literal = "RUST_MCBE_MOVEMENT_TRACE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/movement/trace.rs"
+
+[[markers]]
+literal = "RUST_MCBE_TELEPORT_ACK"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/movement/teleport_ack.rs"
+
+[[markers]]
+literal = "RUST_MCBE_ANCHOR_PROBE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/movement/anchor_probe.rs"
 
 [[markers]]
 literal = "RUST_MCBE_BUILD_COMMIT"
@@ -312,6 +382,11 @@ producer = "app/src/acceptance/markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_FAST_TRANSFER_PACKET_TRACE"
+kind = "log_only"
+producer = "app/src/acceptance/markers.rs"
+
+[[markers]]
+literal = "RUST_MCBE_LOADING_MILESTONE"
 kind = "log_only"
 producer = "app/src/acceptance/markers.rs"
 

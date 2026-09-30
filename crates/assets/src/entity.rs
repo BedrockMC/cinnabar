@@ -15,19 +15,38 @@ pub use v4::{
     CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
-    EntityControllerState, EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
+    EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
+    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
+    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
-    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
-    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
-    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
-    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH,
-    MolangCollection, MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind,
+    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
+    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
+    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
+    MAX_ENTITY_RENDER_VISIBILITY, MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS,
+    MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES, MAX_MOLANG_COLLECTION_ITEMS,
+    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
+    MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
+    MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
+    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
+    MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
+    MolangSymbolKind, molang_call, molang_program_stack,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 4;
+pub const ENTITY_BLOB_VERSION: u32 = 6;
+/// Actor rig id ranges (a rig id is a `u32`):
+/// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings.
+/// - `PACK_RIG_ID_BASE..0x8000_0000`: the session's server-pack entity catalog bindings.
+/// - `0x8000_0000..0xC000_0000`: equipment geometry, `0x8000_0000 + index`, where an index
+///   below `PACK_EQUIPMENT_INDEX_BASE` is a vanilla entity-catalog geometry (skulls sit at
+///   `0x00ff_0000`) and one at or above it is `PACK_EQUIPMENT_INDEX_BASE + ` a geometry index
+///   of the session's server-pack catalog.
+/// - `0xC000_0000..0xE000_0000`: generated item meshes.
+/// - `0xE000_0000..`: player skins' own models; `u32::MAX` is the diagnostic rig.
+pub const PACK_RIG_ID_BASE: u32 = 0x4000_0000;
+/// First equipment geometry index that names a server-pack catalog geometry.
+pub const PACK_EQUIPMENT_INDEX_BASE: u32 = 0x1000_0000;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;
@@ -106,6 +125,8 @@ pub struct EntityAssetSymbol {
 pub struct EntityGeometryScalar(u32);
 
 impl EntityGeometryScalar {
+    pub const ZERO: Self = Self(0);
+
     #[must_use]
     pub fn new(value: f32) -> Option<Self> {
         if !value.is_finite() || value.abs() > MAX_ENTITY_GEOMETRY_SCALAR {
@@ -219,6 +240,7 @@ pub struct CompiledEntityAssets {
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
     pub item_visuals: Box<[ItemVisualDefinition]>,
     pub item_visual_aliases: Box<[ItemVisualAlias]>,
+    pub render: EntityRenderData,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -246,6 +268,7 @@ struct EntityCatalogPayload {
     rig_controllers: Box<[EntityRigControllerBinding]>,
     item_visuals: Box<[ItemVisualDefinition]>,
     item_visual_aliases: Box<[ItemVisualAlias]>,
+    render: EntityRenderData,
 }
 
 #[derive(Clone, Debug)]
@@ -273,6 +296,7 @@ pub struct RuntimeEntityAssets {
     rig_controllers: Arc<[EntityRigControllerBinding]>,
     item_visuals: Arc<[ItemVisualDefinition]>,
     item_visual_aliases: Arc<[ItemVisualAlias]>,
+    render: Arc<EntityRenderData>,
 }
 
 impl RuntimeEntityAssets {
@@ -365,10 +389,16 @@ impl RuntimeEntityAssets {
             rig_controllers: payload.rig_controllers,
             item_visuals: payload.item_visuals,
             item_visual_aliases: payload.item_visual_aliases,
+            render: payload.render,
         };
+        Self::from_compiled(compiled)
+    }
+
+    /// Validates a compiled catalog and wraps it without a blob round trip.
+    pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
         validate_compiled(&compiled)?;
         Ok(Self {
-            source_manifest_sha256,
+            source_manifest_sha256: compiled.source_manifest_sha256,
             block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
             symbols: Arc::from(compiled.symbols),
@@ -391,6 +421,7 @@ impl RuntimeEntityAssets {
             rig_controllers: Arc::from(compiled.rig_controllers),
             item_visuals: Arc::from(compiled.item_visuals),
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
+            render: Arc::new(compiled.render),
         })
     }
 
@@ -854,8 +885,7 @@ fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), Asset
             path.starts_with("render_controllers/") && path.ends_with(".json")
         }
         EntityAssetKind::Texture => {
-            path.starts_with("textures/entity/")
-                && (path.ends_with(".png") || path.ends_with(".tga"))
+            path.starts_with("textures/") && (path.ends_with(".png") || path.ends_with(".tga"))
         }
     };
     if matches {

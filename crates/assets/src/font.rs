@@ -1,4 +1,4 @@
-use std::str;
+use std::{collections::BTreeMap, str, sync::Arc};
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -49,7 +49,9 @@ pub struct FontCatalogIdentity {
 pub struct CompiledFontCatalog {
     identity: FontCatalogIdentity,
     glyphs: Box<[GlyphMetrics]>,
-    pages: Box<[FontTexturePage]>,
+    pages: Arc<[FontTexturePage]>,
+    /// Drawn size in 1/64 px for glyphs that are not drawn at their texel size.
+    draw_sizes_64: Arc<BTreeMap<char, [u32; 2]>>,
 }
 
 pub type RuntimeFontCatalog = CompiledFontCatalog;
@@ -77,8 +79,50 @@ impl CompiledFontCatalog {
                 carrier_sha256: array_at(bytes, envelope.hash_offset)?,
             },
             glyphs: glyphs.into_boxed_slice(),
-            pages: pages.into_boxed_slice(),
+            pages: pages.into(),
+            draw_sizes_64: Arc::default(),
         })
+    }
+
+    /// A catalog that also draws `extra` glyphs, which replace same-codepoint entries when
+    /// `replace` allows; its identity changes with them so layout caches never alias.
+    pub fn with_glyphs(&self, extra: &[crate::SheetGlyph], replace: impl Fn(char) -> bool) -> Self {
+        let mut glyphs: BTreeMap<char, GlyphMetrics> = self
+            .glyphs
+            .iter()
+            .map(|glyph| (glyph.codepoint, *glyph))
+            .collect();
+        let mut draw_sizes_64 = (*self.draw_sizes_64).clone();
+        let mut hash = Sha256::new();
+        hash.update(self.identity.carrier_sha256);
+        for glyph in extra {
+            let codepoint = glyph.metrics.codepoint;
+            if glyphs.contains_key(&codepoint) && !replace(codepoint) {
+                continue;
+            }
+            glyphs.insert(codepoint, glyph.metrics);
+            draw_sizes_64.insert(codepoint, glyph.draw_size_64);
+            hash.update(u32::from(codepoint).to_le_bytes());
+            hash.update(glyph.metrics.page.to_le_bytes());
+            for value in glyph.metrics.uv {
+                hash.update(value.to_le_bytes());
+            }
+            hash.update(glyph.metrics.advance_64.to_le_bytes());
+        }
+        Self {
+            identity: FontCatalogIdentity {
+                carrier_sha256: hash.finalize().into(),
+                ..self.identity
+            },
+            glyphs: glyphs.into_values().collect(),
+            pages: Arc::clone(&self.pages),
+            draw_sizes_64: Arc::new(draw_sizes_64),
+        }
+    }
+
+    /// Drawn `[width, height]` in 1/64 px when it differs from the glyph's texel size.
+    pub fn draw_size_64(&self, codepoint: char) -> Option<[u32; 2]> {
+        self.draw_sizes_64.get(&codepoint).copied()
     }
 
     pub const fn identity(&self) -> FontCatalogIdentity {

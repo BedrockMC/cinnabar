@@ -1,0 +1,15 @@
+{
+  "module": "github.com/oomph-ac/bedsim",
+  "version": "v0.1.7-0.20260916140831-34d11dc576ae",
+  "source_commit": "34d11dc576aeb56a7f7f0541dbb5a600cc443488",
+  "source_url": "https://github.com/oomph-ac/bedsim/tree/34d11dc576aeb56a7f7f0541dbb5a600cc443488",
+  "module_sum": "h1:DidgeIxb109v3wuvQO0TBTar0B4oZCBvAJYWxacAv4A=",
+  "generator": "tools/bedsimtrace-controls",
+  "generator_command": "GOWORK=off GOMAXPROCS=2 GOMEMLIMIT=512MiB go run -p 1 .",
+  "generator_source_sha256": "05aed9c916da733b8b18ccdc06a32093b0e71bcbef5315f202b7ad7f58315094",
+  "go_mod_sha256": "97651311425af1037ea20769ad039aa796ec1b42c390aeb4b5e52068168af0d8",
+  "go_sum_sha256": "5e617941ccbb9742ddc09bcc328d711459a7110b2c92f721a41bce1d479a671f",
+  "sha256": "f56c1e38e28f0ce3f097022e3135dd1ba5616ea829937fae877221e1729f4f9e",
+  "cases": 14,
+  "scope": "Processed primary controls only; f64 physics remains unchanged. This newer public model does not close version-matched retail acceptance."
+}

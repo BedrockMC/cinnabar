@@ -31,6 +31,16 @@ type Config struct {
 // Source loads or acquires a Microsoft token and returns a source that persists
 // each successfully refreshed token before returning it to the caller.
 func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
+	return sourceWithQuarantine(ctx, config, quarantineCacheFile)
+}
+
+// sourceWithQuarantine builds a token source using the supplied quarantine
+// operation so fail-closed recovery behavior can be tested deterministically.
+func sourceWithQuarantine(
+	ctx context.Context,
+	config Config,
+	quarantine func(string) (string, error),
+) (oauth2.TokenSource, error) {
 	if config.Path == "" {
 		return nil, errors.New("auth cache path is empty")
 	}
@@ -38,7 +48,10 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	if err != nil {
 		return nil, errors.New("resolve auth cache path")
 	}
-	config.Path = filepath.Clean(path)
+	config.Path, err = canonicalizeCachePath(filepath.Clean(path))
+	if err != nil {
+		return nil, errors.New("resolve auth cache path")
+	}
 	writer := config.Writer
 	if writer == nil {
 		writer = io.Discard
@@ -53,11 +66,18 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	}
 
 	cached, err := load(config.Path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
-		}
+	switch {
+	case err == nil:
+	case errors.Is(err, fs.ErrNotExist):
 		return acquire(ctx, config.Path, writer, request, refresh)
+	case errors.Is(err, errUnsafePermissions):
+		if _, quarantineErr := quarantine(config.Path); quarantineErr != nil {
+			return nil, fmt.Errorf("quarantine Microsoft auth cache: %w", quarantineErr)
+		}
+		notifyQuarantinedCache(writer, config.Path, err)
+		return acquire(ctx, config.Path, writer, request, refresh)
+	default:
+		return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
 	}
 
 	source := refresh(cached, writer)
@@ -71,7 +91,7 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	if err := save(config.Path, current); err != nil {
 		return nil, fmt.Errorf("persist refreshed Microsoft token: %w", err)
 	}
-	return &persistingSource{path: config.Path, source: source}, nil
+	return &persistingSource{path: config.Path, source: source, last: cloneToken(current)}, nil
 }
 
 func acquire(
@@ -105,13 +125,14 @@ func acquire(
 	if source == nil {
 		return nil, errors.New("create Microsoft refresh source: nil token source")
 	}
-	return &persistingSource{path: path, source: source}, nil
+	return &persistingSource{path: path, source: source, last: cloneToken(tok)}, nil
 }
 
 type persistingSource struct {
 	mu     sync.Mutex
 	path   string
 	source oauth2.TokenSource
+	last   *oauth2.Token
 }
 
 func (s *persistingSource) Token() (*oauth2.Token, error) {
@@ -125,13 +146,54 @@ func (s *persistingSource) Token() (*oauth2.Token, error) {
 	if !validToken(tok) {
 		return nil, errors.New("refresh Microsoft token: token has no refresh token")
 	}
+	if sameToken(s.last, tok) {
+		return tok, nil
+	}
 	if err := save(s.path, tok); err != nil {
 		return nil, fmt.Errorf("persist refreshed Microsoft token: %w", err)
 	}
+	s.last = cloneToken(tok)
 	return tok, nil
 }
 
+func sameToken(left, right *oauth2.Token) bool {
+	return left != nil && right != nil && left.AccessToken == right.AccessToken && left.TokenType == right.TokenType &&
+		left.RefreshToken == right.RefreshToken && left.Expiry.Equal(right.Expiry)
+}
+
+func cloneToken(token *oauth2.Token) *oauth2.Token {
+	if token == nil {
+		return nil
+	}
+	cloned := *token
+	return &cloned
+}
+
 func load(path string) (*oauth2.Token, error) {
+	contents, err := loadPrivate(path, maxCacheSize)
+	if err != nil {
+		return nil, err
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	var tok oauth2.Token
+	if err := decoder.Decode(&tok); err != nil {
+		return nil, fmt.Errorf("decode auth cache: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("decode auth cache: trailing JSON value")
+		}
+		return nil, fmt.Errorf("decode auth cache trailing data: %w", err)
+	}
+	if !validToken(&tok) {
+		return nil, errors.New("decode auth cache: token has no refresh token")
+	}
+	return &tok, nil
+}
+
+func loadPrivate(path string, limit int64) ([]byte, error) {
 	initialParents, err := snapshotDirectoryChain(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -143,8 +205,11 @@ func load(path string) (*oauth2.Token, error) {
 	if err := checkRegular(pathInfo); err != nil {
 		return nil, err
 	}
-	if pathInfo.Size() > maxCacheSize {
-		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	if err := checkCacheSecurityByPath(path, pathInfo); err != nil {
+		return nil, err
+	}
+	if pathInfo.Size() > limit {
+		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
 	}
 	parents, err := snapshotDirectoryChain(filepath.Dir(path))
 	if err != nil {
@@ -173,47 +238,35 @@ func load(path string) (*oauth2.Token, error) {
 	if !os.SameFile(pathInfo, openInfo) {
 		return nil, errors.New("auth cache changed while opening")
 	}
+	if err := checkOpenedCacheFileSecurity(file, openInfo); err != nil {
+		return nil, err
+	}
 	if err := parents.revalidate(); err != nil {
 		return nil, err
 	}
-	if openInfo.Size() > maxCacheSize {
-		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	if openInfo.Size() > limit {
+		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
 	}
 
-	contents, err := io.ReadAll(io.LimitReader(file, maxCacheSize+1))
+	contents, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(contents) > maxCacheSize {
-		return nil, fmt.Errorf("auth cache exceeds %d bytes", maxCacheSize)
+	if int64(len(contents)) > limit {
+		return nil, fmt.Errorf("private cache exceeds %d bytes", limit)
 	}
 	finalInfo, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
-	if finalInfo.Size() > maxCacheSize || finalInfo.Size() != int64(len(contents)) {
+	if finalInfo.Size() > limit || finalInfo.Size() != int64(len(contents)) {
 		return nil, errors.New("auth cache changed while reading")
 	}
 	if err := parents.revalidate(); err != nil {
 		return nil, err
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	var tok oauth2.Token
-	if err := decoder.Decode(&tok); err != nil {
-		return nil, fmt.Errorf("decode auth cache: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("decode auth cache: trailing JSON value")
-		}
-		return nil, fmt.Errorf("decode auth cache trailing data: %w", err)
-	}
-	if !validToken(&tok) {
-		return nil, errors.New("decode auth cache: token has no refresh token")
-	}
-	return &tok, nil
+	return contents, nil
 }
 
 func save(path string, tok *oauth2.Token) error {
@@ -222,6 +275,7 @@ func save(path string, tok *oauth2.Token) error {
 
 type saveHooks struct {
 	afterTokenSync            func(tempPath string) error
+	protectTemp               func(*os.File) error
 	scrubTemp                 func(*os.File) error
 	afterCleanupIdentityCheck func(tempPath string)
 }
@@ -230,6 +284,104 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 	serialized, err := serializeToken(tok)
 	if err != nil {
 		return err
+	}
+	return savePrivateWithHooks(path, serialized, hooks)
+}
+
+func savePrivate(path string, serialized []byte) error {
+	return savePrivateWithHooks(path, serialized, saveHooks{})
+}
+
+// createPrivateOnce publishes path only if it does not already exist. Unlike
+// savePrivate, it never replaces an existing file identity, making it suitable
+// for stable lock files shared by concurrent processes.
+func createPrivateOnce(path string, contents []byte) (created bool, returnErr error) {
+	path, err := canonicalizeCachePath(filepath.Clean(path))
+	if err != nil {
+		return false, errors.New("resolve private file path")
+	}
+	if len(contents) == 0 || len(contents) > maxCacheSize {
+		return false, fmt.Errorf("private file exceeds %d bytes", maxCacheSize)
+	}
+	dir := filepath.Dir(path)
+	parents, err := snapshotDirectoryChain(dir)
+	if err != nil || !parents.complete {
+		return false, errors.New("private file parent is unavailable")
+	}
+	if err := parents.revalidate(); err != nil {
+		return false, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return false, errors.New("open private file parent")
+	}
+	defer root.Close()
+	rootInfo, err := root.Stat(".")
+	if err != nil || len(parents.directories) == 0 || !os.SameFile(parents.directories[len(parents.directories)-1].info, rootInfo) {
+		return false, errors.New("private file parent changed while opening")
+	}
+
+	name := filepath.Base(path)
+	file, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.New("create private file")
+	}
+	identity, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return false, errors.New("inspect private file")
+	}
+	success := false
+	defer func() {
+		if success {
+			return
+		}
+		if err := cleanupTempIdentity(root, file, identity, saveHooks{}); err != nil {
+			returnErr = errors.New("secure private file cleanup failed")
+		}
+	}()
+	if err := protectOpenedCacheFile(file); err != nil {
+		return false, errors.New("protect private file")
+	}
+	if err := checkRegular(identity); err != nil {
+		return false, err
+	}
+	if err := parents.revalidate(); err != nil {
+		return false, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return false, err
+	}
+	written, err := file.Write(contents)
+	if err != nil {
+		return false, err
+	}
+	if written != len(contents) {
+		return false, io.ErrShortWrite
+	}
+	if err := file.Sync(); err != nil {
+		return false, err
+	}
+	if err := parents.revalidate(); err != nil {
+		return false, err
+	}
+	if err := file.Close(); err != nil {
+		return false, err
+	}
+	success = true
+	return true, nil
+}
+
+func savePrivateWithHooks(path string, serialized []byte, hooks saveHooks) (returnErr error) {
+	path, err := canonicalizeCachePath(filepath.Clean(path))
+	if err != nil {
+		return errors.New("resolve auth cache path")
+	}
+	if len(serialized) == 0 || len(serialized) > maxCacheSize {
+		return fmt.Errorf("private cache exceeds %d bytes", maxCacheSize)
 	}
 	dir := filepath.Dir(path)
 	beforeCreate, err := snapshotDirectoryChain(dir)
@@ -278,7 +430,8 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 	tempInfo, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return err
+		_ = root.Remove(tempName)
+		return errors.New("inspect temporary auth cache")
 	}
 	success := false
 	defer func() {
@@ -289,6 +442,15 @@ func saveWithHooks(path string, tok *oauth2.Token, hooks saveHooks) (returnErr e
 			returnErr = errors.New("secure auth cache cleanup failed")
 		}
 	}()
+	// Restrict the temporary cache to trusted principals before any token
+	// bytes are written so the published file never inherits ambient grants.
+	protect := protectOpenedCacheFile
+	if hooks.protectTemp != nil {
+		protect = hooks.protectTemp
+	}
+	if err := protect(file); err != nil {
+		return errors.New("protect temporary auth cache")
+	}
 	if err := checkRegular(tempInfo); err != nil {
 		return err
 	}
@@ -415,9 +577,35 @@ func cleanupTempIdentity(root *os.Root, file *os.File, identity fs.FileInfo, hoo
 	if scanErr == nil && hooks.afterCleanupIdentityCheck != nil && len(names) != 0 {
 		hooks.afterCleanupIdentityCheck(filepath.Join(root.Name(), names[0]))
 	}
-	_, rescanErr := identityNames(root, identity)
-	if scrubErr != nil || closeErr != nil || scanErr != nil || rescanErr != nil {
+	names, rescanErr := identityNames(root, identity)
+	removeErr := removeTempIdentityNames(root, identity, names)
+	remaining, verifyErr := identityNames(root, identity)
+	if scrubErr != nil || closeErr != nil || scanErr != nil || rescanErr != nil || removeErr != nil || verifyErr != nil || len(remaining) != 0 {
 		return errors.New("temporary auth cache cleanup could not be verified")
+	}
+	return nil
+}
+
+// removeTempIdentityNames removes only directory entries that still name the
+// temporary file identity, leaving a foreign replacement untouched.
+func removeTempIdentityNames(root *os.Root, identity fs.FileInfo, names []string) error {
+	for _, name := range names {
+		info, err := root.Lstat(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(identity, info) {
+			continue
+		}
+		if err := checkRegular(info); err != nil {
+			return err
+		}
+		if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }

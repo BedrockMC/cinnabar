@@ -13,6 +13,7 @@ pub(super) struct SampledEnvironment {
     pub movement: MovementEnvironment,
     pub friction: f64,
     pub identity: WorldCollisionIdentity,
+    pub block_samples: usize,
 }
 
 pub(super) fn sample(
@@ -24,11 +25,7 @@ pub(super) fn sample(
     let swept = player.swept(velocity);
     crate::world::validate_collision_query(swept)?;
     let min = block_at(swept.min)?;
-    let max = block_at(Vec3::new(
-        swept.max.x - f64::EPSILON,
-        swept.max.y - f64::EPSILON,
-        swept.max.z - f64::EPSILON,
-    ))?;
+    let max = inclusive_max_block_at(swept.max)?;
     let support = block_below(position)?;
     let mut blocks = BTreeSet::from([support]);
     for x in min[0]..=max[0] {
@@ -42,6 +39,7 @@ pub(super) fn sample(
         }
     }
 
+    let block_samples = blocks.len();
     let mut identity: Option<WorldCollisionIdentity> = None;
     let mut movement = MovementEnvironment::default();
     let mut friction = 0.6;
@@ -73,8 +71,12 @@ pub(super) fn sample(
                 && fluid_intersects(player, block, facts.fluid_height_blocks);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
                 && fluid_intersects(player, block, facts.fluid_height_blocks);
-            movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB);
-            movement.in_powder_snow |= facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW);
+            // Cobwebs occupy a full block volume even without solid collision
+            // boxes. Swept/support samples alone do not establish body contact.
+            movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
+                && fluid_intersects(player, block, 1.0);
+            movement.in_powder_snow |= facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW)
+                || is_inside_slowdown(facts, player, block);
             movement.in_scaffolding |= facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
         }
     }
@@ -83,7 +85,63 @@ pub(super) fn sample(
         movement,
         friction,
         identity,
+        block_samples,
     })
+}
+
+/// Checks a bounded volume against the same block-physics authority used for
+/// movement, returning every queried identity so an exit probe cannot treat an
+/// unloaded or mismatched liquid region as clear.
+pub(super) fn contains_liquid(
+    world: &impl CollisionWorld,
+    query: Aabb,
+    previous_samples: usize,
+) -> Result<(bool, WorldCollisionIdentity), WorldQueryError> {
+    crate::world::validate_collision_query(query)?;
+    let min = block_at(query.min)?;
+    let max = inclusive_max_block_at(query.max)?;
+    let mut identity: Option<WorldCollisionIdentity> = None;
+    let mut samples = previous_samples;
+    let mut contains = false;
+    for x in min[0]..=max[0] {
+        for y in min[1]..=max[1] {
+            for z in min[2]..=max[2] {
+                if samples == MAX_BLOCK_SAMPLES_PER_TICK {
+                    return Err(WorldQueryError::QueryExtentExceeded);
+                }
+                samples += 1;
+                let block = [x, y, z];
+                let sample = world.block_physics(block)?;
+                identity = Some(match identity {
+                    None => sample.identity.clone(),
+                    Some(previous) => previous.merge(&sample.identity)?,
+                });
+                // The raised exit probe asks whether its sampled block cells
+                // carry liquid, not whether the liquid surface reaches it.
+                contains |= sample.layers.iter().any(|facts| {
+                    facts.flags.contains(BlockPhysicsFlags::WATER)
+                        || facts.flags.contains(BlockPhysicsFlags::LAVA)
+                });
+            }
+        }
+    }
+    Ok((
+        contains,
+        identity.expect("a finite non-empty probe samples at least one block"),
+    ))
+}
+
+/// A collision-free block with reduced speed factors slows a body that overlaps it (berry bush class).
+fn is_inside_slowdown(facts: &crate::BlockPhysicsFacts, player: Aabb, block: [i32; 3]) -> bool {
+    let special = BlockPhysicsFlags::WATER.bits()
+        | BlockPhysicsFlags::LAVA.bits()
+        | BlockPhysicsFlags::COBWEB.bits()
+        | BlockPhysicsFlags::POWDER_SNOW.bits()
+        | BlockPhysicsFlags::SCAFFOLDING.bits();
+    facts.flags.contains(BlockPhysicsFlags::PASSABLE)
+        && facts.flags.bits() & special == 0
+        && (facts.horizontal_speed_factor < 1.0 || facts.vertical_speed_factor < 1.0)
+        && fluid_intersects(player, block, 1.0)
 }
 
 fn active_surface_response(
@@ -125,4 +183,21 @@ pub(super) fn block_at(position: Vec3) -> Result<[i32; 3], WorldQueryError> {
         return Err(WorldQueryError::CoordinateOutOfRange);
     }
     Ok(values.map(|value| value as i32))
+}
+
+/// Converts an exclusive AABB maximum to its final included block using
+/// `ceil(max) - 1`, without subtracting an inexact floating-point epsilon.
+fn inclusive_max_block_at(maximum: Vec3) -> Result<[i32; 3], WorldQueryError> {
+    let mut blocks = [0; 3];
+    for (index, value) in [maximum.x, maximum.y, maximum.z].into_iter().enumerate() {
+        if !value.is_finite() || value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
+            return Err(WorldQueryError::CoordinateOutOfRange);
+        }
+        let block = value.ceil() - 1.0;
+        if block < f64::from(i32::MIN) || block > f64::from(i32::MAX) {
+            return Err(WorldQueryError::CoordinateOutOfRange);
+        }
+        blocks[index] = block as i32;
+    }
+    Ok(blocks)
 }

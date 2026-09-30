@@ -26,9 +26,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
-$PinnedGophertunnelCommit = 'bbe6cfdeed39713c2b20103a1294e609d5841615'
-$PinnedValentineForkCommit = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
-$PinnedValentineUpstreamCommit = '6f6806e821a579c183c44d786f76d9b358a2b825'
+$ExpectedGophertunnelCommit = 'b725d82563e93308fd1f92d27da5e97301ad5040'
+$ExpectedGophertunnelVersion = 'v1.25.3-0.20260929084839-b725d82563e9'
+$ExpectedBdsSha256 = '19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
+$ExpectedBdsRelease = '1.26.52.3'
+$PinnedAxolotlStackCommit = 'c4540512dc47833bb40363da7ad1161110d64b67'
+$PinnedProtocolgenCommit = '0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 $PinnedValentineLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 $PinnedAssetSourceTag = 'v1.26.30.32-preview'
 $PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
@@ -44,6 +47,11 @@ $LeafForestLoadAreaSettleMilliseconds = 8000
 foreach ($libraryPath in Get-AcceptanceLibraryPaths -EntryPath $PSCommandPath) {
     . $libraryPath
 }
+$ProjectRootForDependencyResolution = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$PinnedGophertunnelCommit = Get-PinnedGophertunnelCommit `
+    -ProjectRoot $ProjectRootForDependencyResolution `
+    -ExpectedVersion $ExpectedGophertunnelVersion `
+    -ExpectedCommit $ExpectedGophertunnelCommit
 
 if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
     return

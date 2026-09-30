@@ -11,7 +11,7 @@
     "file": "start_game.bin",
     "id": 11,
     "byte_length": 269,
-    "sha256": "c6a1c04d3bf94dcb1242dd62f4aeddd5d8521e530eb8864765339ce153563456"
+    "sha256": "cef9a4dcaa54a3c54879dd6f2b82ea6b2687e5c3315582d59b8fd5f086cb18f1"
   },
   {
     "name": "LevelChunk",
@@ -31,8 +31,50 @@
     "name": "PlayerAuthInput",
     "file": "player_auth_input.bin",
     "id": 144,
-    "byte_length": 105,
-    "sha256": "f0f721cac5f16327adcc0ded8adeb6b955bf981967e031654b226f041b64df89"
+    "byte_length": 99,
+    "sha256": "6f4d6df2fb330ce3c89648b0a81b169c0a75c8f1889efc00045a555f4eb7f74e"
+  },
+  {
+    "name": "PlayerAuthInputBlockActions",
+    "file": "player_auth_input_block_actions.bin",
+    "id": 144,
+    "byte_length": 112,
+    "sha256": "abf2ce5f30440dbe2b99c7c00a8f8add82293d2203ab65ed551cd4f92244453b"
+  },
+  {
+    "name": "PlayerAuthInputBreakBlock",
+    "file": "player_auth_input_break_block.bin",
+    "id": 144,
+    "byte_length": 180,
+    "sha256": "33921c36debe1836580001781cf2675e9d1f7b23f9757c3fb6d34a458ceaa94b"
+  },
+  {
+    "name": "PlayerAuthInputUseBlock",
+    "file": "player_auth_input_use_block.bin",
+    "id": 144,
+    "byte_length": 184,
+    "sha256": "f8ce5de807a52584d14522ec32c49582a5296356ebbcc1ac6e9269fe70711776"
+  },
+  {
+    "name": "PlayerAuthInputBlockActionsAndBreakBlock",
+    "file": "player_auth_input_block_actions_and_break_block.bin",
+    "id": 144,
+    "byte_length": 193,
+    "sha256": "9107c4ea7f670fb27dba4db81649a84957f1ef72719da68bc76fce1b6c8eead4"
+  },
+  {
+    "name": "PlayerAuthInputMineBlock",
+    "file": "player_auth_input_mine_block.bin",
+    "id": 144,
+    "byte_length": 115,
+    "sha256": "d8bc276da2ee3dda3a005f6054d9303332374531b61631ee59a3ba8aff365202"
+  },
+  {
+    "name": "PlayerAuthInputMineBlockAndPredict",
+    "file": "player_auth_input_mine_block_and_predict.bin",
+    "id": 144,
+    "byte_length": 123,
+    "sha256": "2ff6f7505d531d5333333e32da972459a890a3721e05188bb804b826e7078f1f"
   },
   {
     "name": "AddActor",
@@ -80,8 +122,8 @@
     "name": "BossEvent",
     "file": "boss_event.bin",
     "id": 74,
-    "byte_length": 28,
-    "sha256": "8f1e17a077a1df621eaa1830d38c68f14fd4ce7073db63be1e458a83a4eaf5f1"
+    "byte_length": 27,
+    "sha256": "69b4147fe67bab3645ff5bcc5f609a3880028b3d0907b8f0c7145f83102b31d0"
   },
   {
     "name": "ModalFormRequest",
@@ -89,6 +131,34 @@
     "id": 100,
     "byte_length": 39,
     "sha256": "6969d1e79e6a639b307cd814d4a8e618e334a48f24df26fa7324a45b658a076c"
+  },
+  {
+    "name": "ModalFormTextMenu",
+    "file": "modal_form_text_menu.bin",
+    "id": 100,
+    "byte_length": 124,
+    "sha256": "140d0f3e2da28b89fe4d1cb4ff7a08feae9ac3d0131d0b820ee2f3a1329630c4"
+  },
+  {
+    "name": "ModalFormResponseButton",
+    "file": "modal_form_response_button.bin",
+    "id": 101,
+    "byte_length": 9,
+    "sha256": "7f03491c9c39214c52fc608799a4f5694da9f9b7eece50d298d481ab86912001"
+  },
+  {
+    "name": "ModalFormResponseClosed",
+    "file": "modal_form_response_closed.bin",
+    "id": 101,
+    "byte_length": 8,
+    "sha256": "6ef1f8a17c958d97c05db320e561623593f4f1461a7511006caf46b0f56d010e"
+  },
+  {
+    "name": "ModalFormResponseBusy",
+    "file": "modal_form_response_busy.bin",
+    "id": 101,
+    "byte_length": 8,
+    "sha256": "282a779298e8e90b64f791d283a66307e65654a562bf476a1b9b15fb96793861"
   },
   {
     "name": "AvailableCommands",
@@ -105,20 +175,13 @@
     "sha256": "08dea656b782928828fa79fc004166220f14d0459e259717bb537c5a11f6b39a"
   },
   {
-    "name": "CraftingDataMaterialReducer",
-    "file": "material_reducer.bin",
-    "id": 52,
-    "byte_length": 25,
-    "sha256": "8cd3a434027ab0f0506762baed0928daa7707ccaa92e5964612f0ae1b81ee16c"
-  },
-  {
     "name": "BiomeDefinitionListChunkGeneration",
     "file": "biome_definition_list_chunk_generation.bin",
     "id": 122,
     "byte_length": 48,
     "sha256": "a1a626d9b27cd943bc38fbbc356a09ea711ddb26acad72e284dd8dfaff94fbd4",
     "wire_authority": "hashimthearab/gophertunnel",
-    "wire_commit": "be6713da4dc051a4197f897d04835e89e9c54321"
+    "wire_commit": "9f42f3679a573fc4b51104569cc4f422036e28ec"
   },
   {
     "name": "InventoryContent",
@@ -145,7 +208,164 @@
     "name": "ItemStackResponse",
     "file": "item_stack_response.bin",
     "id": 148,
-    "byte_length": 46,
-    "sha256": "7104be672f27e9fadef58f2500138162b7e41b5c204b363d8df9d681964fde0d"
+    "byte_length": 45,
+    "sha256": "aca5ae6f3160f7dfb43f43bbaf43b1435678a988ea282d7de126b42924c640ba"
+  },
+  {
+    "name": "InventoryTransactionClickBlock",
+    "file": "inventory_transaction_click_block.bin",
+    "id": 30,
+    "byte_length": 84,
+    "sha256": "5b78f8ab7c823ab5d20e146c48fa645b2cb1770041a8f9b50ce4d2ace23a6336"
+  },
+  {
+    "name": "InventoryTransactionClickBlockEmptyHand",
+    "file": "inventory_transaction_click_block_empty_hand.bin",
+    "id": 30,
+    "byte_length": 55,
+    "sha256": "d19b05e2b54e40707772b9912fa832276ea608cbf5d8fc96d78c8680ec5be8ba"
+  },
+  {
+    "name": "InventoryTransactionDestroyBlock",
+    "file": "inventory_transaction_destroy_block.bin",
+    "id": 30,
+    "byte_length": 84,
+    "sha256": "67470cc7dd0b84d8b8bd7c87cd874e814dab82bfa6bcd6d7b6aa3ee8035f18ff",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "b725d82563e93308fd1f92d27da5e97301ad5040"
+  },
+  {
+    "name": "InventoryTransactionDestroyBlockEmptyHand",
+    "file": "inventory_transaction_destroy_block_empty_hand.bin",
+    "id": 30,
+    "byte_length": 56,
+    "sha256": "6f51416c54717429876f0a049d2d33be4af24b2c500b1c087128779640447c18",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "b725d82563e93308fd1f92d27da5e97301ad5040"
+  },
+  {
+    "name": "InventoryTransactionAttackActor",
+    "file": "inventory_transaction_attack_actor.bin",
+    "id": 30,
+    "byte_length": 81,
+    "sha256": "4006ad37cd8896865570739eac1c1b2bc1da2f46188cf2e36f16c4e7980611be"
+  },
+  {
+    "name": "InventoryTransactionAttackActorEmptyHand",
+    "file": "inventory_transaction_attack_actor_empty_hand.bin",
+    "id": 30,
+    "byte_length": 52,
+    "sha256": "2f92f5fe10b736f7a897fff3804f8f2570e26ef2072b8e2293e01fdbae85bc5e"
+  },
+  {
+    "name": "InventoryTransactionInteractActor",
+    "file": "inventory_transaction_interact_actor.bin",
+    "id": 30,
+    "byte_length": 76,
+    "sha256": "c65792a5bc80ebc5e24be256a2d5466dbeaa01bb4a8bd06e0e32a99c135fc749"
+  },
+  {
+    "name": "InventoryTransactionInteractActorEmptyHand",
+    "file": "inventory_transaction_interact_actor_empty_hand.bin",
+    "id": 30,
+    "byte_length": 43,
+    "sha256": "39d6d0b48e099351568ec92c8b76f63fbe4e7a704eb086452718a58000479cb5"
+  },
+  {
+    "name": "ContainerClose",
+    "file": "container_close.bin",
+    "id": 47,
+    "byte_length": 7,
+    "sha256": "5747ae7ca8ae13dbfe947387e6c039f26eb37791ec426740b4a63607daa2c556"
+  },
+  {
+    "name": "PlaySound",
+    "file": "play_sound.bin",
+    "id": 86,
+    "byte_length": 48,
+    "sha256": "cc4af4e7a3908051d149734c15ba6c3fb68b5c1c37210933429871e60cb2866b",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "b725d82563e93308fd1f92d27da5e97301ad5040"
+  },
+  {
+    "name": "StopSound",
+    "file": "stop_sound.bin",
+    "id": 87,
+    "byte_length": 7,
+    "sha256": "b76e0abd94c65e6cd2a11510aefecaa6be85ef42716128a50ce69845b7aea7ea",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
+  },
+  {
+    "name": "LevelSoundEvent",
+    "file": "level_sound_event.bin",
+    "id": 123,
+    "byte_length": 65,
+    "sha256": "dab6026965440281c5e7456a297d6ef2015411a4b40371631b9c042567560cec",
+    "wire_authority": "hashimthearab/gophertunnel",
+    "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
+  },
+  {
+    "name": "DisconnectVisible",
+    "file": "disconnect_visible.bin",
+    "id": 5,
+    "byte_length": 22,
+    "sha256": "2a8da841f2867ae1b786e8c67fc8083be8b58eda2eeee7f9ed98554474dc2c60"
+  },
+  {
+    "name": "DisconnectFiltered",
+    "file": "disconnect_filtered.bin",
+    "id": 5,
+    "byte_length": 40,
+    "sha256": "467671e15982beb06e446b184b5b61b874591d664f95aeed9471a272dc7cc93a"
+  },
+  {
+    "name": "DisconnectHidden",
+    "file": "disconnect_hidden.bin",
+    "id": 5,
+    "byte_length": 6,
+    "sha256": "831ce5579d3d16f3eb455725dd811c2b5ee98a8a1abc60fd9932b6fb2fee8d12"
+  },
+  {
+    "name": "CraftingDataManualNamed1x1",
+    "file": "crafting_data_manual_named_1x1.bin",
+    "id": 52,
+    "byte_length": 109,
+    "sha256": "88361768ac60e29684ddd46ba7406e8828fda9bb7cab4fba079e39f76ff28844"
+  },
+  {
+    "name": "CraftingDataManualNamed1x2",
+    "file": "crafting_data_manual_named_1x2.bin",
+    "id": 52,
+    "byte_length": 136,
+    "sha256": "aad4cefde1d88ebc8743ae9b42d7068bfef126c9ddb92eab01d513cca4421be8"
+  },
+  {
+    "name": "CraftingDataManualUnsupportedReplacement",
+    "file": "crafting_data_manual_unsupported_replacement.bin",
+    "id": 52,
+    "byte_length": 162,
+    "sha256": "90fc98eea646fd2037f51a5bc7310baa891df843ef2b3e6199da44434d150704"
+  },
+  {
+    "name": "CraftingDataManualClearEmpty",
+    "file": "crafting_data_manual_clear_empty.bin",
+    "id": 52,
+    "byte_length": 16,
+    "sha256": "61e4b72b47c74e26dbef4a61ce819cefa10a3b505f14e30694611f3c0696b8b9"
+  },
+  {
+    "name": "ItemStackRequestManualCraft",
+    "file": "item_stack_request_manual_craft.bin",
+    "id": 147,
+    "byte_length": 85,
+    "sha256": "93660ca2ed6a2659af72f05dc7c9c37ad4aabaae4a3e2944285f2778cd3e6669"
+  },
+  {
+    "name": "ItemStackResponseManualCraft",
+    "file": "item_stack_response_manual_craft.bin",
+    "id": 148,
+    "byte_length": 34,
+    "sha256": "83149b908cb77110d15ab39bac1a7ab8bab22003dc8c105c2c7448a8e2013f9f"
   }
 ]

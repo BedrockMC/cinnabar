@@ -8,7 +8,7 @@ use assets::{AssetError, MAX_ENTITY_SOURCE_BYTES};
 
 use super::invalid;
 
-pub(super) fn read_bounded_source(root: &Path, path: &Path) -> Result<Vec<u8>, AssetError> {
+pub(crate) fn read_bounded_source(root: &Path, path: &Path) -> Result<Vec<u8>, AssetError> {
     let file = open_source_handle(root, path).map_err(|source| AssetError::Io {
         path: path.to_path_buf(),
         source,
@@ -62,7 +62,7 @@ fn relative_components<'a>(root: &Path, path: &'a Path) -> io::Result<Vec<&'a st
 }
 
 #[cfg(windows)]
-fn open_source_handle(root: &Path, path: &Path) -> io::Result<File> {
+pub(crate) fn open_source_handle(root: &Path, path: &Path) -> io::Result<File> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
@@ -154,7 +154,7 @@ unsafe extern "system" {
 }
 
 #[cfg(unix)]
-fn open_source_handle(root: &Path, path: &Path) -> io::Result<File> {
+pub(crate) fn open_source_handle(root: &Path, path: &Path) -> io::Result<File> {
     use std::{
         ffi::CString,
         os::unix::{
@@ -235,7 +235,7 @@ mod unix_flags {
 compile_error!("secure entity source opening requires reviewed openat flags for this Unix target");
 
 #[cfg(not(any(unix, windows)))]
-fn open_source_handle(_root: &Path, _path: &Path) -> io::Result<File> {
+pub(crate) fn open_source_handle(_root: &Path, _path: &Path) -> io::Result<File> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "secure entity source opening is unsupported on this platform",

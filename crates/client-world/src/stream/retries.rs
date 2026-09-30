@@ -35,10 +35,12 @@ impl WorldStream {
         }
         if completed {
             self.requested_sub_chunks.remove(&chunk);
+            if self.request_collision_failures.contains(&chunk) {
+                self.loaded_columns.remove(&chunk);
+                return;
+            }
             self.loaded_columns.insert(chunk);
-            if !self.request_collision_failures.remove(&chunk)
-                && self.store.mark_chunk_loaded(chunk).is_err()
-            {
+            if self.store.mark_chunk_loaded(chunk).is_err() {
                 self.loaded_columns.remove(&chunk);
                 self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
             }
@@ -69,7 +71,7 @@ impl WorldStream {
     }
     fn record_sub_chunk_reply_admission_position(&mut self, dimension: i32, position: [i32; 3]) {
         let key = SubChunkKey::new(dimension, position[0], position[1], position[2]);
-        if !self.column_is_active(key.chunk()) {
+        if !self.column_is_data_interesting(key.chunk()) {
             return;
         }
         let expected = self.is_expected_sub_chunk(key);

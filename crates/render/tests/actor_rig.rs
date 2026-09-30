@@ -4,8 +4,8 @@ use bevy::math::{Mat4, Vec3};
 use render::{
     ActorCullView, ActorGpuInstance, ActorRenderIdentity, ActorRenderScene, ActorRigFrameBuilder,
     ActorRigGeometry, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EntityRigId,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, STANDARD_SKIN_BYTES,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_RENDER_BONES_PER_ACTOR,
+    MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES, pack_overlay_rgba8,
 };
 
 fn identity(runtime_id: u64, spawn_revision: u64) -> ActorRenderIdentity {
@@ -15,9 +15,10 @@ fn identity(runtime_id: u64, spawn_revision: u64) -> ActorRenderIdentity {
         runtime_id,
         spawn_revision,
         ingress_sequence: runtime_id,
-        source_tick: Some(runtime_id as i64),
+        source_tick: Some(runtime_id),
         movement_revision: runtime_id,
         pose_generation: runtime_id,
+        layer: 0,
     }
 }
 
@@ -25,6 +26,7 @@ fn bone(translation: [f32; 3]) -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], 1.0],
+        axis_scale: render::UNIT_AXIS_SCALE,
     }
 }
 
@@ -54,6 +56,8 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
         ],
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
+        tint: 0,
+        overlay_rgba8: 0,
     }
 }
 
@@ -67,12 +71,13 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 
 #[test]
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
-    assert_eq!(size_of::<RenderBoneTransform>(), 32);
-    assert_eq!(size_of::<ActorGpuInstance>(), 72);
+    // Bone poses reach the GPU as 48-byte affine matrices, not in this CPU form.
+    assert_eq!(size_of::<RenderBoneTransform>(), 48);
+    assert_eq!(size_of::<ActorGpuInstance>(), 80);
     assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
         MAX_ACTOR_BONE_ARENA_BYTES,
-        MAX_RENDERED_PLAYERS * MAX_RENDER_BONES_PER_ACTOR * 2 * 48
+        MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * 48
     );
 }
 
@@ -156,6 +161,78 @@ fn shared_geometry_is_not_duplicated_per_actor_and_overflow_is_deterministic() {
         frame.manifest.last().unwrap().identity.runtime_id,
         MAX_RENDERED_PLAYERS as u64
     );
+}
+
+fn equipment_submission(runtime_id: u64, layer: u8) -> ActorRigSubmission {
+    let mut equipment = submission(runtime_id, 1);
+    equipment.input.identity.layer = layer;
+    equipment.tint = 0x00ff_8040;
+    equipment
+}
+
+#[test]
+fn equipment_layers_share_the_actor_and_never_crowd_out_bodies() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let mut submissions = Vec::new();
+    for runtime_id in 1..=MAX_RENDERED_PLAYERS as u64 {
+        for layer in (0..=6).rev() {
+            submissions.push(equipment_submission(runtime_id, layer));
+        }
+    }
+    // A repeat of one layer is a superseded duplicate, not a second instance.
+    submissions.push(equipment_submission(1, 3));
+
+    let frame = builder.build(0.5, None, submissions);
+
+    assert_eq!(frame.instances.len(), MAX_ACTOR_RENDER_INSTANCES);
+    let bodies = frame
+        .manifest
+        .iter()
+        .filter(|entry| entry.identity.layer == 0)
+        .count();
+    assert_eq!(bodies, MAX_RENDERED_PLAYERS);
+    assert!(
+        frame.manifest[..MAX_RENDERED_PLAYERS]
+            .iter()
+            .all(|entry| entry.identity.layer == 0)
+    );
+    assert_eq!(frame.instances[MAX_RENDERED_PLAYERS].tint, 0x00ff_8040);
+    assert!(frame.rejects.actor_capacity > 0);
+}
+
+#[test]
+fn same_layer_keeps_only_the_newest_identity_per_actor() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let older = equipment_submission(4, 2);
+    let mut newer = equipment_submission(4, 2);
+    newer.input.identity.pose_generation += 1;
+    let body = submission(4, 1);
+
+    let frame = builder.build(0.5, None, [older, newer, body]);
+
+    assert_eq!(frame.instances.len(), 2);
+    assert_eq!(frame.manifest[1].identity.layer, 2);
+}
+
+#[test]
+fn inserted_geometry_republishes_the_catalog_and_resolves_by_rig_id() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let before = builder.build(0.0, None, []).geometry_revision;
+    let mesh =
+        ActorRigGeometry::synthetic_cuboid(render::item_mesh_rig_id(0), [0.0; 3], [1.0; 3], 1)
+            .unwrap();
+    builder.insert_geometry(mesh).unwrap();
+    assert!(builder.contains_geometry(render::item_mesh_rig_id(0)));
+
+    let mut item = submission(1, 1);
+    item.input.rig = render::item_mesh_rig_id(0);
+    item.input.previous_bones = Arc::from([bone([0.0; 3])]);
+    item.input.current_bones = Arc::from([bone([0.0; 3])]);
+    let frame = builder.build(0.0, None, [item]);
+
+    assert_ne!(frame.geometry_revision, before);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.rejects.missing_geometry, 0);
 }
 
 #[test]
@@ -260,4 +337,47 @@ fn exact_spawn_identity_does_not_require_a_movement_packet() {
 
     assert_eq!(frame.instances.len(), 1);
     assert_eq!(frame.rejects.invalid_identity, 0);
+}
+
+#[test]
+fn per_axis_bone_scale_scales_matrix_columns_and_zero_scale_is_drawable() {
+    let mut squashed = bone([0.0; 3]);
+    squashed.axis_scale = [1.0, 0.5, 2.0, 1.0];
+    squashed.translation_scale[3] = 2.0;
+    assert!(squashed.is_finite());
+    let mut hidden = bone([0.0; 3]);
+    hidden.translation_scale[3] = 0.0;
+    assert!(hidden.is_finite(), "vanilla hides bones with zero scale");
+    let converted = RenderBoneTransform::from_model_space_scaled(
+        [0.0, 0.0, 0.0, 1.0],
+        [16.0, 0.0, 0.0, 1.0],
+        [1.0, 0.5, 1.0],
+    )
+    .unwrap();
+    assert_eq!(converted.axis_scale, [1.0, 0.5, 1.0, 1.0]);
+    assert_eq!(converted.translation_scale[0], 1.0);
+}
+
+#[test]
+fn overlay_packs_little_endian_rgba8_and_rejects_non_finite() {
+    assert_eq!(pack_overlay_rgba8([1.0, 0.0, 0.0, 1.0]), 0xff00_00ff);
+    assert_eq!(pack_overlay_rgba8([0.0, 0.0, 0.0, 0.0]), 0);
+    assert_eq!(
+        pack_overlay_rgba8([f32::NAN, 2.0, -1.0, 0.5]),
+        0x80_00_ff_00
+    );
+}
+
+#[test]
+fn overlay_submission_reaches_the_gpu_instance() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let frame = builder.build(
+        0.0,
+        None,
+        [ActorRigSubmission {
+            overlay_rgba8: 0x6600_00ff,
+            ..submission(1, 1)
+        }],
+    );
+    assert_eq!(frame.instances[0].overlay_rgba8, 0x6600_00ff);
 }

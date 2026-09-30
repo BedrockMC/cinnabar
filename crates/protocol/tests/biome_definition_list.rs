@@ -8,7 +8,7 @@ use protocol::BedrockSession;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarInt},
     error::DecodeError,
-    version::v1_26_40::BiomeDefinitionChunkGenData,
+    version::v1_26_51::BiomeDefinitionChunkGenData,
 };
 
 const GOPHERTUNNEL_BIOME_DEFINITION_LIST: &[u8] =
@@ -81,7 +81,7 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_roun
     // `BiomeDefinitionListPacketView`, so the borrowed path is now typed.
     assert!(matches!(
         &borrowed.data,
-        valentine::bedrock::version::v1_26_40::BorrowedMcpePacketData::BiomeDefinitionListPacket(_)
+        valentine::bedrock::version::v1_26_51::BorrowedMcpePacketData::BiomeDefinitionListPacket(_)
     ));
     let owned = borrowed
         .into_owned(McpePacketArgs)
@@ -91,14 +91,9 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_roun
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
 }
 
-/// A hostile nested collection count must still fail the read.
-///
-/// REGRESSION - see the module header of `world_collection_bounds.rs`. Under
-/// 1.26.30 this failed with `DecodeError::ArrayLengthExceeded { declared: 4097,
-/// available: 4096 }` *before* allocating. The 1.26.40 generated crate emits no
-/// collection ceilings, so the count is reserved first and the read only fails
-/// when the elements turn out to be absent. Restoring the ceiling in
-/// valentine_gen should trip the `ArrayLengthExceeded` arm below.
+/// A hostile nested count remains fatal when its first declared element is
+/// absent. This variable-size collection is decoded incrementally without a
+/// global element ceiling.
 #[test]
 fn biome_chunk_generation_rejects_oversized_nested_collection() {
     let mut bytes = BytesMut::from(&[0, 1][..]);
@@ -108,15 +103,7 @@ fn biome_chunk_generation_rejects_oversized_nested_collection() {
 
     let error = BiomeDefinitionChunkGenData::decode(&mut bytes.freeze(), ())
         .expect_err("4,097 consolidated features must not decode");
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the stricter \
-             declared/available assertion here"
-        ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
 }
 
 #[test]

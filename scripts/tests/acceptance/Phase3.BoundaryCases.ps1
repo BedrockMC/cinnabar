@@ -40,9 +40,10 @@ It 'accepts a candidate verdict without a touch witness' {
     $touch[0].deferral_reason | Should Match 'Owner decision'
 }
 
-It 'keeps every non-Drained candidate terminal forbidden' {
+It 'keeps every candidate terminal except Drained and RemoteClosed forbidden' {
     foreach ($terminalState in @(
-        'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored'
+        'SocketPending', 'BudgetDeferred', 'TransportRestored', 'FullRestored',
+        'NotAuthoritative'
     )) {
         $script:Terminals[0].outbox_reconciliation = $terminalState
         (Invoke-Validator (Write-MarkerLog "terminal-$terminalState.log")).ExitCode |
@@ -57,7 +58,7 @@ It 'rejects an indeterminate Physics send violation marker' {
         fault = 'indeterminate_physics_send'; detail = [ordered]@{ tick = 41 }
     }
     $script:Violations = @([ordered]@{
-        schema = 'rust-mcbe-phase3-violation-v1'; reason = 'authority_fault'
+        schema = 'rust-mcbe-phase3-violation-v2'; reason = 'authority_fault'
     })
     (Invoke-Validator (Write-MarkerLog 'indeterminate-physics-send.log')).ExitCode |
         Should Not Be 0

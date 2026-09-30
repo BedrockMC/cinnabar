@@ -9,6 +9,84 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[test]
+fn modern_player_scripts_activate_only_animate_roots_and_compile_rig_scripts() {
+    let pack = animation_pack(false);
+    let path = pack.path().join("entity/test.entity.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    value["format_version"] = serde_json::json!("1.26.0");
+    value["minecraft:client_entity"]["description"]["identifier"] =
+        serde_json::json!("minecraft:player");
+    value["minecraft:client_entity"]["description"]["scripts"] = serde_json::json!({
+        "scale": "0.9375",
+        "initialize": ["variable.example=0;"],
+        "pre_animation": ["variable.tcos0 = Math.cos(query.modified_distance_moved * 38.17);"],
+        "animate": [{"walk": "query.is_moving"}]
+    });
+    value["minecraft:client_entity"]["description"]
+        .as_object_mut()
+        .unwrap()
+        .remove("animation_controllers");
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let rig = compiled.rig_bindings[0];
+    assert!(rig.initialize.is_some() && rig.pre_animation.is_some());
+    assert_eq!(rig.scale.get(), 0.9375);
+    assert_eq!(rig.fallback, assets::EntityRigFallback::Skip);
+    for candidate in &compiled.rig_geometries {
+        assert_eq!(candidate.animation_count, 1);
+        assert_eq!(candidate.controller_count, 0);
+    }
+    let walk = compiled.rig_animations[0];
+    assert!(
+        walk.weight.is_some(),
+        "a conditional root carries its weight"
+    );
+    assert!(
+        compiled.molang_ops.contains(&MolangOp::StoreVariable(
+            compiled
+                .molang_symbols
+                .iter()
+                .position(|symbol| symbol.identifier.as_ref() == "variable.tcos0")
+                .unwrap() as u32
+        ))
+    );
+}
+
+#[test]
+fn modern_alias_lookup_alone_does_not_activate_and_explicit_roots_are_not_subtracted() {
+    let pack = animation_pack(false);
+    let path = pack.path().join("entity/test.entity.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let description = value["minecraft:client_entity"]["description"]
+        .as_object_mut()
+        .unwrap();
+    description.remove("animation_controllers");
+    description.remove("scripts");
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(!compiled.animation_clips.is_empty());
+    for candidate in &compiled.rig_geometries {
+        assert_eq!(candidate.animation_count, 0);
+        assert_eq!(candidate.controller_count, 0);
+    }
+    value["minecraft:client_entity"]["description"]["scripts"] =
+        serde_json::json!({"animate":["walk","main"]});
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let explicit = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    for candidate in &explicit.rig_geometries {
+        assert_eq!(candidate.animation_count, 1);
+        assert_eq!(candidate.controller_count, 1);
+    }
+}
+
+fn clip_target(animation: &assets::EntityControllerAnimation) -> u32 {
+    match animation.target {
+        assets::EntityControllerAnimationTarget::Clip(clip) => clip,
+        assets::EntityControllerAnimationTarget::Controller(_) => panic!("expected a clip"),
+    }
+}
+
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -25,7 +103,7 @@ fn selectable_geometry_pack(index: &str, members: &[&str]) -> TempDir {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     let controller = serde_json::json!({
         "format_version": "1.8.0",
@@ -57,15 +135,9 @@ fn evaluate_selection_expression(
         match operation {
             MolangOp::Push(value) => stack.push(value.get()),
             MolangOp::LoadQuery(_) => stack.push(query_value),
-            MolangOp::Floor => {
-                let value = stack.pop().unwrap();
-                stack.push(value.floor());
-            }
-            MolangOp::Clamp => {
-                let maximum = stack.pop().unwrap();
-                let minimum = stack.pop().unwrap();
-                let value = stack.pop().unwrap();
-                stack.push(value.clamp(minimum, maximum));
+            MolangOp::Call(function) => {
+                let arguments = stack.split_off(stack.len() - function.arity());
+                stack.push(assets::molang_call(*function, &arguments, &mut || 0.0));
             }
             MolangOp::Equal => {
                 let right = stack.pop().unwrap();
@@ -187,17 +259,35 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
         symbol.kind == MolangSymbolKind::Variable
             && symbol.identifier.as_ref() == "variable.enabled"
     }));
-    assert!(first.molang_ops.contains(&MolangOp::And));
-    assert!(first.molang_ops.contains(&MolangOp::Clamp));
+    assert!(
+        first
+            .molang_ops
+            .iter()
+            .any(|op| matches!(op, MolangOp::JumpIfFalse(_)))
+    );
+    assert!(
+        first
+            .molang_ops
+            .contains(&MolangOp::Call(assets::MolangFunction::Clamp))
+    );
     assert!(first.molang_ops.contains(&MolangOp::Equal));
 }
 
 #[test]
-fn geometry_collection_rejects_more_than_thirty_two_members() {
+fn geometry_collection_over_thirty_two_members_keeps_the_default_geometry() {
     let members = vec!["Geometry.default"; 33];
     let pack = selectable_geometry_pack("query.modified_move_speed", &members);
-    let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
-    assert!(error.to_string().contains("collection member count"));
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(
+        compiled
+            .rig_geometries
+            .iter()
+            .all(|candidate| candidate.condition.is_none())
+    );
+    assert_eq!(
+        compiled.rig_bindings[0].fallback,
+        assets::EntityRigFallback::GeometryOnly
+    );
 }
 
 #[test]
@@ -252,19 +342,15 @@ fn absent_named_geometry_collection_is_an_attributed_static_fallback() {
 }
 
 #[test]
-fn required_missing_animation_rejects_only_that_rig_and_optional_expression_falls_back() {
+fn undefined_animation_reference_keeps_the_rig_as_a_static_fallback() {
     let pack = animation_pack(false);
     write(
         pack.path(),
         "entity/rejected.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:rejected","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"required":"animation.missing"},"render_controllers":[{"controller.render.test":"query.unlisted"}]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:rejected","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"required":"animation.missing"},"render_controllers":[{"controller.render.test":"query.unlisted"}],"scripts":{"animate":["required"]}}}}"#,
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    assert_eq!(
-        compiled.rig_bindings.len(),
-        1,
-        "the valid rig remains resolved"
-    );
+    assert_eq!(compiled.rig_bindings.len(), 2);
 }
 
 #[test]
@@ -284,14 +370,27 @@ fn malformed_keyframes_non_finite_literals_and_unsupported_grammar_fail_closed()
         "animation_controllers/test.animation_controllers.json",
         br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"states":{"default":{"transitions":[{"default":"variable.x = 1"}]}}}}}"#,
     );
-    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    assert!(compiled.controllers.is_empty());
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert_only_transition_dropped(&compiled);
     assert!(
         !compiled
+            .assets
             .molang_ops
             .iter()
             .any(|operation| { matches!(operation, MolangOp::LoadVariable(_)) })
     );
+}
+
+fn assert_only_transition_dropped(compiled: &asset_compiler::EntityAssetCompilation) {
+    assert!(!compiled.assets.controllers.is_empty());
+    assert!(compiled.assets.controller_transitions.is_empty());
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::OptionalStaticFallback {
+            reason: asset_compiler::FallbackReason::UnsupportedOptionalExpression,
+            ..
+        }
+    )));
 }
 
 #[test]
@@ -302,14 +401,15 @@ fn unlisted_query_in_optional_controller_is_attributed_as_fallback_not_bytecode(
         "animation_controllers/test.animation_controllers.json",
         br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"states":{"default":{"transitions":[{"default":"query.unlisted"}]}}}}}"#,
     );
-    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
     assert!(
         !compiled
+            .assets
             .molang_symbols
             .iter()
             .any(|symbol| symbol.identifier.as_ref() == "query.unlisted")
     );
-    assert!(compiled.controllers.is_empty());
+    assert_only_transition_dropped(&compiled);
 }
 
 #[test]
@@ -319,6 +419,7 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "query.is_on_ground ? query.anim_time : query.life_time",
         "-query.modified_move_speed + query.ground_speed",
         "query.is_on_ground && query.is_moving || query.is_sprinting",
+        "query.is_riding",
         "query.is_sneaking == query.is_sleeping",
         "query.body_y_rotation != query.head_y_rotation",
         "query.target_x_rotation < 1",
@@ -329,7 +430,6 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "query.anim_time - query.life_time",
         "query.anim_time * query.life_time",
         "query.anim_time / query.life_time",
-        "query.anim_time % query.life_time",
         "!query.is_moving",
         "math.abs(query.body_y_rotation)",
         "math.ceil(query.anim_time)",
@@ -342,7 +442,11 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "math.max(query.anim_time, query.life_time)",
         "math.clamp(query.anim_time, 0, 1)",
         "math.lerp(query.anim_time, query.life_time, 0.5)",
-        "1 / 0 + 1 % 0",
+        "1 / 0 + math.mod(1, 0)",
+        "variable.speed ?? 1",
+        "query.get_equipped_item_name == 'bow'",
+        "query.is_moving ? 1",
+        "math.ease_in_out_back(0, 1, query.anim_time)",
     ];
     let transitions = expressions
         .iter()
@@ -363,39 +467,45 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(compiled.controller_transitions.len(), expressions.len());
+    use assets::MolangFunction as F;
     for operation in [
         MolangOp::Add,
         MolangOp::Subtract,
         MolangOp::Multiply,
         MolangOp::Divide,
-        MolangOp::Modulo,
         MolangOp::Negate,
         MolangOp::Not,
-        MolangOp::Abs,
-        MolangOp::Ceil,
-        MolangOp::Floor,
-        MolangOp::Round,
-        MolangOp::Sqrt,
-        MolangOp::Sin,
-        MolangOp::Cos,
-        MolangOp::And,
-        MolangOp::Or,
+        MolangOp::Truthy,
         MolangOp::Equal,
         MolangOp::NotEqual,
         MolangOp::Less,
         MolangOp::LessEqual,
         MolangOp::Greater,
         MolangOp::GreaterEqual,
-        MolangOp::Min,
-        MolangOp::Max,
-        MolangOp::Select,
-        MolangOp::Clamp,
-        MolangOp::Lerp,
+        MolangOp::Call(F::Abs),
+        MolangOp::Call(F::Ceil),
+        MolangOp::Call(F::Floor),
+        MolangOp::Call(F::Round),
+        MolangOp::Call(F::Sqrt),
+        MolangOp::Call(F::Sin),
+        MolangOp::Call(F::Cos),
+        MolangOp::Call(F::Min),
+        MolangOp::Call(F::Max),
+        MolangOp::Call(F::Clamp),
+        MolangOp::Call(F::Lerp),
     ] {
         assert!(
             compiled.molang_ops.contains(&operation),
             "missing {operation:?}"
         );
+    }
+    for present in [
+        |op: &MolangOp| matches!(op, MolangOp::Coalesce(_)),
+        |op: &MolangOp| matches!(op, MolangOp::PushString(_)),
+        |op: &MolangOp| matches!(op, MolangOp::JumpIfTrue(_)),
+        |op: &MolangOp| matches!(op, MolangOp::Call(F::Ease(..))),
+    ] {
+        assert!(compiled.molang_ops.iter().any(present));
     }
     assert!(
         compiled
@@ -406,14 +516,20 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
 }
 
 #[test]
-fn assignment_loops_return_strings_dynamic_properties_and_arbitrary_functions_are_unsupported() {
+fn forms_vanilla_rejects_leave_only_that_transition_out() {
     for expression in [
         "variable.x = 1",
         "loop(2, 1)",
         "return 1",
-        "'runtime string'",
         "variable['dynamic']",
-        "math.random(0, 1)",
+        "query.not_a_vanilla_query",
+        "math.not_a_function(1)",
+        "math.sin(1, 2)",
+        "break;",
+        "return 1; return 2;",
+        "v.a->v.b->v.c",
+        "1 % 2",
+        "'unterminated",
     ] {
         let pack = animation_pack(false);
         let controller = serde_json::json!({
@@ -431,9 +547,10 @@ fn assignment_loops_return_strings_dynamic_properties_and_arbitrary_functions_ar
         );
         let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
         assert!(
-            compiled.controllers.is_empty(),
+            compiled.controller_transitions.is_empty(),
             "unexpected support for {expression}"
         );
+        assert!(!compiled.controllers.is_empty());
     }
 }
 
@@ -443,12 +560,12 @@ fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk","main":"controller.animation.test"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk","main":"controller.animation.test"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move","main"]}}}}"#,
     );
     write(
         pack.path(),
         "entity/second.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.attack","main":"controller.animation.second"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.attack","main":"controller.animation.second"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move","main"]}}}}"#,
     );
     write(
         pack.path(),
@@ -462,7 +579,7 @@ fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
     let clip_symbols = compiled
         .controller_animations
         .iter()
-        .map(|binding| compiled.animation_clips[binding.clip as usize].symbol)
+        .map(|binding| compiled.animation_clips[clip_target(binding) as usize].symbol)
         .map(|symbol| compiled.symbols[symbol as usize].identifier.as_ref())
         .collect::<Vec<_>>();
     assert!(clip_symbols.contains(&"animation.test.walk"));
@@ -510,7 +627,7 @@ fn explicit_default_geometry_wins_over_alphabetically_earlier_optional_alias() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"aaa_optional":"geometry.player","default":"geometry.test"},"animations":{"walk":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"aaa_optional":"geometry.player","default":"geometry.test"},"animations":{"walk":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["walk"]}}}}"#,
     );
 
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
@@ -535,7 +652,7 @@ fn inherited_geometry_clips_use_parent_order_and_child_overlays() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.child"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.child"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
@@ -569,12 +686,12 @@ fn animation_bones_are_numbered_in_the_selected_geometry_not_global_order() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
         "entity/second.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","geometry":{"default":"geometry.b"},"animations":{"move":"animation.test.second"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","geometry":{"default":"geometry.b"},"animations":{"move":"animation.test.second"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
@@ -612,7 +729,7 @@ fn selectable_geometries_own_specialized_clips_and_controllers() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
@@ -653,7 +770,8 @@ fn selectable_geometries_own_specialized_clips_and_controllers() {
     let rig_controller = compiled.rig_controllers[alternate.first_controller as usize].controller;
     let controller = compiled.controllers[rig_controller as usize];
     let state = compiled.controller_states[controller.first_state as usize];
-    let controller_clip = compiled.controller_animations[state.first_animation as usize].clip;
+    let controller_clip =
+        clip_target(&compiled.controller_animations[state.first_animation as usize]);
     assert_eq!(
         compiled.animation_channels
             [compiled.animation_clips[controller_clip as usize].first_channel as usize]

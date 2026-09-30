@@ -1,4 +1,5 @@
 use super::*;
+use crate::item::EquipmentOutcome;
 
 impl ActorStore {
     pub(crate) fn new(session_id: u64, dimension: i32) -> Self {
@@ -77,21 +78,146 @@ impl ActorStore {
             retained_player_skin_bytes: 0,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
+            rider_to_ridden: HashMap::new(),
+            max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             animation,
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            synthetic_local_uuid: None,
+            synthetic_local_revision: 0,
+            local_first_person: false,
+            local_hands: [None, None],
+            camera_rotation: [0.0; 2],
+            seat_defaults: Default::default(),
+            property_registry: Default::default(),
+            local_knockback: None,
+            status_notices: Vec::new(),
+        }
+    }
+
+    /// Records the view's `[pitch, yaw]` (degrees) for camera-facing animations.
+    pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
+        if rotation.iter().all(|value| value.is_finite()) {
+            self.camera_rotation = rotation;
         }
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
         self.remote_state_excluded_runtime_id = Some(runtime_id);
+        self.items.set_persistent_armor_runtime(runtime_id);
         if let Some(lifetime) = self.lifetime(runtime_id) {
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
         }
     }
+
+    /// Starts an actor's arm swing from a local cause rather than a server action.
+    pub(crate) fn start_swing(&mut self, runtime_id: u64) {
+        self.animation.start_swing(runtime_id);
+    }
+
+    /// Feeds the client-authored local-player pose into the shared actor rig, spawning the
+    /// synthetic actor on the first call so `actor_rigs()` drives its third-person body.
+    /// Items and actions stay client-owned via `exclude_remote_state_for`.
+    pub(crate) fn sync_local_player(
+        &mut self,
+        runtime_id: u64,
+        unique_id: i64,
+        feed: &LocalPlayerFeed,
+    ) {
+        if runtime_id == 0 {
+            return;
+        }
+        self.local_first_person = feed.first_person;
+        self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
+        let pose = ActorPose {
+            position: feed.position,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+        };
+        self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
+        let revision = self.synthetic_local_revision.max(1);
+        let (uuid, username) = self.resolve_local_identity(unique_id, feed);
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            // Adopt the player-list identity once it arrives so the skin resolves by uuid.
+            if let ActorKind::Player {
+                uuid: current_uuid,
+                username: current_username,
+            } = &mut actor.kind
+                && *current_uuid != uuid
+            {
+                *current_uuid = uuid;
+                *current_username = username;
+            }
+            actor.received_pose = pose;
+            actor.velocity = feed.velocity;
+            actor.on_ground = Some(feed.on_ground);
+            actor.movement_revision = revision;
+            actor.teleported = feed.teleported;
+            actor.apply_local_flags(feed);
+            // A zero remaining count lands each tick exactly on the fed pose (no server-style
+            // easing), so the body tracks local physics without lag.
+            actor.interpolation_ticks_remaining = 0;
+            if feed.teleported {
+                actor.previous_pose = pose;
+                actor.set_current_pose(pose);
+                self.animation.mark_reset(runtime_id);
+            }
+            return;
+        }
+        let actor =
+            ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.actors.insert(runtime_id, actor);
+        if let Some(actor) = self.actors.get(&runtime_id) {
+            self.animation
+                .insert(self.session_id, self.dimension, actor);
+        }
+    }
+    /// Resolves the local player's `(uuid, username)` for skin lookup. A real player-list echo
+    /// wins and any prior synthetic profile is dropped; otherwise a synthetic profile carrying the
+    /// fed skin is upserted (only when missing or changed) so `player_profile` resolves by uuid.
+    fn resolve_local_identity(
+        &mut self,
+        unique_id: i64,
+        feed: &LocalPlayerFeed,
+    ) -> ([u8; 16], std::sync::Arc<str>) {
+        let synthetic = self.synthetic_local_uuid;
+        if let Some((uuid, username)) = self
+            .players
+            .iter()
+            .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
+            .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
+        {
+            if let Some(stale) = self.synthetic_local_uuid.take()
+                && stale != uuid
+            {
+                self.players.remove(&stale);
+            }
+            return (uuid, username);
+        }
+        let stale = match self.players.get(&feed.uuid) {
+            Some(profile) => profile.unique_id != unique_id || profile.skin != feed.skin,
+            None => true,
+        };
+        if stale {
+            self.players.insert(
+                feed.uuid,
+                PlayerProfile {
+                    unique_id,
+                    username: std::sync::Arc::clone(&feed.username),
+                    verified: false,
+                    skin: feed.skin.clone(),
+                },
+            );
+        }
+        self.synthetic_local_uuid = Some(feed.uuid);
+        (feed.uuid, std::sync::Arc::clone(&feed.username))
+    }
+
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
@@ -99,11 +225,14 @@ impl ActorStore {
         self.latest_sequence = 0;
         self.actors.clear();
         self.unique_to_runtime.clear();
+        self.rider_to_ridden.clear();
         self.players.clear();
+        self.synthetic_local_uuid = None;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
         self.items.clear();
         self.actions.clear();
+        self.status_notices.clear();
     }
     pub(crate) fn reset_dimension(
         &mut self,
@@ -118,9 +247,16 @@ impl ActorStore {
         self.dimension = dimension;
         self.actors.clear();
         self.unique_to_runtime.clear();
+        self.rider_to_ridden.clear();
+        // The real player list survives a dimension change, but the synthetic local profile is
+        // tied to the cleared actor and is re-inserted on the next pose feed.
+        if let Some(uuid) = self.synthetic_local_uuid.take() {
+            self.players.remove(&uuid);
+        }
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();
+        self.status_notices.clear();
         ActorApplyResult::Reset
     }
     pub(crate) fn apply(
@@ -140,6 +276,11 @@ impl ActorStore {
             ActorEvent::Spawn(spawn) => self.apply_spawn(sequence, spawn),
             ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
             ActorEvent::Move(movement) => {
+                // The local player's pose is client-fed each tick; server movement
+                // (authoritative reconciliation) must not fight that feed.
+                if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
+                    return ActorApplyResult::MissingActor;
+                }
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
@@ -200,12 +341,8 @@ impl ActorStore {
                     actor.previous_pose = received;
                     actor.set_current_pose(received);
                     actor.interpolation_ticks_remaining = 0;
-                } else if matches!(actor.kind, ActorKind::Player { .. }) {
-                    actor.interpolation_ticks_remaining = PLAYER_POSITION_INTERPOLATION_TICKS;
                 } else {
-                    actor.previous_pose = received;
-                    actor.set_current_pose(received);
-                    actor.interpolation_ticks_remaining = 0;
+                    actor.interpolation_ticks_remaining = ACTOR_INTERPOLATION_TICKS;
                 }
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
@@ -243,12 +380,16 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
-                if actor.apply_attributes(&update.attributes) {
+                let rejected = actor.apply_attributes(&update.attributes);
+                actor.sync_status_from_health();
+                if rejected {
                     ActorApplyResult::CapacityRejected
                 } else {
                     ActorApplyResult::Updated
                 }
             }
+            ActorEvent::Status(status) => self.apply_status(status),
+            ActorEvent::TakeItem(take) => self.apply_take_item(take),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
                 for entry in update.entries.iter() {
@@ -326,26 +467,144 @@ impl ActorStore {
             }
         }
     }
+
+    pub(crate) fn apply_link(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: ActorLinkEvent,
+    ) -> ActorApplyResult {
+        let guard = self.guard(session_id, sequence);
+        if guard != ActorApplyResult::Updated {
+            return guard;
+        }
+        if event.dimension != self.dimension {
+            return ActorApplyResult::StaleDimension;
+        }
+        self.apply_link_inner(event)
+    }
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
         for _ in 0..ticks {
             for actor in self.actors.values_mut() {
                 let current = actor.current_pose();
                 actor.previous_pose = current;
                 let mut next = actor.received_pose;
-                if matches!(actor.kind, ActorKind::Player { .. })
-                    && actor.interpolation_ticks_remaining > 0
-                {
+                // The final step lands exactly on the target.
+                if actor.interpolation_ticks_remaining > 1 {
+                    // Each step closes 1/n of the remaining gap; angles take the short way.
                     let divisor = f32::from(actor.interpolation_ticks_remaining);
+                    let target = actor.received_pose;
                     next.position = std::array::from_fn(|axis| {
                         current.position[axis]
-                            + (actor.received_pose.position[axis] - current.position[axis])
-                                / divisor
+                            + (target.position[axis] - current.position[axis]) / divisor
                     });
-                    actor.interpolation_ticks_remaining -= 1;
+                    let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
+                    next.pitch = step(current.pitch, target.pitch);
+                    next.yaw = step(current.yaw, target.yaw);
+                    next.head_yaw = step(current.head_yaw, target.head_yaw);
                 }
+                actor.interpolation_ticks_remaining =
+                    actor.interpolation_ticks_remaining.saturating_sub(1);
                 actor.set_current_pose(next);
+                actor.status.tick();
             }
-            self.animation.advance_tick(&self.actors);
+            self.seat_riders();
+            let (session_id, dimension) = (self.session_id, self.dimension);
+            let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
+            let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            let camera_rotation = self.camera_rotation;
+            let property_registry = &self.property_registry;
+            let players = &self.players;
+            let local_first_person = self
+                .remote_state_excluded_runtime_id
+                .filter(|_| self.local_first_person);
+            let local_runtime = self.remote_state_excluded_runtime_id;
+            let local_hands = self.local_hands.clone();
+            self.animation.advance_tick(actors, |actor| {
+                let lifetime = ActorLifetimeId {
+                    session_id,
+                    dimension,
+                    runtime_id: actor.runtime_id,
+                    spawn_revision: actor.spawn_revision,
+                };
+                let is_local = local_runtime == Some(actor.runtime_id);
+                let held = |hand| {
+                    if is_local {
+                        return local_hands[usize::from(hand != protocol::ActorHandedness::Right)]
+                            .clone();
+                    }
+                    items
+                        .get_in_hand(lifetime, hand)
+                        .filter(|equipment| equipment.item.identity.network_id != 0)
+                        .and_then(|equipment| equipment.item.identifier.clone())
+                };
+                let hand_charged = [
+                    protocol::ActorHandedness::Right,
+                    protocol::ActorHandedness::Left,
+                ]
+                .into_iter()
+                .any(|hand| {
+                    items
+                        .get_in_hand(lifetime, hand)
+                        .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
+                });
+                let main_hand = held(protocol::ActorHandedness::Right);
+                let main_hand_max_use_ticks = main_hand
+                    .as_deref()
+                    .and_then(|identifier| items.max_use_ticks(identifier))
+                    .unwrap_or(0);
+                let kind_of = |unique_id: &i64| {
+                    unique_to_runtime
+                        .get(unique_id)
+                        .and_then(|runtime_id| actors.get(runtime_id))
+                        .map(|actor| &actor.kind)
+                };
+                let riders = rider_to_ridden
+                    .iter()
+                    .filter(|(_, ridden)| **ridden == actor.unique_id)
+                    .map(|(rider, _)| kind_of(rider));
+                let mut has_rider = false;
+                let mut has_player_rider = false;
+                for rider in riders {
+                    has_rider = true;
+                    has_player_rider |= matches!(rider, Some(ActorKind::Player { .. }));
+                }
+                crate::actor_animation::ActorTickContext {
+                    is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    hand_charged,
+                    main_hand,
+                    main_hand_max_use_ticks,
+                    off_hand: held(protocol::ActorHandedness::Left),
+                    ridden: rider_to_ridden
+                        .get(&actor.unique_id)
+                        .and_then(kind_of)
+                        .map(|kind| match kind {
+                            ActorKind::Player { .. } => std::sync::Arc::from("minecraft:player"),
+                            ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),
+                        }),
+                    has_rider,
+                    has_player_rider,
+                    is_local_first_person: local_first_person == Some(actor.runtime_id),
+                    camera_rotation,
+                    armor: worn_armor(items.armor(actor.runtime_id)),
+                    properties: property_registry.for_kind(&actor.kind),
+                    skin_geometry: match &actor.kind {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).and_then(|profile| {
+                            match &profile.skin {
+                                protocol::PlayerSkin::Standard(skin) => skin.geometry.clone(),
+                                protocol::PlayerSkin::Unavailable(_) => None,
+                            }
+                        }),
+                        ActorKind::Entity { .. } => None,
+                    },
+                    has_cape: match &actor.kind {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).is_some_and(|profile| {
+                            matches!(&profile.skin, protocol::PlayerSkin::Standard(skin) if skin.cape.is_some())
+                        }),
+                        ActorKind::Entity { .. } => false,
+                    },
+                }
+            });
             self.actions.advance_tick();
         }
     }
@@ -390,7 +649,15 @@ impl ActorStore {
         if self.actors.len() >= self.max_actors && !replaces_runtime && !replaces_unique {
             return ActorApplyResult::CapacityRejected;
         }
+        if spawn
+            .links
+            .iter()
+            .any(|link| link.dimension != self.dimension)
+        {
+            return ActorApplyResult::StaleDimension;
+        }
 
+        let links = std::sync::Arc::clone(&spawn.links);
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
             let lifetime = self.lifetime_for(&previous);
@@ -398,6 +665,7 @@ impl ActorStore {
             self.animation.remove_runtime(previous.runtime_id);
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
+            self.remove_links_for(previous.unique_id);
             replaced = true;
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
@@ -405,6 +673,7 @@ impl ActorStore {
                 let lifetime = self.lifetime_for(&previous);
                 self.items.remove(lifetime);
                 self.actions.remove(lifetime);
+                self.remove_links_for(previous.unique_id);
             }
             self.animation.remove_runtime(previous_runtime);
             replaced = true;
@@ -423,6 +692,11 @@ impl ActorStore {
                     .insert_spawn(self.lifetime_for(actor), sequence, held_item);
             }
         }
+        for link in links.iter().copied() {
+            if self.apply_link_inner(link) == ActorApplyResult::CapacityRejected {
+                return ActorApplyResult::CapacityRejected;
+            }
+        }
         if replaced {
             ActorApplyResult::Replaced
         } else {
@@ -431,6 +705,7 @@ impl ActorStore {
     }
     fn remove_unique(&mut self, unique_id: i64) -> ActorApplyResult {
         let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
+            self.remove_links_for(unique_id);
             return ActorApplyResult::MissingActor;
         };
         if let Some(actor) = self.actors.remove(&runtime_id) {
@@ -438,8 +713,44 @@ impl ActorStore {
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
         }
+        self.remove_links_for(unique_id);
         self.animation.remove_runtime(runtime_id);
         ActorApplyResult::Removed
+    }
+
+    fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
+        Self::apply_link_to(&mut self.rider_to_ridden, self.max_actor_links, event)
+    }
+
+    fn apply_link_to(
+        rider_to_ridden: &mut HashMap<i64, i64>,
+        max_actor_links: usize,
+        event: ActorLinkEvent,
+    ) -> ActorApplyResult {
+        match event.link_type {
+            ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
+            ActorLinkType::Remove => {
+                if rider_to_ridden.get(&event.rider_unique_id) == Some(&event.ridden_unique_id) {
+                    rider_to_ridden.remove(&event.rider_unique_id);
+                }
+                ActorApplyResult::Updated
+            }
+            ActorLinkType::Rider | ActorLinkType::Passenger => {
+                if !rider_to_ridden.contains_key(&event.rider_unique_id)
+                    && rider_to_ridden.len() >= max_actor_links
+                {
+                    return ActorApplyResult::CapacityRejected;
+                }
+                rider_to_ridden.insert(event.rider_unique_id, event.ridden_unique_id);
+                ActorApplyResult::Updated
+            }
+        }
+    }
+
+    fn remove_links_for(&mut self, unique_id: i64) {
+        self.rider_to_ridden.remove(&unique_id);
+        self.rider_to_ridden
+            .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
     }
 
     pub(crate) fn apply_equipment(
@@ -448,21 +759,119 @@ impl ActorStore {
         sequence: u64,
         event: EquipmentEvent,
     ) -> ActorApplyResult {
+        let (runtime_id, stack) = (event.actor_runtime_id, event.stack.clone());
+        let (result, outcome) = self.apply_equipment_inner(session_id, sequence, event);
+        self.items.note(runtime_id, false, outcome, &[&stack]);
+        result
+    }
+
+    fn apply_equipment_inner(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: EquipmentEvent,
+    ) -> (ActorApplyResult, EquipmentOutcome) {
         let guard = self.guard(session_id, sequence);
         if guard != ActorApplyResult::Updated {
-            return guard;
+            return (guard, EquipmentOutcome::Stale);
         }
         if self.remote_state_excluded_runtime_id == Some(event.actor_runtime_id) {
-            return ActorApplyResult::MissingActor;
+            return (
+                ActorApplyResult::MissingActor,
+                EquipmentOutcome::LocalPlayer,
+            );
         }
         let Some(lifetime) = self.lifetime(event.actor_runtime_id) else {
-            return ActorApplyResult::MissingActor;
+            return (
+                ActorApplyResult::MissingActor,
+                EquipmentOutcome::UnknownActor,
+            );
         };
         if self.items.apply_equipment(lifetime, sequence, event) {
-            ActorApplyResult::Updated
+            (ActorApplyResult::Updated, EquipmentOutcome::Applied)
         } else {
-            ActorApplyResult::CapacityRejected
+            (
+                ActorApplyResult::CapacityRejected,
+                EquipmentOutcome::RejectedStack,
+            )
         }
+    }
+
+    /// Layers a session's server-pack entity catalog over the vanilla one.
+    pub(crate) fn set_pack_entities(
+        &mut self,
+        assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
+    ) {
+        self.animation.set_pack(assets);
+    }
+
+    pub(crate) fn set_item_use_durations(
+        &mut self,
+        durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
+    ) {
+        self.items.set_use_durations(durations);
+    }
+
+    /// Applies worn armor to a live remote actor, or to the client-owned local runtime even
+    /// before its synthetic actor exists.
+    pub(crate) fn apply_armor(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: &protocol::ArmorEquipmentEvent,
+    ) -> ActorApplyResult {
+        let (result, outcome) = self.apply_armor_inner(session_id, sequence, event);
+        let stacks = [
+            &event.helmet,
+            &event.chestplate,
+            &event.leggings,
+            &event.boots,
+            &event.body,
+        ];
+        self.items
+            .note(event.actor_runtime_id, true, outcome, &stacks);
+        result
+    }
+
+    fn apply_armor_inner(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: &protocol::ArmorEquipmentEvent,
+    ) -> (ActorApplyResult, EquipmentOutcome) {
+        let guard = self.guard(session_id, sequence);
+        if guard != ActorApplyResult::Updated {
+            return (guard, EquipmentOutcome::Stale);
+        }
+        let lifetime = self.lifetime(event.actor_runtime_id).or_else(|| {
+            (self.remote_state_excluded_runtime_id == Some(event.actor_runtime_id)).then_some(
+                ActorLifetimeId {
+                    session_id: self.session_id,
+                    dimension: self.dimension,
+                    runtime_id: event.actor_runtime_id,
+                    spawn_revision: 0,
+                },
+            )
+        });
+        let Some(lifetime) = lifetime else {
+            return (
+                ActorApplyResult::MissingActor,
+                EquipmentOutcome::UnknownActor,
+            );
+        };
+        if self.items.apply_armor(lifetime, sequence, event) {
+            (ActorApplyResult::Updated, EquipmentOutcome::Applied)
+        } else {
+            (
+                ActorApplyResult::CapacityRejected,
+                EquipmentOutcome::RejectedStack,
+            )
+        }
+    }
+
+    /// Drains where equipment events landed since the last call.
+    pub(crate) fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
+        self.items.take_notices()
     }
 
     pub(crate) fn apply_item_actor(
@@ -513,9 +922,13 @@ impl ActorStore {
                 let mut accepted = false;
                 for (lifetime, rig) in targets {
                     let source_tick = ActorSourceTick::IngressSequence(sequence);
-                    accepted |= self
+                    let applied = self
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
+                    if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
+                        self.animation.start_swing(lifetime.runtime_id);
+                    }
+                    accepted |= applied;
                 }
                 if accepted {
                     ActorApplyResult::Updated
@@ -540,4 +953,29 @@ impl ActorStore {
             spawn_revision: actor.spawn_revision,
         }
     }
+}
+
+fn wrap_degrees(degrees: f32) -> f32 {
+    (degrees + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Worn stacks in helmet, chestplate, leggings, boots, body order.
+fn worn_armor(
+    snapshot: Option<&crate::item::ActorArmorSnapshot>,
+) -> [Option<crate::actor_animation::WornArmor>; 5] {
+    let piece = |piece: &crate::item::ActorArmorPiece| {
+        Some(crate::actor_animation::WornArmor {
+            item: piece.item.identifier.clone()?,
+            dye_rgb: piece.dye_rgb,
+        })
+    };
+    snapshot.map_or_else(Default::default, |armor| {
+        [
+            piece(&armor.helmet),
+            piece(&armor.chestplate),
+            piece(&armor.leggings),
+            piece(&armor.boots),
+            piece(&armor.body),
+        ]
+    })
 }

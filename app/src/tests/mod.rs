@@ -54,6 +54,7 @@ use crate::acceptance::{
         orient_acceptance_camera, orient_mutation_camera,
     },
 };
+use crate::menu::core_process::{CoreProcessGuard, CoreStopOutcome};
 use crate::metrics::{DiagnosticQuadTracker, MetricsCollector, TransparentSortMetricsSnapshot};
 use crate::runtime::network::{
     NetworkControlEvent,
@@ -81,9 +82,10 @@ use crate::runtime::{
     },
     visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
     world::{
-        ShutdownWatchdog, apply_committed_control, arm_shutdown_watchdog, flush_sub_chunk_requests,
-        model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
-        startup_biome_tints, synchronize_biome_tints, world_stream_fatal_message,
+        ShutdownWatchdog, TeardownWatchdog, apply_committed_control, arm_shutdown_watchdog,
+        flush_sub_chunk_requests, model_gallery_camera_committed_marker,
+        refresh_mutation_anchor_from_committed_control, startup_biome_tints,
+        synchronize_biome_tints, world_stream_fatal_message,
     },
 };
 use client_world::{
@@ -262,16 +264,30 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
+mod actor_rest_presentation;
+mod audio;
+mod audio_camera;
 mod camera;
 mod camera_controls;
 mod cohort_epoch;
 mod core;
+mod core_process;
+mod crafting_authority_schedule;
 mod finish;
+mod frame_cost_bench;
 mod inventory;
+mod inventory_schedule;
+mod inventory_secondary_input;
+mod molang_conformance;
+mod pack_entity_metadata;
 mod phase2_evidence;
 mod phase4_presentation;
+mod player_animation;
 mod publication;
+mod publication_pressure;
 mod runtime_metrics;
+mod servers;
 mod teleport;
+mod viewmodel_presentation;
 
 use core::{complete_world_stream_decodes, overworld_biome_payload, settled_world_snapshot};

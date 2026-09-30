@@ -3,23 +3,39 @@ use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use thiserror::Error;
 use valentine::{
-    bedrock::version::v1_26_40::{
-        ActorLinkType as VendorActorLinkType, AddActorPacket, AddPlayerPacket, AttributeData,
-        DataItemEntryPayload, MobEffectPacket, MobEffectPacketEventId, MoveActorAbsolutePacket,
-        MoveActorDeltaPacket, PlayerListPacket, PlayerListPacketEntriesItem, PropertySyncData,
-        RemoveActorPacket, SerializedSkinRef, SetActorDataPacket, SetActorLinkPacket,
-        SyncedAttribute, SynchedActorDataCopyableDataList, UpdateAttributesPacket,
+    bedrock::version::v1_26_51::{
+        ActorLink as VendorActorLink, AddActorPacket, AddPlayerPacket, AttributeData,
+        DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
+        EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,
+        MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
+        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SetActorDataPacket,
+        SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
+        UpdateAttributesPacket,
     },
     protocol::wire,
 };
 
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
+mod skin;
+mod status;
+use skin::normalize_player_skin;
+pub use skin::{
+    CapeImage, MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable,
+    SkinGeometrySource, StandardSkin,
+};
+pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+pub(crate) use status::{
+    normalize_actor_event, normalize_add_item_actor, normalize_take_item_actor,
+};
+
 pub const MAX_ACTOR_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_ACTOR_NAME_BYTES: usize = 256;
 pub const MAX_ACTOR_METADATA_ENTRIES: usize = 256;
 pub const MAX_ACTOR_ATTRIBUTES: usize = 128;
 pub const MAX_ACTOR_PROPERTIES: usize = 256;
+/// Local normalization ceiling for the links retained from one spawn packet.
+pub const MAX_ACTOR_LINKS_PER_SPAWN: usize = 256;
 pub const MAX_ACTOR_ATTRIBUTE_MODIFIERS: usize = 64;
 pub const MAX_ACTOR_METADATA_STRING_BYTES: usize = 4_096;
 pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
@@ -34,13 +50,13 @@ pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 /// re-typed into the `Flags`/`FlagsExtended` values downstream already reads.
 /// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
 /// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlags = iota`.
-const ACTOR_DATA_ID_FLAGS: i32 = 0;
+const ACTOR_DATA_ID_FLAGS: u32 = 0;
 
 /// Actor-data id of the overflow 64-bit actor flag word.
 ///
 /// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
 /// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlagsTwo` (92).
-const ACTOR_DATA_ID_FLAGS_EXTENDED: i32 = 92;
+const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = 92;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -70,13 +86,13 @@ pub struct ActorAttributeModifier {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActorProperty {
-    Int { index: i32, value: i32 },
-    Float { index: i32, value: f32 },
+    Int { index: u32, value: i32 },
+    Float { index: u32, value: f32 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorMetadata {
-    pub key: i32,
+    pub key: u32,
     pub value: ActorMetadataValue,
 }
 
@@ -111,6 +127,7 @@ pub struct ActorSpawnEvent {
     pub metadata: Arc<[ActorMetadata]>,
     pub attributes: Arc<[ActorAttribute]>,
     pub properties: Arc<[ActorProperty]>,
+    pub links: Arc<[ActorLinkEvent]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +148,7 @@ pub struct ActorMoveEvent {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<crate::MovePlayerMode>,
-    pub source_tick: Option<i64>,
+    pub source_tick: Option<u64>,
 }
 
 /// Coordinate space carried by an actor movement position.
@@ -227,27 +244,6 @@ pub enum PlayerListEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StandardSkin {
-    pub width: u32,
-    pub height: u32,
-    pub rgba8: Arc<[u8]>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlayerSkinUnavailable {
-    UnsupportedPersona,
-    InvalidDimensions,
-    InvalidByteLength,
-    RetainedBudgetExceeded,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PlayerSkin {
-    Standard(StandardSkin),
-    Unavailable(PlayerSkinUnavailable),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerListUpdateEvent {
     pub entries: Arc<[PlayerListEntry]>,
 }
@@ -260,6 +256,8 @@ pub enum ActorEvent {
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
     PlayerList(PlayerListUpdateEvent),
+    Status(ActorStatusEvent),
+    TakeItem(ActorTakeItemEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -330,10 +328,11 @@ pub(crate) fn normalize_add_entity(
     let metadata = normalize_metadata(packet.actor_data)?;
     let attributes = normalize_synced_attributes(packet.attributes_list)?;
     let properties = normalize_properties(packet.synched_properties)?;
+    let links = normalize_actor_links(packet.actor_links, dimension)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
         unique_id: packet.target_actor_id.actor_unique_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         kind: ActorKind::Entity {
             identifier: Arc::from(packet.actor_type),
         },
@@ -347,6 +346,7 @@ pub(crate) fn normalize_add_entity(
         metadata,
         attributes,
         properties,
+        links,
     }))
 }
 
@@ -375,6 +375,7 @@ pub(crate) fn normalize_add_player(
     let metadata = normalize_metadata(packet.entity_data)?;
     let properties = normalize_properties(packet.synched_properties)?;
     let held_item = normalize_item(packet.carried_item)?;
+    let links = normalize_actor_links(packet.actor_links, dimension)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
         // AddPlayer carries no standalone unique ID; the spawned player's unique
@@ -384,7 +385,7 @@ pub(crate) fn normalize_add_player(
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/ability.go`: `AbilityData.EntityUniqueID`.
         unique_id: packet.abilities_data.target_player_raw_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         kind: ActorKind::Player {
             uuid: *packet.uuid.as_bytes(),
             username: Arc::from(packet.player_name),
@@ -399,6 +400,7 @@ pub(crate) fn normalize_add_player(
         metadata,
         attributes: Arc::from([]),
         properties,
+        links,
     }))
 }
 
@@ -426,7 +428,7 @@ pub(crate) fn normalize_move_entity(
     }
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
-        runtime_id: move_data.actor_runtime_id.actor_runtime_id as u64,
+        runtime_id: move_data.actor_runtime_id.actor_runtime_id,
         position: [
             Some(move_data.position.x),
             Some(move_data.position.y),
@@ -515,7 +517,7 @@ pub(crate) fn normalize_move_entity_delta(
     }
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
-        runtime_id: move_data.actor_runtime_id.actor_runtime_id as u64,
+        runtime_id: move_data.actor_runtime_id.actor_runtime_id,
         position: [
             move_data.new_position_x,
             move_data.new_position_y,
@@ -543,10 +545,10 @@ pub(crate) fn normalize_set_entity_data(
     packet: SetActorDataPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick)?;
+    let tick = normalize_tick(packet.tick.inputtick);
     Ok(ActorEvent::Metadata(ActorMetadataUpdateEvent {
         dimension,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         metadata: normalize_metadata(packet.actor_data)?,
         properties: normalize_properties(packet.synched_properties)?,
         tick,
@@ -557,10 +559,10 @@ pub(crate) fn normalize_update_attributes(
     packet: UpdateAttributesPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick)?;
+    let tick = normalize_tick(packet.tick.inputtick);
     Ok(ActorEvent::Attributes(ActorAttributesUpdateEvent {
         dimension,
-        runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
         attributes: normalize_attribute_data(packet.attribute_list)?,
         tick,
     }))
@@ -570,10 +572,10 @@ pub(crate) fn normalize_mob_effect(
     packet: MobEffectPacket,
     dimension: i32,
 ) -> Result<ActorEffectEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick)?;
+    let tick = normalize_tick(packet.tick.inputtick);
     Ok(ActorEffectEvent {
         dimension,
-        actor_runtime_id: packet.target_runtime_id.actor_runtime_id as u64,
+        actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
         action: match packet.event_id {
             MobEffectPacketEventId::Add => ActorEffectAction::Add,
             MobEffectPacketEventId::Update => ActorEffectAction::Update,
@@ -597,22 +599,37 @@ pub(crate) fn normalize_set_entity_link(
     packet: SetActorLinkPacket,
     dimension: i32,
 ) -> ActorLinkEvent {
+    normalize_actor_link(packet.link, dimension)
+}
+
+fn normalize_actor_links(
+    links: Vec<VendorActorLink>,
+    dimension: i32,
+) -> Result<Arc<[ActorLinkEvent]>, ActorPacketError> {
+    check_count("actor_links", links.len(), MAX_ACTOR_LINKS_PER_SPAWN)?;
+    Ok(links
+        .into_iter()
+        .map(|link| normalize_actor_link(link, dimension))
+        .collect())
+}
+
+fn normalize_actor_link(link: VendorActorLink, dimension: i32) -> ActorLinkEvent {
     ActorLinkEvent {
         dimension,
         // `target_a` is the ridden actor and `target_b` the rider. gophertunnel
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/entity_link.go`: `ActorUniqueID(&x.RiddenEntityUniqueID)`
         // then `ActorUniqueID(&x.RiderEntityUniqueID)`.
-        ridden_unique_id: packet.link.target_a.actor_unique_id,
-        rider_unique_id: packet.link.target_b.actor_unique_id,
-        link_type: match packet.link.type_ {
+        ridden_unique_id: link.target_a.actor_unique_id,
+        rider_unique_id: link.target_b.actor_unique_id,
+        link_type: match link.type_ {
             VendorActorLinkType::None => ActorLinkType::Remove,
             VendorActorLinkType::Riding => ActorLinkType::Rider,
             VendorActorLinkType::Passenger => ActorLinkType::Passenger,
             VendorActorLinkType::Unknown(value) => ActorLinkType::Unknown(value),
         },
-        immediate: packet.link.immediate,
-        rider_initiated: packet.link.passenger_initiated,
+        immediate: link.immediate,
+        rider_initiated: link.passenger_initiated,
     }
 }
 
@@ -665,39 +682,6 @@ pub(crate) fn normalize_player_list(
     Ok(ActorEvent::PlayerList(PlayerListUpdateEvent {
         entries: Arc::from(entries),
     }))
-}
-
-fn normalize_player_skin(skin: SerializedSkinRef, retained_bytes: &mut usize) -> PlayerSkin {
-    if skin.is_persona {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
-    }
-    let (width, height) = (skin.image_data.width, skin.image_data.height);
-    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    }
-    let Some(expected_bytes) = usize::try_from(width)
-        .ok()
-        .and_then(|width| usize::try_from(height).ok().map(|height| (width, height)))
-        .and_then(|(width, height)| width.checked_mul(height))
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    };
-    if skin.image_data.image_bytes.len() != expected_bytes {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength);
-    }
-    let Some(next_bytes) = retained_bytes.checked_add(expected_bytes) else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
-    };
-    if next_bytes > MAX_PLAYER_LIST_SKIN_BYTES {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
-    }
-    *retained_bytes = next_bytes;
-    PlayerSkin::Standard(StandardSkin {
-        width,
-        height,
-        rgba8: Arc::from(skin.image_data.image_bytes),
-    })
 }
 
 /// Normalizes the four-field spawn attribute list AddActor carries.
@@ -895,8 +879,8 @@ fn normalize_metadata(
     Ok(Arc::from(entries))
 }
 
-fn normalize_tick(tick: i64) -> Result<u64, ActorPacketError> {
-    u64::try_from(tick).map_err(|_| ActorPacketError::NegativeTick(tick))
+fn normalize_tick(tick: u64) -> u64 {
+    tick
 }
 
 fn byte_rotation_degrees(value: u8) -> f32 {

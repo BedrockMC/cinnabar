@@ -14,8 +14,8 @@ use assets::{
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
-    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
-    TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
+    Material, MaterialKeys, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION,
+    RegistryRecord, TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 
 use crate::{
@@ -33,13 +33,15 @@ mod classification;
 mod visuals;
 
 use classification::{
-    aquatic_cross_faces, canonical_state_u32, cross_texture_face, cutout_model_tint_flags,
-    is_aquatic_cross, is_button, is_carpet, is_copper_grate, is_copper_grate_name, is_cross_visual,
-    is_cutout_model_visual, is_door, is_fence, is_flowerbed, is_gate, is_kelp, is_liquid,
-    is_model_visual, is_multiface, is_ordinary_stained_glass_name, is_pale_moss_carpet, is_pane,
-    is_pressure_plate, is_sign, is_slab, is_stained_glass_cube, is_stair, is_supported_liquid,
-    is_terrestrial_cross, is_trapdoor, is_vine, is_wall, leaf_tint_flags, liquid_material_flags,
-    record_has_deferred_material, source_is_deferred,
+    aquatic_cross_faces, canonical_state_str, canonical_state_u32, cross_texture_face,
+    cutout_model_tint_flags, is_aquatic_cross, is_button, is_carpet, is_chain, is_copper_grate,
+    is_copper_grate_name, is_cross_visual, is_crystal, is_cutout_model_visual, is_door, is_fence,
+    is_flowerbed, is_gate, is_kelp, is_ladder, is_liquid, is_model_visual, is_multiface,
+    is_ordinary_stained_glass_name, is_pale_moss_carpet, is_pane, is_pressure_plate, is_rail,
+    is_sign, is_slab, is_stained_glass_cube, is_stair, is_supported_liquid, is_terrestrial_cross,
+    is_torch, is_translucent_cube, is_trapdoor, is_vine, is_wall, leaf_tint_flags,
+    liquid_material_flags, record_has_deferred_material, source_is_deferred,
+    translucent_cube_material_flags,
 };
 
 use visuals::{
@@ -71,6 +73,7 @@ use visuals::{
         mineral_cube_material_descriptor, mineral_cube_sources_are_exact,
     },
     multiface::multiface_quads,
+    named_blocks::{is_named_block, named_block_material_flags},
     resin_clump::{
         is_resin_clump, is_resin_clump_name, is_resin_clump_record, resin_clump_inventory_is_exact,
         resin_clump_material_descriptor,
@@ -83,6 +86,25 @@ use visuals::{
 };
 
 const MAX_VISUALS: usize = 65_536;
+
+/// Registry wire protocol whose stamped fallback inventory backs
+/// [`compile_pack`]. Library-level compilation without a header-derived
+/// protocol can only bind the pinned legacy inventory; production compiles
+/// pass the block registry's own protocol through
+/// [`compile_pack_with_biomes`].
+const LEGACY_REGISTRY_PROTOCOL: u32 = 1001;
+
+/// Complete placeholder identity embedded by library-level compilation. The
+/// `assetc compile` command overwrites this with the exact canonical manifest
+/// and registry input hashes before encoding; decode rejects incomplete
+/// identity and startup rejects carriers still carrying these bytes, so the
+/// placeholder can never reach gameplay or claim a real source pin.
+const UNBOUND_PROVENANCE: assets::BlobProvenance = assets::BlobProvenance {
+    source_manifest_sha256: [0xA5; 32],
+    block_registry_sha256: [0x5A; 32],
+    light_registry_sha256: [0xC3; 32],
+    biome_registry_sha256: [0x3C; 32],
+};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Descriptor {
@@ -100,7 +122,8 @@ type CompiledVisuals = (
 );
 type CompiledAnimations = (Box<[Animation]>, Box<[TextureRef]>);
 
-/// Compiles the cube-geometry subset of a bounded Bedrock resource pack.
+/// Compiles the cube-geometry subset of a bounded Bedrock resource pack
+/// against the legacy protocol-1001 fallback inventory.
 pub fn compile_pack(
     root: &Path,
     records: &[RegistryRecord],
@@ -111,19 +134,45 @@ pub fn compile_pack(
         records,
         light_properties,
         CompiledBiomeAssets::diagnostic(),
+        LEGACY_REGISTRY_PROTOCOL,
     )
+    .map(|(compiled, _)| compiled)
 }
 
-/// Compiles the complete v3 block and biome asset set.
+/// Compiles the complete v3 block and biome asset set, consuming the
+/// provisional fallback inventory stamped for the block registry's own
+/// header-derived wire protocol.
 pub fn compile_pack_with_biomes(
     root: &Path,
     behavior_pack: &Path,
     records: &[RegistryRecord],
     biome_registry: &[BiomeRegistryRecord],
     light_properties: &[LightProperties],
+    registry_protocol: u32,
 ) -> Result<CompiledAssets, AssetError> {
+    compile_pack_with_material_keys(
+        root,
+        behavior_pack,
+        records,
+        biome_registry,
+        light_properties,
+        registry_protocol,
+    )
+    .map(|(compiled, _)| compiled)
+}
+
+/// Like [`compile_pack_with_biomes`], also returning each material's source
+/// terrain texture key so a session can retexture vanilla blocks.
+pub fn compile_pack_with_material_keys(
+    root: &Path,
+    behavior_pack: &Path,
+    records: &[RegistryRecord],
+    biome_registry: &[BiomeRegistryRecord],
+    light_properties: &[LightProperties],
+    registry_protocol: u32,
+) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     let biomes = compile_biome_assets(root, behavior_pack, biome_registry)?;
-    compile_pack_inner(root, records, light_properties, biomes)
+    compile_pack_inner(root, records, light_properties, biomes, registry_protocol)
 }
 
 /// Reads and compiles a bounded animation staging plan without changing the
@@ -178,9 +227,11 @@ fn compile_pack_inner(
     records: &[RegistryRecord],
     light_properties: &[LightProperties],
     biomes: CompiledBiomeAssets,
-) -> Result<CompiledAssets, AssetError> {
+    registry_protocol: u32,
+) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     let pack = read_pack(root)?;
     validate_records(records)?;
+    let fallback = visuals::fallback::inventory(registry_protocol)?;
 
     let admit_chiseled_bookshelves = chiseled_bookshelf_inventory_is_exact(records);
     let admit_mineral_cubes = mineral_cube_inventory_is_exact(records)
@@ -198,44 +249,44 @@ fn compile_pack_inner(
     for record in records.iter().filter(|record| {
         if is_mineral_cube_name(&record.name) {
             return (admit_mineral_cubes && is_mineral_cube_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_selector_alias_cube_name(&record.name) {
             return (admit_selector_alias_cubes && is_selector_alias_cube_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_resin_clump_name(&record.name) {
             return (admit_resin_clumps && is_resin_clump_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_chiseled_bookshelf_name(&record.name) {
             return (admit_chiseled_bookshelves && is_chiseled_bookshelf_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         if is_cactus_name(&record.name) {
-            return (admit_cacti && is_cactus_record(record))
-                || visuals::fallback::is_record(record);
+            return (admit_cacti && is_cactus_record(record)) || fallback.contains(record);
         }
         if is_cake_name(&record.name) {
-            return (admit_cakes && is_cake_record(record)) || visuals::fallback::is_record(record);
+            return (admit_cakes && is_cake_record(record)) || fallback.contains(record);
         }
         if is_farmland_name(&record.name) {
-            return (admit_farmland && is_farmland_record(record))
-                || visuals::fallback::is_record(record);
+            return (admit_farmland && is_farmland_record(record)) || fallback.contains(record);
         }
         if is_bee_housing_name(&record.name) {
             return (admit_bee_housing && is_bee_housing_record(record))
-                || visuals::fallback::is_record(record);
+                || fallback.contains(record);
         }
         (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
-            || visuals::fallback::is_record(record)
+            || record.name.as_ref() == "minecraft:enchanting_table"
+            || visuals::literal::is_literal_cube(record)
+            || fallback.contains(record)
     }) {
-        if visuals::fallback::is_record(record) {
+        if fallback.contains(record) {
             for face in BlockFace::ALL {
-                if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
+                if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
                     fallback_descriptors.insert(descriptor.clone());
                     descriptor_keys
                         .entry(descriptor)
@@ -350,7 +401,7 @@ fn compile_pack_inner(
             &BlockFace::ALL
         };
         for &face in faces {
-            if let Some((descriptor, key)) = descriptor_for(&pack, record, face) {
+            if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
                 descriptor_keys
                     .entry(descriptor)
                     .and_modify(|current| {
@@ -369,13 +420,19 @@ fn compile_pack_inner(
     let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
     let (materials, material_by_descriptor) =
         compile_materials(&descriptor_keys, &animation_plan, &alpha_paths)?;
+    let material_keys = MaterialKeys::from_entries(
+        material_by_descriptor
+            .iter()
+            .map(|(descriptor, &material)| (material, descriptor.texture_key.as_ref())),
+    );
     let vanilla_fallback_material =
-        visuals::fallback::neutral_material(records, &pack, &material_by_descriptor)?;
+        visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
     let (visuals, hashed, model_templates, model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
         vanilla_fallback_material,
+        fallback,
         ExactAdmissions {
             mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
@@ -393,18 +450,22 @@ fn compile_pack_inner(
         });
     }
 
-    Ok(CompiledAssets {
-        visuals,
-        light_properties: light_properties.into(),
-        hashed,
-        materials,
-        model_templates,
-        model_quads,
-        animations,
-        animation_frames,
-        texture_pages,
-        biomes,
-    })
+    Ok((
+        CompiledAssets {
+            visuals,
+            light_properties: light_properties.into(),
+            hashed,
+            materials,
+            model_templates,
+            model_quads,
+            animations,
+            animation_frames,
+            texture_pages,
+            biomes,
+            provenance: UNBOUND_PROVENANCE,
+        },
+        material_keys,
+    ))
 }
 
 fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
@@ -447,6 +508,7 @@ fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
 }
 
 fn descriptor_for(
+    fallback: &visuals::fallback::FallbackInventory,
     pack: &PackSources,
     record: &RegistryRecord,
     face: BlockFace,
@@ -460,7 +522,7 @@ fn descriptor_for(
     };
     if !is_model_visual(record)
         && !is_liquid(record)
-        && !visuals::fallback::is_record(record)
+        && !fallback.contains(record)
         && source_is_deferred(pack, record, &key, path)
     {
         return None;
@@ -470,12 +532,16 @@ fn descriptor_for(
     } else {
         0
     };
-    if let Some(fallback_flags) = visuals::fallback::material_flags(record) {
+    if let Some(fallback_flags) = fallback.material_flags(record) {
         flags |= fallback_flags;
     } else if is_stained_glass_cube(record) {
         flags |= MATERIAL_FLAG_ALPHA_BLEND;
     } else if is_copper_grate(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
+    } else if is_translucent_cube(record) {
+        flags |= translucent_cube_material_flags(&record.name);
+    } else if let Some(named_flags) = named_block_material_flags(record) {
+        flags |= named_flags;
     } else if is_pane(record) {
         flags |= if record.name.contains("stained_glass_pane") {
             MATERIAL_FLAG_ALPHA_BLEND
@@ -737,7 +803,11 @@ fn runtime_animation_tables(plan: &AnimationPlan) -> Result<CompiledAnimations, 
     Ok((animations, plan.frames.clone()))
 }
 
-fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, AssetError> {
+pub(crate) fn static_texture_path(
+    root: &Path,
+    source: &str,
+    key: &str,
+) -> Result<PathBuf, AssetError> {
     let source_path = Path::new(source);
     if source_path.extension().is_some() {
         return Ok(root.join(source_path));

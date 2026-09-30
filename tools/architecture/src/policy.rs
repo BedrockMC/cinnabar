@@ -11,6 +11,8 @@ pub(super) struct Policy {
     #[serde(default)]
     pub(super) forbidden_artifacts: Vec<String>,
     #[serde(default)]
+    pub(super) owned_artifacts: Vec<OwnedArtifact>,
+    #[serde(default)]
     pub(super) line_baselines: Vec<LineBaseline>,
     #[serde(default, rename = "crates")]
     pub(super) crate_rules: Vec<CrateRule>,
@@ -26,6 +28,13 @@ pub(super) struct LineBaseline {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct VendoredRule {
+    pub(super) path: String,
+    pub(super) ownership_record: String,
+}
+
+/// Original art exempt from `forbidden_artifacts`; its record must name the path.
+#[derive(Debug, Deserialize)]
+pub(super) struct OwnedArtifact {
     pub(super) path: String,
     pub(super) ownership_record: String,
 }

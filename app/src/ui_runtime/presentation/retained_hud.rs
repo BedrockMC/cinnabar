@@ -5,24 +5,19 @@ use std::{
 
 use assets::RuntimeFontCatalog;
 use ui::{
-    DisplaySlot, ScoreOwner, ScoreboardStore, TextLayoutCache, TextShadow, UiNode, UiNodeId,
-    UiVisual,
+    DisplaySlot, ScoreOwner, ScoreRenderType, ScoreboardStore, TextLayoutCache, TextShadow, UiNode,
+    UiNodeId, UiVisual,
 };
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text, rect};
 
-// Exact classic-profile contracts from the hash-pinned official sample ui/scoreboards.json.
-pub(super) const SCOREBOARD_MAIN_HORIZONTAL_EXPANSION: f32 = 4.0;
-pub(super) const SCOREBOARD_TEXT_HEIGHT: f32 = 10.0;
-pub(super) const SCOREBOARD_TITLE_BACKGROUND_HEIGHT: f32 = 9.0;
-pub(super) const SCOREBOARD_TITLE_WIDTH: f32 = 170.0;
-pub(super) const SCOREBOARD_NAME_WIDTH: f32 = 100.0;
-pub(super) const SCOREBOARD_LIST_OFFSET: f32 = 10.0;
-pub(super) const PLAYER_LIST_TOP_OFFSET: f32 = 10.0;
-pub(super) const SCOREBOARD_HORIZONTAL_PADDING: f32 = 10.0;
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
 pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
+/// Provisional hearts-row placeholder cap: one ten-heart row, the Java
+/// sidebar's single-row capacity, pending a version-matched native witness
+/// for hearts-style criteria. Overflowing scores present only this bound.
+pub(super) const MAX_PRESENTED_SCOREBOARD_HEARTS: u8 = 10;
 const NAMEPLATE_LINE_HEIGHT: f32 = 9.0;
 const NAMEPLATE_VERTICAL_GAP: f32 = 1.0;
 const NAMEPLATE_HORIZONTAL_PADDING: f32 = 2.0;
@@ -57,9 +52,15 @@ impl ScoreboardPresentationScope {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum PresentedScoreValue {
+    Text(Arc<str>),
+    Hearts { full_hearts: u8, half_heart: bool },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PresentedScoreboardRow {
     pub(super) label: Arc<str>,
-    pub(super) score: String,
+    pub(super) value: PresentedScoreValue,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,48 +116,7 @@ pub(super) struct ScoreboardOwnerNameAuthority {
     names: BTreeMap<i64, Arc<str>>,
 }
 
-// Java Edition scoreboard sidebar background opacities, adopted for the Hybrid HUD.
-//
-// Bedrock exposes `#objective_background_opacity` / `#scoreboard_objective_background_opacity` as
-// runtime engine bindings with no static value in the hash-pinned pack, so there is no Bedrock
-// authority to bind here. Java Edition draws the sidebar body with `getBackgroundColor(0.3)` and
-// the title with `getBackgroundColor(0.4)`; converting those normalized channels to byte alpha
-// gives 77 and 102. Recorded as a Hybrid HUD deviation in plan.md.
-const JAVA_SCOREBOARD_BODY_ALPHA: u8 = 77;
-const JAVA_SCOREBOARD_TITLE_ALPHA: u8 = 102;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ScoreboardOpacityAuthority {
-    body: u8,
-    title: u8,
-}
-
-impl ScoreboardOpacityAuthority {
-    #[must_use]
-    const fn from_alpha_bytes(body: u8, title: u8) -> Self {
-        Self { body, title }
-    }
-
-    #[must_use]
-    const fn java_edition_style() -> Self {
-        Self::from_alpha_bytes(JAVA_SCOREBOARD_BODY_ALPHA, JAVA_SCOREBOARD_TITLE_ALPHA)
-    }
-}
-
 impl UiPresentationRuntime {
-    /// Enables the scoreboard sidebar using the Java Edition background opacities.
-    ///
-    /// The sidebar still renders only when the server publishes a sidebar objective; this just
-    /// binds the background alpha the fail-closed gate requires.
-    pub(crate) fn enable_scoreboard_background(&mut self) {
-        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::java_edition_style());
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_native_scoreboard_opacity(&mut self, body: u8, title: u8) {
-        self.scoreboard_opacity = Some(ScoreboardOpacityAuthority::from_alpha_bytes(body, title));
-    }
-
     pub(crate) fn set_scoreboard_owner_names(
         &mut self,
         names: impl IntoIterator<Item = (i64, Arc<str>)>,
@@ -222,6 +182,36 @@ impl ScoreboardOwnerNameAuthority {
     }
 }
 
+/// Converts one authoritative score into its presented value under the
+/// objective's render type. Hearts values are a bounded provisional
+/// placeholder — the score reads as half-hearts capped to one ten-heart row —
+/// because no in-repo authority fixes the native hearts-style presentation.
+fn presented_score_value(render_type: ScoreRenderType, score: i32) -> PresentedScoreValue {
+    match render_type {
+        ScoreRenderType::Integer => PresentedScoreValue::Text(Arc::from(score.to_string())),
+        ScoreRenderType::Hearts => {
+            let halves = score.clamp(0, i32::from(MAX_PRESENTED_SCOREBOARD_HEARTS) * 2);
+            PresentedScoreValue::Hearts {
+                full_hearts: (halves / 2) as u8,
+                half_heart: halves % 2 == 1,
+            }
+        }
+    }
+}
+
+/// Bounded fallback for protocol owners no name authority can answer
+/// (unloaded players, XUID-keyed scores): their raw retained numeric identity
+/// stays visible instead of the row disappearing. Provisional until an exact
+/// owner-name authority covers those owners.
+fn fallback_owner_label(owner: &ScoreOwner) -> Arc<str> {
+    match owner {
+        ScoreOwner::Player(unique_id) | ScoreOwner::Entity(unique_id) => {
+            Arc::from(unique_id.to_string())
+        }
+        ScoreOwner::FakePlayer(_) | ScoreOwner::None => Arc::from(""),
+    }
+}
+
 pub(super) fn project_scoreboard_for_scope(
     store: &ScoreboardStore,
     scope: ScoreboardPresentationScope,
@@ -239,14 +229,13 @@ pub(super) fn project_scoreboard_for_scope(
         .filter_map(|row| {
             let label = match &row.owner {
                 ScoreOwner::FakePlayer(label) => Arc::clone(label),
-                ScoreOwner::Player(_) | ScoreOwner::Entity(_) => {
-                    resolve_protocol_owner(&row.owner)?
-                }
+                ScoreOwner::Player(_) | ScoreOwner::Entity(_) => resolve_protocol_owner(&row.owner)
+                    .unwrap_or_else(|| fallback_owner_label(&row.owner)),
                 ScoreOwner::None => return None,
             };
             Some(PresentedScoreboardRow {
                 label,
-                score: row.score.to_string(),
+                value: presented_score_value(projection.render_type, row.score),
             })
         })
         .collect();
@@ -305,112 +294,6 @@ pub(super) fn project_below_name_scores(
             })
             .collect(),
     })
-}
-
-struct PreparedScoreboardRow {
-    label: Arc<ui::TextLayout>,
-    score: Arc<ui::TextLayout>,
-    label_width: f32,
-    score_width: f32,
-}
-
-/// Tab player-list overlay: every known player-list username on its own
-/// row, centered under the top edge over a translucent backdrop, with the
-/// list-objective score right-aligned in yellow. Shown only while the
-/// player-list action is held.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn append_player_list_nodes(
-    nodes: &mut Vec<UiNode>,
-    next_id: &mut u32,
-    layouts: &mut TextLayoutCache,
-    font: &RuntimeFontCatalog,
-    metrics: TextMetrics,
-    solid_texture_page: u16,
-    viewport_width: f32,
-    viewport_height: f32,
-    players: &[(Arc<str>, Option<i32>)],
-) -> Result<(), UiPresentationError> {
-    if players.is_empty() {
-        return Ok(());
-    }
-    struct PreparedPlayerRow {
-        name: Arc<ui::TextLayout>,
-        name_width: f32,
-        score: Option<(Arc<ui::TextLayout>, f32)>,
-    }
-    let mut content_width = 0.0f32;
-    let mut rows = Vec::with_capacity(players.len().min(MAX_PRESENTED_PLAYER_LIST_ROWS));
-    for (name, score) in players.iter().take(MAX_PRESENTED_PLAYER_LIST_ROWS) {
-        let name_layout = layouts
-            .layout(metrics.request(
-                bounded_visible_text(name),
-                (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
-                font,
-            ))
-            .map_err(UiPresentationError::Text)?;
-        let name_width = name_layout.size_64()[0] as f32 / 64.0;
-        let score = score
-            .map(|score| {
-                layouts
-                    .layout(metrics.request(
-                        &score.to_string(),
-                        (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
-                        font,
-                    ))
-                    .map(|layout| {
-                        let width = layout.size_64()[0] as f32 / 64.0;
-                        (layout, width)
-                    })
-            })
-            .transpose()
-            .map_err(UiPresentationError::Text)?;
-        let score_width = score.as_ref().map_or(0.0, |(_, width)| *width);
-        content_width = content_width.max(name_width + SCOREBOARD_HORIZONTAL_PADDING + score_width);
-        rows.push(PreparedPlayerRow {
-            name: name_layout,
-            name_width,
-            score,
-        });
-    }
-    let width = content_width + SCOREBOARD_HORIZONTAL_PADDING;
-    let height = SCOREBOARD_TEXT_HEIGHT * rows.len() as f32 + 4.0;
-    if width <= 0.0 || viewport_width < width || viewport_height < height {
-        return Ok(());
-    }
-    let left = (viewport_width - width) * 0.5;
-    let top = PLAYER_LIST_TOP_OFFSET;
-    let right = left + width;
-    nodes.push(solid_node(
-        take_node_id(next_id),
-        [left, top, right, top + height],
-        solid_texture_page,
-        [0, 0, 0, 120],
-    )?);
-    for (index, row) in rows.into_iter().enumerate() {
-        let row_top = top + 2.0 + SCOREBOARD_TEXT_HEIGHT * index as f32;
-        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
-        append_clipped_text_node(
-            nodes,
-            next_id,
-            [left + 2.0, row_top, right - 2.0, row_bottom],
-            [left + 2.0, row_top, left + 2.0 + row.name_width, row_bottom],
-            row.name,
-            [255; 4],
-            metrics.shadow(),
-        )?;
-        if let Some((score, score_width)) = row.score {
-            append_clipped_text_node(
-                nodes,
-                next_id,
-                [left + 2.0, row_top, right - 2.0, row_bottom],
-                [right - 2.0 - score_width, row_top, right - 2.0, row_bottom],
-                score,
-                [255, 255, 85, 255],
-                metrics.shadow(),
-            )?;
-        }
-    }
-    Ok(())
 }
 
 /// Presents the Java-style two-line actor nameplate: the actor name above the
@@ -482,121 +365,6 @@ pub(super) fn append_below_name_nodes(
             ],
             score,
             [255, 255, 85, 255],
-            metrics.shadow(),
-        )?;
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn append_scoreboard_nodes(
-    nodes: &mut Vec<UiNode>,
-    next_id: &mut u32,
-    layouts: &mut TextLayoutCache,
-    font: &RuntimeFontCatalog,
-    metrics: TextMetrics,
-    solid_texture_page: u16,
-    viewport_width: f32,
-    viewport_height: f32,
-    scoreboard: &PresentedScoreboard,
-    opacity: ScoreboardOpacityAuthority,
-) -> Result<(), UiPresentationError> {
-    let title = layouts
-        .layout(metrics.request(
-            bounded_visible_text(&scoreboard.title),
-            (SCOREBOARD_TITLE_WIDTH * 64.0) as u32,
-            font,
-        ))
-        .map_err(UiPresentationError::Text)?;
-    let title_width = title.size_64()[0] as f32 / 64.0;
-    let mut content_width = title_width;
-    let mut rows = Vec::with_capacity(scoreboard.rows.len());
-    for row in &scoreboard.rows {
-        let label = layouts
-            .layout(metrics.request(
-                bounded_visible_text(&row.label),
-                (SCOREBOARD_NAME_WIDTH * 64.0) as u32,
-                font,
-            ))
-            .map_err(UiPresentationError::Text)?;
-        let score = layouts
-            .layout(metrics.request(&row.score, (SCOREBOARD_TITLE_WIDTH * 64.0) as u32, font))
-            .map_err(UiPresentationError::Text)?;
-        let label_width = label.size_64()[0] as f32 / 64.0;
-        let score_width = score.size_64()[0] as f32 / 64.0;
-        content_width =
-            content_width.max(label_width + SCOREBOARD_HORIZONTAL_PADDING + score_width);
-        rows.push(PreparedScoreboardRow {
-            label,
-            score,
-            label_width,
-            score_width,
-        });
-    }
-    let width = content_width + SCOREBOARD_MAIN_HORIZONTAL_EXPANSION;
-    let height = SCOREBOARD_LIST_OFFSET + SCOREBOARD_TEXT_HEIGHT * rows.len() as f32;
-    if width <= 0.0 || viewport_width < width || viewport_height < height {
-        return Ok(());
-    }
-    let left = viewport_width - width;
-    let top = (viewport_height - height) * 0.5;
-    let right = viewport_width;
-    nodes.push(solid_node(
-        take_node_id(next_id),
-        [left, top, right, top + height],
-        solid_texture_page,
-        [0, 0, 0, opacity.body],
-    )?);
-    nodes.push(solid_node(
-        take_node_id(next_id),
-        [left, top, right, top + SCOREBOARD_TITLE_BACKGROUND_HEIGHT],
-        solid_texture_page,
-        [0, 0, 0, opacity.title],
-    )?);
-    let title_left = left + (width - title_width) * 0.5;
-    append_clipped_text_node(
-        nodes,
-        next_id,
-        [left, top, right, top + SCOREBOARD_TEXT_HEIGHT],
-        [
-            title_left,
-            top,
-            title_left + title_width,
-            top + SCOREBOARD_TEXT_HEIGHT,
-        ],
-        title,
-        [255; 4],
-        metrics.shadow(),
-    )?;
-    for (index, row) in rows.into_iter().enumerate() {
-        let row_top = top + SCOREBOARD_LIST_OFFSET + SCOREBOARD_TEXT_HEIGHT * index as f32;
-        let row_bottom = row_top + SCOREBOARD_TEXT_HEIGHT;
-        append_clipped_text_node(
-            nodes,
-            next_id,
-            [left + 2.0, row_top, right - 2.0, row_bottom],
-            [
-                left + 2.0,
-                row_top,
-                left + 2.0 + row.label_width,
-                row_bottom,
-            ],
-            row.label,
-            [255; 4],
-            metrics.shadow(),
-        )?;
-        append_clipped_text_node(
-            nodes,
-            next_id,
-            [left + 2.0, row_top, right - 2.0, row_bottom],
-            [
-                right - 2.0 - row.score_width,
-                row_top,
-                right - 2.0,
-                row_bottom,
-            ],
-            row.score,
-            [255, 0, 0, 255],
             metrics.shadow(),
         )?;
     }

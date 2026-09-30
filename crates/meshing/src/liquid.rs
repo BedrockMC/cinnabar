@@ -60,6 +60,8 @@ impl LiquidLevel {
     }
 }
 
+use std::cell::{Cell, RefCell};
+
 use assets::{
     BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
     MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets,
@@ -75,7 +77,7 @@ use crate::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct LiquidIdentity([u32; Face::ALL.len()]);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct LiquidCell {
     identity: LiquidIdentity,
     face_materials: [u32; Face::ALL.len()],
@@ -97,9 +99,81 @@ impl LiquidCell {
     }
 }
 
+/// Liquid facts of one resolved cell.
+#[derive(Clone, Copy)]
+struct LiquidPart {
+    present: bool,
+    cell: Option<LiquidCell>,
+}
+
+impl LiquidPart {
+    fn resolve(assets: &RuntimeAssets, contributors: ResolvedContributors) -> Self {
+        let liquid = contributors.liquid_entry();
+        let cell = liquid.and_then(|entry| {
+            let depth_writing = supported_liquid_material_family(assets, entry.faces)?;
+            (entry.kind == VisualKind::Liquid).then_some(LiquidCell {
+                identity: LiquidIdentity(entry.faces),
+                face_materials: entry.faces,
+                level: LiquidLevel::from_variant(entry.variant)?,
+                depth_writing,
+            })
+        });
+        Self {
+            present: liquid.is_some(),
+            cell,
+        }
+    }
+}
+
+/// Primary-occluder facts of one resolved cell.
+#[derive(Clone, Copy)]
+struct OcclusionPart {
+    occludes: bool,
+    /// Bit per face: the primary occludes and that face's material is opaque.
+    opaque_faces: u8,
+}
+
+impl OcclusionPart {
+    fn resolve(assets: &RuntimeAssets, contributors: ResolvedContributors) -> Self {
+        let occluder = contributors
+            .primary_entry()
+            .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
+        Self {
+            occludes: occluder.is_some(),
+            opaque_faces: occluder.map_or(0, |entry| {
+                Face::ALL
+                    .into_iter()
+                    .filter(|&face| material_is_opaque(assets, entry.faces[face as usize]))
+                    .fold(0, |mask, face| mask | 1 << face as u8)
+            }),
+        }
+    }
+
+    const fn opaque(self, face: Face) -> bool {
+        self.opaque_faces & (1 << face as u8) != 0
+    }
+}
+
+const HALO_SIDE: usize = SIDE + 2;
+const HALO_VOLUME: usize = HALO_SIDE * HALO_SIDE * HALO_SIDE;
+const NO_SOURCE: u16 = 1 << 15;
+const LIQUID_KNOWN: u16 = 1 << 14;
+const LIQUID_PRESENT: u16 = 1 << 13;
+const OCCLUSION_KNOWN: u16 = 1 << 12;
+const OCCLUDES: u16 = 1 << 11;
+
+/// Mesh-job sampler that memoizes each halo cell's facts on first use; flow,
+/// corner-height and face checks revisit the same cells many times. The two
+/// parts fill independently so the full-sub-chunk liquid scan never pays for
+/// occlusion facts it does not read.
 struct Sampler<'chunk, 'assets> {
     resolvers: [Option<ContributorResolver<'chunk>>; 27],
     assets: &'assets RuntimeAssets,
+    /// Flag bits above; opaque-face mask in the low byte.
+    facts: Box<[Cell<u16>]>,
+    /// One plus the index into `cells`, or zero for no liquid cell.
+    cell_refs: Box<[Cell<u8>]>,
+    cells: RefCell<Vec<LiquidCell>>,
 }
 
 impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
@@ -116,72 +190,13 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
                     Some(ContributorResolver::new(classifier, assets, mode, chunk));
             }
         }
-        Self { resolvers, assets }
-    }
-}
-
-trait LiquidSampler {
-    fn assets(&self) -> &RuntimeAssets;
-
-    fn contributors(
-        &self,
-        neighbourhood: &MeshNeighbourhood<'_>,
-        coordinate: [i32; 3],
-    ) -> Option<ResolvedContributors>;
-
-    fn liquid(
-        &self,
-        neighbourhood: &MeshNeighbourhood<'_>,
-        coordinate: [i32; 3],
-    ) -> Option<LiquidCell> {
-        let entry = self
-            .contributors(neighbourhood, coordinate)?
-            .liquid_entry()?;
-        let depth_writing = supported_liquid_material_family(self.assets(), entry.faces)?;
-        (entry.kind == VisualKind::Liquid).then_some(LiquidCell {
-            identity: LiquidIdentity(entry.faces),
-            face_materials: entry.faces,
-            level: LiquidLevel::from_variant(entry.variant)?,
-            depth_writing,
-        })
-    }
-
-    fn open(
-        &self,
-        neighbourhood: &MeshNeighbourhood<'_>,
-        coordinate: [i32; 3],
-        contacting_faces: &[Face],
-    ) -> bool {
-        self.contributors(neighbourhood, coordinate)
-            .is_none_or(|contributors| {
-                contributors.liquid_entry().is_none()
-                    && !contributors.primary_entry().is_some_and(|entry| {
-                        entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
-                            && contacting_faces.iter().all(|&face| {
-                                material_is_opaque(self.assets(), entry.faces[face as usize])
-                            })
-                    })
-            })
-    }
-
-    fn solid(
-        &self,
-        neighbourhood: &MeshNeighbourhood<'_>,
-        coordinate: [i32; 3],
-        contacting_face: Face,
-    ) -> bool {
-        self.contributors(neighbourhood, coordinate)
-            .and_then(ResolvedContributors::primary_entry)
-            .is_some_and(|entry| {
-                entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
-                    && material_is_opaque(self.assets(), entry.faces[contacting_face as usize])
-            })
-    }
-}
-
-impl LiquidSampler for Sampler<'_, '_> {
-    fn assets(&self) -> &RuntimeAssets {
-        self.assets
+        Self {
+            resolvers,
+            assets,
+            facts: vec![Cell::new(0); HALO_VOLUME].into_boxed_slice(),
+            cell_refs: vec![Cell::new(0); HALO_VOLUME].into_boxed_slice(),
+            cells: RefCell::new(Vec::new()),
+        }
     }
 
     fn contributors(
@@ -197,6 +212,155 @@ impl LiquidSampler for Sampler<'_, '_> {
             .as_ref()
             .map(|resolver| resolver.resolve(local))
     }
+
+    /// Returns the memo slot's flags, resolving the missing part when `want`
+    /// is not yet known. `None` means the slot cannot hold this cell.
+    fn flags(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        index: usize,
+        coordinate: [i32; 3],
+        want: u16,
+    ) -> Option<u16> {
+        let flags = self.facts[index].get();
+        if flags & (want | NO_SOURCE) != 0 {
+            return Some(flags);
+        }
+        let Some(contributors) = self.contributors(neighbourhood, coordinate) else {
+            self.facts[index].set(NO_SOURCE);
+            return Some(NO_SOURCE);
+        };
+        let mut updated = flags | want;
+        if want == LIQUID_KNOWN {
+            let part = LiquidPart::resolve(self.assets, contributors);
+            if let Some(cell) = part.cell {
+                let mut cells = self.cells.borrow_mut();
+                let position = match cells.iter().position(|known| *known == cell) {
+                    Some(position) => position,
+                    None if cells.len() < usize::from(u8::MAX) => {
+                        cells.push(cell);
+                        cells.len() - 1
+                    }
+                    None => return None,
+                };
+                self.cell_refs[index].set(position as u8 + 1);
+            }
+            if part.present {
+                updated |= LIQUID_PRESENT;
+            }
+        } else {
+            let part = OcclusionPart::resolve(self.assets, contributors);
+            updated |= u16::from(part.opaque_faces);
+            if part.occludes {
+                updated |= OCCLUDES;
+            }
+        }
+        self.facts[index].set(updated);
+        Some(updated)
+    }
+}
+
+trait LiquidSampler {
+    /// Liquid facts, or `None` when no source sub-chunk covers the cell.
+    fn liquid_part(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<LiquidPart>;
+
+    /// Occlusion facts, or `None` when no source sub-chunk covers the cell.
+    fn occlusion_part(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<OcclusionPart>;
+
+    fn liquid(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<LiquidCell> {
+        self.liquid_part(neighbourhood, coordinate)?.cell
+    }
+
+    fn open(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+        contacting_faces: &[Face],
+    ) -> bool {
+        match self.liquid_part(neighbourhood, coordinate) {
+            None => true,
+            Some(liquid) if liquid.present => false,
+            Some(_) => self
+                .occlusion_part(neighbourhood, coordinate)
+                .is_none_or(|occlusion| {
+                    !(occlusion.occludes
+                        && contacting_faces.iter().all(|&face| occlusion.opaque(face)))
+                }),
+        }
+    }
+
+    fn solid(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+        contacting_face: Face,
+    ) -> bool {
+        self.occlusion_part(neighbourhood, coordinate)
+            .is_some_and(|occlusion| occlusion.opaque(contacting_face))
+    }
+}
+
+impl LiquidSampler for Sampler<'_, '_> {
+    fn liquid_part(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<LiquidPart> {
+        let direct = || {
+            self.contributors(neighbourhood, coordinate)
+                .map(|contributors| LiquidPart::resolve(self.assets, contributors))
+        };
+        let Some(index) = halo_index(coordinate) else {
+            return direct();
+        };
+        let Some(flags) = self.flags(neighbourhood, index, coordinate, LIQUID_KNOWN) else {
+            return direct();
+        };
+        (flags & NO_SOURCE == 0).then(|| LiquidPart {
+            present: flags & LIQUID_PRESENT != 0,
+            cell: usize::from(self.cell_refs[index].get())
+                .checked_sub(1)
+                .map(|position| self.cells.borrow()[position]),
+        })
+    }
+
+    fn occlusion_part(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<OcclusionPart> {
+        let Some(index) = halo_index(coordinate) else {
+            return self
+                .contributors(neighbourhood, coordinate)
+                .map(|contributors| OcclusionPart::resolve(self.assets, contributors));
+        };
+        let flags = self.flags(neighbourhood, index, coordinate, OCCLUSION_KNOWN)?;
+        (flags & NO_SOURCE == 0).then_some(OcclusionPart {
+            occludes: flags & OCCLUDES != 0,
+            opaque_faces: flags as u8,
+        })
+    }
+}
+
+fn halo_index(coordinate: [i32; 3]) -> Option<usize> {
+    let [x, y, z] = coordinate.map(|value| {
+        usize::try_from(value.wrapping_add(1))
+            .ok()
+            .filter(|&value| value < HALO_SIDE)
+    });
+    Some((x? * HALO_SIDE + y?) * HALO_SIDE + z?)
 }
 
 struct DirectSampler<'assets> {
@@ -205,11 +369,7 @@ struct DirectSampler<'assets> {
     mode: NetworkIdMode,
 }
 
-impl LiquidSampler for DirectSampler<'_> {
-    fn assets(&self) -> &RuntimeAssets {
-        self.assets
-    }
-
+impl DirectSampler<'_> {
     fn contributors(
         &self,
         neighbourhood: &MeshNeighbourhood<'_>,
@@ -223,6 +383,26 @@ impl LiquidSampler for DirectSampler<'_> {
             sub_chunk,
             local,
         ))
+    }
+}
+
+impl LiquidSampler for DirectSampler<'_> {
+    fn liquid_part(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<LiquidPart> {
+        self.contributors(neighbourhood, coordinate)
+            .map(|contributors| LiquidPart::resolve(self.assets, contributors))
+    }
+
+    fn occlusion_part(
+        &self,
+        neighbourhood: &MeshNeighbourhood<'_>,
+        coordinate: [i32; 3],
+    ) -> Option<OcclusionPart> {
+        self.contributors(neighbourhood, coordinate)
+            .map(|contributors| OcclusionPart::resolve(self.assets, contributors))
     }
 }
 
@@ -326,12 +506,12 @@ pub fn sample_camera_medium(
     }
 }
 
-pub(crate) fn mesh_liquids<S: crate::lighting::MeshLightSampler + ?Sized>(
+pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     classifier: BlockClassifier,
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
-    light_sampler: &S,
+    lighting_inputs: &L,
 ) -> (Vec<PackedLiquidQuad>, Vec<PackedQuadLighting>) {
     let center = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -446,12 +626,8 @@ pub(crate) fn mesh_liquids<S: crate::lighting::MeshLightSampler + ?Sized>(
     for quad in transparent_quads {
         let index = lighting.len() as u32;
         let block = quad.origin().map(i32::from);
-        lighting.push(crate::lighting::bake_quad_lighting_with_sampler(
-            &classifier,
-            assets,
-            mode,
-            neighbourhood,
-            light_sampler,
+        lighting.push(crate::lighting::bake_quad(
+            lighting_inputs,
             block,
             quad.face(),
             lighting_positions(quad.face(), quad.heights()),

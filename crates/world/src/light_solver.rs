@@ -9,7 +9,7 @@ use crate::{LightChannel, LightStorageError, LightStoreSnapshot, SubChunkKey, Su
 
 mod cache;
 
-use cache::{CachedLightBlockAccess, DensePositionSet};
+use cache::{CachedLightBlockAccess, CachedLightReadAccess, DensePositionSet};
 
 /// Global block coordinate used by the dependency-free light solver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -428,6 +428,8 @@ pub fn solve_light<A: LightBlockAccess, P: LightReadAccess>(
 
     let cached_blocks = CachedLightBlockAccess::new(blocks, bounds, volume);
     let blocks = &cached_blocks;
+    let cached_prior = CachedLightReadAccess::new(prior, bounds, volume);
+    let prior = &cached_prior;
     let mut output = MutableOutput::new(bounds, generation, volume);
     let mut stats = LightSolveStats::default();
     let mut queued_total = 0_usize;
@@ -778,6 +780,15 @@ fn seed_boundary_from_halo<A: LightBlockAccess, P: LightReadAccess>(
         return Ok(());
     }
     for position in bounds.positions() {
+        if position.x != bounds.min.x
+            && position.x != bounds.max.x
+            && position.y != bounds.min.y
+            && position.y != bounds.max.y
+            && position.z != bounds.min.z
+            && position.z != bounds.max.z
+        {
+            continue;
+        }
         let Some(filter) = blocks.sample(position).filter() else {
             continue;
         };
@@ -875,6 +886,10 @@ struct MutableOutput {
     known: Box<[bool]>,
 }
 
+#[cfg(test)]
+#[path = "light_solver/boundary_scan_tests.rs"]
+mod boundary_scan_tests;
+
 impl MutableOutput {
     fn new(bounds: LightBounds, generation: u64, volume: usize) -> Self {
         let y_len = light_axis_len(bounds.min.y, bounds.max.y);
@@ -923,7 +938,7 @@ impl MutableOutput {
                 .or_insert_with(|| SubChunkLight::dark(self.generation));
             for channel in [LightChannel::Block, LightChannel::Sky] {
                 light
-                    .set(
+                    .set_deferred(
                         channel,
                         x,
                         y,
@@ -932,6 +947,9 @@ impl MutableOutput {
                     )
                     .expect("solver only emits validated nibble values");
             }
+        }
+        for light in sub_chunks.values_mut() {
+            light.canonicalize();
         }
         LightSolveOutput {
             dimension: self.bounds.dimension,

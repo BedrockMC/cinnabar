@@ -1,21 +1,78 @@
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::BytesMut;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
-    codec::{BedrockCodec, Nbt},
-    version::v1_26_40::{
-        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
-        FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
-        ItemStackResponseInfoResult, ItemStackResponsePacket, McpePacketName,
-        MobArmorEquipmentPacket, PlayerHotbarPacket,
+    codec::BedrockCodec,
+    version::v1_26_51::{
+        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
+        EnumsContainerEnumName as FullContainerNameContainerName,
+        EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
+        InventoryContentPacket, InventorySlotPacket, ItemStackResponsePacket,
+        MobArmorEquipmentPacket, PlayerEnchantOptionsPacket, PlayerHotbarPacket,
     },
 };
 use valentine::protocol::wire;
 
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
+mod address;
+mod container_policy;
+mod creative;
+pub use container_policy::{
+    CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR, ContainerWindow, LAST_CONTAINER_NAME,
+    container_window,
+};
+pub use creative::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS, normalize_creative_content,
+};
+mod client_packets;
+mod raw_scan;
+pub mod recipes;
+mod request;
+mod validation;
+mod windows;
+pub use address::{
+    ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+    CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC,
+    CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
+    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory,
+    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
+};
+pub use client_packets::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
+    lectern_update_packet,
+};
+pub(crate) use raw_scan::validate_raw_inventory_packet;
+pub use request::manual_craft::{
+    ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
+};
+pub use request::mining::{MineBlockRequest, MineBlockRequestError};
+pub use windows::{
+    OpenCells, UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
+    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
+    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
+    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
+    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
+    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
+    ui_slot_for_name, ui_slot_request_container,
+};
+mod registry_snapshot;
+pub use recipes::{
+    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
+};
+pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
+pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
+pub use request::{
+    ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
+    MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
+    item_stack_request_packet, item_stack_request_packet_filtered, open_inventory_packet,
+};
+use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
 pub const MAX_ITEM_NBT_BYTES: usize = 1_048_576;
 pub const MAX_STACK_RESPONSES: usize = 512;
@@ -132,8 +189,29 @@ pub struct ContainerDataEvent {
     pub value: i32,
 }
 
+/// One enchanting-table option the server offers for the input item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOption {
+    pub cost: u8,
+    /// The option's display text in the standard galactic alphabet.
+    pub name: Arc<str>,
+    /// The recipe network id a selection request names.
+    pub network_id: u32,
+    /// `(enchantment type code, level)` pairs the option applies.
+    pub enchants: Arc<[(u8, u8)]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOptionsEvent {
+    pub options: Arc<[EnchantOption]>,
+}
+
+/// Options one enchanting table shows at most; extras are dropped.
+pub const MAX_ENCHANT_OPTIONS: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
+    Recipes(recipes::RecipeUpdate),
     Authority(InventoryAuthority),
     Content(InventoryContentEvent),
     Slot(InventorySlotEvent),
@@ -142,12 +220,31 @@ pub enum InventoryEvent {
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
     Data(ContainerDataEvent),
+    EnchantOptions(EnchantOptionsEvent),
+    Creative(CreativeContentEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InventoryPacketError {
+    #[error("item stack request ID must be a negative odd integer below -1")]
+    InvalidStackRequestId,
+    #[error("item stack request amount must be positive")]
+    InvalidStackRequestAmount,
+    #[error("item stack request has {0} actions, outside 1..=100")]
+    InvalidStackRequestActionCount(usize),
+    #[error("item stack request slot {slot} is invalid for {container:?}")]
+    InvalidStackRequestSlot {
+        container: StackRequestContainer,
+        slot: u8,
+    },
+    #[error("item stack request network ID {0} is invalid")]
+    InvalidRequestStackNetworkId(i32),
+    #[error("personal inventory target runtime ID must be nonzero")]
+    InvalidInventoryTargetRuntimeId,
+    #[error("container close window ID {0} is outside 0..=255")]
+    InvalidContainerCloseWindowId(i32),
     #[error("armor equipment actor runtime ID {0} is invalid")]
-    InvalidArmorRuntimeId(i64),
+    InvalidArmorRuntimeId(u64),
     #[error("inventory slot {0} is outside 0..{MAX_CONTAINER_SLOTS}")]
     InvalidSlot(i32),
     #[error("selected hotbar slot {0} is outside 0..9")]
@@ -182,7 +279,7 @@ pub enum InventoryPacketError {
     UnsupportedItemNbtVersion(u8),
     #[error("item NBT is malformed")]
     InvalidItemNbt,
-    #[error("verified item extra data cannot be decoded for protocol 1001")]
+    #[error("verified item extra data is malformed or unsupported")]
     InvalidItemExtra,
     #[error("item extra string has {bytes} bytes, exceeding {max}")]
     ItemExtraStringTooLarge { bytes: usize, max: usize },
@@ -269,10 +366,10 @@ impl VerifiedNetworkItemStack {
         Ok(ItemStackDescriptor {
             id,
             stacksize: self.inner.count,
-            auxvalue: i32::from_ne_bytes(self.inner.metadata.to_ne_bytes()),
+            auxvalue: self.inner.metadata,
             net_id_variant: (self.inner.stack_network_id != -1)
                 .then_some(self.inner.stack_network_id),
-            block_runtime_id: self.inner.block_runtime_id,
+            block_runtime_id: u32::from_ne_bytes(self.inner.block_runtime_id.to_ne_bytes()),
             user_data_buffer: self.inner.extra_data.to_vec(),
         })
     }
@@ -280,7 +377,7 @@ impl VerifiedNetworkItemStack {
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_40::CerealizerNetworkItemStackDescriptorSerializedData;
+    valentine::bedrock::version::v1_26_51::CerealizerNetworkItemStackDescriptorSerializedData;
 
 #[must_use]
 pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {
@@ -295,8 +392,10 @@ pub fn normalize_content(
     packet: InventoryContentPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     validate_slot_count(packet.slots.len())?;
-    let container =
-        container_identity_varint(packet.container_id, Some(packet.full_container_name))?;
+    let container = container_identity_varint(
+        i32::from_ne_bytes(packet.container_id.to_ne_bytes()),
+        Some(packet.full_container_name),
+    )?;
     let slots = packet
         .slots
         .into_iter()
@@ -310,7 +409,7 @@ pub fn normalize_content(
 }
 
 pub fn normalize_slot(packet: InventorySlotPacket) -> Result<InventoryEvent, InventoryPacketError> {
-    let slot = checked_slot(packet.slot)?;
+    let slot = checked_slot(i32::from_ne_bytes(packet.slot.to_ne_bytes()))?;
     let container =
         container_identity_varint(i32::from(packet.container_id), packet.full_container_name)?;
     Ok(InventoryEvent::Slot(InventorySlotEvent {
@@ -330,7 +429,7 @@ pub fn normalize_hotbar(
         .ok()
         .filter(|slot| *slot < 9)
         .ok_or(InventoryPacketError::InvalidSelectedSlot(
-            packet.selected_slot,
+            i32::from_ne_bytes(packet.selected_slot.to_ne_bytes()),
         ))?;
     Ok(InventoryEvent::SelectedSlot(SelectedSlotEvent {
         container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
@@ -369,23 +468,18 @@ pub fn normalize_response(
                     let identity = full_container_identity(container.full_container_name)?;
                     let mut slots = Vec::with_capacity(container.slots.len());
                     for slot in container.slots {
-                        // The two custom names are one redactable string now:
-                        // gophertunnel writes CustomName then FilteredCustomName
-                        // (protocol/item_stack.go), which map to the unredacted
-                        // and redacted halves respectively.
                         let custom_name = slot.custom_name.unredacted;
                         let filtered_custom_name = slot.custom_name.redacted.unwrap_or_default();
                         validate_response_name(&custom_name)?;
                         validate_response_name(&filtered_custom_name)?;
-                        // The stack net ID is a double optional now: absent means
-                        // the server did not track this slot, which the app models
-                        // as -1 rather than as a rejection.
+                        // An absent stack net ID means the server did not track this
+                        // slot, which the app models as -1 rather than as a rejection.
                         let item_stack_id = match slot.item_stack_net_id {
-                            None => -1,
                             Some(net_id) if net_id.id >= 0 => net_id.id,
                             Some(net_id) => {
                                 return Err(InventoryPacketError::InvalidStackNetworkId(net_id.id));
                             }
+                            None => -1,
                         };
                         slots.push(StackResponseSlot {
                             slot: slot.slot,
@@ -458,6 +552,36 @@ pub fn normalize_container_data(
     }))
 }
 
+pub fn normalize_enchant_options(
+    packet: PlayerEnchantOptionsPacket,
+) -> Result<InventoryEvent, InventoryPacketError> {
+    let options = packet
+        .options
+        .into_iter()
+        .take(MAX_ENCHANT_OPTIONS)
+        .map(|option| {
+            let mut enchants = Vec::new();
+            for instance in option.enchants.item_enchants.iter().flatten() {
+                let mut bytes = BytesMut::with_capacity(1);
+                instance
+                    .enchant_type
+                    .encode(&mut bytes)
+                    .map_err(|_| InventoryPacketError::EncodingFailed)?;
+                enchants.push((bytes[0], instance.enchant_level));
+            }
+            Ok(EnchantOption {
+                cost: option.cost,
+                name: Arc::from(option.enchant_name),
+                network_id: option.enchant_net_id.raw_id,
+                enchants: Arc::from(enchants),
+            })
+        })
+        .collect::<Result<Vec<_>, InventoryPacketError>>()?;
+    Ok(InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+        options: Arc::from(options),
+    }))
+}
+
 pub fn validate_item_nbt_size(bytes: usize) -> Result<(), InventoryPacketError> {
     if bytes > MAX_ITEM_NBT_BYTES {
         return Err(InventoryPacketError::ItemNbtTooLarge {
@@ -466,168 +590,6 @@ pub fn validate_item_nbt_size(bytes: usize) -> Result<(), InventoryPacketError> 
         });
     }
     Ok(())
-}
-
-pub(crate) fn validate_raw_inventory_packet(
-    raw: &jolyne::raw::RawPacket,
-) -> Result<(), InventoryPacketError> {
-    let mut body = raw.body().clone();
-    match raw.id {
-        McpePacketName::InventoryContentPacket => {
-            read_var_i32(&mut body)?;
-            let count = read_count(&mut body)?;
-            validate_slot_count(count)?;
-            for _ in 0..count {
-                scan_item_descriptor(&mut body)?;
-            }
-            scan_full_container(&mut body)?;
-            scan_item_descriptor(&mut body)?;
-        }
-        McpePacketName::InventorySlotPacket => {
-            // The container ID is a plain byte in 1.26.40, not a varint.
-            take_u8(&mut body)?;
-            read_var_i32(&mut body)?;
-            if read_presence(&mut body)? {
-                scan_full_container(&mut body)?;
-            }
-            if read_presence(&mut body)? {
-                scan_item_descriptor(&mut body)?;
-            }
-            scan_item_descriptor(&mut body)?;
-        }
-        McpePacketName::ItemStackResponsePacket => scan_stack_responses(&mut body)?,
-        _ => {}
-    }
-    Ok(())
-}
-
-fn scan_stack_responses(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    let response_count = read_count(body)?;
-    if response_count > MAX_STACK_RESPONSES {
-        return Err(InventoryPacketError::TooManyResponses {
-            count: response_count,
-            max: MAX_STACK_RESPONSES,
-        });
-    }
-    for _ in 0..response_count {
-        let status = take_u8(body)?;
-        read_var_i32(body)?;
-        // The container list is a double optional now: a presence byte gates the
-        // whole list, and it may be absent even on a successful response.
-        if status != 0 || !read_presence(body)? {
-            continue;
-        }
-        let container_count = read_count(body)?;
-        if container_count > MAX_RESPONSE_CONTAINERS {
-            return Err(InventoryPacketError::TooManyResponseContainers {
-                count: container_count,
-                max: MAX_RESPONSE_CONTAINERS,
-            });
-        }
-        for _ in 0..container_count {
-            scan_full_container(body)?;
-            let slot_count = read_count(body)?;
-            if slot_count > MAX_CONTAINER_SLOTS {
-                return Err(InventoryPacketError::TooManyResponseSlots {
-                    count: slot_count,
-                    max: MAX_CONTAINER_SLOTS,
-                });
-            }
-            for _ in 0..slot_count {
-                // requested_slot, slot, amount
-                take_bytes(body, 3)?;
-                // The stack net ID is a double optional in 1.26.40.
-                if read_presence(body)? {
-                    read_var_i32(body)?;
-                }
-                // The two custom names are one redactable string: the unredacted
-                // value, then an optional redacted one.
-                scan_response_name(body)?;
-                if read_presence(body)? {
-                    scan_response_name(body)?;
-                }
-                read_var_i32(body)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn scan_response_name(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    let length = read_count(body)?;
-    if length > MAX_RESPONSE_NAME_BYTES {
-        return Err(InventoryPacketError::ResponseNameTooLong {
-            bytes: length,
-            max: MAX_RESPONSE_NAME_BYTES,
-        });
-    }
-    take_bytes(body, length)
-}
-
-/// Walks one item descriptor without materialising it.
-///
-/// Protocol 1001 needed a scanner per item encoding; 1.26.40 has one shape. The
-/// layout is `id: i16 LE`, `stacksize: u16 LE`, `auxvalue` varint, an optional
-/// net ID (presence byte then one zigzag varint -- the old model wrote two
-/// varints here for its `empty`/`id` pair), `block_runtime_id` varint, and the
-/// length-prefixed user-data buffer.
-fn scan_item_descriptor(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    take_bytes(body, 4)?;
-    read_var_i32(body)?;
-    if read_presence(body)? {
-        read_var_i32(body)?;
-    }
-    read_var_i32(body)?;
-    scan_item_extra(body)
-}
-
-fn scan_item_extra(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    let bytes = read_count(body)?;
-    if bytes > MAX_ITEM_EXTRA_BYTES {
-        return Err(InventoryPacketError::ItemExtraTooLarge {
-            bytes,
-            max: MAX_ITEM_EXTRA_BYTES,
-        });
-    }
-    take_bytes(body, bytes)
-}
-
-fn scan_full_container(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    take_u8(body)?;
-    if read_presence(body)? {
-        take_bytes(body, 4)?;
-    }
-    Ok(())
-}
-
-fn read_presence(body: &mut Bytes) -> Result<bool, InventoryPacketError> {
-    Ok(take_u8(body)? != 0)
-}
-
-fn take_u8(body: &mut Bytes) -> Result<u8, InventoryPacketError> {
-    if !body.has_remaining() {
-        return Err(InventoryPacketError::MalformedWire);
-    }
-    Ok(body.get_u8())
-}
-
-fn take_bytes(body: &mut Bytes, bytes: usize) -> Result<(), InventoryPacketError> {
-    if body.remaining() < bytes {
-        return Err(InventoryPacketError::MalformedWire);
-    }
-    body.advance(bytes);
-    Ok(())
-}
-
-fn read_count(body: &mut Bytes) -> Result<usize, InventoryPacketError> {
-    let value = read_var_i32(body)?;
-    usize::try_from(value).map_err(|_| InventoryPacketError::MalformedWire)
-}
-
-fn read_var_i32(body: &mut Bytes) -> Result<i32, InventoryPacketError> {
-    wire::read_var_u32(body)
-        .map(|value| i32::from_ne_bytes(value.to_ne_bytes()))
-        .map_err(|_| InventoryPacketError::MalformedWire)
 }
 
 fn validate_slot_count(count: usize) -> Result<(), InventoryPacketError> {
@@ -651,12 +613,12 @@ fn checked_slot(slot: i32) -> Result<u16, InventoryPacketError> {
 pub(crate) fn normalize_armor_equipment(
     packet: MobArmorEquipmentPacket,
 ) -> Result<ArmorEquipmentEvent, InventoryPacketError> {
-    let actor_runtime_id = u64::try_from(packet.target_runtime_id.actor_runtime_id)
-        .ok()
-        .filter(|id| *id != 0)
-        .ok_or(InventoryPacketError::InvalidArmorRuntimeId(
-            packet.target_runtime_id.actor_runtime_id,
-        ))?;
+    let actor_runtime_id = packet.target_runtime_id.actor_runtime_id;
+    if actor_runtime_id == 0 {
+        return Err(InventoryPacketError::InvalidArmorRuntimeId(
+            actor_runtime_id,
+        ));
+    }
     Ok(ArmorEquipmentEvent {
         actor_runtime_id,
         helmet: normalize_item_descriptor(packet.head)?,
@@ -688,10 +650,10 @@ fn normalize_item_descriptor(
     };
     make_stack(
         i32::from(item.id),
-        item.auxvalue,
+        i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
         stack_network_id,
         item.stacksize,
-        item.block_runtime_id,
+        i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
         item.user_data_buffer,
     )
 }
@@ -756,46 +718,6 @@ fn validate_stack_shape(stack: &NetworkItemStack) -> Result<(), InventoryPacketE
     Ok(())
 }
 
-/// Bounds an item's user-data buffer and checks the compound it may carry.
-///
-/// 1.26.40 hands this over as opaque bytes, so the header is read exactly as
-/// gophertunnel's `Writer.itemUserData` writes it
-/// (`minecraft/protocol/writer.go`): an `int16` of `-1` introduces a `uint8`
-/// version and a fixed little-endian compound, `0` means no compound. The
-/// trailing canPlaceOn/canBreak lists and shield blocking tick are carried
-/// through verbatim and never re-encoded field-by-field, which is what made the
-/// protocol-1001 per-string length checks necessary.
-fn validate_item_user_data(extra: &[u8]) -> Result<(), InventoryPacketError> {
-    if extra.len() > MAX_ITEM_NBT_BYTES {
-        return Err(InventoryPacketError::ItemExtraTooLarge {
-            bytes: extra.len(),
-            max: MAX_ITEM_NBT_BYTES,
-        });
-    }
-    if extra.is_empty() {
-        return Ok(());
-    }
-    let header = extra
-        .get(..2)
-        .ok_or(InventoryPacketError::InvalidItemExtra)?;
-    match i16::from_le_bytes([header[0], header[1]]) {
-        0 => Ok(()),
-        -1 => {
-            let version = *extra.get(2).ok_or(InventoryPacketError::InvalidItemExtra)?;
-            if version != 1 {
-                return Err(InventoryPacketError::UnsupportedItemNbtVersion(version));
-            }
-            // Only the compound is validated; the lists that follow it in the
-            // same buffer mean trailing bytes are expected here.
-            let mut bytes = Bytes::copy_from_slice(&extra[3..]);
-            Nbt::decode_little_endian(&mut bytes)
-                .map_err(|_| InventoryPacketError::InvalidItemExtra)?;
-            Ok(())
-        }
-        _ => Err(InventoryPacketError::InvalidItemExtra),
-    }
-}
-
 /// Recovers the wire code behind an unrecognised item-stack response result.
 fn response_result_code(result: &ItemStackResponseInfoResult) -> Result<u8, InventoryPacketError> {
     let mut bytes = BytesMut::with_capacity(1);
@@ -809,6 +731,7 @@ fn container_identity_varint(
     window_id: i32,
     full: Option<FullContainerName>,
 ) -> Result<ContainerIdentity, InventoryPacketError> {
+    let window_id = raw_window_id_varint(window_id)?;
     let mut identity = full.map_or(
         Ok(ContainerIdentity {
             window_id: None,
@@ -817,7 +740,18 @@ fn container_identity_varint(
         }),
         full_container_identity,
     )?;
-    identity.window_id = Some(raw_window_id_varint(window_id)?);
+    // Live legacy player and offhand rewrites carry a mandatory
+    // FullContainerName value whose zero/default shape is only a placeholder.
+    // Preserve real named or dynamic descriptors, and preserve the same
+    // zero/default shape everywhere else; only these two legacy window IDs
+    // have an established unnamed interpretation.
+    if matches!(window_id, PLAYER_INVENTORY_WINDOW_ID | OFFHAND_WINDOW_ID)
+        && identity.slot_type == Some(0)
+        && identity.dynamic_id.is_none()
+    {
+        identity.slot_type = None;
+    }
+    identity.window_id = Some(window_id);
     Ok(identity)
 }
 

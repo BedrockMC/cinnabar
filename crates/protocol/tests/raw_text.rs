@@ -6,9 +6,9 @@ use protocol::{
     TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
     parse_raw_text,
 };
-use valentine::bedrock::version::v1_26_40::{
-    SetTitlePacket, SetTitlePacketTitleType, TextPacket, TextPacketBody,
-    TextPacketPayloadMessageOnly, TextPacketPayloadMessageOnlyMessageType,
+use valentine::bedrock::version::v1_26_51::{
+    EnumsSetTitlePacketPayloadTitleType, EnumsTextPacketType, SetTitlePacket, TextPacket,
+    TextPacketBody, TextPacketPayloadMessageOnly,
 };
 
 const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
@@ -16,35 +16,40 @@ const WHISPER_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_whisper_r
 const ANNOUNCEMENT_FIXTURE: &[u8] =
     include_bytes!("../fixtures/text_object_announcement_rawtext.bin");
 
-/// Builds a MessageOnly Text packet, the union arm gophertunnel writes for
-/// every TextObject* kind (`minecraft/protocol/packet/text.go`).
-fn message_only(
-    message_type: TextPacketPayloadMessageOnlyMessageType,
-    message: String,
-) -> TextPacket {
+/// Builds a Text packet with one of the message-only union arms.
+fn message_only(body: TextPacketBody) -> TextPacket {
     TextPacket {
-        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
-            message_type,
-            message,
-        }),
+        body,
         ..Default::default()
     }
 }
 
+fn message_only_body(kind: TextKind, message: String) -> TextPacketBody {
+    let message_type = match kind {
+        TextKind::Raw => EnumsTextPacketType::Raw,
+        TextKind::Json => EnumsTextPacketType::Textobject,
+        TextKind::JsonWhisper => EnumsTextPacketType::Textobjectwhisper,
+        TextKind::JsonAnnouncement => EnumsTextPacketType::Textobjectannouncement,
+        other => panic!("unsupported message-only text kind: {other:?}"),
+    };
+    TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
+        message_type,
+        message,
+    })
+}
+
 fn normalize_json(
-    kind: TextPacketPayloadMessageOnlyMessageType,
+    kind: TextKind,
     message: String,
 ) -> Result<protocol::RawTextEvent, UiPacketError> {
     assert!(
         matches!(
             kind,
-            TextPacketPayloadMessageOnlyMessageType::TextObject
-                | TextPacketPayloadMessageOnlyMessageType::TextObjectWhisper
-                | TextPacketPayloadMessageOnlyMessageType::TextObjectAnnouncement
+            TextKind::Json | TextKind::JsonWhisper | TextKind::JsonAnnouncement
         ),
         "test helper accepts only object text packet kinds"
     );
-    let packet = message_only(kind, message);
+    let packet = message_only(message_only_body(kind, message));
     match into_world_event(packet.into(), 0) {
         Ok(Some(WorldEvent::Ui(UiEvent::RawText(event)))) => Ok(event),
         Ok(other) => panic!("expected normalized text event, got {other:?}"),
@@ -54,7 +59,7 @@ fn normalize_json(
 }
 
 fn normalize_raw(message: String) -> Result<UiEvent, UiPacketError> {
-    let packet = message_only(TextPacketPayloadMessageOnlyMessageType::Raw, message);
+    let packet = message_only(message_only_body(TextKind::Raw, message));
     match into_world_event(packet.into(), 0) {
         Ok(Some(WorldEvent::Ui(event))) => Ok(event),
         Ok(other) => panic!("expected normalized UI event, got {other:?}"),
@@ -73,7 +78,7 @@ fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
 }
 
 fn normalize_title_object(
-    action: SetTitlePacketTitleType,
+    action: EnumsSetTitlePacketPayloadTitleType,
     message: &str,
 ) -> Result<protocol::TitleEvent, UiPacketError> {
     let packet = SetTitlePacket {
@@ -261,13 +266,7 @@ fn malformed_ambiguous_and_unknown_raw_text_fail_closed() {
         r#"{"rawtext":"not-an-array"}"#,
     ] {
         assert!(parse_raw_text(value).is_err(), "accepted {value}");
-        assert!(
-            normalize_json(
-                TextPacketPayloadMessageOnlyMessageType::TextObject,
-                value.to_owned()
-            )
-            .is_err()
-        );
+        assert!(normalize_json(TextKind::Json, value.to_owned()).is_err());
     }
 }
 
@@ -412,7 +411,7 @@ fn raw_text_rejects_explicit_null_translation_arguments() {
 #[test]
 fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
     let event = normalize_json(
-        TextPacketPayloadMessageOnlyMessageType::TextObject,
+        TextKind::Json,
         r#"{"rawtext":[{"translate":"multiplayer.player.joined","with":["Alice"]}]}"#.to_owned(),
     )
     .unwrap();
@@ -432,15 +431,15 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
         (
-            SetTitlePacketTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject,
             TitleAction::SetTitleJson,
         ),
         (
-            SetTitlePacketTitleType::SubtitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Subtitletextobject,
             TitleAction::SetSubtitleJson,
         ),
         (
-            SetTitlePacketTitleType::ActionbarTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Actionbartextobject,
             TitleAction::ActionBarJson,
         ),
     ] {
@@ -478,7 +477,7 @@ fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
 fn malformed_title_object_raw_text_fails_closed() {
     assert!(matches!(
         normalize_title_object(
-            SetTitlePacketTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject,
             r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
         ),
         Err(UiPacketError::InvalidRawText)
@@ -630,4 +629,87 @@ fn selectors_resolve_from_lent_authority_and_otherwise_count_as_skipped() {
     });
     assert_eq!(resolved.text, "Reader | Reader, Steve | ");
     assert_eq!(resolved.skipped_selectors, 1);
+}
+
+fn resolve_translation_template(
+    template: &str,
+    arguments: &[&str],
+    prefix: &str,
+) -> protocol::ResolvedRawText {
+    let arguments: Vec<_> = arguments
+        .iter()
+        .map(|text| serde_json::json!({"text": text}))
+        .collect();
+    let json = serde_json::json!({"rawtext": [
+        {"text": prefix},
+        {"translate": "test.template", "with": arguments}
+    ]});
+    let document = parse_raw_text(&json.to_string()).unwrap();
+    let translate = |key: &str| (key == "test.template").then(|| Arc::from(template));
+    document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    })
+}
+
+#[test]
+fn bounded_translation_keeps_ordinary_placeholder_and_malformed_semantics() {
+    let cases = [
+        ("%s:%d:%s", "first:second:"),
+        ("%2 %1 %1$s %2$d", "second first first second"),
+        ("%% %10 %0 %9$s", "% first0 %0 %9"),
+        ("%1$x %3$d", "firstx %3"),
+        ("%.f %.12f %.xf %", "%.f %.12f %.xf %"),
+    ];
+    for (template, expected) in cases {
+        let result = resolve_translation_template(template, &["first", "second"], "");
+        assert_eq!(result.text, expected);
+        assert!(!result.truncated);
+        assert_eq!(result.unknown_translations, 0);
+    }
+}
+
+#[test]
+fn bounded_translation_preserves_complete_prefix_and_exact_truncation() {
+    for length in [8191, 8192, 8193] {
+        let template = "a".repeat(length);
+        let result = resolve_translation_template(&template, &[], "");
+        assert_eq!(
+            result.text,
+            "a".repeat(length.min(MAX_RAW_TEXT_OUTPUT_BYTES))
+        );
+        assert_eq!(result.truncated, length > MAX_RAW_TEXT_OUTPUT_BYTES);
+    }
+    for scalar in ["é", "世", "🌍"] {
+        for remaining in 0..scalar.len() {
+            let prefix = "p".repeat(MAX_RAW_TEXT_OUTPUT_BYTES - remaining);
+            let template = format!("{scalar}Z");
+            let result = resolve_translation_template(&template, &[], &prefix);
+            assert_eq!(result.text, prefix);
+            assert!(result.truncated);
+        }
+    }
+    let argument = "a".repeat(MAX_RAW_TEXT_OUTPUT_BYTES);
+    let result = resolve_translation_template(&"%1".repeat(128), &[&argument], "");
+    assert_eq!(result.text, argument);
+    assert!(result.truncated);
+}
+
+#[test]
+fn bounded_translation_still_resolves_unused_nested_arguments_and_counters() {
+    let document = parse_raw_text(r#"{"rawtext":[{"translate":"test.template","with":[{"text":"first"},{"translate":"unknown"},{"score":{"name":"Reader","objective":"missing"}},{"selector":"@e"}]}]}"#).unwrap();
+    let translate = |key: &str| (key == "test.template").then(|| Arc::from("%1"));
+    let result = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    });
+    assert_eq!(result.text, "first");
+    assert_eq!(result.unknown_translations, 1);
+    assert_eq!(result.unresolved_scores, 1);
+    assert_eq!(result.skipped_selectors, 1);
+    assert!(!result.truncated);
 }

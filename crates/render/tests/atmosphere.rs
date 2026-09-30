@@ -14,8 +14,10 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, cloud_directional_illuminance,
-    cloud_fog_factor, cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
+    AtmosphereFrame, AtmospherePlugin, CLOUD_ALPHA, ChunkRenderPlugin,
+    PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH, PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS,
+    PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, cloud_colour, cloud_distance_fade, cloud_face_shade,
+    cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -73,14 +75,14 @@ fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
 }
 
 #[test]
-fn atmosphere_frame_is_a_uniform_compatible_six_vec4_abi() {
+fn atmosphere_frame_is_a_uniform_compatible_eight_vec4_abi() {
     AtmosphereFrame::assert_uniform_compat();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
     let mut encoded = UniformBuffer::new(Vec::<u8>::new());
     encoded.write(&frame).expect("encode atmosphere uniform");
     let encoded = encoded.into_inner();
-    assert_eq!(AtmosphereFrame::min_size().get(), 96);
-    assert_eq!(encoded.len(), 96);
+    assert_eq!(AtmosphereFrame::min_size().get(), 128);
+    assert_eq!(encoded.len(), 128);
     assert_eq!(encoded.as_slice(), bytemuck::bytes_of(&frame));
 }
 
@@ -110,6 +112,98 @@ fn exact_environment_values_replace_only_sky_and_fog_fields() {
         applied.cloud_texture_offset(),
         baseline.cloud_texture_offset()
     );
+}
+
+#[test]
+fn boss_environment_without_requests_is_an_exact_identity() {
+    let baseline = AtmosphereFrame::from_bedrock_time(18_000.0, 0.3, 0.2);
+    let applied = baseline.with_boss_environment(false, false);
+    assert_eq!(applied, baseline);
+}
+
+#[test]
+fn boss_darkening_mixes_sky_toward_the_provisional_targets() {
+    let baseline = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    let darkened = baseline.with_boss_environment(true, false);
+
+    let strength = PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH;
+    assert!(darkened.sky_zenith()[1] < baseline.sky_zenith()[1]);
+    assert!(darkened.sky_horizon()[1] < baseline.sky_horizon()[1]);
+    for channel in 0..3 {
+        let expected_zenith = baseline.sky_zenith()[channel]
+            + ([0.12, 0.14, 0.16][channel] - baseline.sky_zenith()[channel]) * strength;
+        assert!((darkened.sky_zenith()[channel] - expected_zenith).abs() < 1e-6);
+    }
+    // Celestial state and weather channels stay untouched.
+    assert_eq!(darkened.sun_direction(), baseline.sun_direction());
+    assert_eq!(darkened.moon_phase(), baseline.moon_phase());
+    assert_eq!(darkened.day_fraction(), baseline.day_fraction());
+    assert_eq!(
+        darkened.cloud_texture_offset(),
+        baseline.cloud_texture_offset()
+    );
+    assert_eq!(darkened.rain_level(), baseline.rain_level());
+    assert_eq!(darkened.thunder_level(), baseline.thunder_level());
+    // Without a fog request both fog distances and tint are unchanged.
+    assert_eq!(darkened.fog_start(), baseline.fog_start());
+    assert_eq!(darkened.fog_end(), baseline.fog_end());
+    assert_eq!(darkened.fog_color(), baseline.fog_color());
+}
+
+#[test]
+fn boss_world_fog_pulls_distances_inward_and_derives_the_tint() {
+    let baseline = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+    let fogged = baseline.with_boss_environment(false, true);
+
+    assert_eq!(fogged.fog_start(), PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS);
+    assert_eq!(fogged.fog_end(), PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS);
+    assert!(fogged.fog_end() >= fogged.fog_start());
+    // A fog-only request leaves the sky and celestial channels unchanged.
+    assert_eq!(fogged.sky_zenith(), baseline.sky_zenith());
+    assert_eq!(fogged.sky_horizon(), baseline.sky_horizon());
+    assert_eq!(fogged.sun_direction(), baseline.sun_direction());
+    assert_eq!(
+        fogged.cloud_texture_offset(),
+        baseline.cloud_texture_offset()
+    );
+    let zenith = baseline.sky_zenith();
+    let horizon = baseline.sky_horizon();
+    let expected: [f32; 3] = std::array::from_fn(|channel| {
+        horizon[channel] + (zenith[channel] - horizon[channel]) * 0.18
+    });
+    for (channel, expected_value) in expected.iter().enumerate() {
+        assert!((fogged.fog_color()[channel] - expected_value).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn combined_boss_requests_stay_finite_and_ordered() {
+    let frame = AtmosphereFrame::from_bedrock_time(12_345.0, 0.4, 0.4)
+        .with_camera_medium(meshing::CameraMedium::Air)
+        .with_boss_environment(true, true);
+    assert!(frame.sky_zenith().iter().all(|value| value.is_finite()));
+    assert!(frame.sky_horizon().iter().all(|value| value.is_finite()));
+    assert!(frame.fog_color().iter().all(|value| value.is_finite()));
+    assert!(frame.fog_end() >= frame.fog_start());
+}
+
+#[test]
+fn boss_requests_override_a_client_profile_in_air() {
+    let profiled = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0).with_environment_profile(
+        Some(0x12_34_56),
+        Some(ResolvedFog {
+            start: 235.52,
+            end: 256.0,
+            rgb8: 0x0B_08_0C,
+        }),
+    );
+    let bossed = profiled.with_boss_environment(false, true);
+
+    // Boss fog wins over the profile fog in air.
+    assert_eq!(bossed.fog_start(), PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS);
+    assert_eq!(bossed.fog_end(), PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS);
+    // A fog-only request leaves the profiled sky channels exactly as set.
+    assert_eq!(bossed.sky_zenith(), profiled.sky_zenith());
 }
 
 fn rgb8_to_linear(rgb: u32) -> [f32; 3] {
@@ -148,7 +242,7 @@ fn moon_phase_tiles_follow_the_authoritative_four_by_two_atlas_order() {
 #[test]
 fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() {
     assert_eq!(cloud_texture_offset(0.0), [0.0, 0.0]);
-    let one_texture_period_ticks = 256.0 / 0.03;
+    let one_texture_period_ticks = 4096.0 / 0.02;
     let wrapped = cloud_texture_offset(one_texture_period_ticks);
     assert!(
         wrapped[0] < 1.0e-5 || wrapped[0] > 1.0 - 1.0e-5,
@@ -160,27 +254,28 @@ fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() 
     let before_period_end = cloud_texture_offset(one_texture_period_ticks - 1.0);
     assert!((before_zero[0] - before_period_end[0]).abs() < 1.0e-5);
 
+    // 24,000 ticks drift 480 blocks toward -X.
     let next_day = cloud_texture_offset(24_000.0);
-    assert!((next_day[0] - 0.8125).abs() < 1.0e-6, "{next_day:?}");
+    assert!(
+        (next_day[0] - (1.0 - 480.0 / 4096.0)).abs() < 1.0e-6,
+        "{next_day:?}"
+    );
 }
 
 #[test]
-fn cloud_texture_feature_moves_east_in_world_space_as_ticks_increase() {
+fn clouds_drift_west_two_hundredths_of_a_block_per_tick() {
     fn world_x_for_feature(texture_u: f64, absolute_ticks: f64) -> f64 {
         let offset = f64::from(cloud_texture_offset(absolute_ticks)[0]);
-        (texture_u + offset) * 256.0
+        (texture_u + offset) * 4096.0
     }
 
     let start = world_x_for_feature(0.25, 0.0);
-    let later = world_x_for_feature(0.25, 100.0);
-    assert!((later - start - 3.0).abs() < 1.0e-5, "{start} -> {later}");
+    let later = world_x_for_feature(0.25, 1500.0);
+    let moved = (later - start).rem_euclid(4096.0) - 4096.0;
+    assert!((moved + 30.0).abs() < 1.0e-3, "{start} -> {later}");
 
     let shader = include_str!("../src/cloud.wgsl");
-    assert!(
-        shader.contains("atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"),
-        "the positive normalized texture offset must become a +X world offset"
-    );
-    assert!(!shader.contains("- atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
+    assert!(shader.contains("atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
 }
 
 #[test]
@@ -203,55 +298,50 @@ fn cloud_weather_colours_use_exact_native_values_and_contributions() {
 }
 
 #[test]
-fn cloud_directional_illuminance_tracks_face_normal_sun_and_daylight() {
-    assert_eq!(
-        cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 1.0),
-        1.0
-    );
-    assert_eq!(
-        cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 1.0),
-        0.55
-    );
-    assert_eq!(
-        cloud_directional_illuminance([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5),
-        0.5
-    );
-    assert_eq!(
-        cloud_directional_illuminance([-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5),
-        0.275
-    );
-    assert_eq!(
-        cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 0.0),
-        0.2,
-        "night clouds retain the same provisional sky-transfer floor as terrain"
-    );
-    assert!(
-        (cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 0.0,) - 0.11).abs()
-            < 1.0e-6,
-        "night underside keeps bounded directional ambient instead of black"
-    );
-    assert_eq!(
-        cloud_directional_illuminance([f32::NAN; 3], [f32::INFINITY; 3], f32::NAN),
-        0.0
-    );
+fn cloud_faces_carry_the_vanilla_baked_shade() {
+    assert_eq!(cloud_face_shade([0.0, 1.0, 0.0]), 1.0);
+    assert_eq!(cloud_face_shade([0.0, -1.0, 0.0]), 0.75);
+    assert!((cloud_face_shade([1.0, 0.0, 0.0]) - 0.925).abs() < 1.0e-6);
+    assert!((cloud_face_shade([-1.0, 0.0, 0.0]) - 0.925).abs() < 1.0e-6);
+    assert_eq!(cloud_face_shade([0.0, 0.0, 1.0]), 1.0);
+    assert_eq!(cloud_face_shade([f32::NAN; 3]), 1.0);
 }
 
 #[test]
-fn cloud_fog_factor_is_a_finite_step_for_collapsed_or_reversed_ranges() {
-    assert_eq!(cloud_fog_factor(63.999, 64.0, 64.0), 0.0);
-    assert_eq!(cloud_fog_factor(64.0, 64.0, 64.0), 1.0);
-
-    // The cloud coverage cap can place the effective end below a valid
-    // render-relative start. This becomes an explicit step at the cap.
-    assert_eq!(cloud_fog_factor(254.999, 256.0, 256.0), 0.0);
-    assert_eq!(cloud_fog_factor(255.0, 256.0, 256.0), 1.0);
-    assert_eq!(cloud_fog_factor(0.0, 1.0e30, 255.0), 0.0);
-
-    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        assert_eq!(cloud_fog_factor(invalid, 0.0, 255.0), 1.0);
-        assert_eq!(cloud_fog_factor(0.0, invalid, 255.0), 1.0);
-        assert_eq!(cloud_fog_factor(0.0, 0.0, invalid), 1.0);
+fn cloud_colour_follows_day_brightness_weather_and_fixed_alpha() {
+    assert_eq!(cloud_colour(0.0, 0.0, 0.0, [0.0; 4]), [1.0, 1.0, 1.0, 0.7]);
+    let night = cloud_colour(0.5, 0.0, 0.0, [0.0; 4]);
+    for (channel, expected) in night.into_iter().zip([0.1, 0.1, 0.15, 0.7]) {
+        assert!((channel - expected).abs() < 1.0e-6, "{night:?}");
     }
+    let rain = cloud_colour(0.0, 1.0, 0.0, [0.0; 4]);
+    let tint = 1.0 + (191.0_f32 / 255.0 - 1.0) * 0.95;
+    assert!((rain[0] - tint).abs() < 1.0e-6 && (rain[2] - tint).abs() < 1.0e-6);
+    let dawn = cloud_colour(0.0, 0.0, 0.0, [1.0, 0.0, 0.0, 1.0]);
+    assert!((dawn[1] - 0.65).abs() < 1.0e-6 && (dawn[0] - 1.0).abs() < 1.0e-6);
+    assert_eq!(CLOUD_ALPHA, 0.7);
+}
+
+#[test]
+fn cloud_alpha_fades_from_nine_tenths_to_nineteen_tenths_of_the_distance() {
+    assert_eq!(cloud_distance_fade(0.0, 768.0), 1.0);
+    assert!((cloud_distance_fade(0.9 * 768.0, 768.0) - 1.0).abs() < 1.0e-6);
+    assert!((cloud_distance_fade(1.4 * 768.0, 768.0) - 0.5).abs() < 1.0e-5);
+    assert_eq!(cloud_distance_fade(1.9 * 768.0, 768.0), 0.0);
+    assert_eq!(
+        cloud_distance_fade(5000.0, 0.0),
+        1.0,
+        "unset distance never fades"
+    );
+    assert_eq!(cloud_distance_fade(f32::NAN, 768.0), 0.0);
+    let frame = AtmosphereFrame::default().with_cloud_fade_distance(768.0);
+    assert_eq!(frame.cloud_fade_distance(), 768.0);
+    assert_eq!(
+        frame
+            .with_cloud_fade_distance(f32::NAN)
+            .cloud_fade_distance(),
+        0.0
+    );
 }
 
 #[test]
@@ -377,7 +467,7 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
     assert!(source.contains("BindingType::Sampler"));
     assert_eq!(
         source.matches("visibility: ShaderStages::FRAGMENT").count(),
-        5,
+        6,
         "Metal requires every fragment-read atmosphere binding to declare fragment visibility"
     );
     assert!(!source.contains("BufferBindingType::Storage"));
@@ -432,7 +522,7 @@ fn every_world_shader_uses_the_shared_distance_fog_uniform() {
 #[test]
 fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_composition() {
     let shader = include_str!("../src/atmosphere.wgsl");
-    let guard = "if (atmosphere.fog_end_time.x <= 32.0)";
+    let guard = "if (code / 4u != 0u)";
     let fog_return = "return vec4(atmosphere.fog_color_start.rgb, 1.0);";
     assert!(shader.contains(guard));
     assert!(shader.contains(fog_return));
@@ -440,6 +530,35 @@ fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_compositio
         shader.find(guard).unwrap() < shader.find("let sun = sample_sun(").unwrap(),
         "medium fog must hide the infinite sky before sun/moon/cloud composition"
     );
+}
+
+#[test]
+fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
+    let shader = include_str!("../src/atmosphere.wgsl");
+    for needle in [
+        "fn star_field(",
+        "fn sunrise_glow(",
+        "if (kind == 1u)",
+        "if (kind == 2u)",
+        "sunrise_band: vec4<f32>",
+        "sky_extra: vec4<f32>",
+    ] {
+        assert!(shader.contains(needle), "missing {needle}");
+    }
+    for (name, shader) in [
+        ("chunk", include_str!("../src/chunk.wgsl")),
+        ("model", include_str!("../src/model.wgsl")),
+        ("liquid", include_str!("../src/liquid.wgsl")),
+    ] {
+        assert!(
+            !shader.contains("smoothstep(\n        atmosphere.fog"),
+            "{name} fog is linear"
+        );
+        assert!(
+            !shader.contains("smoothstep(atmosphere.fog"),
+            "{name} fog is linear"
+        );
+    }
 }
 
 #[test]

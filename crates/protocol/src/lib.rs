@@ -1,28 +1,47 @@
-//! Bedrock 1.26.30 (protocol 1001) packet definitions and codec.
+//! Bedrock 1.26.50 (protocol 2193) packet definitions and codec.
 
 mod actor;
+mod audio;
 mod blob_cache;
+mod block_edit;
+mod camera;
 mod codec;
+mod disconnect;
+mod interaction;
 mod inventory;
 mod item;
+mod item_capacity;
+pub mod launcher_control;
 mod login;
 mod movement;
+mod nbt_tree;
 mod packet;
+mod particle;
+mod permissions;
 mod raw_text;
 mod socket_transport;
+pub mod store_control;
+mod transfer;
 mod ui;
 mod world;
+pub mod world_control;
 
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
     ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
-    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent,
-    MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
+    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
+    ActorStatusKind, ActorTakeItemEvent, CapeImage, MAX_ACTOR_ATTRIBUTE_MODIFIERS,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_LINKS_PER_SPAWN,
     MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
     MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS,
-    MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    MAX_PLAYER_LIST_SKIN_BYTES, MAX_SKIN_GEOMETRY_SOURCE_BYTES, MAX_STANDARD_SKIN_SIDE,
+    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, SkinGeometrySource,
+    StandardSkin,
+};
+pub use audio::{
+    AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
+    StopAudioEvent,
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
@@ -33,59 +52,152 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
-pub use codec::{ProtocolError, decode_batch, encode};
-pub use inventory::{
-    ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,
-    InventorySlotEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES,
-    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, SelectedSlotEvent,
-    SlotIdentity, StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
-    VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
-    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, validate_item_nbt_size,
+pub use block_edit::{map_info_request_packet, sign_edit_packet};
+pub use camera::{
+    CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
+    CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
+    CameraShakeAction, CameraShakeEvent, CameraShakeType, CameraSwitchEvent,
+    CameraTargetInstruction, MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS,
 };
+pub use codec::{ProtocolError, decode_batch, encode};
+pub use disconnect::ServerDisconnectEvent;
+pub use interaction::{
+    ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
+    ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
+    destroy_block_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
+    use_actor_packet,
+};
+pub use inventory::recipes::{
+    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle,
+    RecipeIngredientView, RecipeOutput, RecipeUpdate, decode_recipe_update, match_crafting_grid,
+};
+pub use inventory::recipes::{
+    MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
+};
+pub use inventory::{
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
+    CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
+    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, StackItemDescriptor, container_window,
+    is_personal_ui_inventory,
+};
+pub use inventory::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
+    lectern_update_packet,
+};
+pub use inventory::{
+    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
+    CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
+    ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
+    InventoryContentEvent, InventoryEvent, InventoryPacketError, InventorySlotEvent,
+    ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES,
+    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID,
+    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack,
+    container_close_packet, item_stack_request_packet, item_stack_request_packet_filtered,
+    normalize_authority, normalize_container_close, normalize_container_data,
+    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+    normalize_slot, open_inventory_packet, personal_craft_content_indices,
+    personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
+};
+pub use inventory::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS,
+};
+pub use inventory::{
+    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, OpenCells, UI_SLOT_COUNT,
+    WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
+    WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,
+    WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE,
+    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM,
+    WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH,
+    WindowKind, WindowSegment, is_chest_like_name, is_open_window_name, is_result_preview_name,
+    normalize_enchant_options, open_cell_request, open_name_first_cell, ui_slot_container_name,
+    ui_slot_for_name, ui_slot_request_container,
+};
+pub use inventory::{
+    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
+};
+pub use inventory::{
+    ManualCraftCell, ManualCraftMatch, ManualCraftPreview, RecipeRegistryError,
+    RecipeRegistrySnapshot, match_manual_grid,
+};
+pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
+pub use inventory::{MineBlockRequest, MineBlockRequestError};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
-    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
-    ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
-    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemBook, ItemComponents, ItemDisplay, ItemPacketError,
+    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES,
+    MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
+    item_charged_projectile, item_components, item_custom_color, item_display,
+    item_enchantment_level, item_extra_damage, item_has_enchantment_list, item_icon_keys,
+    item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
+pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
+pub use jolyne::stream::client::ClientSkin;
+pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
+pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
-    PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
-    player_auth_input,
+    BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
+    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,
+    PlayerAuthInputError, PlayerAuthInputInteractions, PlayerAuthInputSnapshot,
+    PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode, client_movement_prediction_sync,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
+    player_auth_input_with_mining_request,
 };
 pub use packet::Packet;
+pub use particle::{
+    LevelParticleEvent, MAX_PARTICLE_NAME_BYTES, MAX_PARTICLE_VARIABLES_BYTES, ParticleEvent,
+    SpawnParticleEffectEvent,
+};
+pub use permissions::{
+    AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence, MAX_ABILITY_LAYERS,
+    decode_abilities_update,
+};
 pub use raw_text::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
-    RawTextResolver, ResolvedRawText, parse_raw_text,
+    RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
-pub use socket_transport::SocketTransport;
+pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
+pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
-    CommandOutputMessage, FormRequestEvent, GameModeEvent, GameModeUpdate, HudEvent,
-    MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
-    MAX_COMMAND_OUTPUT_MESSAGES, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ObjectiveEvent, PlayerStatus, RawTextEvent,
-    ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity, TextCategory, TextEvent, TextKind,
-    TitleAction, TitleEvent, UiEvent, UiPacketError, chat_input_packet, chat_text_packet,
+    CommandOutputMessage, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
+    CompletionContext, CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm,
+    FormButtonImage, FormKind, FormNumber, FormRequestEvent, GameModeEvent, GameModeUpdate,
+    HudEvent, HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
+    MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES, MAX_FORM_BUTTONS, MAX_FORM_JSON_BYTES,
+    MAX_FORM_JSON_DEPTH, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
+    MenuElement, ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton,
+    NpcDialogueForm, NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction,
+    ScoreEntry, ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory,
+    TextEvent, TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError,
+    UnsupportedForm, chat_input_packet, chat_text_packet, custom_form_submit_response,
+    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
+    npc_request_packet, server_settings_request_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
-pub use valentine::bedrock::version::v1_26_40::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
-    HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS,
-    MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
-    MovePlayerMode, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
-    request_sub_chunk_column, vanilla_dimension_range,
+    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
+    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    ChunkResyncEvent, CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
+    CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange,
+    GameRulesEvent, HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE,
+    MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS,
+    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, OpenSignEvent,
+    PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
+    RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
+    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
+    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError, air_network_id,
+    block_name_sort_key, into_world_event, is_hardcore, request_sub_chunk_column,
+    server_authoritative_block_breaking, vanilla_dimension_range,
 };

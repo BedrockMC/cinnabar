@@ -24,10 +24,6 @@ pub enum PhysicsAuthorityFault {
     },
     OutboxOverflow,
     InvalidCompletedSample,
-    PhysicsTickOverflow {
-        due: u64,
-        dropped: u64,
-    },
     PhysicsSimulationError {
         due: u64,
         tick_index: usize,
@@ -54,6 +50,26 @@ pub enum PhysicsAuthorityFault {
     IndeterminatePhysicsSend {
         tick: u64,
     },
+}
+
+/// One bounded record of a latched physics-authority fault, published through
+/// [`MovementTicker::take_authority_fault`] for terminal evidence.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PhysicsAuthorityFaultRecord {
+    pub session_generation: u64,
+    pub fault: PhysicsAuthorityFault,
+    pub next_tick: u64,
+    pub pending_count: usize,
+}
+
+/// Identity of one outbound physics transmission attempt, carried through the
+/// staged-send, acknowledgement, cancellation, and restore paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PhysicsSendIdentity {
+    pub(crate) session_generation: u64,
+    pub(crate) tick: u64,
+    pub(crate) admission_id: u64,
+    pub(crate) reanchor_epoch: u64,
 }
 
 impl PhysicsAuthorityGate {

@@ -1,8 +1,7 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
-use valentine::bedrock::version::v1_26_40::{
-    LevelSettingsGameType, SetDefaultGameTypePacketDefaultGameType,
-    SetPlayerGameTypePacketPlayerGameType, StartGamePacketGameType,
+use valentine::bedrock::version::v1_26_51::{
+    EnumsGameType, SetDefaultGameTypePacketDefaultGameType,
 };
 
 use jolyne::GameData;
@@ -50,12 +49,21 @@ macro_rules! game_type_value_from {
     };
 }
 
-game_type_value_from!(
-    StartGamePacketGameType,
-    LevelSettingsGameType,
-    SetPlayerGameTypePacketPlayerGameType,
-    SetDefaultGameTypePacketDefaultGameType,
-);
+game_type_value_from!(EnumsGameType);
+
+impl From<SetDefaultGameTypePacketDefaultGameType> for GameTypeValue {
+    fn from(mode: SetDefaultGameTypePacketDefaultGameType) -> Self {
+        use SetDefaultGameTypePacketDefaultGameType as Generated;
+        match mode {
+            Generated::Survival => Self::Survival,
+            Generated::Creative => Self::Creative,
+            Generated::Adventure => Self::Adventure,
+            Generated::Default => Self::Default,
+            Generated::Spectator => Self::Spectator,
+            Generated::Unknown(value) => Self::Other(value),
+        }
+    }
+}
 
 /// Wire value of vanilla's legacy `SurvivalViewer` game type.
 ///
@@ -117,7 +125,7 @@ impl PlayerGameMode {
     /// change cannot be resolved against StartGame's world mode here, so the
     /// caller keeps its current authoritative mode rather than guessing.
     #[must_use]
-    pub fn from_explicit_game_mode(mode: SetPlayerGameTypePacketPlayerGameType) -> Option<Self> {
+    pub fn from_explicit_game_mode(mode: EnumsGameType) -> Option<Self> {
         Self::from_game_type(mode.into())
     }
 
@@ -138,9 +146,7 @@ impl PlayerGameMode {
 
     /// Typed wire value for a runtime SetPlayerGameType packet.
     #[must_use]
-    pub fn update_from_game_mode(
-        mode: SetPlayerGameTypePacketPlayerGameType,
-    ) -> crate::GameModeUpdate {
+    pub fn update_from_game_mode(mode: EnumsGameType) -> crate::GameModeUpdate {
         Self::update_from_game_type(mode.into())
     }
 

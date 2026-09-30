@@ -68,11 +68,17 @@ fn pinned_bedrock_color_codes_include_resin() {
 }
 
 #[test]
-fn parser_normalizes_crlf_and_preserves_invalid_section_sequences() {
+fn parser_normalizes_crlf_and_hides_unknown_section_codes() {
     let spans = parse_bedrock_text("A\r\nB§zC§", 64).unwrap();
-    assert_eq!(spans.plain_text(), "A\nB§zC§");
-    let section_before_crlf = parse_bedrock_text("§\r\nA", 64).unwrap();
-    assert_eq!(section_before_crlf.plain_text(), "§\nA");
+    assert_eq!(spans.plain_text(), "A\nBC§");
+    let marker = parse_bedrock_text("Free For All§zfp0;", 64).unwrap();
+    assert_eq!(marker.plain_text(), "Free For Allfp0;");
+    let section_before_newline = parse_bedrock_text("§\nA§C", 64).unwrap();
+    assert_eq!(
+        section_before_newline.plain_text(),
+        "A",
+        "codes are case-sensitive"
+    );
 
     assert!(matches!(
         parse_bedrock_text("four", 3),
@@ -115,6 +121,32 @@ fn layout_wraps_in_checked_fixed_point_and_uses_replacement_glyph() {
     assert_eq!(layout.glyphs()[2].bounds_64[0], 0);
     assert_eq!(layout.key().width_64, 128);
     assert_eq!(layout.size_64(), [128, 128]);
+}
+
+#[test]
+fn zero_width_and_control_characters_add_no_glyphs() {
+    let font = font([0x11; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let layout = cache
+        .layout(TextLayoutRequest {
+            text: "A\u{fe0f}\u{200b}\tB",
+            style: TextStyle::default(),
+            width_64: 1_024,
+            line_height_64: 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+
+    assert_eq!(
+        layout
+            .glyphs()
+            .iter()
+            .map(|glyph| glyph.codepoint)
+            .collect::<String>(),
+        "AB"
+    );
 }
 
 #[test]
@@ -574,4 +606,32 @@ fn a_baseline_below_the_line_box_fails_closed() {
         }),
         Err(TextError::BaselineOutsideLine { .. })
     ));
+}
+
+#[test]
+fn private_use_codepoints_hit_the_replacement_until_a_sheet_supplies_them() {
+    let base = font([0x11; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let bare = layout(&mut cache, &base, "A\u{e001}", 1.0, 4096);
+    assert_eq!(bare.glyphs()[1].resolved_codepoint, '\u{fffd}');
+
+    let sheet = assets::GlyphSheet {
+        high_byte: 0xe0,
+        width: 32,
+        height: 32,
+        rgba8: vec![255; 32 * 32 * 4].into(),
+    };
+    let atlas = assets::pack_cells(&assets::extract_cells(&sheet), 5, 256, 1);
+    let with_sheet = base.with_glyphs(&atlas.glyphs, |c| ('\u{e000}'..='\u{f8ff}').contains(&c));
+    assert_ne!(
+        with_sheet.identity().carrier_sha256,
+        base.identity().carrier_sha256
+    );
+    let drawn = layout(&mut cache, &with_sheet, "A\u{e001}", 2.0, 4096);
+    let glyph = drawn.glyphs()[1];
+    assert_eq!(glyph.resolved_codepoint, '\u{e001}');
+    assert_eq!(glyph.page, 5);
+    // A 2-texel private-use cell is 4 atlas texels, 8 px at UI scale 2.
+    assert_eq!(glyph.bounds_64[2] - glyph.bounds_64[0], 4 * 2 * 64);
+    assert_eq!(base.glyph('\u{e001}'), None);
 }

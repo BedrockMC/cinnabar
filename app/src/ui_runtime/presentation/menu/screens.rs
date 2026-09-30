@@ -1,14 +1,17 @@
 mod secondary;
 mod servers;
+mod status;
+
+use status::{status_extent, status_paragraphs};
 
 use ui::{SafeArea, TextLayoutCache, UiNode, UiRect};
 
 use crate::menu::{MenuAction, MenuScreen, MenuServerCard, MenuView};
 
 use super::{
-    ContentArea, TextMetrics, UiPresentationError,
+    ContentArea, TextMetrics, UiPresentationError, bounded_visible_text,
     components::{button, card, solid, text},
-    rect,
+    rect, text_visual_extent,
     tokens::*,
 };
 
@@ -24,13 +27,14 @@ pub(super) fn append(
     content: ContentArea,
 ) -> Result<(), UiPresentationError> {
     match view.screen {
-        MenuScreen::Home => home(
+        // Without the engine the Marketplace has no launcher-style screen; show the start screen.
+        MenuScreen::Home | MenuScreen::Store => home(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Play => play(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
-        MenuScreen::Social => social(
+        MenuScreen::Social | MenuScreen::Friends | MenuScreen::Inbox => social(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Servers => servers::append(
@@ -46,6 +50,9 @@ pub(super) fn append(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Pause => secondary::pause(
+            view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
+        ),
+        MenuScreen::Death => secondary::death(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
     }
@@ -137,8 +144,9 @@ fn home(
         SafeArea::ZERO,
     )?;
 
+    let bottom = area.top + area.height;
     let feed_top = area.top + 192.0;
-    section_heading(
+    let feed_heading = home_heading(
         nodes,
         next_id,
         layouts,
@@ -149,9 +157,10 @@ fn home(
         "Live destinations from your account",
         [area.left, feed_top],
         left_width,
+        (bottom - feed_top - 106.0 - SPACE_MD).max(0.0),
     )?;
-    let mut y = feed_top + 48.0;
-    if let Some(friend) = view.friends.first() {
+    let mut y = feed_top + feed_heading + if feed_heading > 0.0 { SPACE_MD } else { 0.0 };
+    if let Some(friend) = view.friends.first().filter(|_| y + 78.0 <= bottom) {
         let server = MenuServerCard {
             name: friend.world_name.clone(),
             address: friend.gamertag.clone(),
@@ -178,7 +187,7 @@ fn home(
         )?;
         y += 88.0;
     }
-    if let Some(realm) = view.realms.first() {
+    if let Some(realm) = view.realms.first().filter(|_| y + 78.0 <= bottom) {
         let server = MenuServerCard {
             name: realm.name.clone(),
             address: realm.address.clone(),
@@ -205,7 +214,15 @@ fn home(
         )?;
         y += 88.0;
     }
-    if view.friends.is_empty() && view.realms.is_empty() {
+    let recovery_row = status_extent(
+        layouts,
+        font,
+        metrics,
+        "…",
+        (left_width - SPACE_XL).max(1.0),
+    )?
+    .unwrap_or(f32::INFINITY);
+    if view.friends.is_empty() && view.realms.is_empty() && bottom - y >= recovery_row + SPACE_XL {
         empty_state(
             nodes,
             next_id,
@@ -213,11 +230,15 @@ fn home(
             font,
             metrics,
             solid_page,
-            "Nothing joinable right now",
+            if !view.catalog_loading && view.catalog_message.is_some() {
+                "Account destinations unavailable"
+            } else {
+                "Nothing joinable right now"
+            },
             catalog_status(view, "Friends and Realms will appear here when available."),
             [area.left, y],
             left_width,
-            106.0,
+            106.0_f32.min(bottom - y),
         )?;
     }
 
@@ -232,7 +253,7 @@ fn home(
             right_width,
             area.height,
         )?;
-        section_heading(
+        let heading = home_heading(
             nodes,
             next_id,
             layouts,
@@ -243,9 +264,14 @@ fn home(
             "Official Bedrock catalog",
             [right + SPACE_MD, area.top + SPACE_MD],
             right_width - SPACE_XL,
+            (area.height - SPACE_MD * 2.0 - 120.0 - SPACE_MD).max(0.0),
         )?;
-        let mut right_y = area.top + 70.0;
+        let mut right_y =
+            area.top + SPACE_MD + heading + if heading > 0.0 { SPACE_MD } else { 0.0 };
         for (index, server) in view.featured.iter().take(3).enumerate() {
+            if right_y + 82.0 > bottom {
+                break;
+            }
             card(
                 view,
                 nodes,
@@ -265,7 +291,15 @@ fn home(
             )?;
             right_y += 92.0;
         }
-        if view.featured.is_empty() {
+        let recovery_row = status_extent(
+            layouts,
+            font,
+            metrics,
+            "…",
+            (right_width - SPACE_XL * 2.0).max(1.0),
+        )?
+        .unwrap_or(f32::INFINITY);
+        if view.featured.is_empty() && bottom - right_y >= recovery_row + SPACE_XL {
             empty_state(
                 nodes,
                 next_id,
@@ -278,10 +312,10 @@ fn home(
                 } else {
                     "Featured servers unavailable"
                 },
-                catalog_status(view, "Refresh from Servers to try again."),
+                catalog_status(view, "Social: Refresh to try again."),
                 [right + SPACE_MD, right_y],
                 right_width - SPACE_XL,
-                120.0,
+                120.0_f32.min(bottom - right_y),
             )?;
         }
     }
@@ -764,30 +798,77 @@ fn empty_state(
         )?,
         PANEL_ALT,
     );
-    text(
-        nodes,
-        next_id,
-        layouts,
-        font,
-        metrics,
-        solid_page,
-        title,
-        [position[0] + SPACE_MD, position[1] + SPACE_MD],
-        width - SPACE_XL,
-        TEXT,
+    let text_width = (width - SPACE_XL).max(1.0);
+    let available = (height - SPACE_MD * 2.0).max(0.0);
+    let paragraphs = status_paragraphs(
+        layouts, font, metrics, title, body, text_width, available, SPACE_SM,
     )?;
-    text(
-        nodes,
-        next_id,
+    for (value, top, color) in [
+        (paragraphs.title, SPACE_MD, TEXT),
+        (paragraphs.body, SPACE_MD + paragraphs.body_top, MUTED),
+    ] {
+        if !value.is_empty() {
+            text(
+                nodes,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                &value,
+                [position[0] + SPACE_MD, position[1] + top],
+                text_width,
+                color,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn home_heading(
+    nodes: &mut Vec<UiNode>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &assets::RuntimeFontCatalog,
+    metrics: TextMetrics,
+    solid_page: u16,
+    title: &str,
+    subtitle: &str,
+    position: [f32; 2],
+    width: f32,
+    maximum_extent: f32,
+) -> Result<f32, UiPresentationError> {
+    let paragraphs = status_paragraphs(
         layouts,
         font,
         metrics,
-        solid_page,
-        body,
-        [position[0] + SPACE_MD, position[1] + 52.0],
-        width - SPACE_XL,
-        MUTED,
-    )
+        title,
+        subtitle,
+        width,
+        maximum_extent,
+        SPACE_SM,
+    )?;
+    for (value, offset, color) in [
+        (paragraphs.title, 0.0, TEXT),
+        (paragraphs.body, paragraphs.body_top, MUTED),
+    ] {
+        if !value.is_empty() {
+            text(
+                nodes,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                &value,
+                [position[0], position[1] + offset],
+                width,
+                color,
+            )?;
+        }
+    }
+    Ok(paragraphs.extent)
 }
 
 fn panel(

@@ -4,7 +4,7 @@ use protocol::{
     BedrockSession, ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent,
     ChatPacketError, chat_input_packet, chat_text_packet, decode_batch, encode,
 };
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_51::{
     McpePacketData, McpePacketName, TextPacketBody, TextPacketPayloadAuthorAndMessageMessageType,
 };
 
@@ -160,6 +160,10 @@ fn ordinary_chat_input_remains_an_authored_text_packet() {
     let TextPacketBody::AuthorAndMessage(body) = packet.body else {
         panic!("expected authored chat body")
     };
+    assert_eq!(
+        body.message_type,
+        TextPacketPayloadAuthorAndMessageMessageType::Chat
+    );
     assert_eq!(body.player_name, "RustMCBE");
     assert_eq!(body.message, "hello server");
     assert_eq!(packet.senders_xuid, "1234");

@@ -1,0 +1,232 @@
+//! The store's link to the core: two worker threads (API calls, offer images) so a slow purchase never
+//! queues behind image downloads, and the render loop only ever polls a channel.
+
+use std::{path::PathBuf, thread};
+
+use bevy::prelude::Resource;
+use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
+use protocol::store_control::{
+    self, BridgeError, ConfirmedPurchase, PurchaseOutcome, StoreBalance, StoreEntitlements,
+    StoreOfferDetail, StorePage, StoreRowMore, StoreSearch, StoreSearchResults,
+};
+
+const API_QUEUE: usize = 32;
+const IMAGE_QUEUE: usize = 64;
+
+/// What went wrong, reduced to what the screens react to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StoreError {
+    /// The account is not signed in (or was signed out).
+    SignedOut,
+    /// A purchase of the same offer is already running or unresolved.
+    Busy,
+    /// The core refused the request as malformed or unknown.
+    Rejected,
+    /// The core or the store service could not be reached.
+    Unavailable,
+}
+
+impl From<&BridgeError> for StoreError {
+    fn from(error: &BridgeError) -> Self {
+        match error {
+            BridgeError::ControlRpc { code: -32020, .. } => Self::SignedOut,
+            BridgeError::ControlRpc { code: -32031, .. } => Self::Busy,
+            BridgeError::ControlRpc {
+                code: -32602 | -32032 | -32033,
+                ..
+            } => Self::Rejected,
+            _ => Self::Unavailable,
+        }
+    }
+}
+
+fn reduce<T>(result: Result<T, BridgeError>) -> Result<T, StoreError> {
+    result.map_err(|error| StoreError::from(&error))
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum StoreRequest {
+    /// A known page name, or `None` for the store home.
+    Home(Option<String>),
+    Search(StoreSearch),
+    Offer(String),
+    Balance,
+    Entitlements {
+        offset: u32,
+        /// Ask the service to refresh the inventory first (the first window only).
+        refresh: bool,
+    },
+    /// More offers for page row `row`, from its continuation token.
+    RowMore {
+        row: usize,
+        continuation: String,
+    },
+    Purchase(ConfirmedPurchase),
+    Image(String),
+}
+
+#[derive(Debug)]
+pub(crate) enum StoreEvent {
+    Page(Result<StorePage, StoreError>),
+    Search(Result<StoreSearchResults, StoreError>),
+    Offer(Result<Box<StoreOfferDetail>, StoreError>),
+    Balance(Result<Vec<StoreBalance>, StoreError>),
+    Entitlements {
+        offset: u32,
+        result: Result<StoreEntitlements, StoreError>,
+    },
+    RowMore {
+        row: usize,
+        result: Result<StoreRowMore, StoreError>,
+    },
+    Purchase {
+        purchase_id: String,
+        result: Result<PurchaseOutcome, StoreError>,
+    },
+    Image {
+        url: String,
+        result: Result<PathBuf, StoreError>,
+    },
+}
+
+/// Handle to the store workers; they stop when this is dropped.
+#[derive(Resource)]
+pub(crate) struct StoreWorker {
+    api: Sender<StoreRequest>,
+    images: Sender<StoreRequest>,
+    events: Receiver<StoreEvent>,
+}
+
+impl StoreWorker {
+    /// Start the workers against the control endpoint under `socket_dir`.
+    pub(crate) fn new(socket_dir: PathBuf) -> Self {
+        let (api, api_requests) = bounded(API_QUEUE);
+        let (images, image_requests) = bounded(IMAGE_QUEUE);
+        let (event_tx, events) = unbounded();
+        for requests in [api_requests, image_requests] {
+            let socket_dir = socket_dir.clone();
+            let event_tx = event_tx.clone();
+            thread::spawn(move || serve(&socket_dir, &requests, &event_tx));
+        }
+        Self {
+            api,
+            images,
+            events,
+        }
+    }
+
+    /// Queue a request; `false` when the queue is full or the worker is gone, so callers can retry later.
+    pub(crate) fn send(&self, request: StoreRequest) -> bool {
+        let queue = if matches!(request, StoreRequest::Image(_)) {
+            &self.images
+        } else {
+            &self.api
+        };
+        match queue.try_send(request) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
+        }
+    }
+
+    /// Everything the workers finished since the last poll.
+    pub(crate) fn poll(&self) -> Vec<StoreEvent> {
+        self.events.try_iter().collect()
+    }
+}
+
+fn serve(
+    socket_dir: &std::path::Path,
+    requests: &Receiver<StoreRequest>,
+    events: &Sender<StoreEvent>,
+) {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
+        return;
+    };
+    while let Ok(request) = requests.recv() {
+        let event = runtime.block_on(handle(socket_dir, request));
+        if events.send(event).is_err() {
+            return;
+        }
+    }
+}
+
+async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEvent {
+    match request {
+        StoreRequest::Home(page) => StoreEvent::Page(reduce(
+            store_control::store_home(socket_dir, page.as_deref()).await,
+        )),
+        StoreRequest::Search(search) => StoreEvent::Search(reduce(
+            store_control::store_search(socket_dir, &search).await,
+        )),
+        StoreRequest::Offer(id) => StoreEvent::Offer(
+            reduce(store_control::store_offer(socket_dir, &id).await).map(Box::new),
+        ),
+        StoreRequest::Balance => {
+            StoreEvent::Balance(reduce(store_control::store_balance(socket_dir).await))
+        }
+        StoreRequest::Entitlements { offset, refresh } => StoreEvent::Entitlements {
+            offset,
+            result: reduce(store_control::store_entitlements(socket_dir, offset, 0, refresh).await),
+        },
+        StoreRequest::RowMore { row, continuation } => StoreEvent::RowMore {
+            row,
+            result: reduce(store_control::store_row_more(socket_dir, &continuation).await),
+        },
+        StoreRequest::Purchase(purchase) => StoreEvent::Purchase {
+            purchase_id: purchase.purchase_id().to_owned(),
+            result: reduce(store_control::store_purchase(socket_dir, &purchase).await),
+        },
+        StoreRequest::Image(url) => {
+            let result = reduce(store_control::store_image(socket_dir, &url).await);
+            StoreEvent::Image {
+                url,
+                result: result.map(|image| image.path),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rpc(code: i64) -> BridgeError {
+        BridgeError::ControlRpc {
+            code,
+            message: String::new(),
+        }
+    }
+
+    #[test]
+    fn rpc_codes_reduce_to_screen_reactions() {
+        assert_eq!(StoreError::from(&rpc(-32020)), StoreError::SignedOut);
+        assert_eq!(StoreError::from(&rpc(-32031)), StoreError::Busy);
+        for code in [-32602, -32032, -32033] {
+            assert_eq!(StoreError::from(&rpc(code)), StoreError::Rejected);
+        }
+        assert_eq!(StoreError::from(&rpc(-32021)), StoreError::Unavailable);
+        assert_eq!(
+            StoreError::from(&BridgeError::ControlClosed),
+            StoreError::Unavailable
+        );
+    }
+
+    #[test]
+    fn a_full_queue_refuses_instead_of_blocking() {
+        let (api, _api_rx) = bounded(1);
+        let (images, _image_rx) = bounded(1);
+        let (_events_tx, events) = unbounded();
+        let worker = StoreWorker {
+            api,
+            images,
+            events,
+        };
+        assert!(worker.send(StoreRequest::Balance));
+        assert!(!worker.send(StoreRequest::Balance));
+        assert!(worker.send(StoreRequest::Image("https://x.test/a.png".into())));
+        assert!(worker.poll().is_empty());
+    }
+}

@@ -4,9 +4,10 @@ use super::super::{
     CompiledEntityAssets, EntityAssetKind, effective_geometry_bone_counts, invalid,
 };
 use super::{
-    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
-    MAX_ENTITY_RIG_GEOMETRIES, MolangOp, MolangSymbolKind, index_has_kind, molang_symbol_has_kind,
-    range_in_bounds, validate_flattened_ranges,
+    EntityControllerAnimationTarget, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_RIG_ANIMATIONS,
+    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES, MolangOp,
+    MolangSymbolKind, index_has_kind, molang_symbol_has_kind, range_in_bounds,
+    validate_flattened_ranges,
 };
 
 pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
@@ -21,6 +22,9 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
     for binding in &compiled.rig_animations {
         if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
             || binding.clip as usize >= compiled.animation_clips.len()
+            || binding
+                .weight
+                .is_some_and(|index| index as usize >= compiled.molang_expressions.len())
         {
             return Err(invalid("entity rig animation index is out of range"));
         }
@@ -28,6 +32,9 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
     for binding in &compiled.rig_controllers {
         if !molang_symbol_has_kind(compiled, binding.name, &[MolangSymbolKind::Name])
             || binding.controller as usize >= compiled.controllers.len()
+            || binding
+                .weight
+                .is_some_and(|index| index as usize >= compiled.molang_expressions.len())
         {
             return Err(invalid("entity rig controller index is out of range"));
         }
@@ -46,6 +53,11 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             u32::from(binding.geometry_count),
             compiled.rig_geometries.len(),
         ) || binding.geometry_count == 0
+            || [binding.initialize, binding.pre_animation]
+                .into_iter()
+                .flatten()
+                .any(|index| index as usize >= compiled.molang_expressions.len())
+            || binding.scale.get() <= 0.0
         {
             return Err(invalid("entity rig binding index is out of range"));
         }
@@ -79,16 +91,13 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             let controllers = &compiled.rig_controllers[candidate.first_controller as usize
                 ..candidate.first_controller as usize + candidate.controller_count as usize];
             for rig_controller in controllers {
-                let controller = &compiled.controllers[rig_controller.controller as usize];
-                let states = &compiled.controller_states[controller.first_state as usize
-                    ..controller.first_state as usize + controller.state_count as usize];
-                for state in states {
-                    let animations = &compiled.controller_animations[state.first_animation as usize
-                        ..state.first_animation as usize + state.animation_count as usize];
-                    for animation in animations {
-                        validate_rig_clip_bones(compiled, animation.clip, geometry_bones)?;
+                let mut result = Ok(());
+                visit_controller_clips(compiled, rig_controller.controller, 0, &mut |clip| {
+                    if result.is_ok() {
+                        result = validate_rig_clip_bones(compiled, clip, geometry_bones);
                     }
-                }
+                })?;
+                result?;
             }
         }
     }
@@ -134,8 +143,7 @@ fn is_boolean_expression(compiled: &CompiledEntityAssets, expression: u32) -> bo
         last,
         Some(
             MolangOp::Not
-                | MolangOp::And
-                | MolangOp::Or
+                | MolangOp::Truthy
                 | MolangOp::Equal
                 | MolangOp::NotEqual
                 | MolangOp::Less
@@ -161,6 +169,43 @@ fn validate_rig_clip_bones(
         return Err(invalid(
             "entity animation channel bone is out of range for its effective rig geometry",
         ));
+    }
+    Ok(())
+}
+
+/// Rejects controller nesting deeper than the runtime bound, which also rejects cycles.
+pub(super) fn validate_controller_nesting(
+    compiled: &CompiledEntityAssets,
+) -> Result<(), AssetError> {
+    for controller in 0..compiled.controllers.len() {
+        visit_controller_clips(compiled, controller as u32, 0, &mut |_| {})?;
+    }
+    Ok(())
+}
+
+fn visit_controller_clips(
+    compiled: &CompiledEntityAssets,
+    controller: u32,
+    depth: usize,
+    visit: &mut impl FnMut(u32),
+) -> Result<(), AssetError> {
+    if depth >= MAX_ENTITY_CONTROLLER_NESTING {
+        return Err(invalid("entity controller nesting exceeds bound or cycles"));
+    }
+    let controller = &compiled.controllers[controller as usize];
+    let states = &compiled.controller_states[controller.first_state as usize
+        ..controller.first_state as usize + controller.state_count as usize];
+    for state in states {
+        let animations = &compiled.controller_animations[state.first_animation as usize
+            ..state.first_animation as usize + state.animation_count as usize];
+        for animation in animations {
+            match animation.target {
+                EntityControllerAnimationTarget::Clip(clip) => visit(clip),
+                EntityControllerAnimationTarget::Controller(nested) => {
+                    visit_controller_clips(compiled, nested, depth + 1, visit)?;
+                }
+            }
+        }
     }
     Ok(())
 }

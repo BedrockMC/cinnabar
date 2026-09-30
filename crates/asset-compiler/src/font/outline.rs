@@ -9,17 +9,24 @@ use sha2::{Digest, Sha256};
 
 use super::{CompiledFontCarrier, FontCompileError, FontCompileReport, invalid};
 
+mod providers;
+pub use providers::compile_outline_font_with_fallback;
+
 const ATLAS_PADDING: u32 = 1;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REQUIRED_REPLACEMENT: char = '\u{fffd}';
 const REVIEWED_RANGES: &[(u32, u32)] = &[
     (0x0020, 0x007e),
     (0x00a0, 0x024f),
+    // IPA and phonetic extensions carry the small-capital letters servers use for styling.
+    (0x0250, 0x02af),
     (0x0370, 0x052f),
-    (0x2000, 0x206f),
-    (0x20a0, 0x214f),
+    (0x1d00, 0x1d7f),
+    (0x2000, 0x209f),
+    (0x20a0, 0x218f),
     (0x2190, 0x21ff),
     (0x2500, 0x25ff),
+    (0x2600, 0x27bf),
 ];
 
 /// How a packed glyph's pen advance is derived.
@@ -192,7 +199,29 @@ fn rasterize(
     pixel_height: u32,
     advances: GlyphAdvances,
 ) -> Result<RasterizedGlyph, FontCompileError> {
+    rasterize_checked(font, codepoint, pixel_height, advances, None)
+}
+
+fn rasterize_checked(
+    font: &Font,
+    codepoint: char,
+    pixel_height: u32,
+    advances: GlyphAdvances,
+    expected: Option<&fontdue::Metrics>,
+) -> Result<RasterizedGlyph, FontCompileError> {
     let (metrics, bitmap) = font.rasterize(codepoint, pixel_height as f32);
+    if let Some(expected) = expected
+        && (metrics.width != expected.width
+            || metrics.height != expected.height
+            || metrics.xmin != expected.xmin
+            || metrics.ymin != expected.ymin
+            || metrics.advance_width.to_bits() != expected.advance_width.to_bits()
+            || metrics.advance_height.to_bits() != expected.advance_height.to_bits()
+            || metrics.bounds != expected.bounds
+            || bitmap.len() != expected.width.saturating_mul(expected.height))
+    {
+        return Err(invalid("outline raster differs from its admitted metrics"));
+    }
     // fontdue reports the outline's raster bounds, which can carry a fully
     // transparent row or column when an edge lands exactly on a texel
     // boundary. Trim to the inked extent so the atlas rect is tight and an

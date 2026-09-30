@@ -6,6 +6,12 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod raycast;
+mod validate;
+
+pub use raycast::BlockHit;
+use validate::{validate_facts, validate_shapes};
+
 pub(crate) const DEFAULT_SURFACE_FRICTION: f64 = 0.6;
 /// Maximum width, height, or depth of a collision query in blocks.
 pub const MAX_COLLISION_QUERY_EXTENT: f64 = 128.0;
@@ -257,11 +263,14 @@ pub struct CollisionRegistry {
     identity: CollisionRegistryIdentity,
     blocks: BTreeMap<u32, BlockPhysics>,
     air_runtime_id: u32,
+    collision_halo: [(i32, i32); 3],
 }
 
 #[derive(Debug)]
 struct BlockPhysics {
     shapes: Box<[Aabb]>,
+    /// Shapes the interaction ray targets instead of `shapes` (selection boxes).
+    pick_shapes: Option<Box<[Aabb]>>,
     friction: f64,
     horizontal_speed_factor: f64,
     vertical_speed_factor: f64,
@@ -313,6 +322,7 @@ impl CollisionRegistry {
             identity,
             blocks: BTreeMap::new(),
             air_runtime_id: 0,
+            collision_halo: [(0, 0); 3],
         }
     }
 
@@ -391,10 +401,21 @@ impl CollisionRegistry {
             flags,
             surface_response,
         )?;
+        for shape in &shapes {
+            for (axis, range) in self.collision_halo.iter_mut().enumerate() {
+                if shape.max[axis] > 1.0 {
+                    range.0 = -1;
+                }
+                if shape.min[axis] < 0.0 {
+                    range.1 = 1;
+                }
+            }
+        }
         self.blocks.insert(
             runtime_id,
             BlockPhysics {
                 shapes: shapes.into_boxed_slice(),
+                pick_shapes: None,
                 friction,
                 horizontal_speed_factor,
                 vertical_speed_factor,
@@ -440,69 +461,62 @@ impl CollisionRegistry {
         )
     }
 
+    /// Drops every registration at or above `first_runtime_id`.
+    pub fn remove_runtime_ids_from(&mut self, first_runtime_id: u32) {
+        self.blocks.split_off(&first_runtime_id);
+    }
+
+    /// Makes the interaction ray target `boxes` (empty: untargetable) instead of the
+    /// collision shapes; returns whether `runtime_id` is registered.
+    pub fn set_pick_shapes(
+        &mut self,
+        runtime_id: u32,
+        boxes: impl IntoIterator<Item = Aabb>,
+    ) -> bool {
+        let Some(block) = self.blocks.get_mut(&runtime_id) else {
+            return false;
+        };
+        block.pick_shapes = Some(boxes.into_iter().collect());
+        true
+    }
+
+    /// Drops one registration; returns whether it existed.
+    pub fn remove_runtime_id(&mut self, runtime_id: u32) -> bool {
+        self.blocks.remove(&runtime_id).is_some()
+    }
+
+    #[must_use]
+    pub fn contains_runtime_id(&self, runtime_id: u32) -> bool {
+        self.blocks.contains_key(&runtime_id)
+    }
+
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }
 }
 
-fn validate_facts(
-    runtime_id: u32,
-    shapes: &[Aabb],
-    fluid_height: f64,
-    flags: BlockPhysicsFlags,
-    response: SurfaceResponse,
-) -> Result<(), RegistryError> {
-    let water = flags.contains(BlockPhysicsFlags::WATER);
-    let lava = flags.contains(BlockPhysicsFlags::LAVA);
-    let fluid = water || lava;
-    let bubble = matches!(
-        response,
-        SurfaceResponse::BubbleUp | SurfaceResponse::BubbleDown
-    );
-    if (water && lava)
-        || ((fluid_height > 0.0) != fluid)
-        || (bubble && !water)
-        || (flags.contains(BlockPhysicsFlags::PASSABLE) && fluid && !shapes.is_empty())
-    {
-        return Err(RegistryError::ContradictoryFacts { runtime_id });
-    }
-    Ok(())
-}
-
-fn validate_shapes(runtime_id: u32, shapes: &[Aabb]) -> Result<(), RegistryError> {
-    for (shape_index, shape) in shapes.iter().enumerate() {
-        let coordinates = [
-            shape.min.x,
-            shape.min.y,
-            shape.min.z,
-            shape.max.x,
-            shape.max.y,
-            shape.max.z,
-        ];
-        if !coordinates.into_iter().all(f64::is_finite)
-            || shape.min.x > shape.max.x
-            || shape.min.y > shape.max.y
-            || shape.min.z > shape.max.z
-        {
-            return Err(RegistryError::InvalidShape {
-                runtime_id,
-                shape_index,
-            });
-        }
-        if shape.min.x < -1.0
-            || shape.min.y < -1.0
-            || shape.min.z < -1.0
-            || shape.max.x > 2.0
-            || shape.max.y > 2.0
-            || shape.max.z > 2.0
-        {
-            return Err(RegistryError::ShapeOutsideLocalHalo {
-                runtime_id,
-                shape_index,
-            });
-        }
-    }
-    Ok(())
+/// One emitted collision instance plus its exact palette-cell provenance.
+///
+/// [`PaletteWorld::collision_boxes`] emits one translated registry shape
+/// instance per (block, layer, shape) triple and never merges neighbouring
+/// cells into one box, so provenance is exact whenever an entry comes from
+/// that adapter. The generic [`CollisionWorld::collision_boxes_with_provenance`]
+/// fallback instead reports neither fact (`block: None`, `runtime_id: None`)
+/// because a bare-AABB surface cannot know it; consumers must treat missing
+/// provenance as unknown rather than re-inferring it from geometry.
+///
+/// Invariant: `runtime_id` is meaningful only together with `block`; an entry
+/// carrying a runtime id without its block cell is treated as unprovenanced.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProvenancedCollider {
+    /// Translated collider bounds, identical to the same instance's slot in
+    /// [`CollisionWorld::collision_boxes`].
+    pub aabb: Aabb,
+    /// The palette cell whose registered shape produced this collider.
+    pub block: Option<[i32; 3]>,
+    /// Wire runtime id (widened from the registry's `u32` key space) of the
+    /// palette entry on the contributing layer.
+    pub runtime_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -523,10 +537,96 @@ pub enum WorldQueryError {
     UnloadedChunk(ChunkKey),
     #[error("runtime ID {runtime_id} at {block:?} has no authoritative physics metadata")]
     UnknownRuntimeId { runtime_id: u32, block: [i32; 3] },
+    #[error("block interaction ray origin is non-finite or outside the supported block range")]
+    InvalidRayOrigin,
+    #[error("block interaction ray direction must be finite and non-zero")]
+    InvalidRayDirection,
+    #[error("block interaction ray distance must be finite, positive, and query-bounded")]
+    InvalidRayDistance,
+    #[error("collision identity is stale or does not cover chunk {chunk:?}")]
+    StaleCollisionIdentity { chunk: ChunkKey },
+    #[error("block interaction ray exceeded its checked inspected-block bound")]
+    RayInspectionLimitExceeded,
+}
+
+/// Cells a lenient camera query skipped rather than faulting the whole query.
+/// Counts are per scanned cell/layer and saturate; identity-free by design.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LenientSkipCounts {
+    pub unknown_runtime_id: u32,
+    pub unloaded_chunk: u32,
+}
+
+/// Collision boxes from the camera-lenient query plus the cells it skipped.
+/// Carries no world identity: the camera never gates authority on it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LenientCollisionBoxes {
+    pub value: Vec<Aabb>,
+    pub skipped: LenientSkipCounts,
 }
 
 pub trait CollisionWorld {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError>;
+
+    /// Camera-only lenient companion to [`Self::collision_boxes`]: a cell with an
+    /// unregistered runtime id or an unloaded chunk is skipped and tallied, not
+    /// fatal, so a third-person boom still stops at known solids instead of
+    /// collapsing near unknown blocks or chunk edges. Framing/bounds errors stay
+    /// fatal; the strict authority contract of [`Self::collision_boxes`] is
+    /// untouched. The default gives whole-region leniency for bare-AABB worlds;
+    /// the palette adapter overrides it to skip per cell.
+    fn collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+    ) -> Result<LenientCollisionBoxes, WorldQueryError> {
+        match self.collision_boxes(query) {
+            Ok(boxes) => Ok(LenientCollisionBoxes {
+                value: boxes.value,
+                skipped: LenientSkipCounts::default(),
+            }),
+            Err(WorldQueryError::UnknownRuntimeId { .. }) => Ok(LenientCollisionBoxes {
+                skipped: LenientSkipCounts {
+                    unknown_runtime_id: 1,
+                    unloaded_chunk: 0,
+                },
+                ..Default::default()
+            }),
+            Err(WorldQueryError::UnloadedChunk(_)) => Ok(LenientCollisionBoxes {
+                skipped: LenientSkipCounts {
+                    unknown_runtime_id: 0,
+                    unloaded_chunk: 1,
+                },
+                ..Default::default()
+            }),
+            Err(other) => Err(other),
+        }
+    }
+
+    /// Per-collider provenance companion to [`Self::collision_boxes`].
+    ///
+    /// The default derives every entry from [`Self::collision_boxes`] with
+    /// both provenance facts absent; adapters that can attribute each emitted
+    /// instance to its source palette cell override this method. Bounds,
+    /// ordering, identity, and the error contract stay exactly those of the
+    /// box-only surface either way.
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        let boxes = self.collision_boxes(query)?;
+        Ok(CollisionQuery {
+            identity: boxes.identity,
+            value: boxes
+                .value
+                .into_iter()
+                .map(|aabb| ProvenancedCollider {
+                    aabb,
+                    block: None,
+                    runtime_id: None,
+                })
+                .collect(),
+        })
+    }
 
     fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         Ok(BlockPhysicsSample {
@@ -558,6 +658,14 @@ pub struct PaletteWorld<'a> {
     dimension: i32,
 }
 
+/// One internal collision instance before projection onto the public
+/// box-only or provenance surfaces.
+struct CollisionInstance {
+    shape: Aabb,
+    block: [i32; 3],
+    runtime_id: u32,
+}
+
 impl<'a> PaletteWorld<'a> {
     #[must_use]
     pub const fn new(
@@ -585,6 +693,19 @@ impl<'a> PaletteWorld<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         WorldCollisionIdentity::new(self.registry.identity(), revisions)
+    }
+
+    /// Whether every layer of a loaded block is air.
+    pub fn is_air(&self, block: [i32; 3]) -> Result<bool, WorldQueryError> {
+        Ok(self
+            .runtime_ids_at(block)?
+            .into_iter()
+            .all(|runtime_id| runtime_id == self.registry.air_runtime_id))
+    }
+
+    /// The first-layer runtime id of a loaded block.
+    pub fn primary_runtime_id(&self, block: [i32; 3]) -> Result<u32, WorldQueryError> {
+        Ok(self.runtime_ids_at(block)?[0])
     }
 
     fn runtime_ids_at(&self, block: [i32; 3]) -> Result<Vec<u32>, WorldQueryError> {
@@ -615,10 +736,14 @@ impl<'a> PaletteWorld<'a> {
             ids
         })
     }
-}
-
-impl CollisionWorld for PaletteWorld<'_> {
-    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+    /// Shared emission core behind both public collision surfaces so their
+    /// outputs structurally cannot diverge: one translated registry shape
+    /// instance per (block, layer, shape) triple in block-scan order, each
+    /// kept only when it intersects `query`.
+    fn collision_instances(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<CollisionInstance>>, WorldQueryError> {
         validate_collision_query(query)?;
         if query.min == query.max {
             return Ok(CollisionQuery {
@@ -636,7 +761,7 @@ impl CollisionWorld for PaletteWorld<'_> {
             .collect::<Vec<_>>();
         let identity = self.identity_for_chunks(chunks)?;
 
-        let mut result = Vec::new();
+        let mut instances = Vec::new();
         for x in min[0]..=max[0] {
             for z in min[2]..=max[2] {
                 for y in min[1]..=max[1] {
@@ -647,22 +772,102 @@ impl CollisionWorld for PaletteWorld<'_> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        result.extend(
-                            physics
-                                .shapes
-                                .iter()
-                                .copied()
-                                .map(|shape| shape.translated(block_offset))
-                                .filter(|shape| shape.intersects(query)),
-                        );
+                        for shape in physics.shapes.iter().copied() {
+                            let shape = shape.translated(block_offset);
+                            if shape.intersects(query) {
+                                instances.push(CollisionInstance {
+                                    shape,
+                                    block,
+                                    runtime_id,
+                                });
+                            }
+                        }
                     }
                 }
             }
         }
         Ok(CollisionQuery {
-            value: result,
+            value: instances,
             identity,
         })
+    }
+}
+
+impl CollisionWorld for PaletteWorld<'_> {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let instances = self.collision_instances(query)?;
+        Ok(CollisionQuery {
+            value: instances.value.into_iter().map(|i| i.shape).collect(),
+            identity: instances.identity,
+        })
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
+        let instances = self.collision_instances(query)?;
+        Ok(CollisionQuery {
+            value: instances
+                .value
+                .into_iter()
+                .map(|instance| ProvenancedCollider {
+                    aabb: instance.shape,
+                    block: Some(instance.block),
+                    runtime_id: Some(u64::from(instance.runtime_id)),
+                })
+                .collect(),
+            identity: instances.identity,
+        })
+    }
+
+    /// Per-cell leniency: mirrors [`Self::collision_instances`]'s scan but skips
+    /// and tallies unloaded sub-chunks and unregistered runtime ids instead of
+    /// faulting, and computes no identity. A registered solid beside a skipped
+    /// cell still emits its box, so a real wall shortens the boom.
+    fn collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+    ) -> Result<LenientCollisionBoxes, WorldQueryError> {
+        validate_collision_query(query)?;
+        if query.min == query.max {
+            return Ok(LenientCollisionBoxes::default());
+        }
+        let grown = query.grown(1.0);
+        let min = block_floor(grown.min)?;
+        let max = block_ceil(grown.max)?;
+        let mut value = Vec::new();
+        let mut skipped = LenientSkipCounts::default();
+        for x in min[0]..=max[0] {
+            for z in min[2]..=max[2] {
+                for y in min[1]..=max[1] {
+                    let block = [x, y, z];
+                    let block_offset = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+                    let runtime_ids = match self.runtime_ids_at(block) {
+                        Ok(ids) => ids,
+                        Err(WorldQueryError::UnloadedChunk(_)) => {
+                            skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
+                            continue;
+                        }
+                        Err(other) => return Err(other),
+                    };
+                    for runtime_id in runtime_ids {
+                        let Some(physics) = self.registry.physics(runtime_id) else {
+                            skipped.unknown_runtime_id =
+                                skipped.unknown_runtime_id.saturating_add(1);
+                            continue;
+                        };
+                        for shape in physics.shapes.iter().copied() {
+                            let shape = shape.translated(block_offset);
+                            if shape.intersects(query) {
+                                value.push(shape);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(LenientCollisionBoxes { value, skipped })
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {

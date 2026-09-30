@@ -88,6 +88,10 @@ struct Climate {
     downfall: f32,
 }
 
+/// Retail biomes newer than the pinned resource pack. They compile no rule, so the
+/// runtime tints them with its fallback until the pack pin moves past 1.26.50.
+const PACK_PREDATED_BIOMES: [&str; 1] = ["minecraft:dappled_forest"];
+
 /// Compiles modern client-biome rules, behaviour climates, and all tint maps.
 pub fn compile_biome_assets(
     resource_pack: &Path,
@@ -99,21 +103,28 @@ pub fn compile_biome_assets(
     }
     let client = read_client_biomes(&resource_pack.join("biomes"))?;
     let climates = read_behaviour_biomes(&behavior_pack.join("biomes"))?;
+    let client_names = client.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let climate_names = climates.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let registry = registry
+        .iter()
+        .filter(|record| {
+            let name = record.name.as_ref();
+            !(PACK_PREDATED_BIOMES.contains(&name)
+                && !client_names.contains(name)
+                && !climate_names.contains(name))
+        })
+        .collect::<Vec<_>>();
     let registry_names = registry
         .iter()
         .map(|record| record.name.as_ref())
         .collect::<BTreeSet<_>>();
-    let client_names = client.keys().map(String::as_str).collect::<BTreeSet<_>>();
-    let climate_names = climates.keys().map(String::as_str).collect::<BTreeSet<_>>();
-    if registry_names != client_names {
+    if !registry_names.is_subset(&client_names) {
         return Err(invalid(
-            "modern client-biome identifiers do not exactly match BIOREG01",
+            "modern client-biome identifiers do not cover BIOREG01",
         ));
     }
-    if registry_names != climate_names {
-        return Err(invalid(
-            "behaviour biome identifiers do not exactly match BIOREG01",
-        ));
+    if !registry_names.is_subset(&climate_names) {
+        return Err(invalid("behaviour biome identifiers do not cover BIOREG01"));
     }
 
     let tint_maps_rgb8 = read_tint_maps(resource_pack)?;

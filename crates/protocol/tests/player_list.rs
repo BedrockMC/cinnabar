@@ -25,10 +25,9 @@ use bytes::{Bytes, BytesMut};
 use jolyne::batch::{decode_batch_raw, encode_batch_multi};
 use jolyne::valentine::{
     McpePacketArgs, McpePacketData, PlayerListPacket, PlayerListPacketEntriesItem,
-    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadAddEntryAction,
-    PlayerListPacketPayloadRemoveEntry, PlayerListPacketPayloadRemoveEntryAction,
+    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry,
     bedrock::{
-        codec::{BedrockCodec, VarInt},
+        codec::{BedrockCodec, VarUInt},
         error::DecodeError,
     },
 };
@@ -37,8 +36,6 @@ use protocol::BedrockSession;
 const FIXTURE_UUID: uuid::Uuid = uuid::Uuid::from_bytes([
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
 ]);
-
-const MAX_PLAYER_LIST_ENTRIES: usize = 4_096;
 
 // Regenerated for protocol 2168 from gophertunnel at commit
 // be6713da4dc051a4197f897d04835e89e9c54321:
@@ -96,14 +93,13 @@ fn raw_player_list_fixture(fixture: &'static [u8]) -> jolyne::raw::RawPacket {
 
 fn remove_entry() -> PlayerListPacketEntriesItem {
     PlayerListPacketEntriesItem::RemoveEntry(PlayerListPacketPayloadRemoveEntry {
-        action: PlayerListPacketPayloadRemoveEntryAction::Remove,
         uuid: FIXTURE_UUID,
+        ..Default::default()
     })
 }
 
 fn add_entry() -> PlayerListPacketEntriesItem {
     PlayerListPacketEntriesItem::AddEntry(Box::new(PlayerListPacketPayloadAddEntry {
-        action: PlayerListPacketPayloadAddEntryAction::Add,
         uuid: FIXTURE_UUID,
         ..Default::default()
     }))
@@ -127,7 +123,6 @@ fn pinned_gophertunnel_player_list_add_carries_the_trusted_skin_flag_per_entry()
     let PlayerListPacketEntriesItem::AddEntry(entry) = &content.entries[0] else {
         panic!("expected an Add entry");
     };
-    assert_eq!(entry.action, PlayerListPacketPayloadAddEntryAction::Add);
     assert_eq!(entry.uuid, FIXTURE_UUID);
     assert_eq!(entry.player_name, "fixture");
     // Protocol 1001 kept this as a trailing `verified: Some(vec![true])` array
@@ -147,10 +142,6 @@ fn assert_remove_payload(data: &McpePacketData) {
     let PlayerListPacketEntriesItem::RemoveEntry(entry) = &packet.entries[0] else {
         panic!("expected a Remove entry");
     };
-    assert_eq!(
-        entry.action,
-        PlayerListPacketPayloadRemoveEntryAction::Remove
-    );
     assert_eq!(entry.uuid, FIXTURE_UUID);
 }
 
@@ -176,49 +167,31 @@ fn pinned_gophertunnel_player_list_borrowed_materializes_with_same_count() {
     assert_remove_payload(&owned);
 }
 
-/// An entry count above gophertunnel's slice ceiling must still fail the read.
-///
-/// REGRESSION - see the module header of `world_collection_bounds.rs`. Protocol
-/// 1001 failed here with `DecodeError::ArrayLengthExceeded { declared: 4097,
-/// available: 4096 }` *before* allocating, matching gophertunnel's
-/// `maxSliceLength = 4096` guard in `minecraft/protocol/io.go`. The 1.26.40
-/// generated crate emits no collection ceilings, so the count is reserved with
-/// `Vec::with_capacity` and the read only fails once the entries turn out to be
-/// absent. The `ArrayLengthExceeded` arm is the tripwire for the ceiling
-/// returning.
+/// A large declared count with no entries fails from the truncated payload.
+/// Decoding grows the collection fallibly and does not impose a global count cap.
 #[test]
-fn player_list_decode_rejects_count_above_gophertunnel_slice_limit() {
+fn player_list_decode_rejects_large_count_without_payload() {
     let mut encoded = BytesMut::new();
-    VarInt(4097).encode(&mut encoded).expect("entry count");
+    VarUInt(4097).encode(&mut encoded).expect("entry count");
 
     let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("oversized count");
-    match &error {
-        DecodeError::UnexpectedEof { .. } => {}
-        DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        DecodeError::ArrayLengthExceeded { .. } => panic!(
-            "valentine_gen appears to emit collection ceilings again: restore the \
-             `declared: 4097, available: {MAX_PLAYER_LIST_ENTRIES}` assertion here"
-        ),
-        other => panic!("unexpected decode error: {other:?}"),
-    }
+    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
 }
 
 #[test]
 fn player_list_decode_rejects_count_larger_than_remaining_bytes() {
     let mut encoded = BytesMut::new();
-    VarInt(2).encode(&mut encoded).expect("entry count");
+    VarUInt(2).encode(&mut encoded).expect("entry count");
 
     let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("truncated entries");
-    let truncated = matches!(&error, DecodeError::UnexpectedEof { .. })
-        || matches!(&error, DecodeError::Io(io) if io.kind() == std::io::ErrorKind::UnexpectedEof);
-    assert!(truncated, "unexpected decode error: {error:?}");
+    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
 }
 
 /// RETARGETED from `player_records_encode_rejects_count_and_record_length_mismatch_before_writing`.
 ///
 /// There is no longer a caller-supplied record count to disagree with the
 /// record vector: `PlayerListPacket` is `entries: Vec<..>` and the encoder
-/// writes `VarInt(entries.len())`, exactly like gophertunnel's
+/// writes `VarUInt(entries.len())`, exactly like gophertunnel's
 /// `protocol.Slice`. The desynchronisation the old test guarded against cannot
 /// be expressed, so this pins that the wire count is derived from the vector.
 #[test]
@@ -233,7 +206,7 @@ fn player_list_wire_count_is_derived_from_the_entry_vector() {
         let encoded = encoded_player_list(&packet);
 
         let mut buf = encoded.clone().freeze();
-        let declared = VarInt::decode(&mut buf, ()).expect("entry count").0;
+        let declared = VarUInt::decode(&mut buf, ()).expect("entry count").0;
         assert_eq!(declared as usize, expected);
 
         let round_tripped =
@@ -319,8 +292,13 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
 fn player_list_decode_rejects_unknown_entry_variants() {
     for variant in [2u8, 3, 0xff] {
         let mut encoded = BytesMut::new();
-        VarInt(1).encode(&mut encoded).expect("entry count");
-        encoded.extend_from_slice(&[variant]);
+        VarUInt(1).encode(&mut encoded).expect("entry count");
+        VarUInt(u32::from(variant))
+            .encode(&mut encoded)
+            .expect("entry variant");
+        // Supply enough bytes that the discriminant error, rather than a
+        // truncated-payload error, is the observed failure.
+        encoded.resize(encoded.len() + 17, 0);
 
         let error = PlayerListPacket::decode(&mut encoded.freeze(), ())
             .expect_err("unknown entry variant must not decode");

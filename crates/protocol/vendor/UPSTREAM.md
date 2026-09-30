@@ -1,210 +1,93 @@
-# Pinned upstream sources and retained asset snapshot
+# Pinned upstream sources
 
 The protocol crate resolves Valentine and Jolyne from the checked-in
-`vendor/valentine` and `vendor/jolyne` paths. This local source snapshot carries
-the reviewed Cinnabar patches published by
-[`HashimTheArab/axolotl-stack`](https://github.com/HashimTheArab/axolotl-stack)
-on branch `cinnabar/protocol-1001-fixes`, and the same files remain the pinned
-input used by `tools/registrygen` and its reproducible asset-generation
-documentation.
+`vendor/valentine` and `vendor/jolyne` paths. The retained source is MIT
+licensed; see `crates/protocol/vendor/LICENSE`.
 
 Machine-checked provenance:
 
 - Dependency resolution: local vendored paths
-- Reviewed fork revision: `6cd8087fc3f0b500e41708a8afc94a0fa3291525`
-- Upstream snapshot revision: `6f6806e821a579c183c44d786f76d9b358a2b825`
-- Retained license: MIT at `crates/protocol/vendor/LICENSE` (normalized SHA-256 `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`)
+- Axolotl Stack merge revision: `c4540512dc47833bb40363da7ad1161110d64b67`
+- Protocolgen submodule, manifest, and generated-source revision: `0b8f17e3b321f7cb89e21dc8563398b9981e632f`
+- Retained license normalized SHA-256: `62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184`
 
-The snapshot originated from
-[`axolotl-stack/axolotl-stack`](https://github.com/axolotl-stack/axolotl-stack)
-merge commit `6f6806e821a579c183c44d786f76d9b358a2b825` under the retained upstream MIT license.
+The copied surface contains the shared codec/runtime, the generated protocol
+2193 crate, and the Jolyne client/server transport facade. Upstream examples,
+benches, generator executables, unrelated workspace crates, and uninitialised
+generator-input submodules are omitted. Local manifests replace workspace
+inheritance with direct versions and local paths.
 
-Copied paths:
+The generated crate is regenerated locally: `valentine_gen` at the pinned
+Axolotl revision lowers protocolgen's `generated/1.26.51/manifest.json`
+(`CARGO_MANIFEST_DIR=crates/valentine_gen valentine-gen --protocolgen-manifest
+<protocolgen>/generated/1.26.51/manifest.json`, then `cargo fmt`). The
+generator names the crate after the manifest (`valentine_bedrock_1_26_51`);
+protocol 2193 is spoken by Minecraft 1.26.50 through 1.26.52, and Jolyne
+reports game version 1.26.50 to match gophertunnel. Protocolgen emits
+lowercase-derived enum member names for this manifest (for example
+`Loginsuccess`); Cinnabar uses them unchanged. Cinnabar preserves its local
+shared-codec and Jolyne transport hardening.
 
-- `crates/valentine/src`
-- `crates/valentine/bedrock_core`
-- `crates/valentine/bedrock_versions/v1_26_0`
-- `crates/valentine/bedrock_versions/v1_26_30`
-- `crates/valentine/bedrock_versions/v1_26_40` (from `axolotl-stack` main
-  `781dfcb0ab443476b62df3c983750c0c1527a95a`; see "Bedrock 1.26.40
-  readiness" below)
-- `crates/valentine/Cargo.toml` and `README.md`
-- `crates/jolyne/src`
-- `crates/jolyne/Cargo.toml` and `README.md`
-- root `LICENSE`
+## Local source patches
 
-Upstream examples, tests, benches, generator executable, unrelated workspace
-crates, and uninitialised generator-input submodules are omitted. Local Cargo
-manifests replace workspace inheritance with direct versions and local paths;
-upstream-only development dependencies and targets are removed. Jolyne doctests
-are disabled because its copied README demonstrates the omitted RakNet transport.
-Jolyne defaults to no features and retains its feature names for cfg checking.
+`DisconnectPacket` is hand-patched after generation to read
+`hide_disconnection_screen` and skip both message strings when it is set, as
+gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that
+conditional. The normalization input fingerprints include this patch.
 
-## Local source patch inventory
+Generated protocol reservations are normalized locally after generation by
+`tools/protocol-normalize/normalize.py` and its pinned neutral-only manifest.
+Numeric packet selectors, enum values, union discriminators and field ordinals
+select reserved API bindings, including their supporting owned/borrowed records
+and debug labels. Shared retail records remain unchanged. This is a local
+generated-source naming patch, not pristine upstream output: codecs, numeric
+wire values, field order, sizing, limits, allocation and error paths are retained.
+The tool validates complete input/output fingerprints and a reversible scoped
+binding transformation plus an exact reversible, fingerprinted local layout
+patch before emitting an `apply_patch` patch. The layout spans reproduce the
+reviewed Rust formatting without invoking a formatter at tool runtime; they
+do not generalize syntax transformations. Uniform LF and CRLF input retain
+their line endings, while mixed line endings are refused. The tool never edits
+upstream repositories or generator inputs. Run the tool without `--patch` to
+check canonical output, and run its stdlib Python unit tests separately. The
+Rust protocol suite independently checks the complete normalized source hashes
+without requiring Python. Existing conformance fixture bytes remain unchanged.
 
-Task 0.4 made three Jolyne source changes: cfg guards around its RakNet-only
-import, transport import, and client connection implementation.
+The retained Jolyne changes preserve negotiated compression, bounded batch
+ingress, deferred packets, strict login sequencing, compact raw-frame error
+context, exact packet-entry boundary checks, and a stack-encoded packet-ID
+varint in raw header decoding (resolution still goes through the generated
+codec, whose normalized source stays hash-locked). The shared codec includes a
+fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
+encoding as two little-endian `u64` halves.
 
-Task 0.5 adds the following reviewed local patches:
+The generated protocol crate is lowered from protocolgen's reconciled 1.26.51
+manifest (protocol 2193), which pins Mojang's `v1.26.51` metadata release and
+Endstone's 1.26.51.1 dump and is checked against the gophertunnel oracle.
+Reconciliation requires two byte-equivalent complete source
+claims or a fingerprinted adjudication with independent wire evidence. Reviewed
+corrections cover binary buffers, little-endian scalar union arms, strict
+actor-ID varints, optional inventory filtered names, adjacent structure names, the two-selector PlayerList
+entry layout, and opaque preservation of unavailable packet bodies. Pinned conformance fixtures under
+`crates/protocol/tests` cover these shapes.
 
-- `jolyne/src/batch.rs` and `jolyne/src/stream/transport/inner.rs`: retain the
-  negotiated Deflate or Snappy algorithm for outbound batches and implement
-  Snappy encoding; enforce the 16 MiB decoded-batch and 1,600-packet limits on
-  raw/borrowed ingress; and restore packets deferred by the login state machine
-  ahead of unread packets from the same batch.
-- `jolyne/src/stream/client.rs`: fail rather than silently skip decode/resource
-  pack errors, negotiate Deflate, Snappy, or protocol no-compression, apply one
-  120-second login deadline, dispatch by raw packet ID before decoding, stop on
-  Disconnect, reject non-empty resource-pack stacks except gophertunnel's
-  pinned client-built-in exemptions, update the shield runtime ID from
-  ItemRegistry, request radius 16 immediately after
-  StartGame, preserve unrelated pre-spawn packets for play under aggregate
-  1,600-packet/16 MiB limits, accept either spawn/radius response order, reject
-  conflicting StartGame runtime IDs, and acknowledge loading/initialisation
-  with that exact ID.
-- `jolyne/src/gamedata.rs`: document that optional biome/entity/creative
-  definition packets stay queued for budgeted play-time decoding; only
-  StartGame and ItemRegistry are eagerly materialised for the spawn gate.
-- `jolyne/src/error.rs` and `jolyne/src/raw.rs`: preserve packet identity, body
-  length, and a bounded 32-byte preview on decode errors. No full-packet dump or
-  environment-controlled diagnostic hook is shipped. Owned and borrowed
-  decoders reject bytes left inside a declared packet entry; deferred raw
-  frames are compacted into frame-sized allocations and successful decode logs
-  contain sizes/IDs rather than payload bytes.
-- `jolyne/Cargo.toml`: enable Tokio macros/runtime only for vendored tests so
-  the client-feature suite builds independently.
-- `valentine/bedrock_core/src/bedrock/codec.rs`: add a fixed-width
-  little-endian NBT scanner alongside the existing network-little-endian
-  scanner and cap compound/list nesting at 512 in both variants. Also encode
-  `Uuid` as two little-endian `u64` halves rather than the raw 16 bytes, which
-  is what gophertunnel's `Writer.UUID` produces (it concatenates `x[8:]` and
-  `x[:8]` and reverses all 16 bytes, i.e. each half byte-reversed in place).
-  **This one is still not upstreamed** — `axolotl-stack` main writes
-  `uuid.as_bytes()` verbatim, so every UUID field there is byte-swapped
-  relative to BDS. It affects `v1_26_40` too, since `bedrock_core` is shared.
-  `uuid_uses_bedrock_little_endian_halves` pins the expected bytes.
-- `valentine/bedrock_versions/v1_26_30/src/borrowed.rs`: retain the exact number
-  of unconsumed payload bytes from generated borrowed decoders so Jolyne can
-  enforce declared-entry boundaries without materialising owned packets, and
-  bound borrowed ItemRegistry entries before allocation.
-- `valentine/bedrock_versions/v1_26_30/src/proto.rs`: apply gophertunnel's
-  4,096-element collection bound plus remaining-byte sanity before allocating
-  every generated collection eagerly decoded by the Task 0.5 login path.
-- `valentine/bedrock_versions/v1_26_30/src/types.rs`: correct PlayerList counts,
-  bound PlayerList entries at 4,096 before allocation, reject contradictory
-  PlayerList encodings, treat ItemLegacy IDs `0` and `-1` as empty, decode item
-  extra-data NBT with fixed-width little endian, and encode/decode shaped recipe
-  input as exactly `width * height` descriptors without length prefixes.
-
-Task 0.8 adds two more reviewed protocol-1001 patches:
-
-- `valentine/bedrock_versions/v1_26_30/src/proto.rs`: make
-  `AvailableCommands.EnumValues` use the pinned gophertunnel single shared
-  VarUInt count, reject more than 4,096 entries, and reserve fallibly.
-- `valentine/bedrock_versions/v1_26_30/src/types.rs` and `borrowed.rs`: model
-  every MaterialReducer output as a counted, bounded vector of ZigZag pairs in
-  both owned and borrowed forms.
-
-The generated Valentine changes are deliberate manual protocol-1001 patches
-and would be overwritten by regeneration. In particular, the upstream
-generator currently collapses fixed little-endian `lnbt` and network
-little-endian `nbt`. The pinned conformance fixtures in `crates/protocol/tests`
-must remain green across any regeneration.
-
-The upstream commit records these generator-input gitlinks:
-
-- PrismarineJS `minecraft-data` commit
-  `6ec59288287e4045331eaa47ee8fb104278f6b98` (MIT)
-- pmmp `BedrockData` commit
-  `7d74ffbdd620dc1e31af0a645d3eea738c820c0b` (CC0-1.0)
-
-Wire behaviour and byte fixtures use the exact project pin
+The runtime and fixture generator resolve the project pin
 `hashimthearab/gophertunnel` commit
-`be6713da4dc051a4197f897d04835e89e9c54321` (`lunar`, module pseudo-version
-`v1.25.3-0.20260806044231-be6713da4dc0`, Minecraft `1.26.40` / protocol 2168).
-It is the behavioural authority for these patches; an unrelated local checkout
-or later `lunar` head is not. The protocol-1001 fixtures were generated against
-commit `9948b1729395d2e819fce28e079d4a7bfc67716c`, which is what the still
-unmigrated `v1_26_30` patches above were reviewed against.
+`b725d82563e93308fd1f92d27da5e97301ad5040` (`resource-pack-changes`, module
+pseudo-version `v1.25.3-0.20260929084839-b725d82563e9`, protocol 2193 as
+`minecraft.DefaultProtocol`). The fork includes lunar's 1.26.50 support and the
+restored Cinnabar resource-pack APIs. Fixtures are regenerated by
+`tools/fixturegen` against that pin.
 
-## Bedrock 1.26.40 readiness
+## Generated-code caveats
 
-Cinnabar runs on Bedrock 1.26.40 / protocol 2168. `crates/protocol/Cargo.toml`
-selects `bedrock_1_26_40` for the wire format and keeps `bedrock_1_26_30`
-enabled alongside it purely as a content-registry data source; the two version
-modules are additive and compile side by side.
+The generated 1.26.51 decoders validate signed and platform-sized lengths and
+grow decoded collections through fallible allocation without trusting untrusted
+wire counts for eager capacity. Byte buffers validate their declared size against
+the remaining packet before allocating. These checks do not impose a global
+collection ceiling; valid larger values remain accepted where the field contract
+permits them.
 
-Three things that used to be local patches are now upstream and survive
-regeneration:
-
-- `decode_inner_with_remaining` for borrowed packets (`axolotl-stack` `d075eb2`),
-  replacing the hand-patched `v1_26_30/src/borrowed.rs` behaviour.
-- Length-prefixed binary buffers are typed `Vec<u8>` instead of a lossily
-  decoded `String` (`781dfcb`). Chunk, sub-chunk, blob-cache and item user-data
-  payloads survive a decode/encode round trip; the framing is unchanged.
-- `GameRuleRuleValue`'s `Int32` and `Float` arms encode through `I32LE`/`F32LE`
-  rather than the big-endian bare primitive codecs (`781dfcb`). The root cause
-  was union-arm lowering in the generator, so `DataStoreUpdate` Double and
-  `ServerboundPackSettingChange` Float were corrected with them.
-
-### Open: no allocation guards
-
-**This remains deliberate debt.** `v1_26_40` contains none of the
-`MAX_LOGIN_COLLECTION_ELEMENTS` / `MAX_WORLD_COLLECTION_ELEMENTS` /
-`MAX_SUB_CHUNK_ENTRIES` / `MAX_PACKET_BYTE_ARRAY_BYTES` / `MAX_PLAYER_RECORDS`
-bounds that `v1_26_30` applied before every eager collection allocation:
-`grep -c ArrayLengthExceeded` over `bedrock_versions/v1_26_40/src/` returns 0
-where `v1_26_30` had 44 sites. Every length-prefixed field decodes as a bare
-`Vec::with_capacity(len)` over an attacker-controlled varint, so a peer can
-force a large reservation before the read fails. These are hostile-input
-protections no schema source emits, and they belong in the generator rather
-than in another hand-patch. `tests/world_collection_bounds.rs` and
-`tests/biome_definition_list.rs` are two-sided tripwires: they assert the read
-fails with EOF today and fail loudly if `ArrayLengthExceeded` reappears, which
-is the signal to restore the strict assertions.
-
-Cinnabar's own pre-decode gates in `crates/protocol/src/{codec,inventory}.rs`
-still bound counts and text before the owned decoder allocates, so the exposed
-surface is the packets those gates do not cover.
-
-### Open: BedrockSafetyRedactableString has an extra presence byte
-
-`ItemStackResponseSlotInfo::custom_name` and `StructureEditorData::structure_name`
-are typed `BedrockSafetyRedactableString`, which encodes an `unredacted` string,
-a presence byte, and an optional `redacted` string. gophertunnel writes two
-plain adjacent strings in both places (`StackResponseSlotInfo.Marshal` in
-`minecraft/protocol/item_stack.go`), so the generated decoder reads the second
-string's length prefix as the presence flag and then reads a bogus length.
-
-`fixtures/item_stack_response.bin` therefore cannot decode. It fails loudly
-rather than corrupting, and only those two fields use the type. The BDS type has
-an `std::optional` member but its serializer appears to write both halves
-unconditionally, so this is a generator artifact for the correction layer.
-`login::tests::item_stack_response_fixture_pins_the_redactable_string_divergence`
-asserts the failure and starts failing once it is fixed.
-
-### Open: borrowed LevelChunk payloads are owned
-
-`LevelChunkPacketView::serialized_chunk_data` is an owned `Vec<u8>` rather than
-a zero-copy `BorrowedStr`, an allocation regression on the hottest packet.
-Acknowledged upstream as a generator follow-up (it could use
-`take_varint_prefixed_bytes` for `Array{VarInt,U8}`). Relatedly, there is no
-`TextPacketBodyView`, so the borrowed text path materialises the body strings
-before `validate_borrowed_ui_packet` runs; `codec::validate_raw_text_packet` is
-what actually enforces UTF-8 before allocation.
-
-### Open: varint strictness on actor IDs
-
-`v1_26_30` decoded `MovePlayer` runtime and ridden IDs through
-`protocol::wire::read_var_u64`, which rejected overflow past 2^63 and overlong
-encodings. `ActorRuntimeId` now decodes through the shared `VarLong`, which only
-errors at shift >= 70, so a 10-byte varint decodes with its high bits dropped.
-`move_player_rejects_overlong_runtime_and_ridden_varint_ids` pins the surviving
-11-byte rejection.
-
-`v1_26_40` has no `blocks`, `items`, `states`, `entities`, `biomes`, or
-`block_palette` modules: the BDS dumps describe the wire, not the content
-registries. `crates/protocol/src/world.rs` reads `v1_26_30::biomes::ALL_BIOMES`
-and `crates/protocol/src/item.rs` reads the generated `v1_26_30` items table, so
-that data keeps coming from the prismarine-derived crate. Both sites are
-commented as deliberate data pins.
+Content registries are maintained independently of the generated wire schema.
+The protocol crate uses reviewed retail item and biome allowlists under
+`crates/protocol/data/`.

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::{
@@ -19,34 +20,36 @@ use assets::{
 use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap as FastHashMap;
 use protocol::{
-    ActorAttribute, ActorEvent, BiomeDefinitionEvent, BlockCrackEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent, DimensionRange,
-    LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet, PlayerMovementCorrectionEvent,
-    RespawnEvent, SetTimeEvent, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
-    UiEvent, WeatherUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
-    vanilla_dimension_range,
+    ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
+    BlockEntityUpdateEvent, BlockUpdateEvent, ChangeDimensionEvent, DaylightCycleUpdateEvent,
+    DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, Packet,
+    PlayerMovementCorrectionEvent, RespawnEvent, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, UiEvent, WeatherUpdateEvent, WorldBootstrap,
+    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use thiserror::Error;
 use world::{
-    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockPos, BlockUpdate,
-    BoundaryLightSample, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn,
+    BiomeIds, BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockIds, BlockPos,
+    BlockUpdate, BoundaryLightSample, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn,
     DecodedBlockEntities, DecodedLevelChunk, DecodedSubChunk, DimensionLightProfile,
-    LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
+    DimensionSlots, LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
     LightProperties as SolverLightProperties, LightReadAccess, LightSolveError, LightSolveOutput,
     LightStore, LightStoreSnapshot, LightSubChunkKind, MeshDependencyMask, MeshNeighbourhood,
     MutationError, PreparedSubChunkMutation, SolverLimits, SubChunk, SubChunkKey, SubChunkLight,
-    chunk_in_view, solve_light,
+    chunk_in_view, decode_column_tail, solve_light,
 };
 
 use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use super::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
+use super::actor_store::{ActorSnapshot, ActorStore, LocalPlayerFeed, PlayerProfile};
 use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
 use super::server_position::{ResolvedServerPosition, resolve_server_position};
-use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use super::{ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
+mod block_cracks;
 mod block_entities;
+mod block_events;
 mod cohort;
 mod connectivity;
 mod construction;
@@ -55,8 +58,10 @@ mod diagnostics;
 mod dirty;
 mod helpers;
 mod lighting;
+mod map_data;
 mod meshing;
 mod model;
+mod movement_attribute;
 mod polling;
 mod publication;
 #[path = "publication_config.rs"]
@@ -68,7 +73,9 @@ mod requests;
 mod residency;
 mod retries;
 mod sequencing;
+mod sign_edit;
 
+use decode::{DecodeIds, dimension_slots};
 use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
@@ -98,6 +105,9 @@ static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_ACTOR_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_PARTICLE_CAPACITY: usize = 512;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
@@ -208,30 +218,42 @@ use model::{
     split_block_update,
 };
 
-pub use model::{
-    CommittedControlEvent, CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState,
-    PendingSubChunkRequest, PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange,
-    WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
-    WorldStreamStats,
+pub use block_cracks::{
+    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
+pub use block_events::BlockEventCue;
+pub use map_data::MapImage;
+pub use model::{
+    CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
+    CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
+    PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError,
+    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+};
+pub use sign_edit::SignEditRequest;
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {
     store: ChunkStore,
+    block_cracks: block_cracks::BlockCracks,
+    block_events: block_events::BlockEvents,
+    map_images: map_data::MapImages,
+    pending_sign_edit: Option<SignEditRequest>,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
+    custom_block_ids: std::ops::Range<u32>,
+    id_remap: Arc<assets::SequentialIdRemap>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
     biome_tint_stream_id: u64,
     biome_tint_revision: u64,
     current_dimension: i32,
+    form_dimension_epoch: u64,
     local_player_runtime_id: u64,
     local_player_unique_id: i64,
-    local_mount_unique_id: Option<i64>,
     ordered: SequenceBuffer<PreparedWorldEvent>,
     submitted: HashSet<u64>,
     heavy_sequences: HashSet<u64>,
@@ -296,6 +318,10 @@ pub struct WorldStream {
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
     committed_ui: VecDeque<CommittedUiEvent>,
+    local_movement_speed: Option<f64>,
+    committed_audio: VecDeque<CommittedAudioEvent>,
+    committed_camera: VecDeque<CommittedCameraEvent>,
+    committed_particles: VecDeque<CommittedParticleEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,

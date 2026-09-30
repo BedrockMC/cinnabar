@@ -2,12 +2,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 use thiserror::Error;
 
-/// The compact classic/Java-style HUD scale used by the normal desktop client.
-///
-/// The Java auto rule selects scale 3 at 1280x720, which makes the fixed 182px
-/// hotbar 546 physical pixels wide while the compact Monocraft text remains at
-/// its scale-2 equivalent. Scale 2 keeps the gameplay HUD and chat visually
-/// coherent; `--gui-scale auto` remains available for reference captures.
+/// The settings screen's GUI-scale step when `--gui-scale` is auto.
 pub const DEFAULT_GUI_SCALE: u8 = 2;
 
 pub const HELP: &str = "\
@@ -17,7 +12,7 @@ Usage: bedrock-client [OPTIONS]
 
 Options:
   --address <HOST:PORT>       Directly launch the Go core and join a server
-  --socket-dir <PATH>          Core socket directory (default: .local/run)
+  --socket-dir <PATH>          Override the platform runtime socket directory
   --assets <PATH>              Compiled vanilla asset blob
   --display-name <NAME>        Offline display name (default: RustMCBE)
   --acceptance-seconds <N>     Exit after N seconds and write metrics
@@ -29,7 +24,9 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
-  --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
+  --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
+  --dev-debug-overlay          Enable the non-vanilla F3 developer overlay (default: off)
+  --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
                                Wait up to 2s for GPU-presented water at timed exit
@@ -50,6 +47,7 @@ pub enum Phase3Target {
     Zeqa,
     Lbsg,
     Zeno,
+    Venity,
 }
 
 impl Phase3Target {
@@ -60,6 +58,7 @@ impl Phase3Target {
             Self::Zeqa => "Zeqa",
             Self::Lbsg => "Lbsg",
             Self::Zeno => "Zeno",
+            Self::Venity => "Venity",
         }
     }
 
@@ -70,6 +69,7 @@ impl Phase3Target {
             "Zeqa" => Ok(Self::Zeqa),
             "Lbsg" => Ok(Self::Lbsg),
             "Zeno" => Ok(Self::Zeno),
+            "Venity" => Ok(Self::Venity),
             _ => Err(ArgsError::InvalidPhase3Target(value)),
         }
     }
@@ -97,6 +97,10 @@ pub struct ClientArgs {
     /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
     /// selects the Java auto rule; the normal client default is scale 2.
     pub gui_scale: Option<u8>,
+    /// F3 developer overlay; not a vanilla surface.
+    pub dev_debug_overlay: bool,
+    /// Requested UI language code; `None` follows the environment locale.
+    pub language: Option<String>,
     pub full_view_teleport_gate: bool,
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
@@ -122,7 +126,9 @@ impl Default for ClientArgs {
             force_vsync: false,
             no_vsync: false,
             frame_cap: None,
-            gui_scale: Some(DEFAULT_GUI_SCALE),
+            gui_scale: None,
+            dev_debug_overlay: false,
+            language: None,
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
             transparent_witness_request: None,
@@ -165,13 +171,18 @@ pub enum ArgsError {
     #[error("--gui-scale must be an integer from 1 through 4, got {0:?}")]
     InvalidGuiScale(String),
 
+    #[error("--language must be a code like de_DE, got {0:?}")]
+    InvalidLanguage(String),
+
     #[error("--display-name cannot be empty")]
     EmptyDisplayName,
 
     #[error("--vsync and --no-vsync cannot be used together")]
     ConflictingVsyncFlags,
 
-    #[error("--phase3-evidence-target must be one of Bds, Lunar, Zeqa, Lbsg, or Zeno, got {0:?}")]
+    #[error(
+        "--phase3-evidence-target must be one of Bds, Lunar, Zeqa, Lbsg, Zeno, or Venity, got {0:?}"
+    )]
     InvalidPhase3Target(String),
 
     #[error("--phase3-candidate-physics requires an attributable --phase3-evidence-target run")]
@@ -202,6 +213,7 @@ impl ClientArgs {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
                 Some("--freecam") => parsed.freecam = true,
+                Some("--dev-debug-overlay") => parsed.dev_debug_overlay = true,
                 Some("--vsync") => parsed.force_vsync = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
                 Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,
@@ -311,6 +323,15 @@ impl ClientArgs {
                             .filter(|fps| (1..=1_000).contains(fps))
                             .ok_or_else(|| ArgsError::InvalidFrameCap(value.clone()))?,
                     );
+                }
+                Some("--language") => {
+                    let value = next_value(&mut arguments, "--language")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 { flag: "--language" })?;
+                    if !assets::is_language_code(&value) {
+                        return Err(ArgsError::InvalidLanguage(value));
+                    }
+                    parsed.language = Some(value);
                 }
                 Some("--gui-scale") => {
                     let value = next_value(&mut arguments, "--gui-scale")?
@@ -508,6 +529,7 @@ mod tests {
             "--model-witness-request",
             "--phase3-evidence-target",
             "--phase3-candidate-physics",
+            "--dev-debug-overlay",
         ] {
             assert!(HELP.contains(flag));
         }
@@ -543,6 +565,13 @@ mod tests {
             panic!("--gui-scale must parse into a run outcome");
         };
         assert_eq!(parsed.gui_scale, Some(3));
+        assert!(!parsed.dev_debug_overlay);
+        let ParseOutcome::Run(parsed) =
+            ClientArgs::parse_from(["client", "--dev-debug-overlay"]).unwrap()
+        else {
+            panic!("--dev-debug-overlay must parse into a run outcome");
+        };
+        assert!(parsed.dev_debug_overlay);
         assert!(matches!(
             ClientArgs::parse_from(["client", "--unknown"]),
             Err(ArgsError::Unknown(_))

@@ -20,9 +20,9 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
-    local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
-    update_actor_rig_scene,
+    ActorRigPresentation, actor_rig_presentation, entity_rig_presentation,
+    local_actor_presentation_for_visibility, local_diagnostic_presentation,
+    select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
 use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
 
@@ -30,6 +30,7 @@ fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], 1.0],
+        axis_scale: [1.0; 3],
     }
 }
 
@@ -37,6 +38,7 @@ fn render_bone() -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
+        axis_scale: render::UNIT_AXIS_SCALE,
     }
 }
 
@@ -77,6 +79,7 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         attributes: Default::default(),
         int_properties: Default::default(),
         float_properties: Default::default(),
+        status: Default::default(),
     }
 }
 
@@ -86,6 +89,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         username: "player".into(),
         verified: true,
         skin: PlayerSkin::Standard(StandardSkin {
+            geometry: None,
+            cape: None,
             width: 64,
             height: 64,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
@@ -108,9 +113,18 @@ fn rig<'a>(
         rig: EntityRigId(9),
         previous,
         current,
+        rest: previous,
+        rest_completed_tick: 11,
+        rest_reset_generation: 5,
         completed_tick: 11,
         reset_generation: 5,
         fallback: EntityRigFallback::GeometryOnly,
+        scale: 1.0,
+        previous_body_yaw: 0.0,
+        body_yaw: 0.0,
+        render: &[],
+        bone_names: &[],
+        skin_geometry: None,
     }
 }
 
@@ -127,6 +141,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
                     source_tick: None,
                     movement_revision: 0,
                     pose_generation: 11,
+                    layer: 0,
                 },
                 rig: RenderEntityRigId(3),
                 previous_bones: Arc::from([render_bone()]),
@@ -141,8 +156,14 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
             ],
             texture_layer: u32::MAX,
             route: ActorRigRoute::Compiled,
+            tint: 0,
+            overlay_rgba8: 0,
         },
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
+        artwork: None,
+        model_scale: 1.0,
+        authored_scale: 1.0,
+        head_over_body: 0.0,
     }
 }
 
@@ -180,6 +201,30 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
             .is_some_and(|skin| skin.iter().all(|byte| *byte == 7)),
         "the selected non-default roster skin survives conversion",
     );
+}
+
+#[test]
+fn generic_actor_without_validated_artwork_remains_explicitly_no_draw() {
+    let mut actor = actor(42, 0);
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:example".into(),
+    };
+    let bones = [model_bone([0.0; 3])];
+    let presentation = entity_rig_presentation(
+        &rig(42, &bones, &bones),
+        &actor,
+        &render::ActorArtworkPages::default(),
+        0.5,
+    )
+    .unwrap();
+    assert_eq!(presentation.submission.route, ActorRigRoute::NoDraw);
+    assert!(presentation.artwork.is_none());
+    assert!(presentation.skin_rgba8.is_none());
+    let batch = select_actor_presentations(7, false, None, [presentation]);
+    assert_eq!(batch.submissions.len(), 1);
+    assert_eq!(batch.submissions[0].route, ActorRigRoute::NoDraw);
+    assert!(batch.skins_rgba8.is_empty());
+    assert!(batch.artwork.is_empty());
 }
 
 #[test]
@@ -248,6 +293,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
         8,
         Some(canonical.clone()),
         Some(mismatched_visibility),
+        0.0,
     );
     let batch = select_actor_presentations(7, true, local, [render_owned(7, 31)]);
     assert!(batch.submissions.is_empty());
@@ -265,6 +311,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
             7,
             Some(canonical.clone()),
             Some(matching_visibility.clone()),
+            0.0,
         );
         let batch = select_actor_presentations(
             7,
@@ -485,4 +532,19 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         Some(subject_eye)
     );
     assert_eq!(authoritative_local_actor_eye(None, None), None);
+}
+
+#[test]
+fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
+    let mut canonical = render_owned(7, 31);
+    canonical.head_over_body = 30.0;
+    let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [4.0, 64.0, 2.0], 90.0, 0.0)
+        .expect("finite local carrier converts");
+    let local =
+        local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic), 90.0)
+            .expect("canonical local rig is kept");
+    assert_eq!(
+        local.submission.world_from_actor,
+        crate::presentation::actors::rig_world_from_actor([4.0, 64.0, 2.0], 60.0, 1.0)
+    );
 }

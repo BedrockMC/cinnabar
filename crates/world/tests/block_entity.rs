@@ -132,8 +132,26 @@ fn network_little_endian_prefix_retains_exact_bytes_and_root_identity() {
 
 #[test]
 fn root_must_be_a_compound() {
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&[1]),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
     let error = BlockEntityNbt::decode_prefix(&[1, 0, 7]).unwrap_err();
     assert_eq!(error, BlockEntityNbtError::RootNotCompound { tag: 1 });
+
+    let mut semantic_then_policy = vec![9, 0, 1];
+    zigzag_i32(
+        i32::try_from(MAX_NBT_COLLECTION_LENGTH + 1).unwrap(),
+        &mut semantic_then_policy,
+    );
+    semantic_then_policy.resize(
+        semantic_then_policy.len() + MAX_NBT_COLLECTION_LENGTH + 1,
+        0,
+    );
+    assert_eq!(
+        BlockEntityNbt::decode_prefix(&semantic_then_policy).unwrap_err(),
+        BlockEntityNbtError::RootNotCompound { tag: 9 }
+    );
 }
 
 #[test]
@@ -156,6 +174,24 @@ fn malformed_or_ambiguous_root_fields_are_rejected() {
     assert_eq!(
         BlockEntityNbt::decode_prefix(&partial_position).unwrap_err(),
         BlockEntityNbtError::PartialPosition
+    );
+
+    let mut semantic_then_policy = vec![10, 0];
+    named_header(3, b"id", &mut semantic_then_policy);
+    zigzag_i32(0, &mut semantic_then_policy);
+    named_header(8, b"later", &mut semantic_then_policy);
+    var_u32(
+        u32::try_from(MAX_NBT_STRING_BYTES + 1).unwrap(),
+        &mut semantic_then_policy,
+    );
+    semantic_then_policy.resize(semantic_then_policy.len() + MAX_NBT_STRING_BYTES + 1, 0);
+    assert_eq!(
+        BlockEntityNbt::decode_prefix(&semantic_then_policy).unwrap_err(),
+        BlockEntityNbtError::InvalidRootFieldType {
+            field: "id",
+            expected: 8,
+            actual: 3,
+        }
     );
 }
 
@@ -196,7 +232,7 @@ fn decoder_enforces_depth_collection_string_and_byte_limits() {
     let mut collection = vec![10, 0];
     named_header(7, b"a", &mut collection);
     zigzag_i32((MAX_NBT_COLLECTION_LENGTH + 1) as i32, &mut collection);
-    collection.push(0);
+    collection.resize(collection.len() + MAX_NBT_COLLECTION_LENGTH + 1, 0);
     assert!(matches!(
         BlockEntityNbt::decode_prefix(&collection),
         Err(BlockEntityNbtError::CollectionTooLong { .. })
@@ -205,6 +241,7 @@ fn decoder_enforces_depth_collection_string_and_byte_limits() {
     let mut oversized_string = vec![10, 0];
     named_header(8, b"s", &mut oversized_string);
     var_u32((MAX_NBT_STRING_BYTES + 1) as u32, &mut oversized_string);
+    oversized_string.resize(oversized_string.len() + MAX_NBT_STRING_BYTES + 1, 0);
     assert!(matches!(
         BlockEntityNbt::decode_prefix(&oversized_string),
         Err(BlockEntityNbtError::StringTooLong { .. })
@@ -220,6 +257,99 @@ fn decoder_enforces_depth_collection_string_and_byte_limits() {
     assert!(matches!(
         BlockEntityNbt::decode_prefix(&oversized),
         Err(BlockEntityNbtError::TooManyBytes { .. })
+    ));
+}
+
+#[test]
+fn oversized_declared_fields_prove_truncation_before_policy() {
+    let string_len = MAX_NBT_STRING_BYTES + 1;
+    let mut root_name = vec![10];
+    var_u32(string_len as u32, &mut root_name);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&root_name),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
+    root_name.resize(root_name.len() + string_len, 0);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&root_name),
+        Err(BlockEntityNbtError::StringTooLong { .. })
+    ));
+
+    let mut tag_name = vec![10, 0, 1];
+    var_u32(string_len as u32, &mut tag_name);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&tag_name),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
+    tag_name.resize(tag_name.len() + string_len, 0);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&tag_name),
+        Err(BlockEntityNbtError::StringTooLong { .. })
+    ));
+
+    let mut string_value = vec![10, 0];
+    named_header(8, b"s", &mut string_value);
+    var_u32(string_len as u32, &mut string_value);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&string_value),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
+    ));
+    string_value.resize(string_value.len() + string_len, 0);
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&string_value),
+        Err(BlockEntityNbtError::StringTooLong { .. })
+    ));
+
+    let collection_len = MAX_NBT_COLLECTION_LENGTH + 1;
+    for tag in [7_u8, 11, 12] {
+        let mut truncated = vec![10, 0];
+        named_header(tag, b"a", &mut truncated);
+        zigzag_i32(collection_len as i32, &mut truncated);
+        assert!(matches!(
+            BlockEntityNbt::decode_prefix(&truncated),
+            Err(BlockEntityNbtError::UnexpectedEof { .. })
+        ));
+        truncated.resize(truncated.len() + collection_len, 0);
+        assert!(matches!(
+            BlockEntityNbt::decode_prefix(&truncated),
+            Err(BlockEntityNbtError::CollectionTooLong { .. })
+        ));
+    }
+
+    for (element_tag, width) in [(2_u8, 2_usize), (3, 1)] {
+        let mut truncated = vec![10, 0];
+        named_header(9, b"l", &mut truncated);
+        truncated.push(element_tag);
+        zigzag_i32(collection_len as i32, &mut truncated);
+        assert!(matches!(
+            BlockEntityNbt::decode_prefix(&truncated),
+            Err(BlockEntityNbtError::UnexpectedEof { .. })
+        ));
+        truncated.resize(truncated.len() + collection_len * width, 0);
+        assert!(matches!(
+            BlockEntityNbt::decode_prefix(&truncated),
+            Err(BlockEntityNbtError::CollectionTooLong { .. })
+        ));
+    }
+}
+
+#[test]
+fn aggregate_byte_limit_proves_truncation_before_policy() {
+    let mut truncated = vec![10, 0];
+    loop {
+        let mut next = Vec::new();
+        named_header(7, b"a", &mut next);
+        zigzag_i32(MAX_NBT_COLLECTION_LENGTH as i32, &mut next);
+        if truncated.len() + next.len() + MAX_NBT_COLLECTION_LENGTH > MAX_BLOCK_ENTITY_NBT_BYTES {
+            truncated.extend(next);
+            break;
+        }
+        truncated.extend(next);
+        truncated.resize(truncated.len() + MAX_NBT_COLLECTION_LENGTH, 0);
+    }
+    assert!(matches!(
+        BlockEntityNbt::decode_prefix(&truncated),
+        Err(BlockEntityNbtError::UnexpectedEof { .. })
     ));
 }
 
