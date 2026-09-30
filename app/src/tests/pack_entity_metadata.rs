@@ -92,6 +92,15 @@ const LIFT_ANIMATION: &str = r#"{"format_version":"1.8.0","animations":{
  "animation.test.lift_hold":{"loop":"hold_on_last_frame","animation_length":0.25,
   "bones":{"root":{"position":[0,8,0]}}}}}"#;
 
+// Scale scripts as vanilla mobs author them: a Molang uniform scale and a per-axis squash.
+const SCALED: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:scaled",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"default":"textures/entity/counter_zero"},
+ "geometry":{"default":"geometry.counter"},
+ "scripts":{"scale":"query.variant == 1 ? 2.0 : 1.0","scaleY":"0.5"},
+ "render_controllers":["controller.render.logo"]}}}"#;
+
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[
  {"description":{"identifier":"geometry.counter","texture_width":16,"texture_height":16},"bones":[
  {"name":"root","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,16,8],"uv":[0,0]}]}]},
@@ -134,6 +143,7 @@ fn pack() -> (Pack, ActorArtworkPages) {
         ("entity/logo.entity.json".into(), LOGO.into()),
         ("entity/title.entity.json".into(), TITLE.into()),
         ("entity/once.entity.json".into(), ONCE.into()),
+        ("entity/scaled.entity.json".into(), SCALED.into()),
         ("entity/hold.entity.json".into(), HOLD.into()),
         (
             "animations/lift.animation.json".into(),
@@ -426,4 +436,26 @@ fn ignore_lighting_controllers_draw_unlit_while_others_keep_world_light() {
     };
     assert_eq!(light("test:logo"), 0);
     assert_eq!(light("test:counter"), render::pack_actor_light(2, 9, 1.0));
+}
+
+// Authored scale expressions and axis scales size the model each tick.
+#[test]
+fn scale_scripts_size_the_model_per_tick() {
+    let (pack, artwork) = pack();
+    let mut world = world(pack, "test:scaled");
+    let unit = drawn(&world, &artwork);
+    assert_eq!(unit.model_scale, 1.0);
+    assert!(
+        (unit.height_axis - 0.5).abs() < 1e-5,
+        "{}",
+        unit.height_axis
+    );
+    update(&mut world, 2, ActorMetadataValue::Int(1));
+    let doubled = drawn(&world, &artwork);
+    assert_eq!(doubled.model_scale, 2.0);
+    assert!(
+        (doubled.height_axis - 1.0).abs() < 1e-5,
+        "{}",
+        doubled.height_axis
+    );
 }

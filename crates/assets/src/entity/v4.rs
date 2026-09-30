@@ -230,6 +230,10 @@ pub struct EntityRigBinding {
     pub initialize: Option<u32>,
     pub pre_animation: Option<u32>,
     pub scale: EntityGeometryScalar,
+    /// `scale`, `scaleX`, `scaleY` and `scaleZ` expressions when any is authored as Molang or
+    /// per axis; `scale` then holds only the constant fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_expressions: Option<[u32; 4]>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

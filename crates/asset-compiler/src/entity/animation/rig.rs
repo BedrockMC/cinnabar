@@ -38,6 +38,7 @@ struct PendingRig {
     initialize: Option<u32>,
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
+    scale_expressions: Option<[u32; 4]>,
 }
 
 struct PendingRigGeometry {
@@ -104,6 +105,7 @@ impl PendingRigPayload {
                 initialize: rig.initialize,
                 pre_animation: rig.pre_animation,
                 scale: rig.scale,
+                scale_expressions: rig.scale_expressions,
             });
         }
         Ok(FinalRigPayload {
@@ -342,6 +344,7 @@ pub(super) fn compile_rigs(
             initialize: scripts.initialize,
             pre_animation: scripts.pre_animation,
             scale: scripts.scale,
+            scale_expressions: scripts.scale_expressions,
         });
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
@@ -352,6 +355,7 @@ struct RigScripts {
     initialize: Option<u32>,
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
+    scale_expressions: Option<[u32; 4]>,
     dropped: usize,
 }
 
@@ -370,17 +374,48 @@ impl RigScripts {
         };
         let initialize = script("initialize")?;
         let pre_animation = script("pre_animation")?;
-        // Only an authored constant scale is carried; an expression keeps unit scale.
-        let scale = match scripts.and_then(|scripts| scripts.get("scale")) {
+        let field = |name: &str| scripts.and_then(|scripts| scripts.get(name));
+        let constant = match field("scale") {
             None => Some(1.0),
             Some(Value::Number(number)) => number.as_f64().map(|value| value as f32),
             Some(Value::String(text)) => text.trim().parse::<f32>().ok(),
             Some(_) => None,
         };
-        if scale.is_none() {
-            dropped += 1;
+        // A Molang scale (cow's `query.is_baby ? 2.0 : 1.0`) or any axis scale is evaluated
+        // per tick; only a lone constant stays a constant.
+        let mut scale_expressions = None;
+        if constant.is_none()
+            || ["scaleX", "scaleY", "scaleZ"]
+                .iter()
+                .any(|name| field(name).is_some())
+        {
+            let mut compiled = [0; 4];
+            let mut complete = true;
+            for (slot, name) in ["scale", "scaleX", "scaleY", "scaleZ"].iter().enumerate() {
+                let text = match field(name) {
+                    None => "1.0".to_owned(),
+                    Some(Value::Number(number)) => number.to_string(),
+                    Some(Value::String(text)) => text.clone(),
+                    Some(_) => {
+                        complete = false;
+                        break;
+                    }
+                };
+                match molang.compile(&text) {
+                    Ok(index) => compiled[slot] = index,
+                    Err(_) => {
+                        complete = false;
+                        break;
+                    }
+                }
+            }
+            if complete {
+                scale_expressions = Some(compiled);
+            } else {
+                dropped += 1;
+            }
         }
-        let scale = scale
+        let scale = constant
             .filter(|scale| *scale > 0.0)
             .and_then(EntityGeometryScalar::new)
             .or_else(|| EntityGeometryScalar::new(1.0))
@@ -389,6 +424,7 @@ impl RigScripts {
             initialize,
             pre_animation,
             scale,
+            scale_expressions,
             dropped,
         })
     }
