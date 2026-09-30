@@ -664,7 +664,7 @@ fn count_only_corrections_keep_the_locally_derived_durability_bar() {
     let presented = presented_selected_durability(&mut runtime, &stream);
     let derived = item_facts::durability_fraction(
         runtime.inventory_ledger().displayed_stack(0).unwrap(),
-        Some("minecraft:iron_sword"),
+        item_facts::max_durability("minecraft:iron_sword"),
     );
     assert!(
         derived.is_some_and(|fraction| (fraction - 0.5).abs() < 0.01),

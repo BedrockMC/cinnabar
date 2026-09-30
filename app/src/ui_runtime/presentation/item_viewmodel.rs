@@ -45,6 +45,7 @@ pub(super) const fn icon_at(page: u16, origin: [u32; 2]) -> IconRef {
             (origin[0] + SIDE) as u16,
             (origin[1] + SIDE) as u16,
         ],
+        glint: false,
     }
 }
 
