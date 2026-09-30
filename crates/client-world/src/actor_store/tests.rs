@@ -327,7 +327,7 @@ fn primed_tnt_without_height_uses_the_vanilla_default_offset() {
 }
 
 #[test]
-fn player_delta_y_is_not_shifted_like_a_network_position() {
+fn feet_origin_y_is_not_shifted_like_a_network_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
     store.apply(
