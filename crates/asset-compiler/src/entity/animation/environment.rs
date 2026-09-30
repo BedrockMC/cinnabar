@@ -253,7 +253,12 @@ pub(super) fn unique_geometry_indices(
 pub(super) fn default_geometry(value: Option<&Value>) -> Option<&str> {
     match value? {
         Value::String(value) => Some(value),
-        Value::Object(values) => values.get("default").and_then(Value::as_str),
+        // Vanilla needs no `default` alias (tropical fish, variant-picked pack models): the
+        // render controller selects among the aliases, so the first stands in as the rest model.
+        Value::Object(values) => values
+            .get("default")
+            .or_else(|| values.values().next())
+            .and_then(Value::as_str),
         _ => None,
     }
 }
