@@ -143,62 +143,59 @@ pub(in crate::chunk) struct GpuUploadReservation {
 }
 
 impl GpuUploadReservation {
-    pub(in crate::chunk) fn try_reserve_permitted(
-        &mut self,
-        incremental_bytes: u64,
-        projected_growth_copy_bytes: u64,
-        growth_copy_ceiling: u64,
-    ) -> bool {
-        if projected_growth_copy_bytes > growth_copy_ceiling {
-            return false;
-        }
-        let Some(items) = self.items.checked_add(1) else {
-            return false;
-        };
-        let Some(incremental_bytes) = self.incremental_bytes.checked_add(incremental_bytes) else {
-            return false;
-        };
-        let next = Self {
-            items,
-            incremental_bytes,
-            growth_copy_bytes: self.growth_copy_bytes.max(projected_growth_copy_bytes),
-        };
+    pub(in crate::chunk) fn try_reserve_permitted(&mut self, incremental_bytes: u64) -> bool {
         let limits = PublicationServiceConfig::PHASE2_GATE;
-        if next.items > limits.maximum_frame_items
-            || next.total_bytes() > limits.maximum_frame_bytes
-        {
-            return false;
-        }
-        *self = next;
-        true
+        self.try_reserve_within(
+            limits.maximum_frame_items,
+            limits.maximum_frame_bytes,
+            incremental_bytes,
+        )
     }
 
     pub(in crate::chunk) fn try_reserve(
         &mut self,
         budget: ChunkUploadBudget,
         incremental_bytes: u64,
-        projected_growth_copy_bytes: u64,
-        growth_copy_ceiling: u64,
     ) -> bool {
-        if projected_growth_copy_bytes > growth_copy_ceiling {
-            return false;
-        }
-        let Some(items) = self.items.checked_add(1) else {
-            return false;
-        };
-        let Some(incremental_bytes) = self.incremental_bytes.checked_add(incremental_bytes) else {
+        self.try_reserve_within(
+            budget.max_per_frame,
+            budget.max_bytes_per_frame,
+            incremental_bytes,
+        )
+    }
+
+    fn try_reserve_within(
+        &mut self,
+        max_items: usize,
+        max_bytes: u64,
+        incremental_bytes: u64,
+    ) -> bool {
+        let (Some(items), Some(incremental_bytes)) = (
+            self.items.checked_add(1),
+            self.incremental_bytes.checked_add(incremental_bytes),
+        ) else {
             return false;
         };
         let next = Self {
             items,
             incremental_bytes,
-            growth_copy_bytes: self.growth_copy_bytes.max(projected_growth_copy_bytes),
+            ..*self
         };
-        if next.items > budget.max_per_frame || next.total_bytes() > budget.max_bytes_per_frame {
+        if next.items > max_items || next.total_bytes() > max_bytes {
             return false;
         }
         *self = next;
         true
+    }
+
+    /// Migration copy bytes this frame may still spend under the literal frame ceiling.
+    pub(in crate::chunk) fn migration_allowance(self) -> u64 {
+        let frame_room = PublicationServiceConfig::PHASE2_GATE
+            .maximum_frame_bytes
+            .saturating_sub(self.total_bytes());
+        ARENA_MIGRATION_FRAME_BYTES
+            .saturating_sub(self.growth_copy_bytes)
+            .min(frame_room)
     }
 
     pub(in crate::chunk) const fn total_bytes(self) -> u64 {
@@ -207,76 +204,204 @@ impl GpuUploadReservation {
     }
 }
 
-/// A finite upper bound for one atomic whole-arena growth copy on this
-/// adapter. Every legal growth plan fits this allowance, so it cannot starve
-/// behind the smaller adaptive incremental-upload budget.
-pub(in crate::chunk) fn arena_growth_copy_ceiling(limits: ArenaLimits) -> u64 {
-    buffer_byte_len(limits.max_quad_items, PACKED_QUAD_BYTES)
-        .saturating_add(buffer_byte_len(
-            limits.max_geometry_stream_words,
-            GEOMETRY_STREAM_WORD_BYTES,
-        ))
-        .saturating_add(buffer_byte_len(limits.max_origin_items, CHUNK_ORIGIN_BYTES))
-        .saturating_add(buffer_byte_len(limits.max_biome_words, BIOME_WORD_BYTES))
+/// GPU-local arena migration copy allowed per frame. Growth of any legal size
+/// therefore completes in finitely many frames under the literal frame ceiling.
+pub(in crate::chunk) const ARENA_MIGRATION_FRAME_BYTES: u64 = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::chunk) enum ArenaStream {
+    Quads,
+    GeometryStreams,
+    Origins,
+    Biomes,
 }
 
-pub(in crate::chunk) fn planned_arena_growth_copy_bytes(
+impl ArenaStream {
+    const fn item_bytes(self) -> u64 {
+        match self {
+            Self::Quads => PACKED_QUAD_BYTES,
+            Self::GeometryStreams => GEOMETRY_STREAM_WORD_BYTES,
+            Self::Origins => CHUNK_ORIGIN_BYTES,
+            Self::Biomes => BIOME_WORD_BYTES,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Quads => "packed chunk quads",
+            Self::GeometryStreams => "packed chunk geometry streams",
+            Self::Origins => "packed chunk origins",
+            Self::Biomes => "packed chunk biome records",
+        }
+    }
+
+    fn buffer_and_capacity(self, arena: &mut ChunkGpuArena) -> (&mut Buffer, &mut usize) {
+        match self {
+            Self::Quads => (&mut arena.quad_buffer, &mut arena.quad_capacity),
+            Self::GeometryStreams => (
+                &mut arena.geometry_stream_buffer,
+                &mut arena.geometry_stream_capacity,
+            ),
+            Self::Origins => (&mut arena.origin_buffer, &mut arena.origin_capacity),
+            Self::Biomes => (&mut arena.biome_buffer, &mut arena.biome_capacity),
+        }
+    }
+}
+
+/// A buffer replacement copied across frames; the old buffer keeps serving
+/// draws until the final slice lands and the two are swapped.
+pub(in crate::chunk) struct ArenaMigration {
+    pub(in crate::chunk) stream: ArenaStream,
+    pub(in crate::chunk) buffer: Buffer,
+    pub(in crate::chunk) new_capacity: usize,
+    pub(in crate::chunk) copy_bytes: u64,
+    pub(in crate::chunk) copied_bytes: u64,
+}
+
+impl ArenaMigration {
+    /// Once a slice has landed, a write to the old buffer could be lost.
+    pub(in crate::chunk) const fn blocks_arena_writes(&self) -> bool {
+        self.copied_bytes > 0
+    }
+}
+
+pub(in crate::chunk) fn arena_capacities(arena: &ChunkGpuArena) -> ArenaRequiredLengths {
+    ArenaRequiredLengths {
+        quads: arena.quad_capacity,
+        geometry_stream_words: arena.geometry_stream_capacity,
+        origins: arena.origin_capacity,
+        biome_words: arena.biome_capacity,
+    }
+}
+
+/// The first stream whose capacity cannot hold `required`, or an error when
+/// `required` exceeds the adapter.
+pub(in crate::chunk) fn first_arena_growth(
     capacities: ArenaRequiredLengths,
     required: ArenaRequiredLengths,
     limits: ArenaLimits,
-) -> Option<u64> {
-    let plans = [
-        plan_arena_growth(
+) -> Result<Option<(ArenaStream, ArenaGrowthPlan)>, ArenaGrowthError> {
+    let streams = [
+        (
+            ArenaStream::Quads,
             capacities.quads,
             required.quads,
-            PACKED_QUAD_BYTES,
             limits.max_quad_items,
-        )
-        .ok()?,
-        plan_arena_growth(
+        ),
+        (
+            ArenaStream::GeometryStreams,
             capacities.geometry_stream_words,
             required.geometry_stream_words,
-            GEOMETRY_STREAM_WORD_BYTES,
             limits.max_geometry_stream_words,
-        )
-        .ok()?,
-        plan_arena_growth(
+        ),
+        (
+            ArenaStream::Origins,
             capacities.origins,
             required.origins,
-            CHUNK_ORIGIN_BYTES,
             limits.max_origin_items,
-        )
-        .ok()?,
-        plan_arena_growth(
+        ),
+        (
+            ArenaStream::Biomes,
             capacities.biome_words,
             required.biome_words,
-            BIOME_WORD_BYTES,
             limits.max_biome_words,
-        )
-        .ok()?,
+        ),
     ];
-    Some(plans.into_iter().flatten().fold(0_u64, |total, growth| {
-        total.saturating_add(growth.gpu_copy_bytes)
-    }))
+    let mut first = None;
+    for (stream, capacity, required, max_items) in streams {
+        let plan = plan_arena_growth(capacity, required, stream.item_bytes(), max_items)?;
+        if first.is_none() {
+            first = plan.map(|plan| (stream, plan));
+        }
+    }
+    Ok(first)
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(in crate::chunk) fn begin_arena_migration(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    stream: ArenaStream,
+    growth: ArenaGrowthPlan,
+) {
+    debug_assert!(arena.migration.is_none());
+    arena.migration = Some(ArenaMigration {
+        stream,
+        buffer: create_storage_buffer(
+            render_device,
+            stream.label(),
+            growth.new_capacity as u64 * stream.item_bytes(),
+        ),
+        new_capacity: growth.new_capacity,
+        copy_bytes: growth.gpu_copy_bytes,
+        copied_bytes: 0,
+    });
+}
+
+/// Copies at most `allowance` bytes of the active migration and swaps the
+/// buffers once complete; returns the bytes copied.
+pub(in crate::chunk) fn advance_arena_migration(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+    allowance: u64,
+) -> u64 {
+    let Some(mut migration) = arena.migration.take() else {
+        return 0;
+    };
+    let slice = (migration.copy_bytes - migration.copied_bytes)
+        .min(allowance & !(wgpu::COPY_BUFFER_ALIGNMENT - 1));
+    let (buffer, capacity) = migration.stream.buffer_and_capacity(arena);
+    if slice > 0 {
+        let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("migrate packed chunk arena"),
+        });
+        encoder.copy_buffer_to_buffer(
+            buffer,
+            migration.copied_bytes,
+            &migration.buffer,
+            migration.copied_bytes,
+            slice,
+        );
+        render_queue.submit([encoder.finish()]);
+        migration.copied_bytes += slice;
+    }
+    if migration.copied_bytes == migration.copy_bytes {
+        *buffer = migration.buffer;
+        *capacity = migration.new_capacity;
+    } else {
+        arena.migration = Some(migration);
+    }
+    slice
+}
+
+/// Writes geometry-stream words, mirrored into an in-flight migration target.
+pub(in crate::chunk) fn write_geometry_stream_words(
+    arena: &ChunkGpuArena,
+    render_queue: &RenderQueue,
+    offset_bytes: u64,
+    bytes: &[u8],
+) {
+    render_queue.write_buffer(&arena.geometry_stream_buffer, offset_bytes, bytes);
+    if let Some(migration) = arena
+        .migration
+        .as_ref()
+        .filter(|migration| migration.stream == ArenaStream::GeometryStreams)
+    {
+        render_queue.write_buffer(&migration.buffer, offset_bytes, bytes);
+    }
+}
+
 pub(in crate::chunk) fn account_chunk_gpu_uploads(
     budget: ChunkUploadBudget,
     chunk_updates: usize,
     quad_incremental_bytes: u64,
     origin_incremental_bytes: u64,
     biome_incremental_bytes: u64,
-    quad_gpu_copy_bytes: u64,
-    origin_gpu_copy_bytes: u64,
-    biome_gpu_copy_bytes: u64,
+    gpu_copy_bytes: u64,
 ) -> ChunkGpuUploadStats {
     let incremental_bytes = quad_incremental_bytes
         .saturating_add(origin_incremental_bytes)
         .saturating_add(biome_incremental_bytes);
-    let gpu_copy_bytes = quad_gpu_copy_bytes
-        .saturating_add(origin_gpu_copy_bytes)
-        .saturating_add(biome_gpu_copy_bytes);
     ChunkGpuUploadStats {
         chunk_updates,
         chunk_budget: budget.max_per_frame,
@@ -318,84 +443,6 @@ pub(in crate::chunk) fn plan_arena_growth(
     }))
 }
 
-pub(in crate::chunk) fn ensure_quad_capacity(
-    arena: &mut ChunkGpuArena,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-) -> u64 {
-    let Ok(Some(growth)) = plan_arena_growth(
-        arena.quad_capacity,
-        arena.quad_len,
-        PACKED_QUAD_BYTES,
-        arena.limits.max_quad_items,
-    ) else {
-        return 0;
-    };
-    let next = create_storage_buffer(
-        render_device,
-        "packed chunk quads",
-        growth.new_capacity as u64 * PACKED_QUAD_BYTES,
-    );
-    copy_gpu_buffer(
-        render_device,
-        render_queue,
-        &arena.quad_buffer,
-        &next,
-        growth.gpu_copy_bytes,
-    );
-    arena.quad_capacity = growth.new_capacity;
-    arena.quad_buffer = next;
-    growth.gpu_copy_bytes
-}
-
-pub(in crate::chunk) fn ensure_geometry_stream_capacities(
-    arena: &mut ChunkGpuArena,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-) -> u64 {
-    ensure_stream_capacity(
-        &mut arena.geometry_stream_buffer,
-        &mut arena.geometry_stream_capacity,
-        arena.geometry_stream_len,
-        arena.limits.max_geometry_stream_words,
-        GEOMETRY_STREAM_WORD_BYTES,
-        "packed chunk geometry streams",
-        render_device,
-        render_queue,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(in crate::chunk) fn ensure_stream_capacity(
-    buffer: &mut Buffer,
-    capacity: &mut usize,
-    required_len: usize,
-    max_items: usize,
-    item_bytes: u64,
-    label: &'static str,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-) -> u64 {
-    let Ok(Some(growth)) = plan_arena_growth(*capacity, required_len, item_bytes, max_items) else {
-        return 0;
-    };
-    let next = create_storage_buffer(
-        render_device,
-        label,
-        growth.new_capacity as u64 * item_bytes,
-    );
-    copy_gpu_buffer(
-        render_device,
-        render_queue,
-        buffer,
-        &next,
-        growth.gpu_copy_bytes,
-    );
-    *capacity = growth.new_capacity;
-    *buffer = next;
-    growth.gpu_copy_bytes
-}
-
 pub(in crate::chunk) fn write_stream_records<T: bytemuck::Pod>(
     render_queue: &RenderQueue,
     buffer: &Buffer,
@@ -411,81 +458,4 @@ pub(in crate::chunk) fn write_stream_records<T: bytemuck::Pod>(
             );
         }
     }
-}
-
-pub(in crate::chunk) fn ensure_origin_capacity(
-    arena: &mut ChunkGpuArena,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-) -> u64 {
-    let Ok(Some(growth)) = plan_arena_growth(
-        arena.origin_capacity,
-        arena.origin_len,
-        CHUNK_ORIGIN_BYTES,
-        arena.limits.max_origin_items,
-    ) else {
-        return 0;
-    };
-    let next = create_storage_buffer(
-        render_device,
-        "packed chunk origins",
-        growth.new_capacity as u64 * CHUNK_ORIGIN_BYTES,
-    );
-    copy_gpu_buffer(
-        render_device,
-        render_queue,
-        &arena.origin_buffer,
-        &next,
-        growth.gpu_copy_bytes,
-    );
-    arena.origin_capacity = growth.new_capacity;
-    arena.origin_buffer = next;
-    growth.gpu_copy_bytes
-}
-
-pub(in crate::chunk) fn ensure_biome_capacity(
-    arena: &mut ChunkGpuArena,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-) -> u64 {
-    let Ok(Some(growth)) = plan_arena_growth(
-        arena.biome_capacity,
-        arena.biome_len,
-        BIOME_WORD_BYTES,
-        arena.limits.max_biome_words,
-    ) else {
-        return 0;
-    };
-    let next = create_storage_buffer(
-        render_device,
-        "packed chunk biome records",
-        growth.new_capacity as u64 * BIOME_WORD_BYTES,
-    );
-    copy_gpu_buffer(
-        render_device,
-        render_queue,
-        &arena.biome_buffer,
-        &next,
-        growth.gpu_copy_bytes,
-    );
-    arena.biome_capacity = growth.new_capacity;
-    arena.biome_buffer = next;
-    growth.gpu_copy_bytes
-}
-
-pub(in crate::chunk) fn copy_gpu_buffer(
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
-    source: &Buffer,
-    destination: &Buffer,
-    bytes: u64,
-) {
-    if bytes == 0 {
-        return;
-    }
-    let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("grow packed chunk arena"),
-    });
-    encoder.copy_buffer_to_buffer(source, 0, destination, 0, bytes);
-    render_queue.submit([encoder.finish()]);
 }

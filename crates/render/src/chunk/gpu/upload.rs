@@ -107,8 +107,21 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let mut applied_publication_permits = Vec::new();
     let mut successful_updates = Vec::new();
     let mut upload_reservation = GpuUploadReservation::default();
+    upload_reservation.growth_copy_bytes = advance_arena_migration(
+        &mut arena,
+        &render_device,
+        &render_queue,
+        upload_reservation.migration_allowance(),
+    );
     let all_instances = instances.queries.p0();
     for &entity in &selected {
+        if arena
+            .migration
+            .as_ref()
+            .is_some_and(ArenaMigration::blocks_arena_writes)
+        {
+            break;
+        }
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
@@ -241,24 +254,35 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         ) else {
             continue;
         };
-        let projected_origin_len = origin_plan.projected_origin_len;
-        let Some(projected_growth_copy_bytes) = planned_arena_growth_copy_bytes(
-            ArenaRequiredLengths {
-                quads: arena.quad_capacity,
-                geometry_stream_words: arena.geometry_stream_capacity,
-                origins: arena.origin_capacity,
-                biome_words: arena.biome_capacity,
-            },
-            ArenaRequiredLengths {
-                quads: projected_ranges.quad_len,
-                geometry_stream_words: projected_ranges.geometry_stream_len,
-                origins: projected_origin_len,
-                biome_words: projected_ranges.biome_len,
-            },
-            arena.limits,
-        ) else {
-            continue;
+        let required_lengths = ArenaRequiredLengths {
+            quads: projected_ranges.quad_len,
+            geometry_stream_words: projected_ranges.geometry_stream_len,
+            origins: origin_plan.projected_origin_len,
+            biome_words: projected_ranges.biome_len,
         };
+        let fits = loop {
+            match first_arena_growth(arena_capacities(&arena), required_lengths, arena.limits) {
+                Err(_) => break false,
+                Ok(None) => break true,
+                Ok(Some((stream, growth))) => {
+                    if arena.migration.is_none() {
+                        begin_arena_migration(&mut arena, &render_device, stream, growth);
+                    }
+                    upload_reservation.growth_copy_bytes += advance_arena_migration(
+                        &mut arena,
+                        &render_device,
+                        &render_queue,
+                        upload_reservation.migration_allowance(),
+                    );
+                    if arena.migration.is_some() {
+                        break false;
+                    }
+                }
+            }
+        };
+        if !fits {
+            continue;
+        }
         if let Some(slot) = &instance.publication_permit
             && (slot.stage() != Some(PublicationPermitStage::RenderEntity)
                 || slot.is_zero_byte()
@@ -276,11 +300,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         let mut next_upload_reservation = upload_reservation;
         let mut prepared_publication_permit = None;
         let reserved = if let Some(slot) = &instance.publication_permit {
-            if !next_upload_reservation.try_reserve_permitted(
-                instance_bytes,
-                projected_growth_copy_bytes,
-                arena_growth_copy_ceiling(arena.limits),
-            ) {
+            if !next_upload_reservation.try_reserve_permitted(instance_bytes) {
                 false
             } else {
                 let Some(permit) = slot.take() else {
@@ -289,9 +309,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                     }
                     continue;
                 };
-                let growth_bytes = projected_growth_copy_bytes
-                    .saturating_sub(upload_reservation.growth_copy_bytes);
-                match permit.into_gpu_prepared_with_additional_bytes(growth_bytes) {
+                match permit.into_gpu_prepared() {
                     Ok(permit) => {
                         prepared_publication_permit = Some(permit);
                         true
@@ -306,12 +324,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 }
             }
         } else {
-            next_upload_reservation.try_reserve(
-                *budget,
-                instance_bytes,
-                projected_growth_copy_bytes,
-                arena_growth_copy_ceiling(arena.limits),
-            )
+            next_upload_reservation.try_reserve(*budget, instance_bytes)
         };
         if !reserved {
             if let Some(token) = instance.token {
@@ -486,38 +499,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             },
         );
         if let Some(token) = instance.token {
-            let uploaded_bytes = buffer_byte_len(instance.cube_quads.len(), PACKED_QUAD_BYTES)
-                .saturating_add(buffer_byte_len(
-                    instance.cube_lighting.len(),
-                    PACKED_QUAD_LIGHTING_BYTES,
-                ))
-                .saturating_add(buffer_byte_len(
-                    instance.model_refs.len(),
-                    PACKED_MODEL_REF_BYTES,
-                ))
-                .saturating_add(buffer_byte_len(
-                    instance.model_lighting.len(),
-                    PACKED_QUAD_LIGHTING_BYTES,
-                ))
-                .saturating_add(buffer_byte_len(
-                    instance.model_draw_refs.len(),
-                    PACKED_MODEL_DRAW_REF_BYTES,
-                ))
-                .saturating_add(buffer_byte_len(
-                    instance.transparent_model_draw_refs.len(),
-                    PACKED_MODEL_DRAW_REF_BYTES,
-                ))
-                .saturating_add(buffer_byte_len(
-                    instance.liquid_quads.len(),
-                    PACKED_LIQUID_QUAD_BYTES,
-                ))
-                .saturating_add(buffer_byte_len(
-                    instance.liquid_lighting.len(),
-                    PACKED_QUAD_LIGHTING_BYTES,
-                ))
-                .saturating_add(CHUNK_ORIGIN_BYTES)
-                .saturating_add(biome_record_byte_len(&instance.biome));
-            applied_tokens.push((instance.key, token, uploaded_bytes));
+            applied_tokens.push((instance.key, token, instance_bytes));
         }
         upload_reservation = next_upload_reservation;
         if let Some(permit) = prepared_publication_permit {
@@ -573,16 +555,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let biome_incremental_bytes = biome_writes.iter().fold(0_u64, |total, (_, words)| {
         total.saturating_add(buffer_byte_len(words.len(), BIOME_WORD_BYTES))
     });
-    let quad_gpu_copy_bytes = ensure_quad_capacity(&mut arena, &render_device, &render_queue);
-    let stream_gpu_copy_bytes =
-        ensure_geometry_stream_capacities(&mut arena, &render_device, &render_queue);
-    let origin_gpu_copy_bytes = ensure_origin_capacity(&mut arena, &render_device, &render_queue);
-    let biome_gpu_copy_bytes = ensure_biome_capacity(&mut arena, &render_device, &render_queue);
-    let gpu_copy_bytes = quad_gpu_copy_bytes
-        .saturating_add(stream_gpu_copy_bytes)
-        .saturating_add(origin_gpu_copy_bytes)
-        .saturating_add(biome_gpu_copy_bytes);
-    debug_assert_eq!(gpu_copy_bytes, upload_reservation.growth_copy_bytes);
     for (offset, words) in quad_writes {
         if !words.is_empty() {
             render_queue.write_buffer(
@@ -663,9 +635,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         quad_incremental_bytes.saturating_add(stream_incremental_bytes),
         origin_incremental_bytes,
         biome_incremental_bytes,
-        quad_gpu_copy_bytes.saturating_add(stream_gpu_copy_bytes),
-        origin_gpu_copy_bytes,
-        biome_gpu_copy_bytes,
+        upload_reservation.growth_copy_bytes,
     );
     debug_assert_eq!(upload_stats.total_bytes, upload_reservation.total_bytes());
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
