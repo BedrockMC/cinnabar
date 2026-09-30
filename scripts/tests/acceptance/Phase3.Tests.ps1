@@ -27,7 +27,7 @@ Describe 'Phase 3 production marker evidence validation' {
         $script:AppSha256 = '44' * 32
         $script:Identity = [ordered]@{
             schema = 'rust-mcbe-phase3-identity-v1'; build_commit = $script:BuildCommit
-            target = 'Bds'; protocol = 1001; session_generation = 7
+            target = 'Bds'; protocol = 2193; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true
             source_dirty = $false; run_id = $script:RunId; endpoint = $script:Endpoint
@@ -119,6 +119,7 @@ Describe 'Phase 3 production marker evidence validation' {
         )
         $script:ScenarioManifest = [ordered]@{
             schema = 'rust-mcbe-phase3-scenario-v1'; scenario = 'CandidatePhysics'
+            core_extra_arguments = @()
             required_input_modes = @('KeyboardMouse', 'GamePad'); deferred_input_modes = @('Touch')
             input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate Phase 3 acceptance and remains open.'
             required_perspective_sequence = @(
@@ -149,6 +150,7 @@ Describe 'Phase 3 production marker evidence validation' {
             core_process_id = 41; app_process_id = 42; app_exit_code = 0; core_exit_code = $null
             core_terminated_by_launcher = $true; timed_out = $false; duration_seconds = 60
             scenario = 'CandidatePhysics'; screenshot_slots = @()
+            core_extra_arguments = @()
         }
         $script:Metrics = [ordered]@{
             session_seconds = 60.0; frame_count = 3600; p50_frame_ms = 16.0; p95_frame_ms = 18.0
@@ -158,57 +160,7 @@ Describe 'Phase 3 production marker evidence validation' {
         }
     }
 
-    function Write-MarkerLog {
-        param([string]$Name)
-        $path = Join-Path $script:TempRoot $Name
-        $lines = [Collections.Generic.List[string]]::new()
-        $lines.Add('ordinary client log line')
-        $lines.Add('RUST_MCBE_PHASE3_IDENTITY=' + ($script:Identity | ConvertTo-Json -Depth 6 -Compress))
-        foreach ($frame in $script:Frames) {
-            $lines.Add('RUST_MCBE_PHASE3_FRAME=' + ($frame | ConvertTo-Json -Depth 6 -Compress))
-        }
-        foreach ($event in $script:Events) {
-            $lines.Add('RUST_MCBE_PHASE3_EVENT=' + ($event | ConvertTo-Json -Depth 6 -Compress))
-        }
-        foreach ($violation in $script:Violations) {
-            $lines.Add('RUST_MCBE_PHASE3_VIOLATION=' + ($violation | ConvertTo-Json -Depth 6 -Compress))
-        }
-        foreach ($terminal in $script:Terminals) {
-            $lines.Add('RUST_MCBE_PHASE3_TERMINAL=' + ($terminal | ConvertTo-Json -Depth 6 -Compress))
-        }
-        Set-Content -LiteralPath $path -Value $lines -Encoding utf8
-        return $path
-    }
-
-    function Invoke-Validator {
-        param([string]$Path)
-        $runMetadataPath = $Path + '.run.json'
-        $metricsPath = $Path + '.metrics.json'
-        $outputPath = $Path + '.final.json'
-        $scenarioManifestPath = $Path + '.scenario.json'
-        $script:RunMetadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $runMetadataPath -Encoding utf8
-        $script:Metrics | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $metricsPath -Encoding utf8
-        $script:ScenarioManifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $scenarioManifestPath -Encoding utf8
-        $savedErrorActionPreference = $ErrorActionPreference
-        try {
-            $ErrorActionPreference = 'Continue'
-            $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Validator `
-                -LogPath $Path -ExpectedTarget Bds -ExpectedBuildCommit $script:BuildCommit `
-                -ExpectedPregSha256 $script:PregSha256 -ExpectedBregSha256 $script:BregSha256 `
-                -ExpectedRunId $script:RunId -ExpectedEndpoint $script:Endpoint `
-                -ExpectedBridgeEndpoint $script:BridgeEndpoint `
-                -ExpectedCoreSha256 $script:CoreSha256 -ExpectedCoreProcessId 41 `
-                -ExpectedAppProcessId 42 -RunMetadataPath $runMetadataPath `
-                -MetricsPath $metricsPath -OutputPath $outputPath `
-                -ScenarioManifestPath $scenarioManifestPath `
-                2>&1 | Out-String
-            $exitCode = $LASTEXITCODE
-        }
-        finally {
-            $ErrorActionPreference = $savedErrorActionPreference
-        }
-        return [pscustomobject]@{ ExitCode = $exitCode; Output = $output; Aggregate = $outputPath }
-    }
+    . (Join-Path $PSScriptRoot 'Phase3.TestHelpers.ps1')
 
     It 'accepts one bounded production-derived consecutive tick sequence' {
         $logPath = Write-MarkerLog 'valid.log'; Add-Content -LiteralPath $logPath -Encoding utf8 -Value 'RUST_MCBE_NETWORK_PUMP_TERMINAL={"schema":"rust-mcbe-network-pump-terminal-v1","outcome":"failed","stage":"receive_packet","message":"connection reset","decode_error_count":0}'; $result = Invoke-Validator $logPath
@@ -267,51 +219,35 @@ Describe 'Phase 3 production marker evidence validation' {
         $aggregate.evidence.terminal_free_camera_packet_count | Should Be 0
     }
 
-    It 'builds exact live target plans with candidate-only physics and no free camera' {
-        $targets = [ordered]@{
-            Lunar = 'pvp.lunarbedrock.com:19134'
-            Zeqa = 'zeqa.net:19132'
-            Lbsg = 'play.lbsg.net:19132'
-            Zeno = 'zenomc.org:19197'
-            Bds = '127.0.0.1:19132'
-        }
-        foreach ($target in $targets.Keys) {
-            $endpoint = Get-Phase3TargetEndpoint -Target $target
-            $endpoint | Should Be $targets[$target]
-            $authCache = if ($target -ceq 'Bds') { $null } else { '.local/auth/token.json' }
-            $duration = if ($target -ceq 'Bds') { 60 } else { 300 }
-            $plan = New-Phase3LaunchPlan -Target $target -Endpoint $endpoint `
-                -RunId $script:RunId -SocketDirectory 'socket' -MetricsPath 'metrics.json' `
-                -DurationSeconds $duration -Scenario CandidatePhysics -AuthCache $authCache
-            $plan.CoreArguments -join ' ' | Should Match ([regex]::Escape("-upstream $endpoint"))
-            ($plan.AppArguments -ccontains '--phase3-candidate-physics') | Should Be $true
-            ($plan.AppArguments -ccontains '--phase3-evidence-target') | Should Be $true
-            ($plan.AppArguments -ccontains '--auto-fly') | Should Be $false
-            ($plan.CoreArguments -ccontains '-auth-cache') | Should Be ($target -cne 'Bds')
-        }
+    . (Join-Path $PSScriptRoot 'Phase3.LaunchCases.ps1')
+
+    It 'surfaces nonempty core extra arguments through the scenario manifest and run metadata schemas' {
+        $script:ScenarioManifest.core_extra_arguments = @('-upstream-client-cache')
+        $script:RunMetadata.core_extra_arguments = @('-upstream-client-cache')
+        (Invoke-Validator (Write-MarkerLog 'core-extra-valid.log')).ExitCode | Should Be 0
     }
 
-    It 'forbids missing authentication on all external plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
-            { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
-                    -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-                    -DurationSeconds 300 -Scenario CandidatePhysics } | Should Throw
-        }
+    It 'rejects a non-allowlisted recorded core extra argument as the only changed condition' {
+        $script:ScenarioManifest.core_extra_arguments = @('-Bad;Token')
+        (Invoke-Validator (Write-MarkerLog 'core-extra-invalid.log')).ExitCode | Should Not Be 0
     }
 
-    It 'forbids sub-five-minute external plans' {
-        foreach ($target in @('Lunar', 'Zeqa', 'Lbsg', 'Zeno')) {
-            { New-Phase3LaunchPlan -Target $target -Endpoint (Get-Phase3TargetEndpoint $target) `
-                    -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-                    -DurationSeconds 299 -Scenario CandidatePhysics -AuthCache token.json } | Should Throw
-        }
+    It 'rejects an over-capacity recorded core extra argument list as the only changed condition' {
+        $script:ScenarioManifest.core_extra_arguments = @(1..17 | ForEach-Object { "-cap-$_" })
+        (Invoke-Validator (Write-MarkerLog 'core-extra-cap.log')).ExitCode | Should Not Be 0
     }
 
-    It 'preserves the offline BDS candidate plan' {
-        $bds = New-Phase3LaunchPlan -Target Bds -Endpoint '127.0.0.1:19132' `
-            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-            -DurationSeconds 60 -Scenario CandidatePhysics
-        ($bds.CoreArguments -ccontains '-auth-cache') | Should Be $false
+    It 'wires validated core extra arguments into the launcher command, manifests, and metadata' {
+        $launcher = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launcher.ps1')
+        $launch = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launch.ps1')
+        $launcher | Should Match '\[string\[\]\]\$CoreExtraArgs = @\(\)'
+        $launcher | Should Match '-CoreExtraArgs \$CoreExtraArgs'
+        $launcher | Should Match 'CORE_EXTRA_ARGUMENTS='
+        ([regex]::Matches($launcher, 'core_extra_arguments = \$plan\.CoreExtraArguments')).Count | Should Be 4
+        $launch | Should Match '\$coreArguments \+= \$coreExtraArguments'
+        $launch | Should Match "function Resolve-Phase3CoreExtraArguments"
+        $launch | Should Match "'\^-\[a-z\]\[a-z0-9-\]\*\$'"
+        $launch | Should Match "'\^\[A-Za-z0-9\._/:=-\]\+\$'"
     }
 
     It 'builds a case-insensitive network-silent FreeCamera scenario without candidate physics frames' {
@@ -327,10 +263,11 @@ Describe 'Phase 3 production marker evidence validation' {
         ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
     }
 
-    It 'uses the mandated stable Windows debug client path and non-release Cargo build' {
+    It 'keeps visual movement evidence on debug while reserving release for the binding transfer witness' {
         $launcher = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launcher.ps1')
-        $launcher | Should Match 'target\\debug\\bedrock-client'
-        $launcher | Should Not Match "'build', '--release'"
+        $launcher | Should Match 'target\\\$buildProfile\\bedrock-client'
+        $launcher | Should Match "FastTransferWitness'.*'release'.*'debug'"
+        $launcher | Should Match "appBuildArguments \+= '--release'"
         $launcher | Should Match "'build', '--locked', '-p', 'bedrock-client'"
         $launcher | Should Match 'Resolve-Phase3ContainedPath'
         $launcher | Should Match '-AuthCache \$authCacheFull'
@@ -513,9 +450,24 @@ Describe 'Phase 3 production marker evidence validation' {
 
     It 'rejects one production violation marker as the only changed condition' {
         $script:Violations = @([ordered]@{
-            schema = 'rust-mcbe-phase3-violation-v1'; reason = 'invalid_frame'
+            schema = 'rust-mcbe-phase3-violation-v2'; reason = 'invalid_frame'
         })
         $result = Invoke-Validator (Write-MarkerLog 'violation.log')
+        $result.ExitCode | Should Not Be 0
+    }
+
+    It 'still rejects a v2-shaped non-monotonic-frame violation carrying frame identity' {
+        $script:Violations = @([ordered]@{
+            schema = 'rust-mcbe-phase3-violation-v2'; reason = 'non_monotonic_frame'
+            frame_identity = [ordered]@{
+                previous_session_generation = 7; current_session_generation = 7
+                previous_physics_tick = 41; current_physics_tick = 43
+                previous_dimension = 0; current_dimension = 0
+                previous_fifo_sequence = 41; current_fifo_sequence = 43
+                previous_pose_generation = 101; current_pose_generation = 103
+            }
+        })
+        $result = Invoke-Validator (Write-MarkerLog 'violation-non-monotonic-v2.log')
         $result.ExitCode | Should Not Be 0
     }
 
@@ -714,6 +666,42 @@ Describe 'Phase 3 production marker evidence validation' {
         $result.ExitCode | Should Not Be 0
         $result.Output | Should Match 'CandidatePhysics terminal does not prove Physics packet production'
         $result.Output | Should Not Match 'terminal outbox_reconciliation is unsupported'
+    }
+
+    It 'accepts a RemoteClosed candidate terminal as a remote-initiated close, not a violation' {
+        $script:Terminals[0].outbox_reconciliation = 'RemoteClosed'
+        $result = Invoke-Validator (Write-MarkerLog 'terminal-remote-closed.log')
+        $result.ExitCode | Should Be 0
+        $result.Output | Should Match 'PHASE3_EVIDENCE_VALID target=Bds'
+        $aggregate = Get-Content -Raw -LiteralPath $result.Aggregate | ConvertFrom-Json
+        $aggregate.evidence.terminal_outbox_reconciliation | Should Be 'RemoteClosed'
+    }
+
+    It 'rejects a RemoteClosed candidate terminal before the requested duration tolerance' {
+        $script:Terminals[0].outbox_reconciliation = 'RemoteClosed'
+        $script:Metrics.session_seconds = 54.999
+        $result = Invoke-Validator (Write-MarkerLog 'terminal-remote-closed-early.log')
+        $result.ExitCode | Should Not Be 0
+        $result.Output | Should Match 'metrics.session_seconds=54.999.*expected at least 55'
+    }
+
+    It 'accepts session metrics at the five-second launcher tolerance boundary' {
+        $script:Metrics.session_seconds = 55.0
+        (Invoke-Validator (Write-MarkerLog 'session-duration-tolerance.log')).ExitCode | Should Be 0
+    }
+
+    It 'rejects retained server-disconnect evidence with its classification' {
+        $logPath = Write-MarkerLog 'server-disconnect.log'
+        Add-Content -LiteralPath $logPath -Encoding utf8 -Value (
+            'RUST_MCBE_NETWORK_PUMP_TERMINAL=' +
+            '{"schema":"rust-mcbe-network-pump-terminal-v1","outcome":"failed",' +
+            '"stage":"receive_packet","message":"connection reset","decode_error_count":0,' +
+            '"server_disconnect":{"reason":"Kicked","message":"Removed by server",' +
+            '"filtered_message":""}}'
+        )
+        $result = Invoke-Validator $logPath
+        $result.ExitCode | Should Not Be 0
+        $result.Output | Should Match 'server-initiated disconnect.*reason=Kicked'
     }
 
     It 'rejects a nonzero app process exit as the only changed condition' {

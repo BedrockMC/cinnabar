@@ -9,6 +9,7 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
+use super::selection::{Selector, Step, condition_text};
 use super::{
     super::{SourcePayloads, invalid},
     clip::{read_json, required_object},
@@ -140,86 +141,84 @@ pub(super) fn compile_geometry_selections(
                         .iter()
                         .any(|identifier| identifier.as_ref() == controller_name)
             }) {
-                let mut transaction = molang.clone();
-                let mut local_collections = BTreeMap::<Box<str>, Box<[u32]>>::new();
-                if let Some(arrays) = definition.get("arrays") {
-                    let arrays = arrays
-                        .as_object()
-                        .ok_or_else(|| invalid("render-controller arrays must be an object"))?;
-                    if let Some(geometries_array) = arrays.get("geometries") {
-                        let geometries_array = geometries_array.as_object().ok_or_else(|| {
-                            invalid("render-controller arrays.geometries is invalid")
-                        })?;
-                        for (name, members) in geometries_array {
-                            let members = members.as_array().ok_or_else(|| {
-                                invalid("render-controller collection must be an array")
-                            })?;
-                            if members.is_empty() || members.len() > MAX_MOLANG_COLLECTION_ITEMS {
-                                return Err(invalid(
-                                    "render geometry collection member count exceeds bound",
-                                ));
-                            }
-                            let values = members
-                                .iter()
-                                .map(|member| {
-                                    let member = member.as_str().ok_or_else(|| {
-                                        invalid("collection member must be a name")
-                                    })?;
-                                    let identifier = member
-                                        .strip_prefix("Geometry.")
-                                        .and_then(|alias| environment.geometry_aliases.get(alias))
-                                        .map_or(member, |identifier| identifier.as_ref());
-                                    geometry_indices
-                                        .get(identifier)
-                                        .copied()
-                                        .flatten()
-                                        .ok_or_else(|| {
-                                            invalid(format!(
-                                                "unknown or ambiguous geometry collection member `{member}`"
-                                            ))
-                                        })
-                                })
-                                .collect::<Result<Vec<_>, AssetError>>()?;
-                            local_collections
-                                .insert(name.as_str().into(), values.into_boxed_slice());
-                        }
-                    }
+                let Some(expression) = definition.get("geometry").and_then(Value::as_str) else {
+                    continue;
+                };
+                // A plain alias names the entity's default geometry; nothing to select.
+                if !expression.contains('?') && !expression.contains('[') {
+                    continue;
                 }
-                if let Some(geometry) = definition.get("geometry").and_then(Value::as_str)
-                    && let Some((collection, index)) = split_collection_selection(geometry)
+                let key = (controller_name.as_str().into(), environment.entity_symbol);
+                let arrays: BTreeMap<String, Vec<String>> = definition
+                    .get("arrays")
+                    .and_then(|arrays| arrays.get("geometries"))
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .map(|(name, members)| {
+                        (
+                            name.to_ascii_lowercase(),
+                            members
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|member| member.as_str().map(str::to_owned))
+                                .collect(),
+                        )
+                    })
+                    .collect();
+                if arrays
+                    .values()
+                    .any(|members| members.len() > MAX_MOLANG_COLLECTION_ITEMS)
                 {
-                    let key = (controller_name.as_str().into(), environment.entity_symbol);
-                    let Some(candidates) = local_collections.get(collection) else {
-                        selections.insert(key, GeometrySelection::Unsupported);
-                        continue;
-                    };
-                    let maximum = candidates.len() - 1;
-                    let compiled = candidates
+                    // Too many members to select between: keep the default geometry.
+                    selections.insert(key, GeometrySelection::Unsupported);
+                    continue;
+                }
+                let resolve = |alias: &str| {
+                    let identifier = environment
+                        .geometry_aliases
                         .iter()
-                        .enumerate()
-                        .map(|(candidate_index, geometry)| {
-                            transaction
-                                .compile(&format!(
-                                    "math.clamp(math.floor(({index})), 0, {maximum}) == {candidate_index}"
-                                ))
-                                .map(|condition| SelectableGeometry {
-                                    geometry: *geometry,
-                                    condition,
-                                })
+                        .find(|(name, _)| name.eq_ignore_ascii_case(alias))
+                        .map(|(_, identifier)| identifier.as_ref())?;
+                    Some(geometry_indices.get(identifier).copied().flatten())
+                };
+                let selector = Selector {
+                    prefix: "geometry.",
+                    arrays,
+                    resolve: &resolve,
+                };
+                let mut transaction = molang.clone();
+                let compiled = selector.leaves(expression).and_then(|leaves| {
+                    leaves
+                        .into_iter()
+                        .map(|(path, geometry)| {
+                            // Rig candidate conditions must end in a boolean op; a lone
+                            // element test already does.
+                            let text = condition_text(&path)?;
+                            let text = if matches!(path.as_slice(), [Step::Element(..)]) {
+                                text
+                            } else {
+                                format!("({text}) != 0")
+                            };
+                            let condition = transaction.compile(&text).ok()?;
+                            Some(SelectableGeometry {
+                                geometry: geometry?,
+                                condition,
+                            })
                         })
-                        .collect::<Result<Vec<_>, AssetError>>();
-                    match compiled {
-                        Ok(candidates) if !candidates.is_empty() => {
-                            *molang = transaction;
-                            selections.insert(
-                                key,
-                                GeometrySelection::Supported(candidates.into_boxed_slice()),
-                            );
-                        }
-                        Err(_) => {
-                            selections.insert(key, GeometrySelection::Unsupported);
-                        }
-                        Ok(_) => return Err(invalid("render geometry collection is empty")),
+                        .collect::<Option<Vec<_>>>()
+                });
+                match compiled {
+                    Some(candidates) if !candidates.is_empty() => {
+                        *molang = transaction;
+                        selections.insert(
+                            key,
+                            GeometrySelection::Supported(candidates.into_boxed_slice()),
+                        );
+                    }
+                    _ => {
+                        selections.insert(key, GeometrySelection::Unsupported);
                     }
                 }
             }
@@ -254,7 +253,12 @@ pub(super) fn unique_geometry_indices(
 pub(super) fn default_geometry(value: Option<&Value>) -> Option<&str> {
     match value? {
         Value::String(value) => Some(value),
-        Value::Object(values) => values.get("default").and_then(Value::as_str),
+        // Vanilla needs no `default` alias (tropical fish, variant-picked pack models): the
+        // render controller selects among the aliases, so the first stands in as the rest model.
+        Value::Object(values) => values
+            .get("default")
+            .or_else(|| values.values().next())
+            .and_then(Value::as_str),
         _ => None,
     }
 }
@@ -364,11 +368,4 @@ pub(super) fn effective_bone_names(
         output.push(names.into_boxed_slice());
     }
     Ok(output)
-}
-
-fn split_collection_selection(value: &str) -> Option<(&str, &str)> {
-    let open = value.find('[')?;
-    value
-        .ends_with(']')
-        .then(|| (&value[..open], &value[open + 1..value.len() - 1]))
 }

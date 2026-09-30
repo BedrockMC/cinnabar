@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use assets::{
     AssetError, BlockVisualId, EntityAssetSource, ItemDisplayTransform, ItemTextureReference,
@@ -8,15 +11,18 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{SourcePayloads, invalid, json::parse_semantic_json};
+use super::{
+    SourcePayloads, attachable::ItemTransforms, invalid, item_bindings, json::parse_semantic_json,
+    legacy_icons,
+};
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
-    include_bytes!("../../../assets/data/block-item-routes-v1001.json");
-const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v1001.bin");
+    include_bytes!("../../../assets/data/block-item-routes-v2193.json");
+const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2193.bin");
 const ROUTE_SCHEMA: u32 = 1;
-const ROUTE_PROTOCOL: u32 = 1001;
-const DRAGONFLY_VERSION: &str = "v0.11.1-0.20260714151819-dbbd8b787946";
-const DRAGONFLY_MODULE_SUM: &str = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY=";
+const ROUTE_PROTOCOL: u32 = 2193;
+const DRAGONFLY_VERSION: &str = "v0.11.5";
+const DRAGONFLY_MODULE_SUM: &str = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=";
 
 pub(super) struct ItemPayload {
     pub block_visual_count: u32,
@@ -47,7 +53,7 @@ struct BlockItemRoute {
     block_visual: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct TextureVariant {
     source_path: Box<str>,
     variant: u32,
@@ -57,6 +63,7 @@ pub(super) fn compile(
     root: &Path,
     payloads: &SourcePayloads,
     sources: &[EntityAssetSource],
+    transforms: &BTreeMap<Box<str>, ItemTransforms>,
 ) -> Result<ItemPayload, AssetError> {
     let source_indices = sources
         .iter()
@@ -64,8 +71,26 @@ pub(super) fn compile(
         .map(|(index, source)| (source.path.as_ref(), index as u32))
         .collect::<BTreeMap<_, _>>();
     let routes = parse_block_item_routes()?;
+    let bindings = item_bindings::reviewed()?;
+    let legacy = legacy_icons::reviewed()?;
+    // Vanilla draws an item as its block only when it is that block's own BlockItem: an item
+    // the retail client gives a legacy icon, or one placing a differently named block, keeps
+    // its sprite.
+    let sprite_first = legacy
+        .iter()
+        .map(|row| ItemVisualKey {
+            identifier: row.identifier.into(),
+            metadata: row.metadata,
+        })
+        .chain(routes.placers.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let block_wins =
+        |key: &ItemVisualKey| routes.routes.contains_key(key) && !sprite_first.contains(key);
+    let binding_source = *source_indices
+        .get(item_bindings::SOURCE_PATH)
+        .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;
     let route_source = *source_indices
-        .get("registry/block-item-routes-v1001.json")
+        .get("registry/block-item-routes-v2193.json")
         .ok_or_else(|| invalid("reviewed block item authority source is absent"))?;
     let mut definitions = BTreeMap::<ItemVisualKey, (u32, ItemVisualDefinitionRoute)>::new();
     definitions.insert(
@@ -113,7 +138,7 @@ pub(super) fn compile(
                     identifier: canonical_item_identifier(alias).into(),
                     metadata: variant.variant,
                 };
-                if routes.routes.contains_key(&key) {
+                if block_wins(&key) {
                     continue;
                 }
                 let route = source_indices.get(variant.source_path.as_ref()).map_or(
@@ -125,21 +150,122 @@ pub(super) fn compile(
                         },
                     },
                 );
-                if definitions.insert(key, (atlas_index, route)).is_some() {
+                if definitions
+                    .insert(key, (atlas_index, route))
+                    .is_some_and(|(_, previous)| {
+                        !matches!(previous, ItemVisualDefinitionRoute::BlockItem { .. })
+                    })
+                {
                     return Err(invalid("duplicate exact item texture metadata route"));
                 }
             }
         }
+        for binding in bindings {
+            let Some(definition) = texture_data.get(binding.default_alias.as_ref()) else {
+                // A partial atlas does not authorize inventing an absent route.
+                continue;
+            };
+            let variants = parse_texture_variants(definition)?;
+            let variant = variants
+                .get(binding.atlas_variant as usize)
+                .ok_or_else(|| invalid("default sprite binding variant is absent"))?;
+            let key = ItemVisualKey {
+                identifier: binding.identifier,
+                metadata: 0,
+            };
+            if routes.routes.contains_key(&key) {
+                return Err(invalid(
+                    "default sprite binding conflicts with a reviewed block route",
+                ));
+            }
+            let canonical_alias = key
+                .identifier
+                .strip_prefix("minecraft:")
+                .unwrap_or(&key.identifier);
+            if let Some(existing_definition) = texture_data
+                .get(canonical_alias)
+                .or_else(|| texture_data.get(key.identifier.as_ref()))
+            {
+                let existing_variants = parse_texture_variants(existing_definition)?;
+                if existing_variants.first() != Some(variant) {
+                    return Err(invalid(
+                        "default sprite binding conflicts with an exact atlas source",
+                    ));
+                }
+            }
+            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+                ItemVisualDefinitionRoute::Missing,
+                |source| ItemVisualDefinitionRoute::Sprite {
+                    texture: ItemTextureReference {
+                        source: *source,
+                        variant: variant.variant,
+                    },
+                },
+            );
+            if definitions
+                .get(&key)
+                .is_some_and(|(_, existing)| *existing != route)
+            {
+                return Err(invalid(
+                    "default sprite binding conflicts with an exact atlas route",
+                ));
+            }
+            definitions.insert(key, (binding_source, route));
+        }
+        let legacy_source = *source_indices
+            .get(legacy_icons::SOURCE_PATH)
+            .ok_or_else(|| invalid("legacy icon route source is absent"))?;
+        for legacy in &legacy {
+            let key = ItemVisualKey {
+                identifier: legacy.identifier.into(),
+                metadata: legacy.metadata,
+            };
+            // Exact atlas keys stay authoritative; a legacy icon replaces a block route.
+            let exact_sprite = definitions.get(&key).is_some_and(|(_, route)| {
+                !matches!(route, ItemVisualDefinitionRoute::BlockItem { .. })
+            });
+            if exact_sprite {
+                continue;
+            }
+            let Some(definition) = texture_data.get(legacy.atlas_key) else {
+                continue;
+            };
+            let variants = parse_texture_variants(definition)?;
+            let Some(variant) = variants.get(legacy.variant) else {
+                continue;
+            };
+            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+                ItemVisualDefinitionRoute::Missing,
+                |source| ItemVisualDefinitionRoute::Sprite {
+                    texture: ItemTextureReference {
+                        source: *source,
+                        variant: variant.variant,
+                    },
+                },
+            );
+            definitions.insert(key, (legacy_source, route));
+        }
     }
     let visuals = definitions
         .into_iter()
-        .map(|(key, (source, route))| ItemVisualDefinition {
-            key,
-            source,
-            route,
-            first_person: ItemDisplayTransform::identity(),
-            third_person: ItemDisplayTransform::identity(),
-            dropped: ItemDisplayTransform::identity(),
+        .map(|(key, (source, route))| {
+            // Attachable transforms are keyed to the base (metadata 0) variant.
+            let literal = (key.metadata == 0)
+                .then(|| transforms.get(&key.identifier))
+                .flatten();
+            let display = |select: fn(&ItemTransforms) -> Option<ItemDisplayTransform>| {
+                literal
+                    .and_then(select)
+                    .unwrap_or_else(ItemDisplayTransform::identity)
+            };
+            ItemVisualDefinition {
+                first_person: display(|transforms| transforms.first_person),
+                third_person: display(|transforms| transforms.third_person),
+                dropped: display(|transforms| transforms.dropped),
+                key,
+                source,
+                route,
+            }
         })
         .collect::<Vec<_>>();
     Ok(ItemPayload {
@@ -152,17 +278,21 @@ pub(super) fn compile(
 struct ReviewedRoutes {
     block_visual_count: u32,
     routes: BTreeMap<ItemVisualKey, BlockVisualId>,
+    /// Items whose placed block has another name (seeds, signs, string).
+    placers: BTreeSet<ItemVisualKey>,
 }
 
 fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
     let table: BlockItemRouteTable =
         serde_json::from_slice(BLOCK_ITEM_ROUTES).map_err(|source| AssetError::Json {
-            path: "crates/assets/data/block-item-routes-v1001.json".into(),
+            path: "crates/assets/data/block-item-routes-v2193.json".into(),
             source,
         })?;
     let expected_hash = format!("{:x}", Sha256::digest(BLOCK_REGISTRY));
     validate_route_provenance(&table, &expected_hash)?;
     let mut routes = BTreeMap::new();
+    let mut placers = BTreeSet::new();
+    let mut reviewed_blocks = BTreeSet::new();
     for route in table.routes {
         if route.identifier.is_empty()
             || !route.identifier.starts_with("minecraft:")
@@ -177,6 +307,10 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
             identifier: route.identifier,
             metadata: route.metadata,
         };
+        if key.identifier != route.block_name {
+            placers.insert(key.clone());
+        }
+        reviewed_blocks.insert(route.block_name.clone());
         if routes
             .insert(key, BlockVisualId(route.block_visual))
             .is_some()
@@ -184,10 +318,44 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
             return Err(invalid("duplicate exact block item route"));
         }
     }
+    add_retail_block_items(&mut routes, &reviewed_blocks)?;
     Ok(ReviewedRoutes {
         block_visual_count: table.canonical_block_states,
         routes,
+        placers,
     })
+}
+
+/// Retail items named after a registry block the reviewed table omits (saplings, mushrooms,
+/// torchflower) are that block's `BlockItem`, drawn from its first canonical state.
+fn add_retail_block_items(
+    routes: &mut BTreeMap<ItemVisualKey, BlockVisualId>,
+    reviewed_blocks: &BTreeSet<Box<str>>,
+) -> Result<(), AssetError> {
+    let records = assets::read_registry_for_protocol(BLOCK_REGISTRY, ROUTE_PROTOCOL)?;
+    let mut first_state = BTreeMap::new();
+    for record in records.iter() {
+        first_state
+            .entry(record.name.as_ref())
+            .or_insert(record.sequential_id);
+    }
+    let retail = std::str::from_utf8(item_bindings::RETAIL_ITEMS)
+        .map_err(|_| invalid("retail item list is not UTF-8"))?;
+    for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
+        let key = ItemVisualKey {
+            identifier: identifier.into(),
+            metadata: 0,
+        };
+        if reviewed_blocks.contains(identifier) || routes.contains_key(&key) {
+            continue;
+        }
+        if let Some(&state) = first_state.get(identifier)
+            && identifier != "minecraft:air"
+        {
+            routes.insert(key, BlockVisualId(state));
+        }
+    }
+    Ok(())
 }
 
 fn validate_route_provenance(

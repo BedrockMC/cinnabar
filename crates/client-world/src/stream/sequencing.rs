@@ -23,10 +23,11 @@ impl WorldStream {
                         self.heavy_sequences.remove(&sequence);
                         continue;
                     }
+                    let ids = self.decode_ids(self.current_dimension);
                     self.enqueue_decode_job(DecodeJob::BlockUpdates {
                         sequence,
                         batches,
-                        air_runtime_id: self.classifier.air_network_id(),
+                        ids,
                     });
                     self.blocking_block_updates = Some(sequence);
                     break;
@@ -56,79 +57,70 @@ impl WorldStream {
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
-                if !self.column_is_active(key) {
+                if !self.column_is_data_interesting(key) {
                     self.record_normalization_error(NormalizationErrorReason::InactiveInlineChunk);
                     return;
                 }
-                match decoded {
-                    Ok(decoded) => {
-                        let range = vanilla_dimension_range(event.dimension)
-                            .expect("inline events are range-checked before decode");
-                        let count = match event.mode {
-                            LevelChunkMode::Inline { count } => count,
-                            _ => unreachable!("prepared LevelChunk must be inline"),
-                        };
-                        let stored_keys = decoded
-                            .sub_chunks()
-                            .map(|(y, _)| SubChunkKey::from_chunk(key, y))
-                            .collect::<BTreeSet<_>>();
-                        let new_keys = (0..count)
-                            .map(|offset| {
-                                SubChunkKey::from_chunk(key, range.base_sub_chunk_y + offset as i32)
-                            })
-                            .collect::<BTreeSet<_>>();
-                        let air_keys = new_keys
-                            .difference(&stored_keys)
-                            .copied()
-                            .collect::<BTreeSet<_>>();
-                        let old_keys = self
-                            .resident
-                            .iter()
-                            .copied()
-                            .filter(|resident| resident.chunk() == key)
-                            .collect::<BTreeSet<_>>();
-                        let old_air = self
-                            .known_air
-                            .iter()
-                            .copied()
-                            .filter(|resident| resident.chunk() == key)
-                            .collect::<BTreeSet<_>>();
-                        let Ok(applied) = self.store.commit_level_chunk(key, decoded) else {
-                            self.record_normalization_error(
-                                NormalizationErrorReason::BlockMutationFailure,
-                            );
-                            return;
-                        };
-                        self.loaded_columns.insert(key);
-                        self.purge_sub_chunk_column_state(key);
-                        self.resident.retain(|resident| resident.chunk() != key);
-                        self.known_air.retain(|resident| resident.chunk() != key);
-                        for stale in old_keys.difference(&new_keys) {
-                            self.set_connectivity(*stale, None);
-                        }
-                        for no_longer_air in old_air.difference(&air_keys) {
-                            self.set_connectivity(*no_longer_air, None);
-                        }
-                        self.resident.extend(new_keys.iter().copied());
-                        for air in air_keys {
-                            self.record_known_air(air);
-                        }
-                        self.refresh_block_entity_visuals_for_chunk(key);
-                        let now = Instant::now();
-                        let preexpanded_dirty = applied.dirty;
-                        let mut changed_sources =
-                            applied.changed.into_iter().collect::<BTreeSet<_>>();
-                        changed_sources.extend(new_keys.difference(&old_keys).copied());
-                        changed_sources.extend(old_keys.difference(&new_keys).copied());
-                        self.mark_changed_sources_with_mesh_dirty(
-                            changed_sources,
-                            preexpanded_dirty,
-                            now,
-                        );
-                        self.stats.last_chunk_commit_at = Some(now);
-                    }
-                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
+                // Cohort membership follows the request-mode ordering
+                // contract exactly: only after the data-interest gate
+                // above and the submit-time supported-dimension
+                // admission.
+                self.record_required_level_chunk(&event);
+                let range = vanilla_dimension_range(event.dimension)
+                    .expect("inline events are range-checked before decode");
+                let stored_keys = decoded
+                    .sub_chunks()
+                    .map(|(y, _)| SubChunkKey::from_chunk(key, y))
+                    .collect::<BTreeSet<_>>();
+                // Vanilla reads every slot the payload left empty as air.
+                let new_keys = (0..range.sub_chunk_count)
+                    .map(|offset| {
+                        SubChunkKey::from_chunk(key, range.base_sub_chunk_y + offset as i32)
+                    })
+                    .collect::<BTreeSet<_>>();
+                let air_keys = new_keys
+                    .difference(&stored_keys)
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                let old_keys = self
+                    .resident
+                    .iter()
+                    .copied()
+                    .filter(|resident| resident.chunk() == key)
+                    .collect::<BTreeSet<_>>();
+                let old_air = self
+                    .known_air
+                    .iter()
+                    .copied()
+                    .filter(|resident| resident.chunk() == key)
+                    .collect::<BTreeSet<_>>();
+                let Ok(applied) = self.store.commit_level_chunk(key, decoded) else {
+                    self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+                    return;
+                };
+                self.reconcile_block_crack_column(key);
+                self.loaded_columns.insert(key);
+                self.purge_sub_chunk_column_state(key);
+                self.resident.retain(|resident| resident.chunk() != key);
+                self.known_air.retain(|resident| resident.chunk() != key);
+                for stale in old_keys.difference(&new_keys) {
+                    self.set_connectivity(*stale, None);
                 }
+                for no_longer_air in old_air.difference(&air_keys) {
+                    self.set_connectivity(*no_longer_air, None);
+                }
+                self.resident.extend(new_keys.iter().copied());
+                for air in air_keys {
+                    self.record_known_air(air);
+                }
+                self.refresh_block_entity_visuals_for_chunk(key);
+                let now = Instant::now();
+                let preexpanded_dirty = applied.dirty;
+                let mut changed_sources = applied.changed.into_iter().collect::<BTreeSet<_>>();
+                changed_sources.extend(new_keys.difference(&old_keys).copied());
+                changed_sources.extend(old_keys.difference(&new_keys).copied());
+                self.mark_changed_sources_with_mesh_dirty(changed_sources, preexpanded_dirty, now);
+                self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {
                 event,
@@ -136,11 +128,7 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
-                self.record_required_level_chunk(&event);
-                match decoded {
-                    Ok(decoded) => self.apply_request_level_chunk(event, decoded, sequence),
-                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
-                }
+                self.apply_request_level_chunk(event, decoded, sequence);
             }
             PreparedWorldEvent::SubChunks {
                 dimension,
@@ -156,7 +144,7 @@ impl WorldStream {
                         entry.position[1],
                         entry.position[2],
                     );
-                    if !self.column_is_active(key.chunk()) {
+                    if !self.column_is_data_interesting(key.chunk()) {
                         self.stats.phase2_outcomes.stale =
                             self.stats.phase2_outcomes.stale.saturating_add(1);
                         continue;
@@ -176,7 +164,7 @@ impl WorldStream {
                     self.consume_confirmed_sub_chunk_attempt(key);
                     self.disarm_sub_chunk_deadline(key);
                     let (completed, committed) = match entry.result {
-                        PreparedSubChunkResult::Decoded(Ok(decoded)) => {
+                        PreparedSubChunkResult::Decoded(decoded) => {
                             self.stats.phase2_outcomes.success =
                                 self.stats.phase2_outcomes.success.saturating_add(1);
                             let decoded_air = decoded.sub_chunk().has_no_storages();
@@ -211,12 +199,6 @@ impl WorldStream {
                             };
                             (true, committed)
                         }
-                        PreparedSubChunkResult::Decoded(Err(_)) => {
-                            self.stats.phase2_outcomes.malformed =
-                                self.stats.phase2_outcomes.malformed.saturating_add(1);
-                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
-                            (self.retry_or_complete_sub_chunk(key), false)
-                        }
                         PreparedSubChunkResult::AllAir => {
                             self.stats.phase2_outcomes.all_air =
                                 self.stats.phase2_outcomes.all_air.saturating_add(1);
@@ -242,23 +224,6 @@ impl WorldStream {
                             self.stats.unavailable_sub_chunks =
                                 self.stats.unavailable_sub_chunks.saturating_add(1);
                             match unavailable {
-                                protocol::SubChunkUnavailable::YIndexOutOfBounds => {
-                                    match self.store.apply_all_air(key) {
-                                        Ok(changed) => {
-                                            let became_known = self.record_known_air(key);
-                                            if changed.is_some() || became_known {
-                                                self.mark_changed(key, Instant::now());
-                                            }
-                                            (true, true)
-                                        }
-                                        Err(_) => {
-                                            self.record_normalization_error(
-                                                NormalizationErrorReason::BlockMutationFailure,
-                                            );
-                                            (true, false)
-                                        }
-                                    }
-                                }
                                 protocol::SubChunkUnavailable::InvalidDimension => {
                                     self.record_normalization_error(
                                         NormalizationErrorReason::InvalidDimensionSubChunk,
@@ -268,6 +233,15 @@ impl WorldStream {
                                 protocol::SubChunkUnavailable::ChunkNotFound
                                 | protocol::SubChunkUnavailable::PlayerNotFound => {
                                     (self.retry_or_complete_sub_chunk(key), false)
+                                }
+                                // Vanilla writes nothing; an empty slot lights as air.
+                                protocol::SubChunkUnavailable::YIndexOutOfBounds => {
+                                    if self.store.sub_chunk(key).is_none()
+                                        && self.record_known_air(key)
+                                    {
+                                        self.mark_changed(key, Instant::now());
+                                    }
+                                    (true, true)
                                 }
                                 protocol::SubChunkUnavailable::Undefined
                                 | protocol::SubChunkUnavailable::Unknown(_) => (true, false),
@@ -284,6 +258,7 @@ impl WorldStream {
                     }
                     if committed {
                         self.refresh_block_entity_visuals_for_sub_chunk(key);
+                        self.reconcile_block_crack_column(key.chunk());
                     }
                     if completed {
                         self.complete_requested_sub_chunk(key, committed);
@@ -312,6 +287,7 @@ impl WorldStream {
                             Ok(changed) => {
                                 let now = Instant::now();
                                 for key in changed {
+                                    self.reconcile_block_crack_column(key.chunk());
                                     self.refresh_block_entity_visuals_for_sub_chunk(key);
                                     self.sync_resident(key);
                                     self.mark_live_mutation_changed(
@@ -345,7 +321,7 @@ impl WorldStream {
                     );
                     return;
                 }
-                if !self.column_is_active(key.chunk()) {
+                if !self.column_is_data_interesting(key.chunk()) {
                     self.record_normalization_error(
                         NormalizationErrorReason::InactiveBlockEntityUpdate,
                     );
@@ -359,9 +335,7 @@ impl WorldStream {
                             self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
                         }
                     },
-                    Err(_) => {
-                        self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
-                    }
+                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
                 }
             }
             PreparedWorldEvent::Immediate(event) => self.apply_immediate(event, sequence),
@@ -416,7 +390,7 @@ impl WorldStream {
                     return;
                 };
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
-                if !self.column_is_active(key) {
+                if !self.column_is_data_interesting(key) {
                     if let Some(sequence) = sequence {
                         self.cancel_request_reservation(sequence);
                     }
@@ -460,19 +434,10 @@ impl WorldStream {
                     Some(cohort.radius.min(PHASE0_MAX_VIEW_RADIUS_CHUNKS));
                 if self.committed_view_cohort != Some(cohort) {
                     if self.provisional_publisher_rebase {
-                        let active_radius = u64::try_from(self.active_radius_chunks()).unwrap_or(0);
-                        let active_center = [
-                            update.center[0].div_euclid(16),
-                            update.center[2].div_euclid(16),
-                        ];
-                        self.required_columns.retain(|key| {
-                            cohort.contains_column(key.dimension, [key.x, key.z])
-                                && key.dimension == self.current_dimension
-                                && i64::from(key.x).abs_diff(i64::from(active_center[0]))
-                                    <= active_radius
-                                && i64::from(key.z).abs_diff(i64::from(active_center[1]))
-                                    <= active_radius
-                        });
+                        self.required_columns = std::mem::take(&mut self.required_columns)
+                            .into_iter()
+                            .filter(|key| self.column_is_data_interesting(*key))
+                            .collect();
                     } else {
                         self.required_columns.clear();
                     }
@@ -490,21 +455,26 @@ impl WorldStream {
                 }
                 self.provisional_publisher_rebase = false;
             }
+            WorldEvent::OpenSign(event) => self.consume_open_sign(event),
+            WorldEvent::MapData(event) => self.consume_map_data(&event),
+            WorldEvent::BlockEvent(event) => {
+                let sequence = sequence.expect("sequenced block events commit through submit");
+                self.consume_block_event(sequence, event);
+            }
             WorldEvent::ChangeDimension(change) => {
+                let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                self.replace_block_crack_dimension(sequence);
+                self.clear_block_events();
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
-                let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 let _ =
                     self.actors
                         .reset_dimension(self.actor_session_id, sequence, change.dimension);
                 self.current_dimension = change.dimension;
-                // A dimension change always dismounts; the mount actor does not follow.
-                if self.local_mount_unique_id.take().is_some() {
-                    self.push_committed_ui(CommittedUiEvent::LocalMount {
-                        sequence,
-                        ridden_unique_id: None,
-                    });
-                }
+                self.form_dimension_epoch = sequence;
+                self.local_movement_speed = None;
+                self.publish_local_mount_change(sequence, previous_mount);
                 let resolved = resolve_server_position(
                     change.position,
                     self.resolved_server_position.position,
@@ -584,6 +554,13 @@ impl WorldStream {
                 });
             }
             WorldEvent::PlayerMovementCorrection(correction) => {
+                // Vehicle rewind subjects have no local-player consumer yet;
+                // skipping here keeps them out of resolution, retention, and
+                // the correction-tick guard until riding rewind handling
+                // exists. The protocol record itself is retained upstream.
+                if !correction.subject.is_player() {
+                    return;
+                }
                 let sequence =
                     sequence.expect("sequenced movement corrections commit through submit");
                 if self
@@ -606,23 +583,66 @@ impl WorldStream {
                     resolved,
                 });
             }
+            WorldEvent::ActorMotion(motion) => {
+                let sequence = sequence.expect("sequenced actor motion commits through submit");
+                if motion.actor_runtime_id != self.local_player_runtime_id {
+                    return;
+                }
+                self.actors.note_local_knockback(sequence, motion.motion);
+                self.push_committed_control(CommittedControlEvent::LocalActorMotion {
+                    sequence,
+                    event: motion,
+                });
+            }
             WorldEvent::SetTime(update) => {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
             }
-            WorldEvent::DaylightCycle(update) => {
-                let sequence = sequence.expect("sequenced daylight-cycle commits through submit");
-                self.push_committed_control(CommittedControlEvent::DaylightCycle {
-                    sequence,
-                    update,
-                });
+            WorldEvent::GameRules(rules) => {
+                let sequence = sequence.expect("sequenced game rules commit through submit");
+                if let Some(update) = rules.daylight_cycle {
+                    self.push_committed_control(CommittedControlEvent::DaylightCycle {
+                        sequence,
+                        update,
+                    });
+                }
+                if !rules.hud.is_empty() {
+                    self.push_committed_ui(CommittedUiEvent::Ui {
+                        sequence,
+                        event: UiEvent::HudRules(rules.hud),
+                    });
+                }
             }
             WorldEvent::Weather(update) => {
                 let sequence = sequence.expect("sequenced weather commits through submit");
                 self.push_committed_control(CommittedControlEvent::Weather { sequence, update });
             }
+            WorldEvent::Audio(event) => {
+                let sequence = sequence.expect("sequenced audio events commit through submit");
+                self.push_committed_audio(CommittedAudioEvent {
+                    sequence,
+                    dimension: self.current_dimension,
+                    dimension_epoch: self.form_dimension_epoch,
+                    event,
+                });
+            }
+            WorldEvent::Particle(event) => {
+                let sequence = sequence.expect("sequenced particle events commit through submit");
+                self.push_committed_particle(CommittedParticleEvent {
+                    sequence,
+                    dimension: self.current_dimension,
+                    event,
+                });
+            }
+            WorldEvent::Camera(event) => {
+                self.stats.audio_nondefault_camera_observed = true;
+                let sequence = sequence.expect("sequenced camera events commit through submit");
+                self.push_committed_camera(CommittedCameraEvent { sequence, event });
+            }
             WorldEvent::Actor(event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
+                let player_list_changed = matches!(&event, ActorEvent::PlayerList(_));
+                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -632,6 +652,20 @@ impl WorldStream {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
+                    if let Some(current) = update
+                        .attributes
+                        .iter()
+                        .rev()
+                        .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
+                        .find_map(super::movement_attribute::walk_speed)
+                    {
+                        self.local_movement_speed = Some(current);
+                        self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
+                            sequence,
+                            dimension: update.dimension,
+                            current,
+                        });
+                    }
                 }
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
@@ -643,60 +677,85 @@ impl WorldStream {
                         metadata: Arc::clone(&update.metadata),
                     });
                 }
+                let local_hurt = matches!(
+                    &event,
+                    ActorEvent::Status(status)
+                        if status.kind == protocol::ActorStatusKind::Hurt
+                            && status.runtime_id == self.local_player_runtime_id
+                );
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                if local_hurt {
+                    self.push_committed_control(CommittedControlEvent::LocalHurt {
+                        sequence,
+                        source_direction: self.actors.hurt_source_direction(sequence),
+                    });
+                }
+                if player_list_changed {
+                    self.push_committed_control(CommittedControlEvent::PlayerListChanged {
+                        sequence,
+                    });
+                }
+                self.publish_local_mount_change(sequence, previous_mount);
             }
             WorldEvent::ActorEffect(event) => {
                 let sequence = sequence.expect("sequenced effect events commit through submit");
                 if event.actor_runtime_id == self.local_player_runtime_id
                     && event.dimension == self.current_dimension
                 {
+                    self.push_committed_control(CommittedControlEvent::LocalMovementEffect {
+                        sequence,
+                        event,
+                    });
                     self.push_committed_ui(CommittedUiEvent::LocalEffect { sequence, event });
                 }
                 // Remote actors' effects have no owned presentation surface yet;
                 // the event is committed and dropped rather than retained.
             }
+            WorldEvent::Abilities(event) => {
+                let sequence = sequence.expect("sequenced abilities commit through submit");
+                if event.actor_unique_id == self.local_player_unique_id {
+                    self.push_committed_ui(CommittedUiEvent::LocalAbilities {
+                        sequence,
+                        stream_identity: self.biome_tint_identity().stream(),
+                        event,
+                    });
+                }
+            }
             WorldEvent::ArmorEquipment(event) => {
                 let sequence = sequence.expect("sequenced armor events commit through submit");
+                let _ = self
+                    .actors
+                    .apply_armor(self.actor_session_id, sequence, &event);
                 if event.actor_runtime_id == self.local_player_runtime_id {
                     self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
                 }
-                // Remote actors' armor is not rendered yet; commit and drop.
+            }
+            WorldEvent::ActorPropertySync(event) => {
+                let _ = self.actors.apply_property_sync(&event);
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
-                if event.rider_unique_id == self.local_player_unique_id {
-                    let next = match event.link_type {
-                        protocol::ActorLinkType::Rider | protocol::ActorLinkType::Passenger => {
-                            Some(event.ridden_unique_id)
-                        }
-                        protocol::ActorLinkType::Remove => {
-                            // Only a removal of the current pair dismounts; a
-                            // stale removal for another actor is ignored.
-                            if self.local_mount_unique_id == Some(event.ridden_unique_id) {
-                                None
-                            } else {
-                                self.local_mount_unique_id
-                            }
-                        }
-                        // An unknown link verb is skipped rather than guessed.
-                        protocol::ActorLinkType::Unknown(_) => self.local_mount_unique_id,
-                    };
-                    if next != self.local_mount_unique_id {
-                        self.local_mount_unique_id = next;
-                        self.push_committed_ui(CommittedUiEvent::LocalMount {
-                            sequence,
-                            ridden_unique_id: next,
-                        });
-                    }
-                }
-                // Links between remote actors are not modeled yet; commit and drop.
+                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+                let _ = self
+                    .actors
+                    .apply_link(self.actor_session_id, sequence, event);
+                self.publish_local_mount_change(sequence, previous_mount);
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
-                self.push_committed_ui(CommittedUiEvent::Ui { sequence, event });
+                let committed = match event {
+                    UiEvent::Form(event) => CommittedUiEvent::Form {
+                        sequence,
+                        dimension_epoch: self.form_dimension_epoch,
+                        event,
+                    },
+                    event => CommittedUiEvent::Ui { sequence, event },
+                };
+                self.push_committed_ui(committed);
             }
             WorldEvent::BlockCrack(event) => {
                 let sequence = sequence.expect("sequenced block cracks commit through submit");
+                self.consume_block_crack(sequence, event);
                 self.push_committed_ui(CommittedUiEvent::BlockCrack {
                     sequence,
                     dimension: self.current_dimension,
@@ -716,6 +775,25 @@ impl WorldStream {
             }
             WorldEvent::ItemActor(event) => {
                 let sequence = sequence.expect("sequenced item/actor events commit through submit");
+                if let protocol::ItemActorEvent::Action(action) = &event
+                    && matches!(
+                        action.kind,
+                        protocol::ActorActionKind::CriticalHit
+                            | protocol::ActorActionKind::MagicCriticalHit
+                    )
+                {
+                    let magic = matches!(action.kind, protocol::ActorActionKind::MagicCriticalHit);
+                    for &actor_runtime_id in action.actor_runtime_ids.iter() {
+                        self.push_committed_particle(CommittedParticleEvent {
+                            sequence,
+                            dimension: self.current_dimension,
+                            event: protocol::ParticleEvent::ActorCritical {
+                                actor_runtime_id,
+                                magic,
+                            },
+                        });
+                    }
+                }
                 let _ = self
                     .actors
                     .apply_item_actor(self.actor_session_id, sequence, event);
@@ -733,7 +811,7 @@ impl WorldStream {
         sequence: Option<u64>,
     ) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
-        if !self.column_is_active(key) {
+        if !self.column_is_data_interesting(key) {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
         }
@@ -743,6 +821,7 @@ impl WorldStream {
             );
             return;
         };
+        self.record_required_level_chunk(&event);
         let (count, has_authoritative_upper_air) = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
                 (usize::from(highest).min(range.sub_chunk_count), true)
@@ -784,6 +863,7 @@ impl WorldStream {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
                 };
+                self.reconcile_block_crack_column(key);
                 let removed = removed.is_some();
                 let became_known = self.record_known_air(air);
                 if removed {
@@ -799,11 +879,8 @@ impl WorldStream {
 
     fn record_required_level_chunk(&mut self, event: &LevelChunkEvent) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
-        let belongs_to_authoritative_cohort = self
-            .committed_view_cohort
-            .is_some_and(|cohort| cohort.contains_column(key.dimension, [key.x, key.z]));
-        if (belongs_to_authoritative_cohort || self.provisional_publisher_rebase)
-            && self.column_is_active(key)
+        if (self.committed_view_cohort.is_some() || self.provisional_publisher_rebase)
+            && self.column_is_data_interesting(key)
         {
             self.required_columns.insert(key);
         }
@@ -821,5 +898,36 @@ impl WorldStream {
             "UI admission invariant exceeded bounded commit-delta capacity"
         );
         self.committed_ui.push_back(event);
+    }
+    pub(super) fn push_committed_audio(&mut self, event: CommittedAudioEvent) {
+        assert!(
+            self.committed_audio.len() < COMMITTED_AUDIO_CAPACITY,
+            "audio admission invariant exceeded bounded commit-delta capacity"
+        );
+        self.committed_audio.push_back(event);
+    }
+    /// Particle triggers are visual-only: under backpressure the oldest is dropped.
+    pub(super) fn push_committed_particle(&mut self, event: CommittedParticleEvent) {
+        if self.committed_particles.len() >= COMMITTED_PARTICLE_CAPACITY {
+            self.committed_particles.pop_front();
+        }
+        self.committed_particles.push_back(event);
+    }
+    pub(super) fn push_committed_camera(&mut self, event: CommittedCameraEvent) {
+        assert!(
+            self.committed_camera.len() < COMMITTED_CAMERA_CAPACITY,
+            "camera admission invariant exceeded bounded commit-delta capacity"
+        );
+        self.committed_camera.push_back(event);
+    }
+
+    fn publish_local_mount_change(&mut self, sequence: u64, previous: Option<i64>) {
+        let current = self.actors.ridden_unique_id(self.local_player_unique_id);
+        if current != previous {
+            self.push_committed_ui(CommittedUiEvent::LocalMount {
+                sequence,
+                ridden_unique_id: current,
+            });
+        }
     }
 }

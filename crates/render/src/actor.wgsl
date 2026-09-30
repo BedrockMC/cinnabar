@@ -11,8 +11,8 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 18 packed words. Its Rust contract
-// is 72 bytes; a WGSL struct containing vec4 rows would round the array stride
+// ActorGpuInstance is deliberately read as 20 packed words. Its Rust contract
+// is 80 bytes; a WGSL struct containing vec4 rows would round the array stride
 // to 80 bytes under storage-buffer layout rules.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
@@ -22,6 +22,7 @@ struct BoneMatrix {
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
+@group(0) @binding(8) var<uniform> material_class: vec4<u32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -29,6 +30,9 @@ struct VertexOutput {
     @location(1) @interpolate(flat) skin_layer: u32,
     @location(2) @interpolate(flat) valid: u32,
     @location(3) world_normal: vec3<f32>,
+    @location(4) back_uv: vec2<f32>,
+    @location(5) @interpolate(flat) tint: u32,
+    @location(6) @interpolate(flat) overlay: vec4<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -67,26 +71,30 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 18u;
+    let instance_base = instance_index * 20u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
     let texture_layer = instance_words[instance_base + 15u];
     let partial_tick = clamp(word_f32(instance_base + 16u), 0.0, 1.0);
+    let overlay_rgba8 = instance_words[instance_base + 19u];
     let span = geometry_spans[geometry_id];
 
     var out: VertexOutput;
     out.skin_layer = texture_layer;
+    out.tint = instance_words[instance_base + 18u];
+    out.overlay = unpack4x8unorm(overlay_rgba8);
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
+        out.back_uv = vec2(0.0);
         out.valid = 0u;
         out.world_normal = vec3(0.0, 1.0, 0.0);
         return out;
     }
 
-    // ActorRigVertex is nine packed words (position, normal, UV, bone).
-    let vertex_base = (span.first_vertex + vertex_index) * 9u;
+    // ActorRigVertex is eleven packed words (position, normal, front/back UV, bone).
+    let vertex_base = (span.first_vertex + vertex_index) * 11u;
     let local = vec3(
         bitcast<f32>(vertex_words[vertex_base]),
         bitcast<f32>(vertex_words[vertex_base + 1u]),
@@ -101,7 +109,11 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     );
-    let bone_index = vertex_words[vertex_base + 8u];
+    out.back_uv = vec2(
+        bitcast<f32>(vertex_words[vertex_base + 8u]),
+        bitcast<f32>(vertex_words[vertex_base + 9u]),
+    );
+    let bone_index = vertex_words[vertex_base + 10u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
     let posed = mix(previous, current, partial_tick);
@@ -131,13 +143,18 @@ fn actor_vertex(
 }
 
 @fragment
-fn actor_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
+fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     if (input.valid == 0u) {
         discard;
     }
-    let color = textureSample(skins, skin_sampler, input.uv, i32(input.skin_layer));
-    if (color.a < 0.1) {
+    var color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
+    if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
     }
-    return color;
+    // Dye multiplies only fully opaque texels; partially transparent texels are untinted overlay.
+    if (input.tint != 0u && color.a > 0.99) {
+        color = vec4(color.rgb * pow(unpack4x8unorm(input.tint).rgb, vec3(2.2)), color.a);
+    }
+    // The hurt/death overlay blends after the dye.
+    return vec4(mix(color.rgb, input.overlay.rgb, input.overlay.a), color.a);
 }

@@ -1,5 +1,115 @@
 use super::*;
 
+fn riding_stream() -> WorldStream {
+    WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    })
+}
+
+const fn actor_link(
+    rider_unique_id: i64,
+    ridden_unique_id: i64,
+    link_type: ActorLinkType,
+) -> ActorLinkEvent {
+    ActorLinkEvent {
+        dimension: 0,
+        ridden_unique_id,
+        rider_unique_id,
+        link_type,
+        immediate: false,
+        rider_initiated: false,
+    }
+}
+
+fn linked_spawn(unique_id: i64, runtime_id: u64, links: Arc<[ActorLinkEvent]>) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension: 0,
+        unique_id,
+        runtime_id,
+        kind: ActorKind::Entity {
+            identifier: "minecraft:boat".into(),
+        },
+        position: [0.0; 3],
+        velocity: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links,
+    }))
+}
+
+#[test]
+fn world_stream_retains_remote_link_before_spawn_without_local_ui() {
+    let mut stream = riding_stream();
+    stream
+        .submit(
+            1,
+            WorldEvent::ActorLink(actor_link(7, 8, ActorLinkType::Rider)),
+        )
+        .unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(7), Some(8));
+    assert!(stream.take_committed_ui().is_empty());
+
+    stream.submit(2, linked_spawn(7, 7, Arc::from([]))).unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(7), Some(8));
+}
+
+#[test]
+fn embedded_links_publish_one_final_local_mount_and_actor_removal_dismounts() {
+    let mut stream = riding_stream();
+    stream
+        .submit(
+            1,
+            linked_spawn(
+                50,
+                50,
+                Arc::from([
+                    actor_link(1, 40, ActorLinkType::Rider),
+                    actor_link(1, 50, ActorLinkType::Passenger),
+                    actor_link(1, 60, ActorLinkType::Unknown(9)),
+                ]),
+            ),
+        )
+        .unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(1), Some(50));
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalMount {
+            sequence: 1,
+            ridden_unique_id: Some(50),
+        }]
+    );
+
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Remove(ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 50,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.actors.ridden_unique_id(1), None);
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalMount {
+            sequence: 2,
+            ridden_unique_id: None,
+        }]
+    );
+}
+
 #[test]
 fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
     let mut stream = WorldStream::new(WorldBootstrap {
@@ -77,6 +187,280 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
     assert!(stream.take_committed_ui().is_empty());
 }
 
+fn movement_attribute(current: f32) -> ActorAttribute {
+    ActorAttribute {
+        name: Arc::from("minecraft:movement"),
+        min: 0.0,
+        max: 1024.0,
+        current,
+        default: Some(0.1),
+        modifiers: Arc::from([]),
+    }
+}
+
+#[test]
+fn movement_authority_removes_only_identified_sprint_multiplier_once() {
+    let modifier = protocol::ActorAttributeModifier {
+        id: Arc::from("D208FC00-42AA-4AAD-9276-D5446530DE43"),
+        name: Arc::from("unrelated label"),
+        amount: 0.3,
+        operation: 2,
+        operand: 2,
+        serializable: true,
+    };
+    let mut stream = riding_stream();
+    let mut sequence = 0;
+    let mut submit =
+        |modifiers: Arc<[protocol::ActorAttributeModifier]>, current: f32, expected: f32| {
+            sequence += 1;
+            let mut attribute = movement_attribute(current);
+            attribute.modifiers = modifiers;
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 1,
+                        attributes: Arc::from([attribute]),
+                        tick: sequence,
+                    })),
+                )
+                .unwrap();
+            assert_eq!(stream.local_movement_speed(), Some(f64::from(expected)));
+        };
+    submit(Arc::from([modifier.clone()]), 0.13, 0.13_f32 / 1.3);
+    submit(Arc::from([modifier.clone()]), 0.156, 0.156_f32 / 1.3);
+    submit(Arc::from([modifier.clone()]), 0.0, 0.0);
+    let mut custom = modifier.clone();
+    custom.id = Arc::from("custom-speed");
+    custom.name = Arc::from("Sprinting speed boost");
+    submit(Arc::from([custom]), 0.13, 0.13);
+    let mut different_operation = modifier.clone();
+    different_operation.operation = 1;
+    submit(Arc::from([different_operation]), 0.13, 0.13);
+    let mut different_operand = modifier;
+    different_operand.operand = 1;
+    submit(Arc::from([different_operand]), 0.13, 0.13);
+}
+
+#[test]
+fn ambiguous_or_invalid_sprint_authority_keeps_previous_speed_and_session() {
+    let modifier = protocol::ActorAttributeModifier {
+        id: Arc::from("d208fc00-42aa-4aad-9276-d5446530de43"),
+        name: Arc::from(""),
+        amount: 0.3,
+        operation: 2,
+        operand: 2,
+        serializable: true,
+    };
+    let mut stream = riding_stream();
+    for (index, modifiers) in [
+        Arc::from([]),
+        Arc::from([modifier.clone(), modifier.clone()]),
+        Arc::from([protocol::ActorAttributeModifier {
+            amount: f32::NAN,
+            ..modifier.clone()
+        }]),
+        Arc::from([protocol::ActorAttributeModifier {
+            amount: -1.0,
+            ..modifier
+        }]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut attribute = movement_attribute(if index == 0 { 0.25 } else { 0.13 });
+        attribute.modifiers = modifiers;
+        let sequence = index as u64 + 1;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    attributes: Arc::from([attribute]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+        assert_eq!(stream.local_movement_speed(), Some(0.25));
+    }
+}
+
+#[test]
+fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 0,
+                runtime_id: 42,
+                attributes: Arc::from([movement_attribute(0.0)]),
+                tick: 2,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), None);
+
+    stream
+        .submit(1, WorldEvent::SetTime(SetTimeEvent { time: 0 }))
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), Some(0.0));
+    assert!(matches!(
+        stream.take_committed_controls().as_slice(),
+        [
+            CommittedControlEvent::SetTime { sequence: 1, .. },
+            CommittedControlEvent::LocalMovementSpeed {
+                sequence: 2,
+                dimension: 0,
+                current: 0.0
+            }
+        ]
+    ));
+}
+
+#[test]
+fn movement_authority_skips_wrong_actor_dimension_and_invalid_values_then_clears_on_transfer() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, dimension, runtime_id, current) in [
+        (1, 0, 42, 0.25),
+        (2, 0, 7, 0.5),
+        (3, 1, 42, 0.75),
+        (4, 0, 42, -1.0),
+        (5, 0, 42, f32::NAN),
+        (6, 0, 42, f32::INFINITY),
+    ] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension,
+                    runtime_id,
+                    attributes: Arc::from([movement_attribute(current)]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+    }
+    assert_eq!(stream.local_movement_speed(), Some(0.25));
+
+    stream
+        .submit(
+            7,
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 0,
+                runtime_id: 42,
+                attributes: Arc::from([movement_attribute(0.3), movement_attribute(-1.0)]),
+                tick: 7,
+            })),
+        )
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), Some(f64::from(0.3_f32)));
+
+    stream
+        .submit(
+            8,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0; 3],
+            }),
+        )
+        .unwrap();
+    assert_eq!(stream.local_movement_speed(), None);
+}
+
+#[test]
+fn local_effect_commits_to_movement_control_and_ui_together() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let effect = protocol::ActorEffectEvent {
+        dimension: 0,
+        actor_runtime_id: 42,
+        action: protocol::ActorEffectAction::Add,
+        effect_id: 27,
+        amplifier: 0,
+        particles: true,
+        ambient: false,
+        duration_ticks: 40,
+        tick: 99,
+    };
+
+    stream.submit(1, WorldEvent::ActorEffect(effect)).unwrap();
+
+    assert_eq!(
+        stream.take_committed_controls(),
+        vec![CommittedControlEvent::LocalMovementEffect {
+            sequence: 1,
+            event: effect,
+        }]
+    );
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::LocalEffect {
+            sequence: 1,
+            event: effect,
+        }]
+    );
+}
+
+#[test]
+fn remote_or_wrong_dimension_effect_does_not_reach_local_movement() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    for (sequence, runtime_id, dimension) in [(1, 7, 0), (2, 42, 1)] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::ActorEffect(protocol::ActorEffectEvent {
+                    dimension,
+                    actor_runtime_id: runtime_id,
+                    action: protocol::ActorEffectAction::Add,
+                    effect_id: 8,
+                    amplifier: 0,
+                    particles: true,
+                    ambient: false,
+                    duration_ticks: 40,
+                    tick: 99,
+                }),
+            )
+            .unwrap();
+    }
+
+    assert!(stream.take_committed_controls().is_empty());
+    assert!(stream.take_committed_ui().is_empty());
+}
+
 #[test]
 fn stale_mesh_completion_cannot_replace_current_revision() {
     let mut stream = WorldStream::new(WorldBootstrap {
@@ -96,8 +480,8 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
@@ -158,8 +542,8 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(key.chunk(), decoded)
@@ -271,8 +655,8 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(real.chunk(), decoded)
@@ -486,7 +870,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
     let chunk = ChunkKey::new(0, 2, -3);
     let key = SubChunkKey::from_chunk(chunk, -4);
     let payload = [9, 0, (-4_i8) as u8];
-    let decoded = DecodedLevelChunk::decode(-4, 1, &payload).unwrap();
+    let decoded = DecodedLevelChunk::decode(-4, 1, &payload, &RAW_IDS);
     stream.apply_prepared(super::PreparedWorldEvent::InlineLevelChunk {
         event: LevelChunkEvent {
             dimension: 0,
@@ -495,7 +879,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
             mode: LevelChunkMode::Inline { count: 1 },
             payload: payload.to_vec(),
         },
-        decoded: Ok(decoded),
+        decoded,
         duration: std::time::Duration::ZERO,
     });
 
@@ -597,7 +981,7 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
         env!("CARGO_MANIFEST_DIR"),
         "/../world/fixtures/uniform_non_air.bin"
     ));
-    let decoded = DecodedLevelChunk::decode(-4, 1, payload).unwrap();
+    let decoded = DecodedLevelChunk::decode(-4, 1, payload, &RAW_IDS);
     stream.apply_prepared(super::PreparedWorldEvent::InlineLevelChunk {
         event: LevelChunkEvent {
             dimension: 0,
@@ -606,13 +990,40 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
             mode: LevelChunkMode::Inline { count: 1 },
             payload: payload.to_vec(),
         },
-        decoded: Ok(decoded),
+        decoded,
         duration: std::time::Duration::ZERO,
     });
 
+    let expected_network_y = -49.0_f32 + 1.0 + PLAYER_NETWORK_OFFSET;
     assert_eq!(
         stream.surface_eye_position(block_x, block_z),
-        Some([block_x as f32 + 0.5, -46.38, block_z as f32 + 0.5])
+        Some([
+            block_x as f32 + 0.5,
+            expected_network_y,
+            block_z as f32 + 0.5
+        ])
+    );
+
+    // The resolved spawn anchor must rest exactly on the surface instead of
+    // starting embedded inside it: feet are recovered from a movement anchor
+    // as network Y minus the protocol offset, so an eye-height guess left
+    // feet 1e-5 blocks inside the surface block on every surface spawn.
+    // The standing-player box arithmetic below mirrors `sim::Aabb::player_at`
+    // plus `intersects` because client-world cannot depend on `sim` under
+    // the architecture dependency policy.
+    let feet_y = f64::from(expected_network_y - PLAYER_NETWORK_OFFSET);
+    assert_eq!(
+        feet_y, -48.0_f64,
+        "feet must rest exactly on top of the surface block at y=-49"
+    );
+    let player_min_y = feet_y;
+    let player_max_y = feet_y + 1.8;
+    let surface_min_y = -49.0_f64;
+    let surface_max_y = -48.0_f64;
+    let intersects_surface = player_max_y > surface_min_y && player_min_y < surface_max_y;
+    assert!(
+        !intersects_surface,
+        "the standing-player box must not intersect the surface block"
     );
 }
 
@@ -648,6 +1059,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
                 metadata: Arc::from([]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),
+                links: Arc::from([]),
             })),
         )
         .unwrap();
@@ -692,6 +1104,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 metadata: Arc::from([]),
                 attributes: Arc::from([]),
                 properties: Arc::from([]),
+                links: Arc::from([]),
             })),
         )
         .unwrap();

@@ -1,4 +1,42 @@
 use super::*;
+use crate::runtime::network::session::{InboundWorldEvent, wrap_inbound_world_event};
+
+#[test]
+fn level_chunk_private_ingress_preserves_payload_allocation_and_fifo_sequence() {
+    let payload = bytes::Bytes::from(vec![0x5a; 1024 * 1024]);
+    let pointer = payload.as_ptr();
+    let counter = ReadinessIngressCounter::default();
+    let mut sequencer = NetworkSequencer::new(7, 0, 42);
+
+    let ingress = wrap_inbound_world_event(
+        &mut sequencer,
+        &counter,
+        InboundWorldEvent::LevelChunk {
+            event: protocol::LevelChunkEvent {
+                dimension: 0,
+                x: 3,
+                z: 4,
+                mode: protocol::LevelChunkMode::Inline { count: 0 },
+                payload: Vec::new(),
+            },
+            payload,
+        },
+    );
+
+    let WorldIngress::LevelChunk {
+        session_generation,
+        sequence,
+        payload,
+        ..
+    } = ingress
+    else {
+        panic!("LevelChunk must use the private byte ingress lane")
+    };
+    assert_eq!(session_generation, 7);
+    assert_eq!(sequence, 1);
+    assert_eq!(payload.as_ptr(), pointer);
+    assert_eq!(counter.pending(), 1);
+}
 
 #[test]
 fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
@@ -18,6 +56,74 @@ fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Server)
     );
+}
+
+#[test]
+fn start_game_item_registry_is_normalized_from_captured_game_data() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.item_registry.item_data.push(Default::default());
+    let entry = &mut game_data.item_registry.item_data[0];
+    entry.item_name = "minecraft:apple".into();
+    entry.item_id = 878;
+
+    let registry = start_game_item_registry(&game_data, 0)
+        .unwrap()
+        .expect("normalized registry");
+    assert_eq!(registry.entries.len(), 1);
+    assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:apple");
+    assert_eq!(registry.entries[0].network_id, 878);
+}
+
+#[test]
+fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    for item_id in [5, 6] {
+        game_data.item_registry.item_data.push(Default::default());
+        let entry = game_data.item_registry.item_data.last_mut().unwrap();
+        entry.item_name = "minecraft:duplicate".into();
+        entry.item_id = item_id;
+    }
+
+    assert_eq!(start_game_item_registry(&game_data, 0).unwrap(), None);
+    assert_eq!(
+        start_game_inventory_authority(&game_data),
+        InventoryEvent::Authority(InventoryAuthority::Client)
+    );
+}
+
+#[test]
+fn malformed_start_game_registry_nbt_is_a_typed_wire_failure() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    game_data.item_registry.item_data.push(Default::default());
+    let entry = &mut game_data.item_registry.item_data[0];
+    entry.item_name = "minecraft:apple".into();
+    entry.item_id = 878;
+    entry.item_component_data.0 = bytes::Bytes::from_static(&[0xff]);
+
+    assert!(matches!(
+        start_game_item_registry(&game_data, 0),
+        Err(protocol::WorldPacketError::Wire(
+            protocol::WorldWireError::Item(protocol::ItemPacketError::InvalidItemNbt)
+        ))
+    ));
 }
 
 #[test]
@@ -106,6 +212,7 @@ fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
         delta: [0.0; 3],
         pitch: -15.0,
         yaw: 90.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
     });

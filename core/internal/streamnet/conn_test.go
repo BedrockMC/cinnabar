@@ -253,3 +253,33 @@ type testAddr string
 
 func (a testAddr) Network() string { return "test" }
 func (a testAddr) String() string  { return string(a) }
+
+// A vectored write that completes short must still put the whole frame on the wire.
+func TestFinishFrameCompletesShortVectoredWrites(t *testing.T) {
+	header := []byte{0, 0, 0, 3}
+	payload := []byte{7, 8, 9}
+	for written := int64(0); written < int64(len(header)+len(payload)); written++ {
+		var out bytes.Buffer
+		total, err := finishFrame(&trickleWriter{w: &out}, header, payload, written)
+		if err != nil {
+			t.Fatalf("written=%d: %v", written, err)
+		}
+		if total != int64(len(header)+len(payload)) {
+			t.Fatalf("written=%d: total %d", written, total)
+		}
+		want := append(append([]byte{}, header...), payload...)[written:]
+		if !bytes.Equal(out.Bytes(), want) {
+			t.Fatalf("written=%d: got %v want %v", written, out.Bytes(), want)
+		}
+	}
+}
+
+// trickleWriter writes at most one byte per call.
+type trickleWriter struct{ w io.Writer }
+
+func (t *trickleWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	return t.w.Write(p[:1])
+}

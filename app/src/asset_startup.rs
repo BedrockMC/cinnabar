@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsString,
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -18,9 +17,16 @@ use crate::metrics::AssetMetrics;
 
 mod font_fallback;
 use font_fallback::diagnostic_font_assets;
+mod optional_carriers;
+pub(crate) use optional_carriers::shell_quote_path;
+use optional_carriers::{
+    load_atmosphere_assets, load_entity_assets, load_font_assets, load_material_keys,
+    load_vanilla_entity_refs,
+};
+mod world_provenance;
+pub use world_provenance::pinned_world_provenance;
+pub(crate) use world_provenance::{active_content_registry_protocol, pinned_block_registry_bytes};
 
-pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
-pub const DEFAULT_ASSET_PATH: &str = ".local/assets/compiled/vanilla-v1001.mcbea";
 pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
@@ -33,15 +39,18 @@ pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
 pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
 pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
 pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
+pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
+pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
 pub const COMPILE_COMMAND: &str = concat!(
     "cargo run -p asset-compiler --bin assetc -- compile ",
     "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
-    "--registry crates/assets/data/block-registry-v1001.bin ",
-    "--light-registry crates/assets/data/block-light-registry-v1001.bin ",
-    "--biome-registry crates/assets/data/biome-registry-v1001.bin ",
-    "--out .local/assets/compiled/vanilla-v1001.mcbea"
+    "--source-manifest assets/vanilla-source.json ",
+    "--registry crates/assets/data/block-registry-v2193.bin ",
+    "--light-registry crates/assets/data/block-light-registry-v2193.bin ",
+    "--biome-registry crates/assets/data/biome-registry-v2193.bin ",
+    "--out .local/assets/compiled/vanilla-v2193.mcbea"
 );
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");
@@ -53,19 +62,6 @@ const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
 const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssetPathSource {
-    CommandLine,
-    Environment,
-    Default,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssetSelection {
-    pub path: PathBuf,
-    pub source: AssetPathSource,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadedAssetKind {
@@ -102,10 +98,36 @@ pub struct LoadedFontAssets {
     diagnostic: bool,
 }
 
+mod actor_carrier;
+mod audio_carrier;
+mod audio_pcm_carrier;
+mod equipment_carrier;
+pub(crate) use actor_carrier::require_actor_artwork;
+pub use actor_carrier::{ACTOR_ASSETS_FILENAME, actor_asset_path, require_actor_assets};
+pub(crate) use audio_pcm_carrier::load_audio_pcm_assets;
+pub(crate) use equipment_carrier::{
+    load_optional_block_entity_assets, load_optional_equipment_assets,
+};
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;
+mod path_selection;
 
+/// Environment override consumed through [`path_selection`]; kept beside the
+/// other identity anchors so the registered marker's declared consumer stays
+/// this module.
+pub const ASSET_PATH_ENVIRONMENT: &str = crate::acceptance::markers::ASSETS;
+
+pub use path_selection::{
+    AssetPathSource, AssetSelection, DEFAULT_ASSET_PATH, select_asset_path,
+    select_asset_path_from_environment, select_asset_path_in_context,
+    select_asset_path_with_default,
+};
+
+pub use audio_carrier::{
+    LoadedAudioAssets, audio_asset_path, audio_assets_missing_notice, audio_assets_rebuild_command,
+    load_audio_assets,
+};
 pub use hud_carrier::{
     LoadedHudAssets, hud_asset_path, hud_assets_missing_notice, hud_assets_rebuild_command,
     load_hud_assets, require_hud_assets,
@@ -123,7 +145,7 @@ pub use icon_carrier::{
 };
 pub use lang_carrier::{
     LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
-    require_lang_assets,
+    load_active_language, require_lang_assets,
 };
 
 impl LoadedFontAssets {
@@ -249,6 +271,18 @@ impl std::fmt::Debug for LoadedAssets {
 
 #[derive(Debug, Error)]
 pub enum AssetStartupError {
+    #[error(
+        "invalid local finite PCM carrier at {path}: {detail}; rebuild with make audio-pcm-assets"
+    )]
+    AudioPcm { path: PathBuf, detail: String },
+    #[error(
+        "required neutral actor carrier at {path} is unavailable or invalid: {detail}\nrebuild with: {rebuild_command}"
+    )]
+    ActorAssets {
+        path: PathBuf,
+        detail: Box<str>,
+        rebuild_command: String,
+    },
     #[error("could not read compiled asset blob at {path}: {source}")]
     Read {
         path: PathBuf,
@@ -334,6 +368,38 @@ pub enum AssetStartupError {
         "required entity asset carrier at {path} has stale provenance (expected source manifest SHA-256 {expected}, found {actual})\nrebuild local entity assets with: {rebuild_command}"
     )]
     EntityAssetsProvenance {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "compiled asset carrier at {path} has stale provenance ({component}: expected SHA-256 {expected}, found {actual})\nrebuild stale local assets with: {rebuild_command}"
+    )]
+    WorldAssetsProvenance {
+        path: PathBuf,
+        component: &'static str,
+        expected: String,
+        actual: String,
+        rebuild_command: &'static str,
+    },
+
+    #[error(
+        "checkout conflict: the pinned block registry stamps wire protocol {actual} but the active content authority binds protocol {expected}; regenerate the world and physics registry inputs together"
+    )]
+    PinnedRegistryProtocolMismatch { expected: u32, actual: u32 },
+
+    #[error("could not read the wire protocol stamp from the pinned block registry: {source}")]
+    PinnedRegistryHeader {
+        #[source]
+        source: Box<AssetError>,
+    },
+
+    #[error(
+        "required atmosphere asset carrier at {path} has stale provenance (expected source manifest SHA-256 {expected}, found {actual})\nrebuild local atmosphere assets with: {rebuild_command}"
+    )]
+    AtmosphereAssetsProvenance {
         path: PathBuf,
         expected: String,
         actual: String,
@@ -462,6 +528,49 @@ pub enum AssetStartupError {
     },
 
     #[error(
+        "could not read local sound-definition carrier at {path}: {source}
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsRead {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local sound-definition carrier at {path} exceeds the {max_bytes}-byte startup limit
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsTooLarge {
+        path: PathBuf,
+        max_bytes: u64,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "could not decode local sound-definition carrier at {path}: {source}
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsDecode {
+        path: PathBuf,
+        #[source]
+        source: Box<assets::AudioCatalogError>,
+        rebuild_command: String,
+    },
+
+    #[error(
+        "local sound-definition carrier at {path} was compiled from manifest {carrier} but the checkout pins {manifest}
+rebuild sound-definition assets with: {rebuild_command}"
+    )]
+    AudioAssetsProvenance {
+        path: PathBuf,
+        carrier: String,
+        manifest: String,
+        rebuild_command: String,
+    },
+
+    #[error(
         "could not read required item-icon carrier at {path}: {source}
 rebuild item-icon assets with: {rebuild_command}"
     )]
@@ -516,69 +625,6 @@ rebuild item-icon assets with: {rebuild_command}"
 struct VanillaSource {
     tag: String,
     sha256: String,
-}
-
-#[must_use]
-pub fn select_asset_path(
-    command_line: Option<&Path>,
-    environment: Option<OsString>,
-) -> AssetSelection {
-    if let Some(path) = command_line {
-        return AssetSelection {
-            path: path.to_owned(),
-            source: AssetPathSource::CommandLine,
-        };
-    }
-    if let Some(path) = environment.filter(|path| !path.is_empty()) {
-        return AssetSelection {
-            path: PathBuf::from(path),
-            source: AssetPathSource::Environment,
-        };
-    }
-    AssetSelection {
-        path: PathBuf::from(DEFAULT_ASSET_PATH),
-        source: AssetPathSource::Default,
-    }
-}
-
-#[must_use]
-pub fn select_asset_path_in_context(
-    command_line: Option<&Path>,
-    environment: Option<OsString>,
-    current_directory: &Path,
-    executable: &Path,
-) -> AssetSelection {
-    let mut selection = select_asset_path(command_line, environment);
-    if selection.source != AssetPathSource::Default || selection.path.is_absolute() {
-        return selection;
-    }
-    if current_directory.join(&selection.path).is_file() {
-        return selection;
-    }
-    let Some(project_root) = executable
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-    else {
-        return selection;
-    };
-    let executable_relative = project_root.join(&selection.path);
-    if executable_relative.is_file() {
-        selection.path = executable_relative;
-    }
-    selection
-}
-
-#[must_use]
-pub fn select_asset_path_from_environment(command_line: Option<&Path>) -> AssetSelection {
-    let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let executable = std::env::current_exe().unwrap_or_default();
-    select_asset_path_in_context(
-        command_line,
-        std::env::var_os(ASSET_PATH_ENVIRONMENT),
-        &current_directory,
-        &executable,
-    )
 }
 
 #[must_use]
@@ -658,6 +704,13 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
                 rebuild_command: COMPILE_COMMAND,
             })?,
         );
+    if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
+        crate::runtime::network::set_base_material_keys(keys);
+    }
+    if let Some(refs) = load_vanilla_entity_refs(&selection.path) {
+        crate::runtime::network::entity_pack::set_vanilla_refs(refs);
+    }
+    world_provenance::verify_world_carrier(&selection.path, &runtime)?;
     let metrics = runtime_metrics(&runtime, source, blob_sha256);
     let atmosphere = load_atmosphere_assets(&selection.path)?;
     let entities = load_entity_assets(&selection.path)?;
@@ -674,237 +727,12 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     })
 }
 
-fn load_entity_assets(world_asset_path: &Path) -> Result<LoadedEntityAssets, AssetStartupError> {
-    let path = entity_asset_path(world_asset_path);
-    let file = File::open(&path).map_err(|source| AssetStartupError::EntityAssetsRead {
-        path: path.clone(),
-        source,
-        rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-    })?;
-    let length = file
-        .metadata()
-        .map_err(|source| AssetStartupError::EntityAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-        })?
-        .len();
-    if length > MAX_ENTITY_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::EntityAssetsTooLarge {
-            path,
-            max_bytes: MAX_ENTITY_ASSET_BLOB_BYTES,
-            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_ENTITY_ASSET_BLOB_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetStartupError::EntityAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-        })?;
-    if bytes.len() as u64 > MAX_ENTITY_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::EntityAssetsTooLarge {
-            path,
-            max_bytes: MAX_ENTITY_ASSET_BLOB_BYTES,
-            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    let identity = Sha256::digest(&bytes).into();
-    let runtime = Arc::new(RuntimeEntityAssets::decode(&bytes).map_err(|source| {
-        AssetStartupError::EntityAssetsDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-        }
-    })?);
-    let expected_manifest_sha256 = canonical_source_manifest_sha256(VANILLA_SOURCE_JSON);
-    let actual_manifest_sha256 = runtime.source_manifest_sha256();
-    if actual_manifest_sha256 != expected_manifest_sha256 {
-        return Err(AssetStartupError::EntityAssetsProvenance {
-            path,
-            expected: format_sha256(expected_manifest_sha256),
-            actual: format_sha256(actual_manifest_sha256),
-            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
-        });
-    }
-    Ok(LoadedEntityAssets {
-        runtime,
-        identity,
-        selected_path: path,
-    })
-}
-
-fn load_font_assets(world_asset_path: &Path) -> Result<LoadedFontAssets, AssetStartupError> {
-    let local_path = local_font_asset_path(world_asset_path);
-    let (path, file, source_manifest, rebuild_command) = match File::open(&local_path) {
-        Ok(file) => (
-            local_path,
-            file,
-            VANILLA_SOURCE_JSON,
-            LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-        ),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            let path = font_asset_path(world_asset_path);
-            let file = match File::open(&path) {
-                Ok(file) => file,
-                Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                    return diagnostic_font_assets(path);
-                }
-                Err(source) => {
-                    return Err(AssetStartupError::FontAssetsRead {
-                        path,
-                        source,
-                        rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-                    });
-                }
-            };
-            (path, file, UI_FONT_SOURCE_JSON, FONT_ASSETS_COMPILE_COMMAND)
-        }
-        Err(source) => {
-            return Err(AssetStartupError::FontAssetsRead {
-                path: local_path,
-                source,
-                rebuild_command: LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-            });
-        }
-    };
-    let length = file
-        .metadata()
-        .map_err(|source| AssetStartupError::FontAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command,
-        })?
-        .len();
-    if length > MAX_FONT_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::FontAssetsTooLarge {
-            path,
-            max_bytes: MAX_FONT_ASSET_BLOB_BYTES,
-            rebuild_command,
-        });
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_FONT_ASSET_BLOB_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetStartupError::FontAssetsRead {
-            path: path.clone(),
-            source,
-            rebuild_command,
-        })?;
-    if bytes.len() as u64 > MAX_FONT_ASSET_BLOB_BYTES {
-        return Err(AssetStartupError::FontAssetsTooLarge {
-            path,
-            max_bytes: MAX_FONT_ASSET_BLOB_BYTES,
-            rebuild_command,
-        });
-    }
-    let expected_manifest_sha256 = canonical_source_manifest_sha256(source_manifest);
-    let runtime =
-        RuntimeFontCatalog::decode(&bytes, expected_manifest_sha256).map_err(|source| {
-            AssetStartupError::FontAssetsDecode {
-                path: path.clone(),
-                source: Box::new(source),
-                rebuild_command,
-            }
-        })?;
-    Ok(LoadedFontAssets {
-        runtime: Arc::new(runtime),
-        selected_path: path,
-        diagnostic: false,
-    })
-}
-
-/// Quotes a path for copy-paste into the platform shell running `make`.
-#[cfg(windows)]
-pub(crate) fn shell_quote_path(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
-    format!("'{}'", path.replace('\'', "''"))
-}
-
-#[cfg(not(windows))]
-pub(crate) fn shell_quote_path(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
-}
-
 /// SHA-256 of the manifest with line endings canonicalized to LF, matching
-/// the compiler-side identity regardless of checkout autocrlf.
+/// the compiler-side identity regardless of checkout autocrlf. One shared
+/// implementation lives in the `assets` crate and serves both sides.
+#[must_use]
 pub fn canonical_source_manifest_sha256(source: &str) -> [u8; 32] {
-    let source = source.as_bytes();
-    if !source.contains(&b'\r') {
-        return Sha256::digest(source).into();
-    }
-    let mut canonical = Vec::with_capacity(source.len());
-    let mut index = 0;
-    while index < source.len() {
-        match source[index] {
-            b'\r' if source.get(index + 1) == Some(&b'\n') => {
-                canonical.push(b'\n');
-                index += 2;
-            }
-            b'\r' | b'\n' => return Sha256::digest(source).into(),
-            byte => {
-                canonical.push(byte);
-                index += 1;
-            }
-        }
-    }
-    Sha256::digest(canonical).into()
-}
-
-fn load_atmosphere_assets(
-    world_asset_path: &Path,
-) -> Result<LoadedAtmosphereAssets, AssetStartupError> {
-    let path = atmosphere_asset_path(world_asset_path);
-    let file = File::open(&path).map_err(|source| AssetStartupError::AtmosphereRead {
-        path: path.clone(),
-        source,
-        rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-    })?;
-    let length = file
-        .metadata()
-        .map_err(|source| AssetStartupError::AtmosphereRead {
-            path: path.clone(),
-            source,
-            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-        })?
-        .len();
-    if length > MAX_ATMOSPHERE_BLOB_BYTES {
-        return Err(AssetStartupError::AtmosphereTooLarge {
-            path,
-            max_bytes: MAX_ATMOSPHERE_BLOB_BYTES,
-            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-        });
-    }
-    let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_ATMOSPHERE_BLOB_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| AssetStartupError::AtmosphereRead {
-            path: path.clone(),
-            source,
-            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-        })?;
-    if bytes.len() as u64 > MAX_ATMOSPHERE_BLOB_BYTES {
-        return Err(AssetStartupError::AtmosphereTooLarge {
-            path,
-            max_bytes: MAX_ATMOSPHERE_BLOB_BYTES,
-            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-        });
-    }
-    let identity = Sha256::digest(&bytes).into();
-    let runtime = Arc::new(RuntimeAtmosphereAssets::decode(&bytes).map_err(|source| {
-        AssetStartupError::AtmosphereDecode {
-            path: path.clone(),
-            source: Box::new(source),
-            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-        }
-    })?);
-    Ok(LoadedAtmosphereAssets {
-        runtime,
-        identity,
-        selected_path: path,
-    })
+    assets::canonical_source_manifest_sha256(source.as_bytes())
 }
 
 fn diagnostic_assets(
@@ -958,26 +786,5 @@ fn runtime_metrics(
         missing_mapping_count: runtime.missing_count(),
         diagnostic_quad_count: 0,
         diagnostic_attribution: Default::default(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::canonical_source_manifest_sha256;
-
-    #[test]
-    fn canonical_source_manifest_hash_is_line_ending_invariant() {
-        assert_eq!(
-            canonical_source_manifest_sha256("{\r\n  \"schema\": 1\r\n}\r\n"),
-            canonical_source_manifest_sha256("{\n  \"schema\": 1\n}\n")
-        );
-    }
-
-    #[test]
-    fn mixed_source_manifest_line_endings_do_not_match_the_canonical_pin() {
-        assert_ne!(
-            canonical_source_manifest_sha256("{\r\n  \"schema\": 1\n}\r\n"),
-            canonical_source_manifest_sha256("{\n  \"schema\": 1\n}\n")
-        );
     }
 }

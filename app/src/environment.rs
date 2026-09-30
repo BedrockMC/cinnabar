@@ -1,18 +1,19 @@
-use assets::{BiomeVisualProfile, FogMedium, FogProfile};
-use bevy::{
-    prelude::{Res, ResMut, Resource, Time},
-    time::Real,
-};
+use bevy::prelude::Resource;
 use meshing::CameraMedium;
 use protocol::{WeatherChannel, WorldEnvironmentBootstrap};
-use render::AtmosphereFrame;
 
 use client_world::CommittedControlEvent;
 
+mod atmosphere;
 mod numeric;
 mod profile_lookup;
+mod weather;
+pub(crate) use atmosphere::update_atmosphere_frame;
 use numeric::finite_nonnegative;
-use profile_lookup::{dimension_fallback_biome, find_biome_profile};
+pub(crate) use weather::{
+    LightningFlashState, WeatherDisplay, load_optional_weather_textures, update_lightning,
+    update_precipitation_scene,
+};
 
 #[derive(Resource, Default)]
 pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
@@ -21,6 +22,7 @@ pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
 pub(crate) struct EnvironmentContext {
     pub(crate) dimension: i32,
     pub(crate) camera_biome_identifier: Option<Box<str>>,
+    pub(crate) camera_biome_temperature: Option<f32>,
     pub(crate) render_distance_blocks: Option<f32>,
 }
 
@@ -147,6 +149,16 @@ pub(crate) fn replace_session(
     };
 }
 
+/// Rebinds an accepted StartGame snapshot to its transport session identity.
+pub(crate) fn bind_session_generation(
+    clock: &mut WorldClock,
+    weather: &mut WeatherState,
+    generation: u64,
+) {
+    clock.session_generation = generation;
+    weather.session_generation = generation;
+}
+
 /// Applies one FIFO-committed environment control.
 ///
 /// Returns `true` when the control was environment-only. Spatial controls,
@@ -184,7 +196,12 @@ pub(crate) fn apply_environment_control(
         CommittedControlEvent::MovePlayer { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
-        | CommittedControlEvent::Respawn { .. } => false,
+        | CommittedControlEvent::Respawn { .. }
+        | CommittedControlEvent::LocalMovementEffect { .. }
+        | CommittedControlEvent::LocalMovementSpeed { .. }
+        | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::LocalHurt { .. }
+        | CommittedControlEvent::PlayerListChanged { .. } => false,
     }
 }
 
@@ -216,132 +233,97 @@ fn bedrock_ticks_as_f64(ticks: i64) -> f64 {
     ticks as f64
 }
 
-#[must_use]
-#[cfg(test)]
-pub(crate) fn derive_atmosphere_frame(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-) -> AtmosphereFrame {
-    derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, CameraMedium::Air)
-}
-
-#[must_use]
-pub(crate) fn derive_atmosphere_frame_for_medium(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-    medium: CameraMedium,
-) -> AtmosphereFrame {
-    AtmosphereFrame::from_bedrock_time(
-        visual_world_time(clock, elapsed_seconds),
-        weather.rain_level,
-        weather.lightning_level,
-    )
-    .with_camera_medium(medium)
-}
-
-#[must_use]
-pub(crate) fn derive_profiled_atmosphere_frame(
-    clock: WorldClock,
-    weather: WeatherState,
-    elapsed_seconds: f64,
-    medium: CameraMedium,
-    context: &EnvironmentContext,
-    biome_profiles: &[BiomeVisualProfile],
-    fog_profiles: &[FogProfile],
-) -> (AtmosphereFrame, EnvironmentProfileRoute) {
-    let base = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium);
-    let profile = context
-        .camera_biome_identifier
-        .as_deref()
-        .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
-        .or_else(|| {
-            dimension_fallback_biome(context.dimension)
-                .and_then(|identifier| find_biome_profile(biome_profiles, identifier))
-        });
-    let Some(profile) = profile else {
-        return (base, EnvironmentProfileRoute::default());
-    };
-    let resolved_fog = context.render_distance_blocks.and_then(|render_distance| {
-        let fog = fog_profiles
-            .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
-            .ok()
-            .map(|index| &fog_profiles[index])?;
-        let default_fog = fog_profiles
-            .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
-            .ok()
-            .map(|index| &fog_profiles[index]);
-        let distance = |medium| {
-            fog.distance(medium)
-                .or_else(|| default_fog.and_then(|fallback| fallback.distance(medium)))
-        };
-        let requested = match medium {
-            CameraMedium::Air
-                if weather.rain_level > 0.0 && distance(FogMedium::Weather).is_some() =>
-            {
-                FogMedium::Weather
-            }
-            CameraMedium::Air => FogMedium::Air,
-            CameraMedium::Water => FogMedium::Water,
-            CameraMedium::Lava => FogMedium::Lava,
-        };
-        distance(requested)?.resolve(render_distance)
-    });
-    (
-        base.with_environment_profile(profile.sky_rgb8, resolved_fog),
-        EnvironmentProfileRoute {
-            biome_identifier: Some(profile.biome_identifier.clone()),
-            fog_identifier: Some(profile.fog_identifier.clone()),
-            atmosphere_identifier: Some(profile.atmosphere_identifier.clone()),
-            provisional_lighting_identifier: Some(profile.lighting_identifier.clone()),
-        },
-    )
-}
-
-pub(crate) fn update_atmosphere_frame(
-    clock: Res<WorldClock>,
-    weather: Res<WeatherState>,
-    medium: Res<CameraMediumState>,
-    context: Res<EnvironmentContext>,
-    atmosphere_assets: Res<render::AtmosphereTextureAssets>,
-    time: Res<Time<Real>>,
-    outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
-) {
-    let (mut frame, mut route) = outputs;
-    let Some(assets) = atmosphere_assets.runtime() else {
-        *frame =
-            derive_atmosphere_frame_for_medium(*clock, *weather, time.elapsed_secs_f64(), medium.0);
-        *route = EnvironmentProfileRoute::default();
-        return;
-    };
-    let (next_frame, next_route) = derive_profiled_atmosphere_frame(
-        *clock,
-        *weather,
-        time.elapsed_secs_f64(),
-        medium.0,
-        &context,
-        assets.biome_profiles(),
-        assets.fog_profiles(),
-    );
-    *frame = next_frame;
-    *route = next_route;
-}
-
 #[cfg(test)]
 mod tests {
+    use super::atmosphere::{
+        BossEnvironmentState, apply_boss_environment, derive_atmosphere_frame,
+        derive_atmosphere_frame_for_medium, derive_boss_environment,
+        derive_profiled_atmosphere_frame,
+    };
+    use super::{
+        EnvironmentContext, WeatherState, WorldClock, apply_environment_control,
+        bind_session_generation, replace_session, visual_world_time,
+    };
     use assets::{BiomeVisualProfile, FogDistance, FogDistanceMode, FogMedium, FogProfile};
+    use client_world::CommittedControlEvent;
     use protocol::{
         ChangeDimensionEvent, DaylightCycleUpdateEvent, SetTimeEvent, WeatherChannel,
         WeatherUpdateEvent, WorldEnvironmentBootstrap,
     };
+    use std::sync::Arc;
+    use ui::{BossBarView, BossColor, BossOverlay, BossStyle};
 
-    use super::{
-        EnvironmentContext, WeatherState, WorldClock, apply_environment_control,
-        derive_atmosphere_frame, derive_atmosphere_frame_for_medium,
-        derive_profiled_atmosphere_frame, replace_session, visual_world_time,
-    };
-    use client_world::CommittedControlEvent;
+    fn boss_bar_view(darken_sky: Option<bool>, create_world_fog: Option<bool>) -> BossBarView {
+        BossBarView {
+            target_entity_id: 1,
+            title: Arc::from("boss"),
+            filtered_title: Arc::from(""),
+            health: 1.0,
+            style: BossStyle {
+                color: BossColor::Red,
+                overlay: BossOverlay::Notched10,
+                darken_sky,
+                create_world_fog,
+            },
+        }
+    }
+
+    #[test]
+    fn boss_environment_requires_an_explicit_true_request() {
+        assert_eq!(
+            derive_boss_environment(&[]),
+            BossEnvironmentState::default()
+        );
+        for flag_darken in [None, Some(false)] {
+            for flag_fog in [None, Some(false)] {
+                assert_eq!(
+                    derive_boss_environment(&[boss_bar_view(flag_darken, flag_fog)]),
+                    BossEnvironmentState::default(),
+                    "flags {flag_darken:?}/{flag_fog:?} must stay inert"
+                );
+            }
+        }
+        assert!(derive_boss_environment(&[boss_bar_view(Some(true), None)]).darken_sky);
+        assert!(!derive_boss_environment(&[boss_bar_view(Some(true), None)]).world_fog);
+        assert!(derive_boss_environment(&[boss_bar_view(None, Some(true))]).world_fog);
+        let both = derive_boss_environment(&[
+            boss_bar_view(None, None),
+            boss_bar_view(Some(false), Some(false)),
+            boss_bar_view(Some(true), Some(true)),
+        ]);
+        assert!(both.darken_sky && both.world_fog);
+    }
+
+    #[test]
+    fn boss_effects_apply_only_in_air_and_removal_restores_the_exact_frame() {
+        use meshing::CameraMedium;
+
+        let clock = WorldClock::default();
+        let weather = WeatherState::default();
+        let baseline = derive_atmosphere_frame_for_medium(clock, weather, 10.0, CameraMedium::Air);
+        let state = BossEnvironmentState {
+            darken_sky: true,
+            world_fog: true,
+        };
+        let darkened_air = apply_boss_environment(baseline, CameraMedium::Air, state);
+        assert_ne!(darkened_air, baseline);
+
+        // Water and lava media keep their complete medium fog.
+        let water = derive_atmosphere_frame_for_medium(clock, weather, 10.0, CameraMedium::Water);
+        assert_eq!(
+            apply_boss_environment(water, CameraMedium::Water, state),
+            water
+        );
+
+        // Removal (no active bars) means the next derived frame matches the
+        // exact baseline again; modifiers are never stacked across frames.
+        let cleared = derive_boss_environment(&[]);
+        let fresh = derive_atmosphere_frame_for_medium(clock, weather, 10.0, CameraMedium::Air);
+        assert_eq!(
+            apply_boss_environment(fresh, CameraMedium::Air, cleared),
+            baseline
+        );
+    }
 
     fn bootstrap(
         initial_time: i64,
@@ -358,7 +340,6 @@ mod tests {
             lightning_level,
         }
     }
-
     #[test]
     fn start_game_replacement_resets_time_and_replaces_exact_environment_snapshot() {
         let mut clock = WorldClock::default();
@@ -412,8 +393,11 @@ mod tests {
         assert_eq!(weather.rain_level(), 1.0);
         assert_eq!(weather.lightning_level(), 0.0);
         assert_eq!(weather.last_update_sequence(), None);
-    }
 
+        bind_session_generation(&mut clock, &mut weather, 8);
+        assert_eq!(clock.session_generation(), 8);
+        assert_eq!(weather.session_generation(), 8);
+    }
     #[test]
     fn committed_updates_preserve_signed_time_channel_targets_and_order() {
         let mut clock = WorldClock::default();
@@ -466,7 +450,6 @@ mod tests {
         assert_eq!(weather.lightning_level(), 0.75);
         assert_eq!(weather.last_update_sequence(), Some(14));
     }
-
     #[test]
     fn dimension_change_is_not_an_environment_session_replacement() {
         let mut clock = WorldClock::default();
@@ -499,7 +482,6 @@ mod tests {
         assert_eq!(clock, before_clock);
         assert_eq!(weather, before_weather);
     }
-
     #[test]
     fn running_clock_anchors_each_set_time_and_advances_at_twenty_ticks_per_second() {
         let mut clock = WorldClock::default();
@@ -536,7 +518,6 @@ mod tests {
         assert_eq!(clock.server_time(), Some(12_000.0));
         assert_eq!(clock.last_update_sequence(), Some(2));
     }
-
     #[test]
     fn stopped_clock_set_time_replaces_frozen_tick_and_signed_times_use_euclidean_days() {
         let mut clock = WorldClock::default();
@@ -577,7 +558,6 @@ mod tests {
         assert!((frame.day_fraction() - (23_999.0 / 24_000.0)).abs() < 1.0e-6);
         assert_eq!(frame.moon_phase(), 7);
     }
-
     #[test]
     fn daylight_cycle_changes_freeze_current_tick_and_resume_from_that_anchor() {
         let mut clock = WorldClock::default();
@@ -613,7 +593,6 @@ mod tests {
         assert_eq!(visual_world_time(clock, 101.0), 6_070.0);
         assert_eq!(clock.last_update_sequence(), Some(11));
     }
-
     #[test]
     fn cardinal_bedrock_times_drive_exact_sun_quadrants_and_moon_phases() {
         let mut clock = WorldClock::default();
@@ -625,12 +604,7 @@ mod tests {
             100.0,
         );
 
-        for (time, expected) in [
-            (0, [1.0, 0.0, 0.0]),
-            (6_000, [0.0, 1.0, 0.0]),
-            (12_000, [-1.0, 0.0, 0.0]),
-            (18_000, [0.0, -1.0, 0.0]),
-        ] {
+        for (time, expected) in [(6_000, [0.0, 1.0, 0.0]), (18_000, [0.0, -1.0, 0.0])] {
             assert!(apply_environment_control(
                 CommittedControlEvent::SetTime {
                     sequence: time as u64 + 1,
@@ -644,6 +618,22 @@ mod tests {
             for axis in 0..3 {
                 assert!((actual[axis] - expected[axis]).abs() < 1.0e-6);
             }
+        }
+
+        // The eased angle keeps the sun a little above the horizon at both day boundaries.
+        for (time, east) in [(0, true), (12_000, false)] {
+            assert!(apply_environment_control(
+                CommittedControlEvent::SetTime {
+                    sequence: time as u64 + 100,
+                    update: SetTimeEvent { time },
+                },
+                &mut clock,
+                &mut weather,
+                100.0,
+            ));
+            let sun = derive_atmosphere_frame(clock, weather, 100.0).sun_direction();
+            assert!(sun[1] > 0.1 && sun[1] < 0.3, "{sun:?}");
+            assert_eq!(sun[0] > 0.0, east, "{sun:?}");
         }
 
         for day in 0..8 {
@@ -664,7 +654,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn atmosphere_bounds_weather_and_session_replacement_reanchors_initial_time() {
         let mut clock = WorldClock::default();
@@ -703,7 +692,6 @@ mod tests {
             0
         );
     }
-
     #[test]
     fn active_camera_medium_is_applied_after_clock_and_weather_derivation() {
         let mut clock = WorldClock::default();
@@ -723,7 +711,6 @@ mod tests {
         assert_eq!(frame.thunder_level(), 0.75);
         assert_eq!(frame.sun_direction(), [0.0, 1.0, 0.0]);
     }
-
     #[test]
     fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting_route() {
         let mut clock = WorldClock::default();
@@ -737,6 +724,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 2,
             camera_biome_identifier: None,
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let biomes = profiles();
@@ -753,7 +741,8 @@ mod tests {
         );
 
         assert_eq!(frame.sky_zenith(), [0.0; 3]);
-        assert_eq!(frame.sky_horizon(), [0.0; 3]);
+        assert_eq!(frame.sky_horizon(), frame.fog_color());
+        assert_eq!(frame.sky_kind(), render::SkyKind::End);
         assert_eq!(frame.fog_end(), 256.0);
         assert_eq!(frame.rain_level(), 0.0);
         assert_eq!(frame.thunder_level(), 0.0);
@@ -768,12 +757,12 @@ mod tests {
             Some("minecraft:end_lighting")
         );
     }
-
     #[test]
     fn known_camera_biome_takes_precedence_over_dimension_fallback() {
         let context = EnvironmentContext {
             dimension: 1,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let (frame, route) = derive_profiled_atmosphere_frame(
@@ -788,12 +777,12 @@ mod tests {
         assert_eq!(route.biome_identifier.as_deref(), Some("minecraft:plains"));
         assert_eq!(frame.fog_end(), 256.0);
     }
-
     #[test]
     fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
         let context = EnvironmentContext {
             dimension: 0,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let (frame, _) = derive_profiled_atmosphere_frame(
@@ -808,12 +797,12 @@ mod tests {
         assert_eq!(frame.fog_start(), 235.52);
         assert_eq!(frame.fog_end(), 256.0);
     }
-
     #[test]
     fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
         let context = EnvironmentContext {
             dimension: 0,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let mut fogs = fog_profiles();
@@ -838,7 +827,6 @@ mod tests {
         );
         assert_eq!(frame.fog_end(), 60.0);
     }
-
     #[test]
     fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
         let mut clock = WorldClock::default();
@@ -852,6 +840,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 0,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let (frame, _) = derive_profiled_atmosphere_frame(

@@ -15,8 +15,9 @@ pub(super) fn resolve_motion(
     position: Vec3,
     velocity: Vec3,
     was_on_ground: bool,
+    height: f64,
 ) -> Result<ResolvedMotion, WorldQueryError> {
-    let start = Aabb::player_at(position);
+    let start = Aabb::player_with_height_at(position, height);
     let colliders = bounded_collision_boxes(world, start.swept(velocity))?;
     let mut identity = colliders.identity;
     let (normal_box, normal) = resolve_axes_reverse(start, velocity, &colliders.value);
@@ -62,6 +63,22 @@ fn bounded_collision_boxes(
 ) -> Result<crate::CollisionQuery<Vec<Aabb>>, WorldQueryError> {
     crate::world::validate_collision_query(query)?;
     world.collision_boxes(query)
+}
+
+/// Queries whether a bounded volume is occupied while preserving the exact
+/// world identity returned for the probe.
+pub(super) fn has_collision(
+    world: &impl CollisionWorld,
+    query: Aabb,
+) -> Result<crate::CollisionQuery<bool>, WorldQueryError> {
+    let colliders = bounded_collision_boxes(world, query)?;
+    Ok(crate::CollisionQuery {
+        value: colliders
+            .value
+            .into_iter()
+            .any(|shape| shape.intersects(query)),
+        identity: colliders.identity,
+    })
 }
 
 pub(super) fn clip_sneak_edge(
@@ -142,10 +159,34 @@ fn resolve_axes_reverse(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aab
         for collider in colliders.iter().rev().copied() {
             axis_velocity = current.clip_against(collider, axis_velocity);
         }
-        current = current.translated(axis_velocity);
-        resolved += axis_velocity;
+        // Per-axis resolution moves only along `axis`. From a fully embedded
+        // start `clip_against` returns a minimal-translation ejection on the
+        // deepest axis; on a horizontal axis that would fabricate inputless
+        // horizontal motion the server reads as a movement cheat. Vanilla only
+        // shortens intended motion toward zero on each axis, so keep just this
+        // axis's component and, horizontally, clamp it into the intended range.
+        // The vertical axis keeps the ejection as the provisional embedded
+        // push-out this recovery envelope still relies on.
+        let mut moved = axis_velocity[axis];
+        if axis != 1 {
+            moved = clamp_toward_zero(moved, velocity[axis]);
+        }
+        let mut applied = Vec3::ZERO;
+        applied[axis] = moved;
+        current = current.translated(applied);
+        resolved += applied;
     }
     (current, resolved)
+}
+
+/// Reduces `value` into the closed interval between zero and `limit`, so a clip
+/// can only shorten intended motion, never create or reverse it.
+fn clamp_toward_zero(value: f64, limit: f64) -> f64 {
+    if limit >= 0.0 {
+        value.clamp(0.0, limit)
+    } else {
+        value.clamp(limit, 0.0)
+    }
 }
 
 fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {

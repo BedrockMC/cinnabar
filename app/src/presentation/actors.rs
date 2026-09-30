@@ -4,22 +4,33 @@ use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput,
-    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    normalize_actor_skin,
+    ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
+    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
+    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
+    default_actor_skin_rgba8, pack_overlay_rgba8,
 };
+
+/// Damage tint blended over a hurt or dying actor.
+const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
     pub(crate) skin_rgba8: Option<Arc<[u8]>>,
+    pub(crate) artwork: Option<ActorArtworkLocation>,
+    /// Authored model scale times the metadata scale.
+    pub(crate) model_scale: f32,
+    /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
+    pub(crate) authored_scale: f32,
+    /// Head yaw minus the rendered body yaw, in degrees.
+    pub(crate) head_over_body: f32,
 }
 
 #[derive(Debug)]
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
     pub(crate) skins_rgba8: Arc<[u8]>,
+    pub(crate) artwork: BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
 pub(crate) fn update_actor_rig_scene(
@@ -31,7 +42,71 @@ pub(crate) fn update_actor_rig_scene(
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person
     // modes while the render-owned builder still validates every other field.
-    scene.update_rigs(partial_tick, None, batch.submissions, batch.skins_rgba8)
+    scene.update_rigs_with_artwork(
+        partial_tick,
+        None,
+        batch.submissions,
+        batch.skins_rgba8,
+        &batch.artwork,
+    )
+}
+
+pub(crate) fn entity_rig_presentation(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    artwork: &ActorArtworkPages,
+    partial_tick: f32,
+) -> Option<ActorRigPresentation> {
+    let location = matches!(actor.kind, ActorKind::Entity { .. })
+        .then(|| artwork.route(EntityRigId(rig.rig.0)))
+        .flatten();
+    let rest_mode =
+        location.is_some_and(|location| location.pose_mode() == assets::ActorPoseMode::RestPose);
+    let bad_rest = rest_mode
+        && (rig.rest.is_empty()
+            || rig.rest.len() != rig.previous.len()
+            || rig.rest.len() != rig.current.len()
+            || !rig.rest.iter().all(|bone| {
+                RenderBoneTransform::from_model_space_scaled(
+                    bone.rotation,
+                    bone.translation_scale,
+                    bone.axis_scale,
+                )
+                .is_some()
+            }));
+    let selected = if rest_mode {
+        ActorRigSnapshot {
+            previous: rig.rest,
+            current: rig.rest,
+            completed_tick: rig.rest_completed_tick,
+            reset_generation: rig.rest_reset_generation,
+            ..*rig
+        }
+    } else {
+        *rig
+    };
+    let mut presentation =
+        actor_rig_presentation_inner(&selected, actor, None, partial_tick, bad_rest)?;
+    if matches!(actor.kind, ActorKind::Entity { .. })
+        && let Some(location) = location
+    {
+        presentation.submission.route = match rig.fallback {
+            EntityRigFallback::Skip => ActorRigRoute::Compiled,
+            EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
+            EntityRigFallback::Diagnostic => ActorRigRoute::NoDraw,
+        };
+        if rest_mode {
+            presentation.submission.route =
+                if bad_rest || rig.fallback == EntityRigFallback::Diagnostic {
+                    ActorRigRoute::NoDraw
+                } else {
+                    ActorRigRoute::StaticFallback
+                };
+        }
+        presentation.submission.texture_layer = location.layer();
+        presentation.artwork = Some(location);
+    }
+    Some(presentation)
 }
 
 pub(crate) fn actor_rig_presentation(
@@ -40,6 +115,16 @@ pub(crate) fn actor_rig_presentation(
     profile: Option<&PlayerProfile>,
     partial_tick: f32,
 ) -> Option<ActorRigPresentation> {
+    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false)
+}
+
+fn actor_rig_presentation_inner(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    profile: Option<&PlayerProfile>,
+    partial_tick: f32,
+    rejected_pose: bool,
+) -> Option<ActorRigPresentation> {
     if rig.actor.runtime_id != actor.runtime_id
         || rig.actor.spawn_revision != actor.spawn_revision
         || rig.actor.session_id == 0
@@ -47,22 +132,32 @@ pub(crate) fn actor_rig_presentation(
         || rig.actor.spawn_revision == 0
         || rig.completed_tick == 0
         || rig.reset_generation == 0
-        || rig.previous.is_empty()
-        || rig.previous.len() != rig.current.len()
+        || (!rejected_pose && (rig.previous.is_empty() || rig.previous.len() != rig.current.len()))
         || !partial_tick.is_finite()
     {
         return None;
     }
 
-    let previous_bones = convert_bones(rig.previous)?;
-    let current_bones = convert_bones(rig.current)?;
+    // A rejected submission retains exact ownership for observable NoDraw counts,
+    // but contains no substitute pose and can never reach a GPU draw.
+    let previous_bones = if rejected_pose {
+        Arc::from([])
+    } else {
+        convert_bones(rig.previous)?
+    };
+    let current_bones = if rejected_pose {
+        Arc::from([])
+    } else {
+        convert_bones(rig.current)?
+    };
     let alpha = partial_tick.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
-    let yaw = lerp_degrees(actor.previous_pose.yaw, actor.yaw, alpha);
-    if !yaw.is_finite() {
+    let yaw = lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha);
+    // The model's authored scale times the server's metadata scale, as vanilla renders it.
+    let scale = rig.scale * actor.render_scale();
+    if !yaw.is_finite() || !scale.is_finite() || scale <= 0.0 {
         return None;
     }
-    let (sine, cosine) = yaw.to_radians().sin_cos();
     let identity = ActorRenderIdentity {
         session_id: rig.actor.session_id,
         dimension: rig.actor.dimension,
@@ -72,6 +167,7 @@ pub(crate) fn actor_rig_presentation(
         source_tick: actor.source_tick,
         movement_revision: actor.movement_revision,
         pose_generation: rig.completed_tick,
+        layer: render::ACTOR_LAYER_BODY,
     };
     if !identity.is_exact() {
         return None;
@@ -88,15 +184,26 @@ pub(crate) fn actor_rig_presentation(
                 completed_tick: rig.completed_tick,
                 reset_generation: rig.reset_generation,
             },
-            world_from_actor: [
-                [cosine, 0.0, sine, position[0]],
-                [0.0, 1.0, 0.0, position[1]],
-                [-sine, 0.0, cosine, position[2]],
-            ],
+            world_from_actor: death_tilted(
+                rig_world_from_actor(position, yaw, scale),
+                actor.status.death_progress(alpha),
+            ),
             texture_layer: u32::MAX,
             route,
+            tint: 0,
+            overlay_rgba8: if actor.status.overlay_active() {
+                pack_overlay_rgba8(HURT_OVERLAY_RGBA)
+            } else {
+                0
+            },
         },
         skin_rgba8,
+        artwork: None,
+        model_scale: scale,
+        authored_scale: rig.scale,
+        head_over_body: wrap_degrees(
+            lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw,
+        ),
     })
 }
 
@@ -130,9 +237,9 @@ pub(crate) fn local_diagnostic_presentation(
     let mut bones = pivots.map(|pivot| RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
+        axis_scale: render::UNIT_AXIS_SCALE,
     });
     bones[0].rotation = head_rotation;
-    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
             input: ActorRigRenderInput {
@@ -145,6 +252,7 @@ pub(crate) fn local_diagnostic_presentation(
                     source_tick: None,
                     movement_revision: pose_generation,
                     pose_generation,
+                    layer: render::ACTOR_LAYER_BODY,
                 },
                 rig: EntityRigId(u32::MAX),
                 previous_bones: Arc::from(bones),
@@ -152,15 +260,18 @@ pub(crate) fn local_diagnostic_presentation(
                 completed_tick: pose_generation,
                 reset_generation: actor_session_id,
             },
-            world_from_actor: [
-                [cosine, 0.0, sine, position[0]],
-                [0.0, 1.0, 0.0, position[1]],
-                [-sine, 0.0, cosine, position[2]],
-            ],
+            // Same facing convention as the driven rig so the pre-rig fallback and the rig agree.
+            world_from_actor: rig_world_from_actor(position, yaw_degrees, 1.0),
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
+            tint: 0,
+            overlay_rgba8: 0,
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),
+        artwork: None,
+        model_scale: 1.0,
+        authored_scale: 1.0,
+        head_over_body: 0.0,
     })
 }
 
@@ -169,6 +280,7 @@ pub(crate) fn local_actor_presentation_for_visibility(
     visibility_runtime_id: u64,
     canonical: Option<ActorRigPresentation>,
     diagnostic: Option<ActorRigPresentation>,
+    yaw_degrees: f32,
 ) -> Option<ActorRigPresentation> {
     if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id {
         return None;
@@ -180,7 +292,13 @@ pub(crate) fn local_actor_presentation_for_visibility(
         Some(mut canonical)
             if canonical.submission.input.identity.runtime_id == local_runtime_id =>
         {
-            canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
+            // The body lags the view yaw as the rig's head does, so the head faces the view.
+            let feet = diagnostic.submission.world_from_actor.map(|row| row[3]);
+            canonical.submission.world_from_actor = rig_world_from_actor(
+                feet,
+                yaw_degrees - canonical.head_over_body,
+                canonical.model_scale,
+            );
             Some(canonical)
         }
         Some(_) => None,
@@ -247,9 +365,15 @@ pub(crate) fn select_actor_presentations_for_view(
         selected.push(remote);
     }
 
+    let mut artwork = BTreeMap::new();
     let mut skin_families = Vec::<Arc<[u8]>>::new();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
+        if let Some(location) = presentation.artwork {
+            artwork.insert(presentation.submission.input.identity, location);
+            submissions.push(presentation.submission);
+            continue;
+        }
         let Some(skin) = presentation.skin_rgba8 else {
             presentation.submission.route = ActorRigRoute::NoDraw;
             presentation.submission.texture_layer = u32::MAX;
@@ -274,26 +398,56 @@ pub(crate) fn select_actor_presentations_for_view(
     ActorPresentationBatch {
         submissions,
         skins_rgba8: skin_bytes.into(),
+        artwork,
     }
 }
 
 fn convert_bones(bones: &[client_world::BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
     bones
         .iter()
-        .map(|bone| RenderBoneTransform::from_model_space(bone.rotation, bone.translation_scale))
+        .map(|bone| {
+            RenderBoneTransform::from_model_space_scaled(
+                bone.rotation,
+                bone.translation_scale,
+                bone.axis_scale,
+            )
+        })
         .collect::<Option<Vec<_>>>()
         .map(Arc::from)
 }
 
+/// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the
+/// Minecraft `yaw_degrees` direction at `position`, scaled about the feet.
+pub(crate) fn rig_world_from_actor(
+    position: [f32; 3],
+    yaw_degrees: f32,
+    scale: f32,
+) -> [[f32; 4]; 3] {
+    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
+    [
+        [-cosine * scale, 0.0, sine * scale, position[0]],
+        [0.0, scale, 0.0, position[1]],
+        [-sine * scale, 0.0, -cosine * scale, position[2]],
+    ]
+}
+
+/// Tips the rig sideways about its feet as death progresses; the ease-out curve needs measurement.
+pub(crate) fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[f32; 4]; 3] {
+    let Some(progress) = progress else {
+        return rows;
+    };
+    let angle = progress.clamp(0.0, 1.0).sqrt() * std::f32::consts::FRAC_PI_2;
+    let (sine, cosine) = angle.sin_cos();
+    for row in &mut rows {
+        let (x, y) = (row[0], row[1]);
+        row[0] = x * cosine + y * sine;
+        row[1] = -x * sine + y * cosine;
+    }
+    rows
+}
+
 fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f32; 3]> {
-    let position = std::array::from_fn(|axis| {
-        actor.previous_pose.position[axis]
-            + (actor.position[axis] - actor.previous_pose.position[axis]) * partial_tick
-    });
-    position
-        .iter()
-        .all(|value| value.is_finite())
-        .then_some(position)
+    actor.interpolated_position(partial_tick)
 }
 
 fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
@@ -333,7 +487,7 @@ fn player_route_and_skin(
     let skin = profile
         .filter(|profile| profile.unique_id == actor.unique_id)
         .and_then(|profile| match &profile.skin {
-            PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
+            PlayerSkin::Standard(skin) => render::normalize_actor_skin_cached(&ActorSkinPixels {
                 width: skin.width,
                 height: skin.height,
                 rgba8: Arc::clone(&skin.rgba8),
@@ -342,4 +496,24 @@ fn player_route_and_skin(
         })
         .unwrap_or_else(default_actor_skin_rgba8);
     (route, Some(skin))
+}
+
+#[cfg(test)]
+mod death_tests {
+    use super::death_tilted;
+
+    const IDENTITY: [[f32; 4]; 3] = [
+        [1.0, 0.0, 0.0, 5.0],
+        [0.0, 1.0, 0.0, 6.0],
+        [0.0, 0.0, 1.0, 7.0],
+    ];
+
+    #[test]
+    fn alive_is_untouched_and_finished_death_lies_on_its_side() {
+        assert_eq!(death_tilted(IDENTITY, None), IDENTITY);
+        let lying = death_tilted(IDENTITY, Some(1.0));
+        // The local up axis now points along world +/-X while the feet pivot stays fixed.
+        assert!(lying[0][1].abs() > 0.999 && lying[1][1].abs() < 1e-6);
+        assert_eq!([lying[0][3], lying[1][3], lying[2][3]], [5.0, 6.0, 7.0]);
+    }
 }

@@ -1,6 +1,67 @@
 use super::*;
 
 #[test]
+fn local_actor_motion_commits_as_a_control_event_and_foreign_motion_is_dropped() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let motion = |actor_runtime_id: u64| {
+        WorldEvent::ActorMotion(ActorMotionEvent {
+            actor_runtime_id,
+            motion: [1.5, 0.25, -0.75],
+            tick: 7,
+        })
+    };
+
+    // A foreign actor's impulse has no velocity consumer yet.
+    stream.submit(1, motion(2)).unwrap();
+    stream.submit(2, motion(1)).unwrap();
+
+    let controls = stream.take_committed_controls();
+    let [super::CommittedControlEvent::LocalActorMotion { sequence, event }] = controls.as_slice()
+    else {
+        panic!("unexpected committed controls {controls:?}");
+    };
+    assert_eq!(*sequence, 2);
+    assert_eq!(event.actor_runtime_id, 1);
+    assert_eq!(event.motion, [1.5, 0.25, -0.75]);
+    assert_eq!(event.tick, 7);
+}
+
+#[test]
+fn player_list_only_updates_commit_a_tab_cache_refresh_marker() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from([PlayerListEntry::Remove { uuid: [7; 16] }]),
+            })),
+        )
+        .unwrap();
+
+    assert_eq!(
+        stream.take_committed_controls(),
+        vec![CommittedControlEvent::PlayerListChanged { sequence: 1 }]
+    );
+    assert!(stream.take_committed_ui().is_empty());
+}
+
+#[test]
 fn respawn_commits_as_a_local_position_authority_change() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -48,6 +109,7 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
         delta: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
+        subject: MovementCorrectionSubject::Player,
         on_ground: true,
         tick,
     };
@@ -75,6 +137,65 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
 }
 
 #[test]
+fn vehicle_correction_subject_commits_nothing_and_cannot_advance_the_tick_guard() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let correction = |subject, tick| PlayerMovementCorrectionEvent {
+        position: [50.0, 80.0, -50.0],
+        delta: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        subject,
+        on_ground: true,
+        tick,
+    };
+
+    // A vehicle rewind has no local-player consumer yet: it must not resolve a
+    // server position, commit a control, or advance the monotonic guard that
+    // would silence a later ordinary player correction.
+    stream
+        .submit(
+            1,
+            WorldEvent::PlayerMovementCorrection(correction(
+                MovementCorrectionSubject::Vehicle,
+                200,
+            )),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::PlayerMovementCorrection(correction(
+                MovementCorrectionSubject::Player,
+                100,
+            )),
+        )
+        .unwrap();
+
+    let controls = stream.take_committed_controls();
+    let [
+        super::CommittedControlEvent::PlayerMovementCorrection {
+            sequence,
+            correction,
+            ..
+        },
+    ] = controls.as_slice()
+    else {
+        panic!("unexpected committed controls {controls:?}");
+    };
+    assert_eq!(*sequence, 2);
+    assert_eq!(correction.tick, 100);
+    assert_eq!(correction.subject, MovementCorrectionSubject::Player);
+}
+
+#[test]
 fn newer_update_waits_for_older_decode_and_wins() {
     let key = SubChunkKey::new(0, 0, -4, 0);
     let decoded = DecodedLevelChunk::decode(
@@ -84,8 +205,8 @@ fn newer_update_waits_for_older_decode_and_wins() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     let mut ordered = SequenceBuffer::new(1);
     ordered.insert(2, Action::Update).unwrap();
     assert!(ordered.pop_next().is_none(), "sequence two must wait");
@@ -296,15 +417,15 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(key.chunk(), decoded)
         .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     let source = stream.store.sub_chunk(key).unwrap();
     let biome_source = stream.store.biome_storage(key).unwrap();
@@ -364,13 +485,13 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     let source = stream.store.sub_chunk(key).unwrap();
     let old_biome = stream.store.biome_storage(key).unwrap();
@@ -387,7 +508,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
 
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 86]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 86], &RAW_BIOMES),
     );
     let tint_identity = stream.biome_tint_identity();
     stream.accept_mesh_completion(MeshCompletion {
@@ -432,14 +553,14 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     for (chunk, id) in [(key.chunk(), 42), (ChunkKey::new(0, 1, 0), 43)] {
         stream.store.commit_biome_column(
             chunk,
-            DecodedBiomeColumn::decode(-4, 1, &[1, id * 2]).unwrap(),
+            DecodedBiomeColumn::decode(-4, 1, &[1, id * 2], &RAW_BIOMES),
         );
     }
     let source = stream.store.sub_chunk(key).unwrap();
@@ -458,7 +579,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
 
     stream.store.commit_biome_column(
         ChunkKey::new(0, 1, 0),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 88]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 88], &RAW_BIOMES),
     );
     stream.accept_mesh_completion(MeshCompletion {
         key,
@@ -498,8 +619,8 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
@@ -681,7 +802,7 @@ fn mesh_ack_diagnostic_retains_latest_timestamp_when_acks_arrive_out_of_order() 
 }
 
 #[test]
-fn forced_remesh_returns_exact_resident_generation_manifest() {
+fn starved_publication_tokens_still_dispatch_when_nothing_is_in_flight() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -691,68 +812,34 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let keys = [
-        SubChunkKey::new(0, -1, -4, 2),
-        SubChunkKey::new(0, 0, -4, 0),
-        SubChunkKey::new(0, 1, -4, -2),
-    ];
-    for key in keys {
-        stream
-            .store
-            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
-            .unwrap();
-        stream.resident.insert(key);
-    }
-    let known_air = SubChunkKey::new(0, 2, -4, 3);
-    stream.record_known_air(known_air);
-    stream.mark_light_changed_sources(keys.into_iter().chain([known_air]));
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    stream
+        .store
+        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+        .unwrap();
+    stream.resident.insert(key);
+    stream.mark_light_changed_sources([key]);
     light_scheduler::settle_light(&mut stream, [0.0; 3]);
-    let previously_dirty_at = std::time::Instant::now();
-    stream.mark_dirty_exact(keys[0], previously_dirty_at);
-    let started = previously_dirty_at + Duration::from_millis(1);
+    stream.mark_dirty_exact(key, Instant::now());
 
-    let manifest = stream.remesh_all_resident(started);
-
-    assert_eq!(manifest.started_at, started);
-    assert_eq!(manifest.entries.len(), 4);
-    assert_eq!(
-        manifest
-            .entries
-            .iter()
-            .map(|(key, _)| *key)
-            .collect::<BTreeSet<_>>(),
-        keys.into_iter().chain([known_air]).collect()
+    // Exhaust the frame publication window entirely: without the starved
+    // dispatch floor this poll could never start meshing again.
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
     );
-    assert_eq!(
-        manifest
-            .entries
-            .iter()
-            .map(|(_, generation)| *generation)
-            .collect::<BTreeSet<_>>()
-            .len(),
-        manifest.entries.len(),
-        "every forced remesh key must receive one unique generation"
-    );
-    for (key, generation) in manifest.entries.iter().copied() {
-        let dirty = stream.revisions.dirty(key).unwrap();
-        assert_eq!(dirty.since, started);
-        assert_eq!(dirty.revision, generation);
-    }
+    stream.set_publication_allowance(allowance);
 
-    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 3), 3);
-    assert!(stream.take_mesh_changes().iter().any(|change| {
-        matches!(
-            change,
-            super::WorldMeshChange::Remove { key, generation, dirty_since, .. }
-                if *key == known_air
-                    && manifest.entries.contains(&(*key, *generation))
-                    && *dirty_since == started
-        )
-    }));
+    assert_eq!(stream.poll([0.0; 3], 32).mesh_jobs_dispatched, 1);
 }
 
 #[test]
-fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
+fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -762,156 +849,118 @@ fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let published = [SubChunkKey::new(0, 0, -4, 0), SubChunkKey::new(0, 1, -4, 0)];
-    let unpublished = SubChunkKey::new(0, 2, -4, 0);
-    let known_air = SubChunkKey::new(0, 3, -4, 0);
-    for key in published.into_iter().chain([unpublished]) {
+    // Six dispatchable resident meshes exceed the floor, so the exact-count
+    // assertion below discriminates the floor's value: the single-job witness
+    // above passes for any nonzero or unbounded floor.
+    let keys = (0..6)
+        .map(|x| SubChunkKey::new(0, x, -4, 0))
+        .collect::<Vec<_>>();
+    for key in &keys {
         stream
             .store
-            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(*key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
             .unwrap();
-        stream.resident.insert(key);
+        stream.resident.insert(*key);
     }
-    stream.record_known_air(known_air);
-    let frozen = Arc::<[(SubChunkKey, u64)]>::from([(published[0], 40), (published[1], 41)]);
-    stream.applied_mesh_generations.insert(published[0], 40);
-    stream.applied_mesh_generations.insert(published[1], 41);
-    let resident_before = stream.resident.clone();
-    let known_air_before = stream.known_air.clone();
-    let started = Instant::now();
+    stream.mark_light_changed_sources(keys.iter().copied());
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
+    for key in &keys {
+        stream.mark_dirty_exact(*key, Instant::now());
+    }
+    assert_eq!(stream.pending_mesh.len(), 6);
+    assert!(stream.in_flight.is_empty());
 
-    let manifest = stream
-        .remesh_published_manifest(&frozen, started)
-        .expect("the exact frozen published manifest should remesh");
+    // Exhaust the frame publication window exactly like the single-job
+    // witness above: the starved floor is the only remaining admission
+    // route through the real poll path.
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+    );
+    stream.set_publication_allowance(allowance);
 
+    let report = stream.poll([0.0; 3], 32);
+    assert_eq!(report.mesh_jobs_dispatched, 4);
     assert_eq!(
-        manifest
-            .entries
-            .iter()
-            .map(|(key, _)| *key)
-            .collect::<BTreeSet<_>>(),
-        published.into_iter().collect()
-    );
-    assert!(manifest.entries.iter().all(|(key, generation)| {
-        frozen
-            .iter()
-            .find(|(published_key, _)| published_key == key)
-            .is_some_and(|(_, previous)| previous != generation)
-    }));
-    assert_eq!(
-        stream.pending_mesh.keys().copied().collect::<BTreeSet<_>>(),
-        published.into_iter().collect(),
-        "unpublished resident and known-air identities must not create no-mesh jobs"
-    );
-    assert_eq!(stream.resident, resident_before);
-    assert_eq!(stream.known_air, known_air_before);
-    assert_eq!(
-        stream.forced_remesh_manifest_state(&manifest),
-        super::ForcedRemeshManifestState::Pending
+        stream.in_flight.len(),
+        4,
+        "exactly the floored budget must enter the worker window"
     );
 }
 
 #[test]
-fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations() {
-    let new_stream = || {
-        let mut stream = WorldStream::new(WorldBootstrap {
-            local_player_unique_id: 1,
-            dimension: 0,
-            local_player_runtime_id: 1,
-            player_position: [0.0; 3],
-            world_spawn_position: [0; 3],
-            air_network_id: 12_530,
-            block_network_ids_are_hashes: false,
-        });
-        let key = SubChunkKey::new(0, 0, -4, 0);
+fn starved_mesh_dispatch_floor_never_exceeds_the_callers_budget() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let keys = (0..6)
+        .map(|x| SubChunkKey::new(0, x, -4, 0))
+        .collect::<Vec<_>>();
+    for key in &keys {
         stream
             .store
-            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(*key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
             .unwrap();
-        stream.resident.insert(key);
-        stream.applied_mesh_generations.insert(key, 7);
-        (stream, key)
-    };
-    let now = Instant::now();
-
-    let (mut stale, stale_key) = new_stream();
-    assert!(
-        stale
-            .remesh_published_manifest(&[(stale_key, 6)], now)
-            .is_none()
+        stream.resident.insert(*key);
+    }
+    stream.mark_light_changed_sources(keys.iter().copied());
+    light_scheduler::settle_light(&mut stream, [0.0; 3]);
+    for key in &keys {
+        stream.mark_dirty_exact(*key, Instant::now());
+    }
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
     );
-    assert!(stale.pending_mesh.is_empty());
+    stream.set_publication_allowance(allowance);
 
-    let (mut duplicate, duplicate_key) = new_stream();
-    assert!(
-        duplicate
-            .remesh_published_manifest(&[(duplicate_key, 7), (duplicate_key, 7)], now)
-            .is_none()
-    );
-    assert!(duplicate.pending_mesh.is_empty());
-
-    let (mut nonresident, nonresident_key) = new_stream();
-    nonresident.resident.remove(&nonresident_key);
-    assert!(
-        nonresident
-            .remesh_published_manifest(&[(nonresident_key, 7)], now)
-            .is_none()
-    );
-    assert!(nonresident.pending_mesh.is_empty());
-
-    let (mut known_air, known_air_key) = new_stream();
-    known_air.record_known_air(known_air_key);
-    assert!(
-        known_air
-            .remesh_published_manifest(&[(known_air_key, 7)], now)
-            .is_none(),
-        "a key that became known air must not create a forced removal job"
-    );
-    assert!(known_air.pending_mesh.is_empty());
+    assert_eq!(stream.poll([0.0; 3], 2).mesh_jobs_dispatched, 2);
 }
 
 #[test]
-fn eviction_or_superseding_revision_cannot_complete_forced_manifest() {
-    let new_stream = || {
-        let mut stream = WorldStream::new(WorldBootstrap {
-            local_player_unique_id: 1,
-            dimension: 0,
-            local_player_runtime_id: 1,
-            player_position: [0.0; 3],
-            world_spawn_position: [0; 3],
-            air_network_id: 12_530,
-            block_network_ids_are_hashes: false,
-        });
-        let key = SubChunkKey::new(0, 0, -4, 0);
-        stream.record_known_air(key);
-        (stream, key)
-    };
+fn starved_mesh_dispatch_floor_never_invents_work_with_an_empty_pending_queue() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    // Same exhausted publication window as the floor witness, but with no
+    // pending mesh work anywhere: starvation must not fabricate dispatches.
+    let config = crate::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = crate::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.minimum_items_per_second as usize,
+        config.maximum_burst_bytes,
+        config.maximum_zero_byte_operations_per_frame,
+        0,
+    );
+    stream.set_publication_allowance(allowance);
 
-    let started = Instant::now();
-    let (mut evicted, evicted_key) = new_stream();
-    let evicted_manifest = evicted.remesh_all_resident(started);
-    evicted.evict_column(evicted_key.chunk());
-    assert_eq!(
-        evicted.forced_remesh_manifest_state(&evicted_manifest),
-        super::ForcedRemeshManifestState::Invalid
-    );
-
-    let (mut superseded, superseded_key) = new_stream();
-    let superseded_manifest = superseded.remesh_all_resident(started);
-    let superseded_at = started + Duration::from_millis(1);
-    superseded.mark_dirty_exact(superseded_key, superseded_at);
-    let replacement = superseded.revisions.dirty(superseded_key).unwrap();
-    superseded.acknowledge_mesh_upload(
-        superseded_key,
-        replacement.revision,
-        superseded_at,
-        superseded_at + Duration::from_millis(1),
-    );
-    assert_eq!(
-        superseded.forced_remesh_manifest_state(&superseded_manifest),
-        super::ForcedRemeshManifestState::Invalid,
-        "applying a replacement revision must not satisfy the forced generation"
-    );
+    let report = stream.poll([0.0; 3], 32);
+    assert_eq!(report.mesh_jobs_dispatched, 0);
+    assert!(stream.in_flight.is_empty());
+    assert!(stream.take_mesh_changes().is_empty());
 }
 
 #[test]
@@ -944,7 +993,9 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
     let batches = stream.snapshot_block_mutation_batches(vec![
         BlockUpdateEvent {
             dimension: 0,
-            position: [16, 0, 0],
+            // Confirmed radius zero still retains the existing grid slack;
+            // three columns away is outside both data-interest scopes.
+            position: [48, 0, 0],
             layer: 0,
             network_id: 1,
         },
@@ -965,7 +1016,7 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
                 result: super::PreparedSubChunkResult::AllAir,
             },
             super::PreparedSubChunk {
-                position: [1, 0, 0],
+                position: [3, 0, 0],
                 result: super::PreparedSubChunkResult::AllAir,
             },
         ],
@@ -983,15 +1034,20 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
 
 #[test]
 fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(block_entity_visual_assets()),
+        [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
+        None,
+    );
     let mut updates = (0..4_095)
         .map(|linear| BlockUpdateEvent {
             dimension: 0,
@@ -1004,7 +1060,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
         dimension: 0,
         position: [0, 0, 0],
         layer: 0,
-        network_id: 99_999,
+        network_id: 15_000,
     });
     let movement = MovePlayerEvent {
         runtime_id: 1,
@@ -1032,7 +1088,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
         .store
         .sub_chunk(SubChunkKey::new(0, 0, 0, 0))
         .unwrap();
-    assert_eq!(committed.runtime_id(0, 0, 0, 0), Some(99_999));
+    assert_eq!(committed.runtime_id(0, 0, 0, 0), Some(15_000));
     assert_eq!(committed.runtime_id(0, 15, 14, 15), Some(4_095));
     let key = SubChunkKey::new(0, 0, 0, 0);
     assert!(stream.block_generations.contains_key(&key));

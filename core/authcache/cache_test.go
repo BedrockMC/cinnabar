@@ -381,6 +381,65 @@ func TestSaveParentSwapCleanupIsIdentitySafe(t *testing.T) {
 	}
 }
 
+func TestSaveProtectFailureCleansCreatedTempIdentity(t *testing.T) {
+	parent := t.TempDir()
+
+	err := saveWithHooks(filepath.Join(parent, "microsoft-token.json"), token("access-secret", "refresh-secret"), saveHooks{
+		protectTemp: func(*os.File) error {
+			return errors.New("forced protection failure containing refresh-secret")
+		},
+	})
+	if err == nil {
+		t.Fatal("saveWithHooks() error = nil, want protection failure")
+	}
+	if strings.Contains(err.Error(), "refresh-secret") {
+		t.Fatalf("saveWithHooks() error contains token material: %v", err)
+	}
+	entries, readErr := os.ReadDir(parent)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("cache directory entries = %v, want cleaned temporary identity", entries)
+	}
+}
+
+func TestSaveProtectionFollowsOpenedIdentityAcrossLeafSwap(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "microsoft-token.json")
+	replacement := []byte("foreign replacement")
+	var moved string
+
+	err := saveWithHooks(target, token("access-secret", "refresh-secret"), saveHooks{
+		protectTemp: func(file *os.File) error {
+			original := file.Name()
+			moved = original + ".moved"
+			if err := os.Rename(original, moved); err != nil {
+				return err
+			}
+			if err := os.WriteFile(original, replacement, 0o600); err != nil {
+				return err
+			}
+			return protectOpenedCacheFile(file)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "temporary auth cache changed") {
+		t.Fatalf("saveWithHooks() error = %v, want temporary identity failure", err)
+	}
+	entries, readErr := os.ReadDir(parent)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("cache directory entries = %v, want only foreign replacement", entries)
+	}
+	assertFileContents(t, filepath.Join(parent, entries[0].Name()), replacement)
+	if _, statErr := os.Lstat(moved); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(moved temporary cache) error = %v, want scrubbed identity removed", statErr)
+	}
+	assertNoTokenMaterialInDirectory(t, parent, "access-secret", "refresh-secret")
+}
+
 func TestSaveTempLeafSwapCleanupIsIdentitySafe(t *testing.T) {
 	parent := t.TempDir()
 	marker := []byte("attacker-owned-marker")
@@ -403,7 +462,9 @@ func TestSaveTempLeafSwapCleanupIsIdentitySafe(t *testing.T) {
 		t.Fatal("saveWithHooks() error = nil, want temporary leaf instability rejection")
 	}
 	assertFileContents(t, replacement, marker)
-	assertFileContents(t, movedTemp, nil)
+	if _, statErr := os.Lstat(movedTemp); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(moved temporary cache) error = %v, want removed", statErr)
+	}
 	if _, err := os.Lstat(filepath.Join(parent, "microsoft-token.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Lstat(cache) error = %v, want not exist", err)
 	}
@@ -436,12 +497,8 @@ func TestSaveCleanupRaceDoesNotDeleteForeignReplacementWhenScrubFails(t *testing
 		t.Fatalf("saveWithHooks() error = %v, want secure cleanup failure", err)
 	}
 	assertFileContents(t, replacement, marker)
-	contents, readErr := os.ReadFile(movedOriginal)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if !bytes.Contains(contents, []byte("refresh-secret")) {
-		t.Fatal("forced scrub failure did not preserve the original test sentinel")
+	if _, statErr := os.Lstat(movedOriginal); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(moved temporary cache) error = %v, want removed after scrub failure", statErr)
 	}
 }
 
@@ -469,7 +526,9 @@ func TestSaveCleanupRaceDoesNotDeleteForeignReplacementAfterScrub(t *testing.T) 
 		t.Fatal("saveWithHooks() error = nil, want forced publication failure")
 	}
 	assertFileContents(t, replacement, marker)
-	assertFileContents(t, movedOriginal, nil)
+	if _, statErr := os.Lstat(movedOriginal); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(moved temporary cache) error = %v, want removed", statErr)
+	}
 }
 
 func token(access, refresh string) *oauth2.Token {
@@ -516,6 +575,7 @@ func writeFile(t *testing.T, path string, contents []byte) {
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	stampPrivateACL(t, path)
 }
 
 func assertCachedToken(t *testing.T, path string, want *oauth2.Token) {

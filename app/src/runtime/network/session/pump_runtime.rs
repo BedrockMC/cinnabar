@@ -1,4 +1,22 @@
 use super::*;
+use crate::movement::{pending_trace_line, write_trace_line};
+
+fn finalize_interaction_packet(
+    packet: Packet,
+    interaction: Option<InteractionPacketGuard>,
+) -> Packet {
+    match interaction {
+        Some(guard) => guard.sanitize(packet),
+        None => packet,
+    }
+}
+
+struct NetworkPumpRuntime<F, W> {
+    readiness_ingress: Arc<ReadinessIngressCounter>,
+    trace_line: F,
+    write_trace: W,
+}
+
 #[cfg(test)]
 pub(super) async fn run_network_pump<S: NetworkSession>(
     session: S,
@@ -20,15 +38,80 @@ pub(super) async fn run_network_pump<S: NetworkSession>(
     .await;
 }
 
+#[cfg(test)]
+pub(super) async fn run_network_pump_with_trace<S, F, W>(
+    session: S,
+    sequencer: NetworkSequencer,
+    command_rx: mpsc::Receiver<NetworkCommand>,
+    control_event_tx: mpsc::Sender<NetworkControlEvent>,
+    world_event_tx: mpsc::Sender<WorldIngress>,
+    shutdown_rx: watch::Receiver<bool>,
+    trace: (F, W),
+) where
+    S: NetworkSession,
+    F: FnMut(u64, &Packet) -> Option<String>,
+    W: FnMut(&str),
+{
+    let (trace_line, write_trace) = trace;
+    run_network_pump_with_readiness_ingress_and_trace(
+        session,
+        sequencer,
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+        NetworkPumpRuntime {
+            readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+            trace_line,
+            write_trace,
+        },
+    )
+    .await;
+}
+
 pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
+    session: S,
+    sequencer: NetworkSequencer,
+    command_rx: mpsc::Receiver<NetworkCommand>,
+    control_event_tx: mpsc::Sender<NetworkControlEvent>,
+    world_event_tx: mpsc::Sender<WorldIngress>,
+    shutdown_rx: watch::Receiver<bool>,
+    readiness_ingress: Arc<ReadinessIngressCounter>,
+) {
+    run_network_pump_with_readiness_ingress_and_trace(
+        session,
+        sequencer,
+        command_rx,
+        control_event_tx,
+        world_event_tx,
+        shutdown_rx,
+        NetworkPumpRuntime {
+            readiness_ingress,
+            trace_line: pending_trace_line,
+            write_trace: write_trace_line,
+        },
+    )
+    .await;
+}
+
+async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
     mut session: S,
     mut sequencer: NetworkSequencer,
     mut command_rx: mpsc::Receiver<NetworkCommand>,
     control_event_tx: mpsc::Sender<NetworkControlEvent>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     mut shutdown_rx: watch::Receiver<bool>,
-    readiness_ingress: Arc<ReadinessIngressCounter>,
-) {
+    runtime: NetworkPumpRuntime<F, W>,
+) where
+    S: NetworkSession,
+    F: FnMut(u64, &Packet) -> Option<String>,
+    W: FnMut(&str),
+{
+    let NetworkPumpRuntime {
+        readiness_ingress,
+        mut trace_line,
+        mut write_trace,
+    } = runtime;
     let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
     let mut last_blob_cache_stats = None;
@@ -48,6 +131,40 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
             return;
         }
         last_blob_cache_stats = Some(stats);
+    }
+
+    async fn end_pump_with_transfer<S: NetworkSession>(
+        session: &S,
+        pending: Option<WorldIngress>,
+        transfer: protocol::ServerTransferEvent,
+        world_event_tx: &mpsc::Sender<WorldIngress>,
+        control_event_tx: &mpsc::Sender<NetworkControlEvent>,
+        shutdown_rx: &mut watch::Receiver<bool>,
+    ) {
+        if let Some(pending) = pending
+            && !send_event_or_cancel(world_event_tx, shutdown_rx, pending).await
+        {
+            return;
+        }
+        send_final_blob_cache_telemetry(session, control_event_tx).await;
+        let target = SessionTransferTarget {
+            host: transfer.host,
+            port: transfer.port,
+        };
+        emit_network_pump_transfer_marker(
+            &target,
+            transfer.reload_world,
+            session.decode_error_count(),
+        );
+        let _ = send_control_event_or_cancel(
+            control_event_tx,
+            shutdown_rx,
+            NetworkControlEvent::Transferred {
+                target,
+                decode_error_count: session.decode_error_count(),
+            },
+        )
+        .await;
     }
 
     loop {
@@ -72,6 +189,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     chat,
                     physics,
                     physics_reanchor,
+                    interaction,
                 }) => {
                     if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
                         && *reanchor.borrow() != identity.reanchor_epoch
@@ -90,6 +208,12 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                         }
                         continue;
                     }
+                    let packet = finalize_interaction_packet(packet, interaction);
+                    // Every physics trace is formatted from the final packet
+                    // after interaction sanitization and published in socket-write
+                    // order only after that write succeeds.
+                    let movement_trace_line = physics
+                        .and_then(|identity| trace_line(identity.session_generation, &packet));
                     let trace_armed = chat.is_some_and(|chat| chat.fast_transfer_action.is_some());
                     if trace_armed {
                         session.begin_packet_id_trace();
@@ -112,6 +236,9 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                             }
                         }
                         Some(Ok(())) => {
+                            if let Some(line) = movement_trace_line {
+                                write_trace(&line);
+                            }
                             if trace_armed {
                                 session.arm_blob_cache_reset_for_fast_transfer();
                             }
@@ -162,7 +289,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                     && !send_event_or_cancel(
                                         &world_event_tx,
                                         &mut shutdown_rx,
-                                        WorldIngress::Event(pending),
+                                        pending,
                                     )
                                     .await
                                 {
@@ -193,6 +320,19 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                             if trace_armed {
                                 session.cancel_packet_id_trace();
                             }
+                            if let Some(transfer) = session.take_server_transfer() {
+                                end_pump_with_transfer(
+                                    &session,
+                                    pending_world_event.take(),
+                                    transfer,
+                                    &world_event_tx,
+                                    &control_event_tx,
+                                    &mut shutdown_rx,
+                                )
+                                .await;
+                                return;
+                            }
+                            let server_disconnect = session.take_server_disconnect();
                             if let Some(chat) = chat {
                                 let _ = send_control_event_or_cancel(
                                     &control_event_tx,
@@ -209,6 +349,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                 "send",
                                 &error.to_string(),
                                 session.decode_error_count(),
+                                server_disconnect.as_ref(),
                             );
                             send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                             let _ = send_control_event_or_cancel(
@@ -217,6 +358,8 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                                 NetworkControlEvent::Failed {
                                     message: error.to_string(),
                                     decode_error_count: session.decode_error_count(),
+                                    server_disconnect,
+                                    origin: NetworkFailureOrigin::Send,
                                 },
                             )
                             .await;
@@ -227,11 +370,22 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                 None => break,
             },
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Ok(permit))) => {
-                permit.send(WorldIngress::Event(
-                    pending_world_event
-                        .take()
-                        .expect("world capacity is reserved only for a pending event"),
-                ));
+                let pending = pending_world_event
+                    .take()
+                    .expect("world capacity is reserved only for a pending event");
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        Some(pending),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
+                permit.send(pending);
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
@@ -241,17 +395,43 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     &control_event_tx,
                     &mut last_blob_cache_stats,
                 );
-                pending_world_event = Some(wrap_readiness_tracked_event(
+                pending_world_event = Some(wrap_inbound_world_event(
                     &mut sequencer,
                     &readiness_ingress,
                     *event,
                 ));
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        pending_world_event.take(),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
             }
             NetworkPumpWork::Inbound(WorldSideWork::Event(Err(error))) => {
+                if let Some(transfer) = session.take_server_transfer() {
+                    end_pump_with_transfer(
+                        &session,
+                        pending_world_event.take(),
+                        transfer,
+                        &world_event_tx,
+                        &control_event_tx,
+                        &mut shutdown_rx,
+                    )
+                    .await;
+                    return;
+                }
+                let server_disconnect = session.take_server_disconnect();
                 emit_network_pump_terminal_marker(
                     "receive",
                     &error.to_string(),
                     session.decode_error_count(),
+                    server_disconnect.as_ref(),
                 );
                 send_final_blob_cache_telemetry(&session, &control_event_tx).await;
                 let _ = send_control_event_or_cancel(
@@ -260,6 +440,8 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
                     NetworkControlEvent::Failed {
                         message: error.to_string(),
                         decode_error_count: session.decode_error_count(),
+                        server_disconnect,
+                        origin: NetworkFailureOrigin::Receive,
                     },
                 )
                 .await;

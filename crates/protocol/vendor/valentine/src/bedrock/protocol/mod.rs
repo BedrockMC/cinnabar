@@ -7,13 +7,5 @@
 #![allow(unused_imports)]
 #![allow(clippy::redundant_field_names)]
 #![allow(clippy::manual_flatten)]
-//! Protocol modules
-//!
-//! One module per unique protocol version (some MC versions share one).
-//! Prefer using `bedrock::version::vX_Y_Z` which re-exports the right protocol.
-#[cfg(feature = "bedrock_1_26_0")]
-pub use valentine_bedrock_1_26_0 as v1_26_0;
-#[cfg(feature = "bedrock_1_26_30")]
-pub use valentine_bedrock_1_26_30 as v1_26_30;
-#[cfg(feature = "bedrock_1_26_40")]
-pub use valentine_bedrock_1_26_40 as v1_26_40;
+#[cfg(feature = "bedrock_1_26_51")]
+pub use valentine_bedrock_1_26_51 as v1_26_51;

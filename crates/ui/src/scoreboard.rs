@@ -7,7 +7,6 @@ use std::{
 pub const MAX_OBJECTIVES: usize = 128;
 pub const MAX_SCORES: usize = 8_192;
 pub const MAX_BOSS_BARS: usize = 64;
-pub const MAX_BOSS_PLAYER_MEMBERSHIPS: usize = 8_192;
 pub const MAX_RETAINED_UI_TEXT_FIELD_BYTES: usize = crate::UiLimits::MAX_TEXT_BYTES;
 pub const MAX_SCOREBOARD_RETAINED_TEXT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_BOSS_RETAINED_TEXT_BYTES: usize = 2 * 1024 * 1024;
@@ -49,6 +48,28 @@ pub enum ScoreSortOrder {
     Unsupported(i32),
 }
 
+/// How a displayed objective's scores present, classified from the wire's
+/// criteria/render-type name. Bedrock carries no separate render-type field,
+/// so this classification is explicitly provisional pending native evidence:
+/// the known health-style criteria select a bounded hearts presentation and
+/// every other name keeps integer text.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ScoreRenderType {
+    #[default]
+    Integer,
+    Hearts,
+}
+
+impl ScoreRenderType {
+    #[must_use]
+    pub fn from_criteria_name(criteria_name: &str) -> Self {
+        match criteria_name {
+            "hearts" | "health" => Self::Hearts,
+            _ => Self::Integer,
+        }
+    }
+}
+
 impl From<i32> for ScoreSortOrder {
     fn from(value: i32) -> Self {
         match value {
@@ -63,6 +84,8 @@ impl From<i32> for ScoreSortOrder {
 pub enum ScoreAction {
     Change,
     Remove,
+    /// Clears the entry from every objective; its objective name is unused.
+    RemoveFromAll,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -140,6 +163,7 @@ pub struct ScoreboardProjection {
     pub display_name: Arc<str>,
     pub criteria_name: Arc<str>,
     pub sort_order: ScoreSortOrder,
+    pub render_type: ScoreRenderType,
     pub rows: Vec<ScoreRow>,
 }
 
@@ -162,6 +186,7 @@ struct ObjectiveState {
     display_name: Arc<str>,
     criteria_name: Arc<str>,
     sort_order: ScoreSortOrder,
+    render_type: ScoreRenderType,
     scores: BTreeMap<i64, StoredScore>,
 }
 
@@ -169,6 +194,15 @@ struct ObjectiveState {
 struct StoredScore {
     score: i32,
     owner: ScoreOwner,
+}
+
+type StagedScores = BTreeMap<(Arc<str>, i64), Option<StoredScore>>;
+
+/// Whether `key` holds a score once the batch staged so far applies.
+fn is_retained(staged: &StagedScores, objective: &ObjectiveState, key: &(Arc<str>, i64)) -> bool {
+    staged
+        .get(key)
+        .map_or_else(|| objective.scores.contains_key(&key.1), Option::is_some)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -391,6 +425,7 @@ impl ScoreboardStore {
             display_name: Arc::clone(&objective.display_name),
             criteria_name: Arc::clone(&objective.criteria_name),
             sort_order: objective.sort_order,
+            render_type: objective.render_type,
             rows,
         })
     }
@@ -422,6 +457,7 @@ impl ScoreboardStore {
             return RetainedUiApply::Ignored;
         };
         let sort_order = ScoreSortOrder::from(raw_sort_order);
+        let render_type = ScoreRenderType::from_criteria_name(&criteria_name);
         let old_bytes = self.objectives.get(&objective_name).map_or(0, |objective| {
             objective.display_name.len() + objective.criteria_name.len()
         });
@@ -454,6 +490,7 @@ impl ScoreboardStore {
                 objective.display_name = display_name;
                 objective.criteria_name = criteria_name;
                 objective.sort_order = sort_order;
+                objective.render_type = render_type;
             }
             None => {
                 self.objectives.insert(
@@ -462,6 +499,7 @@ impl ScoreboardStore {
                         display_name,
                         criteria_name,
                         sort_order,
+                        render_type,
                         scores: BTreeMap::new(),
                     },
                 );
@@ -512,43 +550,43 @@ impl ScoreboardStore {
                 .saturating_add(1);
             return RetainedUiApply::Ignored;
         }
-        let mut staged = BTreeMap::<(Arc<str>, i64), Option<StoredScore>>::new();
+        let mut staged = StagedScores::new();
         for entry in entries {
             if !text_is_bounded(&entry.objective_name) || !entry.owner.text_is_bounded() {
                 self.diagnostics.text_field_rejections =
                     self.diagnostics.text_field_rejections.saturating_add(1);
                 return RetainedUiApply::Ignored;
             }
-            let Some(objective) = self.objectives.get(&entry.objective_name) else {
+            let named =
+                (entry.action != ScoreAction::RemoveFromAll).then_some(&entry.objective_name);
+            if named.is_some_and(|name| !self.objectives.contains_key(name)) {
                 self.diagnostics.missing_objectives =
                     self.diagnostics.missing_objectives.saturating_add(1);
                 return RetainedUiApply::Ignored;
-            };
-            let key = (Arc::clone(&entry.objective_name), entry.scoreboard_id);
-            match entry.action {
-                ScoreAction::Change => {
-                    staged.insert(
-                        key,
-                        Some(StoredScore {
-                            score: entry.score,
-                            owner: entry.owner.clone(),
-                        }),
-                    );
-                }
-                ScoreAction::Remove => {
-                    let exists = staged.get(&key).map_or_else(
-                        || objective.scores.contains_key(&entry.scoreboard_id),
-                        Option::is_some,
-                    );
-                    if exists {
-                        staged.insert(key, None);
-                    } else {
-                        self.diagnostics.missing_scores =
-                            self.diagnostics.missing_scores.saturating_add(1);
-                        return RetainedUiApply::Ignored;
-                    }
-                }
             }
+            if entry.action == ScoreAction::Change {
+                let score = StoredScore {
+                    score: entry.score,
+                    owner: entry.owner.clone(),
+                };
+                staged.insert(
+                    (Arc::clone(&entry.objective_name), entry.scoreboard_id),
+                    Some(score),
+                );
+                continue;
+            }
+            // A removal clears the entry from its objective, or from all of them.
+            let removed: Vec<_> = (self.objectives.iter())
+                .filter(|(name, _)| named.is_none_or(|named| named == *name))
+                .map(|(name, objective)| ((Arc::clone(name), entry.scoreboard_id), objective))
+                .filter(|(key, objective)| is_retained(&staged, objective, key))
+                .map(|(key, _)| key)
+                .collect();
+            if removed.is_empty() {
+                self.diagnostics.missing_scores = self.diagnostics.missing_scores.saturating_add(1);
+                return RetainedUiApply::Ignored;
+            }
+            staged.extend(removed.into_iter().map(|key| (key, None)));
         }
         if staged.is_empty() {
             return RetainedUiApply::Ignored;
@@ -671,7 +709,6 @@ pub struct BossStyle {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BossBarEvent {
     pub target_entity_id: i64,
-    pub player_id: i64,
     pub action: BossAction,
     pub title: Arc<str>,
     pub filtered_title: Arc<str>,
@@ -692,9 +729,7 @@ pub struct BossBarView {
 pub struct BossBarDiagnostics {
     pub stale_sequences: u64,
     pub missing_bars: u64,
-    pub missing_memberships: u64,
     pub bar_limit_rejections: u64,
-    pub membership_limit_rejections: u64,
     pub text_field_rejections: u64,
     pub text_budget_rejections: u64,
     pub invalid_health_rejections: u64,
@@ -708,14 +743,12 @@ struct BossBarState {
     filtered_title: Arc<str>,
     health: f32,
     style: BossStyle,
-    registered_players: BTreeSet<i64>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BossBarStore {
     last_sequence: Option<u64>,
     bars: BTreeMap<i64, BossBarState>,
-    membership_count: usize,
     retained_text_bytes: usize,
     diagnostics: BossBarDiagnostics,
 }
@@ -733,27 +766,37 @@ impl BossBarStore {
         &self.diagnostics
     }
 
-    pub fn stacked(&self) -> Vec<BossBarView> {
-        let mut bars = self.bars.iter().collect::<Vec<_>>();
-        bars.sort_by_key(|(entity_id, bar)| (bar.first_show_sequence, **entity_id));
-        bars.into_iter()
-            .map(|(target_entity_id, bar)| BossBarView {
+    /// Iterates active boss bars in stable first-show order without
+    /// allocating a temporary ordering vector.
+    pub fn stacked_iter(&self) -> impl Iterator<Item = BossBarView> + '_ {
+        let mut previous = None;
+        std::iter::from_fn(move || {
+            let (target_entity_id, bar) = self
+                .bars
+                .iter()
+                .filter(|(target_entity_id, bar)| {
+                    previous.is_none_or(|previous| {
+                        (bar.first_show_sequence, **target_entity_id) > previous
+                    })
+                })
+                .min_by_key(|(target_entity_id, bar)| {
+                    (bar.first_show_sequence, **target_entity_id)
+                })?;
+            previous = Some((bar.first_show_sequence, *target_entity_id));
+            Some(BossBarView {
                 target_entity_id: *target_entity_id,
                 title: Arc::clone(&bar.title),
                 filtered_title: Arc::clone(&bar.filtered_title),
                 health: bar.health,
                 style: bar.style,
             })
-            .collect()
+        })
     }
 
-    /// The registered player memberships of one bar, materialized on demand;
-    /// the per-frame presentation view deliberately excludes this list.
-    pub fn registered_players(&self, target_entity_id: i64) -> Vec<i64> {
-        self.bars
-            .get(&target_entity_id)
-            .map(|bar| bar.registered_players.iter().copied().collect())
-            .unwrap_or_default()
+    /// Materializes the stable boss-bar presentation order for callers that
+    /// need an owned collection outside the per-frame rendering path.
+    pub fn stacked(&self) -> Vec<BossBarView> {
+        self.stacked_iter().collect()
     }
 
     pub fn apply(
@@ -784,35 +827,12 @@ impl BossBarStore {
         match event.action {
             BossAction::Show => self.show(sequence, event),
             BossAction::Hide => self.hide(event.target_entity_id),
-            BossAction::RegisterPlayer => {
-                let Some(bar) = self.bars.get_mut(&event.target_entity_id) else {
-                    return self.note_missing_bar();
-                };
-                if bar.registered_players.contains(&event.player_id) {
-                    return RetainedUiApply::Applied;
-                }
-                if self.membership_count >= MAX_BOSS_PLAYER_MEMBERSHIPS {
-                    self.diagnostics.membership_limit_rejections = self
-                        .diagnostics
-                        .membership_limit_rejections
-                        .saturating_add(1);
-                    return RetainedUiApply::Ignored;
-                }
-                bar.registered_players.insert(event.player_id);
-                self.membership_count += 1;
-                RetainedUiApply::Applied
-            }
-            BossAction::UnregisterPlayer => {
-                let Some(bar) = self.bars.get_mut(&event.target_entity_id) else {
-                    return self.note_missing_bar();
-                };
-                if bar.registered_players.remove(&event.player_id) {
-                    self.membership_count = self.membership_count.saturating_sub(1);
+            // The wire names no player, so membership changes only need a bar.
+            BossAction::RegisterPlayer | BossAction::UnregisterPlayer => {
+                if self.bars.contains_key(&event.target_entity_id) {
                     RetainedUiApply::Applied
                 } else {
-                    self.diagnostics.missing_memberships =
-                        self.diagnostics.missing_memberships.saturating_add(1);
-                    RetainedUiApply::Ignored
+                    self.note_missing_bar()
                 }
             }
             BossAction::SetProgress => {
@@ -879,7 +899,6 @@ impl BossBarStore {
                         filtered_title: event.filtered_title,
                         health: event.health,
                         style: event.style,
-                        registered_players: BTreeSet::new(),
                     },
                 );
             }
@@ -892,9 +911,6 @@ impl BossBarStore {
         let Some(bar) = self.bars.remove(&target_entity_id) else {
             return self.note_missing_bar();
         };
-        self.membership_count = self
-            .membership_count
-            .saturating_sub(bar.registered_players.len());
         self.retained_text_bytes = self
             .retained_text_bytes
             .saturating_sub(bar.title.len() + bar.filtered_title.len());

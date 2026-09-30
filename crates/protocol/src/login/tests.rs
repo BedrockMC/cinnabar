@@ -1,6 +1,7 @@
 use std::cell::Cell;
 
 use super::*;
+use crate::BlobCacheReady;
 
 #[test]
 fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_overflow() {
@@ -66,25 +67,96 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
-    AnimatePacket, AnimatePacketAction, BiomeDefinitionData, BiomeDefinitionListPacket,
+    AnimatePacket, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,
-    BlockPos, CerealizerNetworkItemStackDescriptorSerializedData,
-    CorrectPlayerMovePredictionPacket, GameRule, GameRuleRuleValue, GameRulesChangedPacket,
-    GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
-    LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MobEquipmentPacket,
-    MovePlayerPacket, PlayerInputTick, RespawnPacket, RespawnPacketState, SetTimePacket,
-    TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
-    TextPacketPayloadMessageOnlyMessageType, UpdateBlockPacket, Vec2, Vec3,
+    BlockPos, CerealizerNetworkItemStackDescriptorSerializedData, ClientCacheMissResponsePacket,
+    CorrectPlayerMovePredictionPacket, EnumsAnimatePacketPayloadAction as AnimatePacketAction,
+    EnumsPlayerRespawnState as RespawnPacketState, EnumsTextPacketType, GameRule,
+    GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData, ItemRegistryPacket,
+    LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName,
+    MissingBlobData, MobEquipmentPacket, MovePlayerPacket, PlaySoundPacket, PlayerInputTick,
+    RespawnPacket, SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
+    UpdateBlockPacket, Vec2, Vec3,
 };
+
+#[test]
+fn all_named_audio_packets_are_allowlisted_for_raw_world_ingress() {
+    let session = BedrockSession { shield_item_id: 0 };
+    for fixture in [
+        include_bytes!("../../fixtures/play_sound.bin").as_slice(),
+        include_bytes!("../../fixtures/stop_sound.bin").as_slice(),
+        include_bytes!("../../fixtures/level_sound_event.bin").as_slice(),
+    ] {
+        let mut batch = Bytes::copy_from_slice(fixture);
+        batch.advance(1);
+        let raw = decode_packet_raw(&mut batch).expect("raw audio fixture");
+        let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
+            .expect("audio wire decode")
+            .expect("allowlisted audio event");
+        assert!(matches!(event, WorldEvent::Audio(_)));
+    }
+}
+
+#[test]
+fn audio_semantic_rejections_do_not_reach_the_allocating_decoder() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = PlaySoundPacket {
+        name: "x".repeat(crate::MAX_AUDIO_IDENTIFIER_BYTES + 1),
+        volume: 1.0,
+        pitch: 1.0,
+        ..Default::default()
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode overlong semantic packet");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw overlong packet");
+    let decoder_called = Cell::new(false);
+    let error = decode_world_raw_with(raw, 0, |_| {
+        decoder_called.set(true);
+        unreachable!("borrowed allocation preflight must reject first")
+    })
+    .expect_err("overlong identifier is semantically unusable");
+    assert!(!decoder_called.get());
+    assert!(matches!(
+        error,
+        ProtocolError::World(crate::WorldPacketError::AudioIdentifierTooLong { .. })
+    ));
+
+    let packet: Packet = PlaySoundPacket {
+        name: String::new(),
+        volume: f32::NAN,
+        pitch: 1.0,
+        ..Default::default()
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode non-finite semantic packet");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw non-finite packet");
+    assert!(matches!(
+        decode_world_raw_with(raw, 0, |raw| raw.decode(&session)),
+        Err(ProtocolError::World(
+            crate::WorldPacketError::NonFiniteAudioField { .. }
+        ))
+    ));
+}
+
+#[test]
+fn truncated_audio_wire_remains_fatal() {
+    let raw = raw_packet(McpePacketName::PlaySoundPacket, &[2, b'x']);
+    assert!(matches!(
+        decode_world_raw_with(raw, 0, |_| unreachable!("truncated borrowed decode")),
+        Err(ProtocolError::Session(_))
+    ));
+}
 
 /// Builds a cache-enabled LevelChunk carrying exactly the given blob hashes.
 ///
 /// 1.26.40 writes the hashes unconditionally and signals cache participation
 /// with `cache_enabled`, so `blobs: Some(..)` has no direct equivalent.
 fn cached_level_chunk(hashes: Vec<u64>) -> LevelChunkPacket {
-    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
         subchunks_count,
         cache_enabled: true,
@@ -130,6 +202,67 @@ fn transfer_resets_pending_cache_transactions_but_change_dimension_is_ordered() 
         resolver.pop_ready(),
         Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(_)))
     ));
+}
+
+#[test]
+fn unrelated_world_semantic_skip_does_not_recover_pending_cached_terrain() {
+    let cache = ClientBlobCache::default();
+    let missing_payload = b"late terrain blob";
+    let missing = crate::client_blob_hash(missing_payload);
+    let mut resolver = BlobCacheResolver::new(cache);
+    resolver
+        .accept_cached_packet(cached_level_chunk(vec![missing]).into())
+        .expect("pending cached column");
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    let mut world_skips = 0;
+    skip_semantic_world_error(
+        ProtocolError::World(crate::WorldPacketError::Ui(
+            crate::UiPacketError::UnknownEnum {
+                kind: "text category",
+                value: 3,
+            },
+        )),
+        &mut world_skips,
+    )
+    .expect("unrelated semantic rejection is skipped");
+    assert_eq!(world_skips, 1);
+    assert_eq!(resolver.stats().pending_transactions, 1);
+
+    resolver
+        .accept_miss_response(ClientCacheMissResponsePacket {
+            missing_blobs: vec![MissingBlobData {
+                blob_id: missing,
+                blob_data: missing_payload.to_vec(),
+            }],
+        })
+        .expect("late cache miss response resolves normally");
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(matches!(
+        resolver.pop_ready(),
+        Some(BlobCacheReady::Packet(Packet {
+            data: McpePacketData::LevelChunkPacket(_),
+            ..
+        }))
+    ));
+}
+
+#[test]
+fn fatal_session_reset_clears_pending_without_clearing_verified_entries() {
+    let cache = ClientBlobCache::default();
+    let verified = cache
+        .insert(b"verified terrain")
+        .expect("seed verified blob");
+    let missing = crate::client_blob_hash(b"missing terrain");
+    let mut resolver = BlobCacheResolver::new(cache.clone());
+    resolver
+        .accept_cached_packet(cached_level_chunk(vec![missing]).into())
+        .expect("pending cached column");
+
+    resolver.reset_pending();
+
+    assert_eq!(resolver.stats().pending_transactions, 0);
+    assert!(cache.contains(verified));
 }
 
 #[test]
@@ -212,7 +345,7 @@ fn allowlisted_ui_packet_is_validated_decoded_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
     let packet: Packet = TextPacket {
         body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
-            message_type: TextPacketPayloadMessageOnlyMessageType::Raw,
+            message_type: EnumsTextPacketType::Raw,
             message: "live UI".to_owned(),
         }),
         ..Default::default()
@@ -338,8 +471,8 @@ fn live_inventory_content_checks_slot_count_before_owned_decoder() {
     assert!(!decoder_called.get());
     assert!(matches!(
         error,
-        ProtocolError::World(crate::WorldPacketError::Inventory(
-            crate::InventoryPacketError::TooManySlots { .. }
+        ProtocolError::World(crate::WorldPacketError::Wire(
+            crate::WorldWireError::Inventory(crate::InventoryPacketError::MalformedWire)
         ))
     ));
 }
@@ -368,6 +501,26 @@ fn live_stack_response_checks_nested_counts_before_owned_decoder() {
             ),
             "slots",
         ),
+        (
+            raw_packet(
+                McpePacketName::ItemStackResponsePacket,
+                &accepted_response_with_name_lengths(
+                    (crate::MAX_RESPONSE_NAME_BYTES + 1) as u32,
+                    0,
+                ),
+            ),
+            "unredacted name",
+        ),
+        (
+            raw_packet(
+                McpePacketName::ItemStackResponsePacket,
+                &accepted_response_with_name_lengths(
+                    0,
+                    (crate::MAX_RESPONSE_NAME_BYTES + 1) as u32,
+                ),
+            ),
+            "redacted name",
+        ),
     ];
 
     for (raw, label) in cases {
@@ -381,7 +534,9 @@ fn live_stack_response_checks_nested_counts_before_owned_decoder() {
         assert!(
             matches!(
                 error,
-                ProtocolError::World(crate::WorldPacketError::Inventory(_))
+                ProtocolError::World(crate::WorldPacketError::Wire(
+                    crate::WorldWireError::Inventory(crate::InventoryPacketError::MalformedWire)
+                ))
             ),
             "unexpected {label} error: {error:?}"
         );
@@ -416,8 +571,8 @@ fn live_inventory_items_check_extra_length_before_owned_decoder() {
         assert!(!decoder_called.get());
         assert!(matches!(
             error,
-            ProtocolError::World(crate::WorldPacketError::Inventory(
-                crate::InventoryPacketError::ItemExtraTooLarge { .. }
+            ProtocolError::World(crate::WorldPacketError::Wire(
+                crate::WorldWireError::Inventory(crate::InventoryPacketError::MalformedWire)
             ))
         ));
     }
@@ -426,58 +581,32 @@ fn live_inventory_items_check_extra_length_before_owned_decoder() {
 #[test]
 fn canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization() {
     let session = BedrockSession { shield_item_id: 0 };
-    // item_stack_response.bin is covered separately by
-    // `item_stack_response_fixture_pins_the_redactable_string_divergence`: the
-    // generated decoder cannot read it, which is an upstream defect rather than
-    // anything this crate can normalise around.
-    for fixture in [
-        &include_bytes!("../../fixtures/inventory_content.bin")[..],
-        &include_bytes!("../../fixtures/inventory_slot.bin")[..],
-        &include_bytes!("../../fixtures/player_hotbar.bin")[..],
+    for (name, fixture) in [
+        (
+            "inventory_content",
+            &include_bytes!("../../fixtures/inventory_content.bin")[..],
+        ),
+        (
+            "inventory_slot",
+            &include_bytes!("../../fixtures/inventory_slot.bin")[..],
+        ),
+        (
+            "player_hotbar",
+            &include_bytes!("../../fixtures/player_hotbar.bin")[..],
+        ),
+        (
+            "item_stack_response",
+            &include_bytes!("../../fixtures/item_stack_response.bin")[..],
+        ),
     ] {
         let mut batch = Bytes::copy_from_slice(fixture);
         assert_eq!(batch.get_u8(), 0xfe);
         let raw = decode_packet_raw(&mut batch).expect("raw inventory fixture");
         let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
-            .expect("canonical inventory fixture")
+            .unwrap_or_else(|error| panic!("canonical {name} fixture: {error}"))
             .expect("inventory world event");
         assert!(matches!(event, WorldEvent::Inventory(_)));
     }
-}
-
-/// Pins a known generated-code divergence on `ItemStackResponse`.
-///
-/// gophertunnel's `StackResponseSlotInfo.Marshal`
-/// (`minecraft/protocol/item_stack.go` @ be6713da4dc051a4197f897d04835e89e9c54321)
-/// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent
-/// strings. The generated `ItemStackResponseSlotInfo` models them as a single
-/// `BedrockSafetyRedactableString`, which puts an optional-presence byte between
-/// them, so it reads the second string's length prefix as that flag and then
-/// reads a bogus length. Everything earlier in the packet decodes correctly --
-/// the double-optional stack net ID included -- so the divergence is exactly the
-/// two-strings-versus-string-plus-optional shape.
-///
-/// This fails loudly rather than silently corrupting, and it is narrow: only
-/// `ItemStackResponseSlotInfo::custom_name` and one `structure_name` field use
-/// the type. It must be fixed in the generator's correction layer, not here.
-///
-/// The assertion is deliberately inverted: when upstream fixes the shape this
-/// test starts failing, which is the signal to fold the fixture back into
-/// `canonical_inventory_fixtures_pass_raw_gate_and_owned_normalization`.
-#[test]
-fn item_stack_response_fixture_pins_the_redactable_string_divergence() {
-    let session = BedrockSession { shield_item_id: 0 };
-    let mut batch =
-        Bytes::copy_from_slice(&include_bytes!("../../fixtures/item_stack_response.bin")[..]);
-    assert_eq!(batch.get_u8(), 0xfe);
-    let raw = decode_packet_raw(&mut batch).expect("raw item stack response");
-
-    let result = decode_world_raw_with(raw, 0, |raw| raw.decode(&session));
-
-    assert!(
-        result.is_err(),
-        "the generated ItemStackResponse decoder now reads the gophertunnel          fixture: the BedrockSafetyRedactableString divergence is fixed upstream,          so restore this fixture to the canonical decode test"
-    );
 }
 
 fn varint_body(value: u32) -> BytesMut {
@@ -491,8 +620,6 @@ fn accepted_response_prefix(container_count: u32) -> BytesMut {
     wire::write_var_u32(&mut body, 1);
     body.put_u8(0);
     wire::write_var_u32(&mut body, 0);
-    // The container list is a DoubleOptionalFunc in 1.26.40: an outer bool that
-    // a Go writer always sets, then the list itself.
     body.put_u8(1);
     wire::write_var_u32(&mut body, container_count);
     body
@@ -503,6 +630,18 @@ fn accepted_response_with_slot_count(slot_count: u32) -> BytesMut {
     body.put_u8(0);
     body.put_u8(0);
     wire::write_var_u32(&mut body, slot_count);
+    body
+}
+
+fn accepted_response_with_name_lengths(unredacted: u32, redacted: u32) -> BytesMut {
+    let mut body = accepted_response_with_slot_count(1);
+    body.extend_from_slice(&[0, 0, 0]);
+    body.put_u8(0);
+    wire::write_var_u32(&mut body, unredacted);
+    if unredacted <= crate::MAX_RESPONSE_NAME_BYTES as u32 {
+        body.put_u8(1);
+        wire::write_var_u32(&mut body, redacted);
+    }
     body
 }
 
@@ -633,12 +772,10 @@ fn allowlisted_daylight_cycle_rule_is_decoded_and_normalized() {
     .expect("decode gamerule event");
 
     assert!(decoder_called.get());
-    assert_eq!(
-        event,
-        Some(WorldEvent::DaylightCycle(crate::DaylightCycleUpdateEvent {
-            enabled: false
-        }))
-    );
+    let Some(WorldEvent::GameRules(rules)) = event else {
+        panic!("{event:?}")
+    };
+    assert_eq!(rules.daylight_cycle.map(|cycle| cycle.enabled), Some(false));
 }
 
 #[test]
@@ -698,7 +835,7 @@ fn allowlisted_respawn_is_materialized_and_normalized() {
             y: 71.620_01,
             z: -4.25,
         },
-        state: RespawnPacketState::ReadyToSpawn,
+        state: RespawnPacketState::Readytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 42,
         },
@@ -836,11 +973,12 @@ fn canonical_empty_mob_equipment_is_materialized_and_normalized() {
     ));
 }
 
-fn raw_nonempty_mob_equipment(extra: &[u8]) -> RawPacket {
+/// Builds raw non-air equipment with controlled count, extra data, and container ID.
+fn raw_mob_equipment(count: u16, extra: &[u8], container_id: i8) -> RawPacket {
     let mut body = BytesMut::new();
     wire::write_var_u64(&mut body, 42);
     body.put_i16_le(5);
-    body.put_u16_le(1);
+    body.put_u16_le(count);
     wire::write_var_u32(&mut body, 0);
     body.put_u8(0);
     wire::write_var_u32(&mut body, 0);
@@ -848,26 +986,7 @@ fn raw_nonempty_mob_equipment(extra: &[u8]) -> RawPacket {
     body.put_slice(extra);
     body.put_u8(0);
     body.put_u8(0);
-    body.put_i8(0);
-    raw_packet(McpePacketName::MobEquipmentPacket, &body)
-}
-
-fn raw_zero_count_mob_equipment() -> RawPacket {
-    // A non-air network id (5) paired with a zero stack count is not a valid
-    // item: it is neither the empty stack nor a real one.
-    let mut body = BytesMut::new();
-    wire::write_var_u64(&mut body, 42);
-    body.put_i16_le(5);
-    body.put_u16_le(0);
-    wire::write_var_u32(&mut body, 0);
-    body.put_u8(0);
-    wire::write_var_u32(&mut body, 0);
-    let extra = [0u8; 10]; // no NBT, no can-place-on/can-destroy entries
-    wire::write_var_u32(&mut body, extra.len() as u32);
-    body.put_slice(&extra);
-    body.put_u8(0);
-    body.put_u8(0);
-    body.put_i8(0);
+    body.put_i8(container_id);
     raw_packet(McpePacketName::MobEquipmentPacket, &body)
 }
 
@@ -879,13 +998,13 @@ fn valid_equipment_is_retained_and_invalid_items_are_rejected() {
     // retention now.
     let session = BedrockSession { shield_item_id: 0 };
     let valid_extra = [0; 10];
-    let valid = decode_world_raw_with(raw_nonempty_mob_equipment(&valid_extra), 0, |raw| {
+    let valid = decode_world_raw_with(raw_mob_equipment(1, &valid_extra, 0), 0, |raw| {
         raw.decode(&session)
     })
     .expect("valid equipment wire");
     assert!(matches!(valid, Some(WorldEvent::Equipment(_))));
 
-    let error = decode_world_raw_with(raw_zero_count_mob_equipment(), 0, |raw| {
+    let error = decode_world_raw_with(raw_mob_equipment(0, &valid_extra, 0), 0, |raw| {
         raw.decode(&session)
     })
     .expect_err("zero-count item is semantically invalid");
@@ -898,6 +1017,22 @@ fn valid_equipment_is_retained_and_invalid_items_are_rejected() {
         ),
         "unexpected error: {error:?}"
     );
+
+    let error = decode_world_raw_with(raw_mob_equipment(1, &valid_extra, -1), 0, |raw| {
+        raw.decode(&session)
+    })
+    .expect_err("unknown equipment container must be rejected semantically");
+    assert!(matches!(
+        &error,
+        ProtocolError::World(crate::WorldPacketError::Item(
+            crate::ItemPacketError::UnknownEquipmentContainer(u8::MAX)
+        ))
+    ));
+
+    let mut world_skips = 0;
+    skip_semantic_world_error(error, &mut world_skips)
+        .expect("semantic equipment rejection must keep the session alive");
+    assert_eq!(world_skips, 1);
 }
 
 #[test]
@@ -962,11 +1097,13 @@ fn absolute_actor_move_rejects_truncated_and_trailing_bodies() {
         .expect_err("malformed absolute actor move");
         assert!(matches!(
             error,
-            ProtocolError::World(crate::WorldPacketError::Actor(
-                crate::ActorPacketError::InvalidAbsoluteMoveLength {
-                    actual: found,
-                    expected: 16,
-                }
+            ProtocolError::World(crate::WorldPacketError::Wire(
+                crate::WorldWireError::Actor(
+                    crate::ActorPacketError::InvalidAbsoluteMoveLength {
+                        actual: found,
+                        expected: 16,
+                    }
+                )
             )) if found == actual
         ));
     }
@@ -996,7 +1133,6 @@ fn allowlisted_movement_correction_is_materialized_and_normalized() {
     batch.advance(1);
     let raw = decode_packet_raw(&mut batch).expect("raw movement correction");
     let decoder_called = Cell::new(false);
-
     let event = decode_world_raw_with(raw, 0, |raw| {
         decoder_called.set(true);
         raw.decode(&session)
@@ -1012,6 +1148,7 @@ fn allowlisted_movement_correction_is_materialized_and_normalized() {
             delta: [0.5, -0.25, 1.0],
             pitch: -15.0,
             yaw: 90.25,
+            subject: crate::MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 55,
         })

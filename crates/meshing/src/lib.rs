@@ -25,8 +25,9 @@ pub use chunk::build::{
 };
 pub use classifier::BlockClassifier;
 pub use cloud::{
-    CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace, CloudMeshError, MAX_CLOUD_BYTES,
-    MAX_CLOUD_QUADS, PackedCloudQuad, cloud_instance_origins, mesh_cloud_texture,
+    CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_THICKNESS_BLOCKS, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y,
+    CLOUD_WORLD_PERIOD, CloudFace, CloudMeshError, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS,
+    PackedCloudQuad, cloud_instance_origins, mesh_cloud_texture,
 };
 pub use color::debug_color;
 pub use contributors::{ContributorResolver, ResolvedContributors};

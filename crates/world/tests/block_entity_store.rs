@@ -2,9 +2,13 @@ use std::sync::Arc;
 
 use world::{
     BlockEntityError, BlockEntityKey, ChunkKey, ChunkStore, DecodedBlockEntities,
-    DecodedLevelChunk, DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK,
-    MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, SubChunkKey,
+    DecodedLevelChunk, DecodedSubChunk, DimensionSlots, MAX_BLOCK_ENTITIES_PER_CHUNK,
+    MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, RawBiomeIds, RawBlockIds, SubChunkKey,
 };
+
+const IDS: RawBlockIds = RawBlockIds { air: 0 };
+const BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };
+const OVERWORLD_Y: std::ops::Range<i32> = -64..320;
 
 fn var_u32(mut value: u32, out: &mut Vec<u8>) {
     loop {
@@ -81,45 +85,106 @@ fn uniform_biome(id: u32) -> Vec<u8> {
 }
 
 #[test]
-fn chunk_tail_requires_zero_border_prefix_and_in_scope_unique_positions() {
+fn chunk_tail_keeps_in_scope_entities_after_the_border_block_list() {
     let chunk = ChunkKey::new(0, -2, 3);
     let first_key = BlockEntityKey::new(0, -31, 64, 49);
     let second_key = BlockEntityKey::new(0, -18, -1, 63);
     let first = block_entity("Chest", first_key.position());
     let second = block_entity("Sign", second_key.position());
-    let mut tail = vec![0];
-    tail.extend_from_slice(&first);
-    tail.extend_from_slice(&second);
-
-    let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, &tail).unwrap();
-    assert_eq!(decoded.bytes_consumed(), tail.len());
-    assert_eq!(decoded.len(), 2);
-    assert_eq!(decoded.get(first_key).unwrap().id(), Some("Chest"));
-    assert_eq!(decoded.get(second_key).unwrap().id(), Some("Sign"));
-
-    assert_eq!(
-        DecodedBlockEntities::decode_level_chunk_tail(chunk, &[1]),
-        Err(BlockEntityError::UnsupportedBorderBlocks { count: 1 })
-    );
-
-    let mut duplicate = vec![0];
-    duplicate.extend_from_slice(&first);
-    duplicate.extend_from_slice(&first);
-    assert_eq!(
-        DecodedBlockEntities::decode_level_chunk_tail(chunk, &duplicate),
-        Err(BlockEntityError::DuplicatePosition { key: first_key })
-    );
-
-    let mut foreign = vec![0];
-    foreign.extend(block_entity("Chest", [-17, 64, 64]));
-    assert!(matches!(
-        DecodedBlockEntities::decode_level_chunk_tail(chunk, &foreign),
-        Err(BlockEntityError::OutsideChunk { .. })
-    ));
+    for border in [&[0][..], &[2, 0xaa, 0xbb]] {
+        let tail = [border, &first, &second].concat();
+        let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, OVERWORLD_Y, &tail);
+        assert_eq!(decoded.bytes_consumed(), tail.len());
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.get(first_key).unwrap().id(), Some("Chest"));
+        assert_eq!(decoded.get(second_key).unwrap().id(), Some("Sign"));
+    }
 }
 
 #[test]
-fn inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail() {
+fn chunk_tail_skips_bad_entities_individually_and_first_duplicate_wins() {
+    let chunk = ChunkKey::new(0, -2, 3);
+    let key = BlockEntityKey::new(0, -31, 64, 49);
+    let kept = block_entity("Chest", key.position());
+    let mut duplicate_id = vec![10, 0];
+    for id in ["Chest", "Barrel"] {
+        duplicate_id.push(8);
+        string("id", &mut duplicate_id);
+        string(id, &mut duplicate_id);
+    }
+    duplicate_id.push(0);
+    let skipped = [
+        vec![3],                                // Non-compound root: one byte.
+        vec![10, 0, 8, 2, b'i', b'd', 0, 0],    // No position.
+        block_entity("Chest", [-17, 64, 64]),   // Outside the chunk.
+        block_entity("Chest", [-31, 320, 49]),  // Above the dimension.
+        duplicate_id,                           // Semantic NBT error.
+        block_entity("Barrel", key.position()), // Duplicate position.
+    ];
+    let mut tail = vec![0];
+    tail.extend_from_slice(&kept);
+    for entity in &skipped {
+        tail.extend_from_slice(entity);
+    }
+    let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, OVERWORLD_Y, &tail);
+    assert_eq!(decoded.bytes_consumed(), tail.len());
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded.get(key).unwrap().id(), Some("Chest"));
+}
+
+#[test]
+fn malformed_compound_consumes_the_rest_of_the_tail() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let entity = block_entity("Chest", [1, 64, 1]);
+    let tail = [&[0, 10, 0, 99, 1, b'a'][..], &entity].concat();
+    let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, OVERWORLD_Y, &tail);
+    assert!(decoded.is_empty());
+    assert_eq!(decoded.bytes_consumed(), tail.len());
+
+    let tail = [&[0][..], &entity, &[10]].concat();
+    let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, OVERWORLD_Y, &tail);
+    assert_eq!(decoded.len(), 1);
+}
+
+#[test]
+fn chunk_entity_cap_stops_adding_instead_of_failing() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let mut tail = vec![0];
+    for index in 0..=MAX_BLOCK_ENTITIES_PER_CHUNK as i32 {
+        tail.extend(block_entity(
+            "",
+            [index & 15, index >> 8, (index >> 4) & 15],
+        ));
+    }
+    let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, OVERWORLD_Y, &tail);
+    assert_eq!(decoded.len(), MAX_BLOCK_ENTITIES_PER_CHUNK);
+}
+
+#[test]
+fn sub_chunk_entry_ignores_its_y_byte_and_a_truncated_entity_tail() {
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    let mut payload = uniform_sub_chunk(-3, 9);
+    payload.push(10);
+    let decoded = DecodedSubChunk::decode(key, &payload, &IDS);
+    assert_eq!(decoded.sub_chunk().y_index(), Some(-3));
+    let mut store = ChunkStore::new();
+    assert_eq!(store.commit_decoded_sub_chunk(key, decoded), Ok(Some(key)));
+    assert_eq!(
+        store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(9)
+    );
+}
+
+fn decode_inline(chunk: ChunkKey, payload: &[u8]) -> DecodedLevelChunk {
+    let slots = DimensionSlots {
+        base_sub_chunk_y: -4,
+        count: 1,
+    };
+    DecodedLevelChunk::decode_inline(chunk, slots, 1, payload, &IDS, &BIOMES)
+}
+
+#[test]
+fn inline_level_chunk_replaces_the_entity_map_even_when_its_tail_is_malformed() {
     let chunk = ChunkKey::new(0, 1, 2);
     let sub_chunk = SubChunkKey::from_chunk(chunk, -4);
     let old_key = BlockEntityKey::new(0, 17, -63, 33);
@@ -129,43 +194,31 @@ fn inline_level_chunk_decode_and_commit_are_atomic_with_entity_tail() {
         .unwrap();
     store.commit_block_entity_update(old_key, old).unwrap();
     store
-        .apply_sub_chunk(sub_chunk, &uniform_sub_chunk(-4, 7))
+        .apply_sub_chunk(sub_chunk, &uniform_sub_chunk(-4, 7), &IDS)
         .unwrap();
-    let before_block = store.sub_chunk(sub_chunk).unwrap();
-    let before_entity = store.block_entity(old_key).unwrap();
 
     let mut malformed = uniform_sub_chunk(-4, 9);
     malformed.extend(uniform_biome(5));
     malformed.push(0);
     malformed.extend_from_slice(&[10, 0, 8, 2, b'i']);
-    assert!(
-        DecodedLevelChunk::decode_with_biomes_and_block_entities(chunk, -4, 1, -4, 1, &malformed)
-            .is_err()
-    );
-    assert!(Arc::ptr_eq(
-        &before_block,
-        &store.sub_chunk(sub_chunk).unwrap()
-    ));
-    assert!(Arc::ptr_eq(
-        &before_entity,
-        &store.block_entity(old_key).unwrap()
-    ));
-
-    let mut valid = uniform_sub_chunk(-4, 9);
-    valid.extend(uniform_biome(6));
-    valid.push(0);
-    valid.extend(block_entity("New", new_key.position()));
-    let decoded =
-        DecodedLevelChunk::decode_with_biomes_and_block_entities(chunk, -4, 1, -4, 1, &valid)
-            .unwrap();
-    assert_eq!(decoded.bytes_consumed(), valid.len());
+    let decoded = decode_inline(chunk, &malformed);
+    assert_eq!(decoded.bytes_consumed(), malformed.len());
     store.commit_level_chunk(chunk, decoded).unwrap();
     assert_eq!(
         store.sub_chunk(sub_chunk).unwrap().runtime_id(0, 0, 0, 0),
         Some(9)
     );
-    assert_eq!(store.biome_id(sub_chunk, 0, 0, 0), Some(6));
+    assert_eq!(store.biome_id(sub_chunk, 0, 0, 0), Some(5));
     assert!(store.block_entity(old_key).is_none());
+
+    let mut valid = uniform_sub_chunk(-4, 9);
+    valid.extend(uniform_biome(6));
+    valid.push(0);
+    valid.extend(block_entity("New", new_key.position()));
+    let decoded = decode_inline(chunk, &valid);
+    assert_eq!(decoded.bytes_consumed(), valid.len());
+    store.commit_level_chunk(chunk, decoded).unwrap();
+    assert_eq!(store.biome_id(sub_chunk, 0, 0, 0), Some(6));
     assert_eq!(store.block_entity(new_key).unwrap().id(), Some("New"));
 }
 
@@ -181,30 +234,33 @@ fn sub_chunk_payload_replaces_only_its_sparse_entity_slice_atomically() {
 
     let mut first_payload = uniform_sub_chunk(-4, 20);
     first_payload.extend(block_entity("Chest", here.position()));
-    let first = DecodedSubChunk::decode(key, &first_payload).unwrap();
+    let first = DecodedSubChunk::decode(key, &first_payload, &IDS);
     store.commit_decoded_sub_chunk(key, first).unwrap();
     let before_block = store.sub_chunk(key).unwrap();
-    let before_here = store.block_entity(here).unwrap();
+    assert!(store.block_entity(here).is_some());
 
-    let mut malformed = uniform_sub_chunk(-4, 21);
-    malformed.extend_from_slice(&[10, 0, 8]);
-    assert!(DecodedSubChunk::decode(key, &malformed).is_err());
-    assert!(Arc::ptr_eq(&before_block, &store.sub_chunk(key).unwrap()));
-    assert!(Arc::ptr_eq(
-        &before_here,
-        &store.block_entity(here).unwrap()
-    ));
-    assert_eq!(store.block_entity(other).unwrap().id(), Some("Other"));
-
-    let empty = DecodedSubChunk::decode(key, &uniform_sub_chunk(-4, 22)).unwrap();
-    store.commit_decoded_sub_chunk(key, empty).unwrap();
+    // Entities outside the 16^3 slice are skipped; a truncated root ends the tail.
+    let mut replacement = uniform_sub_chunk(-4, 21);
+    replacement.extend(block_entity("Other", [66, -63, -110]));
+    replacement.extend(block_entity("Stray", other.position()));
+    replacement.extend_from_slice(&[10, 0, 8]);
+    let decoded = DecodedSubChunk::decode(key, &replacement, &IDS);
+    store.commit_decoded_sub_chunk(key, decoded).unwrap();
+    assert!(!Arc::ptr_eq(&before_block, &store.sub_chunk(key).unwrap()));
     assert!(store.block_entity(here).is_none());
+    assert_eq!(
+        store
+            .block_entity(BlockEntityKey::new(0, 66, -63, -110))
+            .unwrap()
+            .id(),
+        Some("Other")
+    );
     assert_eq!(store.block_entity(other).unwrap().id(), Some("Other"));
 
     let mut restored = uniform_sub_chunk(-4, 23);
     restored.extend(block_entity("Chest", here.position()));
     store
-        .commit_decoded_sub_chunk(key, DecodedSubChunk::decode(key, &restored).unwrap())
+        .commit_decoded_sub_chunk(key, DecodedSubChunk::decode(key, &restored, &IDS))
         .unwrap();
     assert!(store.block_entity(here).is_some());
     assert_eq!(store.apply_all_air(key).unwrap(), Some(key));
@@ -302,7 +358,7 @@ fn cumulative_sub_chunk_tails_cannot_bypass_the_chunk_byte_limit() {
             payload.extend(large_block_entity([local_x, sub_y * 16, 0]));
         }
         store
-            .commit_decoded_sub_chunk(key, DecodedSubChunk::decode(key, &payload).unwrap())
+            .commit_decoded_sub_chunk(key, DecodedSubChunk::decode(key, &payload, &IDS))
             .unwrap();
     }
 
@@ -313,7 +369,7 @@ fn cumulative_sub_chunk_tails_cannot_bypass_the_chunk_byte_limit() {
     let error = store
         .commit_decoded_sub_chunk(
             rejected_key,
-            DecodedSubChunk::decode(rejected_key, &payload).unwrap(),
+            DecodedSubChunk::decode(rejected_key, &payload, &IDS),
         )
         .unwrap_err();
     assert!(matches!(

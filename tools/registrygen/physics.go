@@ -37,6 +37,10 @@ const (
 	// value and must be replaced once an authoritative Bedrock reference for
 	// honey movement is identified. Tracked in docs/tracking/phase3-movement.md.
 	unprovenHoneySpeedQ1E8 = 40_000_000
+	// Provisional inside-block slowdown for sweet berry bushes; no Bedrock reference exists
+	// yet and the public notes mark the model unresolved.
+	provisionalInsideSlowdownHorizontalQ1E8 = 80_000_000
+	provisionalInsideSlowdownVerticalQ1E8   = 75_000_000
 )
 
 const (
@@ -55,8 +59,8 @@ const (
 	pinnedPrismarineBlocksSHA = "12ff90b5094006b42d87ca7c296ed1bef0e1c2d6d67498aea85b6ece9408b494"
 	pinnedPrismarineStatesSHA = "c0a94f5a32597aff028918e152c76280c1823a7840fdf73cd98d7b44814ea041"
 	pinnedPrismarineShapesSHA = "72a7410456a1f5f556e8c91c07e1d1f61aea5d2fb555f2c0e33eba825247aa90"
-	pinnedDragonflyVersion    = "v0.11.1-0.20260714151819-dbbd8b787946"
-	pinnedDragonflyModuleSum  = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY="
+	pinnedDragonflyVersion    = "v0.11.5"
+	pinnedDragonflyModuleSum  = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0="
 )
 
 type SurfaceResponse uint8
@@ -108,6 +112,7 @@ const (
 	behaviorScaffolding
 	behaviorSlime
 	behaviorSoulSand
+	behaviorInsideSlowdown
 	behaviorWater
 )
 
@@ -120,7 +125,7 @@ type reviewedPhysicsOverride struct {
 }
 
 var reviewedPhysicsOverrides = []reviewedPhysicsOverride{
-	{Name: "minecraft:bed", Behavior: behaviorBed, StateCount: 16, BoundingBox: "block", DragonflyTypes: "block.Bed,world.unknownBlock"},
+	{Name: "minecraft:bed", Behavior: behaviorBed, StateCount: 16, BoundingBox: "block", DragonflyTypes: "block.Bed"},
 	{Name: "minecraft:bubble_column", Behavior: behaviorBubble, StateCount: 2, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:cave_vines", Behavior: behaviorClimbable, StateCount: 26, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:cave_vines_body_with_berries", Behavior: behaviorClimbable, StateCount: 26, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
@@ -134,6 +139,9 @@ var reviewedPhysicsOverrides = []reviewedPhysicsOverride{
 	{Name: "minecraft:scaffolding", Behavior: behaviorScaffolding, StateCount: 16, BoundingBox: "block", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:slime", Behavior: behaviorSlime, StateCount: 1, BoundingBox: "block", DragonflyTypes: "block.Slime"},
 	{Name: "minecraft:soul_sand", Behavior: behaviorSoulSand, StateCount: 1, BoundingBox: "block", DragonflyTypes: "block.SoulSand"},
+	// UNVERIFIED against the pinned sources: state count (growth 0-7), bounding box and the
+	// Dragonfly type list are best-known values; the first regeneration confirms or rejects them.
+	{Name: "minecraft:sweet_berry_bush", Behavior: behaviorInsideSlowdown, StateCount: 8, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:twisting_vines", Behavior: behaviorClimbable, StateCount: 26, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:vine", Behavior: behaviorClimbable, StateCount: 16, BoundingBox: "empty", DragonflyTypes: "block.Vines"},
 	{Name: "minecraft:water", Behavior: behaviorWater, StateCount: 16, BoundingBox: "empty", DragonflyTypes: "block.Water"},
@@ -399,6 +407,10 @@ func applyPhysicsOverride(record Record, override reviewedPhysicsOverride, entry
 	case behaviorHoney:
 		entry.HorizontalSpeedQ1E8 = unprovenHoneySpeedQ1E8
 		entry.SurfaceResponse = SurfaceHoney
+	case behaviorInsideSlowdown:
+		entry.Flags |= physicsFlagPassable
+		entry.HorizontalSpeedQ1E8 = provisionalInsideSlowdownHorizontalQ1E8
+		entry.VerticalSpeedQ1E8 = provisionalInsideSlowdownVerticalQ1E8
 	case behaviorSoulSand:
 		entry.HorizontalSpeedQ1E8 = soulSandSpeedQ1E8
 		entry.SurfaceResponse = SurfaceSoulSand
@@ -489,6 +501,13 @@ func strictBubbleDragDown(state []byte) (bool, error) {
 }
 
 func encodePhysicsRegistry(breg []byte, records []PhysicsRecord, expectedCount int) ([]byte, error) {
+	return encodePhysicsRegistryForProtocol(breg, records, expectedCount, registryProtocol)
+}
+
+// encodePhysicsRegistryForProtocol stamps an explicit wire protocol so the
+// protocol-2193 projection can bind its own identity space without mutating
+// the shared protocol-1001 constants or its byte-reproducible output.
+func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expectedCount int, protocol uint32) ([]byte, error) {
 	if len(records) != expectedCount {
 		return nil, fmt.Errorf("physics record count %d does not match expected %d", len(records), expectedCount)
 	}
@@ -500,7 +519,7 @@ func encodePhysicsRegistry(breg []byte, records []PhysicsRecord, expectedCount i
 	seenHashes := make(map[uint32]struct{}, len(sorted))
 	encoded := make([]byte, 0, 48+len(sorted)*36+32)
 	encoded = append(encoded, physicsRegistryHeader...)
-	encoded = binary.LittleEndian.AppendUint32(encoded, registryProtocol)
+	encoded = binary.LittleEndian.AppendUint32(encoded, protocol)
 	encoded = binary.LittleEndian.AppendUint32(encoded, uint32(len(sorted)))
 	bregDigest := sha256.Sum256(breg)
 	encoded = append(encoded, bregDigest[:]...)

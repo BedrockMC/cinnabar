@@ -393,13 +393,14 @@
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("'bbe6cfdeed39713c2b20103a1294e609d5841615'")) 'gophertunnel metadata commit is not the repository pin'
-    Assert-True ($source.Contains("'6cd8087fc3f0b500e41708a8afc94a0fa3291525'")) 'Valentine metadata omitted the reviewed fork revision'
-    Assert-True ($source.Contains("'6f6806e821a579c183c44d786f76d9b358a2b825'")) 'Valentine metadata omitted the upstream snapshot revision'
+    Assert-True ($source.Contains("'b725d82563e93308fd1f92d27da5e97301ad5040'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
+    Assert-True ($source.Contains("'c4540512dc47833bb40363da7ad1161110d64b67'")) 'protocol metadata omitted the Axolotl Stack revision'
+    Assert-True ($source.Contains("'0b8f17e3b321f7cb89e21dc8563398b9981e632f'")) 'protocol metadata omitted the protocolgen revision'
     Assert-True ($source.Contains("'62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'")) 'Valentine metadata omitted the retained license identity'
     Assert-True ($source.Contains("protocol_dependency_resolution = 'vendored-path'")) 'acceptance metadata does not identify local vendored dependency resolution'
-    Assert-True ($source.Contains('pinned_valentine_fork_commit')) 'acceptance metadata conflates the reviewed fork revision'
-    Assert-True ($source.Contains('pinned_valentine_upstream_commit')) 'acceptance metadata conflates the upstream snapshot revision'
+    Assert-True ($source.Contains('pinned_axolotl_stack_commit')) 'acceptance metadata omits the Axolotl Stack revision'
+    Assert-True ($source.Contains('pinned_protocolgen_commit')) 'acceptance metadata omits the protocolgen revision'
     Assert-True ($source.Contains('Assert-ProtocolDependencyProvenance')) 'acceptance metadata does not detect Cargo/provenance drift'
     Assert-True (-not $source.Contains("'^RUST_MCBE_TELEPORT_SETTLED ms=")) 'live teleport path still assumes ms precedes target'
     Assert-True (-not $source.Contains("'^RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED ms=")) 'live forced-remesh path still assumes ms precedes target'
@@ -416,13 +417,11 @@
     Assert-True ($source.Contains('ConvertFrom-MovePlayerIngressMarker')) 'live harness does not parse binding MovePlayer ingress evidence'
     Assert-True ($source.Contains('-PassThruEvidence')) 'binding marker waits do not retain stdout positions'
     Assert-True ($source.Contains('Write-AcceptanceEvent')) 'live harness does not persist ordered fixture/teleport events'
-    Assert-True `
-        ([regex]::IsMatch(
-            $source,
-            'if \(\$isLeafEvidence\) \{\s*\$sourceWorldIdentity = Get-BdsSourceWorldIdentity',
-            [Text.RegularExpressions.RegexOptions]::CultureInvariant
-        )) `
-        'generic live smoke runs still require a pre-created source world identity'
+    Assert-True ($source.Contains('$sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld')) `
+        'live BDS source-world behavior is not manifested for every acceptance run'
+    Assert-True ($source.Contains("'19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'")) `
+        'acceptance does not pin the exact BDS executable identity'
+    Assert-True ($source.Contains("'1.26.52.3'")) 'acceptance does not pin the exact BDS startup release'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
     Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'
@@ -583,4 +582,3 @@
         Read-WorldPublicationSnapshots -Path $publicationLog -ExpectedBuildProfile release -ExpectedPresentMode Fifo
     } '*draw mode changed*' 'periodic publication rows silently changed draw mode'
     Assert-True (-not $source.Contains('PresentMode Immediate requested but not available. Falling back to Fifo')) 'acceptance still inferred effective mode from a suppressible INFO log'
-

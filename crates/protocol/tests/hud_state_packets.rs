@@ -4,15 +4,15 @@
 use protocol::{
     ActorEffectAction, ActorLinkType, PlayerGameMode, UiEvent, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_40::{
-    ActorLink, ActorLinkType as VendorActorLinkType, ActorRuntimeId, ActorUniqueId,
-    CerealizerNetworkItemStackDescriptorSerializedData, MobArmorEquipmentPacket, MobEffectPacket,
-    MobEffectPacketEventId, PlayerInputTick, SetActorLinkPacket, SetPlayerGameTypePacket,
-    SetPlayerGameTypePacketPlayerGameType,
+use valentine::bedrock::version::v1_26_51::{
+    ActorLink, ActorRuntimeId, ActorUniqueId, CerealizerNetworkItemStackDescriptorSerializedData,
+    EnumsActorLinkType as VendorActorLinkType, EnumsGameType,
+    EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobArmorEquipmentPacket,
+    MobEffectPacket, PlayerInputTick, SetActorLinkPacket, SetPlayerGameTypePacket,
 };
 
 /// 1.26.40 wraps the runtime id in a named `ActorRuntimeId` newtype.
-fn runtime_id(value: i64) -> ActorRuntimeId {
+fn runtime_id(value: u64) -> ActorRuntimeId {
     ActorRuntimeId {
         actor_runtime_id: value,
     }
@@ -81,7 +81,7 @@ fn mob_effect_update_remove_and_unknown_actions_stay_typed() {
 }
 
 #[test]
-fn mob_effect_negative_tick_fails_closed_as_a_semantic_error() {
+fn mob_effect_preserves_the_full_unsigned_tick_domain() {
     let packet = MobEffectPacket {
         target_runtime_id: runtime_id(42),
         event_id: MobEffectPacketEventId::Add,
@@ -89,11 +89,18 @@ fn mob_effect_negative_tick_fails_closed_as_a_semantic_error() {
         effect_amplifier: 0,
         show_particles: false,
         effect_duration_ticks: 20,
-        tick: PlayerInputTick { inputtick: -5 },
+        tick: PlayerInputTick {
+            inputtick: u64::MAX,
+        },
         ambient: false,
     }
     .into();
-    assert!(into_world_event(packet, 0).is_err());
+    let Some(WorldEvent::ActorEffect(effect)) =
+        into_world_event(packet, 0).expect("normalize maximum unsigned tick")
+    else {
+        panic!("expected an actor effect event")
+    };
+    assert_eq!(effect.tick, u64::MAX);
 }
 
 #[test]
@@ -151,22 +158,10 @@ fn set_player_game_type_normalizes_explicit_modes() {
     // `GameTypeCreativeSpectator` (4) have no named variant here and arrive as
     // `Unknown(3)` / `Unknown(4)`.
     for (wire, expected) in [
-        (
-            SetPlayerGameTypePacketPlayerGameType::Survival,
-            PlayerGameMode::Survival,
-        ),
-        (
-            SetPlayerGameTypePacketPlayerGameType::Creative,
-            PlayerGameMode::Creative,
-        ),
-        (
-            SetPlayerGameTypePacketPlayerGameType::Adventure,
-            PlayerGameMode::Adventure,
-        ),
-        (
-            SetPlayerGameTypePacketPlayerGameType::Spectator,
-            PlayerGameMode::Spectator,
-        ),
+        (EnumsGameType::Survival, PlayerGameMode::Survival),
+        (EnumsGameType::Creative, PlayerGameMode::Creative),
+        (EnumsGameType::Adventure, PlayerGameMode::Adventure),
+        (EnumsGameType::Spectator, PlayerGameMode::Spectator),
     ] {
         let packet = SetPlayerGameTypePacket {
             player_game_type: wire,
@@ -187,11 +182,11 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
     // `GameTypeDefault`.
     for (wire, expected) in [
         (
-            SetPlayerGameTypePacketPlayerGameType::Default,
+            EnumsGameType::Default,
             protocol::GameModeUpdate::WorldDefault,
         ),
         (
-            SetPlayerGameTypePacketPlayerGameType::Unknown(77),
+            EnumsGameType::Unknown(77),
             protocol::GameModeUpdate::Unknown(77),
         ),
     ] {
@@ -210,7 +205,7 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
 
 #[test]
 fn set_default_game_type_dispatches_as_a_default_mode_event() {
-    use valentine::bedrock::version::v1_26_40::{
+    use valentine::bedrock::version::v1_26_51::{
         SetDefaultGameTypePacket, SetDefaultGameTypePacketDefaultGameType,
     };
     let packet = SetDefaultGameTypePacket {
@@ -326,4 +321,73 @@ fn world_bootstrap_carries_the_local_player_unique_id() {
     let bootstrap = protocol::WorldBootstrap::from_game_data(&game_data);
     assert_eq!(bootstrap.local_player_unique_id, -3);
     assert_eq!(bootstrap.local_player_runtime_id, 3);
+}
+
+#[test]
+fn item_stack_enchantment_level_reads_the_root_ench_list() {
+    fn named(tag: u8, name: &[u8], out: &mut Vec<u8>) {
+        out.push(tag);
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(name);
+    }
+    let mut encoded = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00];
+    named(0x03, b"Damage", &mut encoded);
+    encoded.extend_from_slice(&4i32.to_le_bytes());
+    // ench: [ { id: short 15, lvl: short 3 }, { lvl: short 1, id: short 8 } ]
+    named(0x09, b"ench", &mut encoded);
+    encoded.push(0x0a);
+    encoded.extend_from_slice(&2i32.to_le_bytes());
+    for entry in [
+        [(&b"id"[..], 15i16), (b"lvl", 3)],
+        [(b"lvl", 1), (b"id", 8)],
+    ] {
+        for (name, value) in entry {
+            named(0x02, name, &mut encoded);
+            encoded.extend_from_slice(&value.to_le_bytes());
+        }
+        encoded.push(0x00);
+    }
+    encoded.push(0x00);
+    let stack = protocol::NetworkItemStack {
+        network_id: 5,
+        metadata: 0,
+        stack_network_id: -1,
+        count: 1,
+        nbt_digest: [0; 32],
+        block_runtime_id: 0,
+        extra_data: encoded.into(),
+    };
+    assert_eq!(
+        protocol::item_enchantment_level(&stack.extra_data, 15),
+        Some(3)
+    );
+    assert_eq!(
+        protocol::item_enchantment_level(&stack.extra_data, 8),
+        Some(1)
+    );
+    assert_eq!(
+        protocol::item_enchantment_level(&stack.extra_data, 17),
+        None
+    );
+    assert_eq!(protocol::item_stack_damage(&stack), Some(4));
+    let empty = protocol::NetworkItemStack::empty();
+    assert_eq!(
+        protocol::item_enchantment_level(&empty.extra_data, 15),
+        None
+    );
+}
+
+#[test]
+fn item_custom_color_reads_the_root_dye_int_masked_to_rgb() {
+    let mut encoded = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x03];
+    encoded.extend_from_slice(&11u16.to_le_bytes());
+    encoded.extend_from_slice(b"customColor");
+    encoded.extend_from_slice(&(0xff11_2233u32 as i32).to_le_bytes());
+    encoded.push(0x00);
+    assert_eq!(protocol::item_custom_color(&encoded), Some(0x0011_2233));
+    assert_eq!(protocol::item_custom_color(&[]), None);
+    assert_eq!(
+        protocol::item_custom_color(&[0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x00]),
+        None
+    );
 }

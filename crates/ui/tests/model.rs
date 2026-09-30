@@ -257,6 +257,49 @@ fn cached_text_layout_emits_glyph_quads_by_texture_page() {
     assert_eq!(draw.vertices[0].position, [4.0, 8.0]);
 }
 
+// A glint sprite draws like a sprite but flags every vertex for the glint pass.
+#[test]
+fn glint_sprite_flags_its_vertices() {
+    let sprite = |glint: bool| {
+        let (texture_page, uv, color) = (3, [17, 23, 26, 32], [255; 4]);
+        let visual = if glint {
+            UiVisual::GlintSprite {
+                texture_page,
+                uv,
+                color,
+            }
+        } else {
+            UiVisual::Sprite {
+                texture_page,
+                uv,
+                color,
+            }
+        };
+        let mut tree = UiTree::new(vec![
+            UiNode::new(node(1), None, rect(10.0, 20.0, 19.0, 29.0)).with_visual(visual),
+        ])
+        .unwrap();
+        tree.layout(
+            rect(0.0, 0.0, 100.0, 100.0),
+            UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+        tree.build_draw_list().unwrap().vertices
+    };
+    let (plain, glint) = (sprite(false), sprite(true));
+    assert!(plain.iter().all(|vertex| vertex.style_flags == 0));
+    assert!(
+        glint
+            .iter()
+            .all(|vertex| vertex.style_flags == ui::UI_STYLE_GLINT)
+    );
+    assert_eq!(
+        plain.iter().map(|vertex| vertex.uv).collect::<Vec<_>>(),
+        glint.iter().map(|vertex| vertex.uv).collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn sprite_visual_preserves_atlas_texel_bounds() {
     let mut tree = UiTree::new(vec![

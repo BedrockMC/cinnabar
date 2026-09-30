@@ -6,10 +6,10 @@ use super::{
     MovementSendError, MovementSource, MovementTicker, OUTBOX_CAPACITY, PhysicsAuthorityFault,
     PhysicsAuthorityGate, PhysicsCollisionRegistries, PhysicsCorrectionMode,
     PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    PhysicsTickEvidenceContext, flush_player_auth_inputs, physics_movement_input,
-    reconcile_candidate_physics_correction,
+    PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
+    physics_movement_input, reconcile_candidate_physics_correction,
 };
-use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry};
+use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry_for_protocol};
 use protocol::{PlayerInputFlags, PlayerInputMode};
 use sha2::{Digest, Sha256};
 use sim::{
@@ -21,6 +21,8 @@ use ui::UserSettings;
 use crate::{
     acceptance::{AcceptanceRun, Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
     camera::CameraSettingsAuthority,
+    environment::{WeatherState, WorldClock, replace_session},
+    runtime::network::reset_start_game_prediction,
 };
 
 #[path = "transport_tests.rs"]
@@ -59,7 +61,11 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position,
+        movement: [0.125, -0.0784, -0.25],
+        velocity: [0.125, -0.0784, -0.25],
         move_vector: [0.0, 1.0],
+        raw_move_vector: [0.0, 1.0],
+        analogue_move_vector: [0.0, 1.0],
         pitch: 10.0,
         yaw: 20.0,
         head_yaw: 20.0,
@@ -70,7 +76,10 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
         grounded_after_tick: false,
+        horizontal_collision: false,
+        vertical_collision: false,
         jump_repeated: false,
+        processed: ProcessedMovementState::default(),
         world_identity: fixture_world_identity(1),
     }
 }
@@ -92,6 +101,8 @@ fn replay_with_admitted_future_ticks(
     );
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
+    // Retry/cancellation suites assert byte-level transport behavior that is
+    // orthogonal to the provisional spawn-settle window.
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -134,6 +145,8 @@ fn replay_with_admitted_future_ticks(
 }
 
 include!("integration_tests/basics.rs");
+include!("integration_tests/replay_controls.rs");
 include!("integration_tests/replay_retry.rs");
 include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
+include!("integration_tests/vector_carriers.rs");

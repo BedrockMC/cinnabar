@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_40::MovePlayerPacketPositionMode;
+use valentine::bedrock::version::v1_26_51::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
 
 use crate::{
-    ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, BlockCrackEvent,
-    EquipmentEvent, InventoryEvent, ItemActorEvent, UiEvent,
+    ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
+    CameraEvent, EquipmentEvent, InventoryEvent, ItemActorEvent, UiEvent,
 };
 
 use super::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
@@ -146,6 +146,40 @@ pub struct BlockEntityUpdateEvent {
     pub nbt: Vec<u8>,
 }
 
+/// Side of a map image in pixels.
+pub const MAP_IMAGE_SIDE: u32 = 128;
+
+/// A pixel rectangle of a map image from `ClientboundMapItemData`; pixels are packed RGBA with
+/// red in the low byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapDataEvent {
+    pub map_id: i64,
+    pub start_x: u32,
+    pub start_y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<[u32]>,
+}
+
+/// The server opening the sign editor for one face of the sign at `position`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenSignEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    pub front: bool,
+}
+
+/// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockEventEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    pub event_type: i32,
+    pub event_value: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublisherUpdateEvent {
     /// Absolute block coordinates in X/Y/Z order.
@@ -168,7 +202,7 @@ pub struct ChangeDimensionEvent {
 pub struct RespawnEvent {
     pub position: [f32; 3],
     pub state: u8,
-    pub runtime_entity_id: i64,
+    pub runtime_entity_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -181,7 +215,7 @@ pub struct MovePlayerEvent {
     pub mode: MovePlayerMode,
     pub on_ground: bool,
     pub teleported: bool,
-    pub source_tick: i64,
+    pub source_tick: u64,
 }
 
 /// Visual eye height of a standing player above its feet.
@@ -222,7 +256,7 @@ impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
             MovePlayerPacketPositionMode::Teleport => Self::Teleport,
-            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
+            MovePlayerPacketPositionMode::Onlyheadrot => Self::Rotation,
             MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }
@@ -243,6 +277,13 @@ pub struct DaylightCycleUpdateEvent {
     pub enabled: bool,
 }
 
+/// The rules a GameRulesChanged packet updates that the client reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameRulesEvent {
+    pub daylight_cycle: Option<DaylightCycleUpdateEvent>,
+    pub hud: crate::HudRules,
+}
+
 /// Weather channel targeted by a normalized level event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeatherChannel {
@@ -260,16 +301,69 @@ pub struct WeatherUpdateEvent {
     pub level: f32,
 }
 
+/// One server-authoritative velocity impulse for one actor.
+///
+/// Bedrock sends this after knockback, explosions, and other server-driven
+/// velocity changes. For the local player the impulse must enter prediction so
+/// the client follows the same arc instead of fighting corrections; other
+/// actors currently have no velocity consumer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorMotionEvent {
+    pub actor_runtime_id: u64,
+    pub motion: [f32; 3],
+    pub tick: u64,
+}
+
+/// The rewind-subject discriminant carried by `CorrectPlayerMovePrediction`.
+///
+/// Protocol 2168 has no correction-shape mode field (no Normal/Teleport/Rotation
+/// discriminant like [`MovePlayerMode`]). This enum is the packet's only
+/// discriminant and names which predicted body the server is rewinding, not how
+/// the correction must be applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovementCorrectionSubject {
+    Player,
+    Vehicle,
+    Unknown(u8),
+}
+
+impl MovementCorrectionSubject {
+    #[must_use]
+    pub const fn is_player(self) -> bool {
+        matches!(self, Self::Player)
+    }
+}
+
+impl From<valentine::bedrock::version::v1_26_51::EnumsRewindType> for MovementCorrectionSubject {
+    fn from(subject: valentine::bedrock::version::v1_26_51::EnumsRewindType) -> Self {
+        match subject {
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Player => Self::Player,
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Vehicle => Self::Vehicle,
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Unknown(value) => {
+                Self::Unknown(value)
+            }
+        }
+    }
+}
+
 /// One server-authoritative correction for the local player's predicted movement.
 ///
 /// Unlike [`MovePlayerEvent`], this packet carries no runtime ID: Bedrock sends it
-/// directly to the player whose prediction is being corrected.
+/// directly to the player whose prediction is being corrected. The wire rotation
+/// is a pitch/yaw pair only; the packet carries no head-yaw field. `position`
+/// keeps its raw value including non-finite sentinels because downstream
+/// resolution owns that documented recovery policy, while `delta` and the
+/// rotation are validated finite before this event exists. The wire's optional
+/// `vehicle_angular_velocity` is decoded and deliberately dropped here because
+/// vehicle-subject records are not admitted downstream yet; riding rewind will
+/// need to retain it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerMovementCorrectionEvent {
     pub position: [f32; 3],
     pub delta: [f32; 3],
     pub pitch: f32,
     pub yaw: f32,
+    pub subject: MovementCorrectionSubject,
     pub on_ground: bool,
     pub tick: u64,
 }
@@ -299,9 +393,19 @@ pub struct BiomeDefinitionsEvent {
     pub definitions: Arc<[BiomeDefinitionEvent]>,
 }
 
+/// Largest property-definition NBT retained; a larger payload is dropped, not fatal.
+pub const MAX_ACTOR_PROPERTY_SYNC_BYTES: usize = 1 << 20;
+
+/// One entity type's property definitions as the raw network NBT the server sent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorPropertySyncEvent {
+    pub data: Arc<[u8]>,
+}
+
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
+    Abilities(crate::AbilitiesUpdate),
     BiomeDefinitions(BiomeDefinitionsEvent),
     LevelChunk(LevelChunkEvent),
     ChunkResync(ChunkResyncEvent),
@@ -310,18 +414,25 @@ pub enum WorldEvent {
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),
+    BlockEvent(BlockEventEvent),
+    MapData(MapDataEvent),
+    OpenSign(OpenSignEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
     Respawn(RespawnEvent),
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
+    ActorMotion(ActorMotionEvent),
     SetTime(SetTimeEvent),
-    DaylightCycle(DaylightCycleUpdateEvent),
+    GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),
+    Audio(AudioEvent),
+    Camera(CameraEvent),
     Actor(ActorEvent),
     ActorEffect(ActorEffectEvent),
     ActorLink(ActorLinkEvent),
+    ActorPropertySync(ActorPropertySyncEvent),
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),
@@ -329,4 +440,5 @@ pub enum WorldEvent {
     ArmorEquipment(Box<ArmorEquipmentEvent>),
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
+    Particle(crate::ParticleEvent),
 }

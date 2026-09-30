@@ -48,7 +48,7 @@ func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
 	}
 	records := []bregLightIdentity{{SequentialID: 0, Name: "minecraft:air", StateJSON: []byte("{}")}, {SequentialID: 1, Name: "minecraft:test_block", StateJSON: state}}
 	breg := []byte("reviewed BREG bytes")
-	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg)
+	table, err := generateBlockItemRouteTable([]world.Item{fixtureBlockItem{itemName: "minecraft:test_item", metadata: -1, blockName: "minecraft:test_block", state: map[string]any{"variant": int32(3)}}}, records, breg, nil, 1001, false)
 	if err != nil {
 		t.Fatalf("generate routes: %v", err)
 	}
@@ -63,39 +63,60 @@ func TestGenerateBlockItemRoutesPreservesExactMetadataAndState(t *testing.T) {
 func TestGenerateBlockItemRoutesRejectsDuplicateMissingAndAmbiguousStates(t *testing.T) {
 	item := fixtureBlockItem{itemName: "minecraft:test_item", blockName: "minecraft:test_block"}
 	record := bregLightIdentity{SequentialID: 0, Name: "minecraft:test_block", StateJSON: []byte("{}")}
-	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg")); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item, item}, []bregLightIdentity{record}, []byte("breg"), nil, 1001, false); err == nil {
 		t.Fatal("duplicate route accepted")
 	}
-	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg")); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, nil, []byte("breg"), nil, 1001, false); err == nil {
 		t.Fatal("missing state accepted")
 	}
-	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg")); err == nil {
+	if _, err := generateBlockItemRouteTable([]world.Item{item}, []bregLightIdentity{record, record}, []byte("breg"), nil, 1001, false); err == nil {
 		t.Fatal("ambiguous state accepted")
 	}
 }
 
-func TestCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T) {
-	breg, err := os.ReadFile("../../crates/assets/data/block-registry-v1001.bin")
+// The protocol-1001 table predates the Dragonfly pin and stays frozen.
+func TestCheckedInV1001BlockItemRoutesStayFrozen(t *testing.T) {
+	data, err := os.ReadFile("../../crates/assets/data/block-item-routes-v1001.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	records, err := readBREG1003LightIdentities(breg)
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "671fa269312135a605170251b7d85b4c9a2864e678678d63a0a65e7570ad04b8" {
+		t.Fatalf("frozen protocol-1001 block item routes changed: %s", got)
+	}
+}
+
+func TestCheckedInV2193BlockItemRoutesMatchPinnedGenerator(t *testing.T) {
+	assertCheckedInBlockItemRoutesMatchPinnedGenerator(t, v2193BlockProtocol)
+}
+
+// assertCheckedInBlockItemRoutesMatchPinnedGenerator verifies that a checked-in
+// route table is the byte-for-byte output of the pinned Dragonfly generator.
+func assertCheckedInBlockItemRoutesMatchPinnedGenerator(t *testing.T, protocol uint32) {
+	t.Helper()
+	breg, err := os.ReadFile(fmt.Sprintf("../../crates/assets/data/block-registry-v%d.bin", protocol))
 	if err != nil {
 		t.Fatal(err)
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg)
+	records, err := readBREG1003IdentitiesForProtocol(breg, protocol)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.MarshalIndent(table, "", "  ")
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol, protocol == v2193BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded = append(encoded, '\n')
-	want, err := os.ReadFile("../../crates/assets/data/block-item-routes-v1001.json")
+	encoded, err := encodeBlockItemRouteTable(table, protocol)
 	if err != nil {
 		t.Fatal(err)
 	}
+	want, err := os.ReadFile(fmt.Sprintf("../../crates/assets/data/block-item-routes-v%d.json", protocol))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Git may materialize text fixtures with CRLF on Windows. The generator's
+	// canonical JSON remains LF-delimited, so normalize only the checkout form.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(encoded, want) {
 		t.Fatal("checked-in block item routes are stale")
 	}
@@ -618,7 +639,7 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 		"minecraft:redstone_lamp":     {Brightness: 0, Opacity: 0},
 		"minecraft:lit_redstone_lamp": {Brightness: 15, Opacity: 0},
 		// An exact PMMP entry cannot widen the audited fallback allowlist.
-		"minecraft:hard_pink_stained_glass": {Brightness: 15, Opacity: 0},
+		"example:unlisted_block": {Brightness: 15, Opacity: 0},
 	}
 	properties, report, err := resolveAuthoritativeLightProperties(records, world.DefaultBlockRegistry, pmmp)
 	if err != nil {
@@ -627,8 +648,8 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 	if got, want := report.PMMPFallbackIdentifiers, []string{"minecraft:lit_redstone_lamp", "minecraft:redstone_lamp"}; !slices.Equal(got, want) {
 		t.Fatalf("fallback identifiers = %v, want %v", got, want)
 	}
-	if report.DragonflyAccessorStates != 16_911 || report.PMMPFallbackStates != 2 ||
-		!slices.Equal(report.PMMPFallbackSequentialIDs, []uint32{1309, 6853}) {
+	if report.DragonflyAccessorStates != 22_089 || report.PMMPFallbackStates != 2 ||
+		!slices.Equal(report.PMMPFallbackSequentialIDs, []uint32{1631, 9176}) {
 		t.Fatalf("fallback provenance = %+v", report)
 	}
 	for _, record := range records {
@@ -655,7 +676,7 @@ func TestPMMPFallbackIsNarrowUniformAndProvenanceTagged(t *testing.T) {
 }
 
 func TestAuthoritativeLightGenerationRejectsMissingPMMP(t *testing.T) {
-	if _, _, err := encodeAuthoritativeLightRegistry(nil, nil, world.DefaultBlockRegistry, ""); err == nil || !strings.Contains(err.Error(), "PMMP") {
+	if _, _, err := encodeAuthoritativeLightRegistry(nil, nil, nil, world.DefaultBlockRegistry, ""); err == nil || !strings.Contains(err.Error(), "PMMP") {
 		t.Fatalf("missing PMMP source error = %v", err)
 	}
 }
@@ -818,14 +839,14 @@ func TestCollectRegisteredDragonflyBiomesUsesStableNetworkIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect registered biomes: %v", err)
 	}
-	if len(records) != 88 {
-		t.Fatalf("biome record count = %d, want 88", len(records))
+	if len(records) != v2193RetailBiomeCount {
+		t.Fatalf("biome record count = %d, want %d", len(records), v2193RetailBiomeCount)
 	}
 	for _, want := range []BiomeRecord{
+		{ID: 195, Name: "minecraft:dappled_forest"},
 		{ID: 0, Name: "minecraft:ocean"},
 		{ID: 1, Name: "minecraft:plains"},
 		{ID: 48, Name: "minecraft:bamboo_jungle"},
-		{ID: 194, Name: "minecraft:sulfur_caves"},
 	} {
 		found := false
 		for _, record := range records {
@@ -1137,8 +1158,8 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect registry: %v", err)
 	}
-	if len(records) != 16_913 {
-		t.Fatalf("registry record count = %d, want 16913", len(records))
+	if len(records) != v2193BlockStateCount {
+		t.Fatalf("registry record count = %d, want %d", len(records), v2193BlockStateCount)
 	}
 	air := findByName(t, records, "minecraft:air")
 	if air.Flags != flagAir {
@@ -1176,8 +1197,8 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 			airCount++
 		}
 	}
-	if cubeCount != 713 || occluderCount != 669 || leafCount != 44 || airCount != 1 {
-		t.Fatalf("flag counts cube=%d occluder=%d leaf=%d air=%d, want 713/669/44/1", cubeCount, occluderCount, leafCount, airCount)
+	if cubeCount != 740 || occluderCount != 684 || leafCount != 56 || airCount != 1 {
+		t.Fatalf("flag counts cube=%d occluder=%d leaf=%d air=%d, want 740/684/56/1", cubeCount, occluderCount, leafCount, airCount)
 	}
 	wantLeafNames := []string{
 		"minecraft:acacia_leaves",
@@ -1189,8 +1210,11 @@ func TestCollectDefaultBlockRegistry(t *testing.T) {
 		"minecraft:jungle_leaves",
 		"minecraft:mangrove_leaves",
 		"minecraft:oak_leaves",
+		"minecraft:orange_poplar_leaves",
 		"minecraft:pale_oak_leaves",
+		"minecraft:red_poplar_leaves",
 		"minecraft:spruce_leaves",
+		"minecraft:yellow_poplar_leaves",
 	}
 	if len(leafNames) != len(wantLeafNames) {
 		t.Fatalf("distinct leaf names = %d, want %d: %#v", len(leafNames), len(wantLeafNames), leafNames)

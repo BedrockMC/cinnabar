@@ -5,11 +5,26 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
-    version::v1_26_40::{
-        ActorRuntimeId, AnimateEntityPacket, AnimatePacket, AnimatePacketAction,
-        ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
+    version::v1_26_51::{
+        ActorRuntimeId, AnimateEntityPacket, AnimatePacket,
+        EnumsAnimatePacketPayloadAction as AnimatePacketAction,
+        EnumsItemVersion as ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
     },
 };
+
+use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
+
+mod components;
+mod display;
+mod icons;
+mod registry_capacity;
+
+pub use components::{ItemComponents, item_components};
+pub use display::{
+    ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
+    item_has_enchantment_list,
+};
+pub use icons::item_icon_keys;
 
 /// The single item shape 1.26.40 puts on the wire.
 ///
@@ -19,7 +34,7 @@ use valentine::bedrock::{
 /// descriptor whose trailing user data is an opaque length-prefixed buffer, so
 /// the shield ID is no longer needed to decode an item.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_40::CerealizerNetworkItemStackDescriptorSerializedData;
+    valentine::bedrock::version::v1_26_51::CerealizerNetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
@@ -28,25 +43,32 @@ pub const HOTBAR_SLOT_COUNT: u8 = 9;
 ///
 /// The vanilla Bedrock client owns hotbar-slot selection locally and notifies the server with a
 /// `MobEquipment` packet against the inventory window (`PlayerHotbar` is server->client and is not
-/// what a client sends). Servers validate only the 0-8 slot range; the held item is reconciled if
-/// it disagrees (Dragonfly's `VerifySlot` re-syncs rather than disconnecting), so an empty item is
-/// safe when inventory contents are not tracked. `runtime_id` must be the local player's
-/// StartGame-assigned runtime id — servers reject a foreign runtime id on this packet.
-#[must_use]
-pub fn select_hotbar_slot_packet(runtime_id: u64, slot: u8) -> crate::Packet {
-    let slot = slot.min(HOTBAR_SLOT_COUNT - 1);
-    MobEquipmentPacket {
+/// what a client sends). The selected stack must be the exact known player-inventory value: this
+/// boundary verifies its retained bytes and shape before converting it to the vendor wire type.
+/// `runtime_id` must be the local player's StartGame-assigned runtime id — servers reject a
+/// foreign runtime id on this packet.
+pub fn select_hotbar_slot_packet(
+    runtime_id: u64,
+    slot: u8,
+    stack: &NetworkItemStack,
+) -> Result<crate::Packet, InventoryPacketError> {
+    if slot >= HOTBAR_SLOT_COUNT {
+        return Err(InventoryPacketError::InvalidSelectedSlot(i32::from(slot)));
+    }
+    let verified = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)?;
+    let item = verified.into_vendor_item(0)?;
+    Ok(MobEquipmentPacket {
         target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: runtime_id as i64,
+            actor_runtime_id: runtime_id,
         },
-        item: ItemStackDescriptor::default(),
+        item,
         slot,
         selected_slot: slot,
         // The inventory container. 1.26.40 carries the raw ID rather than a
         // named WindowId enum.
         container_id: 0,
     }
-    .into()
+    .into())
 }
 
 pub const MAX_ITEM_REGISTRY_ENTRIES: usize = 16_384;
@@ -55,7 +77,7 @@ pub const MAX_ANIMATE_ENTITY_IDS: usize = 256;
 pub const MAX_ACTION_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_ANIMATION_IDENTIFIER_BYTES: usize = 256;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ActorHandedness {
     Left,
     Right,
@@ -107,11 +129,102 @@ impl NetworkItemStack {
 /// `None` — presentation simply skips the durability bar.
 #[must_use]
 pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
-    if stack.extra_data.is_empty() {
+    item_extra_damage(&stack.extra_data)
+}
+
+/// [`item_stack_damage`] over a stack's raw extra data.
+#[must_use]
+pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
+    root_damage_tag(&decode_extra_nbt(extra_data)?)
+}
+
+/// Reads one enchantment's level from the root `ench` list of a stack's extra data.
+///
+/// Each entry is a compound of short `id` and short `lvl`; malformed data reads as `None`.
+#[must_use]
+pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<u8> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut list = root_tag(&mut cursor, 9, b"ench")?;
+    if read_u8(&mut list)? != 10 {
         return None;
     }
-    let nbt = decode_extra_nbt(&stack.extra_data)?;
-    root_damage_tag(&nbt)
+    let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
+    for _ in 0..count {
+        let (mut id, mut level) = (None, None);
+        loop {
+            let tag = read_u8(&mut list)?;
+            if tag == 0 {
+                break;
+            }
+            let name_len = usize::from(read_u16_le(&mut list)?);
+            let name = list.get(..name_len)?;
+            list = list.get(name_len..)?;
+            if tag == 2 && (name == b"id" || name == b"lvl") {
+                let value = i16::from_le_bytes(list.get(..2)?.try_into().ok()?);
+                *if name == b"id" { &mut id } else { &mut level } = Some(value);
+            }
+            skip_le_payload(&mut list, tag, 1)?;
+        }
+        if id == Some(enchantment_id) {
+            return level.and_then(|level| u8::try_from(level).ok());
+        }
+    }
+    None
+}
+
+/// Reads the root `customColor` int (dyed leather RGB) from a stack's extra data, masked to 24 bits.
+#[must_use]
+pub fn item_custom_color(extra_data: &[u8]) -> Option<u32> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut payload = root_tag(&mut cursor, 3, b"customColor")?;
+    Some(read_i32_le(&mut payload)? as u32 & 0x00ff_ffff)
+}
+
+/// Reads the `Name` of the root `chargedItem` compound a loaded crossbow carries; `None` when the
+/// stack is not charged or the compound names no projectile.
+#[must_use]
+pub fn item_charged_projectile(extra_data: &[u8]) -> Option<std::sync::Arc<str>> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut payload = root_tag(&mut cursor, 10, b"chargedItem")?;
+    loop {
+        let entry = read_u8(&mut payload)?;
+        if entry == 0 {
+            return None;
+        }
+        let name_len = usize::from(read_u16_le(&mut payload)?);
+        let name = payload.get(..name_len)?;
+        payload = payload.get(name_len..)?;
+        if entry == 8 && name == b"Name" {
+            let len = usize::from(read_u16_le(&mut payload)?);
+            let value = std::str::from_utf8(payload.get(..len)?).ok()?;
+            return Some(std::sync::Arc::from(value));
+        }
+        skip_le_payload(&mut payload, entry, 1)?;
+    }
+}
+
+/// Positions `cursor` at the payload of the named root tag of type `tag`.
+fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8]> {
+    if read_u8(cursor)? != 10 {
+        return None;
+    }
+    skip_le_string(cursor)?;
+    loop {
+        let entry = read_u8(cursor)?;
+        if entry == 0 {
+            return None;
+        }
+        let name_len = usize::from(read_u16_le(cursor)?);
+        let name = cursor.get(..name_len)?;
+        *cursor = cursor.get(name_len..)?;
+        if entry == tag && name == wanted {
+            return Some(cursor);
+        }
+        skip_le_payload(cursor, entry, 0)?;
+    }
 }
 
 /// Extracts the root NBT compound from an item's user-data buffer.
@@ -240,45 +353,43 @@ pub struct ItemRegistryEntry {
     pub component_based: bool,
     pub version: ItemRegistryVersion,
     pub component_digest: [u8; 32],
+    /// Exact positive stack capacity retained from the negotiated component path.
+    ///
+    /// This is evidence only: it neither supplies a fallback nor binds a later
+    /// inventory decision to the registry or session generation.
+    pub negotiated_max_stack_size: Option<u8>,
+    /// Whether the component payload is the exact canonical empty compound.
+    pub canonical_empty_component_data: bool,
+    /// Item tags a component-based entry declares for itself.
+    pub item_tags: Arc<[Arc<str>]>,
 }
 
-/// Returns the generated vanilla item registry for the pinned Bedrock
-/// protocol. Bedrock servers normally send only custom/data-driven item
-/// entries; the vanilla client already knows this built-in table and merges
-/// the server packet over it.
+/// Returns the retail-positive item registry for the pinned Bedrock protocol.
+///
+/// The compact table contains only entries referenced by the default creative
+/// inventory. Numeric network IDs come from the matching ItemRegistry packet;
+/// omitted entries remain unsupported gaps and are never renumbered.
 #[must_use]
 pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
-    // Content registries stay on v1_26_30: the Endstone-derived 1.26.40 crate is
-    // wire-only and generates no items.rs table. See the note in world.rs.
-    const GENERATED_ITEMS: &str =
-        include_str!("../vendor/valentine/bedrock_versions/v1_26_30/src/items.rs");
+    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_50.tsv");
 
-    let mut entries = Vec::new();
-    let mut pending_id = None;
-    for line in GENERATED_ITEMS.lines().map(str::trim) {
-        if let Some(value) = line
-            .strip_prefix("const ID: i32 = ")
-            .and_then(|value| value.strip_suffix(';'))
-            .and_then(|value| value.parse::<i32>().ok())
-        {
-            pending_id = Some(value);
-            continue;
-        }
-        let Some(identifier) = line
-            .strip_prefix("const STRING_ID: &'static str = \"")
-            .and_then(|value| value.strip_suffix("\";"))
-        else {
-            continue;
-        };
-        let Some(network_id) = pending_id.take() else {
-            continue;
-        };
+    let mut entries = Vec::with_capacity(RETAIL_ITEMS.lines().count());
+    for line in RETAIL_ITEMS.lines() {
+        let (network_id, identifier) = line
+            .split_once('\t')
+            .expect("retail item row must contain an ID and identifier");
+        let network_id = network_id
+            .parse::<i32>()
+            .expect("retail item ID must be an i32");
         entries.push(ItemRegistryEntry {
             identifier: Arc::from(identifier),
             network_id,
             component_based: false,
             version: ItemRegistryVersion::Legacy,
             component_digest: [0; 32],
+            negotiated_max_stack_size: None,
+            canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         });
     }
     Arc::from(entries)
@@ -365,10 +476,14 @@ pub enum ItemPacketError {
     UnsupportedItemNbtVersion(u8),
     #[error("item NBT is malformed")]
     InvalidItemNbt,
+    #[error("item packet has malformed or truncated canonical wire data")]
+    MalformedWire,
     #[error("failed to encode validated item data")]
     ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
+    #[error("equipment container ID {0} is unknown")]
+    UnknownEquipmentContainer(u8),
     #[error("animation target count {count} is outside 1..={max}")]
     InvalidAnimationTargetCount { count: usize, max: usize },
     #[error("animation target runtime ID {0} occurs more than once")]
@@ -413,10 +528,10 @@ pub(crate) fn normalize_item(
     };
     make_stack(
         i32::from(item.id),
-        item.auxvalue,
+        i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
         stack_network_id,
         item.stacksize,
-        item.block_runtime_id,
+        i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
         item.user_data_buffer,
     )
 }
@@ -555,16 +670,30 @@ pub(crate) fn normalize_item_registry(
         let component_bytes = encode_extra(&item.item_component_data)?;
         let version = match item.item_version {
             ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
-            ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,
+            ItemDataItemVersion::Datadriven => ItemRegistryVersion::DataDriven,
             ItemDataItemVersion::None => ItemRegistryVersion::None,
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
+        };
+        let canonical_empty_component_data =
+            component_bytes == registry_capacity::CANONICAL_EMPTY_COMPONENT_DATA;
+        let negotiated_max_stack_size = if matches!(version, ItemRegistryVersion::Unknown(_)) {
+            None
+        } else {
+            registry_capacity::negotiated_max_stack_size(&component_bytes)
         };
         entries.push(ItemRegistryEntry {
             identifier: Arc::from(item.item_name),
             network_id,
             component_based: item.is_component_based,
             version,
-            component_digest: Sha256::digest(component_bytes).into(),
+            component_digest: Sha256::digest(&component_bytes).into(),
+            negotiated_max_stack_size,
+            canonical_empty_component_data,
+            item_tags: if item.is_component_based {
+                registry_capacity::declared_item_tags(&component_bytes).into()
+            } else {
+                Arc::from([])
+            },
         });
     }
     Ok(ItemActorEvent::Registry(ItemRegistryEvent {
@@ -575,7 +704,7 @@ pub(crate) fn normalize_item_registry(
 pub(crate) fn normalize_equipment(
     packet: MobEquipmentPacket,
 ) -> Result<EquipmentEvent, ItemPacketError> {
-    let actor_runtime_id = runtime_id(packet.target_runtime_id.actor_runtime_id)?;
+    let actor_runtime_id = runtime_id_signed(packet.target_runtime_id.actor_runtime_id)?;
     normalize_equipment_parts(
         actor_runtime_id,
         normalize_item(packet.item)?,
@@ -613,7 +742,7 @@ fn normalize_equipment_parts(
     // Handedness comes from the window, not the slot. Servers send non-hotbar
     // or sentinel slot values (e.g. 0xFF) that the client never reads, so the
     // raw slots are retained verbatim rather than rejected.
-    let (window_id, handedness) = window_id(container_id);
+    let (window_id, handedness) = window_id(container_id)?;
     Ok(EquipmentEvent {
         actor_runtime_id,
         stack,
@@ -633,16 +762,16 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
     }
     let kind = match packet.action {
         AnimatePacketAction::Swing => ActorActionKind::SwingArm,
-        AnimatePacketAction::WakeUp => ActorActionKind::Wake,
-        AnimatePacketAction::CriticalHit => ActorActionKind::CriticalHit,
-        AnimatePacketAction::MagicCriticalHit => ActorActionKind::MagicCriticalHit,
+        AnimatePacketAction::Wakeup => ActorActionKind::Wake,
+        AnimatePacketAction::Criticalhit => ActorActionKind::CriticalHit,
+        AnimatePacketAction::Magiccriticalhit => ActorActionKind::MagicCriticalHit,
         AnimatePacketAction::Unknown(128u8) => ActorActionKind::RowRight,
         AnimatePacketAction::Unknown(129u8) => ActorActionKind::RowLeft,
-        AnimatePacketAction::NoAction => ActorActionKind::Ignored { action_id: 0 },
+        AnimatePacketAction::Noaction => ActorActionKind::Ignored { action_id: 0 },
         AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {
-        actor_runtime_ids: Arc::from([runtime_id(
+        actor_runtime_ids: Arc::from([runtime_id_signed(
             packet.target_actor_runtime_id.actor_runtime_id,
         )?]),
         kind,
@@ -687,7 +816,7 @@ pub(crate) fn normalize_animate_entity(
     let actor_runtime_ids = packet
         .m_runtime_ids
         .into_iter()
-        .map(|id| runtime_id(id.actor_runtime_id))
+        .map(|id| runtime_id_signed(id.actor_runtime_id))
         .map(|result| {
             let id = result?;
             if !seen.insert(id) {
@@ -707,11 +836,13 @@ pub(crate) fn normalize_animate_entity(
     }))
 }
 
-fn runtime_id(value: i64) -> Result<u64, ItemPacketError> {
-    let runtime_id = u64::from_ne_bytes(value.to_ne_bytes());
-    (runtime_id != 0)
-        .then_some(runtime_id)
-        .ok_or(ItemPacketError::InvalidRuntimeId(value))
+fn runtime_id_signed(value: u64) -> Result<u64, ItemPacketError> {
+    if value == 0 {
+        return Err(ItemPacketError::InvalidRuntimeId(
+            i64::try_from(value).unwrap_or(i64::MAX),
+        ));
+    }
+    Ok(value)
 }
 
 fn validate_text(field: &'static str, text: &str, max: usize) -> Result<(), ItemPacketError> {
@@ -729,49 +860,100 @@ fn validate_text(field: &'static str, text: &str, max: usize) -> Result<(), Item
 ///
 /// Protocol 1001 modelled this as a named `WindowId` enum, so every container
 /// had to be enumerated just to get the wire number back. 1.26.40 carries a raw
-/// `u8` (gophertunnel's `MobEquipment.WindowID`), so only the two containers
-/// that actually imply handedness need naming.
-fn window_id(container_id: u8) -> (u8, Option<ActorHandedness>) {
+/// `u8` (gophertunnel's `MobEquipment.WindowID`), so only the three recognized
+/// hand containers need naming.
+fn window_id(container_id: u8) -> Result<(u8, Option<ActorHandedness>), ItemPacketError> {
     const INVENTORY: u8 = 0;
     // The offhand container ID, matching gophertunnel's ContainerIDOffhand.
     const OFFHAND: u8 = 119;
     const HOTBAR: u8 = 122;
 
     let handedness = match container_id {
-        INVENTORY | HOTBAR => Some(ActorHandedness::Right),
-        OFFHAND => Some(ActorHandedness::Left),
-        _ => None,
+        INVENTORY | HOTBAR => ActorHandedness::Right,
+        OFFHAND => ActorHandedness::Left,
+        _ => return Err(ItemPacketError::UnknownEquipmentContainer(container_id)),
     };
-    (container_id, handedness)
+    Ok((container_id, Some(handedness)))
 }
 
 #[cfg(test)]
 mod hotbar_tests {
-    use valentine::bedrock::version::v1_26_40::McpePacketData;
+    use valentine::bedrock::context::BedrockSession;
+    use valentine::bedrock::version::v1_26_51::McpePacketData;
 
     use super::*;
+    use crate::InventoryPacketError;
+
+    /// Builds one non-empty stack with retained bytes suitable for round-trip tests.
+    fn selected_stack() -> NetworkItemStack {
+        let extra_data: Arc<[u8]> = Arc::from([0_u8, 0, 0, 0, 0, 0, 0, 0]);
+        NetworkItemStack {
+            network_id: 7,
+            metadata: 3,
+            stack_network_id: 13,
+            count: 4,
+            nbt_digest: Sha256::digest(&extra_data).into(),
+            block_runtime_id: 92,
+            extra_data,
+        }
+    }
 
     #[test]
-    fn select_hotbar_slot_packet_builds_a_mob_equipment_selection() {
-        let McpePacketData::MobEquipmentPacket(packet) = select_hotbar_slot_packet(4242, 3).data
-        else {
+    fn selected_stack_survives_mob_equipment_encode_decode_and_normalize() {
+        let expected = selected_stack();
+        let packet = select_hotbar_slot_packet(4242, 3, &expected).unwrap();
+        let session = BedrockSession { shield_item_id: 0 };
+        let encoded = crate::encode(&packet, &session).unwrap();
+        let mut decoded = crate::decode_batch(encoded, &session).unwrap();
+        let McpePacketData::MobEquipmentPacket(packet) = decoded.remove(0).data else {
             panic!("hotbar selection must build a MobEquipment packet, not PlayerHotbar");
         };
         assert_eq!(packet.target_runtime_id.actor_runtime_id, 4242);
         assert_eq!(packet.slot, 3);
         assert_eq!(packet.selected_slot, 3);
         assert_eq!(packet.container_id, 0);
-        // Inventory contents are not tracked, so the held item is empty (air); servers reconcile.
+        assert_eq!(packet.item.user_data_buffer, expected.extra_data.as_ref());
+        assert_eq!(normalize_equipment(*packet).unwrap().stack, expected);
+    }
+
+    #[test]
+    fn known_empty_hotbar_slot_encodes_the_canonical_empty_descriptor() {
+        let McpePacketData::MobEquipmentPacket(packet) =
+            select_hotbar_slot_packet(1, 2, &NetworkItemStack::empty())
+                .unwrap()
+                .data
+        else {
+            panic!("hotbar selection must build a MobEquipment packet");
+        };
         assert_eq!(packet.item, ItemStackDescriptor::default());
     }
 
     #[test]
-    fn select_hotbar_slot_packet_clamps_out_of_range_slots() {
-        let McpePacketData::MobEquipmentPacket(packet) = select_hotbar_slot_packet(1, 200).data
-        else {
-            panic!("hotbar selection must build a MobEquipment packet");
-        };
-        assert_eq!(packet.slot, HOTBAR_SLOT_COUNT - 1);
-        assert_eq!(packet.selected_slot, HOTBAR_SLOT_COUNT - 1);
+    fn invalid_hotbar_slot_fails_instead_of_clamping() {
+        assert_eq!(
+            select_hotbar_slot_packet(1, HOTBAR_SLOT_COUNT, &NetworkItemStack::empty())
+                .unwrap_err(),
+            InventoryPacketError::InvalidSelectedSlot(i32::from(HOTBAR_SLOT_COUNT))
+        );
+    }
+
+    #[test]
+    fn invalid_hotbar_stack_digest_fails_instead_of_sending_air() {
+        let mut stack = selected_stack();
+        stack.nbt_digest = [0; 32];
+        assert_eq!(
+            select_hotbar_slot_packet(1, 0, &stack).unwrap_err(),
+            InventoryPacketError::DigestMismatch
+        );
+    }
+
+    #[test]
+    fn invalid_hotbar_stack_shape_fails_instead_of_sending_air() {
+        let mut stack = selected_stack();
+        stack.network_id = i32::from(i16::MAX) + 1;
+        assert_eq!(
+            select_hotbar_slot_packet(1, 0, &stack).unwrap_err(),
+            InventoryPacketError::InvalidItemNetworkId(stack.network_id)
+        );
     }
 }

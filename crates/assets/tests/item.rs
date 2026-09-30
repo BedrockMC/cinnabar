@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::hash::Hash;
 
 use assets::{
@@ -24,6 +25,7 @@ fn nonempty_identity(metadata: u32) -> ItemStackIdentity {
         stack_network_id: -1,
         count: 3,
         nbt_digest: [0x5a; 32],
+        block_runtime_id: 0,
     }
 }
 
@@ -71,6 +73,7 @@ fn empty_identity_has_one_exact_canonical_value() {
             stack_network_id: -1,
             count: 0,
             nbt_digest: [0; 32],
+            block_runtime_id: 0,
         }
     );
     assert!(empty.is_empty());
@@ -84,9 +87,14 @@ fn zero_count_validation_canonicalizes_the_complete_identity() {
         stack_network_id: 812,
         count: 0,
         nbt_digest: [0xff; 32],
+        // A retained block identity on a zero-count stack is dropped with the
+        // rest of the canonical empty value.
+        block_runtime_id: 77,
     };
 
-    assert_eq!(noncanonical.validate().unwrap(), ItemStackIdentity::empty());
+    let validated = noncanonical.validate().unwrap();
+    assert_eq!(validated, ItemStackIdentity::empty());
+    assert_eq!(validated.block_runtime_id, 0);
 }
 
 #[test]
@@ -108,6 +116,50 @@ fn metadata_remains_lossless_across_the_full_u32_range() {
         let identity = nonempty_identity(metadata);
         assert_eq!(identity.validate().unwrap().metadata, metadata);
     }
+}
+
+#[test]
+fn retained_block_runtime_identity_is_bound_into_equality_and_hash() {
+    let base = nonempty_identity(0);
+    let mut differing_block = base;
+    differing_block.block_runtime_id = 5;
+
+    // Two stacks that differ only in their retained block runtime identity
+    // must never collapse into one canonical identity.
+    assert_ne!(base, differing_block);
+
+    let mut distinct = std::collections::HashSet::new();
+    assert!(distinct.insert(base));
+    assert!(distinct.insert(differing_block));
+    assert_eq!(distinct.len(), 2);
+}
+
+#[test]
+fn block_runtime_identity_is_lossless_across_the_full_wire_range() {
+    for block_runtime_id in [i32::MIN, -1, 0, 1, 92, i32::MAX] {
+        let identity = ItemStackIdentity {
+            block_runtime_id,
+            ..nonempty_identity(4)
+        };
+        let validated = identity.validate().unwrap();
+        assert_eq!(validated, identity);
+        assert_eq!(validated.block_runtime_id, block_runtime_id);
+    }
+}
+
+#[test]
+fn ordinary_non_block_items_keep_the_previous_identity_contract() {
+    let legacy_shape = ItemStackIdentity {
+        network_id: 42,
+        metadata: 7,
+        stack_network_id: -1,
+        count: 3,
+        nbt_digest: [0x5a; 32],
+        block_runtime_id: 0,
+    };
+    assert_eq!(legacy_shape, nonempty_identity(7));
+    assert_eq!(legacy_shape.validate(), Ok(legacy_shape));
+    assert!(!legacy_shape.is_empty());
 }
 
 #[test]
@@ -211,7 +263,132 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
             visual: item::ItemVisualId(0),
         }]
         .into_boxed_slice(),
+        render: Default::default(),
     }
+}
+
+const DEFAULT_BINDINGS: &[u8] = include_bytes!("../data/default-sprite-bindings-1.26.40.json");
+
+fn default_binding_fixture() -> CompiledEntityAssetsV4 {
+    let mut compiled = item_carrier_fixture();
+    compiled.sources[1] = entity::EntityAssetSource {
+        path: "registry/default-sprite-bindings-1.26.40.json".into(),
+        source_bytes: DEFAULT_BINDINGS.len() as u32,
+        source_sha256: Sha256::digest(DEFAULT_BINDINGS).into(),
+    };
+    compiled
+}
+
+#[test]
+fn reviewed_default_sprite_carrier_accepts_every_canonical_key_and_missing_route() {
+    let table: serde_json::Value = serde_json::from_slice(DEFAULT_BINDINGS).unwrap();
+    let routes = table["routes"].as_array().unwrap();
+    assert_eq!(routes.len(), 29);
+    for route in routes {
+        for missing in [false, true] {
+            let mut compiled = default_binding_fixture();
+            compiled.item_visuals[0].key = visual_key(route["identifier"].as_str().unwrap());
+            if missing {
+                compiled.item_visuals[0].route = ItemVisualDefinitionRoute::Missing;
+            }
+            compiled.validate().unwrap();
+            let blob = entity::encode_entity_blob(&compiled).unwrap();
+            let runtime = RuntimeEntityAssets::decode(&blob).unwrap();
+            assert_eq!(runtime.item_visuals(), compiled.item_visuals.as_ref());
+        }
+    }
+}
+
+fn reject_default_binding_mutation(mutate: impl FnOnce(&mut CompiledEntityAssetsV4)) {
+    let original = default_binding_fixture();
+    let original_blob = entity::encode_entity_blob(&original).unwrap();
+    let mut mutated = original.clone();
+    mutate(&mut mutated);
+    let expected_error = mutated.validate().unwrap_err().to_string();
+    assert!(entity::encode_entity_blob(&mutated).is_err());
+
+    // Preserve canonical field ordering while forging a valid checksum, so the
+    // decoder must apply the same trust checks to untrusted carrier contents.
+    let mut payload =
+        String::from_utf8(original_blob[80..original_blob.len() - 32].to_vec()).unwrap();
+    for (field, before, after) in [
+        (
+            "sources",
+            serde_json::to_string(&original.sources).unwrap(),
+            serde_json::to_string(&mutated.sources).unwrap(),
+        ),
+        (
+            "item_visuals",
+            serde_json::to_string(&original.item_visuals).unwrap(),
+            serde_json::to_string(&mutated.item_visuals).unwrap(),
+        ),
+    ] {
+        payload = payload.replacen(
+            &format!("\"{field}\":{before}"),
+            &format!("\"{field}\":{after}"),
+            1,
+        );
+    }
+    let mut blob = original_blob[..80].to_vec();
+    blob[12..16].copy_from_slice(&(mutated.sources.len() as u32).to_le_bytes());
+    blob[56..64].copy_from_slice(&(payload.len() as u64).to_le_bytes());
+    blob.extend_from_slice(payload.as_bytes());
+    let digest = Sha256::digest(&blob);
+    blob.extend_from_slice(&digest);
+    assert_eq!(
+        RuntimeEntityAssets::decode(&blob).unwrap_err().to_string(),
+        expected_error
+    );
+}
+
+#[test]
+fn reviewed_default_sprite_carrier_rejects_source_identity_and_index_substitution() {
+    reject_default_binding_mutation(|c| c.sources[1].source_sha256 = [0x45; 32]);
+    reject_default_binding_mutation(|c| c.sources[1].source_bytes += 1);
+    reject_default_binding_mutation(|c| {
+        c.sources[1].path = "registry/default-sprite-bindings-1.26.41.json".into()
+    });
+    reject_default_binding_mutation(|c| c.sources[1].path = "registry/unreviewed.json".into());
+    reject_default_binding_mutation(|c| {
+        let mut sources = c.sources.to_vec();
+        sources.insert(2, sources[1].clone());
+        c.sources = sources.into_boxed_slice();
+    });
+    reject_default_binding_mutation(|c| c.item_visuals[0].source = 2);
+    reject_default_binding_mutation(|c| {
+        c.sources[1].source_sha256 = [0x45; 32];
+        c.item_visuals[0].source = 0;
+    });
+}
+
+#[test]
+fn reviewed_default_sprite_carrier_rejects_unreviewed_keys_and_routes() {
+    reject_default_binding_mutation(|c| c.item_visuals[0].key = visual_key("minecraft:unreviewed"));
+    reject_default_binding_mutation(|c| c.item_visuals[0].key.metadata = 1);
+    reject_default_binding_mutation(|c| {
+        c.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+            texture: ItemTextureReference {
+                source: 2,
+                variant: 1,
+            },
+        };
+    });
+    reject_default_binding_mutation(|c| {
+        c.item_visuals[0].route = ItemVisualDefinitionRoute::BlockItem {
+            block_visual: BlockVisualId(0),
+        }
+    });
+    reject_default_binding_mutation(|c| {
+        c.item_visuals[0].route = ItemVisualDefinitionRoute::EmptyHand
+    });
+    reject_default_binding_mutation(|c| {
+        c.item_visuals[0].route = ItemVisualDefinitionRoute::Sprite {
+            texture: ItemTextureReference {
+                source: 0,
+                variant: 0,
+            },
+        };
+    });
 }
 
 #[test]

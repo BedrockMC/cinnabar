@@ -7,22 +7,37 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::super::{SourcePayloads, invalid, json::parse_unique_json};
+use super::super::{SourcePayloads, invalid, json::parse_unique_json, molang::MolangCompiler};
 
 pub(super) enum ClipCompileError {
     UnknownBone,
     Invalid(AssetError),
 }
 
+pub(super) struct ClipOutputs<'a> {
+    pub clips: &'a mut Vec<EntityAnimationClip>,
+    pub channels: &'a mut Vec<EntityAnimationChannel>,
+    pub keyframes: &'a mut Vec<EntityAnimationKeyframe>,
+    pub molang: &'a mut MolangCompiler,
+}
+
+/// Compiles one clip for one geometry; returns its index and how many channels were dropped
+/// because an axis expression is outside the reviewed Molang surface.
 pub(super) fn compile_clip_for_geometry(
     symbol: u32,
     source: u32,
     definition: &Map<String, Value>,
     effective_bones: &[Box<str>],
-    clips: &mut Vec<EntityAnimationClip>,
-    channels: &mut Vec<EntityAnimationChannel>,
-    keyframes: &mut Vec<EntityAnimationKeyframe>,
-) -> Result<u32, ClipCompileError> {
+    outputs: ClipOutputs<'_>,
+) -> Result<(u32, usize), ClipCompileError> {
+    let ClipOutputs {
+        clips,
+        channels,
+        keyframes,
+        molang,
+    } = outputs;
+    let mut dropped = 0;
+    let mut uncompiled = 0;
     let mut bone_indices = BTreeMap::<Box<str>, u32>::new();
     for (index, bone) in effective_bones.iter().enumerate() {
         bone_indices.entry(bone.clone()).or_insert(index as u32);
@@ -51,8 +66,27 @@ pub(super) fn compile_clip_for_geometry(
                     continue;
                 };
                 let first_keyframe = local_keyframes.len() as u32;
-                parse_channel(value, &mut local_keyframes, &mut maximum_time)
-                    .map_err(ClipCompileError::Invalid)?;
+                let mark = molang.mark();
+                match parse_channel(
+                    value,
+                    &mut local_keyframes,
+                    &mut maximum_time,
+                    &mut Axes {
+                        molang,
+                        uncompiled: &mut uncompiled,
+                    },
+                ) {
+                    Ok(()) => {}
+                    Err(ChannelError::Unsupported) => {
+                        molang.rollback(mark);
+                        local_keyframes.truncate(first_keyframe as usize);
+                        dropped += 1;
+                        continue;
+                    }
+                    Err(ChannelError::Invalid(error)) => {
+                        return Err(ClipCompileError::Invalid(error));
+                    }
+                }
                 local_channels.push(EntityAnimationChannel {
                     bone: bone_index,
                     property,
@@ -96,20 +130,44 @@ pub(super) fn compile_clip_for_geometry(
         first_channel,
         channel_count: channels.len() as u32 - first_channel,
         source,
+        override_previous: definition
+            .get("override_previous_animation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     });
-    Ok(clip)
+    Ok((clip, dropped + uncompiled))
+}
+
+enum ChannelError {
+    Unsupported,
+    Invalid(AssetError),
+}
+
+impl From<AssetError> for ChannelError {
+    fn from(error: AssetError) -> Self {
+        Self::Invalid(error)
+    }
+}
+
+/// Compiles axis expressions; an uncompilable one reads 0.0, as vanilla evaluates it.
+struct Axes<'a> {
+    molang: &'a mut MolangCompiler,
+    uncompiled: &'a mut usize,
 }
 
 fn parse_channel(
     value: &Value,
     output: &mut Vec<EntityAnimationKeyframe>,
     maximum_time: &mut f32,
-) -> Result<(), AssetError> {
-    if value.is_array() || value.is_number() {
+    molang: &mut Axes<'_>,
+) -> Result<(), ChannelError> {
+    if !value.is_object() {
+        let (value, expressions) = parse_vector(value, molang)?;
         output.push(EntityAnimationKeyframe {
             time_seconds: scalar(0.0)?,
-            value: parse_vector(value)?,
+            value,
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions,
         });
         return Ok(());
     }
@@ -121,7 +179,7 @@ fn parse_channel(
             .parse::<f32>()
             .map_err(|_| invalid("malformed animation keyframe time"))?;
         if !time.is_finite() || time < 0.0 {
-            return Err(invalid("invalid animation keyframe time"));
+            return Err(invalid("invalid animation keyframe time").into());
         }
         *maximum_time = maximum_time.max(time);
         if let Some(object) = value.as_object() {
@@ -129,40 +187,35 @@ fn parse_channel(
                 None | Some("linear") => EntityAnimationInterpolation::Linear,
                 Some("step") => EntityAnimationInterpolation::Step,
                 Some("catmullrom") => EntityAnimationInterpolation::CatmullRom,
-                _ => return Err(invalid("unsupported animation interpolation")),
+                _ => return Err(invalid("unsupported animation interpolation").into()),
             };
             let mut emitted = false;
             for field in ["pre", "post"] {
                 if let Some(vector) = object.get(field) {
+                    let (value, expressions) = parse_vector(vector, molang)?;
                     output.push(EntityAnimationKeyframe {
                         time_seconds: scalar(time)?,
-                        value: parse_vector(vector)?,
+                        value,
                         interpolation,
+                        expressions,
                     });
                     emitted = true;
                 }
             }
             if !emitted {
-                return Err(invalid("keyframe object lacks pre/post values"));
+                return Err(invalid("keyframe object lacks pre/post values").into());
             }
         } else {
+            let (value, expressions) = parse_vector(value, molang)?;
             output.push(EntityAnimationKeyframe {
                 time_seconds: scalar(time)?,
-                value: parse_vector(value)?,
+                value,
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions,
             });
         }
     }
     Ok(())
-}
-
-pub(super) fn has_string_leaf(value: &Value) -> bool {
-    match value {
-        Value::String(value) => !matches!(value.as_str(), "linear" | "step" | "catmullrom"),
-        Value::Array(values) => values.iter().any(has_string_leaf),
-        Value::Object(values) => values.values().any(has_string_leaf),
-        _ => false,
-    }
 }
 
 pub(super) fn looks_like_expression(value: &str) -> bool {
@@ -203,20 +256,46 @@ pub(super) fn required_object<'a>(
         .ok_or_else(|| invalid("required JSON object is invalid"))
 }
 
-fn parse_vector(value: &Value) -> Result<[EntityGeometryScalar; 3], AssetError> {
-    if let Some(number) = value.as_f64() {
-        let scalar = scalar(number as f32)?;
-        return Ok([scalar; 3]);
+const ZERO: EntityGeometryScalar = EntityGeometryScalar::ZERO;
+
+type ParsedVector = ([EntityGeometryScalar; 3], [Option<u32>; 3]);
+
+fn parse_vector(value: &Value, molang: &mut Axes<'_>) -> Result<ParsedVector, ChannelError> {
+    if value.is_number() || value.is_string() {
+        let axis = parse_axis(value, molang)?;
+        return Ok(([axis.0; 3], [axis.1; 3]));
     }
     let values = value
         .as_array()
         .filter(|values| values.len() == 3)
-        .ok_or_else(|| invalid("animation vector must have exactly three finite numbers"))?;
-    Ok([
-        scalar(parse_number(&values[0])?)?,
-        scalar(parse_number(&values[1])?)?,
-        scalar(parse_number(&values[2])?)?,
-    ])
+        .ok_or_else(|| invalid("animation vector must have exactly three components"))?;
+    let [x, y, z] = [
+        parse_axis(&values[0], molang)?,
+        parse_axis(&values[1], molang)?,
+        parse_axis(&values[2], molang)?,
+    ];
+    Ok(([x.0, y.0, z.0], [x.1, y.1, z.1]))
+}
+
+fn parse_axis(
+    value: &Value,
+    axes: &mut Axes<'_>,
+) -> Result<(EntityGeometryScalar, Option<u32>), ChannelError> {
+    match value {
+        Value::String(text) => match text.trim().parse::<f32>() {
+            Ok(number) => Ok((scalar(number)?, None)),
+            Err(_) => Ok(match axes.molang.compile(text) {
+                Ok(expression) => (ZERO, Some(expression)),
+                Err(_) => {
+                    *axes.uncompiled += 1;
+                    (ZERO, None)
+                }
+            }),
+        },
+        // Per-axis rotation-order objects are an unsupported authoring form, not malformed.
+        Value::Object(_) => Err(ChannelError::Unsupported),
+        _ => Ok((scalar(parse_number(value)?)?, None)),
+    }
 }
 
 fn parse_number(value: &Value) -> Result<f32, AssetError> {

@@ -6,27 +6,27 @@
 //! version explicit.
 
 pub use current::*;
-#[cfg(feature = "bedrock_1_26_30")]
-pub use valentine::bedrock::version::v1_26_30 as current;
-#[cfg(all(feature = "bedrock_1_26_40", not(feature = "bedrock_1_26_30")))]
-pub use valentine::bedrock::version::v1_26_40 as current;
+#[cfg(feature = "bedrock_1_26_51")]
+pub use valentine::bedrock::version::v1_26_51 as current;
+
+/// Game version reported at login and to the auth services. The codec's source
+/// manifest is 1.26.51, but gophertunnel identifies protocol 2193 as 1.26.50 and
+/// the core proxy accepts only that string.
+pub const GAME_VERSION: &str = "1.26.50";
+
+// Keep Jolyne's stable facade names while protocolgen exposes shared canonical
+// enum names from the version module.
+pub type NetworkSettingsPacketCompressionAlgorithm = current::EnumsPacketCompressionAlgorithm;
+pub type PlayStatusPacketStatus = current::EnumsPlayStatus;
+pub type ServerboundLoadingScreenPacketLoadingScreenPacketType =
+    current::EnumsServerboundLoadingScreenPacketType;
 
 use valentine::bedrock::context::BedrockSession;
 
 /// Builds the decode arguments for the pinned protocol version from session state.
 ///
-/// Up to 1.26.30 the generated decoder needed the negotiated shield item ID to
-/// disambiguate item payloads, so the args carried it. The 1.26.40 generator
-/// emits a unit args struct because the shape no longer depends on session
-/// state. This helper hides that difference so call sites stay version-agnostic
-/// and keep threading the session through.
-#[cfg(feature = "bedrock_1_26_30")]
-pub fn packet_args(session: &BedrockSession) -> current::McpePacketArgs {
-    current::McpePacketArgs::from(session)
-}
-
-/// See the `bedrock_1_26_30` variant above.
-#[cfg(all(feature = "bedrock_1_26_40", not(feature = "bedrock_1_26_30")))]
+/// The current generated decoder uses a unit argument type. The session
+/// parameter keeps call sites version-agnostic.
 pub fn packet_args(_session: &BedrockSession) -> current::McpePacketArgs {
     current::McpePacketArgs
 }

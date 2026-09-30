@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Cinnabar
+Comment=Minecraft Bedrock client
+Exec=bedrock-client
+Icon=cinnabar
+Categories=Game;
+Terminal=false

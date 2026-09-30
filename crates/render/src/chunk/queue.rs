@@ -32,6 +32,7 @@ pub struct ChunkRenderQueue {
     pub(in crate::chunk) limits: ChunkRenderQueueLimits,
     pub(in crate::chunk) gpu_upload_bytes: u64,
     ready_scratch: Vec<(SubChunkKey, ChunkUploadPriority, bool)>,
+    session_reset_pending: bool,
 }
 
 impl Default for ChunkRenderQueue {
@@ -52,7 +53,22 @@ impl ChunkRenderQueue {
             limits,
             ready_scratch: Vec::new(),
             gpu_upload_bytes: 0,
+            session_reset_pending: false,
         }
+    }
+
+    /// Discards the previous world's queued work and retires its render entities
+    /// at the next queue application, before applying any new-world uploads.
+    /// New uploads receive fresh entities even at reused coordinates. The
+    /// untracked generation counter is preserved. This is teardown, not a
+    /// block update; old GPU allocations follow the existing retirement fence.
+    pub fn reset_session(&mut self) {
+        self.pending.clear();
+        self.removals.clear();
+        self.render_manifest.clear();
+        self.pending_bytes = 0;
+        self.ready_scratch.clear();
+        self.session_reset_pending = true;
     }
 
     #[must_use]
@@ -416,7 +432,11 @@ impl ChunkRenderQueue {
         }
     }
 
-    /// Freezes render generations only for actually announced required columns.
+    /// Freezes render generations only for the caller's bounded required columns.
+    ///
+    /// Explicit columns define membership independently from the raw publisher
+    /// geometry retained in `cohort`; they must be nonempty and belong to that
+    /// cohort's dimension.
     #[must_use]
     pub fn freeze_target_expectation_for_columns(
         &self,
@@ -430,7 +450,7 @@ impl ChunkRenderQueue {
         if columns.is_empty()
             || columns
                 .iter()
-                .any(|column| !cohort.contains(SubChunkKey::from_chunk(*column, 0)))
+                .any(|column| column.dimension != cohort.dimension)
         {
             return None;
         }
@@ -621,6 +641,18 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::RenderQueueApplication));
+    if std::mem::take(&mut queue.session_reset_pending) {
+        drop(gpu_removals.take_ready(usize::MAX, |_| true));
+        acknowledgements.clear();
+        for (_, entity) in entities.0.drain() {
+            if let Ok(instance) = existing_instances.get(entity)
+                && let Some(slot) = &instance.publication_permit
+            {
+                drop(slot.take());
+            }
+            commands.entity(entity).despawn();
+        }
+    }
     let maximum_zero_byte_operations = budget
         .max_zero_byte_operations_per_frame
         .min(PublicationServiceConfig::PHASE2_GATE.maximum_zero_byte_operations_per_frame);

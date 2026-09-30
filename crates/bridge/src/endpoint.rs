@@ -11,10 +11,38 @@ use tokio::net::UnixStream;
 
 use crate::BridgeError;
 
+#[cfg(any(unix, test))]
+const GAME_UNIX_ENDPOINT_NAME: &str = "game.sock";
 #[cfg(unix)]
-const UNIX_ENDPOINT_NAME: &str = "game.sock";
+const CONTROL_UNIX_ENDPOINT_NAME: &str = "control.sock";
 #[cfg(windows)]
-const WINDOWS_ENDPOINT_NAME: &str = "game.addr";
+const GAME_WINDOWS_ENDPOINT_NAME: &str = "game.addr";
+#[cfg(windows)]
+const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
+
+#[derive(Clone, Copy)]
+pub(crate) enum EndpointKind {
+    Game,
+    Control,
+}
+
+impl EndpointKind {
+    #[cfg(unix)]
+    const fn unix_name(self) -> &'static str {
+        match self {
+            Self::Game => GAME_UNIX_ENDPOINT_NAME,
+            Self::Control => CONTROL_UNIX_ENDPOINT_NAME,
+        }
+    }
+
+    #[cfg(windows)]
+    const fn windows_name(self) -> &'static str {
+        match self {
+            Self::Game => GAME_WINDOWS_ENDPOINT_NAME,
+            Self::Control => CONTROL_WINDOWS_ENDPOINT_NAME,
+        }
+    }
+}
 
 pub(crate) enum PlatformStream {
     #[cfg(unix)]
@@ -23,17 +51,94 @@ pub(crate) enum PlatformStream {
     Tcp(TcpStream),
 }
 
-pub(crate) async fn connect(socket_dir: &Path) -> Result<PlatformStream, BridgeError> {
-    validate_socket_dir(socket_dir)?;
+#[cfg(any(unix, test))]
+const MAX_UNIX_ENDPOINT_PATH_BYTES: usize = 103;
 
+#[cfg(any(unix, test))]
+fn clean_unix_path_bytes(path: &[u8]) -> Vec<u8> {
+    let rooted = path.first() == Some(&b'/');
+    let mut components: Vec<&[u8]> = Vec::new();
+    for component in path.split(|byte| *byte == b'/') {
+        if component.is_empty() || component == b"." {
+            continue;
+        }
+        if component == b".." {
+            if components.last().is_some_and(|previous| *previous != b"..") {
+                components.pop();
+            } else if !rooted {
+                components.push(component);
+            }
+            continue;
+        }
+        components.push(component);
+    }
+
+    let mut clean = Vec::with_capacity(path.len());
+    if rooted {
+        clean.push(b'/');
+    }
+    for component in components {
+        if !clean.is_empty() && clean.last() != Some(&b'/') {
+            clean.push(b'/');
+        }
+        clean.extend_from_slice(component);
+    }
+    if clean.is_empty() {
+        clean.push(b'.');
+    }
+    clean
+}
+
+#[cfg(any(unix, test))]
+fn unix_endpoint_path_bytes(socket_dir: &[u8], endpoint_name: &str) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+
+    let mut joined = Vec::with_capacity(socket_dir.len() + 1 + endpoint_name.len());
+    joined.extend_from_slice(socket_dir);
+    if !socket_dir.is_empty() {
+        joined.push(b'/');
+    }
+    joined.extend_from_slice(endpoint_name.as_bytes());
+    let direct = clean_unix_path_bytes(&joined);
+    if direct.len() <= MAX_UNIX_ENDPOINT_PATH_BYTES {
+        return direct;
+    }
+    let digest = format!("{:x}", Sha256::digest(&direct));
+    format!("/tmp/cinnabar-{}.sock", &digest[..32]).into_bytes()
+}
+
+pub(crate) fn endpoint_path(socket_dir: &Path, kind: EndpointKind) -> std::path::PathBuf {
     #[cfg(unix)]
     {
-        connect_unix(socket_dir).await
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        std::ffi::OsString::from_vec(unix_endpoint_path_bytes(
+            socket_dir.as_os_str().as_bytes(),
+            kind.unix_name(),
+        ))
+        .into()
     }
 
     #[cfg(windows)]
     {
-        connect_windows(socket_dir).await
+        socket_dir.join(kind.windows_name())
+    }
+}
+
+pub(crate) async fn connect(
+    socket_dir: &Path,
+    kind: EndpointKind,
+) -> Result<PlatformStream, BridgeError> {
+    validate_socket_dir(socket_dir)?;
+
+    #[cfg(unix)]
+    {
+        connect_unix(socket_dir, kind).await
+    }
+
+    #[cfg(windows)]
+    {
+        connect_windows(socket_dir, kind).await
     }
 }
 
@@ -45,10 +150,13 @@ fn validate_socket_dir(socket_dir: &Path) -> Result<(), BridgeError> {
 }
 
 #[cfg(unix)]
-async fn connect_unix(socket_dir: &Path) -> Result<PlatformStream, BridgeError> {
+async fn connect_unix(
+    socket_dir: &Path,
+    kind: EndpointKind,
+) -> Result<PlatformStream, BridgeError> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
-    let path = socket_dir.join(UNIX_ENDPOINT_NAME);
+    let path = endpoint_path(socket_dir, kind);
     let metadata = tokio::fs::symlink_metadata(&path)
         .await
         .map_err(|source| endpoint_read(&path, source))?;
@@ -66,8 +174,11 @@ async fn connect_unix(socket_dir: &Path) -> Result<PlatformStream, BridgeError> 
 }
 
 #[cfg(windows)]
-async fn connect_windows(socket_dir: &Path) -> Result<PlatformStream, BridgeError> {
-    let path = socket_dir.join(WINDOWS_ENDPOINT_NAME);
+async fn connect_windows(
+    socket_dir: &Path,
+    kind: EndpointKind,
+) -> Result<PlatformStream, BridgeError> {
+    let path = socket_dir.join(kind.windows_name());
     let metadata = tokio::fs::symlink_metadata(&path)
         .await
         .map_err(|source| endpoint_read(&path, source))?;
@@ -207,6 +318,84 @@ mod tests {
         let error = validate_socket_dir(Path::new("")).expect_err("empty directory must fail");
 
         assert!(matches!(error, BridgeError::InvalidEndpoint { .. }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn long_unix_socket_directory_uses_stable_length_safe_endpoint() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
+        let first = super::endpoint_path(&directory, super::EndpointKind::Game);
+        let second = super::endpoint_path(&directory, super::EndpointKind::Game);
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            Path::new("/tmp/cinnabar-7b260d1b166f7db809ce8c3d8bd42d1a.sock")
+        );
+        assert_eq!(first.parent(), Some(Path::new("/tmp")));
+        let file_name = first
+            .file_name()
+            .expect("length-safe endpoint must have a filename")
+            .as_bytes();
+        assert!(file_name.starts_with(b"cinnabar-"));
+        assert!(file_name.ends_with(b".sock"));
+        assert!(first.as_os_str().as_bytes().len() <= 103);
+    }
+
+    #[test]
+    fn unix_endpoint_lexical_normalization_matches_go() {
+        let repeated_parent = format!("/tmp/{}", "segment/../".repeat(12));
+        let mut invalid_bytes = b"/tmp/\xff/".to_vec();
+        invalid_bytes.extend(std::iter::repeat_n(b'x', 100));
+        let vectors: Vec<(Vec<u8>, Vec<u8>)> = vec![
+            (
+                b"/tmp//alpha/./beta/../gamma".to_vec(),
+                b"/tmp/alpha/gamma/game.sock".to_vec(),
+            ),
+            (repeated_parent.into_bytes(), b"/tmp/game.sock".to_vec()),
+            (
+                format!("/{}", "a".repeat(92)).into_bytes(),
+                format!("/{}/game.sock", "a".repeat(92)).into_bytes(),
+            ),
+            (
+                format!("/{}", "a".repeat(93)).into_bytes(),
+                b"/tmp/cinnabar-d32a5982698ad8de34829c65f893edf6.sock".to_vec(),
+            ),
+            (
+                format!("/tmp/{}", "路径/".repeat(20)).into_bytes(),
+                b"/tmp/cinnabar-08390d1ff13834e20abadae40eff1ce0.sock".to_vec(),
+            ),
+            (
+                invalid_bytes,
+                b"/tmp/cinnabar-32ec4a93b88918d1547cfbaf69f63a13.sock".to_vec(),
+            ),
+        ];
+
+        for (socket_dir, expected) in vectors {
+            assert_eq!(
+                super::unix_endpoint_path_bytes(&socket_dir, super::GAME_UNIX_ENDPOINT_NAME),
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn control_endpoint_is_distinct_and_length_safe() {
+        let direct = Path::new("/tmp/cinnabar-control-test");
+        assert_eq!(
+            super::endpoint_path(direct, super::EndpointKind::Control),
+            direct.join("control.sock")
+        );
+
+        let directory = Path::new("/var/folders/zz").join("macos-runner-segment-".repeat(8));
+        let game = super::endpoint_path(&directory, super::EndpointKind::Game);
+        let control = super::endpoint_path(&directory, super::EndpointKind::Control);
+        assert_ne!(game, control);
+        assert!(control.to_string_lossy().starts_with("/tmp/cinnabar-"));
+        assert!(control.to_string_lossy().ends_with(".sock"));
     }
 
     #[cfg(windows)]

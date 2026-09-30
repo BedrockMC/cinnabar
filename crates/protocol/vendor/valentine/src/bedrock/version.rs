@@ -5,45 +5,12 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
-//! Version modules
-//!
-//! Each `vX_Y_Z` re-exports the appropriate `protocol::vX_Y_Z` (or alias),
-//! allowing you to enable `--features bedrock_X_Y_Z` and import
-//! `valentine::bedrock::version::vX_Y_Z::*` without duplicating protocol code.
 pub use valentine_bedrock_core::bedrock::version::BedrockVersionInfo;
-#[cfg(feature = "bedrock_1_26_0")]
-pub mod v1_26_0 {
-    pub use super::super::protocol::v1_26_0::*;
-    pub const GAME_VERSION: &str = "1.26.0";
-    pub const PROTOCOL_VERSION: i32 = 924i32;
-    pub const MAJOR_VERSION: &str = "1.26";
-    pub const RELEASE_TYPE: &str = "release";
-    pub const INFO: super::BedrockVersionInfo = super::BedrockVersionInfo {
-        minecraft_version: GAME_VERSION,
-        protocol_version: PROTOCOL_VERSION,
-        major_version: MAJOR_VERSION,
-        release_type: RELEASE_TYPE,
-    };
-}
-#[cfg(feature = "bedrock_1_26_30")]
-pub mod v1_26_30 {
-    pub use super::super::protocol::v1_26_30::*;
-    pub const GAME_VERSION: &str = "1.26.30";
-    pub const PROTOCOL_VERSION: i32 = 1001i32;
-    pub const MAJOR_VERSION: &str = "1.26";
-    pub const RELEASE_TYPE: &str = "release";
-    pub const INFO: super::BedrockVersionInfo = super::BedrockVersionInfo {
-        minecraft_version: GAME_VERSION,
-        protocol_version: PROTOCOL_VERSION,
-        major_version: MAJOR_VERSION,
-        release_type: RELEASE_TYPE,
-    };
-}
-#[cfg(feature = "bedrock_1_26_40")]
-pub mod v1_26_40 {
-    pub use super::super::protocol::v1_26_40::*;
-    pub const GAME_VERSION: &str = "1.26.40";
-    pub const PROTOCOL_VERSION: i32 = 2168i32;
+#[cfg(feature = "bedrock_1_26_51")]
+pub mod v1_26_51 {
+    pub use super::super::protocol::v1_26_51::*;
+    pub const GAME_VERSION: &str = "1.26.51";
+    pub const PROTOCOL_VERSION: i32 = 2193i32;
     pub const MAJOR_VERSION: &str = "1.26";
     pub const RELEASE_TYPE: &str = "release";
     pub const INFO: super::BedrockVersionInfo = super::BedrockVersionInfo {

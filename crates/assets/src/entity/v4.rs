@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::{
     AssetError,
@@ -9,8 +10,7 @@ use crate::{
 
 use super::{
     CompiledEntityAssets, EntityAssetKind, EntityAssetSymbol, EntityGeometryScalar,
-    RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_identifier,
-    validate_scalars,
+    RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_scalars,
 };
 
 pub const MAX_ENTITY_ANIMATION_CLIPS: usize = 4_096;
@@ -21,7 +21,7 @@ pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
 pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
-pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 256;
+pub const MAX_MOLANG_OPS_PER_EXPRESSION: usize = 1_024;
 pub const MAX_MOLANG_OPS: usize = 1_048_576;
 pub const MAX_MOLANG_STACK_DEPTH: u8 = 32;
 pub const MAX_MOLANG_COLLECTION_ITEMS: usize = 32;
@@ -39,9 +39,30 @@ pub(super) use preflight::payload_counts;
 #[path = "v4/encode.rs"]
 mod encode;
 pub(super) use encode::{encode_compiled, encode_runtime};
+#[path = "v4/render.rs"]
+mod render;
+use render::validate_render_payload;
+pub use render::{
+    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
+    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+};
 #[path = "v4/rig.rs"]
 mod rig;
-use rig::validate_rig_payload;
+use rig::{validate_controller_nesting, validate_rig_payload};
+#[path = "v4/molang.rs"]
+mod molang;
+#[path = "v4/molang_math.rs"]
+mod molang_math;
+pub use molang::{
+    MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_QUERY_ARGUMENTS,
+    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangEaseCurve,
+    MolangEaseMode, MolangFunction, MolangOp, molang_call, molang_program_stack,
+};
+use molang::{molang_symbol_has_kind, validate_molang_payload};
+
+/// Deepest controller-in-controller chain a rig may reference.
+pub const MAX_ENTITY_CONTROLLER_NESTING: usize = 4;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u8)]
@@ -76,6 +97,9 @@ pub struct EntityAnimationClip {
     pub first_channel: u32,
     pub channel_count: u32,
     pub source: u32,
+    /// Channels replace, rather than add to, what earlier animations produced.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub override_previous: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -93,6 +117,13 @@ pub struct EntityAnimationKeyframe {
     pub time_seconds: EntityGeometryScalar,
     pub value: [EntityGeometryScalar; 3],
     pub interpolation: EntityAnimationInterpolation,
+    /// Per-axis Molang expression evaluated per tick in place of `value`.
+    #[serde(default, skip_serializing_if = "constant_axes")]
+    pub expressions: [Option<u32>; 3],
+}
+
+fn constant_axes(expressions: &[Option<u32>; 3]) -> bool {
+    expressions.iter().all(Option::is_none)
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -110,6 +141,8 @@ pub enum MolangSymbolKind {
     Query = 1,
     Variable = 2,
     Temporary = 3,
+    /// A string literal, which may be empty.
+    String = 4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -130,42 +163,6 @@ pub struct MolangCollection {
 #[serde(deny_unknown_fields)]
 pub struct MolangCollectionItem {
     pub value: EntityGeometryScalar,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case", tag = "op", content = "operand")]
-pub enum MolangOp {
-    Push(EntityGeometryScalar),
-    LoadQuery(u32),
-    LoadVariable(u32),
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-    Negate,
-    Not,
-    Abs,
-    Ceil,
-    Floor,
-    Round,
-    Sqrt,
-    Sin,
-    Cos,
-    And,
-    Or,
-    Equal,
-    NotEqual,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    Min,
-    Max,
-    Select,
-    Clamp,
-    Lerp,
-    SelectCollection(u32),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -192,8 +189,15 @@ pub struct EntityControllerState {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityControllerAnimation {
-    pub clip: u32,
+    pub target: EntityControllerAnimationTarget,
     pub weight: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "index")]
+pub enum EntityControllerAnimationTarget {
+    Clip(u32),
+    Controller(u32),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -219,6 +223,9 @@ pub struct EntityRigBinding {
     pub first_geometry: u32,
     pub geometry_count: u16,
     pub fallback: EntityRigFallback,
+    pub initialize: Option<u32>,
+    pub pre_animation: Option<u32>,
+    pub scale: EntityGeometryScalar,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -237,6 +244,7 @@ pub struct EntityRigGeometryBinding {
 pub struct EntityRigAnimationBinding {
     pub name: u32,
     pub clip: u32,
+    pub weight: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -244,6 +252,7 @@ pub struct EntityRigAnimationBinding {
 pub struct EntityRigControllerBinding {
     pub name: u32,
     pub controller: u32,
+    pub weight: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -360,6 +369,23 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
+    pub fn render_data(&self) -> &EntityRenderData {
+        &self.render
+    }
+
+    /// Render layers of one rig binding, in authored controller order.
+    #[must_use]
+    pub fn render_layers(&self, rig_binding: usize) -> &[EntityRenderLayer] {
+        let layers = &self.render.layers;
+        let Ok(rig) = u32::try_from(rig_binding) else {
+            return &[];
+        };
+        let start = layers.partition_point(|layer| layer.rig < rig);
+        let length = layers[start..].partition_point(|layer| layer.rig == rig);
+        &layers[start..start + length]
+    }
+
+    #[must_use]
     pub fn item_visuals(&self) -> &[ItemVisualDefinition] {
         &self.item_visuals
     }
@@ -407,15 +433,63 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
     validate_molang_payload(compiled)?;
     validate_controller_payload(compiled)?;
     validate_rig_payload(compiled)?;
+    validate_render_payload(compiled)?;
     validate_item_visuals(
         &compiled.item_visuals,
         &compiled.item_visual_aliases,
         compiled.sources.len(),
         compiled.block_visual_count as usize,
     )?;
+    let reviewed_bindings: DefaultSpriteBindings = serde_json::from_slice(DEFAULT_SPRITE_BINDINGS)
+        .map_err(|_| invalid("embedded default sprite bindings are invalid"))?;
+    let binding_hash: [u8; 32] = Sha256::digest(DEFAULT_SPRITE_BINDINGS).into();
+    let legacy_hash: [u8; 32] = Sha256::digest(LEGACY_ICON_ROUTES).into();
+    for source in &compiled.sources {
+        if source.path.as_ref() == DEFAULT_SPRITE_BINDINGS_PATH
+            && (source.source_bytes as usize != DEFAULT_SPRITE_BINDINGS.len()
+                || source.source_sha256 != binding_hash)
+        {
+            return Err(invalid("default sprite defining source identity mismatch"));
+        }
+        if source.path.as_ref() == LEGACY_ICON_ROUTES_PATH
+            && (source.source_bytes as usize != LEGACY_ICON_ROUTES.len()
+                || source.source_sha256 != legacy_hash)
+        {
+            return Err(invalid("legacy icon defining source identity mismatch"));
+        }
+    }
     for visual in &compiled.item_visuals {
         let defining_path = &compiled.sources[visual.source as usize].path;
-        if !valid_item_definition_source(defining_path) {
+        if defining_path.as_ref() == DEFAULT_SPRITE_BINDINGS_PATH {
+            if visual.key.metadata != 0
+                || !reviewed_bindings
+                    .routes
+                    .iter()
+                    .any(|binding| binding.identifier == visual.key.identifier)
+                || !matches!(
+                    visual.route,
+                    ItemVisualDefinitionRoute::Missing
+                        | ItemVisualDefinitionRoute::Sprite {
+                            texture: crate::item::ItemTextureReference { variant: 0, .. }
+                        }
+                )
+            {
+                return Err(invalid(
+                    "item visual is outside reviewed default sprite bindings",
+                ));
+            }
+        } else if defining_path.as_ref() == LEGACY_ICON_ROUTES_PATH {
+            if !legacy_icon_route_listed(&visual.key.identifier, visual.key.metadata)
+                || !matches!(
+                    visual.route,
+                    ItemVisualDefinitionRoute::Missing | ItemVisualDefinitionRoute::Sprite { .. }
+                )
+            {
+                return Err(invalid(
+                    "item visual is outside reviewed legacy icon routes",
+                ));
+            }
+        } else if !valid_item_definition_source(defining_path) {
             return Err(invalid("item visual defining source is not reviewed"));
         }
         if let ItemVisualDefinitionRoute::Sprite { texture } = visual.route {
@@ -428,10 +502,39 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
     Ok(())
 }
 
+const LEGACY_ICON_ROUTES_PATH: &str = "registry/legacy-icon-routes-26.30.tsv";
+const LEGACY_ICON_ROUTES: &[u8] = include_bytes!("../../data/legacy-icon-routes-26.30.tsv");
+
+/// Whether the embedded legacy table lists `(identifier, metadata)`.
+fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
+    std::str::from_utf8(LEGACY_ICON_ROUTES)
+        .into_iter()
+        .flat_map(str::lines)
+        .filter_map(|line| {
+            let mut columns = line.split('\t');
+            Some((columns.next()?, columns.next()?.parse::<u32>().ok()?))
+        })
+        .any(|row| row == (identifier, metadata))
+}
+
+const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.40.json";
+const DEFAULT_SPRITE_BINDINGS: &[u8] =
+    include_bytes!("../../data/default-sprite-bindings-1.26.40.json");
+
+#[derive(Deserialize)]
+struct DefaultSpriteBindings {
+    routes: Vec<DefaultSpriteBinding>,
+}
+
+#[derive(Deserialize)]
+struct DefaultSpriteBinding {
+    identifier: Box<str>,
+}
+
 fn valid_item_definition_source(path: &str) -> bool {
     (path.starts_with("entity/") && path.ends_with(".json"))
         || path == "textures/item_texture.json"
-        || path == "registry/block-item-routes-v1001.json"
+        || path == "registry/block-item-routes-v2193.json"
 }
 
 fn valid_item_raster_source(path: &str) -> bool {
@@ -473,8 +576,14 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
     for keyframe in &compiled.animation_keyframes {
         validate_geometry_scalar(keyframe.time_seconds)?;
         validate_scalars(&keyframe.value)?;
-        if keyframe.time_seconds.get() < 0.0 {
-            return Err(invalid("entity animation keyframe time is negative"));
+        if keyframe.time_seconds.get() < 0.0
+            || keyframe
+                .expressions
+                .iter()
+                .flatten()
+                .any(|index| *index as usize >= compiled.molang_expressions.len())
+        {
+            return Err(invalid("invalid entity animation keyframe"));
         }
     }
     validate_flattened_ranges(
@@ -493,237 +602,6 @@ fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), Ass
         compiled.animation_keyframes.len(),
         "animation keyframe",
     )?;
-    Ok(())
-}
-
-fn validate_molang_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
-    if compiled.molang_symbols.len() > MAX_MOLANG_EXPRESSIONS
-        || compiled.molang_expressions.len() > MAX_MOLANG_EXPRESSIONS
-        || compiled.molang_ops.len() > MAX_MOLANG_OPS
-        || compiled.molang_collections.len() > MAX_MOLANG_COLLECTIONS
-        || compiled.molang_collection_items.len() > MAX_MOLANG_COLLECTION_ITEMS_TOTAL
-    {
-        return Err(invalid("Molang payload count exceeds bound"));
-    }
-    let mut previous: Option<(MolangSymbolKind, &str)> = None;
-    for symbol in &compiled.molang_symbols {
-        validate_molang_symbol(symbol)?;
-        let key = (symbol.kind, symbol.identifier.as_ref());
-        if previous.is_some_and(|value| value >= key) {
-            return Err(invalid("Molang symbols are not strictly ordered"));
-        }
-        previous = Some(key);
-    }
-    for expression in &compiled.molang_expressions {
-        if expression.op_count as usize > MAX_MOLANG_OPS_PER_EXPRESSION
-            || expression.max_stack > MAX_MOLANG_STACK_DEPTH
-            || !range_in_bounds(
-                expression.first_op,
-                u32::from(expression.op_count),
-                compiled.molang_ops.len(),
-            )
-        {
-            return Err(invalid("invalid Molang expression range or stack bound"));
-        }
-        let start = expression.first_op as usize;
-        let end = start + expression.op_count as usize;
-        validate_molang_stack(&compiled.molang_ops[start..end], expression.max_stack)?;
-    }
-    validate_flattened_ranges(
-        compiled
-            .molang_expressions
-            .iter()
-            .map(|expression| (expression.first_op, u32::from(expression.op_count))),
-        compiled.molang_ops.len(),
-        "Molang operation",
-    )?;
-    for op in &compiled.molang_ops {
-        match *op {
-            MolangOp::Push(value) => validate_geometry_scalar(value)?,
-            MolangOp::LoadQuery(symbol) => {
-                if !molang_symbol_has_kind(compiled, symbol, &[MolangSymbolKind::Query]) {
-                    return Err(invalid("Molang query symbol kind is invalid"));
-                }
-            }
-            MolangOp::LoadVariable(symbol) => {
-                if !molang_symbol_has_kind(
-                    compiled,
-                    symbol,
-                    &[MolangSymbolKind::Variable, MolangSymbolKind::Temporary],
-                ) {
-                    return Err(invalid("Molang variable symbol kind is invalid"));
-                }
-            }
-            MolangOp::SelectCollection(collection) => {
-                if collection as usize >= compiled.molang_collections.len() {
-                    return Err(invalid("Molang collection index is out of range"));
-                }
-            }
-            MolangOp::Add
-            | MolangOp::Subtract
-            | MolangOp::Multiply
-            | MolangOp::Divide
-            | MolangOp::Modulo
-            | MolangOp::Negate
-            | MolangOp::Not
-            | MolangOp::Abs
-            | MolangOp::Ceil
-            | MolangOp::Floor
-            | MolangOp::Round
-            | MolangOp::Sqrt
-            | MolangOp::Sin
-            | MolangOp::Cos
-            | MolangOp::And
-            | MolangOp::Or
-            | MolangOp::Equal
-            | MolangOp::NotEqual
-            | MolangOp::Less
-            | MolangOp::LessEqual
-            | MolangOp::Greater
-            | MolangOp::GreaterEqual
-            | MolangOp::Min
-            | MolangOp::Max
-            | MolangOp::Select
-            | MolangOp::Clamp
-            | MolangOp::Lerp => {}
-        }
-    }
-    for collection in &compiled.molang_collections {
-        if collection.item_count == 0
-            || collection.item_count as usize > MAX_MOLANG_COLLECTION_ITEMS
-            || !range_in_bounds(
-                collection.first_item,
-                u32::from(collection.item_count),
-                compiled.molang_collection_items.len(),
-            )
-        {
-            return Err(invalid("invalid Molang collection range"));
-        }
-    }
-    validate_flattened_ranges(
-        compiled
-            .molang_collections
-            .iter()
-            .map(|collection| (collection.first_item, u32::from(collection.item_count))),
-        compiled.molang_collection_items.len(),
-        "Molang collection item",
-    )?;
-    for item in &compiled.molang_collection_items {
-        validate_geometry_scalar(item.value)?;
-    }
-    Ok(())
-}
-
-fn validate_molang_symbol(symbol: &MolangSymbol) -> Result<(), AssetError> {
-    validate_identifier(&symbol.identifier)?;
-    let valid = match symbol.kind {
-        MolangSymbolKind::Name => !["query.", "variable.", "temp."]
-            .iter()
-            .any(|prefix| symbol.identifier.starts_with(prefix)),
-        MolangSymbolKind::Query => matches!(
-            symbol.identifier.as_ref(),
-            "query.anim_time"
-                | "query.life_time"
-                | "query.modified_move_speed"
-                | "query.ground_speed"
-                | "query.is_on_ground"
-                | "query.is_moving"
-                | "query.is_sprinting"
-                | "query.is_sneaking"
-                | "query.is_sleeping"
-                | "query.body_y_rotation"
-                | "query.head_y_rotation"
-                | "query.target_x_rotation"
-        ),
-        MolangSymbolKind::Variable => valid_molang_slot(&symbol.identifier, "variable."),
-        MolangSymbolKind::Temporary => valid_molang_slot(&symbol.identifier, "temp."),
-    };
-    if !valid {
-        return Err(invalid("Molang symbol is outside the reviewed namespace"));
-    }
-    Ok(())
-}
-
-fn valid_molang_slot(identifier: &str, prefix: &str) -> bool {
-    identifier.strip_prefix(prefix).is_some_and(|slot| {
-        !slot.is_empty()
-            && slot
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    })
-}
-
-fn molang_symbol_has_kind(
-    compiled: &CompiledEntityAssets,
-    index: u32,
-    permitted: &[MolangSymbolKind],
-) -> bool {
-    compiled
-        .molang_symbols
-        .get(index as usize)
-        .is_some_and(|symbol| permitted.contains(&symbol.kind))
-}
-
-fn validate_molang_stack(ops: &[MolangOp], declared_max: u8) -> Result<(), AssetError> {
-    let mut depth = 0usize;
-    let mut observed_max = 0usize;
-    for op in ops {
-        match op {
-            MolangOp::Push(_) | MolangOp::LoadQuery(_) | MolangOp::LoadVariable(_) => depth += 1,
-            MolangOp::Add
-            | MolangOp::Subtract
-            | MolangOp::Multiply
-            | MolangOp::Divide
-            | MolangOp::Modulo
-            | MolangOp::And
-            | MolangOp::Or
-            | MolangOp::Equal
-            | MolangOp::NotEqual
-            | MolangOp::Less
-            | MolangOp::LessEqual
-            | MolangOp::Greater
-            | MolangOp::GreaterEqual
-            | MolangOp::Min
-            | MolangOp::Max => {
-                if depth < 2 {
-                    return Err(invalid("Molang expression stack underflows"));
-                }
-                depth -= 1;
-            }
-            MolangOp::Negate
-            | MolangOp::Not
-            | MolangOp::Abs
-            | MolangOp::Ceil
-            | MolangOp::Floor
-            | MolangOp::Round
-            | MolangOp::Sqrt
-            | MolangOp::Sin
-            | MolangOp::Cos
-            | MolangOp::SelectCollection(_) => {
-                if depth < 1 {
-                    return Err(invalid("Molang expression stack underflows"));
-                }
-            }
-            MolangOp::Select | MolangOp::Clamp | MolangOp::Lerp => {
-                if depth < 3 {
-                    return Err(invalid("Molang expression stack underflows"));
-                }
-                depth -= 2;
-            }
-        }
-        observed_max = observed_max.max(depth);
-        if observed_max > declared_max as usize {
-            return Err(invalid("Molang expression exceeds its declared stack"));
-        }
-    }
-    if depth != 1 {
-        return Err(invalid(
-            "Molang expression must leave exactly one stack value",
-        ));
-    }
-    if observed_max != declared_max as usize {
-        return Err(invalid("Molang expression declared stack is not exact"));
-    }
     Ok(())
 }
 
@@ -781,7 +659,7 @@ fn validate_controller_payload(compiled: &CompiledEntityAssets) -> Result<(), As
         compiled.controller_transitions.len(),
         "controller transition",
     )?;
-    Ok(())
+    validate_controller_nesting(compiled)
 }
 
 fn validate_controller_state(
@@ -812,7 +690,15 @@ fn validate_controller_state(
     let animations = &compiled.controller_animations[state.first_animation as usize
         ..state.first_animation as usize + state.animation_count as usize];
     for animation in animations {
-        if animation.clip as usize >= compiled.animation_clips.len()
+        let target_valid = match animation.target {
+            EntityControllerAnimationTarget::Clip(clip) => {
+                (clip as usize) < compiled.animation_clips.len()
+            }
+            EntityControllerAnimationTarget::Controller(controller) => {
+                (controller as usize) < compiled.controllers.len()
+            }
+        };
+        if !target_valid
             || animation
                 .weight
                 .is_some_and(|index| index as usize >= compiled.molang_expressions.len())

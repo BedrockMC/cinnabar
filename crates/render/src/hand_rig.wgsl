@@ -1,0 +1,142 @@
+#import cinnabar::lighting::{lit_colour, light_brightness}
+
+// Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
+// (ActorGpuInstance as 20 words, ActorRigVertex as 11 words, bones as 3x vec4 rows) so the
+// same CPU buffers feed both paths; only the view is hand-local and the fragment is lit.
+
+struct HandView {
+    clip_from_hand: mat4x4<f32>,
+}
+
+struct GeometrySpan {
+    first_vertex: u32,
+    vertex_count: u32,
+}
+
+struct BoneMatrix {
+    row_0: vec4<f32>,
+    row_1: vec4<f32>,
+    row_2: vec4<f32>,
+}
+
+// block/sky are raw 0..=15 light levels sampled at the player; daylight scales the sky channel.
+struct HandLight {
+    block_level: u32,
+    sky_level: u32,
+    daylight: f32,
+    pad: u32,
+}
+
+@group(0) @binding(0) var<uniform> view: HandView;
+@group(0) @binding(1) var<storage, read> instance_words: array<u32>;
+@group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
+@group(0) @binding(3) var<storage, read> geometry_spans: array<GeometrySpan>;
+@group(0) @binding(4) var<storage, read> previous_bones: array<BoneMatrix>;
+@group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
+@group(0) @binding(6) var skins: texture_2d_array<f32>;
+@group(0) @binding(7) var skin_sampler: sampler;
+@group(0) @binding(8) var<uniform> material_class: vec4<u32>;
+@group(0) @binding(9) var<uniform> hand_light: HandLight;
+// Instances whose texture layer has its top bit set sample this equipment atlas page instead.
+@group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) skin_layer: u32,
+    @location(2) @interpolate(flat) valid: u32,
+    @location(3) back_uv: vec2<f32>,
+}
+
+fn word_f32(index: u32) -> f32 {
+    return bitcast<f32>(instance_words[index]);
+}
+
+fn instance_row(base: u32, row: u32) -> vec4<f32> {
+    let offset = base + row * 4u;
+    return vec4(
+        word_f32(offset),
+        word_f32(offset + 1u),
+        word_f32(offset + 2u),
+        word_f32(offset + 3u),
+    );
+}
+
+fn transform_point(matrix: BoneMatrix, point: vec3<f32>) -> vec3<f32> {
+    let homogeneous = vec4(point, 1.0);
+    return vec3(
+        dot(matrix.row_0, homogeneous),
+        dot(matrix.row_1, homogeneous),
+        dot(matrix.row_2, homogeneous),
+    );
+}
+
+@vertex
+fn hand_vertex(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32,
+) -> VertexOutput {
+    let instance_base = instance_index * 20u;
+    let previous_bone_base = instance_words[instance_base + 12u];
+    let current_bone_base = instance_words[instance_base + 13u];
+    let geometry_id = instance_words[instance_base + 14u];
+    let texture_layer = instance_words[instance_base + 15u];
+    let partial_tick = clamp(word_f32(instance_base + 16u), 0.0, 1.0);
+    let span = geometry_spans[geometry_id];
+
+    var out: VertexOutput;
+    out.skin_layer = texture_layer;
+    if (vertex_index >= span.vertex_count) {
+        out.position = vec4(2.0, 2.0, 2.0, 1.0);
+        out.uv = vec2(0.0);
+        out.back_uv = vec2(0.0);
+        out.valid = 0u;
+        return out;
+    }
+
+    let vertex_base = (span.first_vertex + vertex_index) * 11u;
+    let local = vec3(
+        bitcast<f32>(vertex_words[vertex_base]),
+        bitcast<f32>(vertex_words[vertex_base + 1u]),
+        bitcast<f32>(vertex_words[vertex_base + 2u]),
+    );
+    out.uv = vec2(
+        bitcast<f32>(vertex_words[vertex_base + 6u]),
+        bitcast<f32>(vertex_words[vertex_base + 7u]),
+    );
+    out.back_uv = vec2(
+        bitcast<f32>(vertex_words[vertex_base + 8u]),
+        bitcast<f32>(vertex_words[vertex_base + 9u]),
+    );
+    let bone_index = vertex_words[vertex_base + 10u];
+    let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
+    let current = transform_point(current_bones[current_bone_base + bone_index], local);
+    let posed = mix(previous, current, partial_tick);
+    let world = vec4(
+        dot(instance_row(instance_base, 0u), vec4(posed, 1.0)),
+        dot(instance_row(instance_base, 1u), vec4(posed, 1.0)),
+        dot(instance_row(instance_base, 2u), vec4(posed, 1.0)),
+        1.0,
+    );
+    out.position = view.clip_from_hand * world;
+    out.valid = 1u;
+    return out;
+}
+
+@fragment
+fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    if (input.valid == 0u) {
+        discard;
+    }
+    let uv = select(input.back_uv, input.uv, front);
+    let skin_color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
+    let item_color = textureSample(item_atlas, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
+    let color = select(skin_color, item_color, (input.skin_layer & 0x80000000u) != 0u);
+    if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
+        discard;
+    }
+    let block_brightness = light_brightness(hand_light.block_level);
+    let sky_brightness = light_brightness(hand_light.sky_level);
+    let lit = lit_colour(color.rgb, block_brightness, sky_brightness, 1.0, hand_light.daylight);
+    return vec4(lit, color.a);
+}

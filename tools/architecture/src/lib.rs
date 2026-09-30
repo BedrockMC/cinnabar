@@ -63,6 +63,16 @@ fn check_vendor_records(root: &Path, policy: &Policy, diagnostics: &mut Vec<Stri
             ));
         }
     }
+    for rule in &policy.owned_artifacts {
+        let named = fs::read_to_string(root.join(&rule.ownership_record))
+            .is_ok_and(|record| record.contains(&rule.path));
+        if !named {
+            diagnostics.push(format!(
+                "owned artifact path `{}` is not named by ownership record `{}`",
+                rule.path, rule.ownership_record
+            ));
+        }
+    }
 }
 
 pub(crate) fn read(path: &Path) -> Result<String, ArchitectureError> {

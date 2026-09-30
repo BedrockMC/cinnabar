@@ -26,7 +26,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:BridgeEndpoint = '127.0.0.1:19133'
         $script:Identity = [ordered]@{
             schema = 'rust-mcbe-phase3-identity-v1'; build_commit = $script:BuildCommit
-            target = 'Lbsg'; protocol = 1001; session_generation = 7
+            target = 'Lbsg'; protocol = 2193; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true; source_dirty = $false; run_id = $script:RunId
             endpoint = 'play.lbsg.net:19132'; bridge_endpoint = $script:BridgeEndpoint
@@ -49,6 +49,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
                 [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
                 [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
             )
+            core_extra_arguments = @()
         }
         $script:Scenario = [ordered]@{
             schema = 'rust-mcbe-fast-transfer-witness-scenario-v1'; scenario = 'FastTransferWitness'
@@ -56,6 +57,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
             assets_sha256 = $script:AssetsSha256
             maximum_command_to_reset_arm_milliseconds = 30000
             minimum_post_reset_network_position_delta = 0.5; minimum_duration_seconds = 600
+            core_extra_arguments = @()
             screenshot_slots = @(
                 [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
                 [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
@@ -134,7 +136,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
                 reconstructed_level_chunks = 0; reconstructed_sub_chunks = 0
             }
             presentation = [ordered]@{
-                build_profile = 'debug'; requested_present_mode = 'fifo'; effective_present_mode = 'fifo'
+                build_profile = 'release'; requested_present_mode = 'fifo'; effective_present_mode = 'fifo'
                 present_mode_proven = $true; visible_subset_of_resident = $true
                 graphics_identity_sha256 = 'aa' * 32; assets_manifest_sha256 = $script:AssetsSha256
                 publisher_disk = & $identity $Loaded 'key_generation'; resident = & $identity $Loaded 'key'
@@ -288,6 +290,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         return Assert-FastTransferWitnessEvidence @Artifacts `
             -ExpectedBuildCommit $script:BuildCommit -ExpectedPregSha256 $script:PregSha256 `
             -ExpectedBregSha256 $script:BregSha256 -ExpectedCoreSha256 $script:CoreSha256 `
+            -ExpectedProtocol 2193 `
             -ExpectedAppSha256 $script:AppSha256 -ExpectedAssetsSha256 $script:AssetsSha256 `
             -ExpectedRunId $script:RunId `
             -ExpectedBridgeEndpoint $script:BridgeEndpoint -ExpectedCoreProcessId 41 `
@@ -301,7 +304,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $result.post_reset_network_position_delta | Should BeGreaterThan 0.5
         $result.terminal_physics_packet_count | Should Be 9
         Assert-MockCalled Get-Phase2LocalResetSequenceEvidence 1 -ParameterFilter {
-            $ExpectedPresentMode -ceq 'Fifo' -and $ExpectedBuildProfile -ceq 'debug' -and
+            $ExpectedPresentMode -ceq 'Fifo' -and $ExpectedBuildProfile -ceq 'release' -and
             $WorldReadyObserved -and $Server -ceq 'Lbsg'
         }
         (Test-Path -LiteralPath $artifacts.OutputPath -PathType Leaf) | Should Be $true
@@ -311,6 +314,16 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:Positions[0] = @(100.0, 72.62, 100.0)
         $script:Positions[2] = @(64.4, 80.62, 64.0)
         { Invoke-WitnessValidation (Write-WitnessArtifacts 'pre-reset-only') } | Should Throw
+    }
+
+    It 'carries bounded core extra arguments through the witness schemas' {
+        $script:Scenario.core_extra_arguments = @('-upstream-client-cache')
+        $script:Metadata.core_extra_arguments = @('-upstream-client-cache', '512')
+        $artifacts = Write-WitnessArtifacts 'core-extra'
+        (Invoke-WitnessValidation $artifacts).status | Should Be 'passed'
+        $script:Scenario.core_extra_arguments = @('not allowed')
+        $broken = Write-WitnessArtifacts 'core-extra-broken'
+        { Invoke-WitnessValidation $broken } | Should Throw
     }
 
     It 'rejects a post-reset network-position delta below 0.5' {
@@ -481,7 +494,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         } | Select-Object -First 1
         $lines.Insert(
             $terminalIndex,
-            'RUST_MCBE_PHASE3_VIOLATION={"reason":"terminal_pending_correction","schema":"rust-mcbe-phase3-violation-v1"}'
+            'RUST_MCBE_PHASE3_VIOLATION={"reason":"terminal_pending_correction","schema":"rust-mcbe-phase3-violation-v2"}'
         )
         $lines | Set-Content $pending.LogPath -Encoding utf8
 
@@ -536,8 +549,11 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $entrypoint | Should Match "Scenario = 'FastTransferWitness'"
         $entrypoint | Should Match 'DurationSeconds = 900'
         $entrypoint | Should Match 'microsoft-token.json'
-        $entrypoint | Should Match 'vanilla-v1001.mcbea'
-        $launcher | Should Match 'target\\debug\\bedrock-client'
+        $entrypoint | Should Not Match 'vanilla-v[0-9]+\.mcbea'
+        $launcher | Should Match 'Get-BedrockTargetManifest'
+        $launcher | Should Match 'target\\\$buildProfile\\bedrock-client'
+        $launcher | Should Match "FastTransferWitness'.*'release'.*'debug'"
+        $launcher | Should Match "appBuildArguments \+= '--release'"
         $launcher | Should Match 'FastTransferWitnessValidate.ps1'
         $launcher | Should Match 'validation-error.txt'
         $launcher | Should Match 'rust-mcbe-phase3-launcher-error-v1'

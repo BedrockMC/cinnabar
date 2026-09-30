@@ -2,9 +2,8 @@ use super::*;
 
 /// Validates the complete semantic draw graph for decoded records.
 ///
-/// `enforce_protocol_1001` is false only for bounded synthetic fixtures. All
-/// production callers must use [`strict_bytes`], which enforces the exact
-/// reviewed protocol inventory and baseline.
+/// `enforce_protocol_1001` is true only when replaying frozen protocol-1001
+/// evidence. The active runtime target is not validated by this legacy module.
 pub fn strict_records(
     records: &[RegistryRecord],
     runtime: &RuntimeAssets,
@@ -12,6 +11,9 @@ pub fn strict_records(
     baseline: &Baseline,
     enforce_protocol_1001: bool,
 ) -> Result<StrictReport, CoverageError> {
+    if enforce_protocol_1001 {
+        validate_protocol_records(records)?;
+    }
     let ratchet_report = if enforce_protocol_1001 {
         ratchet_protocol_1001(snapshot, baseline)?
     } else {
@@ -42,6 +44,9 @@ pub fn strict_records(
                 sequential_id: record.sequential_id,
                 network_hash: record.network_hash,
             });
+        }
+        if enforce_protocol_1001 && is_reserved_sequential_id(record.sequential_id) {
+            continue;
         }
 
         let state = StateIdentity::from_record(record);
@@ -254,10 +259,8 @@ pub fn strict_bytes(
     strict_records(&records, &runtime, snapshot, baseline, true)
 }
 
-/// Compiles the exact protocol-1001 target inventory consumed by later gallery
-/// placement and screenshot stages. Diagnostics are retained as explicit
-/// targets. Acceptance requires both zero diagnostics and a fully valid strict
-/// semantic draw graph.
+/// Compiles the frozen protocol-1001 target inventory retained for historical
+/// gallery evidence. It is not an active runtime or acceptance carrier.
 pub(super) fn assemble_gallery_inventory(
     snapshot: CoverageSnapshot,
     baseline: &Baseline,
@@ -283,6 +286,7 @@ pub(super) fn assemble_gallery_inventory(
     let targets = report
         .states
         .into_iter()
+        .filter(|state| !is_reserved_sequential_id(state.sequential_id))
         .map(|state| {
             let status = if diagnostic_ids.contains(&state.sequential_id) {
                 GalleryTargetStatus::Diagnostic
@@ -320,8 +324,14 @@ pub(super) fn assemble_gallery_inventory(
             targets: targets.to_vec(),
         })
         .collect();
-    let diagnostic_targets = diagnostic_ids.len();
-    let fallback_targets = fallback_ids.len();
+    let diagnostic_targets = diagnostic_ids
+        .iter()
+        .filter(|&&id| !is_reserved_sequential_id(id))
+        .count();
+    let fallback_targets = fallback_ids
+        .iter()
+        .filter(|&&id| !is_reserved_sequential_id(id))
+        .count();
     Ok(GalleryInventory {
         schema: GALLERY_INVENTORY_SCHEMA.to_owned(),
         protocol: report.protocol,
@@ -331,7 +341,7 @@ pub(super) fn assemble_gallery_inventory(
         accepting: diagnostic_targets == 0 && fallback_targets == 0 && strict_semantics_valid,
         diagnostic_targets,
         fallback_targets,
-        target_count: PROTOCOL_1001_COUNTS.states,
+        target_count: PUBLIC_TARGET_COUNT,
         pages,
     })
 }
@@ -343,6 +353,7 @@ pub fn gallery_inventory_bytes(
 ) -> Result<GalleryInventory, CoverageError> {
     let baseline = parse_baseline(baseline_bytes)?;
     let records = read_registry(registry_bytes).map_err(CoverageError::Registry)?;
+    validate_protocol_records(&records)?;
     let runtime = RuntimeAssets::decode(assets_bytes).map_err(CoverageError::Assets)?;
     let snapshot = analyze_records(
         &records,

@@ -227,7 +227,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
     let key = SubChunkKey::new(0, 0, -4, 0);
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     let resolved_storage = stream.store.biome_storage(key).unwrap();
     let resolved = stream.resolved_biome_tints_snapshot();
@@ -240,7 +240,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
 
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 86]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 86], &RAW_BIOMES),
     );
     let missing_storage = stream.store.biome_storage(key).unwrap();
     let missing = super::pack_biome_record(
@@ -293,13 +293,13 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     stream.resident.insert(key);
     let source = stream.store.sub_chunk(key).unwrap();
@@ -541,6 +541,32 @@ fn camera_medium_samples_exposed_and_waterlogged_liquid_layers_without_flattenin
 }
 
 #[test]
+fn light_level_at_reads_resident_block_and_sky_and_falls_dark_off_boundary() {
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        [0.0, 4.5, 0.0],
+        None,
+    );
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream
+        .light_store
+        .insert_resident(key, SubChunkLight::uniform(7, 3, 1).unwrap());
+    assert_eq!(stream.light_level_at([4.5, 4.5, 4.5]), (7, 3));
+    // A sub-chunk whose light is not resident, and a non-finite sample, both read dark.
+    assert_eq!(stream.light_level_at([4.5, 40.0, 4.5]), (0, 0));
+    assert_eq!(stream.light_level_at([f32::NAN, 4.5, 4.5]), (0, 0));
+}
+
+#[test]
 fn camera_environment_context_exposes_palette_biome_and_effective_block_radius() {
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {
@@ -558,7 +584,7 @@ fn camera_environment_context_exposes_palette_biome_and_effective_block_radius()
     );
     stream.store.commit_biome_column(
         ChunkKey::new(0, 0, 0),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     stream.chunk_radius = Some(16);
 
@@ -867,6 +893,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replace
 #[test]
 fn request_mode_changed_biome_keeps_destructive_column_replacement() {
     let mut stream = block_entity_visual_stream();
+    define_custom_biomes(&mut stream, [1, 2]);
     let position = [1, -63, 2];
     let key = SubChunkKey::new(0, 0, -4, 0);
     let initial = block_entity_nbt("Jukebox", position);

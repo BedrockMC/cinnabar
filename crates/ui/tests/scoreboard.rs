@@ -4,15 +4,24 @@ use ui::{
     BossAction, BossBarEvent, BossBarStore, BossColor, BossOverlay, BossStyle, DisplaySlot,
     MAX_BOSS_BARS, MAX_OBJECTIVES, MAX_RETAINED_UI_TEXT_FIELD_BYTES,
     MAX_SCOREBOARD_RETAINED_TEXT_BYTES, MAX_SCORES, RetainedUiApply, RetainedUiSequenceError,
-    ScoreAction, ScoreEntry, ScoreOwner, ScoreboardEvent, ScoreboardStore,
+    ScoreAction, ScoreEntry, ScoreOwner, ScoreRenderType, ScoreboardEvent, ScoreboardStore,
 };
 
 fn display(slot: &str, objective: &str, sort_order: i32) -> ScoreboardEvent {
+    display_with_criteria(slot, objective, "dummy", sort_order)
+}
+
+fn display_with_criteria(
+    slot: &str,
+    objective: &str,
+    criteria: &str,
+    sort_order: i32,
+) -> ScoreboardEvent {
     ScoreboardEvent::DisplayObjective {
         display_slot: Arc::from(slot),
         objective_name: Arc::from(objective),
         display_name: Arc::from(format!("{objective} title")),
-        criteria_name: Arc::from("dummy"),
+        criteria_name: Arc::from(criteria),
         sort_order,
     }
 }
@@ -128,6 +137,92 @@ fn unsupported_orders_are_retained_without_an_invented_projection() {
 }
 
 #[test]
+fn criteria_render_types_classify_into_explicit_presentation_intents() {
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("health"),
+        ScoreRenderType::Hearts
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("hearts"),
+        ScoreRenderType::Hearts
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("dummy"),
+        ScoreRenderType::Integer
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name("totalKillCount"),
+        ScoreRenderType::Integer
+    );
+    assert_eq!(
+        ScoreRenderType::from_criteria_name(""),
+        ScoreRenderType::Integer
+    );
+
+    let mut store = ScoreboardStore::default();
+    store
+        .apply(1, display_with_criteria("sidebar", "hp", "health", 0))
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Hearts
+    );
+
+    store
+        .apply(2, display_with_criteria("sidebar", "hp", "hearts", 0))
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Hearts
+    );
+
+    store
+        .apply(3, display_with_criteria("sidebar", "hp", "dummy", 0))
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Integer
+    );
+
+    // The classification rides the objective record, so applying scores under
+    // the now-Integer objective does not mutate its stored render type, and
+    // re-displaying with hearts criteria restores Hearts for later scores.
+    store
+        .apply(
+            4,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([score(
+                    "hp",
+                    1,
+                    13,
+                    ScoreOwner::FakePlayer(Arc::from("Alex")),
+                )]),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Integer
+    );
+
+    store
+        .apply(5, display_with_criteria("sidebar", "hp", "hearts", 0))
+        .unwrap();
+    store
+        .apply(
+            6,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([score("hp", 1, 7, ScoreOwner::FakePlayer(Arc::from("Alex")))]),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.sidebar().unwrap().render_type,
+        ScoreRenderType::Hearts
+    );
+}
+
+#[test]
 fn missing_score_identities_and_capacity_fail_without_mutation() {
     let mut store = ScoreboardStore::default();
     let before = store.clone();
@@ -193,6 +288,58 @@ fn oversized_incoming_score_batch_is_rejected_before_duplicate_key_staging() {
     );
     assert_eq!(store.sidebar().unwrap(), before);
     assert_eq!(store.diagnostics().score_event_limit_rejections, 1);
+}
+
+// An objective-less removal clears the entry everywhere, alongside its siblings.
+#[test]
+fn objective_less_removal_clears_the_entry_from_every_objective() {
+    let mut store = ScoreboardStore::default();
+    store.apply(1, display("sidebar", "kills", 0)).unwrap();
+    store.apply(2, display("list", "deaths", 0)).unwrap();
+    let scores = [
+        score("kills", 7, 5, ScoreOwner::None),
+        score("deaths", 7, 2, ScoreOwner::None),
+        score("kills", 8, 1, ScoreOwner::None),
+    ];
+    store
+        .apply(
+            3,
+            ScoreboardEvent::Scores {
+                entries: Arc::from(scores),
+            },
+        )
+        .unwrap();
+    let everywhere = ScoreEntry {
+        action: ScoreAction::RemoveFromAll,
+        ..removed("", 7)
+    };
+    assert_eq!(
+        store.apply(
+            4,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([everywhere.clone(), score("kills", 9, 3, ScoreOwner::None)]),
+            }
+        ),
+        Ok(RetainedUiApply::Applied)
+    );
+    let ids = |rows: &[ui::ScoreRow]| {
+        rows.iter()
+            .map(|row| row.identity.entry_id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&store.sidebar().unwrap().rows), [8, 9]);
+    assert!(store.list().unwrap().rows.is_empty());
+    assert_eq!(store.score_count(), 2);
+    assert_eq!(
+        store.apply(
+            5,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([everywhere])
+            }
+        ),
+        Ok(RetainedUiApply::Ignored)
+    );
+    assert_eq!(store.diagnostics().missing_scores, 1);
 }
 
 #[test]
@@ -422,7 +569,6 @@ fn direct_store_fifo_rejection_and_clear_have_no_stale_mutation() {
 fn boss(action: BossAction, id: i64, title: &str, health: f32) -> BossBarEvent {
     BossBarEvent {
         target_entity_id: id,
-        player_id: 42,
         action,
         title: Arc::from(title),
         filtered_title: Arc::from(""),
@@ -466,17 +612,17 @@ fn boss_lifecycle_style_health_membership_and_stacking_are_stable() {
     assert_eq!(bars[0].health, 1.25);
     assert_eq!(bars[0].style.color, BossColor::Blue);
     assert_eq!(bars[0].style.overlay, BossOverlay::Notched20);
-    assert_eq!(store.registered_players(20), [42]);
 
     store
         .apply(6, boss(BossAction::Show, 20, "updated", 0.75))
         .unwrap();
     assert_eq!(store.stacked()[0].title.as_ref(), "updated");
-    assert_eq!(store.registered_players(20), [42]);
-    store
-        .apply(7, boss(BossAction::UnregisterPlayer, 20, "", 0.0))
-        .unwrap();
-    assert!(store.registered_players(20).is_empty());
+    assert_eq!(
+        store
+            .apply(7, boss(BossAction::UnregisterPlayer, 20, "", 0.0))
+            .unwrap(),
+        RetainedUiApply::Applied
+    );
     store.apply(8, boss(BossAction::Hide, 20, "", 0.0)).unwrap();
     assert_eq!(
         store
@@ -486,6 +632,33 @@ fn boss_lifecycle_style_health_membership_and_stacking_are_stable() {
             .collect::<Vec<_>>(),
         [10]
     );
+}
+
+#[test]
+fn allocation_free_boss_query_preserves_first_show_order() {
+    let mut store = BossBarStore::default();
+    store
+        .apply(1, boss(BossAction::Show, 20, "first", 0.5))
+        .unwrap();
+    store
+        .apply(2, boss(BossAction::Show, 10, "second", 1.0))
+        .unwrap();
+    store
+        .apply(3, boss(BossAction::Show, 20, "updated", 0.75))
+        .unwrap();
+
+    let mut bars = store.stacked_iter();
+    let first = bars.next().expect("first bar");
+    let second = bars.next().expect("second bar");
+    assert_eq!(
+        (first.target_entity_id, first.title.as_ref()),
+        (20, "updated")
+    );
+    assert_eq!(
+        (second.target_entity_id, second.title.as_ref()),
+        (10, "second")
+    );
+    assert!(bars.next().is_none());
 }
 
 #[test]

@@ -1,16 +1,17 @@
 use bytes::Bytes;
 use protocol::{
-    ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent,
+    ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent, ItemPacketError,
     MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
     MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, WorldEvent,
-    into_world_event,
+    WorldPacketError, into_world_event,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::Nbt;
-use valentine::bedrock::version::v1_26_40::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket,
-    AnimatePacketAction, CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
-    ItemData, ItemRegistryPacket, MobEquipmentPacket, NetworkSettingsPacket,
+    CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
+    EnumsAnimatePacketPayloadAction as AnimatePacketAction, ItemData, ItemRegistryPacket,
+    MobEquipmentPacket, NetworkSettingsPacket,
 };
 
 /// The inventory container. 1.26.40 carries the raw container ID rather than a
@@ -53,7 +54,9 @@ fn stack_item() -> ItemStackDescriptor {
 }
 
 fn runtime_id(actor_runtime_id: i64) -> ActorRuntimeId {
-    ActorRuntimeId { actor_runtime_id }
+    ActorRuntimeId {
+        actor_runtime_id: u64::from_ne_bytes(actor_runtime_id.to_ne_bytes()),
+    }
 }
 
 #[test]
@@ -159,19 +162,59 @@ fn mob_equipment_retains_slots_and_canonical_stack_identity() {
         panic!("expected offhand equipment")
     };
     assert_eq!(offhand.handedness, Some(ActorHandedness::Left));
+
+    let hotbar = MobEquipmentPacket {
+        target_runtime_id: runtime_id(42),
+        item: ItemStackDescriptor {
+            id: 5,
+            stacksize: 1,
+            ..Default::default()
+        },
+        slot: 0,
+        selected_slot: 0,
+        container_id: 122,
+    };
+    let WorldEvent::Equipment(hotbar) = into_world_event(hotbar.into(), 0).unwrap().unwrap() else {
+        panic!("expected hotbar equipment")
+    };
+    assert_eq!(hotbar.handedness, Some(ActorHandedness::Right));
+}
+
+#[test]
+fn mob_equipment_rejects_unknown_and_sentinel_containers() {
+    for container_id in [1, NO_CONTAINER] {
+        let packet = MobEquipmentPacket {
+            target_runtime_id: runtime_id(42),
+            item: ItemStackDescriptor {
+                id: 5,
+                stacksize: 1,
+                ..Default::default()
+            },
+            slot: 0,
+            selected_slot: 0,
+            container_id,
+        };
+        let error = into_world_event(packet.into(), 0)
+            .expect_err("unknown equipment container must be rejected");
+        assert!(matches!(
+            error,
+            WorldPacketError::Item(ItemPacketError::UnknownEquipmentContainer(actual))
+                if actual == container_id
+        ));
+    }
 }
 
 #[test]
 fn animate_known_row_and_unknown_actions_are_attributed() {
     for (action, expected) in [
         (AnimatePacketAction::Swing, ActorActionKind::SwingArm),
-        (AnimatePacketAction::WakeUp, ActorActionKind::Wake),
+        (AnimatePacketAction::Wakeup, ActorActionKind::Wake),
         (
-            AnimatePacketAction::CriticalHit,
+            AnimatePacketAction::Criticalhit,
             ActorActionKind::CriticalHit,
         ),
         (
-            AnimatePacketAction::MagicCriticalHit,
+            AnimatePacketAction::Magiccriticalhit,
             ActorActionKind::MagicCriticalHit,
         ),
         (AnimatePacketAction::Unknown(128), ActorActionKind::RowRight),
@@ -283,7 +326,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         carried_item: ItemStackDescriptor {
             id: -1,
             stacksize: 1,
-            auxvalue: -1,
+            auxvalue: u32::from_ne_bytes((-1i32).to_ne_bytes()),
             ..Default::default()
         },
         ..Default::default()
@@ -473,13 +516,12 @@ fn equipment_rejects_invalid_runtime_and_stack_but_retains_unusual_slots() {
         selected_slot: 0,
         container_id: NO_CONTAINER,
     };
-    let WorldEvent::Equipment(signed_window) =
-        into_world_event(signed_window.into(), 0).unwrap().unwrap()
-    else {
-        panic!("expected bit-preserved window")
-    };
-    assert_eq!(signed_window.window_id, u8::MAX);
-    assert_eq!(signed_window.handedness, None);
+    let error = into_world_event(signed_window.into(), 0)
+        .expect_err("sentinel equipment container must be rejected");
+    assert!(matches!(
+        error,
+        WorldPacketError::Item(ItemPacketError::UnknownEquipmentContainer(NO_CONTAINER))
+    ));
 }
 
 fn custom_action(targets: Vec<i64>) -> AnimateEntityPacket {

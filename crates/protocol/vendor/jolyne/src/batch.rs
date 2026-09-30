@@ -475,7 +475,11 @@ pub fn decode_batch_raw_split(
             }
             BatchCompression::None => {
                 ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
-                decode_packets_raw(compressed)
+                // LengthDelimitedCodec may yield a slice backed by its much
+                // larger bridge read buffer. Materialise the uncompressed
+                // batch so a retained packet cannot pin unrelated frames or
+                // decoder spare capacity.
+                decode_packets_raw(Bytes::copy_from_slice(&compressed))
             }
             BatchCompression::Snappy => {
                 let decompressed =
@@ -538,7 +542,7 @@ fn decode_batch_payload_raw(
             }
             BatchCompression::None => {
                 ensure_decompressed_size(compressed.len(), max_decompressed_size)?;
-                decode_packets_raw(compressed)
+                decode_packets_raw(Bytes::copy_from_slice(&compressed))
             }
             BatchCompression::Snappy => {
                 let decompressed =
@@ -652,7 +656,7 @@ pub(crate) fn encode_batch_raw_into(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::valentine::{PlayStatusPacket, PlayStatusPacketStatus};
+    use crate::valentine::{LevelChunkPacket, PlayStatusPacket, PlayStatusPacketStatus};
 
     fn test_session() -> BedrockSession {
         BedrockSession { shield_item_id: 0 }
@@ -698,7 +702,7 @@ mod tests {
     fn encode_decode_roundtrip_compressed() {
         let session = test_session();
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         let batch = encode_batch(&packet, true, 7, 0).expect("encode");
@@ -708,7 +712,7 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::Loginsuccess
         ));
     }
 
@@ -743,7 +747,7 @@ mod tests {
     fn encode_decode_roundtrip_uncompressed() {
         let session = test_session();
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::PlayerSpawn,
+            status: PlayStatusPacketStatus::Playerspawn,
         });
 
         // Compression disabled
@@ -757,14 +761,14 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::PlayerSpawn
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::Playerspawn
         ));
     }
 
     #[test]
     fn encode_with_compression_none_marker() {
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         // Compression enabled but level 0 or below threshold -> should use None marker
@@ -778,7 +782,7 @@ mod tests {
     #[test]
     fn compression_threshold_below_threshold_uses_none() {
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         // Threshold = 512, packet is small -> should use None compression
@@ -791,7 +795,7 @@ mod tests {
     #[test]
     fn compression_threshold_above_threshold_uses_deflate() {
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         // Threshold = 0, any packet should compress
@@ -815,10 +819,10 @@ mod tests {
         let session = test_session();
         let packets = vec![
             McpePacket::from(PlayStatusPacket {
-                status: PlayStatusPacketStatus::LoginSuccess,
+                status: PlayStatusPacketStatus::Loginsuccess,
             }),
             McpePacket::from(PlayStatusPacket {
-                status: PlayStatusPacketStatus::PlayerSpawn,
+                status: PlayStatusPacketStatus::Playerspawn,
             }),
         ];
 
@@ -830,11 +834,11 @@ mod tests {
 
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::Loginsuccess
         ));
         assert!(matches!(
             decoded[1].data,
-            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::PlayerSpawn
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::Playerspawn
         ));
     }
 
@@ -844,7 +848,7 @@ mod tests {
     fn encode_decode_nethernet_format() {
         let session = test_session();
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         // NetherNet style: no 0xFE prefix
@@ -878,7 +882,7 @@ mod tests {
         let packets: Vec<_> = (0..10)
             .map(|_| {
                 McpePacket::from(PlayStatusPacket {
-                    status: PlayStatusPacketStatus::LoginSuccess,
+                    status: PlayStatusPacketStatus::Loginsuccess,
                 })
             })
             .collect();
@@ -894,7 +898,7 @@ mod tests {
     #[test]
     fn raw_batch_size_guard_covers_none_and_pre_compression_payloads() {
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         let mut none = encode_batch(&packet, true, 0, u16::MAX).expect("encode None batch");
@@ -916,7 +920,7 @@ mod tests {
     fn decode_batch_accepts_snappy() {
         let session = test_session();
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
         let raw_batch = encode_batch(&packet, false, 0, 0).expect("encode raw");
         let compressed = snap::raw::Encoder::new()
@@ -933,7 +937,7 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::Loginsuccess
         ));
     }
 
@@ -946,7 +950,7 @@ mod tests {
         // Create a normal packet, encode it, then decode as raw
         let session = test_session();
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::LoginSuccess,
+            status: PlayStatusPacketStatus::Loginsuccess,
         });
 
         // Encode as normal batch
@@ -966,15 +970,43 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert!(matches!(
             decoded[0].data,
-            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::LoginSuccess
+            McpePacketData::PlayStatusPacket(ref s) if s.status == PlayStatusPacketStatus::Loginsuccess
         ));
+    }
+
+    #[test]
+    fn none_batch_detaches_level_chunk_from_oversized_outer_bridge_frame() {
+        let packet = McpePacket::from(LevelChunkPacket {
+            serialized_chunk_data: vec![0x5a; 1024 * 1024],
+            ..Default::default()
+        });
+        let batch = encode_batch(&packet, true, 0, u16::MAX).expect("encode None batch");
+        assert_eq!(batch[1], BatchCompression::None as u8);
+
+        let mut outer = BytesMut::with_capacity(64 * 1024 * 1024);
+        outer.extend_from_slice(&batch);
+        outer.resize(batch.len() + 8 * 1024 * 1024, 0x7b);
+        let outer = outer.freeze();
+        let outer_start = outer.as_ptr() as usize;
+        let outer_end = outer_start + outer.len();
+        let mut bridge_frame = outer.slice(..batch.len());
+        let packets = decode_batch_raw(&mut bridge_frame, true, Some(16 * 1024 * 1024))
+            .expect("decode uncompressed bridge frame");
+
+        assert_eq!(packets.len(), 1);
+        let pointer = packets[0].inner_frame().as_ptr() as usize;
+        assert!(!(outer_start..outer_end).contains(&pointer));
+        assert_eq!(
+            packets[0].id,
+            crate::valentine::McpePacketName::LevelChunkPacket
+        );
     }
 
     #[test]
     fn raw_batch_uncompressed_roundtrip() {
         let session = test_session();
         let packet = McpePacket::from(PlayStatusPacket {
-            status: PlayStatusPacketStatus::PlayerSpawn,
+            status: PlayStatusPacketStatus::Playerspawn,
         });
 
         // Encode without compression

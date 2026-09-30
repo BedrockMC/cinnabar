@@ -6,6 +6,49 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Launcher panorama
+
+- Files: `assets/panorama/` (`panorama_0.jpg` .. `panorama_5.jpg`)
+- Provenance: original, generated for Cinnabar; not Mojang content.
+
+## Launcher title logo
+
+- Files: `assets/branding/` (`title.png`)
+- Provenance: original, generated for Cinnabar; not Mojang content.
+
+## BedSim
+
+- Source: https://github.com/oomph-ac/bedsim
+- Commit: `28403153ffb5f8da0d170ce523d04f2c60ad58a5`
+- License: MIT
+- Copyright: Copyright (c) 2026 Oomph AC
+- Upstream license SHA-256:
+  `f9b70c22e3d853012404e41d51beae215592bbe6f94414e05c6e284c263bfacc`
+
+<!-- BEGIN BEDSIM-MIT -->
+MIT License
+
+Copyright (c) 2026 Oomph AC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+<!-- END BEDSIM-MIT -->
+
 ## Monocraft
 
 - Source: https://github.com/IdreesInc/Monocraft
@@ -15,6 +58,19 @@ directory. This notice is checked in and is not rewritten by the acquisition scr
 - Upstream license SHA-256:
   `f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1`
 - Full license: `assets/licenses/Monocraft-OFL-1.1.txt`
+
+## Noto Sans CJK SC Regular
+
+- Source: https://github.com/notofonts/noto-cjk
+- Commit: `f8d157532fbfaeda587e826d4cd5b21a49186f7c`
+- Copyright: © 2014-2021 Adobe (http://www.adobe.com/).
+- License: OFL-1.1
+- Exact upstream license SHA-256:
+  `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2`
+- Full license: `assets/licenses/NotoSansCJK-OFL-1.1.txt`
+- The generated UI carrier's accompanying `ui-font-notices.txt` includes
+  both source fonts' full licenses and copyright notices. Source fonts remain
+  unmodified in the local cache; upstream family names identify attribution.
 
 ## PMMP BedrockData
 
@@ -227,6 +283,9 @@ SOFTWARE.<!-- END AXOLOTL-STACK-MIT -->
 - Copyright: Copyright (c) 2019 Dragonfly Tech
 - Upstream license SHA-256:
   `9b0866098f4b7bfadafa43adec71dae35968053ceaea0487fb4b23c46cc72755`
+- Item tag table: `crates/protocol/data/item_tags_dragonfly.tsv`, derived from
+  the `hashimthearab/dragonfly` fork at
+  `3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5` under the same license.
 
 <!-- BEGIN DRAGONFLY-MIT -->
 MIT License

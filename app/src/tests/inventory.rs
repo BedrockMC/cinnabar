@@ -1,14 +1,19 @@
 use protocol::{
-    EquipmentEvent, InventoryAuthority, InventoryEvent, NetworkItemStack, WorldBootstrap,
-    WorldEvent,
+    CONTAINER_NAME_CURSOR, ContainerIdentity, ContainerOpenEvent, EquipmentEvent,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemActorEvent, ItemRegistryEntry,
+    ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack, WorldBootstrap, WorldEvent,
 };
 
 use crate::{
     runtime::network::{
-        EquipmentIngress, bootstrap_session_generation_is_expected, publish_equipment_identity,
-        route_equipment_ingress, route_inventory_ingress, session::SequencedWorldEvent,
+        BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
+        publish_bootstrap_inventory, publish_equipment_identity, route_equipment_ingress,
+        route_inventory_ingress, route_item_registry_ingress, session::SequencedWorldEvent,
     },
-    ui_runtime::{MAX_PENDING_INVENTORY_EVENTS, UiRuntime},
+    ui_runtime::{
+        InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime,
+        inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT},
+    },
 };
 
 fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
@@ -20,6 +25,64 @@ fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
         window_id: 0,
         handedness: None,
     }
+}
+
+#[test]
+fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
+    let mut runtime = UiRuntime::new(7);
+    let registry = ItemRegistryEvent {
+        entries: std::sync::Arc::from([ItemRegistryEntry {
+            identifier: "minecraft:apple".into(),
+            network_id: 878,
+            component_based: true,
+            version: ItemRegistryVersion::DataDriven,
+            component_digest: [8; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: false,
+            item_tags: std::sync::Arc::from([]),
+        }]),
+    };
+    assert!(publish_bootstrap_inventory(
+        &mut runtime,
+        Some(registry),
+        InventoryEvent::Authority(InventoryAuthority::Server),
+    ));
+
+    let stack = |stack_network_id, count| NetworkItemStack {
+        network_id: 878,
+        stack_network_id,
+        count,
+        ..NetworkItemStack::default()
+    };
+    let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[0] = stack(60, 60);
+    let ledger = runtime.inventory_ledger_mut();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(-1),
+            slot_type: Some(CONTAINER_NAME_CURSOR),
+            dynamic_id: None,
+        },
+        slots: std::sync::Arc::from([stack(33, 33)]),
+        storage_item: NetworkItemStack::default(),
+    }));
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+
+    assert_eq!(ledger.begin_click(0), Ok(-3));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 29);
 }
 
 #[test]
@@ -224,6 +287,48 @@ fn inventory_ingress_is_retained_while_global_fifo_advances() {
 }
 
 #[test]
+fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
+    let mut runtime = UiRuntime::new(7);
+    runtime
+        .enqueue_inventory_event(7, 1, InventoryEvent::Authority(InventoryAuthority::Server))
+        .unwrap();
+    let registry = ItemRegistryEvent {
+        entries: std::sync::Arc::from([ItemRegistryEntry {
+            identifier: "minecraft:apple".into(),
+            network_id: 6,
+            component_based: true,
+            version: ItemRegistryVersion::DataDriven,
+            component_digest: [6; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: false,
+            item_tags: std::sync::Arc::from([]),
+        }]),
+    };
+    let sequenced = SequencedWorldEvent {
+        session_generation: 7,
+        sequence: 2,
+        event: WorldEvent::ItemActor(ItemActorEvent::Registry(registry.clone())),
+    };
+    route_item_registry_ingress(&mut runtime, &sequenced).unwrap();
+    runtime
+        .enqueue_inventory_event(7, 3, InventoryEvent::Authority(InventoryAuthority::Client))
+        .unwrap();
+
+    assert!(matches!(
+        runtime.pop_inventory_event().unwrap().event,
+        InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(InventoryAuthority::Server))
+    ));
+    assert_eq!(
+        runtime.pop_inventory_event().unwrap().event,
+        InventoryAuthorityEvent::Registry(registry)
+    );
+    assert!(matches!(
+        runtime.pop_inventory_event().unwrap().event,
+        InventoryAuthorityEvent::Inventory(InventoryEvent::Authority(InventoryAuthority::Client))
+    ));
+}
+
+#[test]
 fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
     let mut runtime = UiRuntime::new(8);
     publish_equipment_identity(&mut runtime, 8, 42).unwrap();
@@ -250,9 +355,16 @@ fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
 
 #[test]
 fn bootstrap_generation_must_match_the_next_ui_and_world_session() {
-    assert!(bootstrap_session_generation_is_expected(0, 0, 1));
-    assert!(bootstrap_session_generation_is_expected(7, 7, 8));
-    assert!(!bootstrap_session_generation_is_expected(7, 7, 7));
-    assert!(!bootstrap_session_generation_is_expected(7, 7, 9));
-    assert!(!bootstrap_session_generation_is_expected(6, 7, 8));
+    use BootstrapGenerationDisposition::{Expected, Stale, Unexpected};
+
+    assert_eq!(classify_bootstrap_generation(0, 0, 1), Expected);
+    assert_eq!(classify_bootstrap_generation(7, 7, 8), Expected);
+    // Launcher generation is pre-bound while the world still owns its prior
+    // generation. Gaps cover the first connection and later reconnects.
+    assert_eq!(classify_bootstrap_generation(2, 0, 2), Expected);
+    assert_eq!(classify_bootstrap_generation(8, 3, 8), Expected);
+    assert_eq!(classify_bootstrap_generation(8, 7, 7), Stale);
+    assert_eq!(classify_bootstrap_generation(8, 7, 6), Stale);
+    assert_eq!(classify_bootstrap_generation(7, 7, 9), Unexpected);
+    assert_eq!(classify_bootstrap_generation(6, 7, 8), Unexpected);
 }

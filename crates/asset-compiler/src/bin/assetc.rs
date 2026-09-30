@@ -1,24 +1,39 @@
 use std::{
     fs::{self, File},
     io::{self, Read},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    GlyphAdvances, OutlineFontConfig, compile_atmosphere_assets_with_options,
-    compile_entity_assets_with_report, compile_fonts, compile_outline_font,
-    compile_pack_with_biomes, inspect_animation_inventory,
+    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
+    compile_pack_with_material_keys, compile_vanilla_entity_refs, inspect_animation_inventory,
 };
 use assets::{
-    AssetError, AtmosphereRole, EntityAssetSource, EntityAssetSymbol, ItemVisualDefinitionRoute,
-    MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES, encode_atmosphere_blob, encode_blob,
-    encode_entity_blob, read_biome_registry, read_light_registry, read_registry, write_blob_atomic,
+    AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
+    ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
+    encode_entity_blob, read_biome_registry, write_blob_atomic,
 };
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "assetc/actor_command.rs"]
+mod actor_command;
+#[path = "assetc/audio_bank_command.rs"]
+mod audio_bank_command;
+#[path = "assetc/audio_command.rs"]
+mod audio_command;
+#[path = "assetc/audio_pcm_command.rs"]
+mod audio_pcm_command;
+#[path = "assetc/block_entity_command.rs"]
+mod block_entity_command;
+#[path = "assetc/cli.rs"]
+mod cli;
+#[path = "assetc/equipment_command.rs"]
+mod equipment_command;
+#[path = "assetc/font_command.rs"]
+mod font_command;
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
 #[path = "assetc/icon_command.rs"]
@@ -27,159 +42,27 @@ mod icon_command;
 mod lang_command;
 #[path = "assetc/output_validation.rs"]
 mod output_validation;
+#[path = "assetc/particle_command.rs"]
+mod particle_command;
+#[path = "assetc/registry_version.rs"]
+mod registry_version;
+#[path = "assetc/ui_command.rs"]
+mod ui_command;
 
+use audio_bank_command::compile_audio_bank_command;
+use audio_command::compile_audio_assets_command;
+use audio_pcm_command::compile_audio_pcm_command;
+use cli::{Cli, Command};
+use equipment_command::compile_equipment_assets_command;
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
-use lang_command::compile_lang_assets_command;
+use lang_command::{compile_lang_assets_command, compile_languages_command};
 use output_validation::validate_output_bundle;
+use particle_command::compile_particle_assets_command;
+use ui_command::compile_ui_assets_command;
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
-#[derive(Debug, Parser)]
-#[command(
-    about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v1001.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nPinned official Mojang sample HUD sprites:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest assets/hud-source-v1001.json --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Compile the fixed vanilla sun, moon-phase, and cloud textures.
-    Atmosphere {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        clouds_override: Option<PathBuf>,
-        /// Ignored/local MCBEATM2 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile bounded entity geometry, animation, controller, and texture metadata.
-    EntityAssets {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEENT3 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile bounded bitmap-font metrics and raw RGBA8 texture pages.
-    FontAssets {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEFONT1 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    HudAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pinned pack's sprite-routed item icons into the bounded
-    /// icon carrier.
-    IconAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pinned pack's en_US language table into the bounded
-    /// localization carrier.
-    LangAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Rasterize a pinned open-licensed outline font into a bounded bitmap carrier.
-    OutlineFontAssets {
-        /// Exact hash-verified local TTF/OTF source.
-        #[arg(long)]
-        font: PathBuf,
-        /// Tracked manifest pinning font URL, hash, license, and raster settings.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEFONT1 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile a resource pack and Dragonfly registry into a runtime blob.
-    Compile {
-        /// Root containing blocks.json and the textures directory.
-        #[arg(long)]
-        pack: PathBuf,
-        /// BREG1003 registry exported by tools/registrygen.
-        #[arg(long)]
-        registry: PathBuf,
-        /// LREG1001 state light metadata bound to the exact BREG1003 input.
-        #[arg(long)]
-        light_registry: PathBuf,
-        /// BIOREG01 registry exported by tools/registrygen.
-        #[arg(long)]
-        biome_registry: PathBuf,
-        /// Ignored/local output path, conventionally ending in .mcbea.
-        #[arg(long)]
-        out: PathBuf,
-    },
-    /// Compile a bounded read-only animation plan and write its deterministic inventory.
-    AnimationInventory {
-        /// Root containing blocks.json and the textures directory.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Pinned source manifest whose exact bytes identify the local pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Maximum physical array layers in each texture page (1..=2048).
-        #[arg(long)]
-        max_layers_per_page: u32,
-        /// Maximum physical texture pages (1..=2).
-        #[arg(long)]
-        max_pages: u32,
-        /// Ignored/local deterministic JSON report path.
-        #[arg(long)]
-        out: PathBuf,
-    },
-}
 
 #[derive(Serialize)]
 struct AnimationInventoryReport {
@@ -306,6 +189,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             compile_entity_assets_command(&pack, &source_manifest, &out, &report)?;
         }
+        Command::EquipmentAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+            behavior_pack,
+        } => {
+            compile_equipment_assets_command(
+                &pack,
+                &source_manifest,
+                &out,
+                &report,
+                behavior_pack.as_deref(),
+            )?;
+        }
         Command::FontAssets {
             pack,
             source_manifest,
@@ -322,13 +220,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
         }
-        Command::IconAssets {
+        Command::HudExtrasAssets { pack, out } => {
+            asset_compiler::compile_hud_extras_to_file(&pack, &out)?;
+            println!("compiled HUD extras to {}", out.display());
+        }
+        Command::WeatherAssets { pack, out } => {
+            asset_compiler::compile_weather_textures_to_file(&pack, &out)?;
+            println!("compiled weather textures to {}", out.display());
+        }
+        Command::ActorAssets {
             pack,
             source_manifest,
             out,
             report,
         } => {
-            compile_icon_assets_command(&pack, &source_manifest, &out, &report)?;
+            actor_command::compile_actor_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::BlockEntityAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            block_entity_command::compile_block_entity_assets_command(
+                &pack,
+                &source_manifest,
+                &out,
+                &report,
+            )?;
+        }
+        Command::UiAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_ui_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::ParticleAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_particle_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::IconAssets {
+            pack,
+            source_manifest,
+            block_assets,
+            out,
+            report,
+        } => {
+            compile_icon_assets_command(
+                &pack,
+                &source_manifest,
+                block_assets.as_deref(),
+                &out,
+                &report,
+            )?;
         }
         Command::LangAssets {
             pack,
@@ -338,41 +288,106 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             compile_lang_assets_command(&pack, &source_manifest, &out, &report)?;
         }
-        Command::OutlineFontAssets {
-            font,
+        Command::LanguageAssets {
+            pack,
+            source_manifest,
+            out_dir,
+        } => {
+            compile_languages_command(&pack, &source_manifest, &out_dir)?;
+        }
+        Command::AudioAssets {
+            pack,
             source_manifest,
             out,
             report,
         } => {
-            compile_outline_font_assets_command(&font, &source_manifest, &out, &report)?;
+            compile_audio_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::AudioBank { pack, out, report } => {
+            compile_audio_bank_command(&pack, &out, &report)?;
+        }
+        Command::AudioPcmAssets {
+            pack,
+            catalog,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_audio_pcm_command(&pack, &catalog, &source_manifest, &out, &report)?;
+        }
+        Command::OutlineFontAssets {
+            font,
+            fallback_font,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_outline_font_assets_command(
+                &font,
+                fallback_font.as_deref(),
+                &source_manifest,
+                &out,
+                &report,
+            )?;
         }
         Command::Compile {
             pack,
+            source_manifest,
             registry,
             light_registry,
             biome_registry,
             out,
         } => {
+            let manifest_bytes = read_bounded_with_limit(
+                &source_manifest,
+                MAX_SOURCE_MANIFEST_BYTES,
+                "source manifest",
+            )?;
+            serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
+                AssetError::Json {
+                    path: source_manifest.clone(),
+                    source,
+                }
+            })?;
             let registry_bytes = read_bounded(&registry)?;
-            let records = read_registry(&registry_bytes)?;
+            let (records, block_registry_protocol) =
+                registry_version::read_block_registry_input(&registry, &registry_bytes)?;
             let light_registry_bytes = read_bounded(&light_registry)?;
-            let light_properties =
-                read_light_registry(&light_registry_bytes, &registry_bytes, records.len())?;
+            let light_properties = registry_version::read_light_registry_input(
+                &light_registry,
+                &light_registry_bytes,
+                &registry,
+                &registry_bytes,
+                block_registry_protocol,
+                records.len(),
+            )?;
             let biome_registry_bytes = read_bounded(&biome_registry)?;
             let biome_records = read_biome_registry(&biome_registry_bytes)?;
             let behavior_pack = pack
                 .parent()
                 .ok_or("resource-pack path has no parent for behavior_pack")?
                 .join("behavior_pack");
-            let compiled = compile_pack_with_biomes(
+            let (mut compiled, material_keys) = compile_pack_with_material_keys(
                 &pack,
                 &behavior_pack,
                 &records,
                 &biome_records,
                 &light_properties,
+                block_registry_protocol,
             )?;
+            compiled.provenance = BlobProvenance {
+                source_manifest_sha256: assets::canonical_source_manifest_sha256(&manifest_bytes),
+                block_registry_sha256: Sha256::digest(&registry_bytes).into(),
+                light_registry_sha256: Sha256::digest(&light_registry_bytes).into(),
+                biome_registry_sha256: Sha256::digest(&biome_registry_bytes).into(),
+            };
             let blob = encode_blob(&compiled)?;
             write_blob_atomic(&out, &blob)?;
+            // Sidecar for runtime retexturing; a stale or absent one only disables that.
+            write_blob_atomic(
+                &out.with_extension("matkeys.json"),
+                &material_keys.to_json(compiled.materials.len() as u32),
+            )?;
             let cutout_materials = compiled
                 .materials
                 .iter()
@@ -468,7 +483,7 @@ fn compile_font_assets_command(
                 source,
             }
         })?;
-    let source_manifest_sha256 = canonical_source_manifest_sha256(&manifest_bytes);
+    let source_manifest_sha256 = assets::canonical_source_manifest_sha256(&manifest_bytes);
     let compiled = compile_fonts(pack)?;
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
@@ -478,74 +493,12 @@ fn compile_font_assets_command(
 
 fn compile_outline_font_assets_command(
     font: &Path,
+    fallback: Option<&Path>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let manifest_bytes = read_bounded_with_limit(
-        source_manifest,
-        MAX_SOURCE_MANIFEST_BYTES,
-        "source manifest",
-    )?;
-    let source =
-        serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
-            AssetError::Json {
-                path: source_manifest.to_path_buf(),
-                source,
-            }
-        })?;
-    let raster = source
-        .get("rasterization")
-        .ok_or("font source manifest is missing rasterization")?;
-    let pixel_height = required_u32(raster, "pixel_height")?;
-    let atlas_side = required_u32(raster, "atlas_side")?;
-    let replacement = char::from_u32(required_u32(raster, "replacement_codepoint")?)
-        .ok_or("font replacement_codepoint is not a Unicode scalar")?;
-    // Absent means keep the outline font's own advances, so an older manifest
-    // still compiles to the same monospace metrics it always did.
-    let advances = match raster.get("proportional_advance_gap_px") {
-        None => GlyphAdvances::Source,
-        Some(_) => GlyphAdvances::InkPlusGap {
-            gap_px: required_u32(raster, "proportional_advance_gap_px")?,
-            blank_advance_px: match raster.get("blank_advance_px") {
-                None => None,
-                Some(_) => Some(required_u32(raster, "blank_advance_px")?),
-            },
-        },
-    };
-    let expected_font_size = source
-        .get("font_size_bytes")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or("font source manifest has invalid font_size_bytes")?;
-    let expected_font_sha256 = source
-        .get("font_sha256")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or("font source manifest has invalid font_sha256")?;
-    let source_manifest_sha256 = canonical_source_manifest_sha256(&manifest_bytes);
-    let font_bytes = read_bounded_with_limit(
-        font,
-        usize::try_from(MAX_FONT_SOURCE_BYTES).expect("font source bound fits usize"),
-        "outline font",
-    )?;
-    if font_bytes.len() as u64 != expected_font_size {
-        return Err("outline font size does not match the source manifest".into());
-    }
-    if format!("{:x}", Sha256::digest(&font_bytes)) != expected_font_sha256.to_ascii_lowercase() {
-        return Err("outline font SHA-256 does not match the source manifest".into());
-    }
-    let compiled = compile_outline_font(
-        font,
-        &font_bytes,
-        source_manifest_sha256,
-        OutlineFontConfig {
-            pixel_height,
-            atlas_side,
-            replacement_codepoint: replacement,
-            advances,
-        },
-    )?;
-    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+    font_command::compile(font, fallback, source_manifest, out, report)
 }
 
 fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {
@@ -554,28 +507,6 @@ fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn s
         .and_then(serde_json::Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| format!("font rasterization field '{field}' is invalid").into())
-}
-
-fn canonical_source_manifest_sha256(source: &[u8]) -> [u8; 32] {
-    if !source.contains(&b'\r') {
-        return Sha256::digest(source).into();
-    }
-    let mut canonical = Vec::with_capacity(source.len());
-    let mut index = 0;
-    while index < source.len() {
-        match source[index] {
-            b'\r' if source.get(index + 1) == Some(&b'\n') => {
-                canonical.push(b'\n');
-                index += 2;
-            }
-            b'\r' | b'\n' => return Sha256::digest(source).into(),
-            byte => {
-                canonical.push(byte);
-                index += 1;
-            }
-        }
-    }
-    Sha256::digest(canonical).into()
 }
 
 fn write_compiled_font_assets(
@@ -726,6 +657,9 @@ fn compile_entity_assets_command(
     validate_output_bundle(out, report)?;
     write_blob_atomic(out, &blob)?;
     write_blob_atomic(report, &report_bytes)?;
+    // Sidecar for session-time server-pack entities that reference vanilla definitions.
+    let refs = compile_vanilla_entity_refs(pack)?;
+    write_blob_atomic(&out.with_extension("vanillarefs.json"), &refs.to_json())?;
     println!(
         "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
         report_data.counts.sources,

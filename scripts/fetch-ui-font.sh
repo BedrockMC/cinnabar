@@ -54,9 +54,6 @@ cache="$repo_root/.local/assets/ui-font/$commit"
 font_path="$cache/$font_file"
 license_path="$cache/$license_file"
 printf 'Manifest: %s\nFont source: %s\nLicense source: %s\nCache: %s\n' "$manifest" "$font_url" "$license_url" "$cache"
-if [[ "$dry_run" == true ]]; then exit 0; fi
-
-command -v curl >/dev/null 2>&1 || { printf 'required command is unavailable: curl\n' >&2; exit 1; }
 hash_file() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print tolower($1)}'
     elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print tolower($1)}'
@@ -75,7 +72,27 @@ download_file() {
     mv -f -- "$partial" "$path"
 }
 
+fallback_commit="$(manifest_string fallback_commit)"
+fallback_file="$(manifest_string fallback_font_file)"
+fallback_license="$(manifest_string fallback_license_file)"
+[[ "$fallback_commit" =~ ^[0-9a-f]{40}$ ]] || { printf 'invalid fallback commit\n' >&2; exit 1; }
+for basename in "$fallback_file" "$fallback_license"; do
+    case "$basename" in ''|.|..|*/*|*\\*) printf 'invalid fallback basename\n' >&2; exit 1 ;; esac
+done
+fallback_url="$(manifest_string fallback_font_url)"
+fallback_license_url="$(manifest_string fallback_license_url)"
+for url in "$fallback_url" "$fallback_license_url"; do
+    case "$url" in https://raw.githubusercontent.com/*) ;; *) printf 'invalid fallback HTTPS URL\n' >&2; exit 1 ;; esac
+done
+fallback_cache="$repo_root/.local/assets/ui-font/$fallback_commit"
+printf 'Fallback source: %s\nFallback license: %s\nFallback cache: %s\n' "$fallback_url" "$fallback_license_url" "$fallback_cache"
+if [[ "$dry_run" == true ]]; then exit 0; fi
+command -v curl >/dev/null 2>&1 || { printf 'required command is unavailable: curl\n' >&2; exit 1; }
 mkdir -p -- "$cache"
 download_file "$font_url" "$font_path" "$font_size" "$font_sha"
 download_file "$license_url" "$license_path" "$license_size" "$license_sha"
 printf 'FONT_SOURCE_PATH=%s\nFONT_LICENSE_PATH=%s\n' "$font_path" "$license_path"
+mkdir -p -- "$fallback_cache"
+download_file "$fallback_url" "$fallback_cache/$fallback_file" "$(manifest_integer fallback_font_size_bytes)" "$(manifest_string fallback_font_sha256)"
+download_file "$fallback_license_url" "$fallback_cache/$fallback_license" "$(manifest_integer fallback_license_size_bytes)" "$(manifest_string fallback_license_sha256)"
+printf 'FONT_FALLBACK_SOURCE_PATH=%s\n' "$fallback_cache/$fallback_file"

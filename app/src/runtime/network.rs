@@ -7,20 +7,20 @@ use bevy::{
     camera::Projection,
     ecs::system::SystemParam,
     log::{debug, error, info, warn},
-    prelude::{Local, Query, Res, ResMut, Time, Transform, With},
-    time::Real,
+    prelude::{Query, Res, ResMut, Transform, With},
 };
 #[cfg(test)]
 use client_world::{ActorSnapshot, PlayerProfile};
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
+#[cfg(test)]
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
+    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
+};
+use render::{
+    ActorRuntimeWitness, ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage,
     RuntimeStageProfiler,
 };
-#[cfg(test)]
-use render::{ActorRenderSource, ActorSkinPixels};
 
 use crate::{
     acceptance::{
@@ -32,42 +32,68 @@ use crate::{
         },
     },
     camera::{AutoFly, CameraSettingsAuthority, FlyCamera},
-    environment::replace_session,
+    environment::{bind_session_generation, replace_session},
     local_player::{
         InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
     },
-    movement::{LocalPhysicsController, MovementSource, PhysicsAuthorityGate},
-    presentation::actors::{
-        actor_rig_presentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
-    },
+    movement::{LocalPhysicsController, MovementSource, MovementTicker, PhysicsAuthorityGate},
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::PublicationController,
         shutdown::record_fatal_error,
         visibility::AppMetrics,
-        world::{AppWorldState, ClientWorld},
+        world::AppWorldState,
     },
     ui_runtime::{
-        UiRuntime, UiRuntimeError,
+        UiRuntime,
         inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
     },
 };
 
 #[cfg(test)]
 use crate::local_player::FrozenLocalAvatarVisibility;
-
+pub(crate) use inventory::{
+    publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
+};
+#[cfg(test)]
+pub(crate) use resource_packs::PackApplication;
+pub(crate) use resource_packs::{
+    BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
+    set_active_language, set_base_material_keys,
+};
 pub(crate) use session::{
-    NetworkConfig, NetworkControlEvent, NetworkHandle, PacketSendError, WORLD_EVENT_CAPACITY,
-    spawn_network,
+    NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,
+    SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display, spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const ACTOR_TICK_NANOS: u128 = 50_000_000;
+/// Provisional local pre-first-input anchor: public protocol documentation does
+/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
+/// separate clock domain.
+const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+
+pub(crate) fn reset_start_game_prediction(
+    movement: &mut MovementTicker,
+    local_physics: &mut LocalPhysicsController,
+    session_generation: u64,
+    initial_position: [f32; 3],
+) {
+    movement.reset(
+        session_generation,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        initial_position,
+    );
+    local_physics.reanchor_network_position_before_advance(
+        initial_position,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        false,
+    );
+}
 
 #[derive(SystemParam)]
 pub(crate) struct NetworkLocalPlayerState<'w> {
@@ -182,34 +208,6 @@ pub(crate) fn route_equipment_ingress(
     }
 }
 
-pub(crate) fn route_inventory_ingress(
-    runtime: &mut UiRuntime,
-    sequenced: session::SequencedWorldEvent,
-) -> Result<u64, UiRuntimeError> {
-    let session::SequencedWorldEvent {
-        session_generation,
-        sequence,
-        event: WorldEvent::Inventory(event),
-    } = sequenced
-    else {
-        unreachable!("inventory routing accepts only inventory world events")
-    };
-    runtime.enqueue_inventory_event(session_generation, sequence, event)?;
-    Ok(sequence)
-}
-
-pub(crate) const fn bootstrap_session_generation_is_expected(
-    ui_session_generation: u64,
-    world_session_generation: u64,
-    incoming_session_generation: u64,
-) -> bool {
-    ui_session_generation == world_session_generation
-        && matches!(
-            world_session_generation.checked_add(1),
-            Some(expected) if expected == incoming_session_generation
-        )
-}
-
 fn consume_equipment_route(
     runtime: &mut UiRuntime,
     session_generation: u64,
@@ -240,6 +238,8 @@ fn consume_equipment_route(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
+    mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
+    mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     metrics: Res<AppMetrics>,
@@ -268,7 +268,9 @@ pub(crate) fn receive_network_events(
         mut weather,
         mut movement,
         mut local_physics,
-        collisions,
+        mut movement_effects,
+        mut movement_speed,
+        mut collisions,
         mut ui_runtime,
         time,
     } = state;
@@ -280,26 +282,39 @@ pub(crate) fn receive_network_events(
                 session_generation,
                 world: bootstrap,
                 environment,
+                custom_blocks,
                 inventory,
+                item_registry,
                 player_game_mode,
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
+                server_authoritative_block_breaking,
+                hardcore,
+                hud_rules,
+                packs,
             } => {
-                if !bootstrap_session_generation_is_expected(
+                match classify_bootstrap_generation(
                     ui_runtime.session_id(),
                     clock.session_generation(),
                     session_generation,
                 ) {
-                    record_fatal_error(
-                        &mut client_world.fatal_error,
-                        format!(
-                            "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
-                            ui_runtime.session_id(),
-                            clock.session_generation()
-                        ),
-                    );
-                    continue;
+                    BootstrapGenerationDisposition::Expected => {}
+                    BootstrapGenerationDisposition::Stale => continue,
+                    BootstrapGenerationDisposition::Unexpected => {
+                        record_fatal_error(
+                            &mut client_world.fatal_error,
+                            format!(
+                                "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
+                                ui_runtime.session_id(),
+                                clock.session_generation()
+                            ),
+                        );
+                        continue;
+                    }
                 }
+                ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -317,20 +332,27 @@ pub(crate) fn receive_network_events(
                     environment,
                     time.elapsed_secs_f64(),
                 );
+                bind_session_generation(&mut clock, &mut weather, session_generation);
                 ui_runtime.begin_session(session_generation);
-                let protocol::InventoryEvent::Authority(authority) = inventory else {
+                movement_effects.begin_session(session_generation);
+                movement_speed.begin_session(session_generation, bootstrap.dimension);
+                item_diagnostics::session_registry(item_registry.as_ref());
+                let world_item_registry = item_registry.clone();
+                if !publish_bootstrap_inventory(&mut ui_runtime, item_registry, inventory) {
                     record_fatal_error(
                         &mut client_world.fatal_error,
                         "StartGame inventory fanout was not an authority event".to_owned(),
                     );
                     continue;
-                };
-                ui_runtime.publish_inventory_authority(authority);
+                }
+                resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,
                     player_game_mode_uses_world_default,
                 );
+                ui_runtime.set_hardcore(hardcore);
+                ui_runtime.apply_hud_rules(hud_rules);
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }
@@ -343,10 +365,52 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]
                 };
+                let hashed_ids = bootstrap.block_network_ids_are_hashes;
+                let mut id_remap = assets::SequentialIdRemap::default();
+                let custom_block_ids = if hashed_ids {
+                    collisions.begin_session_custom_blocks(&protocol::CustomBlocks::default());
+                    if collisions
+                        .begin_session_hashed_custom_blocks(&custom_blocks)
+                        .is_none()
+                    {
+                        warn!("server custom blocks have no collision base in hashed id mode");
+                    }
+                    None
+                } else {
+                    collisions
+                        .begin_session_custom_blocks(&custom_blocks)
+                        .map(|(range, remap)| {
+                            id_remap = remap;
+                            range
+                        })
+                };
+                if !hashed_ids && custom_block_ids.is_none() && !custom_blocks.blocks.is_empty() {
+                    warn!(
+                        count = custom_blocks.blocks.len(),
+                        "server custom blocks are unsupported in this id ordering"
+                    );
+                }
+                // Hashed sessions append overlay visuals after the base and index them by hash.
+                let overlay_ids = if hashed_ids {
+                    packs.block_overlay.as_ref().map(|compiled| {
+                        let first = client_world.runtime_assets.visual_count() as u32;
+                        first..first + compiled.overlay.visuals.len() as u32
+                    })
+                } else {
+                    custom_block_ids.clone()
+                };
+                let session_assets = resource_packs::session_runtime_assets(
+                    &client_world.runtime_assets,
+                    overlay_ids.as_ref(),
+                    packs.block_overlay.as_deref(),
+                );
+                if let Some(textures) = chunk_textures.as_mut() {
+                    resource_packs::install_chunk_textures(textures, &session_assets);
+                }
                 let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
                     WorldStream::new_with_asset_sets(
                         bootstrap,
-                        Arc::clone(&client_world.runtime_assets),
+                        Arc::clone(&session_assets),
                         Arc::clone(entity_assets),
                         current,
                         client_world.pending_surface_spawn,
@@ -354,11 +418,39 @@ pub(crate) fn receive_network_events(
                 } else {
                     WorldStream::new_with_assets(
                         bootstrap,
-                        Arc::clone(&client_world.runtime_assets),
+                        session_assets,
                         current,
                         client_world.pending_surface_spawn,
                     )
                 };
+                if custom_blocks.skipped != 0 {
+                    warn!(
+                        skipped = custom_blocks.skipped,
+                        "skipped malformed server block definitions"
+                    );
+                }
+                stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
+                stream.set_sequential_id_remap(id_remap);
+                stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
+                    (
+                        Arc::clone(&pack.assets),
+                        pack.bindings
+                            .iter()
+                            .map(|binding| binding.geometry_candidate)
+                            .collect(),
+                    )
+                }));
+                stream.seed_property_defaults(&packs.property_defaults);
+                client_world.pack_entities = packs.entities.clone();
+                client_world.session_items = Some(Arc::new(entity_pack::SessionItems {
+                    components: packs.item_components.clone().unwrap_or_default(),
+                    icons: packs.item_icons.clone(),
+                }));
+                if let Some(registry) = world_item_registry
+                    && !stream.seed_item_registry(registry)
+                {
+                    warn!("StartGame item registry was refused by the world stream");
+                }
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -374,12 +466,11 @@ pub(crate) fn receive_network_events(
                     &mut avatar,
                 );
                 movement.set_source(MovementSource::FreeCamera);
-                let initial_tick = u64::try_from(environment.initial_time).unwrap_or(0);
-                movement.reset(clock.session_generation(), initial_tick, resolved.position);
-                local_physics.reanchor_network_position_before_advance(
+                reset_start_game_prediction(
+                    &mut movement,
+                    &mut local_physics,
+                    clock.session_generation(),
                     resolved.position,
-                    initial_tick,
-                    false,
                 );
                 if let Err(fault) = physics_authority.apply_start_game(
                     auto_fly.enabled(),
@@ -432,6 +523,45 @@ pub(crate) fn receive_network_events(
                         );
                         break;
                     }
+                }
+                resource_packs::install_server_language(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.server_lang,
+                    client_world.fatal_error.is_none(),
+                );
+                resource_packs::install_session_icons(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.item_icons,
+                    packs.item_components,
+                    client_world.fatal_error.is_none(),
+                );
+                resource_packs::install_server_ui(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.server_ui,
+                    client_world.fatal_error.is_none(),
+                );
+                resource_packs::install_session_glyphs(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.glyph_sheets,
+                    client_world.fatal_error.is_none(),
+                );
+                crate::audio::publish_server_sounds(packs.server_sounds);
+                ui_runtime.install_block_breaking_mode(
+                    session_generation,
+                    server_authoritative_block_breaking,
+                    client_world.fatal_error.is_none(),
+                );
+                if let Some(stream) = client_world.stream.as_ref() {
+                    ui_runtime.bind_local_abilities(
+                        session_generation,
+                        stream.biome_tint_identity().stream(),
+                        bootstrap.local_player_unique_id,
+                        client_world.fatal_error.is_none(),
+                    );
                 }
             }
             NetworkControlEvent::SubChunkRequestSent {
@@ -504,20 +634,60 @@ pub(crate) fn receive_network_events(
             NetworkControlEvent::Failed {
                 message,
                 decode_error_count,
+                server_disconnect,
+                origin,
             } => {
+                UiRuntime::retire_crafting_observation();
+                render::ViewmodelCompletionGate::retire_observation();
+                resource_pack_admission.clear_current();
+                ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
+                // Only a receive-side termination is a remote-initiated close;
+                // latch it while the ticker still reports the live session.
+                if origin == NetworkFailureOrigin::Receive {
+                    movement.note_remote_session_close();
+                }
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
-                error!(decode_error_count, "network session failed: {message}");
+                let failure = session_failure_display(&message, server_disconnect.as_ref());
+                error!(decode_error_count, "{failure}");
                 client_world.network_decode_errors = decode_error_count;
-                record_fatal_error(
-                    &mut client_world.fatal_error,
-                    format!("network session failed: {message}"),
-                );
+                record_fatal_error(&mut client_world.fatal_error, failure);
+            }
+            NetworkControlEvent::Transferred {
+                target: SessionTransferTarget { host, port },
+                decode_error_count,
+            } => {
+                UiRuntime::retire_crafting_observation();
+                render::ViewmodelCompletionGate::retire_observation();
+                resource_pack_admission.clear_current();
+                ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
+                // The client chose to end this session, so this is not a
+                // remote-initiated transport failure and must not latch the
+                // remote-close movement classification.
+                movement.deactivate();
+                local_physics.deactivate();
+                avatar.clear();
+                frame.reset(LocalPlayerFrameReset::Session);
+                interaction.invalidate();
+                client_world.network_decode_errors = decode_error_count;
+                info!(host, port, "server transferred the session");
+                client_world.transfer_notice =
+                    Some(crate::runtime::world::TransferNotice { host, port });
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
+                UiRuntime::retire_crafting_observation();
+                render::ViewmodelCompletionGate::retire_observation();
+                resource_pack_admission.clear_current();
+                ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -544,6 +714,50 @@ pub(crate) fn receive_network_events(
             session::WorldIngress::Event(sequenced) => {
                 network.record_readiness_event_consumed(&sequenced.event);
                 sequenced
+            }
+            session::WorldIngress::LevelChunk {
+                session_generation,
+                sequence,
+                event,
+                payload,
+            } => {
+                network.record_level_chunk_consumed();
+                if session_generation != ui_runtime.session_id() {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!(
+                            "world ingress crossed a session boundary: expected {}, got {session_generation}",
+                            ui_runtime.session_id()
+                        ),
+                    );
+                    continue;
+                }
+                let Some(stream) = client_world.stream.as_mut() else {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        "received LevelChunk before StartGame bootstrap".to_owned(),
+                    );
+                    continue;
+                };
+                let observed_at = Instant::now();
+                let metadata = WorldEvent::LevelChunk(event.clone());
+                acceptance.observe_mutation(&metadata, observed_at);
+                if acceptance.observe_full_view_teleport_ingress(
+                    &metadata,
+                    sequence,
+                    observed_at,
+                    stream.current_dimension(),
+                    metrics.0.frame_count(),
+                ) {
+                    stream.schedule_source_capture(sequence);
+                }
+                if let Err(error) = stream.submit_level_chunk_bytes(sequence, event, payload) {
+                    record_fatal_error(
+                        &mut client_world.fatal_error,
+                        format!("world FIFO rejected LevelChunk: {error}"),
+                    );
+                }
+                continue;
             }
             session::WorldIngress::FastTransferBarrier {
                 session_generation,
@@ -637,6 +851,17 @@ pub(crate) fn receive_network_events(
             }
             continue;
         } else {
+            if matches!(
+                &sequenced.event,
+                WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(_))
+            ) && let Err(error) = route_item_registry_ingress(&mut ui_runtime, &sequenced)
+            {
+                record_fatal_error(
+                    &mut client_world.fatal_error,
+                    format!("item registry ingress rejected: {error:?}"),
+                );
+                continue;
+            }
             sequenced
         };
         let observed_at = Instant::now();
@@ -675,44 +900,9 @@ pub(crate) fn receive_network_events(
             client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
         }
     }
-}
-
-pub(crate) fn acceptance_surface_anchor(position: [f32; 3]) -> [i32; 2] {
-    [position[0].floor() as i32, position[2].floor() as i32]
-}
-
-pub(crate) fn drain_network_controls<T>(
-    receiver: &mut tokio::sync::mpsc::Receiver<T>,
-    budget: usize,
-) -> Vec<T> {
-    drain_network_ingress(receiver, budget)
-}
-
-pub(crate) fn drain_world_ingress_until_barrier(
-    receiver: &mut tokio::sync::mpsc::Receiver<session::WorldIngress>,
-    budget: usize,
-) -> Vec<session::WorldIngress> {
-    let mut drained = Vec::with_capacity(budget);
-    for _ in 0..budget {
-        let Ok(ingress) = receiver.try_recv() else {
-            break;
-        };
-        let is_barrier = matches!(ingress, session::WorldIngress::FastTransferBarrier { .. });
-        drained.push(ingress);
-        if is_barrier {
-            break;
-        }
+    if let Some(stream) = client_world.stream.as_mut() {
+        item_diagnostics::equipment(stream.take_equipment_notices());
     }
-    drained
-}
-
-pub(crate) fn drain_network_ingress<T>(
-    receiver: &mut tokio::sync::mpsc::Receiver<T>,
-    budget: usize,
-) -> Vec<T> {
-    std::iter::from_fn(|| receiver.try_recv().ok())
-        .take(budget)
-        .collect()
 }
 
 #[cfg(test)]
@@ -783,144 +973,27 @@ pub(crate) fn update_actor_render_scene<'a>(
     scene.update_with_local(partial_tick, cull_view, remote_sources, local)
 }
 
-pub(crate) fn publish_actor_render_frame(
-    mut client_world: ResMut<ClientWorld>,
-    time: Res<Time<Real>>,
-    mut scene: ResMut<ActorRenderScene>,
-    mut frame: ResMut<ActorRenderFrame>,
-    mut published_session: Local<Option<u64>>,
-    mut actor_clock: Local<ActorFrameClock>,
-    presentation: ActorPresentationState,
-) {
-    let ActorPresentationState {
-        avatar,
-        mut local_visibility,
-        settings,
-        view,
-        local_physics,
-        witness,
-        camera,
-    } = presentation;
-    let session_id = client_world
-        .stream
-        .as_ref()
-        .map(WorldStream::actor_session_id);
-    if *published_session != session_id {
-        scene.reset();
-        actor_clock.reset();
-        *published_session = session_id;
-    }
-    let step = actor_clock.advance(time.delta());
-    if let Some(stream) = client_world.stream.as_mut() {
-        stream.advance_actor_interpolation_ticks(step.ticks);
-    }
-    let authoritative_subject_eye = authoritative_local_actor_eye(
-        local_physics.render_eye_position(),
-        client_world
-            .stream
-            .as_ref()
-            .map(|stream| stream.resolved_server_position().position),
-    );
-    publish_local_actor_visibility(
-        &avatar,
-        settings.perspective(),
-        authoritative_subject_eye,
-        view.rotation(),
-        &mut local_visibility,
-    );
-    let cull_view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
-    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local) = client_world
-        .stream
-        .as_ref()
-        .map(|stream| {
-            let local_runtime_id = stream.local_player_runtime_id();
-            let mut remotes = Vec::new();
-            let mut canonical_local = None;
-            for rig in stream.actor_rigs() {
-                let Some(actor) = stream.actor(rig.actor.runtime_id) else {
-                    continue;
-                };
-                let profile = stream.actor_player_profile(rig.actor.runtime_id);
-                let Some(presentation) =
-                    actor_rig_presentation(&rig, actor, profile, step.partial_tick)
-                else {
-                    continue;
-                };
-                if rig.actor.runtime_id == local_runtime_id {
-                    canonical_local = Some(presentation);
-                } else {
-                    remotes.push(presentation);
-                }
-            }
-            (
-                local_runtime_id,
-                stream.actor_session_id(),
-                stream.current_dimension(),
-                remotes,
-                canonical_local,
-            )
-        })
-        .unwrap_or((0, 0, 0, Vec::new(), None));
-    let visibility_snapshot = local_visibility.snapshot().copied();
-    let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
-        if visibility.runtime_id() != local_runtime_id {
-            return (false, None);
-        }
-        let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
-        let mut position = visibility.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        let diagnostic = local_diagnostic_presentation(
-            actor_session_id,
-            dimension,
-            visibility.runtime_id(),
-            visibility.pose_generation(),
-            position.to_array(),
-            yaw_degrees,
-            pitch_degrees,
-        );
-        let local = local_actor_presentation_for_visibility(
-            local_runtime_id,
-            visibility.runtime_id(),
-            canonical_local,
-            diagnostic,
-        );
-        (visibility.visible(), local)
-    });
-    let batch = select_actor_presentations_for_view(
-        local_runtime_id,
-        local_visible,
-        local,
-        remotes,
-        cull_view,
-    );
-    let selected_count = batch.submissions.len();
-    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
-    witness.observe_main(ActorMainWitness {
-        local_snapshot: visibility_snapshot.is_some(),
-        local_visible,
-        expected_runtime_id: local_runtime_id,
-        visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
-        selected_count,
-        local_route: frame
-            .rig
-            .manifest
-            .iter()
-            .find(|entry| entry.identity.runtime_id == local_runtime_id)
-            .map(|entry| entry.route),
-        frame_instances: frame.rig.instances.len(),
-        frame_manifest: frame.rig.manifest.len(),
-        skin_bytes: frame.skins_rgba8.len(),
-        rejects: frame.rig.rejects,
-    });
-}
-
+mod actor_publication;
+mod actor_sampling;
+mod block_overlay;
+mod drain;
+mod dropped_items;
+pub(crate) mod entity_pack;
+mod glyph_sheets;
+mod inventory;
+mod item_diagnostics;
+mod item_icons;
+#[cfg(test)]
+mod local_pack;
+mod resource_packs;
+mod seat_defaults;
 pub(crate) mod session;
+pub(crate) use actor_publication::{
+    ActorFramePartialTick, HandRigBuilder, local_item_use, publish_actor_render_frame,
+};
+
+#[cfg(test)]
+pub(crate) use drain::drain_network_ingress;
+pub(crate) use drain::{
+    acceptance_surface_anchor, drain_network_controls, drain_world_ingress_until_barrier,
+};

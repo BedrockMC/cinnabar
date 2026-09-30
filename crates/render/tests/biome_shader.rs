@@ -10,18 +10,13 @@ fn shader(name: &str) -> String {
 }
 
 #[test]
-fn shared_shader_uses_bounded_provisional_box_kernel_and_uniform_fast_path() {
+fn shared_shader_uses_lattice_kernel_and_uniform_fast_path() {
     let source = shader("biome_tint.wgsl");
 
-    assert!(source.contains("PROVISIONAL_BIOME_BLEND_RADIUS: i32 = 1"));
-    assert!(source.contains("BIOME_BLEND_WEIGHT_DENOMINATOR: f32 = 9.0"));
-    assert!(source.contains(
-        "for (var dz = -PROVISIONAL_BIOME_BLEND_RADIUS; dz <= PROVISIONAL_BIOME_BLEND_RADIUS; dz += 1)"
-    ));
-    assert!(source.contains(
-        "for (var dx = -PROVISIONAL_BIOME_BLEND_RADIUS; dx <= PROVISIONAL_BIOME_BLEND_RADIUS; dx += 1)"
-    ));
-    assert!(source.contains("return sum / BIOME_BLEND_WEIGHT_DENOMINATOR"));
+    assert!(source.contains("BIOME_LATTICE_STEP: i32 = 4"));
+    assert!(source.contains("fn lattice_tap_weights(t: f32)"));
+    assert!(source.contains("for (var tz = 0; tz < 4; tz += 1)"));
+    assert!(source.contains("for (var tx = 0; tx < 4; tx += 1)"));
     assert!(source.contains("if (uniform_tint != 0xffffffffu)"));
     assert!(source.contains("coordinate.x = clamp(coordinate.x, 0, 15)"));
     assert!(source.contains("coordinate.z = clamp(coordinate.z, 0, 15)"));

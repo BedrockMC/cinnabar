@@ -1,23 +1,29 @@
-use protocol::{BedrockSession, NetworkItemStack, WorldEvent, decode_batch, into_world_event};
+use bytes::Bytes;
 use protocol::{
-    ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
+    BedrockSession, NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event,
+};
+use protocol::{
+    CanonicalCell, ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
     MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
     VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
     normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, validate_item_nbt_size,
+    normalize_response, normalize_slot, project_container_cell, validate_item_nbt_size,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_40::{
-    ActorUniqueId, BedrockSafetyRedactableString, BlockPos,
+use valentine::bedrock::version::v1_26_51::{
+    ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
-    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket, FullContainerName,
-    FullContainerNameContainerName, InventoryContentPacket, InventorySlotPacket,
-    ItemStackResponseContainerInfo, ItemStackResponseInfo, ItemStackResponseInfoResult,
-    ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData, PlayerHotbarPacket,
-    TypedClientNetIdStructItemStackRequestIdTagInt32T0,
-    TypedServerNetIdStructItemStackNetIdTagInt32T0,
+    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
+    EnumsContainerEnumName as FullContainerNameContainerName,
+    EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
+    InventoryContentPacket, InventorySlotPacket, ItemStackResponseContainerInfo,
+    ItemStackResponseInfo, ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData,
+    PlayerHotbarPacket, StructureEditorData, StructureEditorDataView,
+    TypedClientNetIdstructItemStackRequestIdTagint32T0,
+    TypedServerNetIdstructItemStackNetIdTagint32T0,
 };
+use valentine::bedrock::{codec::BedrockCodec, error::DecodeError};
 
 const CONTENT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_content.bin");
 const SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot.bin");
@@ -59,7 +65,7 @@ fn item(id: i16, stacksize: u16, stack_network_id: i32, user_data: Vec<u8>) -> I
     ItemStackDescriptor {
         id,
         stacksize,
-        auxvalue: -2,
+        auxvalue: u32::from_ne_bytes((-2i32).to_ne_bytes()),
         net_id_variant: Some(stack_network_id),
         block_runtime_id: 91,
         user_data_buffer: user_data,
@@ -76,13 +82,12 @@ fn full_container(
     }
 }
 
-/// One response slot. `constant_3` is the always-true outer flag of the
-/// double-optional the stack net ID is written behind: gophertunnel
-/// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/io.go`
-/// `DoubleOptionalFunc` writes `outer := true` and then the inner presence bool.
-/// The two protocol-1001 name fields are now the unredacted and redacted halves
-/// of one redactable string (`minecraft/protocol/item_stack.go` writes
-/// `CustomName` then `FilteredCustomName`).
+fn default_full_container() -> FullContainerName {
+    FullContainerName::default()
+}
+
+/// One response slot. The custom name is followed by an optional filtered
+/// name, as encoded by Gophertunnel's item-stack response codec.
 fn response_slot(
     slot: u8,
     amount: u8,
@@ -95,8 +100,7 @@ fn response_slot(
         requested_slot: slot,
         slot,
         amount,
-        constant_3: true,
-        item_stack_net_id: Some(TypedServerNetIdStructItemStackNetIdTagInt32T0 {
+        item_stack_net_id: Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
             id: item_stack_id,
         }),
         custom_name: BedrockSafetyRedactableString {
@@ -107,16 +111,14 @@ fn response_slot(
     }
 }
 
-/// One accepted response. `constant_2` is the outer flag of the same
-/// double-optional wrapping the container list.
+/// One accepted response.
 fn accepted_response(
     request_id: i32,
     containers: Vec<ItemStackResponseContainerInfo>,
 ) -> ItemStackResponseInfo {
     ItemStackResponseInfo {
         result: ItemStackResponseInfoResult::Success,
-        client_request_id: TypedClientNetIdStructItemStackRequestIdTagInt32T0 { id: request_id },
-        constant_2: true,
+        client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 { id: request_id },
         containers: Some(containers),
     }
 }
@@ -148,15 +150,53 @@ fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
     };
     assert!(matches!(hotbar, InventoryEvent::SelectedSlot(_)));
 
-    // item_stack_response.bin is excluded here and covered by
-    // `item_stack_response_fixture_pins_the_redactable_string_divergence`
-    // below: the generated decoder cannot read it.
+    let response = match decode_fixture(RESPONSE_FIXTURE).data {
+        McpePacketData::ItemStackResponsePacket(packet) => normalize_response(packet).unwrap(),
+        other => panic!("expected ItemStackResponse, got {other:?}"),
+    };
+    assert!(matches!(response, InventoryEvent::Response(_)));
+}
+
+/// The pinned InventorySlot fixture carries window id 0 plus a full
+/// container name whose byte encodes `EnumsContainerEnumName::
+/// InventoryContainer` — the exact shape live servers send for ordinary
+/// player-inventory slot updates. The canonical address projection must
+/// route that shape onto player-inventory cell 4 exactly like the unnamed
+/// window-0 shape, restoring prior admission until live evidence says
+/// otherwise.
+#[test]
+fn pinned_inventory_slot_fixture_projects_through_the_canonical_address() {
+    let slot = match decode_fixture(SLOT_FIXTURE).data {
+        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
+        other => panic!("expected InventorySlot, got {other:?}"),
+    };
+    let InventoryEvent::Slot(slot) = slot else {
+        panic!("expected a Slot event")
+    };
+    assert_eq!(slot.identity.slot, 4);
+    assert_eq!(
+        slot.identity.container,
+        ContainerIdentity {
+            window_id: Some(0),
+            slot_type: Some(29),
+            dynamic_id: None,
+        },
+        "the pinned fixture decodes to the named InventoryContainer alias on window 0"
+    );
+    assert_eq!(
+        project_container_cell(&slot.identity.container, slot.identity.slot),
+        Some(CanonicalCell::PlayerInventory(4)),
+    );
 }
 
 #[test]
 fn inventory_packets_dispatch_through_the_public_world_event_surface() {
-    // RESPONSE_FIXTURE is excluded: see the divergence test below.
-    for bytes in [CONTENT_FIXTURE, SLOT_FIXTURE, HOTBAR_FIXTURE] {
+    for bytes in [
+        CONTENT_FIXTURE,
+        SLOT_FIXTURE,
+        HOTBAR_FIXTURE,
+        RESPONSE_FIXTURE,
+    ] {
         let event = into_world_event(decode_fixture(bytes), 0)
             .expect("normalize inventory world event")
             .expect("inventory packet must be allowlisted");
@@ -164,42 +204,128 @@ fn inventory_packets_dispatch_through_the_public_world_event_surface() {
     }
 }
 
-/// Pins the `BedrockSafetyRedactableString` divergence on `ItemStackResponse`.
-///
-/// gophertunnel's `StackResponseSlotInfo.Marshal`
-/// (`minecraft/protocol/item_stack.go` @ be6713da4dc051a4197f897d04835e89e9c54321)
-/// writes `CustomName` and `FilteredCustomName` as two ordinary adjacent
-/// strings. The generated type models them as one redactable string, which puts
-/// an optional-presence byte between them, so the decoder reads the second
-/// string's length prefix as that flag. Only this field and one
-/// `StructureEditorData::structure_name` use the type.
-///
-/// The assertion is deliberately inverted: it starts failing once upstream
-/// fixes the shape, which is the signal to fold the fixture back into the two
-/// tests above.
+/// Pins the optional filtered name from Gophertunnel commit 283a5a97.
 #[test]
-fn item_stack_response_fixture_pins_the_redactable_string_divergence() {
-    let result = decode_batch(
-        RESPONSE_FIXTURE.into(),
-        &BedrockSession { shield_item_id: 0 },
+fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
+    let packet = decode_fixture(RESPONSE_FIXTURE);
+    let McpePacketData::ItemStackResponsePacket(response) = &packet.data else {
+        panic!("expected ItemStackResponse")
+    };
+    let slot = &response.responses[0].containers.as_ref().unwrap()[0].slots[0];
+    assert_eq!(slot.custom_name.unredacted, "Fixture item");
+    assert_eq!(slot.custom_name.redacted.as_deref(), Some("Fixture item"));
+
+    let encoded = encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap();
+    assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
+}
+
+/// Checks presence, empty values, truncation, and borrowed decoding of filtered names.
+#[test]
+fn response_filtered_name_preserves_optional_wire_shape() {
+    use valentine::bedrock::codec::BedrockSized;
+    use valentine::bedrock::version::v1_26_51::ItemStackResponseSlotInfoView;
+    for filtered in [None, Some(String::new()), Some("filtered".to_owned())] {
+        let slot = ItemStackResponseSlotInfo {
+            custom_name: BedrockSafetyRedactableString {
+                unredacted: "original".to_owned(),
+                redacted: filtered,
+            },
+            durability_correction: -3,
+            ..Default::default()
+        };
+        let mut wire = Vec::new();
+        slot.encode(&mut wire).unwrap();
+        assert_eq!(slot.encoded_size(), wire.len());
+        let owned = ItemStackResponseSlotInfo::decode(&mut Bytes::from(wire.clone()), ()).unwrap();
+        assert_eq!(owned, slot);
+        let borrowed =
+            ItemStackResponseSlotInfoView::decode(&mut Bytes::from(wire.clone())).unwrap();
+        assert_eq!(borrowed.encoded_size(), wire.len());
+        let mut encoded = Vec::new();
+        borrowed.encode(&mut encoded).unwrap();
+        assert_eq!(encoded, wire);
+        assert_eq!(ItemStackResponseSlotInfo::from(borrowed), slot);
+        for end in 0..wire.len() {
+            assert!(
+                ItemStackResponseSlotInfo::decode(&mut Bytes::copy_from_slice(&wire[..end]), ())
+                    .is_err()
+            );
+            assert!(
+                ItemStackResponseSlotInfoView::decode(&mut Bytes::copy_from_slice(&wire[..end]))
+                    .is_err()
+            );
+        }
+    }
+}
+
+/// Structure editor names retain their two adjacent strings, and a malicious
+/// declared length must fail before allocating or reading past the available
+/// bytes.
+#[test]
+fn structure_editor_name_uses_two_bounded_adjacent_strings() {
+    let structure = StructureEditorData {
+        structure_name: "structure".into(),
+        filtered_structure_name: "filtered".into(),
+        data_field: "payload".into(),
+        ..Default::default()
+    };
+    let mut encoded = Vec::new();
+    structure.encode(&mut encoded).unwrap();
+    assert_eq!(&encoded[..20], b"\x09structure\x08filtered\x07");
+
+    let mut body = Bytes::from(encoded.clone());
+    let decoded = StructureEditorData::decode(&mut body, ()).unwrap();
+    assert_eq!(decoded, structure);
+    assert!(body.is_empty());
+    let mut reencoded = Vec::new();
+    decoded.encode(&mut reencoded).unwrap();
+    assert_eq!(reencoded, encoded);
+
+    let mut borrowed_body = Bytes::from(encoded);
+    let borrowed = StructureEditorDataView::decode(&mut borrowed_body).unwrap();
+    assert_eq!(borrowed.structure_name.as_bytes(), b"structure");
+    assert_eq!(borrowed.filtered_structure_name.as_bytes(), b"filtered");
+    assert!(borrowed_body.is_empty());
+
+    let mut malformed = Bytes::from_static(&[0, 5, b'x']);
+    assert!(matches!(
+        StructureEditorData::decode(&mut malformed, ()),
+        Err(DecodeError::StringLengthExceeded {
+            declared: 5,
+            available: 1
+        })
+    ));
+}
+
+/// The redactable string is an unredacted string plus an optional redacted one.
+#[test]
+fn redactable_string_redacted_half_is_optional() {
+    let empty = BedrockSafetyRedactableString::default();
+    let mut empty_wire = Vec::new();
+    empty.encode(&mut empty_wire).unwrap();
+    assert_eq!(empty_wire, [0, 0]);
+    let mut empty_wire = Bytes::from(empty_wire);
+    assert_eq!(
+        BedrockSafetyRedactableString::decode(&mut empty_wire, ()).unwrap(),
+        empty
     );
-    assert!(
-        result.is_err(),
-        "the generated ItemStackResponse decoder now reads the gophertunnel          fixture: restore RESPONSE_FIXTURE to the canonical decode tests"
-    );
+    let mut borrowed_empty_wire = Bytes::from_static(&[0, 0]);
+    let borrowed_empty =
+        BedrockSafetyRedactableStringView::decode(&mut borrowed_empty_wire).unwrap();
+    assert!(borrowed_empty.redacted.is_none());
 }
 
 #[test]
 fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() {
     let first_user_data = item_user_data(&["minecraft:stone"]);
     let content = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![
             item(5, 2, 11, first_user_data.clone()),
             item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
         ],
         full_container_name: full_container(
-            FullContainerNameContainerName::CombinedHotbarAndInventoryContainer,
+            FullContainerNameContainerName::Combinedhotbarandinventorycontainer,
             Some(7),
         ),
         storage_item: ItemStackDescriptor::default(),
@@ -220,7 +346,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
         container_id: INVENTORY_CONTAINER,
         slot: 8,
         full_container_name: Some(full_container(
-            FullContainerNameContainerName::InventoryContainer,
+            FullContainerNameContainerName::Inventorycontainer,
             None,
         )),
         storage_item: None,
@@ -249,7 +375,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             44,
             vec![ItemStackResponseContainerInfo {
                 full_container_name: full_container(
-                    FullContainerNameContainerName::HotbarContainer,
+                    FullContainerNameContainerName::Hotbarcontainer,
                     Some(9),
                 ),
                 slots: vec![response_slot(2, 5, 13, "named", "filtered", -3)],
@@ -275,6 +401,12 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             .filtered_custom_name
             .as_ref(),
         "filtered"
+    );
+    // The server-corrected damage rides the same slot payload; dropping it
+    // would leave presentation on a stale NBT-only durability estimate.
+    assert_eq!(
+        response.responses[0].containers[0].slots[0].durability_correction,
+        -3
     );
 
     let open = ContainerOpenPacket {
@@ -313,6 +445,172 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
 }
 
 #[test]
+fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
+    let slots = vec![ItemStackDescriptor::default(); 36];
+    let InventoryEvent::Content(content) = normalize_content(InventoryContentPacket {
+        container_id: u32::from(INVENTORY_CONTAINER),
+        slots,
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap() else {
+        panic!("expected content event")
+    };
+    assert_eq!(
+        content.container,
+        ContainerIdentity {
+            window_id: Some(0),
+            slot_type: None,
+            dynamic_id: None,
+        }
+    );
+    assert_eq!(
+        project_container_cell(&content.container, 0),
+        Some(CanonicalCell::PlayerInventory(0))
+    );
+
+    let InventoryEvent::Slot(slot) = normalize_slot(InventorySlotPacket {
+        container_id: INVENTORY_CONTAINER,
+        slot: 4,
+        full_container_name: Some(default_full_container()),
+        storage_item: None,
+        item: item(7, 1, 13, Vec::new()),
+    })
+    .unwrap() else {
+        panic!("expected slot event")
+    };
+    assert_eq!(slot.identity.container, content.container);
+    assert_eq!(
+        project_container_cell(&slot.identity.container, slot.identity.slot),
+        Some(CanonicalCell::PlayerInventory(4))
+    );
+
+    let InventoryEvent::Content(offhand) = normalize_content(InventoryContentPacket {
+        container_id: u32::from_ne_bytes((-119_i32).to_ne_bytes()),
+        slots: vec![ItemStackDescriptor::default()],
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap() else {
+        panic!("expected content event")
+    };
+    assert_eq!(
+        offhand.container,
+        ContainerIdentity {
+            window_id: Some(-119),
+            slot_type: Some(0),
+            dynamic_id: None,
+        },
+        "a foreign negative window is not the legacy offhand window"
+    );
+
+    let InventoryEvent::Content(offhand) = normalize_content(InventoryContentPacket {
+        container_id: 119,
+        slots: vec![ItemStackDescriptor::default()],
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap() else {
+        panic!("expected content event")
+    };
+    assert_eq!(offhand.container.slot_type, None);
+    assert_eq!(
+        project_container_cell(&offhand.container, 0),
+        Some(CanonicalCell::Offhand)
+    );
+}
+
+#[test]
+fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
+    let default_foreign = normalize_content(InventoryContentPacket {
+        container_id: 120,
+        slots: vec![ItemStackDescriptor::default(); 5],
+        full_container_name: default_full_container(),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap();
+    let InventoryEvent::Content(default_foreign) = default_foreign else {
+        panic!("expected content event")
+    };
+    assert_eq!(default_foreign.container.slot_type, Some(0));
+    assert_eq!(project_container_cell(&default_foreign.container, 0), None);
+
+    for dynamic_id in [0, 7] {
+        let dynamic_default = normalize_content(InventoryContentPacket {
+            container_id: u32::from(INVENTORY_CONTAINER),
+            slots: vec![ItemStackDescriptor::default()],
+            full_container_name: FullContainerName {
+                dynamic_id: Some(dynamic_id),
+                ..default_full_container()
+            },
+            storage_item: ItemStackDescriptor::default(),
+        })
+        .unwrap();
+        let InventoryEvent::Content(dynamic_default) = dynamic_default else {
+            panic!("expected content event")
+        };
+        assert_eq!(dynamic_default.container.slot_type, Some(0));
+        assert_eq!(dynamic_default.container.dynamic_id, Some(dynamic_id));
+        assert_eq!(project_container_cell(&dynamic_default.container, 0), None);
+    }
+
+    for name in [
+        FullContainerNameContainerName::Craftinginputcontainer,
+        FullContainerNameContainerName::Unknown(211),
+    ] {
+        let event = normalize_content(InventoryContentPacket {
+            container_id: u32::from(INVENTORY_CONTAINER),
+            slots: vec![ItemStackDescriptor::default()],
+            full_container_name: full_container(name, None),
+            storage_item: ItemStackDescriptor::default(),
+        })
+        .unwrap();
+        let InventoryEvent::Content(content) = event else {
+            panic!("expected content event")
+        };
+        assert!(content.container.slot_type.is_some());
+        assert!(!matches!(
+            project_container_cell(&content.container, 0),
+            Some(CanonicalCell::PlayerInventory(_))
+        ));
+    }
+
+    let cursor = normalize_content(InventoryContentPacket {
+        container_id: u32::from(INVENTORY_CONTAINER),
+        slots: vec![ItemStackDescriptor::default()],
+        full_container_name: full_container(FullContainerNameContainerName::Cursorcontainer, None),
+        storage_item: ItemStackDescriptor::default(),
+    })
+    .unwrap();
+    let InventoryEvent::Content(cursor) = cursor else {
+        panic!("expected content event")
+    };
+    assert_eq!(
+        project_container_cell(&cursor.container, 0),
+        Some(CanonicalCell::Cursor)
+    );
+
+    let response = normalize_response(ItemStackResponsePacket {
+        responses: vec![accepted_response(
+            44,
+            vec![ItemStackResponseContainerInfo {
+                full_container_name: default_full_container(),
+                slots: vec![response_slot(0, 1, 13, "", "", 0)],
+            }],
+        )],
+    })
+    .unwrap();
+    let InventoryEvent::Response(response) = response else {
+        panic!("expected response event")
+    };
+    let container = response.responses[0].containers[0].container;
+    assert_eq!(container.window_id, None);
+    assert_eq!(container.slot_type, Some(0));
+    assert_eq!(container.dynamic_id, None);
+    assert_eq!(project_container_cell(&container, 0), None);
+}
+
+#[test]
 fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     assert_eq!(
         normalize_authority(true),
@@ -324,7 +622,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     );
 
     let unknown = InventoryContentPacket {
-        container_id: -777,
+        container_id: u32::from_ne_bytes((-777i32).to_ne_bytes()),
         slots: Vec::new(),
         full_container_name: full_container(
             FullContainerNameContainerName::Unknown(211),
@@ -340,7 +638,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     assert_eq!(content.container.dynamic_id, Some(u32::MAX));
 
     let negative_item_id = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![item(-5, 1, 1, Vec::new())],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -355,7 +653,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
 fn invalid_slots_items_and_collection_sizes_fail_closed() {
     let invalid_slot = InventorySlotPacket {
         container_id: INVENTORY_CONTAINER,
-        slot: -1,
+        slot: u32::MAX,
         full_container_name: None,
         storage_item: None,
         item: item(1, 1, 1, Vec::new()),
@@ -366,7 +664,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let oversized = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![ItemStackDescriptor::default(); MAX_CONTAINER_SLOTS + 1],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -380,7 +678,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let bad_extra = InventoryContentPacket {
-        container_id: i32::from(INVENTORY_CONTAINER),
+        container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![item(1, 1, 1, vec![0; protocol::MAX_ITEM_EXTRA_BYTES + 1])],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -434,7 +732,7 @@ fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
         2,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::HotbarContainer,
+                FullContainerNameContainerName::Hotbarcontainer,
                 None,
             ),
             slots: vec![response_slot(3, 0, 0, "", "", 0)],
@@ -457,12 +755,11 @@ fn accepted_response_rejects_negative_stack_ids() {
         3,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::HotbarContainer,
+                FullContainerNameContainerName::Hotbarcontainer,
                 None,
             ),
             slots: vec![ItemStackResponseSlotInfo {
-                constant_3: true,
-                item_stack_net_id: Some(TypedServerNetIdStructItemStackNetIdTagInt32T0 { id: -1 }),
+                item_stack_net_id: Some(TypedServerNetIdstructItemStackNetIdTagint32T0 { id: -1 }),
                 ..Default::default()
             }],
         }],

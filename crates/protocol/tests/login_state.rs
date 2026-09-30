@@ -14,13 +14,15 @@ use flate2::Compression;
 use flate2::write::DeflateEncoder;
 use jolyne::batch::decode_batch;
 use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
+use jolyne::valentine::EnumsConnectionDisconnectFailReason;
 use jolyne::valentine::{
     ActorRuntimeId, ChunkPos, ChunkRadiusUpdatedPacket, ClientCacheBlobStatusPacket,
     ClientCacheMissResponsePacket, ClientCacheStatusPacket, ClientToServerHandshakePacket,
-    DimensionType, ItemData, ItemRegistryPacket, LevelChunkPacket,
-    LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData, McpePacketName,
-    MissingBlobData, NetworkSettingsPacket, NetworkSettingsPacketCompressionAlgorithm,
-    PackInstanceId, PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
+    DimensionType, DisconnectPacket, DisconnectPacketMessages, ItemData, ItemRegistryPacket,
+    LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData,
+    McpePacketName, MissingBlobData, NetworkSettingsPacket,
+    NetworkSettingsPacketCompressionAlgorithm, NetworkStackLatencyPacket, PackInstanceId,
+    PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
     RequestNetworkSettingsPacket, ResourcePackClientResponsePacketResponse,
     ResourcePackStackPacket, ResourcePacksInfoPacket, ServerToClientHandshakePacket,
     ServerboundLoadingScreenPacket, ServerboundLoadingScreenPacketLoadingScreenPacketType,
@@ -32,12 +34,26 @@ use p384::{PublicKey, SecretKey};
 use protocol::{BedrockSession, ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use valentine::bedrock::codec::BedrockCodec;
 use valentine::protocol::wire;
 
 type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 
-const RUNTIME_ID: i64 = 0x1234_5678;
-const OTHER_RUNTIME_ID: i64 = 0x7654_3210;
+#[path = "login_state/camera_instructions.rs"]
+mod camera_instructions;
+#[path = "login_state/disconnect_reason.rs"]
+mod disconnect_reason;
+#[path = "login_state/level_chunk_wire_failure.rs"]
+mod level_chunk_wire_failure;
+#[path = "login_state/modal_forms.rs"]
+mod modal_forms;
+use disconnect_reason::{
+    PlayEpilogue, boundary_epilogue_packets, camera_instruction_epilogue_packets,
+    truncated_epilogue_wire,
+};
+
+const RUNTIME_ID: u64 = 0x1234_5678;
+const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
 const MAX_DECOMPRESSED: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,7 +76,7 @@ impl CompressionMode {
         match self {
             // gophertunnel calls the zlib/deflate compressor `CompressionAlgorithmFlate`;
             // the 1.26.40 generated enum spells the same wire value `ZLib`.
-            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::ZLib,
+            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::Zlib,
             Self::Snappy => NetworkSettingsPacketCompressionAlgorithm::Snappy,
             Self::None => NetworkSettingsPacketCompressionAlgorithm::Unknown(u16::MAX),
         }
@@ -78,6 +94,8 @@ enum CachePlayScript {
     ResolveValid,
     TruncatedMissResponse,
     InvalidMissResponseThenTraffic,
+    MalformedLevelChunk,
+    TrailingLevelChunk,
 }
 
 struct ScriptTransport {
@@ -186,6 +204,7 @@ struct ServerScript {
     non_empty_pack_stack: bool,
     cache_enabled: bool,
     cache_play_script: CachePlayScript,
+    epilogue: PlayEpilogue,
     stage: u8,
     inbound: VecDeque<Bytes>,
     crypto: Option<ScriptCrypto>,
@@ -207,6 +226,7 @@ impl ServerScript {
             non_empty_pack_stack,
             cache_enabled,
             cache_play_script,
+            epilogue: PlayEpilogue::Default,
             stage: 0,
             inbound: VecDeque::new(),
             crypto: None,
@@ -273,7 +293,7 @@ impl ServerScript {
                 ));
                 self.enqueue_encrypted(&[
                     McpePacket::from(PlayStatusPacket {
-                        status: PlayStatusPacketStatus::LoginSuccess,
+                        status: PlayStatusPacketStatus::Loginsuccess,
                     }),
                     McpePacket::from(ResourcePacksInfoPacket::default()),
                 ]);
@@ -367,7 +387,7 @@ impl ServerScript {
                             data: McpePacketData::ServerboundLoadingScreenPacket(
                                 ServerboundLoadingScreenPacket {
                                     loading_screen_packet_type:
-                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::StartLoadingScreen,
+                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Startloadingscreen,
                                     ..
                                 }
                             ),
@@ -386,7 +406,7 @@ impl ServerScript {
                 ));
                 let radius = McpePacket::from(ChunkRadiusUpdatedPacket { chunk_radius: 16 });
                 let spawn = McpePacket::from(PlayStatusPacket {
-                    status: PlayStatusPacketStatus::PlayerSpawn,
+                    status: PlayStatusPacketStatus::Playerspawn,
                 });
                 match self.order {
                     SpawnOrder::RadiusThenSpawn => {
@@ -407,7 +427,7 @@ impl ServerScript {
                             data: McpePacketData::ServerboundLoadingScreenPacket(
                                 ServerboundLoadingScreenPacket {
                                     loading_screen_packet_type:
-                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::EndLoadingScreen,
+                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
                                     ..
                                 }
                             ),
@@ -427,15 +447,63 @@ impl ServerScript {
                         }
                     ]
                 ));
-                if self.cache_enabled {
+                if self.cache_enabled
+                    && matches!(
+                        self.cache_play_script,
+                        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+                    )
+                {
+                    let hash = protocol::client_blob_hash(b"pending-before-wire-failure");
+                    self.enqueue_encrypted(&[
+                        McpePacket::from(cached_level_chunk(6, -7, vec![hash], b"pending")),
+                        McpePacket::from(SetTimePacket { time: 45_678 }),
+                    ]);
+                }
+                if matches!(self.cache_play_script, CachePlayScript::MalformedLevelChunk) {
+                    self.enqueue_encrypted_raw_packet(McpePacketName::LevelChunkPacket, &[0xff]);
+                } else if matches!(self.cache_play_script, CachePlayScript::TrailingLevelChunk) {
+                    let mut body = BytesMut::new();
+                    LevelChunkPacket::default()
+                        .encode(&mut body)
+                        .expect("encode trailing LevelChunk body");
+                    body.extend_from_slice(&[0xaa]);
+                    self.enqueue_encrypted_raw_packet(McpePacketName::LevelChunkPacket, &body);
+                }
+                if self.cache_enabled
+                    && matches!(
+                        self.cache_play_script,
+                        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+                    )
+                {
+                    self.enqueue_encrypted(&[McpePacket::from(LevelChunkPacket {
+                        chunk_position: ChunkPos { x: 7, z: -8 },
+                        dimension_id: DimensionType { value: 0 },
+                        subchunks_count: 0,
+                        serialized_chunk_data: vec![0x4d; 4096],
+                        ..Default::default()
+                    })]);
+                } else if !matches!(
+                    self.cache_play_script,
+                    CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+                ) && self.cache_enabled
+                {
                     match self.cache_play_script {
                         CachePlayScript::ResolveValid => {
                             let payload = b"cached-column";
                             let hash = protocol::client_blob_hash(payload);
-                            self.enqueue_encrypted(&[
+                            let mut traffic = vec![
+                                McpePacket::from(LevelChunkPacket {
+                                    chunk_position: ChunkPos { x: 8, z: -10 },
+                                    dimension_id: DimensionType { value: 0 },
+                                    subchunks_count: 0,
+                                    serialized_chunk_data: vec![0x6b; 1024 * 1024],
+                                    ..Default::default()
+                                }),
                                 McpePacket::from(cached_level_chunk(9, -11, vec![hash], b"tail")),
                                 McpePacket::from(SetTimePacket { time: 34_567 }),
-                            ]);
+                            ];
+                            traffic.extend(boundary_epilogue_packets(self.epilogue));
+                            self.enqueue_encrypted(&traffic);
                         }
                         CachePlayScript::TruncatedMissResponse => {
                             self.enqueue_encrypted_raw_packet(
@@ -452,24 +520,65 @@ impl ServerScript {
                                 b"",
                             ))]);
                         }
+                        CachePlayScript::MalformedLevelChunk
+                        | CachePlayScript::TrailingLevelChunk => unreachable!(),
                     }
                 } else {
-                    // A malformed world packet (invalid sub-chunk count) must be
-                    // skipped, not disconnect the session; the following SetTime
-                    // still arrives in order. A negative count is no longer a
-                    // request-mode sentinel in 1.26.40, so it is simply invalid.
-                    self.enqueue_encrypted(&[
+                    // A semantically invalid world packet (negative request limit)
+                    // must be skipped, not disconnect the session; the following
+                    // SetTime still arrives in order.
+                    // Latency probes ride the same batch: only the from-server
+                    // probe is answered, with its creation time provisionally
+                    // scaled (x 1_000_000) and never with its flag set.
+                    let mut traffic = vec![
                         McpePacket::from(LevelChunkPacket {
-                            subchunks_count: -3,
+                            client_request_sub_chunk_limit: Some(-3),
                             ..Default::default()
                         }),
+                        McpePacket::from(LevelChunkPacket {
+                            chunk_position: ChunkPos { x: 7, z: -9 },
+                            dimension_id: DimensionType { value: 0 },
+                            subchunks_count: 0,
+                            serialized_chunk_data: vec![0x5a; 1024 * 1024],
+                            ..Default::default()
+                        }),
+                        McpePacket::from(NetworkStackLatencyPacket {
+                            creation_time: 777,
+                            is_from_server: true,
+                        }),
+                        McpePacket::from(NetworkStackLatencyPacket {
+                            creation_time: 888,
+                            is_from_server: false,
+                        }),
                         McpePacket::from(SetTimePacket { time: 34_567 }),
-                    ]);
+                    ];
+                    traffic.extend(boundary_epilogue_packets(self.epilogue));
+                    traffic.extend(camera_instruction_epilogue_packets(self.epilogue));
+                    self.enqueue_encrypted(&traffic);
+                    if let Some((name, body)) = truncated_epilogue_wire(self.epilogue) {
+                        self.enqueue_encrypted_raw_packet(name, body);
+                    }
                 }
                 self.stage = 8;
             }
             8 => {
                 let packets = self.decode_encrypted_client(frame);
+                // A server latency probe is answered immediately with its
+                // provisionally scaled creation time (x 1_000_000) and the
+                // from-server flag cleared.
+                if let [
+                    McpePacket {
+                        data:
+                            McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
+                                creation_time: 777_000_000,
+                                is_from_server: false,
+                            }),
+                        ..
+                    },
+                ] = packets.as_slice()
+                {
+                    return;
+                }
                 if self.cache_enabled {
                     let expected_hash = match self.cache_play_script {
                         CachePlayScript::ResolveValid => {
@@ -481,6 +590,8 @@ impl ServerScript {
                         CachePlayScript::TruncatedMissResponse => {
                             panic!("truncated response script sends no cached request")
                         }
+                        CachePlayScript::MalformedLevelChunk
+                        | CachePlayScript::TrailingLevelChunk => return,
                     };
                     assert!(matches!(
                         packets.as_slice(),
@@ -500,6 +611,8 @@ impl ServerScript {
                             b"semantic-response-poison".as_slice()
                         }
                         CachePlayScript::TruncatedMissResponse => unreachable!(),
+                        CachePlayScript::MalformedLevelChunk
+                        | CachePlayScript::TrailingLevelChunk => unreachable!(),
                     };
                     let mut response = vec![McpePacket::from(ClientCacheMissResponsePacket {
                         missing_blobs: vec![MissingBlobData {
@@ -513,6 +626,7 @@ impl ServerScript {
                     ) {
                         response.push(McpePacket::from(SetTimePacket { time: 45_678 }));
                     }
+                    response.extend(boundary_epilogue_packets(self.epilogue));
                     self.enqueue_encrypted(&response);
                     self.stage = 9;
                     return;
@@ -750,7 +864,7 @@ fn server_handshake(client_public_key: PublicKey) -> (ServerToClientHandshakePac
     )
 }
 
-fn start_game(runtime_entity_id: i64) -> McpePacket {
+fn start_game(runtime_entity_id: u64) -> McpePacket {
     McpePacket::from(StartGamePacket {
         runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_entity_id,
@@ -766,7 +880,7 @@ fn start_game(runtime_entity_id: i64) -> McpePacket {
 /// literal has no equivalent. gophertunnel `packet/level_chunk.go` expects
 /// `SubChunkCount + 1` hashes, and the `-1` request-mode sentinel is gone.
 fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunkPacket {
-    let subchunks_count = i32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
         chunk_position: ChunkPos { x, z },
         dimension_id: DimensionType { value: 0 },
@@ -827,13 +941,23 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
     .expect("initial chunk radius acknowledgement must decode in Play");
     assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
 
-    let post_spawn_time = tokio::time::timeout(
+    let chunk = tokio::time::timeout(
         std::time::Duration::from_secs(1),
-        session.recv_world_event(0),
+        session.recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload))),
     )
     .await
-    .expect("post-spawn SetTime was discarded")
-    .expect("post-spawn SetTime must normalize in Play");
+    .expect("uncached LevelChunk was discarded")
+    .expect("uncached LevelChunk must normalize in Play")
+    .expect("mapped ingress must select LevelChunk bytes");
+    assert_eq!((chunk.0.x, chunk.0.z), (7, -9));
+    assert!(chunk.0.payload.is_empty());
+    assert_eq!(chunk.1.len(), 1024 * 1024);
+    assert!(chunk.1.iter().all(|byte| *byte == 0x5a));
+
+    let post_spawn_time = session
+        .recv_world_event(0)
+        .await
+        .expect("post-spawn SetTime must normalize in Play");
     assert_eq!(
         post_spawn_time,
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
@@ -915,6 +1039,16 @@ async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves()
         );
     }
 
+    let (ordinary, ordinary_payload) = session
+        .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
+        .await
+        .expect("resolver-enabled ordinary LevelChunk")
+        .expect("ordinary LevelChunk must use byte ingress");
+    assert_eq!((ordinary.x, ordinary.z), (8, -10));
+    assert!(ordinary.payload.is_empty());
+    assert_eq!(ordinary_payload.len(), 1024 * 1024);
+    assert!(ordinary_payload.iter().all(|byte| *byte == 0x6b));
+
     assert_eq!(
         session
             .recv_world_event(0)
@@ -923,15 +1057,14 @@ async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves()
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
     );
 
-    let chunk = session
-        .recv_world_event(0)
+    let (chunk, payload) = session
+        .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
         .await
-        .expect("resolved cached chunk");
-    let WorldEvent::LevelChunk(chunk) = chunk else {
-        panic!("cached transaction must resolve after its miss response")
-    };
+        .expect("resolved cached chunk")
+        .expect("cached transaction must resolve through byte ingress");
     assert_eq!((chunk.x, chunk.z), (9, -11));
-    assert_eq!(chunk.payload, b"cached-columntail");
+    assert!(chunk.payload.is_empty());
+    assert_eq!(payload, b"cached-columntail".as_slice());
 
     let stats = session.blob_cache_stats();
     assert_eq!(stats.hashes_classified, 1);
@@ -1046,20 +1179,15 @@ async fn conflicting_start_game_runtime_ids_are_rejected() {
 }
 
 #[tokio::test]
-async fn non_empty_resource_pack_stack_is_rejected_before_completed_response() {
+async fn unadvertised_optional_resource_pack_stack_does_not_block_login() {
     let transport = ScriptTransport::new_with_pack_stack(
         CompressionMode::Deflate,
         SpawnOrder::RadiusThenSpawn,
         false,
         true,
     );
-    let error = match LoginSequence::connect_transport(transport, "RustClient").await {
-        Ok(_) => panic!("non-empty resource pack stack must fail login"),
-        Err(error) => error,
-    };
-    assert!(
-        error
-            .to_string()
-            .contains("Resource pack downloads are not implemented")
-    );
+    let (_, game_data) = LoginSequence::connect_transport(transport, "RustClient")
+        .await
+        .expect("an unavailable optional pack must not block login");
+    assert_eq!(game_data.start_game.runtime_id.actor_runtime_id, RUNTIME_ID);
 }

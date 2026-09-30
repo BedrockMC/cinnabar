@@ -5,7 +5,8 @@
 
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
-    ArmorEquipmentEvent, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent, NetworkItemStack,
+    ArmorEquipmentEvent, CanonicalCell, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent,
+    NetworkItemStack, project_container_cell,
 };
 
 pub const MAX_HUD_EFFECTS: usize = 32;
@@ -22,9 +23,9 @@ impl Default for PlayerInventory {
 
 /// Pinned protocol-1001 SetEntityData keys consumed by the HUD.
 /// (`MetadataDictionaryItemKey::{Air, MaxAirdataMaxAir, FreezingEffectStrength}`.)
-const METADATA_KEY_AIR_SUPPLY: i32 = 7;
-const METADATA_KEY_MAX_AIR_SUPPLY: i32 = 42;
-const METADATA_KEY_FREEZING_EFFECT_STRENGTH: i32 = 120;
+const METADATA_KEY_AIR_SUPPLY: u32 = 7;
+const METADATA_KEY_MAX_AIR_SUPPLY: u32 = 42;
+const METADATA_KEY_FREEZING_EFFECT_STRENGTH: u32 = 120;
 
 /// Pinned vanilla Bedrock effect ids whose hearts recolor (poison family and
 /// wither). Fatal poison shares poison's presentation.
@@ -111,6 +112,11 @@ pub struct GameplayHudDiagnostics {
     /// Effect ids outside the pinned renderable table, skipped so they can
     /// never evict a renderable effect from the bounded list.
     pub unknown_effect_ids: u64,
+    /// Well-formed inventory events whose container identity resolved onto no
+    /// canonical cell (unknown container codes, unreviewed surfaces, or
+    /// indices outside every mapped surface). Typed counted leniency: the
+    /// event is skipped whole and mutates no mirror cell.
+    pub unknown_container_events: u64,
 }
 
 /// App-owned retained gameplay HUD state fed exclusively by committed
@@ -126,6 +132,11 @@ pub struct GameplayHudState {
     air_supply_ticks: Option<i16>,
     max_air_supply_ticks: Option<i16>,
     freezing_strength: f32,
+    saturation: Option<f32>,
+    hardcore: bool,
+    /// The `showcoordinates` / `showdaysplayed` world rules.
+    show_coordinates: bool,
+    show_days_played: bool,
     mount_unique_id: Option<i64>,
     diagnostics: GameplayHudDiagnostics,
 }
@@ -142,6 +153,10 @@ impl GameplayHudState {
 
     /// The authoritative hotbar stack for a slot, if inventory content has
     /// arrived. Empty stacks read as `None`.
+    ///
+    /// Retained for focused HUD-mirror authority tests: hotbar presentation
+    /// now derives every cell from the gesture-ledger snapshot.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub fn hotbar_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
         self.hotbar
@@ -152,6 +167,10 @@ impl GameplayHudState {
 
     /// One authoritative player-inventory stack. Bedrock window `0` exposes
     /// the nine hotbar cells first, followed by the 27 storage cells.
+    #[allow(
+        dead_code,
+        reason = "retained for focused HUD authority tests while inventory presentation uses the gesture ledger"
+    )]
     #[must_use]
     pub fn inventory_stack(&self, slot: usize) -> Option<&NetworkItemStack> {
         self.inventory
@@ -161,6 +180,12 @@ impl GameplayHudState {
             .filter(|stack| !stack.is_empty())
     }
 
+    /// Whether any window-0 inventory traffic has reached the retained
+    /// mirror.
+    ///
+    /// Retained for focused HUD-mirror authority tests: hotbar presentation
+    /// now derives every cell from the gesture-ledger snapshot.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub const fn hotbar_known(&self) -> bool {
         self.hotbar_known
@@ -169,6 +194,12 @@ impl GameplayHudState {
     #[must_use]
     pub fn offhand_stack(&self) -> Option<&NetworkItemStack> {
         self.offhand.as_ref().filter(|stack| !stack.is_empty())
+    }
+
+    /// None is unobserved, not an empty stack. Preserve the unfiltered retained
+    /// authority for consumers that must not admit unknown equipment.
+    pub(crate) fn offhand_is_empty(&self) -> Option<bool> {
+        self.offhand.as_ref().map(NetworkItemStack::is_empty)
     }
 
     #[must_use]
@@ -195,7 +226,6 @@ impl GameplayHudState {
         Some((current, maximum))
     }
 
-    #[cfg(test)]
     #[must_use]
     pub const fn freezing_strength(&self) -> f32 {
         self.freezing_strength
@@ -226,6 +256,56 @@ impl GameplayHudState {
             }
         }
         variant
+    }
+
+    pub fn set_hardcore(&mut self, hardcore: bool) {
+        self.hardcore = hardcore;
+    }
+
+    #[must_use]
+    pub const fn hardcore(&self) -> bool {
+        self.hardcore
+    }
+
+    /// Applies the rules `rules` names, leaving the others as they were.
+    pub fn apply_hud_rules(&mut self, rules: protocol::HudRules) {
+        if let Some(show) = rules.show_coordinates {
+            self.show_coordinates = show;
+        }
+        if let Some(show) = rules.show_days_played {
+            self.show_days_played = show;
+        }
+    }
+
+    #[must_use]
+    pub const fn show_coordinates(&self) -> bool {
+        self.show_coordinates
+    }
+
+    #[must_use]
+    pub const fn show_days_played(&self) -> bool {
+        self.show_days_played
+    }
+
+    /// Records the authoritative saturation level; non-finite values are ignored.
+    pub fn set_saturation(&mut self, saturation: f32) {
+        if saturation.is_finite() {
+            self.saturation = Some(saturation);
+        }
+    }
+
+    /// True once saturation is known to be exhausted, which shakes the hunger row.
+    #[must_use]
+    pub fn saturation_empty(&self) -> bool {
+        self.saturation.is_some_and(|value| value <= 0.0)
+    }
+
+    /// Whether Regeneration (Bedrock effect 10) is active, which bobs the hearts.
+    #[must_use]
+    pub fn regeneration_active(&self, now_tick: Option<u64>) -> bool {
+        self.effects
+            .iter()
+            .any(|effect| effect.effect_id == 10 && effect.visible_at_tick(now_tick))
     }
 
     /// Whether the pinned hunger-effect recolor applies (Bedrock effect 17).
@@ -387,46 +467,69 @@ impl GameplayHudState {
     }
 
     /// Applies one committed inventory event to the retained hotbar/offhand
-    /// mirror. Container-UI events (open/close/response/data) are dropped and
-    /// counted until the Phase 5.5 container store takes over this drain.
+    /// mirror. Every container identity resolves through the canonical
+    /// container-address projection, so a cursor or offhand update riding
+    /// the legacy player window can never land in a hotbar cell, a partial
+    /// rewrite states only the cells it actually carries, and identities
+    /// resolving onto no mirrored surface are counted skips. Container-UI
+    /// events (open/close/response/data) plus known surfaces without a HUD
+    /// mirror are dropped and counted until the Phase 5.5 container store
+    /// takes over this drain.
     pub fn apply_inventory(&mut self, event: &InventoryEvent) {
         match event {
-            InventoryEvent::Content(content) => match content.container.window_id {
-                Some(0) => {
-                    for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
-                        self.inventory.0[slot] = content.slots.get(slot).cloned();
-                    }
-                    for slot in 0..usize::from(HOTBAR_SLOT_COUNT) {
-                        self.hotbar[slot] = self.inventory.0[slot].clone();
-                    }
-                    self.hotbar_known = true;
-                }
-                Some(119) => {
-                    self.offhand = content.slots.first().cloned();
-                }
-                _ => {
-                    self.diagnostics.dropped_inventory_events =
-                        self.diagnostics.dropped_inventory_events.saturating_add(1);
-                }
-            },
-            InventoryEvent::Slot(slot_event) => {
-                let slot = usize::from(slot_event.identity.slot);
-                match slot_event.identity.container.window_id {
-                    Some(0) if slot < usize::from(HOTBAR_SLOT_COUNT) => {
-                        self.inventory.0[slot] = Some(slot_event.stack.clone());
-                        self.hotbar[slot] = Some(slot_event.stack.clone());
+            InventoryEvent::Content(content) => {
+                // A content payload addresses its surface from index zero,
+                // so the projected first cell identifies the surface.
+                match project_container_cell(&content.container, 0) {
+                    Some(CanonicalCell::PlayerInventory(_)) => {
+                        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
+                            if let Some(stack) = content.slots.get(slot) {
+                                self.inventory.0[slot] = Some(stack.clone());
+                            }
+                        }
+                        for slot in 0..usize::from(HOTBAR_SLOT_COUNT) {
+                            self.hotbar[slot] = self.inventory.0[slot].clone();
+                        }
                         self.hotbar_known = true;
                     }
-                    Some(0) if slot < PLAYER_INVENTORY_SLOT_COUNT => {
-                        self.inventory.0[slot] = Some(slot_event.stack.clone());
+                    Some(CanonicalCell::Offhand) => {
+                        self.offhand = content.slots.first().cloned();
                     }
-                    Some(0) => {}
-                    Some(119) if slot == 0 => {
-                        self.offhand = Some(slot_event.stack.clone());
-                    }
-                    _ => {
+                    // Cursor, armor, and generic-storage surfaces resolve
+                    // canonically but belong to their owning stores.
+                    Some(_) => {
                         self.diagnostics.dropped_inventory_events =
                             self.diagnostics.dropped_inventory_events.saturating_add(1);
+                    }
+                    None => {
+                        self.diagnostics.unknown_container_events =
+                            self.diagnostics.unknown_container_events.saturating_add(1);
+                    }
+                }
+            }
+            InventoryEvent::Slot(slot_event) => {
+                match project_container_cell(
+                    &slot_event.identity.container,
+                    slot_event.identity.slot,
+                ) {
+                    Some(CanonicalCell::PlayerInventory(slot)) => {
+                        let slot = usize::from(slot);
+                        self.inventory.0[slot] = Some(slot_event.stack.clone());
+                        if slot < usize::from(HOTBAR_SLOT_COUNT) {
+                            self.hotbar[slot] = Some(slot_event.stack.clone());
+                            self.hotbar_known = true;
+                        }
+                    }
+                    Some(CanonicalCell::Offhand) => {
+                        self.offhand = Some(slot_event.stack.clone());
+                    }
+                    Some(_) => {
+                        self.diagnostics.dropped_inventory_events =
+                            self.diagnostics.dropped_inventory_events.saturating_add(1);
+                    }
+                    None => {
+                        self.diagnostics.unknown_container_events =
+                            self.diagnostics.unknown_container_events.saturating_add(1);
                     }
                 }
             }
@@ -437,7 +540,10 @@ impl GameplayHudState {
             | InventoryEvent::Response(_)
             | InventoryEvent::Open(_)
             | InventoryEvent::Close(_)
-            | InventoryEvent::Data(_) => {
+            | InventoryEvent::Data(_)
+            | InventoryEvent::EnchantOptions(_)
+            | InventoryEvent::Recipes(_)
+            | InventoryEvent::Creative(_) => {
                 self.diagnostics.dropped_inventory_events =
                     self.diagnostics.dropped_inventory_events.saturating_add(1);
             }

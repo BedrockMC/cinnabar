@@ -4,10 +4,23 @@
 
 use std::sync::Arc;
 
-use protocol::{ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, InventoryEvent};
+use protocol::{
+    ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, CanonicalCell, InventoryEvent,
+    project_container_cell,
+};
 use ui::BoundedStat;
 
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
+use crate::ui_runtime::inventory_ledger::PlayerInventorySlot;
+
+/// One borrowed view of the selected hotbar slot and its tri-state stack authority.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct SelectedStackSnapshot<'a> {
+    /// The selected physical hotbar slot.
+    pub(crate) slot: u8,
+    /// The authoritative, predicted, or bounded bootstrap state for that slot.
+    pub(crate) state: PlayerInventorySlot<'a>,
+}
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
 const MILLIS_PER_SERVER_TICK: u64 = 50;
@@ -18,6 +31,50 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
+    pub(crate) fn clear_block_breaking_mode(&mut self) {
+        self.server_authoritative_block_breaking = None;
+    }
+
+    pub(crate) fn install_block_breaking_mode(
+        &mut self,
+        session_generation: u64,
+        mode: bool,
+        setup_succeeded: bool,
+    ) {
+        if self.session_id() == session_generation && setup_succeeded {
+            self.server_authoritative_block_breaking = Some(mode);
+        }
+    }
+
+    /// Retained negotiation only; this does not authorize a mining request.
+    pub(crate) const fn server_authoritative_block_breaking(&self) -> Option<bool> {
+        self.server_authoritative_block_breaking
+    }
+
+    /// Predicts a physical hotbar selection and retains the latest slot until its packet is sent.
+    pub(crate) fn queue_local_hotbar_selection(&mut self, slot: u8) {
+        if self.selected_hotbar_slot() == Some(slot) && self.pending_hotbar_selection.is_none() {
+            self.set_local_selected_slot(slot);
+            return;
+        }
+        self.set_local_selected_slot(slot);
+        self.pending_hotbar_selection = Some(slot);
+    }
+
+    /// Returns the latest locally selected slot whose packet has not entered the network queue.
+    pub(crate) const fn pending_hotbar_selection(&self) -> Option<u8> {
+        self.pending_hotbar_selection
+    }
+
+    /// Clears a pending hotbar selection only when it is still the slot that was sent.
+    pub(crate) fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
+        if self.pending_hotbar_selection != Some(slot) {
+            return false;
+        }
+        self.pending_hotbar_selection = None;
+        true
+    }
+
     /// Installs an explicit authoritative game mode. Stats are never
     /// fabricated or cleared here: attributes remain the only stat authority,
     /// and visibility is a pure presentation gate on the mode. Production
@@ -27,6 +84,14 @@ impl UiRuntime {
     pub(crate) fn publish_player_game_mode(&mut self, game_mode: protocol::PlayerGameMode) {
         self.player_game_mode = Some(game_mode);
         self.player_mode_from_default = false;
+    }
+
+    pub(crate) fn set_hardcore(&mut self, hardcore: bool) {
+        self.gameplay_hud.set_hardcore(hardcore);
+    }
+
+    pub(crate) fn apply_hud_rules(&mut self, rules: protocol::HudRules) {
+        self.gameplay_hud.apply_hud_rules(rules);
     }
 
     /// Installs the StartGame game modes: the resolved player mode, the
@@ -93,8 +158,31 @@ impl UiRuntime {
         }
     }
 
+    /// Registers a mine-block prediction and returns its request id.
+    pub(crate) fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
+        self.inventory_ledger
+            .begin_mining_request(slot, predicted_damage)
+    }
+
+    pub(crate) fn cancel_mining_request(&mut self, request_id: i32) {
+        self.inventory_ledger.cancel_mining_request(request_id);
+    }
+
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
         self.player_game_mode
+    }
+
+    /// Interaction capabilities for the current mode, refined by any server
+    /// ability evidence. `None` until a game mode is known.
+    pub(crate) fn game_mode_capabilities(
+        &self,
+    ) -> Option<crate::game_mode_capabilities::GameModeCapabilities> {
+        self.player_game_mode.map(|mode| {
+            crate::game_mode_capabilities::GameModeCapabilities::resolve(
+                mode,
+                self.local_abilities(),
+            )
+        })
     }
 
     pub(crate) const fn survival_stats_visible(&self) -> bool {
@@ -115,6 +203,7 @@ impl UiRuntime {
                 self.local_selected_equipment
                     .as_ref()
                     .map(|equipment| equipment.event.selected_slot)
+                    .filter(|slot| *slot < protocol::HOTBAR_SLOT_COUNT)
             })
             .or_else(|| {
                 self.player_game_mode
@@ -123,34 +212,64 @@ impl UiRuntime {
             })
     }
 
-    /// The authoritative stack in the selected hotbar slot: inventory content
-    /// when known, otherwise the last main-hand MobEquipment echo for the same
-    /// slot. `None` when the slot is empty or contents are unknown.
-    pub(crate) fn selected_stack(&self) -> Option<&protocol::NetworkItemStack> {
+    /// Borrows the selected slot and its one tri-state stack authority.
+    pub(crate) fn selected_stack_snapshot(&self) -> Option<SelectedStackSnapshot<'_>> {
         let slot = self.selected_hotbar_slot()?;
-        if self.gameplay_hud.hotbar_known() {
-            return self.gameplay_hud.hotbar_stack(slot);
+        let ledger_state = self.inventory_ledger.slot_state(slot)?;
+        let state = match ledger_state {
+            PlayerInventorySlot::Unknown => self
+                .local_selected_equipment
+                .as_ref()
+                .filter(|equipment| equipment.event.selected_slot == slot)
+                .map_or(PlayerInventorySlot::Unknown, |equipment| {
+                    if equipment.event.stack.is_empty() {
+                        PlayerInventorySlot::Empty
+                    } else {
+                        PlayerInventorySlot::Present(&equipment.event.stack)
+                    }
+                }),
+            known => known,
+        };
+        Some(SelectedStackSnapshot { slot, state })
+    }
+
+    /// Returns the present selected stack, preserving the existing optional API.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn selected_stack(&self) -> Option<&protocol::NetworkItemStack> {
+        match self.selected_stack_snapshot()?.state {
+            PlayerInventorySlot::Present(stack) => Some(stack),
+            PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => None,
         }
-        self.local_selected_equipment
-            .as_ref()
-            .filter(|equipment| equipment.event.selected_slot == slot)
-            .map(|equipment| &equipment.event.stack)
-            .filter(|stack| !stack.is_empty())
+    }
+
+    /// The authoritative custom display name the selected hotbar cell
+    /// presents, following the same predicted stack authority as
+    /// [`Self::selected_stack_snapshot`]: during a pending gesture the
+    /// travelling overlay of the predicted half serves beside the predicted
+    /// stack. Presentation prefers it over the localized identifier
+    /// fallback.
+    pub(crate) fn selected_stack_custom_name(&self) -> Option<Arc<str>> {
+        let slot = self.selected_hotbar_slot()?;
+        self.inventory_ledger
+            .presented_slot_overlay(slot)?
+            .custom_name
+            .clone()
     }
 
     pub(crate) const fn gameplay_hud(&self) -> &GameplayHudState {
         &self.gameplay_hud
     }
 
-    /// The stack presented in one hotbar cell: the authoritative inventory
-    /// mirror when known, otherwise the MobEquipment echo for the selected
-    /// slot — authoritative before any container content has arrived.
+    /// The stack presented in one hotbar cell: the same gesture-ledger
+    /// snapshot authority the HUD presents (predicted or committed), with
+    /// the MobEquipment echo only for the selected slot before any container
+    /// content has arrived.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn presented_hotbar_stack(&self, slot: u8) -> Option<&protocol::NetworkItemStack> {
-        self.gameplay_hud.hotbar_stack(slot).or_else(|| {
-            (self.selected_hotbar_slot() == Some(slot))
-                .then(|| self.selected_stack())
-                .flatten()
-        })
+        if self.selected_hotbar_slot() != Some(slot) {
+            return self.inventory_ledger.displayed_stack(slot);
+        }
+        self.selected_stack()
     }
 
     /// The estimated authoritative tick at `now_millis`: the last observed
@@ -218,10 +337,20 @@ impl UiRuntime {
     /// Refreshes the selected-item identity clock. Runs before presentation so
     /// the label timer starts when the authoritative selection (slot or
     /// contents) changes, exactly like the Java reference behavior.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn observe_selected_item_identity(&mut self, now_millis: u64) {
         let identity = self
             .selected_stack()
             .map(|stack| (stack.network_id, stack.metadata));
+        self.observe_selected_item_identity_value(identity, now_millis);
+    }
+
+    /// Updates the selected-item clock from an already-sampled frame identity.
+    pub(crate) fn observe_selected_item_identity_value(
+        &mut self,
+        identity: Option<(i32, u32)>,
+        now_millis: u64,
+    ) {
         if identity != self.last_selected_identity {
             self.last_selected_identity = identity;
             self.last_selected_identity_change_millis = if identity.is_some() {
@@ -238,7 +367,55 @@ impl UiRuntime {
     /// container store takes over this drain.
     pub(crate) fn drain_pending_inventory(&mut self) {
         while let Some(sequenced) = self.pending_inventory.pop_front() {
-            if let InventoryEvent::SelectedSlot(selected) = &sequenced.event
+            self.crafting_authority.observe(
+                sequenced.session_generation,
+                sequenced.fifo_sequence,
+                &sequenced.event,
+            );
+            let event = match sequenced.event {
+                super::InventoryAuthorityEvent::Inventory(event) => event,
+                super::InventoryAuthorityEvent::Registry(registry) => {
+                    self.inventory_ledger.apply_registry(&registry);
+                    self.observe_use_on_identity(
+                        sequenced.session_generation,
+                        sequenced.fifo_sequence,
+                        &super::InventoryAuthorityEvent::Registry(registry),
+                    );
+                    continue;
+                }
+            };
+            self.inventory_ledger.apply(&event);
+            match &event {
+                InventoryEvent::Authority(_) => {
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_generation().is_some();
+                }
+                InventoryEvent::Open(_) => {
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_generation().is_some();
+                    if self.inventory_open {
+                        self.chat_focused = false;
+                    }
+                }
+                InventoryEvent::Content(content)
+                    if matches!(
+                        project_container_cell(&content.container, 0),
+                        Some(CanonicalCell::GenericStorage { .. })
+                    ) =>
+                {
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_slot_count().is_some();
+                    if self.inventory_open {
+                        self.chat_focused = false;
+                    }
+                }
+                InventoryEvent::Close(_) => {
+                    self.inventory_open = self.inventory_ledger.personal_inventory_desired_open()
+                        || self.inventory_ledger.storage_generation().is_some();
+                }
+                _ => {}
+            }
+            if let InventoryEvent::SelectedSlot(selected) = &event
                 && selected.select_slot
                 && selected.slot < protocol::HOTBAR_SLOT_COUNT
             {
@@ -246,9 +423,17 @@ impl UiRuntime {
                 // its FIFO position; later local input re-predicts as usual.
                 self.server_selected_slot = Some(selected.slot);
                 self.local_selected_slot = None;
+                self.pending_hotbar_selection = None;
             }
-            self.gameplay_hud.apply_inventory(&sequenced.event);
+            self.gameplay_hud.apply_inventory(&event);
+            self.observe_use_on_identity(
+                sequenced.session_generation,
+                sequenced.fifo_sequence,
+                &super::InventoryAuthorityEvent::Inventory(event),
+            );
         }
+        self.crafting_authority.advance();
+        self.sample_crafting_observation();
     }
 
     pub fn apply_local_attributes(
@@ -279,6 +464,9 @@ impl UiRuntime {
                     Some(stat) => hunger = Some(stat),
                     None => self.gameplay_hud.note_odd_attribute(),
                 },
+                "minecraft:player.saturation" => {
+                    self.gameplay_hud.set_saturation(attribute.current);
+                }
                 // Absorption is an ordinary bounded attribute; zero is common
                 // and simply hides the golden hearts.
                 "minecraft:absorption" => {
@@ -400,6 +588,10 @@ impl UiRuntime {
     }
 }
 
+pub(crate) fn drain_inventory_authority(mut runtime: bevy::prelude::ResMut<UiRuntime>) {
+    runtime.drain_pending_inventory();
+}
+
 impl UiRuntime {
     /// Installs the startup-loaded localization catalog used for rawtext
     /// translation and item display names.
@@ -407,14 +599,99 @@ impl UiRuntime {
         self.lang_catalog = Some(catalog);
     }
 
+    /// The UI language's table, consulted before en_US.
+    pub fn set_active_language(&mut self, catalog: Option<Arc<assets::RuntimeLangCatalog>>) {
+        self.active_lang = catalog;
+    }
+
+    pub(crate) fn set_server_lang(&mut self, overlay: Option<Arc<assets::ServerLangOverlay>>) {
+        self.server_lang = overlay;
+    }
+
+    pub(crate) fn set_session_icons(
+        &mut self,
+        icons: Option<Arc<super::presentation::SessionIcons>>,
+    ) {
+        self.session_icons = icons;
+    }
+
+    pub(crate) fn set_session_glyphs(
+        &mut self,
+        glyphs: Option<Arc<super::presentation::SessionGlyphSheets>>,
+    ) {
+        self.session_glyphs = glyphs;
+    }
+
+    pub(crate) fn session_glyphs(&self) -> Option<&Arc<super::presentation::SessionGlyphSheets>> {
+        self.session_glyphs.as_ref()
+    }
+
+    pub(crate) fn session_icons(&self) -> Option<&Arc<super::presentation::SessionIcons>> {
+        self.session_icons.as_ref()
+    }
+
+    pub(crate) fn set_session_items(
+        &mut self,
+        items: Option<Arc<super::item_facts::SessionItemComponents>>,
+    ) {
+        self.session_items = items;
+    }
+
+    /// The server's components for `identifier` this session.
+    pub(crate) fn item_components(&self, identifier: &str) -> Option<&protocol::ItemComponents> {
+        self.session_items.as_ref()?.get(identifier)
+    }
+
+    pub(crate) fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
+        super::item_facts::is_glint(stack, identifier, self.item_components(identifier))
+    }
+
+    /// A damageable item's maximum: the server's durability component, else the vanilla table.
+    pub(crate) fn item_max_durability(&self, identifier: Option<&str>) -> Option<u32> {
+        let identifier = identifier?;
+        self.item_components(identifier)
+            .and_then(|components| components.max_durability)
+            .or_else(|| super::item_facts::max_durability(identifier))
+    }
+
+    pub(crate) fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {
+        self.server_ui = pack;
+    }
+
+    pub(crate) fn server_ui(&self) -> Option<&Arc<super::presentation::ServerUiPack>> {
+        self.server_ui.as_ref()
+    }
+
+    pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
+        self.server_lang
+            .as_ref()
+            .and_then(|overlay| overlay.lookup(key))
+            .map(Arc::from)
+            .or_else(|| {
+                self.active_lang
+                    .as_ref()
+                    .and_then(|active| active.lookup(key))
+            })
+            .or_else(|| self.lang_catalog.as_ref().and_then(|base| base.lookup(key)))
+    }
+
     /// The localized display name for a vanilla item identifier: the pinned
     /// `item.<path>.name` / `tile.<path>.name` translation when present,
     /// otherwise the mechanical title-cased identifier.
     pub(crate) fn localized_item_name(&self, identifier: &str) -> String {
-        if let Some(catalog) = self.lang_catalog.as_ref() {
+        // A display_name component is a language key, shown literally when untranslated.
+        if let Some(name) = self
+            .item_components(identifier)
+            .and_then(|components| components.display_name.as_deref())
+        {
+            return self
+                .translation(name)
+                .map_or_else(|| name.to_owned(), |text| text.as_ref().to_owned());
+        }
+        if self.server_lang.is_some() || self.lang_catalog.is_some() {
             let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
             for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
-                if let Some(value) = catalog.lookup(&key) {
+                if let Some(value) = self.translation(&key) {
                     return value.as_ref().to_owned();
                 }
             }

@@ -1,9 +1,11 @@
 #define_import_path cinnabar::biome_tint
 
-// Native Bedrock evidence has not yet fixed the exact kernel. Radius one is a
-// bounded provisional 3x3 horizontal box and must not be presented as parity.
-const PROVISIONAL_BIOME_BLEND_RADIUS: i32 = 1;
-const BIOME_BLEND_WEIGHT_DENOMINATOR: f32 = 9.0;
+// Bedrock blends over a 4-block lattice: each lattice point averages biomes
+// sampled at its own position and one lattice step either side, and queries
+// interpolate linearly between the two nearest lattice points. Per axis that
+// collapses to four taps at lattice multiples with weights (1-t, 1, 1, t) / 3.
+// The vertical lattice axis is not blended here (needs measurement).
+const BIOME_LATTICE_STEP: i32 = 4;
 const BIOME_DESCRIPTOR_WORDS: u32 = 11u;
 const BIOME_DESCRIPTOR_MAGIC: u32 = 0x42494f31u;
 
@@ -99,6 +101,10 @@ fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
     }
 }
 
+fn lattice_tap_weights(t: f32) -> vec4<f32> {
+    return vec4((1.0 - t) / 3.0, 1.0 / 3.0, 1.0 / 3.0, t / 3.0);
+}
+
 fn blended_biome_tint(
     tint_kind: u32,
     material_flags: u32,
@@ -118,13 +124,25 @@ fn blended_biome_tint(
         return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind);
     }
 
+    let cell = vec2<i32>(coordinate.x >> 2u, coordinate.z >> 2u);
+    let fraction = vec2<f32>(
+        f32(coordinate.x & 3),
+        f32(coordinate.z & 3),
+    ) / f32(BIOME_LATTICE_STEP);
+    let weights_x = lattice_tap_weights(fraction.x);
+    let weights_z = lattice_tap_weights(fraction.y);
     var sum = vec3(0.0);
-    for (var dz = -PROVISIONAL_BIOME_BLEND_RADIUS; dz <= PROVISIONAL_BIOME_BLEND_RADIUS; dz += 1) {
-        for (var dx = -PROVISIONAL_BIOME_BLEND_RADIUS; dx <= PROVISIONAL_BIOME_BLEND_RADIUS; dx += 1) {
-            let sample_coordinate = coordinate + vec3(dx, 0, dz);
+    for (var tz = 0; tz < 4; tz += 1) {
+        for (var tx = 0; tx < 4; tx += 1) {
+            let sample_coordinate = vec3(
+                (cell.x - 1 + tx) * BIOME_LATTICE_STEP,
+                coordinate.y,
+                (cell.y - 1 + tz) * BIOME_LATTICE_STEP,
+            );
             let tint_index = packed_biome_tint_index(record, sample_coordinate);
-            sum += tint_domain_colour(safe_biome_tint(tint_index), tint_kind);
+            sum += tint_domain_colour(safe_biome_tint(tint_index), tint_kind)
+                * (weights_x[tx] * weights_z[tz]);
         }
     }
-    return sum / BIOME_BLEND_WEIGHT_DENOMINATOR;
+    return sum;
 }

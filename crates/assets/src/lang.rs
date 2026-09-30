@@ -31,6 +31,15 @@ pub const VANILLA_EN_US_LANG_SHA256: [u8; 32] = [
     0x3b, 0xb9, 0xa1, 0x65, 0x40, 0x51, 0x0c, 0x4f, 0x0e, 0x07, 0x79, 0x10, 0x3c, 0x52, 0x1e, 0xde,
 ];
 
+/// Whether `code` is a `ll_CC` language code, the form `texts/<code>.lang` uses.
+pub fn is_language_code(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    bytes.len() == 5
+        && bytes[..2].iter().all(u8::is_ascii_lowercase)
+        && bytes[2] == b'_'
+        && bytes[3..].iter().all(u8::is_ascii_uppercase)
+}
+
 /// One resolved translation entry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LangEntry {

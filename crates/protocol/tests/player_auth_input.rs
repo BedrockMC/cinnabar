@@ -1,8 +1,10 @@
-use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input};
-use valentine::bedrock::version::v1_26_40::{
-    McpePacketData, McpePacketName, PlayerAuthInputPacketInputDataItem,
-    PlayerAuthInputPacketInputMode, PlayerAuthInputPacketNewInteractionModel,
-    PlayerAuthInputPacketPlayMode,
+use protocol::{
+    BedrockSession, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch,
+    encode, player_auth_input,
+};
+use valentine::bedrock::version::v1_26_51::{
+    EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
+    EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData, McpePacketName,
 };
 
 fn snapshot() -> PlayerAuthInputSnapshot {
@@ -26,7 +28,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
 }
 
 #[test]
-fn vendor_neutral_snapshot_maps_to_protocol_1001_player_auth_input() {
+fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
     let packet = player_auth_input(snapshot()).expect("valid player input");
     assert_eq!(packet.header.id, McpePacketName::PlayerAuthInputPacket);
     assert_eq!(
@@ -73,36 +75,190 @@ fn vendor_neutral_snapshot_maps_to_protocol_1001_player_auth_input() {
     );
     assert_eq!(input.interact_rotation.x, input.player_rotation.x);
     assert_eq!(input.interact_rotation.y, input.player_rotation.y);
-    assert_eq!(input.input_mode, PlayerAuthInputPacketInputMode::Mouse);
-    assert_eq!(input.play_mode, PlayerAuthInputPacketPlayMode::Normal);
+    assert_eq!(input.input_mode, EnumsInputMode::Mouse);
+    assert_eq!(input.play_mode, EnumsClientPlayMode::Normal);
     // The protocol-1001 Unknown(-1) workaround is gone: gophertunnel writes
     // this with io.Varint32 (zigzag), which the generated enum now matches.
     assert_eq!(
         input.new_interaction_model,
-        PlayerAuthInputPacketNewInteractionModel::Crosshair
+        EnumsNewInteractionModel::Crosshair
     );
     // The bitset became a list of set flag IDs, emitted in ascending order.
     assert_eq!(
         input.input_data,
         vec![
-            PlayerAuthInputPacketInputDataItem::Jumping,
-            PlayerAuthInputPacketInputDataItem::Up,
-            PlayerAuthInputPacketInputDataItem::Left,
-            PlayerAuthInputPacketInputDataItem::Sprinting,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
+            EnumsPlayerAuthInputPacketPayloadInputData::Up,
+            EnumsPlayerAuthInputPacketPayloadInputData::Left,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
         ]
     );
     // The outer bool of each DoubleOptionalFunc is always set by a Go writer;
     // the payload's own Option is what says "absent".
-    assert!(input.constant_4);
-    assert!(input.constant_12 && input.item_use_transaction.is_none());
-    assert!(input.constant_14 && input.item_stack_request.is_none());
-    assert!(input.constant_16 && input.player_block_actions.is_none());
-    assert!(input.constant_18 && input.vehicle_rotation.is_none());
-    assert!(input.constant_20 && input.client_predicted_vehicle.is_none());
+    assert_eq!(input.item_use_transaction, None);
+    assert_eq!(input.item_stack_request, None);
+    assert_eq!(input.player_block_actions, None);
+    assert_eq!(input.vehicle_rotation, None);
+    assert_eq!(input.client_predicted_vehicle, None);
 }
 
 #[test]
-fn player_auth_input_rejects_non_finite_state_and_ticks_outside_wire_range() {
+fn movement_hints_map_to_their_protocol_2168_list_ids() {
+    let mut input = snapshot();
+    input.flags = PlayerInputFlags::UP_LEFT
+        | PlayerInputFlags::UP_RIGHT
+        | PlayerInputFlags::HORIZONTAL_COLLISION
+        | PlayerInputFlags::VERTICAL_COLLISION
+        | PlayerInputFlags::DOWN_LEFT
+        | PlayerInputFlags::DOWN_RIGHT;
+
+    let packet = player_auth_input(input).expect("valid movement hints");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        input.input_data,
+        vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Upleft,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upright,
+            EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision,
+            EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downleft,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downright,
+        ]
+    );
+}
+
+#[test]
+fn device_class_move_carriers_survive_encoding_distinctly() {
+    let mut gamepad_style = snapshot();
+    gamepad_style.input_mode = PlayerInputMode::GamePad;
+    gamepad_style.move_vector = [0.780_869_4, 0.624_695_04];
+    gamepad_style.analogue_move_vector = [0.6, 0.8];
+    gamepad_style.raw_move_vector = [1.0, 0.8];
+
+    let packet = player_auth_input(gamepad_style).expect("valid gamepad input");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        (input.move_vector.x, input.move_vector.y),
+        (0.780_869_4, 0.624_695_04)
+    );
+    assert_eq!(
+        (input.analog_move_vector.x, input.analog_move_vector.y),
+        (0.6, 0.8)
+    );
+    assert_eq!(
+        (input.raw_move_vector.x, input.raw_move_vector.y),
+        (1.0, 0.8)
+    );
+    assert_ne!(input.move_vector.x, input.raw_move_vector.x);
+    assert_ne!(input.analog_move_vector.x, input.raw_move_vector.x);
+    assert_ne!(input.input_mode, EnumsInputMode::Mouse);
+
+    let mut keyboard_style = snapshot();
+    keyboard_style.move_vector = [
+        std::f32::consts::FRAC_1_SQRT_2,
+        std::f32::consts::FRAC_1_SQRT_2,
+    ];
+    keyboard_style.analogue_move_vector = [-1.0, 1.0];
+    keyboard_style.raw_move_vector = [-1.0, 1.0];
+
+    let packet = player_auth_input(keyboard_style).expect("valid keyboard input");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        (input.move_vector.x, input.move_vector.y),
+        (
+            std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2
+        )
+    );
+    assert_eq!(
+        (input.analog_move_vector.x, input.analog_move_vector.y),
+        (-1.0, 1.0)
+    );
+    assert_eq!(
+        (input.raw_move_vector.x, input.raw_move_vector.y),
+        (-1.0, 1.0)
+    );
+}
+
+#[test]
+fn handled_teleport_flag_serializes_in_ascending_list_position() {
+    let mut input = snapshot();
+    input.flags =
+        PlayerInputFlags::UP | PlayerInputFlags::SPRINTING | PlayerInputFlags::HANDLED_TELEPORT;
+
+    let packet = player_auth_input(input).expect("valid flags");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    // Row 37 of the encoder table is HandledTeleport, so bit 37 must emit in
+    // ascending list position between Sprinting (20) and the higher bits.
+    assert_eq!(
+        input.input_data,
+        vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Up,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
+        ]
+    );
+}
+
+#[test]
+fn missed_swing_flag_serializes_as_its_wire_ordinal() {
+    let mut input = snapshot();
+    input.flags = PlayerInputFlags::HANDLED_TELEPORT | PlayerInputFlags::MISSED_SWING;
+    let McpePacketData::PlayerAuthInputPacket(input) = player_auth_input(input).unwrap().data
+    else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        input.input_data,
+        vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
+            EnumsPlayerAuthInputPacketPayloadInputData::Missedswing,
+        ]
+    );
+}
+
+#[test]
+fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let mut baseline = snapshot();
+    baseline.flags = PlayerInputFlags::JUMPING;
+    let mut flagged = baseline;
+    flagged.flags |= PlayerInputFlags::HANDLED_TELEPORT;
+
+    let baseline_len = encode(&player_auth_input(baseline).unwrap(), &session)
+        .expect("encode baseline")
+        .len();
+    let encoded = encode(&player_auth_input(flagged).unwrap(), &session).expect("encode flagged");
+    assert_eq!(
+        encoded.len() - baseline_len,
+        1,
+        "one more set flag must add exactly its one-byte zigzag varint ordinal"
+    );
+
+    let mut decoded = decode_batch(encoded, &session).expect("decode flagged batch");
+    assert_eq!(decoded.len(), 1);
+    let McpePacketData::PlayerAuthInputPacket(input) = decoded.pop().unwrap().data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        input.input_data,
+        vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
+        ]
+    );
+}
+
+#[test]
+fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut invalid_position = snapshot();
     invalid_position.position[1] = f32::NAN;
     assert!(player_auth_input(invalid_position).is_err());
@@ -111,7 +267,19 @@ fn player_auth_input_rejects_non_finite_state_and_ticks_outside_wire_range() {
     invalid_rotation.yaw = f32::INFINITY;
     assert!(player_auth_input(invalid_rotation).is_err());
 
-    let mut invalid_tick = snapshot();
-    invalid_tick.tick = i64::MAX as u64 + 1;
-    assert!(player_auth_input(invalid_tick).is_err());
+    let mut invalid_raw_carrier = snapshot();
+    invalid_raw_carrier.raw_move_vector[0] = f32::NAN;
+    assert!(player_auth_input(invalid_raw_carrier).is_err());
+
+    let mut invalid_analogue_carrier = snapshot();
+    invalid_analogue_carrier.analogue_move_vector[1] = f32::INFINITY;
+    assert!(player_auth_input(invalid_analogue_carrier).is_err());
+
+    let mut maximum_tick = snapshot();
+    maximum_tick.tick = u64::MAX;
+    let packet = player_auth_input(maximum_tick).expect("full unsigned tick range is valid");
+    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(input.client_tick.inputtick, u64::MAX);
 }

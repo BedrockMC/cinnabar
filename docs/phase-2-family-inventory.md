@@ -23,10 +23,10 @@ The audit used these pinned inputs:
 - the locally acquired, ignored Mojang 1.26.30 sample resource pack described
   by `assets/vanilla-source.json`.
 
-The current audited `BREG1003` export is 4,692,247 bytes with SHA-256
-`23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95`.
-It decoded exactly to EOF and reported 1,356 names, 16,913 states, 1,321
-Valentine names, 15,845 Valentine states, and attributable gaps of 35 names and
+The current audited `BREG1003` export is 4,647,994 bytes with SHA-256
+`2247b37058ac42a65a601dbc246da6f215caf80b79b4aaf439cc3361911d2f1b`.
+It decoded exactly to EOF and reported 1,188 names, 16,913 states, 1,153
+overlap names, 15,845 overlap states, and attributable gaps of 35 names and
 1,068 states. The 2026-07-13 selector-only regeneration preserves
 `redstone_signal` as a typed pressed flag for exactly the 256 pressure-plate
 records. The 2026-07-14 regenerations additionally assign the dedicated
@@ -54,8 +54,7 @@ go test ./...
 go run . -out ../../.local/task2/block-registry-v1001.bin `
   -pmmp ../../.local/assets/block-data/pmmp `
   -prismarine ../../.local/assets/block-data/prismarine `
-  -valentine-palette ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/block_palette.bin `
-  -valentine-blocks ../../crates/protocol/vendor/valentine/bedrock_versions/v1_26_30/src/blocks.rs
+  -coverage ../../assets/block-coverage-v1001.json
 Pop-Location
 
 Get-FileHash -Algorithm SHA256 `
@@ -251,7 +250,6 @@ Known false negatives:
 - `iron_bars` and eight copper-bar names are missed by a pane-only suffix rule;
 - all walls (32 names/5,184 states), controls (31/440), rails (4/46), torches
   (10/60), and the bed (1/16) are otherwise left unknown;
-- `colored_torch_*` does not end in `_torch`;
 - most modern flower names do not end in `_flower`; and
 - melon and pumpkin stems are absent from the original crop allowlist.
 
@@ -332,9 +330,8 @@ changed status.
 The original 412-name/2,860-state planning residual was bounded and
 attributable:
 
-- 229 names/812 states have full-cube collision. This is only a candidate set:
-  it also contains shulker boxes, pistons, chorus flower, azalea, Education
-  workstations, spawners, and other visible exceptions.
+- Full-cube collision remains only a candidate signal; visible exceptions need
+  independent family-level admission.
 - 23 names/477 states have entirely empty collision: ground overlays, powder
   snow, portals/gateway, vines/lichen/sculk vein, item frames, banners,
   redstone/tripwire, scaffolding, sea pickle, small dripleaf, frog spawn,
@@ -354,21 +351,11 @@ authority.
 ## Mojang mapping gaps
 
 The pinned pack has 1,231 real `blocks.json` entries and 1,300 terrain keys.
-Direct canonical-name lookup covers 1,181 names; 175 require aliases, special
-handling, or sourced engine-only treatment:
-
-- 146 residual names, dominated by 119 Education `element_*` names and
-  Education workstations/hard-glass blocks;
-- 17 hard-glass pane names;
-- five colored/underwater torch names;
-- five engine-only names without block entries; and
-- `grass_block` and `sea_lantern`, which are ordinary alias cases.
-
-Hard glass can reuse reviewed glass/stained-glass aliases. The standard sample
-pack has no direct terrain keys for Education elements, underwater TNT,
-colored/underwater torches, chemical heat, or material reducer. Zero-diagnostic
-coverage needs explicit reviewed aliases or sourced engine-only handling; it
-cannot be inferred from collision or `blocks.json`.
+Direct canonical-name lookup covers the retail inventory wherever the pinned
+pack supplies an exact route. `grass_block` and `sea_lantern` use reviewed
+legacy aliases. Any remaining retail zero-diagnostic coverage needs an explicit
+reviewed alias or authoritative family treatment; it cannot be inferred from
+collision or `blocks.json`.
 
 ## High-impact implementation order
 
@@ -381,3 +368,96 @@ cannot be inferred from collision or `blocks.json`.
 7. Controls, rails, and torches.
 8. Panes/bars, fences, and gates.
 9. Reusable residual templates and individually reviewed full-cube candidates.
+
+## Residual provisional-fallback families
+
+Still on the provisional envelope after torches, ladders, rails, tulips, golden
+dandelion, and coral plants gained exact routes (97 states, 25 names; the
+visual-coverage baseline and ratchet counts need regeneration at reconcile:
+1,934 states / 310 names remain). `<color>`, `<wood>`, and `<coral>` collapse
+family variants.
+
+`<color>_candle`, `<color>_candle_cake`, `<color>_glazed_terracotta`, `<color>_shulker_box`, `<coral>_fan`, `<coral>_wall_fan`, `<wood>_shelf`, `amethyst_cluster`, `anvil`, `azalea`, `bamboo`, `barrier`, `bed`, `bell`, `big_dripleaf`, `brewing_stand`, `bubble_column`, `budding_amethyst`, `calibrated_sculk_sensor`, `campfire`, `candle`, `candle_cake`, `cartography_table`, `cauldron`, `chain_command_block`, `chest`, `chipped_anvil`, `chiseled_cinnabar`, `chiseled_sulfur`, `chorus_flower`, `chorus_plant`, `cinnabar_bricks`, `client_request_placeholder_block`, `closed_eyeblossom`, `cocoa`, `command_block`, `composter`, `conduit`, `copper_bulb`, `copper_chain`, `copper_chest`, `copper_golem_statue`, `copper_lantern`, `crafter`, `creaking_heart`, `creeper_head`, `crimson_nylium`, `damaged_anvil`, `daylight_detector`, `daylight_detector_inverted`, `decorated_pot`, `deprecated_anvil`, `deprecated_purpur_block_1`, `deprecated_purpur_block_2`, `dirt_with_roots`, `dispenser`, `dragon_head`, `dried_ghast`, `dropper`, `enchanting_table`, `end_gateway`, `end_portal`, `end_portal_frame`, `end_rod`, `ender_chest`, `exposed_lightning_rod`, `flower_pot`, `flowering_azalea`, `frame`, `frog_spawn`, `frosted_ice`, `glow_frame`, `glowingobsidian`, `grass_path`, `grindstone`, `heavy_core`, `honey_block`, `hopper`, `ice`, `info_update`, `info_update2`, `invisible_bedrock`, `iron_chain`, `jigsaw`, `lantern`, `large_amethyst_bud`, `leaf_litter`, `lectern`, `lever`, `light_block_<n>`, `lightning_rod`, `lit_redstone_lamp`, `lodestone`, `mangrove_roots`, `medium_amethyst_bud`, `mob_spawner`, `moss_block`, `moving_block`, `mud`, `netherreactor`, `observer`, `open_eyeblossom`, `oxidized_lightning_rod`, `pale_moss_block`, `piglin_head`, `piston`, `piston_arm_collision`, `pitcher_plant`, `player_head`, `pointed_dripstone`, `polished_cinnabar`, `polished_sulfur`, `portal`, `potent_sulfur`, `powder_snow`, `powered_comparator`, `powered_repeater`, `redstone_lamp`, `redstone_wire`, `repeating_command_block`, `reserved6`, `respawn_anchor`, `scaffolding`, `sculk`, `sculk_catalyst`, `sculk_sensor`, `sculk_shrieker`, `sea_pickle`, `silver_glazed_terracotta`, `skeleton_skull`, `slime`, `small_amethyst_bud`, `small_dripleaf_block`, `sniffer_egg`, `snow_layer`, `soul_campfire`, `soul_lantern`, `soul_sand`, `spore_blossom`, `standing_banner`, `sticky_piston`, `sticky_piston_arm_collision`, `stonecutter`, `stonecutter_block`, `structure_block`, `structure_void`, `sulfur_bricks`, `sulfur_spike`, `suspicious_gravel`, `suspicious_sand`, `target`, `tinted_glass`, `trapped_chest`, `trial_spawner`, `trip_wire`, `tripwire_hook`, `turtle_egg`, `undyed_shulker_box`, `unknown`, `unpowered_comparator`, `unpowered_repeater`, `vault`, `wall_banner`, `warped_nylium`, `waterlily`, `waxed_exposed_lightning_rod`, `waxed_lightning_rod`, `waxed_oxidized_lightning_rod`, `waxed_weathered_lightning_rod`, `weathered_lightning_rod`, `wither_skeleton_skull`, `zombie_head`.
+
+Round two: chains (9 names, 27 states) gained an exact crossed-plane route and
+the `iron_chain` sprite alias, leaving 1,907 states / 301 names on fallback.
+Baseline regeneration is required for `crates/assets/data/visual-coverage-v1001.json`
+and the pinned counts in `tools/visualcoverage/tests/ratchet/{production,gallery}.rs`
+(fallback states 2,031 to 1,907, names 335 to 301, removed diagnostics up by 124).
+Lanterns, end rods, candles, cauldron, hopper, anvil, campfire, scaffolding,
+amethyst, sea pickle, redstone wire, levers, pistons, lightning rods, glazed
+terracotta rotation, coral fans, and waterlily stay provisional: the pack ships
+no block geometry, and the Bedrock reconstruction hides box and UV constants
+behind unnamed data symbols, so each needs a native measurement pass. Random
+plant offsets are a per-block data component with an RNG-derived offset and no
+vanilla ranges in the pack; per-biome `surface_opacity` (3 biomes) needs a
+carrier format bump.
+
+## Entity-drawn blocks (block-entity lane)
+
+Chests (all variants), beds, shulker boxes, standing/wall banners, skulls, decorated pots,
+conduits, bells and item frames compile to `VisualKind::Invisible`/`Exact` in
+`entity_drawn.rs`; the block-entity renderer owns their whole model. The enchanting table keeps
+a 12/16-tall terrain base. The `visual-coverage-v1001.json` diagnostic baseline must be
+regenerated to drop these states; campfire, hopper, brewing stand and copper-golem statues
+remain diagnostic.
+
+### Round-3 terrain conversions (visual-coverage baseline not regenerated)
+
+The pinned pack carries textures but no block geometry, so only literal facts are promoted:
+
+- `literal.rs` compiles these stateless full cubes from the block texture map (each stays
+  diagnostic if its faces do not resolve): `redstone_lamp`, `lit_redstone_lamp`,
+  `glowingobsidian`, `lodestone`, `cartography_table`, `target`, `netherreactor`, `moss_block`,
+  `pale_moss_block`, `mud`, `soul_sand`, `sculk`, `dirt_with_roots`, `budding_amethyst`,
+  `crimson_nylium`, `warped_nylium`.
+- `literal.rs` compiles these to `Invisible`: `barrier`, `structure_void`, `invisible_bedrock`,
+  `moving_block`, `light_block_0`..`light_block_15`.
+- `entity_drawn.rs` additionally covers `*copper_golem_statue` (all oxidation and waxed forms).
+- Still diagnostic and marked needs-measurement (geometry exists only in decompiled constants or
+  as collision shapes): campfire, soul campfire, hopper, brewing stand, lantern and copper
+  lanterns, candles and candle cakes, cauldron, end rod, anvils, chains, wall coral fans,
+  dripleaf, grindstone, lightning rods, pistons, sea pickle, turtle egg, scaffolding, rails and
+  redstone wire. Translucent cubes, copper bulbs, repeaters, comparators, amethyst and standing
+  coral fans are now compiled by the world-render rules below.
+
+### Translucent cubes, named cubes, and texture-derived shapes (world-render round 3)
+
+Root cause of the translucent-cube diagnostics: ice, frosted ice, slime, honey, and tinted glass
+ship uniformly translucent art with no blend flag, so the atlas builder dropped the alpha texture
+and every face resolved to the diagnostic material. `translucent_cubes.rs` compiles them as unit
+cubes on the stained-glass transparent-cube template (blend, same-state face culling, no
+neighbour occlusion). Powder snow is opaque art on the same template without blend. Frosted ice
+picks its crack texture from `age`. Slime and honey draw only the outer cube: the pack art is
+one uniform alpha, so an inner cube's extent needs native measurement.
+
+`named_blocks.rs` (opaque cubes the registry tags Unknown, which the generic cube rule skips):
+sculk catalyst and the sulfur and cinnabar bricks and polished/chiseled variants. The stateless
+literal cubes (redstone lamps, moss, sculk, lodestone, target, nether reactor, glowing obsidian,
+nylium, dirt with roots, cartography table) are owned by `literal.rs` above. Box heights come from the opaque rows of the side art (independent
+texture measurement): dirt path 15/16, end portal frame 13/16 (eyeless states only). Snow layer
+height is two pixels per layer (public block documentation). Provisional (`VanillaFallback`):
+copper bulbs (lit and powered art is state-keyed, not selectable through the block map) and
+repeaters and comparators (two-pixel base only; facing rotation of the top and the torches are
+not modelled). The enchanting table's side art gets its cut-out flag here.
+
+`crystals.rs`: amethyst cluster and buds plus standing coral fans as crossed two-sided sprite
+planes (the art is a front-view sprite). Buds turn about the block centre to point along
+`minecraft:block_face`. Wall coral fans stay diagnostic (tilt needs measurement).
+
+Water and lava: the liquid mesher already carries level heights, falling state, flow-direction
+tops, biome water tint, and depth-writing lava; no change this round.
+
+Still diagnostic, needs native measurement (art is a UV layout, not a front view, or shape
+constants are absent from the pack): lanterns, end rods, lightning rods, candles, cauldron,
+hopper, brewing stand, anvils (top footprint is 10 wide by texture), grindstone, scaffolding,
+dripleaf, pistons (front art needs a `piston_top_normal`/`piston_top_sticky` route), campfire,
+sea pickle, turtle egg, glazed terracotta rotation, lily pad tint. Soul sand and mud draw as
+`literal.rs` full cubes; whether their visual height is shorter needs measurement.
+
+States changing from diagnostic to compiled (regenerate `visual-coverage-v1001.json` and the
+ratchet counts): `ice`, `frosted_ice` (4), `slime`, `honey_block`, `tinted_glass`, `powder_snow`,
+`snow_layer` (16), `sculk_catalyst` (2), `grass_path`,
+`end_portal_frame` (4 eyeless), sulfur/cinnabar cubes (6), copper bulbs (4 names x 2 waxed, 4 states
+each, provisional), repeaters and comparators (64, provisional), amethyst cluster and buds (24),
+standing coral fans (20).

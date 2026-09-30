@@ -2,8 +2,8 @@
 //!
 //! The authenticated Go catalog downloads remote images into the local cache.
 //! This module treats those files as untrusted input: reads, decoded dimensions,
-//! allocation, output layers, and total GPU bytes are all capped before a
-//! thumbnail can enter the retained UI texture array.
+//! allocation and output pages are all capped before artwork enters the
+//! retained UI texture array's full-resolution art pages.
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -13,132 +13,143 @@ use std::{
 };
 
 use image::{ImageReader, Limits, imageops::FilterType};
-use sha2::{Digest, Sha256};
 
 use super::IconRef;
 
 const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SOURCE_SIDE: u32 = 4_096;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
-const ARTWORK_WIDTH: u32 = 96;
-const ARTWORK_HEIGHT: u32 = 96;
+/// Largest side artwork keeps; bigger sources scale down, smaller stay native.
+const MAX_ARTWORK_SIDE: u32 = 512;
 const GUTTER: u32 = 1;
 const MAX_ARTWORKS: usize = 32;
+/// The start screen's title texture, which Cinnabar's own logo replaces.
+pub(super) const TITLE_KEY: &str = "textures/ui/title";
+/// Cinnabar's logo; the pack's title draws only if this fails to decode.
+const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../assets/branding/title.png");
 
 #[derive(Default)]
 pub(super) struct MenuArtworkAtlas {
-    pub(super) signature: [u8; 32],
-    pub(super) layers: u32,
-    pub(super) rgba8: Vec<u8>,
+    pub(super) pages: Vec<render::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
 }
 
+/// Decoded artwork: premultiplied RGBA8 and its size.
+struct Artwork {
+    path: String,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+/// Shelf-packs the artwork at `paths` into the full-resolution art pages that
+/// start at texture page `first_page`; what does not fit is left out.
 pub(super) fn load(
     paths: &[String],
-    page_width: u32,
-    page_height: u32,
+    oversized: &[(String, std::sync::Arc<[u8]>)],
     first_page: u16,
-    max_layers: u32,
-    max_bytes: usize,
 ) -> MenuArtworkAtlas {
-    let cell_width = ARTWORK_WIDTH + GUTTER * 2;
-    let cell_height = ARTWORK_HEIGHT + GUTTER * 2;
-    let columns = page_width / cell_width;
-    let rows = page_height / cell_height;
-    let per_layer = columns.saturating_mul(rows);
-    let layer_bytes = page_width as usize * page_height as usize * 4;
-    if per_layer == 0 || max_layers == 0 || layer_bytes == 0 {
-        return MenuArtworkAtlas::default();
-    }
-    let byte_layers = max_bytes / layer_bytes;
-    let usable_layers = max_layers.min(u32::try_from(byte_layers).unwrap_or(u32::MAX));
-    if usable_layers == 0 {
-        return MenuArtworkAtlas::default();
-    }
-
+    let side = render::UI_ART_PAGE_SIDE;
     let mut unique = BTreeSet::new();
-    let mut decoded = Vec::new();
-    let mut signature = Sha256::new();
-    signature.update(b"cinnabar-menu-artwork-v1");
-    for path in paths.iter().take(MAX_ARTWORKS) {
-        if path.is_empty() || !unique.insert(path.clone()) {
-            continue;
-        }
-        let Some((pixels, source_hash)) = decode(Path::new(path)) else {
-            continue;
-        };
-        signature.update(path.as_bytes());
-        signature.update(source_hash);
-        decoded.push((path.clone(), pixels));
-    }
-    let capacity = usize::try_from(per_layer.saturating_mul(usable_layers)).unwrap_or(usize::MAX);
-    decoded.truncate(capacity);
+    // Big textures keep up to a whole page of detail; service art stays smaller.
+    let whole_page = side - GUTTER * 2;
+    let artwork = |path: &str, (pixels, width, height): (Vec<u8>, u32, u32)| Artwork {
+        path: path.to_owned(),
+        width,
+        height,
+        pixels,
+    };
+    let title = decode_bytes(BUILT_IN_TITLE, whole_page).map(|art| artwork(TITLE_KEY, art));
+    let mut rest = paths
+        .iter()
+        .take(MAX_ARTWORKS)
+        .filter(|path| !path.is_empty() && unique.insert((*path).clone()))
+        .filter_map(|path| Some(artwork(path, decode(Path::new(path))?)))
+        .collect::<Vec<_>>();
+    rest.extend(
+        oversized
+            .iter()
+            .filter(|(key, _)| key != TITLE_KEY && unique.insert(key.clone()))
+            .filter_map(|(key, bytes)| Some(artwork(key, decode_bytes(bytes, whole_page)?))),
+    );
+    rest.sort_by(|a, b| b.height.cmp(&a.height).then(a.path.cmp(&b.path)));
+    // The title packs first so later art can never crowd it out.
+    let decoded: Vec<Artwork> = title.into_iter().chain(rest).collect();
     if decoded.is_empty() {
         return MenuArtworkAtlas::default();
     }
-
-    let layers = u32::try_from(decoded.len())
-        .unwrap_or(u32::MAX)
-        .div_ceil(per_layer);
-    let mut rgba8 = vec![0; layer_bytes.saturating_mul(layers as usize)];
+    let page_bytes = side as usize * side as usize * 4;
+    let mut buffers: Vec<Vec<u8>> = Vec::new();
     let mut refs = HashMap::with_capacity(decoded.len());
-    for (index, (path, pixels)) in decoded.into_iter().enumerate() {
-        let index = u32::try_from(index).unwrap_or(u32::MAX);
-        let layer = index / per_layer;
-        let slot = index % per_layer;
-        let column = slot % columns;
-        let row = slot / columns;
-        let left = column * cell_width + GUTTER;
-        let top = row * cell_height + GUTTER;
-        let layer_start = layer as usize * layer_bytes;
-        for source_y in 0..ARTWORK_HEIGHT as usize {
-            let source_start = source_y * ARTWORK_WIDTH as usize * 4;
-            let target_start =
-                layer_start + ((top as usize + source_y) * page_width as usize + left as usize) * 4;
-            rgba8[target_start..target_start + ARTWORK_WIDTH as usize * 4]
-                .copy_from_slice(&pixels[source_start..source_start + ARTWORK_WIDTH as usize * 4]);
+    let (mut page, mut x, mut y, mut shelf) = (0usize, GUTTER, GUTTER, 0u32);
+    for art in decoded {
+        if x + art.width + GUTTER > side {
+            x = GUTTER;
+            y += shelf + GUTTER;
+            shelf = 0;
         }
-        let Ok(page) = u16::try_from(u32::from(first_page) + layer) else {
-            continue;
+        if y + art.height + GUTTER > side {
+            page += 1;
+            x = GUTTER;
+            y = GUTTER;
+            shelf = 0;
+        }
+        if page >= render::MAX_UI_ART_PAGES {
+            break;
+        }
+        while buffers.len() <= page {
+            buffers.push(vec![0; page_bytes]);
+        }
+        let row_bytes = art.width as usize * 4;
+        for row in 0..art.height as usize {
+            let target = ((y as usize + row) * side as usize + x as usize) * 4;
+            buffers[page][target..target + row_bytes]
+                .copy_from_slice(&art.pixels[row * row_bytes..(row + 1) * row_bytes]);
+        }
+        let Ok(texture_page) = u16::try_from(usize::from(first_page) + page) else {
+            break;
         };
-        let Ok(left) = u16::try_from(left) else {
-            continue;
-        };
-        let Ok(top) = u16::try_from(top) else {
-            continue;
-        };
+        let (left, top) = (x as u16, y as u16);
         refs.insert(
-            path,
+            art.path,
             IconRef {
-                page,
-                uv: [
-                    left,
-                    top,
-                    left.saturating_add(ARTWORK_WIDTH as u16),
-                    top.saturating_add(ARTWORK_HEIGHT as u16),
-                ],
+                page: texture_page,
+                uv: [left, top, left + art.width as u16, top + art.height as u16],
+                glint: false,
             },
         );
+        x += art.width + GUTTER;
+        shelf = shelf.max(art.height);
     }
-    MenuArtworkAtlas {
-        signature: signature.finalize().into(),
-        layers,
-        rgba8,
-        refs,
-    }
+    let pages = buffers
+        .into_iter()
+        .map(|pixels| {
+            render::UiTexturePage::owned([side, side], std::sync::Arc::from(pixels))
+                .expect("art pages have exact checked dimensions")
+        })
+        .collect();
+    MenuArtworkAtlas { pages, refs }
 }
 
-fn decode(path: &Path) -> Option<(Vec<u8>, [u8; 32])> {
+fn decode(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     let file = File::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take((MAX_SOURCE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES {
+    if bytes.len() > MAX_SOURCE_BYTES {
         return None;
     }
-    let format = image::guess_format(&bytes).ok()?;
-    let dimensions = ImageReader::with_format(Cursor::new(&bytes), format)
+    decode_bytes(&bytes, MAX_ARTWORK_SIDE)
+}
+
+/// Premultiplied RGBA8 of an image no larger than `max_side` on either axis.
+fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let format = image::guess_format(bytes).ok()?;
+    let dimensions = ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
         .ok()?;
     if dimensions.0 == 0
@@ -148,32 +159,73 @@ fn decode(path: &Path) -> Option<(Vec<u8>, [u8; 32])> {
     {
         return None;
     }
-    let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SOURCE_SIDE);
     limits.max_image_height = Some(MAX_SOURCE_SIDE);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
-    let resized = reader
-        .decode()
-        .ok()?
-        .resize(ARTWORK_WIDTH, ARTWORK_HEIGHT, FilterType::Lanczos3)
-        .into_rgba8();
-    let mut pixels = vec![0; (ARTWORK_WIDTH * ARTWORK_HEIGHT * 4) as usize];
-    let left = (ARTWORK_WIDTH - resized.width()) / 2;
-    let top = (ARTWORK_HEIGHT - resized.height()) / 2;
-    for row in 0..resized.height() as usize {
-        let source_start = row * resized.width() as usize * 4;
-        let target_start = ((top as usize + row) * ARTWORK_WIDTH as usize + left as usize) * 4;
-        pixels[target_start..target_start + resized.width() as usize * 4].copy_from_slice(
-            &resized.as_raw()[source_start..source_start + resized.width() as usize * 4],
-        );
-    }
+    let image = reader.decode().ok()?;
+    let image = if image.width() > max_side || image.height() > max_side {
+        image.resize(max_side, max_side, FilterType::Lanczos3)
+    } else {
+        image
+    };
+    let image = image.into_rgba8();
+    let (width, height) = image.dimensions();
+    let mut pixels = image.into_raw();
     for pixel in pixels.chunks_exact_mut(4) {
         let alpha = u16::from(pixel[3]);
         pixel[0] = ((u16::from(pixel[0]) * alpha + 127) / 255) as u8;
         pixel[1] = ((u16::from(pixel[1]) * alpha + 127) / 255) as u8;
         pixel[2] = ((u16::from(pixel[2]) * alpha + 127) / 255) as u8;
     }
-    Some((pixels, Sha256::digest(&bytes).into()))
+    Some((pixels, width, height))
+}
+
+/// Every downloaded artwork path the menu view can draw.
+pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<String> {
+    let selected = view
+        .feeds
+        .selected_featured
+        .and_then(|index| view.featured.get(index))
+        .and_then(|server| view.feeds.details.get(&server.address));
+    view.featured
+        .iter()
+        .chain(view.gatherings.iter())
+        .map(|server| server.image_path.clone())
+        .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
+        .chain(home_art(&view.feeds.home))
+        .chain(selected.into_iter().flat_map(|details| {
+            details
+                .screenshots
+                .iter()
+                .cloned()
+                .chain(details.games.iter().map(|game| game.image_path.clone()))
+        }))
+        .chain(
+            view.store
+                .as_deref()
+                .map(crate::store::StoreSnapshot::image_paths)
+                .unwrap_or_default(),
+        )
+        .filter(|path| !path.is_empty())
+        .collect()
+}
+
+/// The start screen's service art: messaging tile layers, the event badge and the persona head.
+fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
+    let mut paths = vec![home.persona_head.clone()];
+    for art in [&home.play_art, &home.store_art].into_iter().flatten() {
+        paths.extend([
+            art.default_background.clone(),
+            art.hover_background.clone(),
+            art.default_foreground.clone(),
+            art.hover_foreground.clone(),
+        ]);
+    }
+    if let Some(event) = &home.live_event {
+        paths.push(event.badge_path.clone());
+    }
+    paths
 }

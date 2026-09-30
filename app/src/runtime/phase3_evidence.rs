@@ -134,7 +134,7 @@ impl Phase3EvidenceIdentity {
                 "schema": "rust-mcbe-phase3-identity-v1",
                 "build_commit": self.build_commit,
                 "target": self.target.as_str(),
-                "protocol": 1001,
+                "protocol": protocol::PROTOCOL_VERSION,
                 "session_generation": self.session_generation,
                 "preg_sha256": digest_hex(self.preg_sha256),
                 "breg_sha256": digest_hex(self.breg_sha256),
@@ -439,6 +439,24 @@ struct Phase3CorrectionEvidence {
     magnitude: f32,
 }
 
+/// Previous/current monotonicity witnesses captured when the emitter raises
+/// `non_monotonic_frame`. They ride once on that violation marker so a
+/// rejected run identifies exactly which frame identity regressed; every
+/// other violation reason stays an exact two-key object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct NonMonotonicFrameIdentity {
+    previous_session_generation: u64,
+    current_session_generation: u64,
+    previous_physics_tick: u64,
+    current_physics_tick: u64,
+    previous_dimension: i32,
+    current_dimension: i32,
+    previous_fifo_sequence: u64,
+    current_fifo_sequence: u64,
+    previous_pose_generation: u64,
+    current_pose_generation: u64,
+}
+
 impl Phase3CorrectionEvidence {
     fn event_marker(self, frame: Phase3EvidenceFrame, event_sequence: u64) -> String {
         let (outcome, corrected_tick, replayed_ticks) = match self.outcome {
@@ -482,10 +500,6 @@ impl PhysicsAuthorityFaultRecord {
             PhysicsAuthorityFault::InvalidCompletedSample => {
                 ("invalid_completed_sample", serde_json::Value::Null)
             }
-            PhysicsAuthorityFault::PhysicsTickOverflow { due, dropped } => (
-                "physics_tick_overflow",
-                serde_json::json!({"due": due, "dropped": dropped}),
-            ),
             PhysicsAuthorityFault::PhysicsSimulationError {
                 due,
                 tick_index,
@@ -552,6 +566,14 @@ fn simulation_error_detail(error: &sim::SimulationError) -> serde_json::Value {
             "field": field,
             "message": error.to_string(),
         }),
+        sim::SimulationError::InvalidItemUseMovementModifier => serde_json::json!({
+            "kind": "invalid_item_use_movement_modifier",
+            "message": error.to_string(),
+        }),
+        sim::SimulationError::InvalidMovementSpeed => serde_json::json!({
+            "kind": "invalid_movement_speed",
+            "message": error.to_string(),
+        }),
         sim::SimulationError::World(world_error) => serde_json::json!({
             "kind": "world",
             "message": world_error.to_string(),
@@ -569,6 +591,7 @@ pub(crate) struct Phase3EvidenceEmitter {
     identity: Option<Phase3EvidenceIdentity>,
     identity_conflict_emitted: bool,
     last_frame_identity: Option<(u64, u64, i32, u64, u64)>,
+    non_monotonic_detail: Option<NonMonotonicFrameIdentity>,
     pending_events: [bool; 2],
     pending_corrections: VecDeque<Phase3CorrectionEvidence>,
     frame_records: usize,
@@ -650,6 +673,18 @@ impl Phase3EvidenceEmitter {
                 || frame.fifo_sequence < fifo
                 || frame.pose_generation < pose
             {
+                self.non_monotonic_detail = Some(NonMonotonicFrameIdentity {
+                    previous_session_generation: session,
+                    current_session_generation: frame.session_generation,
+                    previous_physics_tick: tick,
+                    current_physics_tick: frame.physics_tick,
+                    previous_dimension: dimension,
+                    current_dimension: frame.dimension,
+                    previous_fifo_sequence: fifo,
+                    current_fifo_sequence: frame.fifo_sequence,
+                    previous_pose_generation: pose,
+                    current_pose_generation: frame.pose_generation,
+                });
                 self.record_violation("non_monotonic_frame");
                 return self.take_violation_marker();
             }
@@ -761,12 +796,23 @@ impl Phase3EvidenceEmitter {
             return Vec::new();
         }
         self.violation_emitted = true;
+        // The captured identity is cleared with this single emission and is
+        // included only for its own reason; every other reason keeps exactly
+        // the two-key object.
+        let detail = self.non_monotonic_detail.take();
         vec![format!(
             "{PHASE3_VIOLATION}={}",
-            serde_json::json!({
-                "schema": "rust-mcbe-phase3-violation-v1",
-                "reason": reason,
-            })
+            match detail {
+                Some(identity) if reason == "non_monotonic_frame" => serde_json::json!({
+                    "schema": "rust-mcbe-phase3-violation-v2",
+                    "reason": reason,
+                    "frame_identity": identity,
+                }),
+                _ => serde_json::json!({
+                    "schema": "rust-mcbe-phase3-violation-v2",
+                    "reason": reason,
+                }),
+            }
         )]
     }
 
@@ -798,12 +844,19 @@ impl Phase3EvidenceEmitter {
         {
             self.record_violation("terminal_source_or_packet_mismatch");
         }
-        let expected_reconciliation = if candidate_physics {
-            MovementOutboxReconciliation::Drained
+        // A remote-initiated close (RemoteClosed) is not a client-authority
+        // fault: candidate terminals may finish either fully drained or with
+        // the outbound stream healthy when the REMOTE side terminated the
+        // transport. Every other reconciliation state still violates.
+        let outbox_settled = if candidate_physics {
+            matches!(
+                outbox_reconciliation,
+                MovementOutboxReconciliation::Drained | MovementOutboxReconciliation::RemoteClosed
+            )
         } else {
-            MovementOutboxReconciliation::NotAuthoritative
+            outbox_reconciliation == MovementOutboxReconciliation::NotAuthoritative
         };
-        if pending_outbox_depth != 0 || outbox_reconciliation != expected_reconciliation {
+        if pending_outbox_depth != 0 || !outbox_settled {
             self.record_violation("terminal_outbox_not_drained");
         }
         markers.extend(self.take_violation_marker());

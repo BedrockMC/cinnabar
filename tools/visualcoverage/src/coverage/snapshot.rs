@@ -38,17 +38,22 @@ pub fn baseline_from_snapshot(
             });
         }
     }
+    let diagnostic_sequential_ids = snapshot
+        .diagnostic_states
+        .iter()
+        .chain(&snapshot.fallback_states)
+        .chain(&snapshot.air_states)
+        .map(|state| state.sequential_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let baseline = Baseline {
         schema: BASELINE_SCHEMA.to_owned(),
         protocol: snapshot.protocol,
         registry_sha256: snapshot.registry_sha256.clone(),
         counts: snapshot.counts,
         states: snapshot.states.clone(),
-        diagnostic_sequential_ids: snapshot
-            .diagnostic_states
-            .iter()
-            .map(|state| state.sequential_id)
-            .collect(),
+        diagnostic_sequential_ids,
         invisible_allowlist,
         expected_vine_diagnostic_masks: snapshot.vine_diagnostic_masks.clone(),
     };
@@ -333,8 +338,10 @@ pub fn ratchet(
     })
 }
 
-/// Runs the production protocol-1001 gate. Synthetic tests may use `ratchet`
-/// directly, but the CLI must never accept a caller-replaced smaller corpus.
+/// Replays the frozen protocol-1001 evidence gate.
+///
+/// This is retained for historical auditability only. The active runtime target
+/// is owned by `assets/bedrock-target.json` and must not call this function.
 pub fn ratchet_protocol_1001(
     snapshot: CoverageSnapshot,
     baseline: &Baseline,

@@ -1,16 +1,19 @@
 use std::{collections::VecDeque, time::Duration};
 
-use assets::{NetworkIdMode, RegistryRecord};
 use bevy::prelude::Resource;
 use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode, STANDING_PLAYER_EYE_HEIGHT};
 use sim::{
-    Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
-    MovementInput, PlayerState, PredictionHistory, RegistryError, SimulationError, Simulator,
+    CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
     TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
 };
 use thiserror::Error;
 
-const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
+mod correction;
+
+use super::anchor_probe::BeforeTick;
+use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
+use super::state::{ProcessedMovementState, ReplayJumpArcFold};
+
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
 const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 
@@ -19,6 +22,21 @@ const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// Longer stalls discard excess whole ticks instead of creating an unbounded
 /// catch-up spike. Outbound movement remains independently disabled.
 pub const MAX_LOCAL_PHYSICS_TICKS_PER_FRAME: usize = 8;
+
+pub(crate) trait MovementEffectSource {
+    fn snapshot(&self) -> sim::MovementEffects;
+    fn commit_successful_tick(&mut self);
+}
+
+struct NoMovementEffects;
+
+impl MovementEffectSource for NoMovementEffects {
+    fn snapshot(&self) -> sim::MovementEffects {
+        sim::MovementEffects::default()
+    }
+
+    fn commit_successful_tick(&mut self) {}
+}
 
 pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
     matches!(
@@ -30,6 +48,11 @@ pub(crate) fn is_transient_collision_unavailability(error: &SimulationError) -> 
 }
 
 /// Converts app right/forward axes into bedsim's left-positive strafe input.
+///
+/// The held sprint request is narrowed into processed sprint state here so the
+/// simulator and the outbound `PlayerAuthInput` flags always agree: vanilla
+/// sprints only while moving forward, so a request held during backward,
+/// strafe-only, or stationary input is not an active sprint.
 #[must_use]
 pub fn physics_movement_input(
     right_forward: [f32; 2],
@@ -37,11 +60,13 @@ pub fn physics_movement_input(
     active: bool,
     jumping: bool,
     sneaking: bool,
-    sprinting: bool,
+    sprint_request: bool,
+    _use_held: bool,
 ) -> MovementInput {
     if !active {
         return MovementInput::default();
     }
+    let sprinting = sprint_request && right_forward[1] > 0.0;
     MovementInput {
         strafe: -f64::from(right_forward[0]),
         forward: f64::from(right_forward[1]),
@@ -50,148 +75,16 @@ pub fn physics_movement_input(
         jump_pressed: false,
         sprinting,
         sneaking,
+        move_vector_is_raw: true,
+        // Generic Use does not establish that the selected item is consumable
+        // or that its use phase has begun. Keep this dormant until inventory
+        // classification and authoritative use timing are available.
+        using_consumable: false,
+        item_use_movement_modifier: None,
+        movement_speed: None,
+        effects: sim::MovementEffects::default(),
+        ..MovementInput::default()
     }
-}
-
-/// Runtime-ID collision registries for both Bedrock palette identity modes.
-///
-/// The two maps are intentionally distinct: a 32-bit network hash may have
-/// the same numeric value as an unrelated sequential ID.
-#[derive(Resource, Debug)]
-pub struct PhysicsCollisionRegistries {
-    sequential: CollisionRegistry,
-    hashed: CollisionRegistry,
-    available_record_count: usize,
-    sequential_count: usize,
-    hashed_count: usize,
-    preg_sha256: [u8; 32],
-    breg_sha256: [u8; 32],
-}
-
-#[derive(Debug, Error)]
-pub enum PhysicsCollisionRegistryError {
-    #[error(transparent)]
-    Asset(#[from] assets::AssetError),
-    #[error(transparent)]
-    Registry(#[from] RegistryError),
-}
-
-impl PhysicsCollisionRegistries {
-    pub fn from_assets(
-        breg_bytes: &[u8],
-        records: &[RegistryRecord],
-        preg_bytes: &[u8],
-    ) -> Result<Self, PhysicsCollisionRegistryError> {
-        let physics = assets::read_physics_registry(preg_bytes, breg_bytes, records)?;
-        let sequential_identity = CollisionRegistryIdentity {
-            protocol: 1001,
-            id_space: CollisionIdSpace::Sequential,
-            preg_sha256: physics.sha256(),
-        };
-        let hashed_identity = CollisionRegistryIdentity {
-            id_space: CollisionIdSpace::Hashed,
-            ..sequential_identity
-        };
-        let mut sequential = CollisionRegistry::with_identity(sequential_identity);
-        let mut hashed = CollisionRegistry::with_identity(hashed_identity);
-        for record in records {
-            let fact = physics
-                .by_sequential_id(record.sequential_id)
-                .expect("strict PREG decoder covers every supplied BREG record");
-            let boxes = fact
-                .boxes
-                .iter()
-                .copied()
-                .map(collision_box_to_aabb)
-                .collect::<Vec<_>>();
-            let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
-                registry.register_primitives(
-                    runtime_id,
-                    boxes,
-                    f64::from(fact.friction_q1e8) * COLLISION_COORDINATE_SCALE,
-                    f64::from(fact.horizontal_speed_q1e8) * COLLISION_COORDINATE_SCALE,
-                    f64::from(fact.vertical_speed_q1e8) * COLLISION_COORDINATE_SCALE,
-                    f64::from(fact.fluid_height_q1e8) * COLLISION_COORDINATE_SCALE,
-                    fact.flags.bits(),
-                    fact.surface_response as u8,
-                )
-            };
-            register(&mut sequential, record.sequential_id, boxes.clone())?;
-            register(&mut hashed, record.network_hash, boxes)?;
-            if record.name.as_ref() == "minecraft:air" {
-                sequential.set_air_runtime_id(record.sequential_id);
-                hashed.set_air_runtime_id(record.network_hash);
-            }
-        }
-        let available_record_count = physics.len();
-        let preg_sha256 = physics.sha256();
-        let breg_sha256 = physics.breg_sha256();
-        Ok(Self {
-            sequential,
-            hashed,
-            available_record_count,
-            sequential_count: physics.len(),
-            hashed_count: physics.len(),
-            preg_sha256,
-            breg_sha256,
-        })
-    }
-
-    #[must_use]
-    pub const fn registry(&self, mode: NetworkIdMode) -> &CollisionRegistry {
-        match mode {
-            NetworkIdMode::Sequential => &self.sequential,
-            NetworkIdMode::Hashed => &self.hashed,
-        }
-    }
-
-    #[must_use]
-    pub const fn registered_count(&self, mode: NetworkIdMode) -> usize {
-        match mode {
-            NetworkIdMode::Sequential => self.sequential_count,
-            NetworkIdMode::Hashed => self.hashed_count,
-        }
-    }
-
-    #[must_use]
-    pub const fn available_record_count(&self) -> usize {
-        self.available_record_count
-    }
-
-    #[must_use]
-    pub fn is_complete(&self) -> bool {
-        self.available_record_count != 0
-            && self.sequential_count == self.available_record_count
-            && self.hashed_count == self.available_record_count
-            && self.preg_sha256 != [0; 32]
-            && self.breg_sha256 != [0; 32]
-    }
-
-    #[must_use]
-    pub const fn preg_sha256(&self) -> [u8; 32] {
-        self.preg_sha256
-    }
-
-    #[must_use]
-    pub const fn breg_sha256(&self) -> [u8; 32] {
-        self.breg_sha256
-    }
-}
-
-fn collision_box_to_aabb(collision: assets::CollisionBox) -> Aabb {
-    let coordinate = |value: i32| f64::from(value) * COLLISION_COORDINATE_SCALE;
-    Aabb::new(
-        Vec3::new(
-            coordinate(collision.min_x),
-            coordinate(collision.min_y),
-            coordinate(collision.min_z),
-        ),
-        Vec3::new(
-            coordinate(collision.max_x),
-            coordinate(collision.max_y),
-            coordinate(collision.max_z),
-        ),
-    )
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -200,13 +93,28 @@ pub struct PhysicsSampleContext {
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
     pub input_mode: PlayerInputMode,
+    /// Pre-normalization controlling-device movement sample.
+    pub raw_move_vector: [f32; 2],
+    /// Analog-axis sample of the controlling device.
+    pub analogue_move_vector: [f32; 2],
+    pub mode_intent: ModeIntent,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhysicsMovementSample {
     pub tick: u64,
     pub position: [f32; 3],
+    /// This tick's resolved displacement (new position minus old), carried
+    /// verbatim as PlayerAuthInput.PosDelta.
+    pub movement: [f32; 3],
+    /// Predicted end-of-tick velocity retained for prediction and correction
+    /// replay. It is post-gravity/friction state, not the reported PosDelta.
+    pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
+    /// Pre-normalization device sample carried to PlayerAuthInput raw input.
+    pub raw_move_vector: [f32; 2],
+    /// Analog-axis sample carried to PlayerAuthInput analog input.
+    pub analogue_move_vector: [f32; 2],
     pub pitch: f32,
     pub yaw: f32,
     pub head_yaw: f32,
@@ -217,7 +125,13 @@ pub struct PhysicsMovementSample {
     pub input_mode: PlayerInputMode,
     pub grounded_before_tick: bool,
     pub grounded_after_tick: bool,
+    pub horizontal_collision: bool,
+    pub vertical_collision: bool,
     pub jump_repeated: bool,
+    /// Processed movement states this tick (VPA-011): what the simulator
+    /// acted on, as opposed to which buttons are held. The outbound
+    /// `PlayerAuthInput` processed flag families derive from this snapshot.
+    pub processed: ProcessedMovementState,
     pub world_identity: WorldCollisionIdentity,
 }
 
@@ -260,7 +174,6 @@ pub(super) enum PhysicsCorrectionError {
 pub(super) struct PhysicsCorrectionPlan {
     pub(super) outcome: PhysicsCorrectionOutcome,
     pub(super) corrected_tick: u64,
-    pub(super) corrected_position: [f32; 3],
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
@@ -275,6 +188,14 @@ pub struct LocalPhysicsFrame {
     pub blocked: Option<SimulationError>,
     pub samples: Vec<PhysicsMovementSample>,
 }
+
+/// Bounded number of retained server motion overlays.
+///
+/// Overlays outlive their live application so a correction rewind that covers
+/// their tick can re-apply them; the bound keeps adversarial impulse floods
+/// finite, dropping the oldest entry first. Entries only ever match their own
+/// exact tick, so retained stale entries are inert until eviction.
+const LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY: usize = 8;
 
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
@@ -291,9 +212,22 @@ pub struct LocalPhysicsController {
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    /// Open processed-jump-arc fold state carried across ticks. Reset with the
+    /// rest of prediction state; rebuilt across correction replays.
+    processed_jump_arc_active: bool,
     dropped_tick_count: u64,
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
+    server_motions: VecDeque<sim::MotionOverlay>,
+    /// Bounded spawn-anchor depenetration state (provisional recovery
+    /// policy): the pending probe, per-epoch failure budget, and any frozen
+    /// embedded-anchor hold.
+    anchor_state: super::anchor_probe::AnchorProbeState,
+    /// Locomotion mode selector and the previous tick's sampled environment it reads.
+    modes: ModeTracker,
+    last_environment: sim::MovementEnvironment,
+    /// Server corrections applied to this controller; drives the prediction sync.
+    corrections_applied: u64,
 }
 
 impl Default for LocalPhysicsController {
@@ -308,14 +242,25 @@ impl Default for LocalPhysicsController {
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            server_motions: VecDeque::with_capacity(LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY),
+            anchor_state: super::anchor_probe::AnchorProbeState::new(),
+            modes: ModeTracker::default(),
+            last_environment: sim::MovementEnvironment::default(),
+            corrections_applied: 0,
         }
     }
 }
 
 impl LocalPhysicsController {
+    /// Returns the prediction state retained for one authoritative tick.
+    pub(super) fn retained_state(&self, tick: u64) -> Option<&PlayerState> {
+        self.history.state_at(tick)
+    }
+
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.state.is_some()
@@ -327,10 +272,53 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.server_motions.clear();
+        self.modes.reset();
+        self.last_environment = sim::MovementEnvironment::default();
+        self.anchor_state.reset();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
+    }
+
+    /// Retains one server-authoritative velocity impulse (knockback, launch,
+    /// explosion) at the tick carried by `SetActorMotion`.
+    ///
+    /// The overlay is keyed by that tick so a correction rewind covering it
+    /// re-applies the same replacement deterministically. Non-finite impulses
+    /// are ignored; when inactive there is no prediction timeline to enter.
+    /// A zero wire tick is untimed: replace the current velocity immediately
+    /// and retain the replacement at the next simulation boundary for replay.
+    pub fn queue_server_motion(&mut self, motion: [f32; 3], applies_at_tick: u64) {
+        if !motion.into_iter().all(f32::is_finite) {
+            return;
+        }
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+        let velocity = Vec3::new(
+            f64::from(motion[0]),
+            f64::from(motion[1]),
+            f64::from(motion[2]),
+        );
+        let applies_at_tick = if applies_at_tick == 0 {
+            let Some(next_tick) = state.tick.checked_add(1) else {
+                return;
+            };
+            state.velocity = velocity;
+            next_tick
+        } else {
+            applies_at_tick
+        };
+        if self.server_motions.len() == LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
+            self.server_motions.pop_front();
+        }
+        self.server_motions.push_back(sim::MotionOverlay {
+            tick: applies_at_tick,
+            velocity,
+        });
     }
 
     /// Replaces prediction state from a server network-position anchor.
@@ -368,9 +356,17 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.server_motions.clear();
+        self.modes.reset();
+        self.last_environment = sim::MovementEnvironment::default();
+        // Every hard anchor starts a fresh bounded probe epoch: the new
+        // position is probed before its first simulated tick, and any prior
+        // failure budget or frozen embedded-anchor hold is replaced.
+        self.anchor_state.note_hard_anchor();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
     }
@@ -405,9 +401,26 @@ impl LocalPhysicsController {
     pub fn advance_with_context(
         &mut self,
         elapsed: Duration,
+        input: MovementInput,
+        context: PhysicsSampleContext,
+        world: &impl CollisionWorld,
+    ) -> LocalPhysicsFrame {
+        self.advance_with_context_and_effects(
+            elapsed,
+            input,
+            context,
+            world,
+            &mut NoMovementEffects,
+        )
+    }
+
+    pub(crate) fn advance_with_context_and_effects(
+        &mut self,
+        elapsed: Duration,
         mut input: MovementInput,
         context: PhysicsSampleContext,
         world: &impl CollisionWorld,
+        effects: &mut impl MovementEffectSource,
     ) -> LocalPhysicsFrame {
         let Some(state) = self.state.as_mut() else {
             return LocalPhysicsFrame::default();
@@ -436,24 +449,155 @@ impl LocalPhysicsController {
             ..LocalPhysicsFrame::default()
         };
 
+        let sprint_request = input.sprinting;
+        let sneak_request = input.sneaking;
+        let mut fly_toggle = context.mode_intent.fly_toggle;
+        input.pitch_degrees = f64::from(context.pitch);
+        input.fly_speed = context.mode_intent.fly_speed;
+        input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
+        input.creative_flight = context.mode_intent.creative_flight;
+        input.depth_strider = context.mode_intent.depth_strider;
+        input.soul_speed = context.mode_intent.soul_speed;
         for tick_index in 0..allowed {
+            // Before the first simulated tick of a freshly anchored epoch,
+            // probe the anchor out of any solid overlap (provisional
+            // recovery policy; see `anchor_probe`).
+            if tick_index == 0 && !self.modes.mode().is_walking() {
+                // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
+                self.anchor_state.reset();
+            } else if tick_index == 0 {
+                match self.anchor_state.before_tick(world, state.position) {
+                    BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
+                    BeforeTick::Proceed => {}
+                }
+            }
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             let grounded_before_tick = state.on_ground;
+            // The simulator clears a retained post-jump cooldown whenever the
+            // button is not held and then consumes requests only while
+            // grounded with that cooldown expired (`jump_pressed` +
+            // pre-tick ground contact + zero effective delay). Capture the
+            // same pre-tick facts so the initiation fold below claims exactly
+            // the requests the simulator can consume: a fresh press edge
+            // arriving inside the cooldown is refused by the simulator and
+            // must not assert an initiation here.
+            let jump_cooldown_cleared = !input.jumping || state.jump_delay == 0;
             let jump_repeated = input.jumping
                 && grounded_before_tick
                 && state.jump_delay == 0
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || jump_repeated;
+            input.effects = effects.snapshot();
+            input.sprinting = sprint_request;
+            let mut forced_sneak = false;
+            let mut mode_error = None;
+            match self.modes.select(
+                context.mode_intent,
+                std::mem::take(&mut fly_toggle),
+                ModeObservation {
+                    feet: state.position,
+                    on_ground: state.on_ground,
+                    velocity_y: state.velocity.y,
+                    in_water: self.last_environment.in_water,
+                    in_lava: self.last_environment.in_lava,
+                    sprinting: sprint_request,
+                    moving_forward: input.forward > 0.0,
+                    jumping: input.jumping,
+                    jump_edge: self.jump_edge_pending,
+                },
+                world,
+            ) {
+                Ok(choice) => {
+                    input.mode = choice.mode;
+                    input.sneaking = sneak_request || choice.forced_sneak;
+                    forced_sneak = choice.forced_sneak;
+                }
+                Err(error) => mode_error = Some(error),
+            }
+            if matches!(
+                input.mode,
+                sim::MovementMode::Crawling
+                    | sim::MovementMode::Gliding
+                    | sim::MovementMode::Riding
+            ) {
+                input.sprinting = false;
+            }
+            // A rider's position is its seat on the mount, not a simulated result.
+            let mut ride_delta = None;
+            if input.mode == sim::MovementMode::Riding
+                && let Some(seat) = context
+                    .mode_intent
+                    .ride_seat
+                    .filter(|seat| seat.iter().all(|axis| axis.is_finite()))
+            {
+                let seat = Vec3::new(f64::from(seat[0]), f64::from(seat[1]), f64::from(seat[2]));
+                ride_delta = Some([
+                    (seat.x - state.position.x) as f32,
+                    (seat.y - state.position.y) as f32,
+                    (seat.z - state.position.z) as f32,
+                ]);
+                state.position = seat;
+            }
+            // A queued server impulse replaces this tick's starting velocity,
+            // mirroring how Bedrock applies knockback as an absolute velocity.
+            // The overlay is retained after application so a correction
+            // rewind covering its tick re-applies it deterministically;
+            // capacity bounds evict the oldest entries.
+            let next_tick = state.tick.saturating_add(1);
+            for overlay in self
+                .server_motions
+                .iter()
+                .filter(|overlay| overlay.tick == next_tick)
+            {
+                state.velocity = overlay.velocity;
+            }
             let before = state.position;
-            match self.history.predict(state, input, &self.simulator, world) {
-                Ok(result) => {
+            let predicted = match mode_error {
+                Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
+                    error,
+                ))),
+                None => self
+                    .history
+                    .predict_with_controls(state, input, &self.simulator, world),
+            };
+            match predicted {
+                Ok(output) => {
+                    let result = output.tick_result;
+                    self.last_environment = result.environment;
+                    effects.commit_successful_tick();
                     self.previous_position = before;
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
+                    // The simulator can only consume a jump request from the
+                    // ground with its post-jump cooldown expired, so
+                    // initiation is the consumed request on a tick that
+                    // started grounded and clear of the cooldown. The arc
+                    // then rides the airborne window until the simulator
+                    // reports ground contact again.
+                    let mut processed = ProcessedMovementState::next(
+                        self.processed_jump_arc_active,
+                        input.jump_pressed && grounded_before_tick && jump_cooldown_cleared,
+                        state.on_ground,
+                        input.sneaking,
+                        input.sprinting,
+                    );
+                    processed.mode = input.mode;
+                    processed.ride = context.mode_intent.ride;
+                    processed.forced_sneak = forced_sneak;
+                    processed.direction_flags = Some(super::encoding::direction_flags([
+                        -input.strafe as f32,
+                        input.forward as f32,
+                    ]));
+                    if input.mode == sim::MovementMode::Riding {
+                        // The mount owns jumping; only the raw button flags describe it.
+                        processed.jump_initiated = false;
+                        processed.jump_arc_active = false;
+                    }
+                    self.processed_jump_arc_active = processed.jump_arc_active;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
                         position: [
@@ -461,7 +605,22 @@ impl LocalPhysicsController {
                             state.position.y as f32 + PLAYER_NETWORK_OFFSET,
                             state.position.z as f32,
                         ],
-                        move_vector: [-input.strafe as f32, input.forward as f32],
+                        movement: [
+                            result.movement.x as f32,
+                            result.movement.y as f32,
+                            result.movement.z as f32,
+                        ],
+                        velocity: [
+                            result.velocity.x as f32,
+                            result.velocity.y as f32,
+                            result.velocity.z as f32,
+                        ],
+                        move_vector: [
+                            -output.controls.move_vector[0] as f32,
+                            output.controls.move_vector[1] as f32,
+                        ],
+                        raw_move_vector: context.raw_move_vector,
+                        analogue_move_vector: context.analogue_move_vector,
                         pitch: context.pitch,
                         yaw: input.yaw_degrees as f32,
                         head_yaw: context.head_yaw,
@@ -472,9 +631,15 @@ impl LocalPhysicsController {
                         input_mode: context.input_mode,
                         grounded_before_tick,
                         grounded_after_tick: state.on_ground,
+                        horizontal_collision: result.collisions.x || result.collisions.z,
+                        vertical_collision: result.collisions.y,
                         jump_repeated,
+                        processed,
                         world_identity,
                     });
+                    if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
+                        sample.movement = delta;
+                    }
                     if self.sample_history.len() == LOCAL_PHYSICS_HISTORY_CAPACITY {
                         self.sample_history.pop_front();
                     }
@@ -531,177 +696,6 @@ impl LocalPhysicsController {
         frame
     }
 
-    pub(super) fn apply_correction(
-        &mut self,
-        network_position: [f32; 3],
-        tick: u64,
-        on_ground: bool,
-        mode: PhysicsCorrectionMode,
-        confirmation: Option<&PhysicsCorrectionConfirmation>,
-        world: &impl CollisionWorld,
-    ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
-        if !network_position.into_iter().all(f32::is_finite) {
-            return Err(PhysicsCorrectionError::InvalidAnchor);
-        }
-        if matches!(mode, PhysicsCorrectionMode::Snap) {
-            self.reanchor_network_position_before_advance(network_position, tick, on_ground);
-            return Ok(PhysicsCorrectionPlan {
-                outcome: PhysicsCorrectionOutcome::Snapped { tick },
-                corrected_tick: tick,
-                corrected_position: network_position,
-                final_tick: tick,
-                final_position: network_position,
-                replayed_samples: Vec::new(),
-            });
-        }
-
-        if self.state.is_none() {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        }
-
-        let current_tick = self
-            .state
-            .as_ref()
-            .expect("active correction checked for local state")
-            .tick;
-        if tick > current_tick {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        }
-        let Some(mut corrected) = self.history.state_at(tick).cloned() else {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        };
-        if !self.sample_history.iter().any(|sample| sample.tick == tick) {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        }
-
-        let feet = Vec3::new(
-            f64::from(network_position[0]),
-            f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
-            f64::from(network_position[2]),
-        );
-        // CorrectPlayerMovePrediction replaces the retained position at one
-        // tick, then requires movement after that tick to be replayed from the
-        // corrected anchor. It does not supply a replacement velocity. Keep
-        // the retained dynamic state so a confirmation or small correction
-        // cannot restart acceleration from rest.
-        corrected.position = feet;
-        corrected.on_ground = on_ground;
-        // Axis collisions describe the motion that produced a position, so they
-        // cannot be recomputed from a corrected anchor. They are retained only
-        // when a bounded transport-success record shows that the correction
-        // exactly matches the network position this client sent for that tick,
-        // the retained sample used that same immutable collision identity, and
-        // every chunk in that identity is still loaded at the same revision.
-        // Cinnabar provisionally interprets that combination as confirmation of
-        // the motion behind the position; this is a client replay policy, not
-        // an established vanilla or protocol guarantee. Retaining the flags
-        // avoids stuttering a legitimate wall climb on matching corrections.
-        // Any missing proof or mismatch clears the flags and keeps the discrete
-        // climb branch closed. An upward velocity produced while a stale
-        // horizontal collision was retained is the same unconfirmed ladder
-        // response, so it is cleared with those flags. Identity query failure
-        // is semantic unavailability and does not disconnect. The position
-        // comparison is exact in the sent `f32` network space because that is
-        // the serialized position available to compare. The loss is bounded
-        // to the corrected tick: `Simulator::tick` re-derives collisions.
-        let retained_sample = self
-            .sample_history
-            .iter()
-            .find(|sample| sample.tick == tick)
-            .expect("retained correction sample was checked");
-        let server_confirmed_prediction = confirmation.is_some_and(|confirmation| {
-            confirmation.position == network_position
-                && retained_sample.position == network_position
-                && confirmation.world_identity == retained_sample.world_identity
-                && collision_identity_is_current(world, feet, &confirmation.world_identity)
-                    .unwrap_or(false)
-        });
-        if !server_confirmed_prediction {
-            if (corrected.collisions.x || corrected.collisions.z) && corrected.velocity.y > 0.0 {
-                corrected.velocity.y = 0.0;
-            }
-            corrected.collisions = sim::AxisCollisions::default();
-        }
-        let (replay, replayed_ticks) = self
-            .history
-            .rewind_and_replay_traced(
-                self.state
-                    .as_mut()
-                    .expect("active correction checked for local state"),
-                corrected,
-                &self.simulator,
-                world,
-            )
-            .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
-
-        if replayed_ticks.len() != replay.replayed_ticks {
-            return Err(PhysicsCorrectionError::ReplayFailed);
-        }
-        let mut replayed_samples = Vec::with_capacity(replayed_ticks.len());
-        for result in replayed_ticks {
-            let Some(retained) = self
-                .sample_history
-                .iter_mut()
-                .find(|sample| sample.tick == result.tick)
-            else {
-                return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
-            };
-            if retained.world_identity != result.world_identity {
-                return Err(PhysicsCorrectionError::WorldIdentityMismatch { tick: result.tick });
-            }
-            retained.position = [
-                result.position.x as f32,
-                result.position.y as f32 + PLAYER_NETWORK_OFFSET,
-                result.position.z as f32,
-            ];
-            replayed_samples.push(retained.clone());
-        }
-        let corrected_world_identity = {
-            let corrected_sample = self
-                .sample_history
-                .iter_mut()
-                .find(|sample| sample.tick == tick)
-                .expect("retained correction sample was checked");
-            corrected_sample.position = network_position;
-            corrected_sample.world_identity.clone()
-        };
-
-        let state = self
-            .state
-            .as_ref()
-            .expect("successful replay retains local state");
-        let final_tick = state.tick;
-        let final_position = [
-            state.position.x as f32,
-            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-            state.position.z as f32,
-        ];
-        self.previous_position = if final_tick == tick {
-            feet
-        } else {
-            self.history
-                .state_at(final_tick.saturating_sub(1))
-                .map_or(feet, |previous| previous.position)
-        };
-        self.accumulated_seconds = 0.0;
-        self.last_world_identity = replayed_samples
-            .last()
-            .map(|sample| sample.world_identity.clone())
-            .or(Some(corrected_world_identity));
-
-        Ok(PhysicsCorrectionPlan {
-            outcome: PhysicsCorrectionOutcome::Replayed {
-                corrected_tick: replay.corrected_tick,
-                replayed_ticks: replay.replayed_ticks,
-            },
-            corrected_tick: tick,
-            corrected_position: network_position,
-            final_tick,
-            final_position,
-            replayed_samples,
-        })
-    }
-
     #[must_use]
     pub fn render_eye_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
@@ -717,6 +711,30 @@ impl LocalPhysicsController {
     #[must_use]
     pub const fn state(&self) -> Option<&PlayerState> {
         self.state.as_ref()
+    }
+
+    /// Processed `(sneaking, sprinting)` of the latest completed tick.
+    #[must_use]
+    pub fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
+        let sample = self.sample_history.back()?;
+        Some((sample.processed.sneaking, sample.processed.sprinting))
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> sim::MovementMode {
+        self.modes.mode()
+    }
+
+    /// The retained completed-tick sample for `tick`, for diagnostics.
+    pub(crate) fn sample_at(&self, tick: u64) -> Option<&PhysicsMovementSample> {
+        self.sample_history
+            .iter()
+            .find(|sample| sample.tick == tick)
+    }
+
+    #[must_use]
+    pub const fn corrections_applied(&self) -> u64 {
+        self.corrections_applied
     }
 
     #[must_use]
@@ -743,44 +761,4 @@ impl LocalPhysicsController {
     pub const fn last_world_identity(&self) -> Option<&WorldCollisionIdentity> {
         self.last_world_identity.as_ref()
     }
-}
-
-fn collision_identity_is_current(
-    world: &impl CollisionWorld,
-    corrected_feet: Vec3,
-    expected: &WorldCollisionIdentity,
-) -> Result<bool, sim::WorldQueryError> {
-    let y = checked_block_coordinate(corrected_feet.y)?;
-    let mut current: Option<WorldCollisionIdentity> = None;
-    if expected.chunks.is_empty() {
-        let block = [
-            checked_block_coordinate(corrected_feet.x)?,
-            y,
-            checked_block_coordinate(corrected_feet.z)?,
-        ];
-        current = Some(world.block_physics(block)?.identity);
-    } else {
-        for revision in &expected.chunks {
-            let Some(x) = revision.chunk.x.checked_mul(16) else {
-                return Err(sim::WorldQueryError::CoordinateOutOfRange);
-            };
-            let Some(z) = revision.chunk.z.checked_mul(16) else {
-                return Err(sim::WorldQueryError::CoordinateOutOfRange);
-            };
-            let identity = world.block_physics([x, y, z])?.identity;
-            current = Some(match current {
-                None => identity,
-                Some(previous) => previous.merge(&identity)?,
-            });
-        }
-    }
-    Ok(current.as_ref() == Some(expected))
-}
-
-fn checked_block_coordinate(value: f64) -> Result<i32, sim::WorldQueryError> {
-    let value = value.floor();
-    if value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
-        return Err(sim::WorldQueryError::CoordinateOutOfRange);
-    }
-    Ok(value as i32)
 }

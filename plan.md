@@ -1,5 +1,539 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
+This preserves the full scope below; historical snapshots are not current runtime acceptance.
+
+2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
+(pipelined in-order requests, prediction groups, vanilla container addressing),
+with 2x2 and crafting-table crafting, creative take, number-key swap and drops;
+not live-accepted. Provisional, labeled incomplete: item tag membership comes
+from Dragonfly's table and registry-declared tags are read from
+`components.item_tags` without a live capture; the workbench layout, shift-click
+destinations, drop bindings and CraftResultsDeprecated contents need
+independent confirmation; armor/offhand placement is server-decided;
+drag-distribute, double-click collect and workstation windows are missing.
+
+2026-09-28 actor animation: remote players and mobs animate through the vanilla
+controllers with full Molang evaluation; not visually accepted (facing, box-UV
+side faces and limb swing need a native capture). Provisional, labeled
+incomplete: motion-model constants, the 6-tick swing, the look clamp, gliding
+divisor, baby leg-speed factor, seeded variables and Molang math tolerances need
+independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
+variables read 0; non-uniform parent scale over rotated children is approximated
+without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
+transitions, render-controller part visibility and per-axis rotation objects are
+missing; queries without retained data read idle values; held items and most mob
+artwork are deferred.
+
+2026-09-28 survival interaction: hold-to-mine (both block-breaking authority
+modes), MineBlock wear with reconciled responses, standalone ClickBlock
+placement, and melee with swings and missed-swing reporting are implemented but
+not live-accepted. Provisional, labeled incomplete: tool/harvest classes are
+Java-derived (PrismarineJS) and may predict early on Bedrock-specific tool rules;
+unresolved rows use the slowest rate; hardness is 1.26.30 data; flying is never
+detected; Unbreaking is not modelled; the destroy delay, completion threshold,
+pick ranges, server pick slack, entity pick radius, swing adjustments, placement
+repeat timings, attack-to-use block and bridging rule need independent
+measurement; replaceable, interactive and unpickable-entity lists are local
+choices. A vanilla packet capture must still confirm the attack swing count.
+
+2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
+lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
+null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
+slots `i & 0xff`, unsent inline slots known air). Provisional, labeled incomplete:
+legacy sub-chunk versions 0/2–7 decode as air (no legacy id table), persistent
+palette entries resolve to air (no name/state lookup), and block-entity id and
+block-actor-type checks are not emulated. StartGame custom blocks are known only
+when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
+they collide as full cubes with stone's surface facts and render as diagnostic
+cubes until runtime pack application lands. Hashed-id sessions now register custom
+states by network hash (pack visuals via the runtime overlay; stone-surface collision
+provisional); sequential customs sorting among vanilla remap wire ids, custom collision
+uses `minecraft:collision_box`, and vanilla blocks retexture from a pack's terrain keys
+via the `.matkeys.json` sidecar (rebuild assets to emit it). Vanilla item icons override by
+short-name key (provisional). Custom-block selection boxes drive the pick ray. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
+index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
+entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
+labeled incomplete: neutral material profile only (custom materials and conditional/multi-texture
+render controllers fall back), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
+(pack bindings win by item identifier; pack property defaults seed only from `entities/` in
+resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
+
+2026-09-30 protocol-2193 wire target (owner decision): Cinnabar moves from
+Bedrock 1.26.44 / protocol 2168 to 1.26.50 / protocol 2193, because Gophertunnel
+`lunar` now supports only 1.26.50 (Mojang's current release is 1.26.52 on the
+same protocol). The Go core, fixture generator and local server pin Gophertunnel
+`b725d82563e93308fd1f92d27da5e97301ad5040` on `resource-pack-changes` and accept
+only `minecraft.DefaultProtocol`; the client reports game version 1.26.50. The
+vendored Valentine crate is regenerated from protocolgen `0b8f17e3`'s reconciled
+1.26.51 manifest (`valentine_bedrock_1_26_51`, see `crates/protocol/vendor/UPSTREAM.md`)
+and the fixtures by `tools/fixturegen`. Local worlds provision BDS 1.26.52.x.
+Codec, fixture and unit coverage only: no 1.26.50 server join, native visual, or
+vanilla acceptance gate has been run on this target yet. New 2193 fields are
+decoded but not yet consumed (MoveActorDelta interpolation ticks, PlaySound
+range bypass and playback offset, camera preset starting rotation, dimension
+default biome, SetPlayerFurnaceOptions, RecordStarted); that parity work is
+incomplete. The account/auth cache is keyed on the game version, so the first
+join re-authenticates.
+
+2026-09-09 loading publication: the owner authorized publishing the completed
+loading/auth work; the broader track and unused solver experiments remain paused.
+The reviewed ordered-batch dependency is published on `resource-pack-changes` at
+`3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38`, and its Go CI passed. Both current Go
+consumers and the acceptance scripts now pin its public pseudo-version
+`v1.25.3-0.20260908230935-3d9f4b7a4ac0`; the former local override is no longer
+needed. This is the same dependency source used by the recorded native A/B runs,
+not a wire-version upgrade. Exact-version provenance checks remain enforced.
+Fresh full core, fixture-generator and registry-generator tests/vet and the core
+build passed against the public pin. The fork's full Windows test run reproduces
+only the two previously established zero-duration timer failures; the remaining
+tests, vet and staticcheck pass. Race instrumentation remains unavailable locally.
+The complete outgoing loading range and pin changes cleared publication review.
+Fresh Rust workspace tests passed 3,591 tests with 16 ignored; strict all-target
+workspace Clippy, formatting and architecture checks passed. PowerShell 5.1 and
+Git Bash acceptance harnesses and the asset contract suite passed; the latter's
+deep Bash extraction legs remain skipped locally without unzip/cc. Cinnabar CI
+remains pending until the authorized push; the earlier native A/B evidence is
+unchanged, and no faster-than-vanilla acceptance gate is closed.
+
+2026-09-08 dependency refresh: the Go core and fixture generator pin Gophertunnel
+`649c0edad68caf669e89215106403369deed5e03` on `resource-pack-changes`, containing
+latest lunar `80a44ec6a6b974d63cbfdd6b1fb4e273d534e997` and the restored resource-pack
+snapshot APIs. The core pins go-raknet lunar `216ccc2404e808b0b76e622b7eb13e990a0a8054`.
+The local listener and fixture generator explicitly select the 1.26.44 adapter;
+this does not upgrade Cinnabar's wire target to the dependency's 1.26.45 default.
+The inventory-response decoder and fixture now include the filtered-name presence
+byte. Structure-editor strings retain their existing encoding. Fork restoration
+review approved; its tests, vet, and published CI passed. Cinnabar's Go tests,
+vet and build, Rust workspace tests, clippy, formatting, release build, architecture
+check, and shell acceptance tests passed. Independent review found that the
+listener also accepted the dependency's newer default; a pre-preparation check
+now rejects unsupported local protocol IDs and advertised game versions,
+including 1.26.40 sharing ID 2168. Both hermetic regressions failed before their
+fixes and passed afterward, including repeated race-enabled runs. Independent
+review approved the complete `8e2b19ba..0ab3ff1a` range with no remaining findings.
+The final Go tests, vet, build and architecture recheck passed after both fixes.
+The acceptance shell suite passed with the canonical `Downloads` path casing;
+PowerShell and Windows-native checks were not run locally. Cinnabar CI will run
+on the authorized push; its result is not part of this local verification record.
+No live vanilla or native acceptance gate is closed.
+
+2026-09-08 loading-only local checkpoint: upstream was pulled through `3438c89d`;
+the broader completion track remains paused. Independently approved lighting
+tranches `ef5d0ea6`, `f99eb3ab`/`d7216891`, and `b0635a7a` bound waiter cleanup to
+the six possible face sources, cache retained light reads within one bounded solve,
+and canonicalize packed output once per channel instead of after every voxel write.
+The fixed retained-light witness covers exact channels, provenance, storage and
+queue statistics against the pre-change result. Fresh world/client-world/meshing
+tests, strict all-target Clippy, formatting, architecture checks, and the release
+client build passed. These local changes do not close lighting parity or performance.
+
+The complete persistent-auth range `3438c89d..e96589d1` received independent
+APPROVE with no findings and is integrated history-preservingly in `9179f145`.
+The optional owner-restricted, bounded disk sidecar preserves expiry-checked
+device/proof-key, Xbox and service credentials across processes. OAuth material,
+client configuration and freshly discovered service environment bind reuse;
+each connection still receives a newly minted credential. Invalid/unsafe caches
+are optional misses, and derived writes require a verified exclusive lease.
+Fresh full Go tests, vet and the production core build passed. Darwin authcache
+tests compile but were not executed on macOS; race instrumentation remains
+unavailable locally without a C compiler. Discovery/JWKS caches, NetherNet's
+separate service path and cross-process OAuth refresh coordination are unchanged.
+
+Windows/DX12 live Zeqa cold and fresh-process warm launches reached the lobby.
+The warm process reported a bound disk-cache hit and service reuse without
+rewriting the sidecar. Connection time was 5.625 s cold versus 3.635 s warm in
+that pair, including the server's pre-login transfer. Expiry and rejection handling
+have synthetic regression coverage, not a forced real-credential expiry test.
+With the same `b0635a7a` release renderer, full terrain work drained in 33.933 s
+on the warm run but took 144.006 s on an earlier run; both ended at 224 columns
+and 5,376 subchunks. These are one-second observer measurements after connection,
+not loading-screen durations: the lobby can render before all work drains.
+An earlier waiter-only Lifeboat run took approximately 81 s to drain, also with
+the lobby visible sooner. Normal uncapped runs are not the capped resource-budget
+gate, and no matched vanilla speed comparison is established. The complete
+`b0635a7a..e4043212` waiter-coalescing range received independent APPROVE with no
+findings and is integrated in `86ac5fc2`. Pending wakeups retain their revision
+and queue age, restore consumed scheduling candidates, and preserve urgency;
+in-flight-only targets still receive invalidating revisions. Both earlier review
+findings have dispatch-driven regressions. Fresh world/client-world/meshing tests,
+strict all-target Clippy, formatting and architecture checks passed. The analytical
+3-by-3 emitter witness verifies every light channel and final current/empty state,
+but controlled accepted work remains 21 jobs: this is not the full convergence fix.
+The reviewed release build passed and two fresh Zeqa runs drained terrain work in
+32.20 s and 33.01 s after connection, with the same 224-column cohort and actual
+lobby rendering verified. The larger 257-column Lifeboat run still had pending
+lighting after 180.30 s; it eventually drained after 194,505 accepted light jobs.
+That is a failed loading-performance result, not an improvement claim. All four
+fresh native launches reused the saved auth bundle and valid service credentials
+without refresh. No compiler or test ran during these native measurements.
+A bounded regional-lighting experiment remains isolated on
+`fix/bounded-region-lighting-20260908` from `e4043212`, not integrated. Controlled
+initial-load comparisons did not justify its complexity, so batching is excluded
+from the shipping candidate. The smaller current-air boundary check received fresh
+independent APPROVE for the complete `c51ba65a..04350544` range, with no findings,
+and is integrated history-preservingly in `3a77c1fd`. It suppresses a neighbor's
+light requeue only when every new contribution is already covered by current light
+and the source face has no level or direct-sky provenance loss. Unknown, stale,
+dirty, in-flight and non-air targets retain existing behavior; mesh invalidation
+is independent. Fresh post-integration world/client-world/meshing/render suites
+passed 999 tests with two ignored; all 950 app-library tests, strict affected
+all-target Clippy, formatting, architecture and the release build passed. The
+controlled mixed-terrain fixture preserved exact light/provenance hashes through
+initial load, emitter removal and addition; initial median was 225 ms versus an
+earlier 512 ms baseline. This synthetic result is not a native loading improvement.
+
+Independently approved `7b089c7e` is integrated in `c51ba65a`. It adds a bounded
+once-per-session logical terrain-ready timestamp without changing readiness
+thresholds or presentation behavior. Fresh post-integration verification passed
+all 950 app-library tests, strict all-target Clippy, formatting, architecture and
+the release build. The first Windows/DX12 Zeqa run with this diagnostic reported
+23.862 s from the first connected-session observation to logical terrain readiness.
+The full terrain pipeline drained approximately 25.13 s after upstream connection,
+with 32,988 accepted light jobs and the same 224-column, 5,376-subchunk cohort.
+The actual lobby rendered, saved authentication was reused without refresh or
+sidecar rewrite, and no compiler or test ran during measurement. This is a
+pre-boundary-check baseline, not an optimization result or exact first-pixel time.
+Two normal Windows/DX12 Zeqa runs of the integrated boundary check reached logical
+terrain readiness in 31.371 s and 28.701 s; full work drained approximately
+35.95 s and 29.74 s after connection, with 43,993 and 38,745 accepted light jobs.
+Both retained 5,376 subchunks and rendered 1,108 at the same spawn/settings. These
+results do not establish improvement over the diagnostic baseline. The large
+Lifeboat baseline retained 3,035 and rendered 1,863 subchunks; logical readiness
+took 32.484 s, with work still pending after 195.62 s. Both candidate Lifeboat
+scenes retained only 298 / rendered 226 subchunks, so their 5-6 s logical
+readiness cannot be compared with that large workload. The bridge received 258
+ordinary chunk packets in both sizes. Follow-up diagnostic runs showed publisher
+radii of eight chunks for the large scene and two for the small scene, despite a
+confirmed chunk radius of eight in both. Admission/order attribution remains open;
+the smaller scene is not evidence that the server sent less terrain. Native performance remains
+open; no compiler or test ran during these measurements.
+
+Saved auth was reused throughout. During the repeated Zeqa run, the service token
+naturally expired: the bound disk bundle was accepted, the service credential was
+refreshed and persisted, and connection succeeded in 3.832 s. The replacement
+sidecar retained its protected owner-restricted access. Credential contents were
+not read for verification. A new isolated investigation on
+`fix/light-trust-convergence-20260908`, based on `3a77c1fd`, reproduced
+dirty-neighbor darken/restore amplification. A source-first scheduling experiment
+helped a flat emitter fixture but increased accepted work on the 9-by-9-by-24
+mixed-height fixture; all final light/provenance hashes matched. That scheduling
+change is rejected, and the uncommitted diagnostic tests remain isolated.
+No new production behavior from that investigation is integrated.
+A separate isolated dependency lane, `fix/loading-batch-order-20260908` from
+`649c0eda`, reproduced a concurrent FIFO violation between the deferred and ready
+batch queues. The complete `649c0eda..f2586456` fix received fresh independent
+APPROVE with no findings and is integrated locally on `resource-pack-changes` in
+`3d9f4b7a`. The mutex-protected ring preserves batch order, login deferral and
+close/deadline draining; normal full-backlog operations neither relocate entries
+nor allocate, consumed references clear, and drained burst storage returns to eight
+slots. The earlier review's compaction and retained-reference findings have
+deterministic RED/GREEN regressions. Fresh integrated Go tests and vet passed,
+excluding only two unchanged packet-timer assertions that also fail on the untouched
+base on Windows. Race instrumentation remains unavailable without a C compiler.
+Full Cinnabar core tests, vet and build passed with an ignored local module override;
+the public dependency pin is unchanged, and the fork is not published.
+
+With the same release renderer and this core, a normal Lifeboat run loaded all
+257 columns / 3,035 subchunks and rendered 1,863. Logical terrain readiness was
+29.063 s; work drained approximately 85.42 s after connection with 90,717 accepted
+light jobs. This is one combined-change run, not isolated causal attribution or
+vanilla-speed acceptance. A fresh repeat still loaded only 25 columns / 298
+subchunks despite 258 ordinary chunk packets at the bridge, so the fixed FIFO race
+does not resolve the publisher-area discrepancy. Zeqa retained its usual 224
+columns / 5,376 subchunks; logical readiness was 39.879 s and work drained in
+approximately 40.71 s with 37,323 light jobs. No compiler or test ran during these
+measurements, but substantial unrelated/background process CPU was observed after
+the Zeqa run; its timing is not a clean causal comparison. All three launches
+reused the saved auth bundle and service token without rewriting the sidecar.
+The complete publisher-diagnostic range `10f14313..fddfda1e` received fresh
+independent APPROVE with no findings and is integrated in `b07482e7`. It records
+the first 16 numeric publisher updates independently at the upstream callback and
+relay, including preceding chunk counts, without changing publisher behavior.
+Full writer Go tests, independent focused/proxy tests and vet, fresh integrated
+proxy/command consumer tests with the local fork, vet, architecture and core build
+passed. Race instrumentation remains unavailable on this host.
+
+Two short Windows/DX12 attribution runs with unchanged release renderer reproduced
+both sizes. The full run received one 128-block publisher update and retained
+3,035 subchunks. The small run received a 128-block update followed by a 32-block
+update before the remaining terrain; the callback and relay recorded identical
+publisher order, centers and radii. Both runs received 258 ordinary chunk packets;
+all publisher saved-list counts were zero. The small run retained only 298
+subchunks / 25 columns and visibly lacked most of the lobby. Thus this pair
+attributes the small publisher update to the upstream stream, not proxy reordering
+or a nonempty saved-list omission. Whether the client incorrectly rejects new
+chunks outside that publisher area remains under investigation; no admission
+change follows from this observation alone. These instrumented, early-closed runs
+are not performance comparisons. Both reused saved authentication without refresh.
+Lighting work remains paused until this admission contract is resolved.
+All changes in this loading-only checkpoint are local, not pushed.
+
+The subsequent admission investigation identified 232 valid inline chunks and 18
+block updates discarded solely by the small publisher envelope in that run.
+The complete `2eb94414..52bf5425` stream range and `2eb94414..db609e6e` render/app
+companion received fresh independent APPROVE, with no Critical or Important
+findings, and are integrated history-preservingly in `7ad83fd5` / `0e0471c4`.
+Data admission now includes the independently confirmed player grid while raw
+publisher center, radius, epoch, and teleport/control decisions remain unchanged.
+Required membership and render expectations follow admitted announcements, and
+normal retention changes prune departed requirements without dropping incomplete
+nearby requests. The initial review's stale/unbounded membership finding has
+long-travel and radius-shrink regressions. Explicit render membership preserves
+foreign/source/stale blockers and invalidates candidates when membership changes.
+Fresh integrated world/client-world/meshing/render suites passed 1,012 tests with
+two ignored; all 951 app-library tests, strict affected all-target Clippy,
+formatting, and architecture checks passed. The sole final review comment was
+corrected without changing behavior. The release rebuild passed; normal live
+full-lobby checks remain pending, so this does not yet establish a loading-time improvement.
+The existing loading-screen threshold is unchanged. New lighting optimizations
+remain isolated until the admission candidate has a comparable native baseline.
+These changes are local and have not been pushed.
+
+The admission candidate retained all 257 Lifeboat columns but initially still
+hid the lobby in fog. The independently approved `e8329093..f05bd346` correction,
+integrated in `196f3077`, derives fog distance from the confirmed chunk radius;
+raw publisher controls remain unchanged. Fresh app/client-world tests, strict
+Clippy, formatting, architecture and release build passed. Normal Windows/DX12
+native runs then displayed the complete Lifeboat and Zeqa lobbies. Lifeboat sent
+the same 128-to-32-block publisher update and still retained 3,035 subchunks /
+rendered 1,863; Zeqa retained 5,376 / rendered 1,108. Logical terrain readiness
+took 26.549 s and 35.778 s respectively; all terrain work drained approximately
+73.63 s and 52.45 s after connection. These are comparable-scene baselines,
+not a loading-performance or complete fog-shape parity claim. Zeqa naturally
+refreshed its expiring service credential and persisted the replacement with
+protected owner-restricted access; subsequent reuse succeeded.
+
+The complete `2eb94414..a7006f96` lighting boundary-scan range received fresh
+independent APPROVE with no findings and is integrated in `5831f6e4`. It avoids
+sampling strict interior voxels during external boundary seeding while preserving
+boundary traversal, queue order, light values, direct-sky provenance and error
+behavior. Nonvacuous full-volume oracle tests and exact full-solve fingerprints
+passed. A quiet release seed-phase microbenchmark measured 2.21x and 2.83x on
+the two fixed geometries; this does not establish an end-to-end speedup. Fresh
+post-integration world/client-world/meshing/render tests passed 1,019 tests with
+four ignored, and all 951 app-library tests passed. Strict affected all-target
+Clippy, formatting, architecture and the release build passed. Normal native
+boundary-only runs retained and displayed both complete lobbies. Lifeboat logical
+readiness / full drain took 31.286 / 85.72 s, worse than its fog-only baseline;
+Zeqa took 24.702 / 26.36 s, better than its baseline. Accepted light work varied
+substantially, so these mixed results establish no reliable universal speedup.
+Both fresh processes reused disk authentication without refreshing or rewriting
+the valid bundle. No compiler or test ran during native measurement.
+
+The complete current-resident light-dominance range `e8329093..6ef82c72`
+received fresh independent APPROVE with no findings and is integrated in
+`f4892583`. It extends the existing conservative face proof to current known
+resident blocks, with no palette lookups or weaker stale/dirty/in-flight guards.
+Exact mixed-terrain light/provenance hashes remain unchanged through initial load,
+emitter removal and addition; timing under build contention is excluded. Fresh
+integrated app and client-world library tests passed 951 and 347 tests respectively,
+with two ignored; all 34 client-world integration tests, strict affected all-target
+Clippy, formatting and architecture checks passed. Release/native/performance
+gates were initially open for this extension; the combined candidate below now
+has repeat native evidence.
+
+The complete lazy destination-filter refinement `f4892583..acdcbefc` received
+fresh independent APPROVE with no findings and is integrated in `735a422a`.
+Only cells that fail the cheaper bound consult the exact destination layer/filter
+semantics, with at most one destination lookup per proof. All current-state,
+monotonic-source and direct-sky provenance guards remain; mesh invalidation is
+independent. The old shared lighting fixture is unchanged. Exact 3-by-3-by-24
+light/provenance hashes remain `8406a83a02b26fbd` initially,
+`fdb331a60caa17e5` after emitter removal and `8406a83a02b26fbd` after addition.
+Fresh integrated app/client-world units passed 951/352 tests (two ignored);
+world/client-world/meshing/render consumers passed 1,026 tests (four ignored).
+Strict affected all-target Clippy, formatting, architecture, diff checks and
+the release build passed.
+
+Normal Windows/DX12/Immediate release A/B runs, with no concurrent compiler or
+test, retained and visibly rendered the complete lobbies at the same spawn and
+settings. Full terrain-work drain was measured by a one-second observer after
+upstream connection, not by the loading-screen timestamp:
+
+| Server | Boundary-only baseline runs | Resident + filter runs | Retained / rendered subchunks |
+| --- | --- | --- | --- |
+| Lifeboat | 85.72 s, 61.51 s | 10.98 s, 11.45 s | 3,035 / 1,863 |
+| Zeqa | 26.36 s, 30.07 s | 5.80 s, 5.97 s | 5,376 / 1,108 |
+
+Lifeboat accepted 86,706-113,456 light jobs in those baselines versus
+12,950-14,134 in the candidate; Zeqa accepted 35,107-40,482 versus 8,120-8,293.
+The fresh-baseline comparison is roughly 81% less terrain-drain time for both
+servers. Arrival order, live server activity and publisher updates still vary;
+this supports the combined optimization, not isolated attribution to either
+refinement. The Lifeboat candidate's first logical milestone used an early
+transient drained state and is not a full-lobby time; its repeat used the ordinary
+dense-opaque milestone at 6.075 s. Zeqa logical milestones were 5.020/5.511 s.
+Readiness thresholds are unchanged. Existing pack-dependent rendering and glyph
+defects remain, and there is no matched vanilla-speed or capped resource-budget
+acceptance claim.
+
+Every fresh process in these A/B runs reused the bound disk authentication and
+valid service token; the sidecar remained unchanged after the earlier natural
+expiry refresh. Candidate connection times were 1.693/1.187 s for Lifeboat and
+3.678/3.477 s for Zeqa, including its pre-login transfer. A separate resource-pack
+cache warning was traced to a parent directory whose inherited permissions fail
+the existing owner-only check. Authentication caching is unaffected; permissions
+and pack acquisition/application policy were not changed. This is not evidence
+of persistent pack reuse. The long-lived Zeqa baseline later exited on the
+pre-existing unconsumed block-crack queue limit, after its loading measurement;
+that separate gameplay defect is recorded, not fixed by this loading tranche.
+
+The more complex initial-floor runtime experiment is deferred: the conservative
+candidate already produces a repeatable large improvement. Its opt-in pure solver
+remains isolated on `fix/loading-increase-only-solver-20260908`, based on
+`049f2889`, with no runtime caller or integration. Review of `95c5a1e4` requested
+one defensive filtered-halo correction, now committed separately in `c7dae5ab`.
+The regression failed before the fix and passed afterward; all nine focused
+debug/release tests, 136 world tests (two ignored), strict Clippy, formatting,
+architecture and the ordinary exact release fingerprints pass. A fresh
+independent re-review of the complete `049f2889..c7dae5ab` range returned APPROVE
+with no findings and independently repeated those checks. It is parked, clean
+and locally committed, without runtime integration or native acceptance.
+Do not merge or enable it from this checkpoint. The broader track remains paused.
+Upstream was re-fetched and remains `3438c89d`; all loading changes are local,
+not pushed. The tested core still uses the reviewed local Gophertunnel override;
+publication and an exact reachable dependency repin remain separate gates.
+
+2026-09-06 local integration: `9bbeeca762fe3310d87dc6d297babb4e7440dfae`
+adds bounded block actions and embedded creative-break encoding to PlayerAuthInput,
+plus the Windows physics-install shell-test correction. Independent reviews approved
+the complete tranche without blocking findings. App-side mining production, live
+server acceptance, break timing and crack rendering remain open; no interaction
+or parity checkbox is closed. See the execution track for verification status.
+Follow-up repairs normalize failed upstream connection cleanup (including a
+fresh native rejection test) and cover both Windows attribute line endings in
+the carrier-upgrade test. The new stationary lighting/startup stall remains open.
+Later independently reviewed repairs through `e175556d` fix mixed vertical light
+propagation and upstream disconnect delivery. A native BDS 1.26.40.8 run drained
+the lighting/mesh queues for 314 columns, but does not close the intermittent
+Lifeboat stall or performance gates. It exposed a separate Disconnect wire-format
+bug, repaired in `24db95be` with full protocol tests green,
+independent approval, and a fresh native kick preserving the exact message and
+reason with zero decode errors. Those repairs and the cleanup-test synchronization
+fix are pushed through `706d2b10`, whose complete CI run passed. The later local
+menu and mining state is recorded below.
+
+Later local integration through `c7b8184e` includes independently approved menu
+input/session teardown and bounded toast placement. A fresh Windows/DX12 rendered
+pass at 1280x720, platform scale 1 and GUI scale 2 verified editor Tab/Shift-Tab,
+select-all replacement and clipboard round-trip, local-server join, eight top-aligned
+toast rows from a synthetic packet fixture, Pause/Settings return, stable Home with
+zero chunks after disconnect, and keyboard-confirmed clean exit. No full feature,
+arbitrary-DPI, transfer-failure, or performance gate is closed by this pass.
+Creative mining is locally integrated through `47f8668d` after independent review,
+including ordered successful-write traces. Native testing then exposed selected-slot
+state remaining unknown despite full server inventory updates. Independently reviewed
+default-descriptor routing is integrated in `38c4bd73`; full protocol tests passed.
+A fresh production-client/core run against BDS 1.26.40.8 sent one combined Creative
+break at tick 825, the server confirmed air at the target, and the client rendered
+the hole and fell into it. Server-assigned stack counts now appear in the hotbar.
+This closes only that narrow live break witness, not survival timing, repeated/held
+attacks, placement, full interaction parity, or inventory management. Item artwork
+and inventory-panel stack presentation remain visibly incomplete; an attempted
+inventory transfer did not establish a successful management workflow.
+Post-integration workspace verification passed 3,444 tests with 13 ignored, including
+all 867 client-library tests. The scheduling witness now checks the explicit
+evidence-marker → mining-production → movement-send chain.
+An additional native launcher kick retained the complete server reason and returned
+to Play with zero chunks, but exposed a separate fixed-height launcher message panel:
+three wrapped rows extend below its background. The independently approved bounded
+layout repair is integrated in `4923ac5e`. Its native retest exposed a separate
+disconnect race: a late movement send could close the app before launcher recovery.
+The independently approved repair is integrated in `4f4c335c`. A fresh Windows run
+survived two server kicks with a successful rejoin between them, displayed both
+complete three-line reasons within their panels, reset to zero chunks, and exited
+cleanly by keyboard confirmation. Go core tests and vet, strict workspace all-target
+Clippy, formatting, and architecture checks also passed. Independent final batch
+and publication review approved the complete range without findings.
+The checkpoint above is pushed as `ad3cb10c`; its complete hosted CI run passed,
+including main verification, desktop compile jobs, macOS bootstrap, and Windows acceptance.
+The independently approved inventory checkpoint through `b925fa82` restores
+pointer ownership, artwork-independent counts,
+personal open notification, empty-destination stack ID zero, retained server window
+identity (including zero), and bounded ordered close controls. The final two fixes
+(`d5ba4791`, `84bc9a84`) accept the observed matching, admitted local `None` close
+acknowledgement and preserve confirmed cursor state across it. Uncertain requests,
+server-forced closes, and existing recovery flags remain conservative. Independent
+review found no blockers; one non-blocking direct reset-after-retention test remains
+coverage debt, with production reset paths verified by inspection.
+The normal Windows/DX12 build at `b925fa82` passed physical Take → occupied-cursor
+close → reopen → Place against BDS 1.26.40.8. Independent server queries confirmed
+32 stone in the destination and none in the source. Repeated reopening and Swap
+also passed: seven apples ended in main inventory and 32 stone in the second hotbar
+slot, independently server-confirmed. GUI scale 2 and sprite/count visibility were
+checked; this is a bounded usability gate, not full inventory parity. Writer checks
+passed 892 client-library, 16 integration, and 18 lifecycle tests, plus strict
+Clippy, formatting, and architecture. Fresh post-integration workspace checks passed
+3,471 tests with zero failures and 13 ignored; strict workspace all-target Clippy,
+formatting, architecture, and diff checks also passed. No diagnostic source changes
+remain in the production build. The checkpoint is pushed through `2759e46d`;
+hosted run `34088016127` passed every job, including Windows acceptance,
+macOS workspace tests, and all desktop compile targets.
+The personal window ID is server-assigned and is retained from its open response.
+A timed-out, uncorrelated personal Open/Close currently leaves that lifecycle
+unavailable until the next session; broader timeout recovery remains incomplete.
+Offline reconnect currently generates a new player UUID, so reconnecting with the
+same display name is not a valid persistence witness. Block-item artwork, broader
+inventory gestures, and full inventory visual parity remain open.
+
+2026-09-07 follow-up: independently approved `abea4179` adds positive bounded
+explicit-count Take/Place operations for player and generic storage slots, with
+empty destinations only. Partial predictions retain both counts; accepted
+responses must establish usable distinct identities before the halves can be
+reused. Ambiguous identity responses enter existing bounded recovery. Full-stack
+Take/Place share the implementation and occupied Swap remains unchanged. Writer
+and fresh reviewer each passed 902 client-library, 16 ledger integration, and 21
+storage integration tests, plus strict lint, formatting, and architecture checks.
+This backend tranche is locally integrated through `a9f60ac4`, not a physical
+right-click or complete inventory acceptance gate. Occupied merging, drag, and
+native explicit-count validation remain open.
+The same local checkpoint includes independently approved `83d42234`, bounding
+each read/write phase of the local status endpoint to two seconds so a stalled
+tool does not permanently block later clients. Focused repeated control tests,
+full Go core tests, and vet passed; root post-integration Go checks passed too.
+Race instrumentation was unavailable locally because the required C toolchain
+was absent. Fresh post-integration Rust workspace tests passed 3,481 tests with
+zero failures and 13 ignored; formatting, strict workspace all-target Clippy,
+architecture enforcement, and diff checks passed.
+The dependent right-click input tranche is independently approved and locally
+integrated through `26b737e3`: ceiling-half pickup and single-item placement into
+empty player or admitted storage slots. Existing primary clicks are unchanged;
+occupied secondary targets do not merge or swap. Writer checks passed eight
+focused production-schedule tests, all 910 client-library tests, strict all-target
+Clippy, formatting, and architecture checks; a fresh reviewer independently
+passed the focused tests with no findings. Its physical reference parity remains
+provisional; full inventory parity remains open.
+A fresh normal Windows/DX12 build at `3eff46cf`, 1280x720, platform scale 1 and
+GUI scale 2, passed physical right-click tests against BDS 1.26.40.8. Splitting
+33 apples, placing one in each of two empty slots, closing/reopening with the
+remainder, and placing that remainder produced server-confirmed counts of
+16/1/1/15. An even split, single-item transfer, and occupied-target no-op also
+passed independent server queries. Settled counts and sprites were legible,
+within their cells, and correctly layered; no gameplay-use action was observed
+during inventory input. The client exited cleanly with no runtime errors.
+This closes the bounded personal-inventory input witness, not storage-native,
+occupied merging, drag, block-item artwork, arbitrary-scale, or vanilla parity
+acceptance. Fresh post-integration workspace verification passed 3,489 tests,
+zero failures, and 13 ignored, plus strict workspace all-target Clippy,
+formatting, architecture checks, and the normal client build.
+The follow-up is pushed through `defac786`. Completed hosted run `34092936659`
+passed Windows acceptance, main verification, macOS bootstrap, and Ubuntu/Windows
+desktop compilation, but the macOS Go
+suite timed out in the existing required-pack ignore-policy StartGame witness.
+Independently approved test-only synchronization is locally integrated through
+`3eff46cf`: receive the connected client, explicitly flush its queued final
+acknowledgement, then join server StartGame. The old failure did not reproduce
+locally, so periodic final flushing is a hypothesis, not a proven root cause.
+The admission and no-pack-data assertions are unchanged; repeated focused tests,
+fresh full Go core tests, and vet passed. The replacement checkpoint was pushed
+through `529d8450`; hosted run `34097979449` completed successfully across Windows
+acceptance, main verification, macOS bootstrap, and all three desktop compile
+jobs. Pack-server joining policy is unchanged.
+The same local batch includes independently approved artwork redirect validation
+in `bc5aa862`: redirects retain the initial HTTPS requirement, allow HTTPS CDN
+hosts, and remain bounded. Focused and full Go tests passed.
+
 > **For agentic workers:** This is a program-level master plan. Phases 1–8 are sub-projects;
 > each gets its own detailed task-by-task plan (per superpowers:writing-plans) when its turn
 > comes, executed via superpowers:subagent-driven-development or superpowers:executing-plans.
@@ -18,7 +552,7 @@ carrying plain Bedrock packets pinned to ONE protocol version, plus a small cont
 Local worlds run dragonfly behind the same core, over the same client path.
 
 **Tech Stack:**
-- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.30)
+- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (protocol 2193)
 - Core: Go, `lunar` gophertunnel + go-raknet fork; upstream `df-mc/go-nethernet` and `df-mc/go-xsapi/v2`; dragonfly
 - Boundary: socket-file transport already implemented in `bedrock-mc/plugin` (reference impl)
 - Assets: Mojang/bedrock-samples (full vanilla resource pack); `refs/pocketmine/bds-data`
@@ -26,7 +560,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Global Constraints
 
-- Pinned loopback protocol version: **1.26.30** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
+- Pinned loopback wire target: **Bedrock 1.26.50 / protocol 2193** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
 - The Rust side NEVER implements auth, encryption-to-upstream, RakNet-to-upstream, or NetherNet. If a task seems to need one of those in Rust, the task is wrong.
 - The loopback game channel is Bedrock packets with length-prefixed framing; no RakNet on this leg. Encryption on this leg: whatever gophertunnel's Listener does by default — do not fork to remove it; AES on loopback is negligible.
 - Single source of truth for protocol/data lives in the Go estate: packet truth = gophertunnel (validated against Mojang bedrock-protocol-docs via `cmd/protocoldrift`); block/item/biome registries = generated exports from dragonfly; client packet defs = valentine (docs-generated), conformance-tested against gophertunnel bytes.
@@ -39,13 +573,12 @@ Local worlds run dragonfly behind the same core, over the same client path.
   local equivalent. **Do not import `github.com/lunar-bedrock/lunar` or add Lunar as a Go
   module dependency; the copied relay package is the only Lunar code the core consumes.**
 - Never edit anything under `refs/` (read-only).
-- Vanilla-behaviour parity is the spec language; no decompile/RE provenance in code, commits, or public docs.
 - Model routing (per workspace CLAUDE.md): bulk/mechanical implementation → gpt-5.5 via codex skills; anything user-facing (UI, menus, copy) and plan/impl reviews → fable-5/opus-4.8 taste bar.
 
 ## Repos and Layout
 
 - **`bedrock-mc/client`** (new greenfield repo; do not reuse `bedrock-mc/Rust-LCE` code, assets, renderer, or world model because it targets the Legacy Console Edition rather than current Bedrock/BDS data):
-  - `crates/protocol/` — vendored/generated valentine 1.26.30 defs + login-sequence state machine
+  - `crates/protocol/` — vendored/generated Valentine protocol-2193 defs + login-sequence state machine
   - `crates/world/` — chunk store, sub-chunk decode, block registry, light engine
   - `crates/render/` — meshing, atlas, chunk/entity/sky rendering (Bevy plugins)
   - `crates/sim/` — movement physics (bedsim-parity port)
@@ -73,10 +606,345 @@ Local worlds run dragonfly behind the same core, over the same client path.
 | dragonfly vanilla worldgen parity | 7 | v1 local worlds = dragonfly's gen as-is; parity gaps documented, not chased |
 | Bevy 0.x quarterly breaking releases | all | Pin per phase; upgrade as a deliberate task, never mid-phase |
 
-## Current integration snapshot (2026-07-16)
+## Current integration snapshot (2026-08-16)
 
-This ledger is the authoritative hand-off for the current branch audit. The audit base is
-clean `render-integration` commit `1ac547b`, published exactly as
+**Protocol-2193 content cutover (2026-09-30).** `assets/bedrock-target.json`
+now names Minecraft 1.26.50 / protocol 2193 (codec `bedrock_1_26_51`, measured
+server BDS 1.26.52.3) and every production consumer selects the v2193
+block/light/biome/physics/fallback/route carriers. Block states come from
+Dragonfly v0.11.5 (`4c7b5074`, 22,091 states; every network hash cross-checked
+against the 1,020 block items of a BDS 1.26.52.3 CreativeContent capture). Facts
+project from the reviewed protocol-1001 records in three classes: 15,963 exact
+keys, 3,440 states that differ only by the new `minecraft:connection_*` /
+`minecraft:corner` keys (fences, panes, bars, stairs, trip wire), and 2,026
+states of 119 new retail blocks borrowed from reviewed schema-identical twins
+(poplar family, wool/concrete slabs and stairs, red shrub). 662 states are
+reserved. Retail item, biome (adds `dappled_forest`) and item-capacity tables are
+re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
+- The client still derives fence/pane/stair/trip-wire shapes from neighbours and
+  ignores the server-sent 1.26.50 connection and corner states.
+- Twinned blocks use their twin's model, collision, light and friction; their
+  own collision/light are unverified against the reference client.
+- `shelf_mushroom` and `straw_bed` (retail in 1.26.50) have no reviewed fact
+  source and stay reserved (invisible, passable).
+- The world/resource pack stays on `v1.26.30.32-preview`, so 1.26.50 blocks lack
+  textures and `dappled_forest` compiles no biome rule (fallback tint);
+  bedrock-samples `v1.26.50.4` exists but the pack bump (HUD, JSON-UI, lang and
+  visual pins) is a separate migration.
+
+**Protocol-2168 target cutover (2026-08-26).** One canonical
+`assets/bedrock-target.json` now owns the active game/protocol/codec identity,
+carrier paths, and artifact hashes. Cinnabar's runtime world provenance,
+collision/physics loading, diagnostics, Make defaults, install paths, dist
+layout, and generated block-item routes consume the 2168 set; no production
+consumer selects the v1001 block/light/biome/physics/world/item carriers.
+Registrygen verifies all manifest hashes and exhaustively guards each production
+consumer against legacy carrier drift. The ignored local world/entity carriers
+must be rebuilt before live testing. Deterministic closure does not itself close
+the LBSG live confirmation gate. (Superseded by the protocol-2193 cutover.)
+
+**`dev/ox-alpha` branch audit closeout (2026-08-26).** The complete
+`59f1f8e2..dcf780f1` repair range closes the repository review findings across
+session boundaries, retained-tick correction and motion replay, player-list and
+inventory projection, process/session cleanup, saved-server bounds, auth-cache
+file identity and ACL handling, acceptance duration/disconnect classification,
+foreground-input identity, atomic asset publication, and registry-tool CI
+coverage. Every behavior fix carries an observed RED-to-GREEN regression. Fresh
+post-integration verification passed the full locked Rust workspace, strict
+all-target Clippy, formatting, architecture policy, Go core tests/vet, full
+registrygen tests/vet, the Bash acceptance harness, and the macOS/Linux
+no-replace publisher contracts; the Windows auth-cache suite cross-compiles,
+while native PowerShell execution remains the CI matrix's platform gate. A fresh
+Sol-high review of the entire range returned APPROVE with no Critical,
+Important, or Minor findings. No live/native gameplay or visual gate is closed
+by this code-quality tranche.
+
+**LBSG anti-cheat diagnosis and live movement tranche (2026-08-22):** a ranked read-only
+investigation attributed the Lifeboat "movement cheats" rejections to semantic state vanilla
+never claims plus server-authoritative signals the client consumed and ignored, led by
+sprint-without-forward claims, discarded `SetActorMotion` knockback, never-set teleport
+acknowledgement, unanswered latency probes, and the catch-up overflow that permanently silenced
+the outbound input stream mid-session. Five bounded tranches landed on `dev/ox-alpha`:
+`e304b9af` gates processed sprint on forward movement input for both simulator and encoder;
+`39076d8e` ingests local-player knockback as tick-keyed prediction overlays that survive
+correction replay; `e219f0e3` answers server `NetworkStackLatency` probes (its exact-timestamp
+echo was superseded on 2026-08-25 by a provisional `×1,000,000` scaling after four authenticated
+sessions on one target proved its anti-cheat normalizes echoed ids before matching and tears down
+unresponsive clients; see the vanilla-parity-audit NSL row — prior exact-echo live evidence no
+longer describes current bytes until BDS/LBSG re-runs land);
+`60977327` adds the authenticated Venity live target across launcher, validators, app args,
+and all 93 Pester contracts; `aaccc94c` stops revoking movement authority over catch-up overflow,
+keeping retained samples contiguous so the 20 Hz stream stays reconcilable. Each tranche has
+regression coverage plus green focused suites, strict Clippy/formatting, and architecture checks.
+A first authenticated Venity candidate run reproduced the exact historical death: join-time
+streaming stalls dropped seven of fifteen due ticks and permanently revoked authority. After
+`aaccc94c`, a second authenticated Venity run held `outbound_authorized=true` through 2,762
+transmitted physics packets and 148 seconds of debug-build streaming stalls with zero authority
+faults and zero decode errors; the session ended only when Venity's upstream RakNet read timed
+out against a stationary, unregistered client — an idle-kick profile, not a movement-cheat
+rejection. Remaining live-gate work: organic-movement drivers, the HandledTeleport window and
+jump/sneak flag witnesses, sustained-session survival on both live targets, and native stall
+measurement for the provisional overflow policy.
+
+**Venity abandonment root cause and first full-duration session (2026-08-25).** Four further
+authenticated sessions reproduced the teardown deterministically (56–107 s, always after exactly
+the server's spawn-region stream of 421 inline columns) and proved it independent of idleness: an
+OS-driven organic-input session transmitting 1,445 movement packets died on the same signature.
+Read-only diagnosis attributed the deaths to the target's anti-cheat latency-ACK watchdog — its
+matcher normalizes echoed `NetworkStackLatency` ids before matching stored batches, so exact-timestamp
+echoes never resolve, and its responsiveness counter only advances while the client streams
+movement, expiring into a silent disconnect. Independent source verification confirmed every cited
+mechanism at the anti-cheat's pinned version (60 s default budget matching all observed lifetimes).
+The provisional ×1,000,000 echo scaling (`1ef3e2a8`) plus the committed organic-movement driver then
+produced the first complete Venity session ever recorded: 603.2 s wall (the full 480 s acceptance
+window), 1,356 transmitted physics packets from source=Physics with a `Drained` terminal at depth
+zero, zero decode errors, zero drops, zero authority faults, and normal shutdown telemetry. The
+strict aggregate verdict remains open on: the inline-cohort world_ready defect (`317a3de1` pending
+review closes it deterministically; live confirmation is that tranche's own gate), one
+`non_monotonic_frame` witness marker in the debug run, the spawn-geometry embedment that keeps
+re-engaging the provisional settle gate, GamePad-frame validation (no physical gamepad), BDS/LBSG
+tolerance re-verification of scaled echoes, and authoritative retail-client measurement of the NSL
+echo contract.
+
+**Session record (2026-08-25, continuation).** Five reviewed tranches landed on `dev/ox-alpha`: `d0bb7ccc` derives every hotbar cell from one ledger-snapshot authority revision (VPA-123 deterministic slice); `b6d689eb` bumps PHASE3_VIOLATION to v2 with a ten-key identity payload for `non_monotonic_frame` so future one-off live occurrences are self-diagnosing; `57b59b06` lands the canonical container-address projection (VPA-122) after a recovered interrupted lane was completed and a review-caught silent narrowing of prior window-0 admissions was restored; `b3b14bc5` adds the bounded spawn-anchor depenetration probe with `SpawnSettleGate::EmbeddedHold` and exact surface-spawn feet (VPA-109 slice); `f9cbe242` adds opt-in (`RUST_MCBE_TELEPORT_ACK=1`) HandledTeleport acknowledgement wired through production reconciliation for correction snaps, teleported MovePlayers, and Respawns after its first review found the Respawn site unwired. Each has fresh independent review evidence in the tracking table, and the branch-adjudication startup obligation is discharged: 49 unintegrated local heads dispositioned as 30 superseded + 12 stale-historical + 7 backup + 1 genuine candidate (`agent/combat-phase5`, kept as reference only — it predates the protocolgen rewrite so it seeds a fresh reviewed tranche, never a direct merge) + 4 low-confidence entries requiring object inspection before any deletion. Live: the first authenticated current-binary LBSG session joined, streamed its full inline cohort, transmitted 44 physics packets, then reproduced the exact `"We've detected movement cheats"` rejection at 49.8 s after two 200-tick embedded-anchor fail-open lifts with a constant +1.00 X-block/tick inputless slide — the embedment mechanism is now confirmed live, the probe correctly refused to invent motion, and the next cure tranche is collision-truth adjudication instrumentation. The same session exposed and fixed a launcher stale-binary defect (machine-wide `CARGO_TARGET_DIR` redirecting the harness build while it executed a days-old project-local exe) and an auth-cache ACL quarantine that blocked all authenticated runs until the operator cache was restored under its required protected DACL. BDS/LBSG tolerance of scaled NSL echoes remains unreverified because this session ended in a movement rejection before echo behavior could be decisive.
+
+**Repository-wide parity audit follow-up (2026-08-20):**
+
+ the durable mismatch inventory is
+tracked in `docs/tracking/vanilla-parity-audit.md`. It covers protocol/cache/session, world
+retention, movement/input, HUD/inventory/entities, assets/meshing/render/resource packs, and
+product/platform/audio/tooling. Its P0/P1/P2 entries are open gates, not phase completion. The
+audit must be updated as reviewed tranches land; captures and non-redistributable payloads remain
+outside git.
+
+**Repository-wide audit wrap (2026-08-21):** all research and writing workers are finished. The
+selected-stack authority task head `2a17459881ea5f586b8e1cb937c4ad7337882924` was independently
+approved and integrated as `9d6e291b` plus `d90d8764`. The malformed-inner-wire task head
+`14e2ceedf3fdc58a60141410731605cef03e4f81` completed repeated fix-first review cycles and received
+a final fresh Sol-high `ship` verdict; it is integrated history-preservingly as `2e6feae1`,
+`83198075`, `e0277132`, `1322fb49`, `8e647d01`, and `eb017fac`. Coordinator world, protocol,
+client-world, app, strict Clippy, formatting, architecture, and diff gates passed at the reviewed
+heads. The durable remaining mismatch inventory and exact native/live gates are in
+`docs/tracking/vanilla-parity-audit.md`; no open row is closed by this audit alone.
+
+Eight bounded audit fixes are integrated and independently approved on `dev`.
+`e21e99b6` makes verified blob entries process-owned across network-worker replacement and isolates
+unrelated semantic skips from pending cache transactions. `a63431b0` through `6c7e2672` send the
+checked current ledger prediction in `MobEquipment`, retain one latest-wins selection through
+backpressure, and cancel stale pending sends on a valid server-forced selection. `76f8c87c` keeps
+failed request-mode columns outside loaded/cohort readiness and admits required LevelChunks only
+after successful decode and world admission. `9dfecb80` skips non-finite remote player poses and
+unknown equipment containers at the semantic boundary without ending the session or overwriting
+usable actor state. `c4ccc81c` and `5cbfbcea` remove the persistent gameplay player preview and keep
+it confined to personal inventory across Open-before-Content plus 27/54-slot storage lifecycles.
+`25d87058` adds a separately pinned BedSim v0.1.5 liquid oracle (the four-record output is
+byte-identical to the historical v0.1.4 slice), corrects non-swimming water gravity, and applies
+the observed water-to-ledge boost only after a bounded clear, dry raised probe. BedSim remains a
+Go reference/oracle used by trace generators; production movement is the Rust `crates/sim` port.
+Fresh coordinator crate suites, formatting, strict Clippy, architecture enforcement, and fresh
+Sol-high review passed for each tranche. These commits close only their bounded implementation
+defects; cache ordering/timing, selected-store unification, item rendering, inventory-preview
+geometry and animation, broader actor behavior, exact chunk retention, and native/live acceptance
+remain open.
+
+The 2026-08-21 parallel audit additionally confirmed the existing version-coherence, resource-pack,
+post-login transfer, movement/input/pose, actor/viewmodel, audio, menu/settings/touch, auth recovery,
+control, local-world, shutdown, Windows transport, packaging, and visual-calibration gaps. New
+bounded rows VPA-122 through VPA-139 and VPA-209 through VPA-212 record container identity,
+response fan-out, deferred close, item-container data, gameplay item-use, item identity/components,
+server camera instructions, forms, player-list binding, toast/scoreboard/boss behavior, non-HUD
+inventory layout, upstream blob-cache capability, persistent blob storage, credential permissions,
+saved-server durability, archive/runtime cleanup, Windows backend negotiation, and Java-HUD
+calibration. These are code-backed findings, not completed implementations.
+
+Cross-repository disposition is narrow: no required `bedsim` or `bedrock-docs` correction was
+established. Future resource-pack/cache handoff changes may require
+`HashimTheArab/gophertunnel:resource-pack-changes`; never push them to `lunar`. Local-world work
+requires a new Dragonfly lifecycle integration in Cinnabar. Exact movement modes and flags,
+correction semantics, chunk/cache ordering and retention, UI timings/layouts, rendering transforms,
+lighting/atmosphere/liquids, audio mixing, Windows ACL/DPI/backend behavior, packaging, and every
+native visual/performance gate remain unconfirmed until the matching live tests named in the audit
+ledger are run.
+
+The item trace found no safe approximation to land. Sprite icons currently mix atlas-alias identity
+with canonical live registry identity, while block items need a separate 3-D renderer; the
+repository has no complete authoritative crosswalk and filename inference is forbidden. The liquid
+slice does not close broader swimming: v0.1.5 adds swimming/flow/pose, knockback, item-use, and
+provider contracts that still need a deliberate Rust port, plus immersion, pitch steering, currents,
+input flags, camera state, and current-version production physics content under VPA-010 through
+VPA-014.
+
+This is the authoritative current snapshot. It supersedes the dated ledgers and handoffs
+below without deleting their historical evidence. The code audit covers the Bedrock
+1.26.40 migration at `e7901ae`, the fork-repin closure at `a5c327d`, and the integrated
+runtime state represented by this tree.
+
+The mandatory public fork and repin are closed deterministically. The core and fixture
+generator resolve `HashimTheArab/gophertunnel:resource-pack-changes` commit
+`434923f163a15144cdaa44356536cdc76722c50d` through module pseudo-version
+`v1.25.3-0.20260816120458-434923f163a1`. The two Go consumers and their checked-in
+provenance are synchronized to that public revision; all 32 checked-in fixture `.bin` files
+remain byte-for-byte unchanged. The Go and protocol test suites passed. This establishes the
+pinned wire/tooling baseline and a compile-time witness for clone-safe, complete offer and stack
+snapshots. Advertisements and selections are forwarded to the local client with exact metadata,
+ordered built-in/ignored entries, sub-pack selections, base-game version, experiments and editor
+state. Downloaded entries retain ordered archives and memory-only content keys; the one-shot
+handoff remains bounded and validated.
+Optional stack entries that are unavailable, malformed, duplicated, or select an unsupported
+sub-pack are retained for exact Go replay and ignored by the Rust application handoff instead of
+terminating the session. Required selections remain strict.
+The private core-to-client hop marks even an upstream-required selection optional so incomplete
+pack application does not make otherwise joinable servers unavailable; the upstream negotiation
+has already completed. Per-download byte/count/time bounds, HTTP opt-in policy, and digest-bound
+cache identities from the retired `cinnabar` fork are deliberately not carried onto Lunar's
+resource-pack branch yet. Archives are not extracted or applied, application remains unavailable,
+and this is not live gameplay, native visual, or performance evidence.
+
+This tree now contains the protocolgen-backed Valentine 1.26.44 projection, derived from the
+reconciled 1.26.40 base because Mojang retained protocol 2168 while adding the outer optional
+marker around `RemoveScore.ObjectiveName`. It replaces
+the retired Prismarine-derived packet generation path while preserving the public protocol
+crate facade. Protocolgen reconciles pinned Mojang and Endstone sources, fingerprints every
+adjudication, and compares the result against pinned Gophertunnel: 177 packets agree
+automatically, three reviewed divergences retain the Mojang-plus-Endstone shape, 48 remain
+explicit static-analysis coverage gaps, and one packet has no Gophertunnel counterpart. The
+protocol crate exposes only the current generated version and preserves unavailable wire
+values as neutral reserved or opaque data.
+
+A release client at `1095c693` completed authenticated Lifeboat negotiation, handed off the
+ten-pack optional resource-pack offer, entered gameplay, and processed 680 ordinary level
+chunks with no packet decode error. Lifeboat later disconnected the client for movement-cheat
+detection, which leaves movement parity and server-authoritative reconciliation open rather
+than invalidating the protocol/resource-pack acceptance. A later rerun was externally blocked
+by an Xbox title-endpoint timeout before upstream login.
+
+The transitional block/light/physics/visual production carriers remain bound to the older
+16,913-state content corpus. Their retail projection is internally deterministic and fail-closed,
+but it does not make them current 1.26.40 content. Standalone versioned protocol-2168 carriers now
+bind all 17,499 current block identities, a BREG-bound fail-closed block-light projection, and the
+exact 88-entry public-retail numeric biome projection. The BREG and LREG hashes are respectively
+`e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8` and
+`f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab`; BIOREG remains
+`5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c`.
+The protocol-2168 foundation manifest is structurally ready, but every production default remains
+on v1001 until current physics and dependent visual evidence close as one coherent switch.
+Cross-version carrier fallback is forbidden.
+
+Current implementation state:
+
+- Protocol, world, movement, gameplay-HUD, and launcher foundations have landed. Production
+  physics is enabled by default. Generated collection decoders are allocation-bounded, the
+  current generated borrowed packet views retain byte fields without an eager copy, and the
+  StartGame world clock is separated from the provisional local prediction-tick anchor.
+- Replay-stable local Jump Boost, Levitation, and Slow Falling snapshots have landed with
+  correction-safe history. A bounded collision-shape-aware block interaction ray query has
+  also landed. The pinned simulator's consumable-use slowdown and replay snapshots are now
+  modeled behind an explicitly false production input; activation remains blocked on authoritative
+  consumable classification and item-use lifecycle. None of these tranches closes the remaining
+  movement strata, outbound block transactions, gameplay reach, or live server-authoritative
+  acceptance.
+- Actor CPU/GPU rig foundations have landed. Spawn and incremental actor links now feed a
+  bounded, lifetime-safe riding-authority ledger; remote animation evaluation receives
+  authoritative `query.is_riding`, and local mount changes reach the existing UI authority
+  path. Rider attachment and pose completion, non-player families, held items, dropped
+  items, and live actor acceptance remain open.
+- The Go core now performs one upstream pack negotiation before downstream login.
+  Nonempty selections are forwarded with their exact composite `UUID_version` identities and
+  selected sub-pack; upstream metadata arrival order is not treated as semantically ordered.
+  Required upstream selections are offered as optional only on the private local hop
+  so pack application incompleteness does not block login. Rust bounds and validates each archive
+  transfer and retains the selected archives and memory-only
+  content keys as a one-shot login handoff. The owner-only persistent cache is now wired into
+  upstream admission behind explicit directory and quota configuration, with bounded load, hit,
+  miss, store, and error telemetry and fail-closed cache setup. Lunar keys entries by UUID,
+  version and size and Cinnabar revalidates those fields plus archive readability; the current
+  API does not expose the server digest, so same-identity, same-size replacement is not
+  cryptographically distinguished. Every app-managed core launch supplies one stable
+  layout-owned cache path while leaving secure creation, leasing, and the default quota under Go
+   ownership. The core now also exposes an explicit opt-in `-upstream-client-cache`
+   capability (default off, byte-identical wire when unset) that flips the outbound upstream
+   `ClientCacheStatus` enabled byte through an observe-then-flip dialer hook, and both production
+   app spawn paths enable it exactly when the Rust session owns its process-lifetime verified
+   blob cache; live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
+   read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
+   and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
+  pack-content semantic validation and parsing, archive extraction, application,
+  resource-pack-driven UI, and app presentation of status remain absent; no server pack is yet
+  usable by the renderer.
+- A bounded player-inventory authority ledger and one-at-a-time Take/Place/Swap requests for
+  the 36 player slots and cursor have landed, including rollback, full-authority recovery,
+  transport admission, and pointer routing. The same single-flight authority now supports a
+  neutral type-0 generic storage surface with exact 27/54-slot bounds, close correlation, and
+  server-authoritative recovery. Crafting, furnace roles, advanced gestures, and live
+  container acceptance remain open. Receive-side crack presentation remains read-only.
+- Exact protocol-2168 click-block, client-close, actor-attack, and actor-interact fixtures plus
+  strict block-use and actor-use packet builders have landed. The application sends none of
+  those transactions yet: target selection and hit testing, gameplay reach, packet-position
+  provenance, ability authority, selected-stack correlation, and live evidence must close
+  before wiring app senders.
+- Bounded `UpdateAbilities` evidence now follows the sequenced world commit into
+  the accepted local player's session binding. Unknown, received-empty, and
+  unavailable evidence remain distinct; layer order, raw masks, and float bits
+  are retained without assigning effective permission semantics. Terminal and
+  replacement-session paths retire the binding, and stale setup cannot replace
+  current evidence. Fresh protocol/client-world tests and the application suite
+  cover raw framing, FIFO ordering, local identity, and lifecycle guards. This is
+  passive retention, not effective permissions, Survival admission, or a mining
+  sender; end-to-end handshake and native permission acceptance remain open.
+- Supervised first-run device-code authentication and cached-account validation have landed;
+  token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
+  first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
+  an app same-frame delivery seam; a bounded session-owned outcome queue resolves named plays through the
+  optional compiled sound-definition catalog into finite-checked playback records (stops catalog-free,
+  level events transport-only) but there is still no audible runtime, mixer, listener math, category
+  settings, pack routing, or session-reset owner.
+  Local worlds remain absent.
+- Hosted Windows, macOS, and Linux compile-readiness jobs and cross-platform local-endpoint
+  path derivation have landed. A fallible installed/developer layout owner and unsigned local-only
+  bundle staging tool now produce deterministic Windows, macOS, and Linux layouts without changing
+  public distribution policy. Native installed launch, signing/notarization, installer generation,
+  and redistribution approval remain open. Platform CI remains a continuing gate rather than
+  evidence of native gameplay parity.
+- The open issue/PR sweep is current: obsolete phase trackers and the superseded broad pack
+  ingestion branch are closed with recorded reasons. The remaining open items cover pack
+  application, measured join latency, combat, and actor animation; none of their old branch
+  heads is approved for direct merge into `dev`.
+- The protocol/resource-pack join path has live Lifeboat evidence. Native vanilla-comparison,
+  movement/session-lifecycle, visual, and performance gates remain open; do not infer their
+  completion from this connectivity result.
+- Content assets intentionally remain on the older pinned inputs until a coherent
+  protocol-2168 content migration is verified; packet migration alone does not authorize a
+  piecemeal asset bump.
+
+Immediate execution order:
+
+1. **Protocol/content debt closure:** the generated allocation guards, borrowed packet views,
+   bounded `LevelChunk` retained-byte hot path, and standalone v2168 BREG/LREG/BIOREG evidence are
+   closed; do not redo them. Produce the dependent current physics and visual evidence, then switch
+   block/light/biome/physics carriers only as one coherent, verified set. Keep conformance and
+   adversarial coverage green.
+2. **Connectivity and authentication:** preserve the closed cached-account Lifeboat join path,
+   close movement-safe session lifecycle and transfer behavior, then validate the first-run
+   device-code UX with explicit native evidence.
+3. **Resource packs:** the bounded persistent cache admission and versioned/correlated Status
+   v1 control surface are closed; do not redo them. Validate and apply server packs, hand off
+   content keys safely, consume status in the app where needed, and implement
+   resource-pack-driven UI contracts. Required packs must remain truthfully rejected until
+   application exists.
+4. **Interactions:** use the landed protocol-2168 block-use and actor-use builders only after
+   the frozen target, ray, position, reach, ability, and selected-stack authorities are proven.
+   Add exact break and placement fixtures before their app senders. Extend the landed player
+   plus bounded generic-storage ledger to later container and crafting roles without weakening
+   single-flight reconciliation.
+5. **Actors and UI:** complete non-player/held/dropped rendering and actor live gates, then
+   interactive forms and the remaining HUD/menu/UI acceptance work.
+6. **Product phases:** proceed through online product surfaces, local worlds, audio, polish,
+   packaging, and their native/performance acceptance gates.
+
+## Historical integration snapshot (2026-07-16)
+
+This preserved ledger was the authoritative hand-off for its 2026-07-16 branch audit. Its
+audit base is clean `render-integration` commit `1ac547b`, published exactly as
 `github/phase2-textures`; the last functional implementation commit before the workflow
 documentation is `efa5400`. The agent runtime does not expose exact model/version or effort
 selectors, so reviews use the configured runtime default rather than claiming a particular
@@ -116,7 +984,7 @@ audit: the root `cinnabar-work`, `external-mode-diagnostic`, `blockentity-eviden
 `atmosphere-black-diagnosis`, and `static-fence-gates`. Their changes are not part of the
 three integration candidates above.
 
-## Current execution order (2026-07-16)
+## Historical execution order (2026-07-16)
 
 The exact leaf-litter route and any other residual family that lacks sufficient
 state-to-visual authority are deferred until further authoritative data is available. Keep
@@ -149,35 +1017,25 @@ order:
    layer, tint, animation, and occlusion data are available. Re-review, verify, integrate, and
    measure the production diagnostic ratchet family-by-family; do not infer ambiguous mappings.
 
-### PR 6 cache-enabled live-validation handoff (2026-08-01)
+### Historical PR 6 cache-enabled live-validation handoff (2026-08-01)
 
 The local `agent/track-phase3-movement` implementation through `7d89ff5` is ahead
 of its pushed remote (`d8637a2`), independently approved, and ready to push for
 CI/merge; it is not yet pushed or integrated. Cache-enabled BDS load exposed and
 fixed a self-sustaining blob-recovery loop, unbounded publication-authority scans,
 repeated per-frame cohort hashing, scheduler starvation, intra-transaction relight
-cascades, and the requested-cohort boundary stall. Optimized-dev BDS run
-`.local/acceptance/phase3-018ae154de9b40cb8f12aea378c48752` reached zero
+cascades, and the requested-cohort boundary stall. Optimized-dev BDS acceptance run
+`phase3-018ae154de9b40cb8f12aea378c48752` reached zero
 pending/in-flight light and mesh work across a stable 939/939-column cohort:
 8,130 resident meshes, 5,416 submitted/GPU-completed meshes, 33,205 accepted
 light jobs, and zero stale light jobs. The inspected Windows scene was complete.
-After the final visibility-cache optimizations, run
-`.local/acceptance/phase3-33bd062a9cc04078b8ffeb68573d7746` measured idle
+After the final visibility-cache optimizations, acceptance run
+`phase3-33bd062a9cc04078b8ffeb68573d7746` measured idle
 frames at 10.272 ms median (the 100 FPS VSync ceiling), zero-byte publication at
 23.061 ms median, and payload publication at 29.836 ms median. Active chunk
 publication still causes visible frame drops and remains explicit follow-up work.
 This closes the blank-window and visible-radius convergence regressions; it does
 **not** close release-performance or vanilla-lighting-parity gates.
-
-An authenticated private local clone of `ethaniccc/bds-replica` now exists outside
-this repository at `C:/Users/Hashim/Projects/bds-replica`. Its address-backed
-1.16.201 recovery notes are a potentially authoritative native Bedrock reference,
-but the repository declares no license and targets protocol 422. Do not copy its
-source or redistribute it; obtain the author's explicit permission, cite the exact
-reference revision/address evidence, verify version stability, and independently
-implement any adopted contract. Its recovered original-lighting path uses a
-retained 3x3-column transaction and one priority-32 center-column task rather than
-the current provisional per-subchunk scheduler.
 
 The current column transaction solves contiguous vertical work against retained
 3x3 subchunk snapshots, retains immutable generations, and admits requested
@@ -219,7 +1077,7 @@ any other phase proceeds.
 - [x] **0.5 Login sequence.** Complete at `1fa35ee` (encrypted Rust bridge login, strict protocol-1001 conformance fixtures, bounded malformed-input handling, independent review approved). `LoginSequence` reaches StartGame through the spike core. With `BEDROCK_BDS_DIR` set, `cargo test -p protocol --test login --locked -- --nocapture` builds the Go external-client harness, starts/stops core+BDS itself, and verifies clean shutdown.
 - [x] **0.6 Sub-chunk decode.** Complete at `7d9248a` (12 reproducible goldens from pinned Dragonfly, packed/paletted v1/v8/v9 decode, atomic sparse chunk ingestion, 28 Rust world tests, three independent reviews approved). Runtime storage remains palette + packed words and preserves high-bit network block hashes without a flat per-block array.
 - [x] **0.7 Spike renderer.** Complete at `f2a6a1c` (400 Rust tests, strict all-target Clippy, independent review approved, and live fly/input pass recorded). First extend `crates/world` with packed-palette `UpdateBlock`/`UpdateSubChunkBlocks` mutation and full-column eviction APIs; expand each changed key through `mesh_dependents` before remeshing. Bevy app: consume LevelChunk and SubChunk responses → decode → cull-meshing on rayon → vertex buffers → draw untextured (per-runtime-ID debug colors); fly camera. Pure meshing remains unit-tested. Use Computer Use for a live interaction pass covering window focus/capture, keyboard inputs, fly movement on every axis, mouse-look yaw/pitch, and clean input release (no stuck movement or rotation); the acceptance run below remains the end-to-end renderer gate.
-- [ ] **0.8 Acceptance run.** Connect to BDS world, render 16-chunk radius, fly at speed, break/place blocks from a second client to force live remeshing. Repeat the Task 0.7 Computer Use interaction checklist in the live streamed world and record the result. Before the run, resolve the recorded `AvailableCommands` live drift and add/fix `MaterialReducer` output-count conformance coverage from `crates/protocol/DEVIATIONS.md`. **Gate: p99 frame time ≤ 8ms on the dev MacBook at 16 chunks; remesh of a modified sub-chunk visible ≤ 100ms; zero decode errors over a 15-minute session (or all errors adjudicated as 0.4-style findings and fixed).** Record numbers in the phase report.
+- [ ] **0.8 Acceptance run.** Connect to BDS world, render 16-chunk radius, fly at speed, break/place blocks from a second client to force live remeshing. Repeat the Task 0.7 Computer Use interaction checklist in the live streamed world and record the result. Before the run, resolve the recorded `AvailableCommands` live drift and remaining protocol conformance coverage from `crates/protocol/DEVIATIONS.md`. **Gate: p99 frame time ≤ 8ms on the dev MacBook at 16 chunks; remesh of a modified sub-chunk visible ≤ 100ms; zero decode errors over a 15-minute session (or all errors adjudicated as 0.4-style findings and fixed).** Record numbers in the phase report.
   - Historical Windows evidence at `3898530` passed: 900.0015 s, radius 16/16/16, p99 5.1 ms, 432/432 visible mutations, max mutation-to-visible 45.4522 ms, zero decode errors, clean shutdown. At that revision Phase 0 was **CONDITIONAL GO**, pending only the authoritative dev MacBook p99 run.
   - **Current-candidate performance audit (2026-08-02, local and uncommitted):**
     a release baseline at `.local/acceptance/20260802T174927Z-10764` recorded
@@ -745,9 +1603,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       an equal six-face material identity under the checked transparent-cube
       semantic, preserves both cross-colour boundary faces, culls glass behind
       full opaque neighbours without hiding the opaque face, stays cave-open,
-      and applies across all six subchunk boundaries. Education `hard_*` glass,
-      stained-glass panes, copper grates, slime, legacy flags-zero cubes, and
-      `minecraft:invisible_bedrock` remain excluded. The production ratchet
+      and applies across all six subchunk boundaries. The production ratchet
       removes exactly these 16 IDs with zero additions, leaving 7,706
       diagnostics and 7,235 cumulative removals; the ignored integrated blob is
       SHA-256
@@ -764,7 +1620,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       sequential and hashed modes. Grates stay cave-open, route only through
       ordinary depth-writing model draws, cull against identical states across
       all six subchunk boundaries, and preserve opaque-neighbour asymmetry.
-      Slime, stained/hard glass, panes, copper bars/bulbs/doors/trapdoors,
+      Slime, stained glass, panes, copper bars/bulbs/doors/trapdoors,
       unrelated grate names, legacy flags-zero records, and
       `minecraft:invisible_bedrock` remain outside this admission. The
       production ratchet removes exactly eight IDs with zero additions, leaving
@@ -1115,6 +1971,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     globally zero diagnostic and zero provisional-fallback counters,
     vanilla-reference screenshots, upload/memory/CPU
     metrics, and teleport-remesh evidence.
+    - [x] Torch, ladder, rail, tulip, golden-dandelion, and coral-plant exact
+      routes (97 states) supersede their envelope inventory entries; leaves
+      render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
+      sprite orientation need native measurement; the coverage baseline must
+      be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
+    - [x] Round two: night light floors lowered to the night sky transfer,
+      biome tints blend on a 4-block lattice (four taps per axis; vertical axis
+      unblended, needs measurement), chains route through crossed link planes.
+      Remaining families and notes: `docs/phase-2-family-inventory.md`.
     - [x] Lava implementation: all 32 `minecraft:lava` and
       `minecraft:flowing_lava` depth states compile through the animated liquid
       mesher without water tint or alpha blending, use an immutable packed route
@@ -1139,9 +2004,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       than block-state geometry.
     - [ ] Shelf visual authority: the exact twelve-name/384-state registry
       contract is classified and now fails closed if one complete family is
-      missing or an unexpected `_shelf` family appears. The installed Bedrock
-      1.26.3301.0 package exposes direction-specific
-      `minecraft:voxel_shape` files and the installed/pinned vanilla packs
+      missing or an unexpected `_shelf` family appears. The versioned retail
+      package exposes direction-specific `minecraft:voxel_shape` files and the pinned vanilla packs
       expose shelf texture routes, texture sets, and pixels, but none defines
       visible render geometry or per-face UV mapping. Collision/voxel bounds
       must not be promoted into an exact render model. All 384 shelf states use
@@ -1234,6 +2098,17 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       - [ ] Implement the reviewed per-ID renderer routes and gallery builders,
         then close every required NBT-variant witness and GPU/no-draw witness so
         the block-entity strict-final gate reaches 22 proven with no deferrals.
+        - [ ] Provisional, uncompiled and unmeasured (never closes a gate): the
+          `.mcbeben` carrier (`make block-entity-assets`) and a dedicated
+          block-entity pass draw chests (single/double, lid cue), ender and copper
+          chests, beds, shulker boxes, skulls (dragon and piglin from entity
+          geometry), banners, bell with frame and swing, lectern, enchant/lectern
+          book, conduit, decorated pots, item and glow frames with their items,
+          campfire items, tinted scrolling beacon beams, end portal, sign text and
+          model-shaped break cracks. Entity-drawn block states compile to
+          `Invisible` terrain (`entity_drawn.rs`). Filled maps, spawner mob,
+          flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
+          terrain and native lighting/measurement remain open.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature
@@ -1649,6 +2524,15 @@ store it only under the user's temporary directory, inspect that file, and never
   - [ ] Run fresh release/GDI views against the matching native client for sun
     and all moon phases, including horizon and filter-edge cases, before
     closing the visible defect.
+- [ ] Precipitation parity with the 26.30/1.26.50 `WeatherRenderer` and `Weather`
+  material: ten wrapped 30-block particle layers per kind over a 2,500-quad mesh
+  (925-particle pool), velocity-stretched sheet streaks, exact rain/snow params,
+  UV cells, lattice offsets, intensity smoothing and density, and a 64x64 column
+  occlusion grid replace the per-column Java-style sheet. Provisional, not
+  closing the gate: wind uses our own seeded simplex (not the native permutation),
+  the 0.01-scale per-layer turbulence and block-light tint are omitted, the
+  density-halving view flag is assumed unset, and no native side-by-side capture
+  has been taken.
 - [ ] Replace the current infinitely thin cloud plane with a vanilla-parity
   cloud volume/layer that has visible thickness and side faces while retaining
   bounded GPU cost, world anchoring, weather/fog fades, and the existing shared
@@ -1685,6 +2569,14 @@ store it only under the user's temporary directory, inspect that file, and never
     The opaque/depth-writing/material mismatch is resolved through `87e856f`;
     native mesh size, quality/distance controls, density, scale, thickness,
     silhouette, and live gallery acceptance remain open.
+  - [ ] Apply the 26.30/1.26.50 `Clouds` material and cloud renderer values: one
+    `clouds.png` texel per 16x16 blocks (4,096-block period), a 4-block slab at
+    192.33, baked face shade (top 1, bottom 0.75, x sides 0.925), the
+    `getCloudColor` day/weather/sunrise colour with alpha 0.7, drift 0.02
+    blocks/tick toward -X, and the 0.9D-1.9D distance fade with no fog. Landed
+    provisionally: the pre-Caves-and-Cliffs 128 height, thunder mixing, the
+    sunrise darkening term, above/below face flags and the quality/weather lerp
+    of the fade distance are unverified, and no native gallery was taken.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player `P3-MOVEMENT`
@@ -1700,8 +2592,8 @@ tooling patterns); collision against `crates/world`; camera = per-frame interpol
 tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
 
 - [x] **3.1 Server-bound movement foundation.** A vendor-neutral Rust movement snapshot now
-  maps byte-for-byte to gophertunnel's protocol-1001 `PlayerAuthInput` fixture, including the
-  current position/delta, processed/analogue/raw move vectors, rotation, input flags, input
+  maps byte-for-byte to gophertunnel's protocol-2168 `PlayerAuthInput` fixture, including the
+  current position/predicted velocity, processed/analogue/raw move vectors, rotation, input flags, input
   mode, camera orientation, and server tick. A deterministic 20 Hz scheduler, bounded 32-tick
   retry FIFO, StartGame/session reset, and `CorrectPlayerMovePrediction` reanchoring are in
   place behind an explicit movement-source authority gate. The gate defaults to `FreeCamera`,
@@ -1873,7 +2765,7 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     shutdown. The run rendered 477 resident meshes but remained under sustained load.
     Release-budget evidence, a version-matched native lighting comparison, clean live shutdown,
     integration, and final PR acceptance therefore remain open. The Linux acceptance shell suite
-    also remains unexecuted on this workstation because no usable Python/WSL runtime is installed.
+    was not exercised by that Windows-only run.
 
 - **PR #6 blob-pressure convergence follow-up (2026-08-02, local commit `4726be0`).**
   The cache-pressure deadlock exposed by the committed run above is fixed and independently
@@ -1949,14 +2841,82 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   - The final safety integration passes formatting, the architecture checker, all 496
     bedrock-client tests, strict bedrock-client Clippy, and all 106 Phase 3/FastTransfer
     Pester contracts. The preceding integrated head passed all 2,487 workspace tests and
-    strict workspace Clippy. Linux acceptance remains delegated to CI because this workstation
-    has no WSL distribution.
+    strict workspace Clippy. Linux acceptance remains delegated to CI.
   - This is one BDS FreeCamera smoke, not CandidatePhysics, external-server, native-parity,
     release-performance, or Phase 3 closure evidence. Those gates remain open after PR merge.
+
+- **Protocol-2168 PlayerAuthInput semantics follow-up (2026-08-15).** A live normal-gameplay
+  attempt was rejected by Lifeboat with `We've detected movement cheats`; a separate Lunar
+  attempt timed out, which is recorded as a symptom rather than attributed to the same cause.
+  Comparison against `oomph-ac/bedrock-docs` at `bd37783e` proved that `PosDelta` is the
+  simulator's predicted end-of-tick velocity, not the difference between consecutive network
+  positions. Completed and correction-replayed physics samples now retain that velocity, emit
+  horizontal/vertical collision hints, and emit all four processed diagonal flags. Non-finite
+  velocity fails the existing local-authority boundary closed. The protocol-2168 wire fixture
+  remains byte-exact and deterministic tests cover velocity, replay/reanchor preservation,
+  collision hints, all four normalized digital diagonals, non-diagonal analogue/cardinal
+  exclusions, and invalid velocity.
+  This correction does **not** close Phase 3: fresh native/live Lifeboat and Lunar verification
+  remains required. Independent raw/processed/analogue input carriers and an authoritative
+  protocol-2168 physics-registry generation path also remain open; the older registry was not
+  relabeled or regenerated without evidence.
+
+- **Repository-wide Bedrock client-reference audit (2026-08-16).** Comparison against
+  `oomph-ac/bedrock-docs` at `bd37783e` found and corrected three additional retained-state
+  mismatches: normal `ItemStackRequest` IDs now begin at `-3` and descend through the negative
+  odd namespace without wrapping positive; an accepted slot correction that omits a positive
+  stack-network ID retains the predicted/authoritative ID; and remote main-hand and offhand
+  equipment are stored independently so a later update cannot erase the other hand. Focused
+  protocol, inventory-ledger, and client-world tests cover these contracts.
+  This audit does **not** close the surrounding parity gates. Independent raw, analogue, and
+  processed `PlayerAuthInput` vectors; independently measured mouse sensitivity/window
+  behavior; post-login `Transfer`; bounded entity-link endpoint/pending/cycle handling;
+  `SetHud` and the broader JSON-UI controller surface; resource-pack activation; crafting;
+  combat; and world ticking remain open where already scoped by their phases. During the
+  current bring-up period, required server packs are deliberately handed to the incomplete
+  downstream application path as optional so developers can still join and test servers.
+  That owner-approved compatibility behavior is a provisional testing deviation, not vanilla
+  pack-admission parity and not acceptance evidence.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
+  **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
+  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
+  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
+  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
+  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
+  against a native client. Flight, swim and glide follow the public movement-physics notes'
+  BedSim candidates (still unvalidated for 1.26.30). Honey jump/slide, soul speed and depth
+  strider coefficients are provisional (honey and soul speed have no public value). Riding
+  suspends player physics and streams steering input with boat paddle flags; rider seat
+  following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
+  signalling are not implemented. Sweet berry bush slowdown is written in `tools/registrygen`
+  (unverified state count and coefficients) and the sim, but the physics carrier is not
+  regenerated: at reconcile run `go -C tools/registrygen run . -physics-v2168-out
+  crates/assets/data/block-physics-v2168.bin -physics-v2168-sha-out
+  crates/assets/data/block-physics-v2168.sha256 -physics-v2168-breg <v2168 BREG>
+  -physics-v2168-manifest <manifest> -pmmp <pmmp root> -prismarine <prismarine root>` and
+  fix any count or provenance mismatch it reports for `minecraft:sweet_berry_bush`.
+  Client-predicted vehicles, precisely: the 26.30 reconstruction shows vanilla registers
+  boat and horse "client predicted" systems (`SetIsClientPredictedBoatSystem`,
+  `SetIsClientPredictedHorseSystem`) plus boat paddle/move/friction systems, and a boat's
+  friction comes from the block under it. It does NOT contain the predicate that sets the
+  predicted state, the boat paddle/turn/acceleration coefficients (all in unresolved global
+  constants), or the horse travel coefficients, so no vehicle simulator was built and no
+  value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
+  mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
+  delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
+  `ClientMovementPredictionSync` is sent (fields from the reconstruction's sender and the
+  pinned gophertunnel) after a server correction is applied, at most once per second, and is
+  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
+  live-test gate item: confirm anti-cheat servers accept the sync; the
+  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
+  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
+  `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
+  not imply prediction and no vehicle simulator exists, so all rides send ordinary player
+  input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw
+  jump flags and the mount's jump strength.
 
 ## Phase 4 — Entities and other players
 
@@ -2021,10 +2981,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   those controllers, drive poses from protocol metadata/attributes and the
   20-Hz actor state, then perform the distinct adjacent-tick frame
   interpolation in the renderer. Preserve shared geometry/material/texture
-  storage and bounded per-frame actor work. Decompiled Minecraft Java Edition
-  code or assets must not be copied into Cinnabar; Java behavior may only be an
-  independently observed clean-room comparison when the authoritative Bedrock
-  pack is ambiguous.
+  storage and bounded per-frame actor work.
   **Bounded asset-catalog tranche complete (2026-07-16):** the pinned vanilla
   `entity`, geometry, animation, animation-controller, render-controller, and
   entity-texture trees now compile into the deterministic `MCBEENT3` carrier
@@ -2057,6 +3014,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   Capture bounded native visual and packet/pose evidence.
 
 - [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
+  - [x] Render supported ordinary opaque full-cube held blocks using the current
+    selected stack, world materials, and session-bound local presentation authority.
+    A live controlled check covered Stone, distinct crafting-table faces, empty-slot
+    and unsupported-item fallback, resize, and reconnect. Current GPU completion
+    suppresses only the matching CPU fallback; rejected or stale submissions retain it.
+    This is a static geometry slice, not complete item, pose, animation, lighting,
+    or matched retail visual parity. Tinted, animated, partial, and unsupported
+    items remain on the existing fallback path.
 
 ## Phase 5 — Interaction, inventory, UI
 
@@ -2078,8 +3043,7 @@ reconciliation; Java presentation must not invent state that Bedrock does not
 expose. Menus, inventories, containers, forms, controls, and resource-pack JSON
 UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
 incomplete scaffold until the full state matrix and native/live comparison gates
-below are green. See `AGENTS.md`'s gameplay-HUD exception for the repository-wide
-scope and decompilation-evidence rules.
+below are green. See `AGENTS.md` for the repository-wide gameplay-HUD exception.
 
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
@@ -2121,9 +3085,6 @@ The armor row appears above hearts only while authoritative equipped armor is
 nonzero. Capture GUI scales 2, 3, 4, and Auto at 1280x720, 1920x1080, and
 2560x1440 with 100% and 150% desktop scaling where applicable, then validate
 equivalent logical layout and safe areas on supported macOS Retina output.
-Decompiled proprietary Java source must not be copied, translated, vendored, or
-used as implementation code; independently implement only observable behavior
-from a legally obtained running client or other approved references.
 
 Delivered so far: Java-style scoreboard/chat presentation, centered hotbar
 selection, local number-key/wheel/controller slot prediction with outbound
@@ -2132,6 +3093,22 @@ Still incomplete: hotbar item icons/counts/durability, authoritative selected
 stack, armor derivation and conditional row, nonstandard maxima, full state
 matrix, GUI scaling/safe areas, and native/live comparison. Java chat fade-out
 remains pending measured timing.
+
+**Gameplay HUD through JSON-UI (2026-09-29, owner decision):** the HUD renders
+`hud.hud_screen` and `hud_crosshair.hud_crosshair_screen` through the JSON-UI
+engine over the session's pack stack, so server packs restyle it as on Bedrock.
+The Java look ships as the built-in pack `assets/java-hud` under every server
+pack; for any namespace a server pack restyles (`hud`, `scoreboard`), its files
+are withdrawn so the pack gets vanilla beneath it. The JSON-UI carrier is now a
+required startup carrier. Native renderers (hearts, armor, hunger, bubbles,
+mount hearts/jump, slot art, effects, crosshair) keep Java behavior at their
+controls. Container, inventory, creative and book screens draw through the engine
+(see `docs/tracking/vanilla-parity-gaps.md`). Still on the old path: the first-person
+hands, the sleep overlay, toasts, the tab list, the open chat (editor and
+history), nametags, and the debug overlay. Incomplete: no live rendered-frame
+pass yet; `font_size` steps and the text-background option default are
+unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
+0.3 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
 
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
@@ -2152,6 +3129,146 @@ remains pending measured timing.
 - [ ] **5.5 Interaction, hotbar, and inventory.** `P5.5-INTERACTION-COMBAT-INVENTORY` Implement server-authoritative break cracks,
   placement/use, selected slot, item stack/network-ID reconciliation, creative/survival
   inventory, and chest/furnace/crafting containers with rollback on rejected stack requests.
+
+Owner-designated inventory reference (2026-09-06): use Lunar's inventory-management
+implementation when establishing these contracts. Pin the inspected source revision
+and verify Cinnabar's end-to-end request/response behavior; the reference designation
+does not itself close Cinnabar's inventory implementation or native acceptance gates.
+The inspected Lunar revision is `f8cccf30a296c82e2af95161b856587937c3a0b6`:
+`lunar/internal/inventory` owns packet/action-level prediction and reconciliation,
+not physical mouse or drag input. The native ingress blocker and basic whole-stack
+transfer/Swap workflow are verified by the bounded checkpoint above. Next add
+half-stack and one-item transfer through the existing Cinnabar ledger; occupied
+stack merging still needs item compatibility and capacity handling. Drag requires
+multi-action requests. Neither backend conformance nor an input binding alone
+closes the native inventory parity gate.
+
+Bounded follow-up diagnosis (2026-09-07): occupied merges need a version-pinned
+item-rules registry with exact per-item maximum counts and session/registry
+generation handling. Current negotiated component data is retained only as a
+digest, not usable stack-capacity rules. Unknown/custom items cannot inherit a
+universal limit. Explicit-count requests should retain their checked amount;
+any whole-stack selector computes available capacity before making the request.
+Full compatibility also needs semantic item-data comparison, not equality of
+counts or stack network IDs.
+The independently reviewed capacity foundation `8839da37` is locally integrated:
+1,485 exact retail identifiers have measured metadata-zero capacities from
+public BDS 1.26.40.8, with deterministic generation and pinned provenance.
+Its lookup returns no capacity for unknown identifiers or metadata variants;
+it does not enable occupied merging or supply negotiated session authority.
+The separately reviewed normalized-evidence tranche `c35a9f46` retains the exact
+positive server component stack limit and canonical-empty-component marker,
+preserves the original digest, and treats unsupported semantic evidence as absent.
+That foundation added no runtime merge consumer. Fresh generator tests and vet
+passed after integration. Combined foundation workspace tests passed with
+3,499 tests, zero failures, and 13 ignored; formatting, strict workspace lint,
+architecture validation, and the normal client build passed. Both exact source
+heads received independent approval with no findings. These checks validate the
+capacity foundations, not runtime merge acceptance.
+The pushed foundation checkpoint `bd5c3354` passed all six hosted CI jobs in
+run `34105977898`, including Windows acceptance.
+The occupied-transfer implementation `343902db` is locally integrated after fresh
+independent approval with no findings. Registry markers and inventory updates share
+the bounded UI FIFO; session registry binding supplies negotiated or verified bare
+retail capacities. Primary compatible clicks merge up to free capacity, secondary
+compatible clicks place one, and incompatible primary swaps remain available.
+The bounded compatibility subset is metadata-zero retail items with no retained
+block identity, verified empty item data, and no meaningful response overlay.
+Unknown or ambiguous same-item shapes do not merge; this is not full semantic
+compatibility. Identity replacement and capacity-only updates have distinct
+recovery behavior, and residual source/destination identities must remain distinct.
+The exact implementation passed 929 client-library tests, 17 inventory integration
+tests, focused merge/input/FIFO witnesses, strict lint, formatting, and architecture
+checks. Combined post-integration workspace verification passed 3,531 tests with
+zero failures and 13 ignored; formatting, strict workspace lint, architecture,
+and the normal Windows build passed. Native acceptance then found that a 33-apple
+source did not merge into a 60-apple destination; BDS retained 60 and 33 after the
+source was placed in an empty cell. The captured login registry was not propagated
+to runtime inventory authority. The corrected bootstrap fix `14393c06` is now
+locally integrated after fresh independent approval with no findings: captured
+registry data reaches the ledger before authority and gestures, malformed wire
+fails startup, and semantic rejection remains nonfatal with a redacted warning.
+Its routing tests passed 9/9 and client-library tests passed 942/942, with strict
+lint, formatting, and architecture checks green. Combined verification passed
+943 client-library tests and 20 inventory integration tests, strict app lint,
+formatting, architecture, and the normal Windows build. Native BDS 1.26.40.8
+then confirmed primary apples 33 + 60 became 64 + 29, empty buckets 3 + 15 became
+16 + 2, and secondary apple placement moved exactly one (29 to 30, remainder 63).
+All observed totals were conserved. Full-target no-ops, incompatible swaps, and
+27/54-slot storage acceptance still require native checks; not pushed.
+The 2026-09-07 native storage diagnostic used the existing normal Windows/DX12
+build at `3eff46cf`, 1280x720 and GUI scale 2, against the isolated BDS 1.26.40.8
+world. Test chests rendered, but normal gameplay right-click did not open storage.
+Code inspection at that checkpoint found no production consumer of the click-block
+packet builder. The diagnostic ended
+with clean client/server shutdown and restored the original local server runtime.
+A bounded empty-hand creative keyboard/mouse block-use implementation `614134e5`
+is now locally integrated after fresh independent approval with no findings.
+It attaches one initial Use edge to the completed movement tick, mutually exclusive
+with mining, and revokes stale queued interactions without dropping movement.
+Pending inventory recovery or hotbar changes suppress use; the server alone opens
+storage. Independent focused checks passed: protocol use 3, movement fixtures 7,
+runtime use 9, mining 23, and network revocation 1. Combined post-integration
+checks passed as recorded above. Native empty-hand use opened a server-driven
+inventory surface, but chest contents were not displayed: the personal layout
+appeared without the player preview, then eventually closed. Container-content
+identity/admission needs a live diagnostic witness before any broader routing
+change. Native storage acceptance remains open; this tranche is not pushed.
+A separately reviewed diagnostic `2f7a7535` is locally integrated to record a
+bounded, opt-in prefix of storage-sized content identities and their ordering
+relative to an open window. It does not change admission or log item payloads.
+Its focused regression, strict app lint, formatting, and architecture checks
+passed. The native witness showed 27-slot content carrying container-name code 0
+after the matching generic-storage window opened; the projection left it
+unrouted. Unrelated 54-slot traffic on window 124 used the same code and must
+not become storage authority. A narrow contextual routing fix is in progress;
+this evidence does not establish a global container-name alias. A real 54-slot
+chest fixture is prepared, but its native content/transfer gate is still open.
+This remains provisional functionality. The native click carrier, optional envelope,
+reach, simultaneous-action priority, and repeat cadence are not yet established;
+generated encoder fixtures do not close those reference gaps. Server acceptance
+and a real chest interaction are required before shipping even this bounded path,
+and full native interaction parity remains open afterward.
+Missing block-item artwork is a separate route gap: compiled block visuals exist,
+but the icon carrier emits only sprite routes and inventory publication reduces
+the canonical route to an identifier. Preserve the visual route and design a
+bounded thumbnail path from exact compiled geometry/materials; do not infer a
+generic block icon from an item name. Projection, shading, all visible surfaces,
+and native rendered acceptance remain open.
+The same native run also exposed a separate sprite crosswalk gap: the modern
+water-bucket identifier has no alias to its existing water sprite. A verified
+modern-name-to-atlas mapping, compiler/resolver/icon tests, and native icon
+acceptance remain open; this does not require a block-thumbnail renderer.
+The crosswalk is now `crates/assets/data/legacy-icon-routes-26.30.tsv`: every
+`setIconIfLegacy` call in the 26.30 client's `VanillaItems::initClientData`, plus
+potion icons by aux, each row citing its call site. Still open: cooked foods and
+other 1.10 JSON items (icon from resource-pack data), spawn eggs (per-entity
+map), bow/crossbow draw frames, animated compass/clock frames, trimmed armor and
+broken elytra overrides, and native icon acceptance.
+Block items (provisional, incomplete): an item the retail client gives a legacy
+icon, or one placing a differently named block, keeps its sprite over its block
+route. Flat-shape blocks (cross plants, torches, rails, panes, ladders, lanterns,
+candles, chains) draw `BlockItem::getIconInfo`'s icon: carried texture, else
+texture, down face. Other non-cube shapes draw their isolated world template (a
+wall item shows post plus east/west arms, a fence post plus arms); leaves draw
+their carried cube. Retail block items missing from the Dragonfly route table
+bind to their block's first canonical state. `assetc icon-assets` reports the
+leftovers: block-entity items (chests, shulkers, beds, banners, pots, statues),
+world-diagnostic cubes, grass (overlay tint), and seeds without a sprite source.
+Shape classification, stair orientation and GUI shading are unverified against
+the retail GUI tessellator.
+Server item components (StartGame registry) drive display names, rarity and
+hover colours, durability maxima, stack-merge capacity, held grip, wearable
+slots and use durations. Item glint (provisional): stacks `Item::isGlint`
+marks (an `ench` list, the glint component, always-glinting vanilla items)
+draw a procedural scrolling purple overlay in HUD and JSON-UI item cells, not
+the retail glint texture; held items and the item viewmodel do not glint.
+`minecraft:render_offsets` is not applied.
+Initial negotiated item-registry binding for world item visuals is also separate
+from the inventory-ledger bootstrap fix. The visual resolver still starts from
+built-in mappings and only replaces them on a later registry event. Preserve
+session/FIFO ordering when adding that initial binding; do not claim custom-item
+visual authority from the merge fix alone.
 
 Entity combat is part of this tranche and is strictly vanilla:
 
@@ -2189,6 +3306,11 @@ gates.
 - [ ] **5.6 Server forms.** `P5.6-FORMS` Implement modal/menu/custom JSON forms, validation, cancellation,
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
+  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer `ui/*.json`
+  merge, `$screen_content` routing, expression, view-binding, and factory rules taken from the
+  26.30 reconstruction), with a resolve/layout cache and raw-edge pointer input. Checked only in
+  tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
+  constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
 - [ ] **5.7 UI parity and performance acceptance.** `P5.7-PARITY-PERF` Compare matching vanilla reference views at
   supported scales/aspect ratios, test keyboard/mouse/controller/touch focus transitions, and
   prove bounded retained memory plus stable frame time with chat, scoreboard, boss bars,
@@ -2214,6 +3336,8 @@ LevelDB world persistence via dragonfly; pause/resume semantics on window focus;
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
+Status: provisional implementation landed (see `docs/local-worlds.md`): BDS (native, or container on macOS) for vanilla worldgen and mobs with dragonfly as fallback; uncompiled and unmeasured, so no acceptance gate is closed.
+
 ## Phase 8 — Audio, polish, packaging
 
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
@@ -2222,6 +3346,14 @@ bedrock-samples vs. client-assets-import); performance hardening pass against bu
 macOS .app + codesign/notarize, Windows installer, Linux AppImage; core binary bundled and
 lifecycle-managed by the app; crash reporting (sentry for Rust + core); auto-update channel;
 first-run experience.
+
+**Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
+AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, opt-in crash
+upload, signed-manifest update checks, and the core log/backoff helpers are in `app/src/{first_run,lifecycle}`
+and `core/{update,crashreport}`. Unverified until compiled and run on a clean machine: every
+recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
+dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
+install, mid-session core restart wiring, and Sentry for Rust panics beyond report capture.
 
 **Final Go relay/batching polish:** adopt the batch-boundary API from
 [`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)
@@ -2245,9 +3377,11 @@ Rust's duplicate no-ID loading-screen Start/End may occupy two adjacent local ba
 bounded filter now holds at most one Start through the next read, drops only the exact initial
 pair, and flushes a mismatch or EOF in its original batch before current traffic. Full core
 tests, independent review, and a successful native BDS join are green through `a6c1ffc`.
-Porting the
-remaining PR-specific slow-reader/decode-error/disconnect regressions and completing the
-join-latency/resource comparison remain open, so this final polish item is not yet complete.
+The slow-reader, mid-batch decode-close, deferred-loading-boundary, and pre-disconnect
+batch-boundary regressions are written in `core/proxy/relay_backpressure_test.go` and the
+comparison benchmarks in `core/proxy/relay_compare_test.go` (both uncompiled until reconcile);
+running the benchmarks against a live server for the join-latency/memory record remains open,
+so this final polish item is not yet complete.
 
 ---
 

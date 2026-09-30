@@ -1,7 +1,28 @@
 use super::*;
+use protocol::PLAYER_NETWORK_OFFSET;
 
 impl WorldStream {
+    /// Mutation-through frontier for inactive inventory projections after polling.
+    /// A popped asynchronous block update is not committed until its decode applies.
+    #[must_use]
+    pub fn inventory_committed_through(&self) -> Option<u64> {
+        if self.fatal_light_failure {
+            return None;
+        }
+        let popped = self.ordered.next_sequence().saturating_sub(1);
+        Some(
+            self.blocking_block_updates
+                .map_or(popped, |sequence| popped.min(sequence.saturating_sub(1))),
+        )
+    }
+
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
+
+    /// Breaks the publication-token deadlock: when the allowance is exhausted
+    /// and nothing is in flight, a small floor keeps meshing alive so
+    /// completions can resume once permits retire instead of starving a live
+    /// join forever.
+    const STARVED_MESH_DISPATCH_FLOOR_PER_POLL: usize = 4;
 
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         if camera_position.iter().all(|value| value.is_finite()) {
@@ -52,12 +73,17 @@ impl WorldStream {
         } else {
             max_mesh_jobs
         };
-        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(
-            camera_position,
-            mesh_budget
-                .min(live_publication_items)
-                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len())),
-        );
+        let mut dispatch_budget = mesh_budget
+            .min(live_publication_items)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        if dispatch_budget == 0
+            && mesh_budget != 0
+            && self.in_flight.is_empty()
+            && !self.pending_mesh.is_empty()
+        {
+            dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);
+        }
+        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(camera_position, dispatch_budget);
         report
     }
     pub fn camera_medium(&self, position: [f32; 3]) -> CameraMedium {
@@ -110,6 +136,31 @@ impl WorldStream {
             local_position,
         )
     }
+    /// Retained block and sky light (0..=15) at `position`'s block cell in the current
+    /// dimension, for lighting the first-person hand to match the player's standing block. A
+    /// non-finite position or a sub-chunk whose light is not resident reads dark `(0, 0)`.
+    #[must_use]
+    pub fn light_level_at(&self, position: [f32; 3]) -> (u8, u8) {
+        if !position.iter().all(|value| value.is_finite()) {
+            return (0, 0);
+        }
+        let block = position.map(floor_to_i32);
+        let key = SubChunkKey::new(
+            self.current_dimension,
+            block[0].div_euclid(16),
+            block[1].div_euclid(16),
+            block[2].div_euclid(16),
+        );
+        let Some(light) = self.light_store.light(key) else {
+            return (0, 0);
+        };
+        let local = |axis: usize| block[axis].rem_euclid(16) as u8;
+        let (x, y, z) = (local(0), local(1), local(2));
+        (
+            light.get(LightChannel::Block, x, y, z).unwrap_or(0),
+            light.get(LightChannel::Sky, x, y, z).unwrap_or(0),
+        )
+    }
     #[must_use]
     pub fn camera_biome_id(&self, position: [f32; 3]) -> Option<u32> {
         if !position.iter().all(|value| value.is_finite()) {
@@ -135,7 +186,10 @@ impl WorldStream {
         reason = "the committed stream radius is bounded to sixteen chunks"
     )]
     pub fn render_distance_blocks(&self) -> f32 {
-        self.active_radius_chunks().max(0).saturating_mul(16) as f32
+        self.chunk_radius
+            .unwrap_or_else(|| self.active_radius_chunks())
+            .clamp(0, PHASE0_MAX_VIEW_RADIUS_CHUNKS)
+            .saturating_mul(16) as f32
     }
     pub fn biome_definitions_snapshot(&self) -> Arc<[BiomeDefinitionEvent]> {
         Arc::clone(&self.biome_definitions)
@@ -147,6 +201,21 @@ impl WorldStream {
         self.connectivity.get(&key).copied()
     }
     pub fn surface_eye_position(&self, block_x: i32, block_z: i32) -> Option<[f32; 3]> {
+        let block_y = self.top_non_air_block_y(block_x, block_z)?;
+        // Rest the anchor exactly on the surface: movement feet
+        // are recovered as network Y minus PLAYER_NETWORK_OFFSET,
+        // so the former eye-height guess (`+ 2.62`) left feet
+        // 1e-5 blocks inside the surface block and every surface
+        // spawn started embedded in terrain.
+        Some([
+            block_x as f32 + 0.5,
+            block_y as f32 + 1.0 + PLAYER_NETWORK_OFFSET,
+            block_z as f32 + 0.5,
+        ])
+    }
+    /// Y of the highest non-air block in a loaded column, or `None` when it is unloaded or empty.
+    #[must_use]
+    pub fn top_non_air_block_y(&self, block_x: i32, block_z: i32) -> Option<i32> {
         let range = vanilla_dimension_range(self.current_dimension)?;
         let chunk = ChunkKey::new(
             self.current_dimension,
@@ -175,12 +244,7 @@ impl WorldStream {
                         .is_some_and(|runtime_id| !self.classifier.is_air(runtime_id))
                 });
                 if solid {
-                    let block_y = key.y.saturating_mul(16) + i32::from(local_y);
-                    return Some([
-                        block_x as f32 + 0.5,
-                        block_y as f32 + 2.62,
-                        block_z as f32 + 0.5,
-                    ]);
+                    return Some(key.y.saturating_mul(16) + i32::from(local_y));
                 }
             }
         }
@@ -197,6 +261,17 @@ impl WorldStream {
         self.current_dimension
     }
 
+    /// The validated sequence of the last committed dimension transition.
+    #[must_use]
+    pub const fn form_dimension_epoch(&self) -> u64 {
+        self.form_dimension_epoch
+    }
+
+    #[must_use]
+    pub const fn local_movement_speed(&self) -> Option<f64> {
+        self.local_movement_speed
+    }
+
     /// Packed palette store used by read-only local collision queries.
     #[must_use]
     pub const fn collision_store(&self) -> &world::ChunkStore {
@@ -207,6 +282,12 @@ impl WorldStream {
     #[must_use]
     pub const fn network_id_mode(&self) -> assets::NetworkIdMode {
         self.network_id_mode
+    }
+
+    /// The block assets this stream meshes with, including any session overlay.
+    #[must_use]
+    pub fn runtime_assets(&self) -> &std::sync::Arc<assets::RuntimeAssets> {
+        &self.runtime_assets
     }
 }
 

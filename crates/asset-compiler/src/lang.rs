@@ -13,7 +13,10 @@ use thiserror::Error;
 use crate::entity::validate_vanilla_source_manifest;
 
 const LANG_RELATIVE_PATH: &str = "texts/en_US.lang";
+const LANGUAGES_RELATIVE_PATH: &str = "texts/languages.json";
 const MAX_LANG_SOURCE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_LANGUAGES_BYTES: usize = 64 * 1024;
+const MAX_LANGUAGES: usize = 64;
 
 #[derive(Debug)]
 pub struct CompiledLangCarrier {
@@ -58,6 +61,41 @@ pub enum LangCompileError {
     TooManyEntries { maximum: usize },
     #[error("language carrier encoding failed: {0}")]
     Carrier(#[from] assets::LangCatalogError),
+    #[error("language list {path} is not a JSON array of language codes")]
+    LanguageList { path: Box<Path> },
+}
+
+/// The pack's `texts/languages.json` codes other than `en_US`, in listed order.
+pub fn vanilla_language_codes(root: &Path) -> Result<Vec<String>, LangCompileError> {
+    let path = root.join(LANGUAGES_RELATIVE_PATH);
+    let bytes = fs::read(&path).map_err(|source| LangCompileError::SourceRead {
+        path: path.clone().into_boxed_path(),
+        source,
+    })?;
+    let list = (bytes.len() <= MAX_LANGUAGES_BYTES)
+        .then(|| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+        .flatten()
+        .ok_or_else(|| LangCompileError::LanguageList {
+            path: path.into_boxed_path(),
+        })?;
+    let mut codes = Vec::new();
+    for code in list {
+        if assets::is_language_code(&code) && code != "en_US" && !codes.contains(&code) {
+            codes.push(code);
+        }
+    }
+    codes.truncate(MAX_LANGUAGES);
+    Ok(codes)
+}
+
+/// Compiles `<root>/texts/<code>.lang` into a carrier; other languages have no
+/// pinned identity, only the source manifest.
+pub fn compile_language(
+    root: &Path,
+    code: &str,
+    source_manifest: &[u8],
+) -> Result<CompiledLangCarrier, LangCompileError> {
+    compile_lang_file(root, &format!("texts/{code}.lang"), source_manifest, None)
 }
 
 /// Compiles the carrier from `<root>/texts/en_US.lang`. When
@@ -69,8 +107,22 @@ pub fn compile_lang_assets(
     source_manifest: &[u8],
     expected_source_sha256: Option<[u8; 32]>,
 ) -> Result<CompiledLangCarrier, LangCompileError> {
+    compile_lang_file(
+        root,
+        LANG_RELATIVE_PATH,
+        source_manifest,
+        expected_source_sha256,
+    )
+}
+
+fn compile_lang_file(
+    root: &Path,
+    relative: &str,
+    source_manifest: &[u8],
+    expected_source_sha256: Option<[u8; 32]>,
+) -> Result<CompiledLangCarrier, LangCompileError> {
     let source_manifest_sha256 = validate_vanilla_source_manifest(source_manifest)?;
-    let path = root.join(LANG_RELATIVE_PATH);
+    let path = root.join(relative);
     let bytes = fs::read(&path).map_err(|source| LangCompileError::SourceRead {
         path: path.clone().into_boxed_path(),
         source,

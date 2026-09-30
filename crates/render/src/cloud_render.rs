@@ -31,7 +31,7 @@ use crate::{
     AtmosphereFrame, AtmosphereTextureAssets, CloudGeometryDiagnostic, CloudRenderConfig,
     PackedCloudQuad, atmosphere_render::AtmosphereGpu, mesh_cloud_texture,
 };
-use meshing::{CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, cloud_instance_origins};
+use meshing::{CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD, cloud_instance_origins};
 
 const CLOUD_SHADER_HANDLE: Handle<Shader> = uuid_handle!("8dcfe9d0-c182-44cc-ae4c-7e5233b68659");
 pub(crate) fn install_cloud_render(app: &mut App) {
@@ -45,7 +45,9 @@ pub(crate) fn install_cloud_render(app: &mut App) {
             (
                 prepare_cloud_records.in_set(RenderSystems::PrepareResources),
                 prepare_cloud_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_clouds.in_set(RenderSystems::Queue),
+                queue_clouds
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }
@@ -105,7 +107,7 @@ pub(crate) fn prepare_cloud_records(
         cloud_texture,
         &records,
         9,
-        CLOUD_MASK_SIZE * 1_000,
+        CLOUD_WORLD_PERIOD as u32 * 1_000,
         (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
         (CLOUD_TOP_Y * 1_000.0) as i32,
     )
@@ -354,7 +356,7 @@ fn queue_clouds(
 fn cloud_phase_distance(view: &ExtractedView, atmosphere: &AtmosphereFrame) -> f32 {
     let camera = view.world_from_view.translation();
     let offset_blocks =
-        f64::from(atmosphere.cloud_texture_offset()[0]) * f64::from(CLOUD_MASK_SIZE);
+        f64::from(atmosphere.cloud_texture_offset()[0]) * f64::from(CLOUD_WORLD_PERIOD);
     let cloud_center = Vec3::from_array(cloud_bounds_center(
         [f64::from(camera.x), f64::from(camera.z)],
         offset_blocks,
@@ -364,7 +366,7 @@ fn cloud_phase_distance(view: &ExtractedView, atmosphere: &AtmosphereFrame) -> f
 
 fn cloud_bounds_center(camera_xz: [f64; 2], offset_blocks: f64) -> [f32; 3] {
     let center_origin = cloud_instance_origins(camera_xz, offset_blocks)[4];
-    let half_period = CLOUD_MASK_SIZE as f32 * 0.5;
+    let half_period = CLOUD_WORLD_PERIOD * 0.5;
     [
         center_origin[0] + half_period,
         (CLOUD_UNDERSIDE_Y + CLOUD_TOP_Y) * 0.5,
@@ -423,30 +425,29 @@ mod tests {
 
     #[test]
     fn cloud_bounds_center_is_symmetric_across_negative_period_boundaries() {
-        assert_eq!(cloud_bounds_center([0.0, 0.0], 0.0), [128.0, 130.0, 128.0]);
+        assert_eq!(
+            cloud_bounds_center([0.0, 0.0], 0.0),
+            [2048.0, 194.33, 2048.0]
+        );
         assert_eq!(
             cloud_bounds_center([-0.001, -0.001], 0.0),
-            [-128.0, 130.0, -128.0]
+            [-2048.0, 194.33, -2048.0]
         );
         assert_eq!(
-            cloud_bounds_center([-256.0, -256.0], 0.0),
-            [-128.0, 130.0, -128.0]
-        );
-        assert_eq!(
-            cloud_bounds_center([-256.001, -256.001], 0.0),
-            [-384.0, 130.0, -384.0]
+            cloud_bounds_center([-4096.001, -4096.001], 0.0),
+            [-6144.0, 194.33, -6144.0]
         );
     }
 
     #[test]
     fn cloud_bounds_center_preserves_wrapped_scroll_at_period_crossings() {
         assert_eq!(
-            cloud_bounds_center([1.25, 0.0], 257.25),
-            [129.25, 130.0, 128.0]
+            cloud_bounds_center([1.25, 0.0], 4097.25),
+            [2049.25, 194.33, 2048.0]
         );
         assert_eq!(
-            cloud_bounds_center([1.249, 0.0], 257.25),
-            [-126.75, 130.0, 128.0]
+            cloud_bounds_center([1.249, 0.0], 4097.25),
+            [-2046.75, 194.33, 2048.0]
         );
     }
 }

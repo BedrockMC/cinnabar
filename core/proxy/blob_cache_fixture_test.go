@@ -58,7 +58,7 @@ func TestClientBlobCachePinnedFixture(t *testing.T) {
 		SubChunkEntries: []bedrock.SubChunkEntry{
 			{
 				Result: bedrock.SubChunkResultSuccess,
-				// 1.26.40 carries the blob hash and the raw payload as
+				// Since 1.26.40 the entry carries the blob hash and the raw payload as
 				// optionals rather than a bare uint64 and byte slice, so an
 				// all-air entry simply omits the hash instead of sending the
 				// ^0 sentinel.

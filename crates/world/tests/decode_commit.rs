@@ -1,6 +1,8 @@
 use std::sync::{Arc, mpsc};
 
-use world::{ChunkKey, ChunkStore, DecodeError, DecodedLevelChunk, SubChunk, SubChunkKey};
+use world::{ChunkKey, ChunkStore, DecodedLevelChunk, RawBlockIds, SubChunk, SubChunkKey};
+
+const IDS: RawBlockIds = RawBlockIds { air: 0 };
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -31,7 +33,7 @@ fn public_prefix_decode_can_be_committed_without_redecoding() {
     let mut payload = encoded.clone();
     payload.extend_from_slice(&[0x0a, 0x00, 0x00]);
 
-    let (decoded, consumed) = SubChunk::decode_prefix(&payload).expect("pure prefix decode");
+    let (decoded, consumed) = SubChunk::decode_prefix(&payload, &IDS);
     assert_eq!(consumed, encoded.len());
     assert_eq!(decoded.runtime_id(0, 0, 0, 0), Some(91));
 
@@ -53,13 +55,10 @@ fn level_chunk_decodes_on_a_rayon_worker_then_commits_atomically() {
     let (send, receive) = mpsc::sync_channel(1);
 
     rayon::spawn(move || {
-        send.send(DecodedLevelChunk::decode(-4, 2, &payload))
+        send.send(DecodedLevelChunk::decode(-4, 2, &payload, &IDS))
             .expect("send worker result");
     });
-    let decoded = receive
-        .recv()
-        .expect("receive worker result")
-        .expect("decode level chunk");
+    let decoded = receive.recv().expect("receive worker result");
 
     assert_eq!(decoded.bytes_consumed(), expected_consumed);
     assert_eq!(
@@ -84,46 +83,53 @@ fn level_chunk_decodes_on_a_rayon_worker_then_commits_atomically() {
 }
 
 #[test]
-fn later_malformed_sub_chunk_produces_no_committable_column() {
+fn truncated_level_chunk_decode_is_pure_until_committed() {
     let mut store = ChunkStore::new();
     let chunk_key = ChunkKey::new(0, 1, 2);
     let lower_key = SubChunkKey::from_chunk(chunk_key, -4);
     store
-        .apply_level_chunk(chunk_key, -4, 1, &uniform(-4, 7))
+        .apply_level_chunk(chunk_key, -4, 1, &uniform(-4, 7), &IDS)
         .unwrap();
     let before = store.sub_chunk(lower_key).unwrap();
 
-    let mut malformed = uniform(-4, 99);
-    malformed.push(9);
-    assert!(matches!(
-        DecodedLevelChunk::decode(-4, 2, &malformed),
-        Err(DecodeError::UnexpectedEof { .. })
-    ));
+    let mut truncated = uniform(-4, 99);
+    truncated.push(9);
+    let decoded = DecodedLevelChunk::decode(-4, 2, &truncated, &IDS);
+    assert_eq!(decoded.bytes_consumed(), truncated.len());
+    assert!(decoded.sub_chunk(-3).is_none());
+    assert!(Arc::ptr_eq(&before, &store.sub_chunk(lower_key).unwrap()));
 
-    let after = store.sub_chunk(lower_key).unwrap();
-    assert!(Arc::ptr_eq(&before, &after));
-    assert_eq!(after.runtime_id(0, 0, 0, 0), Some(7));
+    store.commit_level_chunk(chunk_key, decoded).unwrap();
+    assert_eq!(
+        store.sub_chunk(lower_key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(99)
+    );
 }
 
 #[test]
-fn commit_reuses_equal_worker_snapshots_and_rejects_wrong_y_without_mutation() {
+fn misplaced_version_nine_sub_chunk_decodes_to_an_empty_column() {
+    let payload = uniform(-3, 11);
+    let decoded = DecodedLevelChunk::decode(-4, 1, &payload, &IDS);
+    assert_eq!(decoded.sub_chunks().len(), 0);
+    assert_eq!(decoded.bytes_consumed(), payload.len());
+}
+
+#[test]
+fn commit_reuses_equal_worker_snapshots_and_ignores_the_y_byte() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 3, -4, 5);
-    let (first, _) = SubChunk::decode_prefix(&uniform(-4, 12)).unwrap();
+    let (first, _) = SubChunk::decode_prefix(&uniform(-4, 12), &IDS);
     store.commit_sub_chunk(key, first).unwrap();
     let before = store.sub_chunk(key).unwrap();
 
-    let (equal, _) = SubChunk::decode_prefix(&uniform(-4, 12)).unwrap();
+    let (equal, _) = SubChunk::decode_prefix(&uniform(-4, 12), &IDS);
     assert_eq!(store.commit_sub_chunk(key, equal).unwrap(), None);
     assert!(Arc::ptr_eq(&before, &store.sub_chunk(key).unwrap()));
 
-    let (wrong_y, _) = SubChunk::decode_prefix(&uniform(-3, 99)).unwrap();
+    let (other_y, _) = SubChunk::decode_prefix(&uniform(-3, 99), &IDS);
+    assert_eq!(store.commit_sub_chunk(key, other_y), Ok(Some(key)));
     assert_eq!(
-        store.commit_sub_chunk(key, wrong_y),
-        Err(DecodeError::SubChunkIndexMismatch {
-            expected: -4,
-            actual: -3,
-        })
+        store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(99)
     );
-    assert!(Arc::ptr_eq(&before, &store.sub_chunk(key).unwrap()));
 }

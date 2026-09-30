@@ -3,30 +3,62 @@ use std::collections::VecDeque;
 use bevy::prelude::Resource;
 #[cfg(test)]
 use protocol::PlayerInputMode;
-use protocol::{
-    Packet, PlayerAuthInputError, PlayerAuthInputSnapshot, PlayerInputFlags, player_auth_input,
-};
+use protocol::{PlayerAuthInputSnapshot, PlayerInputFlags};
 
+mod anchor_probe;
+mod anchor_probe_evidence;
 mod authority;
+mod collision_registries;
+mod control_modes;
+mod correction_shape;
+mod diagnostics;
+mod effects;
 mod encoding;
 mod evidence;
+mod local_facts;
+mod locomotion;
+mod outbox;
 mod physics;
+mod prediction_sync;
 mod runtime_system;
-pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityGate};
-use encoding::{input_flags, normalize_move_vector, subtract};
+mod speed_authority;
+mod state;
+mod teleport_ack;
+mod trace;
+pub(crate) use authority::PhysicsSendIdentity;
+pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
+pub use collision_registries::PhysicsCollisionRegistries;
+pub(crate) use correction_shape::reconcile_committed_correction;
+pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
+pub(crate) use diagnostics::{CorrectionKind, note_correction, note_motion};
+pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
+use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
+pub use locomotion::{ModeIntent, RideKind};
+pub use outbox::MovementSendError;
+pub use outbox::OUTBOX_CAPACITY;
+#[cfg(test)]
+pub(crate) use outbox::flush_player_auth_inputs;
+pub(crate) use outbox::{
+    InteractionPacketGuard, MovementOutboxReconciliation, flush_player_auth_inputs_guarded,
+};
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCollisionRegistries, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
-    PhysicsMovementSample, PhysicsSampleContext, physics_movement_input,
+    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
+    physics_movement_input,
 };
+pub(crate) use prediction_sync::send_movement_prediction_sync;
 pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
+pub(crate) use speed_authority::LocalMovementSpeedAuthority;
+pub use state::ProcessedMovementState;
+pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
-
-pub const OUTBOX_CAPACITY: usize = 32;
+#[cfg(test)]
+pub(crate) use trace::trace_line_if;
+pub(crate) use trace::{pending_trace_line, write_trace_line};
 
 /// Origin of a movement sample and the authority allowed to transmit it.
 ///
@@ -40,60 +72,13 @@ pub enum MovementSource {
     Physics,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum MovementOutboxReconciliation {
-    #[default]
-    NotAuthoritative,
-    Drained,
-    SocketPending,
-    BudgetDeferred,
-    TransportRestored,
-    FullRestored,
-}
-
-impl MovementOutboxReconciliation {
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::NotAuthoritative => "NotAuthoritative",
-            Self::Drained => "Drained",
-            Self::SocketPending => "SocketPending",
-            Self::BudgetDeferred => "BudgetDeferred",
-            Self::TransportRestored => "TransportRestored",
-            Self::FullRestored => "FullRestored",
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum MovementSendError<E> {
-    Encode(PlayerAuthInputError),
-    Transport(E),
-    RestoreOverflow,
-    MissingEvidenceContext,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PhysicsSendIdentity {
-    pub(crate) session_generation: u64,
-    pub(crate) tick: u64,
-    pub(crate) admission_id: u64,
-    pub(crate) reanchor_epoch: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PhysicsAuthorityFaultRecord {
-    pub session_generation: u64,
-    pub fault: PhysicsAuthorityFault,
-    pub next_tick: u64,
-    pub pending_count: usize,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 struct QueuedPhysicsSample {
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
+    mining: Option<crate::mining::QueuedMiningInteraction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,23 +95,6 @@ struct PendingPhysicsSend {
     sample: QueuedPhysicsSample,
     evidence: PhysicsTickEvidence,
     retry_after_cancellation: bool,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct HeldInput {
-    jumping: bool,
-    sneaking: bool,
-    sprinting: bool,
-}
-
-impl From<&PhysicsMovementSample> for HeldInput {
-    fn from(sample: &PhysicsMovementSample) -> Self {
-        Self {
-            jumping: sample.jumping,
-            sneaking: sample.sneaking,
-            sprinting: sample.sprinting,
-        }
-    }
 }
 
 /// Bounded retry FIFO for completed, fixed-tick physics samples.
@@ -157,11 +125,19 @@ pub struct MovementTicker {
     sent_free_camera_packet_count: u64,
     sent_physics_packet_count: u64,
     outbox_reconciliation: MovementOutboxReconciliation,
+    remote_closed: bool,
     pending_fault: Option<PhysicsAuthorityFaultRecord>,
     next_admission_id: u64,
     reanchor_epoch: u64,
     terminal_drain: bool,
+    teleport_ack_enabled: bool,
+    pending_teleport_ack: Option<teleport_ack::TeleportAckPending>,
+    teleport_acks_expired: u64,
+    replayed_corrections_observed: u64,
+    unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
+    mining_epoch_publisher: watch::Sender<u64>,
+    survival_epoch_publisher: watch::Sender<u64>,
 }
 
 #[cfg(test)]
@@ -174,6 +150,8 @@ impl Default for MovementTicker {
 
 impl MovementTicker {
     pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
+        let (mining_epoch_publisher, _mining_epoch_receiver) = watch::channel(0);
+        let (survival_epoch_publisher, _survival_epoch_receiver) = watch::channel(0);
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -189,11 +167,19 @@ impl MovementTicker {
             sent_free_camera_packet_count: 0,
             sent_physics_packet_count: 0,
             outbox_reconciliation: MovementOutboxReconciliation::NotAuthoritative,
+            remote_closed: false,
             pending_fault: None,
             next_admission_id: 0,
             reanchor_epoch: 0,
             terminal_drain: false,
+            teleport_ack_enabled: teleport_ack::enabled_from_env(),
+            pending_teleport_ack: None,
+            teleport_acks_expired: 0,
+            replayed_corrections_observed: 0,
+            unmarked_move_players_observed: 0,
             epoch_publisher,
+            mining_epoch_publisher,
+            survival_epoch_publisher,
         }
     }
 
@@ -218,9 +204,11 @@ impl MovementTicker {
         self.sent_free_camera_packet_count = 0;
         self.sent_physics_packet_count = 0;
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
+        self.remote_closed = false;
         self.pending_fault = None;
         self.next_admission_id = 0;
         self.terminal_drain = false;
+        self.pending_teleport_ack = None;
     }
 
     pub fn deactivate(&mut self) {
@@ -232,6 +220,24 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
+        self.pending_teleport_ack = None;
+    }
+
+    /// Latches a remote-initiated close of an active, authorized physics
+    /// session: [`Self::outbox_reconciliation`] then reports
+    /// [`MovementOutboxReconciliation::RemoteClosed`] through teardown and the
+    /// deactivated flush path until the next session reset.
+    ///
+    /// Local shutdowns, send-side failures, pre-session tickers, authority
+    /// faults (which already demote the source), and FreeCamera sessions never
+    /// latch this classification.
+    pub(crate) fn note_remote_session_close(&mut self) {
+        if self.session_active
+            && matches!(self.source, MovementSource::Physics)
+            && self.pending_fault.is_none()
+        {
+            self.remote_closed = true;
+        }
     }
 
     /// Selects the source allowed to drive outbound movement.
@@ -253,6 +259,9 @@ impl MovementTicker {
             MovementSource::Physics => MovementOutboxReconciliation::Drained,
             MovementSource::FreeCamera => MovementOutboxReconciliation::NotAuthoritative,
         };
+        if matches!(source, MovementSource::FreeCamera) {
+            self.clear_pending_teleport_ack();
+        }
         self.terminal_drain = false;
     }
 
@@ -289,7 +298,14 @@ impl MovementTicker {
             return Err(fault);
         }
         if !completed.position.into_iter().all(f32::is_finite)
+            || !completed.movement.into_iter().all(f32::is_finite)
+            || !completed.velocity.into_iter().all(f32::is_finite)
             || !completed.move_vector.into_iter().all(f32::is_finite)
+            || !completed.raw_move_vector.into_iter().all(f32::is_finite)
+            || !completed
+                .analogue_move_vector
+                .into_iter()
+                .all(f32::is_finite)
             || !completed.camera_orientation.into_iter().all(f32::is_finite)
             || ![completed.pitch, completed.yaw, completed.head_yaw]
                 .into_iter()
@@ -299,6 +315,7 @@ impl MovementTicker {
             self.fail_physics_authority(&fault);
             return Err(fault);
         }
+        self.observe_admitted_tick_for_teleport_ack();
         let snapshot = self.snapshot(&completed);
         let jump_started = snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits() != 0
             || completed.jump_repeated;
@@ -320,6 +337,7 @@ impl MovementTicker {
             snapshot,
             world_identity: completed.world_identity,
             evidence,
+            mining: None,
         });
         Ok(())
     }
@@ -346,18 +364,24 @@ impl MovementTicker {
         self.sent_history.clear();
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
+        self.pending_teleport_ack = None;
     }
 
     fn snapshot(&mut self, sample: &PhysicsMovementSample) -> PlayerAuthInputSnapshot {
         let current_input = HeldInput::from(sample);
-        let move_vector = normalize_move_vector(sample.move_vector);
+        // Samples carry right-positive x; the wire vectors are left-positive.
+        let wire = |vector: [f32; 2]| [-vector[0], vector[1]];
+        let move_vector = wire(normalize_move_vector(sample.move_vector));
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            delta: subtract(sample.position, self.previous_position),
+            // gophertunnel PlayerAuthInput.Delta is "the delta between the old
+            // and the new position", i.e. this tick's resolved displacement —
+            // not the post-tick velocity.
+            delta: sample.movement,
             move_vector,
-            analogue_move_vector: move_vector,
-            raw_move_vector: sample.move_vector,
+            analogue_move_vector: wire(sample.analogue_move_vector),
+            raw_move_vector: wire(sample.raw_move_vector),
             pitch: sample.pitch,
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,
@@ -570,28 +594,6 @@ impl MovementTicker {
                 <= OUTBOX_CAPACITY.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME)
     }
 
-    /// Records the explicit event that the server-authoritative local position
-    /// changed. Every transport admission from the prior epoch becomes
-    /// obsolete regardless of whether its packet fields happen to compare
-    /// equal after reconciliation. Publishing here keeps worker invalidation
-    /// inseparable from advancing the epoch.
-    fn position_authority_changed(&mut self) {
-        self.reanchor_epoch = self.reanchor_epoch.wrapping_add(1);
-        for pending in &mut self.pending_sends {
-            pending.retry_after_cancellation = false;
-        }
-        self.sent_history.clear();
-        self.epoch_publisher.send_if_modified(|published| {
-            if *published == self.reanchor_epoch {
-                false
-            } else {
-                *published = self.reanchor_epoch;
-                true
-            }
-        });
-        self.refresh_outbox_reconciliation();
-    }
-
     fn has_unresolved_position_authority_change(&self) -> bool {
         self.pending_sends
             .iter()
@@ -690,7 +692,11 @@ impl MovementTicker {
 
     #[must_use]
     pub(crate) const fn outbox_reconciliation(&self) -> MovementOutboxReconciliation {
-        self.outbox_reconciliation
+        if self.remote_closed {
+            MovementOutboxReconciliation::RemoteClosed
+        } else {
+            self.outbox_reconciliation
+        }
     }
 
     pub(crate) fn note_full_restore(&mut self) {
@@ -788,24 +794,26 @@ impl MovementTicker {
                     if pending.world_identity != replayed.world_identity {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
-                    let previous_position = if tick == plan.corrected_tick.saturating_add(1) {
-                        plan.corrected_position
-                    } else {
-                        let expected_previous = tick.saturating_sub(1);
-                        let Some(previous) = plan
-                            .replayed_samples
-                            .iter()
-                            .find(|sample| sample.tick == expected_previous)
-                        else {
-                            return Err(PhysicsAuthorityFault::PendingTickMismatch {
-                                expected: expected_previous,
-                                actual: tick,
-                            });
-                        };
-                        previous.position
-                    };
                     pending.snapshot.position = replayed.position;
-                    pending.snapshot.delta = subtract(replayed.position, previous_position);
+                    pending.snapshot.delta = replayed.movement;
+                    pending.snapshot.flags = pending
+                        .snapshot
+                        .flags
+                        .with_mask(
+                            PlayerInputFlags::HORIZONTAL_COLLISION,
+                            replayed.horizontal_collision,
+                        )
+                        .with_mask(
+                            PlayerInputFlags::VERTICAL_COLLISION,
+                            replayed.vertical_collision,
+                        )
+                        // Rebuilt simulated state: the arc plus collision hints. Raw-button
+                        // evidence and pre-correction contact records intentionally keep
+                        // their recorded values (the replay inputs are byte-identical).
+                        .with_mask(
+                            PlayerInputFlags::JUMPING,
+                            replayed.processed.jump_arc_active,
+                        );
                     pending.evidence.network_position = replayed.position;
                     Ok(Some(()))
                 };
@@ -916,60 +924,24 @@ pub fn reconcile_candidate_physics_correction(
     }
 }
 
-pub(crate) fn flush_player_auth_inputs<E>(
-    ticker: &mut MovementTicker,
-    budget: usize,
-    evidence_context: Option<PhysicsTickEvidenceContext>,
-    mut send: impl FnMut(PhysicsSendIdentity, Packet) -> Result<(), E>,
-) -> Result<usize, MovementSendError<E>> {
-    if !ticker.physics_is_authorized() {
-        ticker.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
-        return Ok(0);
-    }
-    if ticker.terminal_drain || ticker.has_unresolved_position_authority_change() {
-        ticker.refresh_outbox_reconciliation();
-        return Ok(0);
-    }
-    if !ticker.outbox.is_empty() && evidence_context.is_none() {
-        return Err(MovementSendError::MissingEvidenceContext);
-    }
-
-    let mut sent = 0;
-    for _ in 0..budget {
-        if ticker.tick_evidence.len() == OUTBOX_CAPACITY {
-            ticker.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
-            break;
-        }
-        let Some(sample) = ticker.pop_pending() else {
-            break;
-        };
-        let packet = player_auth_input(sample.snapshot).map_err(MovementSendError::Encode)?;
-        let identity = ticker.next_send_identity(&sample);
-        ticker.note_command_admitted(
-            identity,
-            sample,
-            evidence_context.expect("nonempty outbox requires staged evidence context"),
-        );
-        if let Err(error) = send(identity, packet) {
-            let sample = ticker
-                .restore_admitted(identity)
-                .map_err(|_| MovementSendError::RestoreOverflow)?;
-            ticker
-                .retry_front(sample)
-                .map_err(|_| MovementSendError::RestoreOverflow)?;
-            ticker.outbox_reconciliation = MovementOutboxReconciliation::TransportRestored;
-            return Err(MovementSendError::Transport(error));
-        }
-        sent += 1;
-    }
-    ticker.refresh_outbox_reconciliation();
-    Ok(sent)
-}
-
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
+mod anchor_probe_tests;
+#[cfg(test)]
 mod correction_tests;
 #[cfg(test)]
+mod effects_tests;
+#[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod locomotion_tests;
+#[cfg(test)]
+mod settle_tests;
+#[cfg(test)]
+mod state_tests;
+#[cfg(test)]
+mod teleport_ack_tests;
+#[cfg(test)]
+mod teleport_ack_wiring_tests;

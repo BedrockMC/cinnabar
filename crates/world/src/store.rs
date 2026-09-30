@@ -1,21 +1,20 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     sync::Arc,
 };
 
 use crate::{
-    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockUpdate, Chunk, ChunkKey,
-    CollisionRevisionError, DecodeError, DecodedBiomeColumn, DecodedBlockEntities, DecodedSubChunk,
-    MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MutationError, SubChunk,
-    SubChunkKey,
+    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockIds, BlockUpdate, Chunk,
+    ChunkKey, CollisionRevisionError, DecodeError, DecodedBiomeColumn, DecodedBlockEntities,
+    DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MutationError,
+    SubChunk, SubChunkKey,
     collision_revision::{CollisionRevisionAllocator, process_collision_revisions},
 };
 
 mod helpers;
+mod level_chunk;
 use self::helpers::*;
-
-/// Maximum sub-chunks accepted in one full inline LevelChunk payload.
-pub const MAX_LEVEL_SUBCHUNKS: usize = 64;
+pub use self::level_chunk::{DecodedLevelChunk, DimensionSlots, decode_column_tail};
 
 /// Monotonic identity for the collision-relevant contents of one loaded column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,148 +63,6 @@ impl PreparedSubChunkMutation {
     #[must_use]
     pub const fn changed(&self) -> bool {
         self.changed
-    }
-}
-
-/// A completely validated full-column block decode ready for a cheap commit.
-///
-/// Packed sub-chunks are wrapped in `Arc`s during decode so this value can be
-/// produced on a worker and transferred to the main thread without copying
-/// chunk data.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedLevelChunk {
-    sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
-    biomes: Option<DecodedBiomeColumn>,
-    block_entities: Option<DecodedBlockEntities>,
-    block_bytes_consumed: usize,
-    bytes_consumed: usize,
-}
-
-impl DecodedLevelChunk {
-    /// Purely decodes and validates every block sub-chunk in a LevelChunk
-    /// prefix. No [`ChunkStore`] is touched if any later sub-chunk is malformed.
-    pub fn decode(
-        first_sub_chunk_y: i32,
-        sub_chunk_count: usize,
-        payload: &[u8],
-    ) -> Result<Self, DecodeError> {
-        if sub_chunk_count > MAX_LEVEL_SUBCHUNKS {
-            return Err(DecodeError::TooManySubChunks {
-                count: sub_chunk_count,
-                max: MAX_LEVEL_SUBCHUNKS,
-            });
-        }
-
-        let mut sub_chunks = BTreeMap::new();
-        let mut consumed = 0;
-        for offset in 0..sub_chunk_count {
-            let offset_i32 = i32::try_from(offset).map_err(|_| DecodeError::SubChunkYOverflow {
-                first: first_sub_chunk_y,
-                offset,
-            })?;
-            let expected_y = first_sub_chunk_y.checked_add(offset_i32).ok_or(
-                DecodeError::SubChunkYOverflow {
-                    first: first_sub_chunk_y,
-                    offset,
-                },
-            )?;
-            let (sub_chunk, used) = SubChunk::decode_prefix(&payload[consumed..])?;
-            if let Some(actual) = sub_chunk.y_index() {
-                let actual = i32::from(actual);
-                if actual != expected_y {
-                    return Err(DecodeError::SubChunkIndexMismatch {
-                        expected: expected_y,
-                        actual,
-                    });
-                }
-            }
-            consumed += used;
-            if !sub_chunk.has_no_storages() {
-                sub_chunks.insert(expected_y, Arc::new(sub_chunk));
-            }
-        }
-        Ok(Self {
-            sub_chunks,
-            biomes: None,
-            block_entities: None,
-            block_bytes_consumed: consumed,
-            bytes_consumed: consumed,
-        })
-    }
-
-    /// Decodes a complete inline LevelChunk block prefix followed by its full
-    /// dense biome column, committing neither if any storage is malformed.
-    pub fn decode_with_biomes(
-        first_sub_chunk_y: i32,
-        sub_chunk_count: usize,
-        biome_base_sub_chunk_y: i32,
-        biome_storage_count: usize,
-        payload: &[u8],
-    ) -> Result<Self, DecodeError> {
-        let mut decoded = Self::decode(first_sub_chunk_y, sub_chunk_count, payload)?;
-        let biomes = DecodedBiomeColumn::decode(
-            biome_base_sub_chunk_y,
-            biome_storage_count,
-            &payload[decoded.block_bytes_consumed..],
-        )?;
-        decoded.bytes_consumed = decoded
-            .block_bytes_consumed
-            .checked_add(biomes.bytes_consumed())
-            .expect("decoded prefixes cannot exceed the input slice");
-        decoded.biomes = Some(biomes);
-        Ok(decoded)
-    }
-
-    /// Decodes the complete inline LevelChunk transaction: packed blocks,
-    /// dense biomes, the border-block prefix, and every sparse block entity.
-    pub fn decode_with_biomes_and_block_entities(
-        chunk: ChunkKey,
-        first_sub_chunk_y: i32,
-        sub_chunk_count: usize,
-        biome_base_sub_chunk_y: i32,
-        biome_storage_count: usize,
-        payload: &[u8],
-    ) -> Result<Self, DecodeError> {
-        let mut decoded = Self::decode_with_biomes(
-            first_sub_chunk_y,
-            sub_chunk_count,
-            biome_base_sub_chunk_y,
-            biome_storage_count,
-            payload,
-        )?;
-        let block_entities = DecodedBlockEntities::decode_level_chunk_tail(
-            chunk,
-            &payload[decoded.bytes_consumed..],
-        )?;
-        decoded.bytes_consumed = decoded
-            .bytes_consumed
-            .checked_add(block_entities.bytes_consumed())
-            .expect("decoded prefixes cannot exceed the input slice");
-        decoded.block_entities = Some(block_entities);
-        Ok(decoded)
-    }
-
-    #[must_use]
-    pub fn bytes_consumed(&self) -> usize {
-        self.bytes_consumed
-    }
-
-    /// Bytes occupied only by serialized block sub-chunks.
-    #[must_use]
-    pub fn block_bytes_consumed(&self) -> usize {
-        self.block_bytes_consumed
-    }
-
-    /// Returns an immutable worker-produced snapshot for one Y index.
-    #[must_use]
-    pub fn sub_chunk(&self, y: i32) -> Option<Arc<SubChunk>> {
-        self.sub_chunks.get(&y).cloned()
-    }
-
-    pub fn sub_chunks(&self) -> impl ExactSizeIterator<Item = (i32, Arc<SubChunk>)> + '_ {
-        self.sub_chunks
-            .iter()
-            .map(|(&y, sub_chunk)| (y, Arc::clone(sub_chunk)))
     }
 }
 
@@ -325,38 +182,25 @@ impl ChunkStore {
         self.chunk(key.chunk())?.block_entity(key)
     }
 
-    /// Prefix-decodes and applies one successful SubChunk response payload.
-    ///
-    /// Legitimate block-entity NBT may follow the serialized sub-chunk, so
-    /// this ingestion path intentionally does not require exact EOF. The
+    /// Decodes and applies one successful SubChunk response payload. The
     /// returned key identifies the changed storage; call
     /// [`SubChunkKey::mesh_dependents`] before scheduling culling meshes.
     pub fn apply_sub_chunk(
         &mut self,
         key: SubChunkKey,
         payload: &[u8],
+        ids: &dyn BlockIds,
     ) -> Result<Option<SubChunkKey>, DecodeError> {
-        let (decoded, _) = SubChunk::decode_prefix(payload)?;
-        self.commit_sub_chunk(key, decoded)
+        self.commit_sub_chunk(key, SubChunk::decode(payload, ids))
     }
 
-    /// Commits a previously decoded SubChunk response without decoding on the
-    /// calling thread.
+    /// Commits a previously decoded SubChunk response at the requested Y,
+    /// which vanilla uses whatever the payload's Y byte says.
     pub fn commit_sub_chunk(
         &mut self,
         key: SubChunkKey,
         decoded: SubChunk,
     ) -> Result<Option<SubChunkKey>, DecodeError> {
-        if let Some(actual) = decoded.y_index() {
-            let actual = i32::from(actual);
-            if actual != key.y {
-                return Err(DecodeError::SubChunkIndexMismatch {
-                    expected: key.y,
-                    actual,
-                });
-            }
-        }
-
         if decoded.has_no_storages() {
             return self.remove_sub_chunk(key).map_err(Into::into);
         }
@@ -771,36 +615,16 @@ impl ChunkStore {
         }
     }
 
-    /// Prefix-decodes all block sub-chunks in an inline LevelChunk and swaps
-    /// the complete column only after every input has validated.
+    /// Decodes an inline LevelChunk's block sub-chunks and swaps the column.
     pub fn apply_level_chunk(
         &mut self,
         key: ChunkKey,
         first_sub_chunk_y: i32,
         sub_chunk_count: usize,
         payload: &[u8],
+        ids: &dyn BlockIds,
     ) -> Result<ApplyLevelChunk, DecodeError> {
-        let decoded = DecodedLevelChunk::decode(first_sub_chunk_y, sub_chunk_count, payload)?;
-        self.commit_level_chunk(key, decoded)
-    }
-
-    /// Decodes and atomically applies an inline LevelChunk including biomes.
-    pub fn apply_level_chunk_with_biomes(
-        &mut self,
-        key: ChunkKey,
-        first_sub_chunk_y: i32,
-        sub_chunk_count: usize,
-        biome_base_sub_chunk_y: i32,
-        biome_storage_count: usize,
-        payload: &[u8],
-    ) -> Result<ApplyLevelChunk, DecodeError> {
-        let decoded = DecodedLevelChunk::decode_with_biomes(
-            first_sub_chunk_y,
-            sub_chunk_count,
-            biome_base_sub_chunk_y,
-            biome_storage_count,
-            payload,
-        )?;
+        let decoded = DecodedLevelChunk::decode(first_sub_chunk_y, sub_chunk_count, payload, ids);
         self.commit_level_chunk(key, decoded)
     }
 

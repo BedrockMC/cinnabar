@@ -257,7 +257,7 @@ impl<T: Transport> BedrockStream<SecurePending, Server, T> {
 
         self.transport
             .send_batch(&[McpePacket::from(PlayStatusPacket {
-                status: PlayStatusPacketStatus::LoginSuccess,
+                status: PlayStatusPacketStatus::Loginsuccess,
             })])
             .await?;
 
@@ -394,7 +394,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Server, T> {
 
                                 return Ok(BedrockStream {
                                     transport: self.transport,
-                                    state: StartGame,
+                                    state: StartGame::default(),
                                     _role: PhantomData,
                                 });
                             }
@@ -409,7 +409,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Server, T> {
 
                                 return Ok(BedrockStream {
                                     transport: self.transport,
-                                    state: StartGame,
+                                    state: StartGame::default(),
                                     _role: PhantomData,
                                 });
                             }
@@ -482,7 +482,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
                 McpePacket::from(params.available_entities.as_ref().clone()),
                 McpePacket::from(params.creative_content.as_ref().clone()),
                 McpePacket::from(PlayStatusPacket {
-                    status: PlayStatusPacketStatus::PlayerSpawn,
+                    status: PlayStatusPacketStatus::Playerspawn,
                 }),
             ])
             .await?;
@@ -556,7 +556,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
         tracing::debug!("Client initialized, entering Play state");
         Ok(BedrockStream {
             transport: self.transport,
-            state: Play,
+            state: Play::default(),
             _role: PhantomData,
         })
     }

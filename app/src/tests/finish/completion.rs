@@ -75,6 +75,80 @@ fn world_ready_requires_two_exact_gpu_presented_frames_bound_to_the_raw_cohort()
 }
 
 #[test]
+fn world_ready_binds_announced_columns_without_rewriting_raw_radius_identity() {
+    let started = Instant::now();
+    let mut snapshot = settled_world_snapshot();
+    let raw_cohort = RenderViewCohort::new(0, [65, 65], 2);
+    let status = snapshot.cohort.as_mut().expect("settled status");
+    status.target.radius = raw_cohort.radius;
+    status.committed = Some(status.target);
+    status.expected = 2;
+    status.loaded_target = 2;
+    let inside = SubChunkKey::new(0, 65, 0, 65);
+    let announced_outside = SubChunkKey::new(0, 69, 0, 65);
+    let mut proposed = TargetRenderExpectation {
+        cohort: raw_cohort,
+        source_cohort: None,
+        target_columns: Some(Arc::from([inside.chunk(), announced_outside.chunk()])),
+        target_keys: None,
+        manifest: Arc::from([(inside, 7), (announced_outside, 8)]),
+        view_generation: 0,
+        render_ready_at: started,
+    };
+    let mut settler = WorldReadySettler::default();
+
+    let expectation = settler
+        .reconcile_presentation(snapshot, proposed.clone(), started)
+        .expect("exact status should arm the announced-column presentation target");
+    assert_eq!(expectation.cohort, raw_cohort);
+    assert_eq!(expectation.target_columns, proposed.target_columns);
+
+    let mut missing_announced = presented_acknowledgement(
+        &expectation,
+        10,
+        Duration::from_millis(1),
+        Duration::from_millis(2),
+    );
+    missing_announced.allocation_manifest = Arc::from([(inside, 7)]);
+    missing_announced.visible_allocation_manifest = Arc::clone(&missing_announced.allocation_manifest);
+    missing_announced.drawn_manifest = Arc::clone(&missing_announced.allocation_manifest);
+    missing_announced.missing_target_instances = 1;
+    assert!(
+        !settler.observe_presented_frame(missing_announced),
+        "missing announced terrain must not certify readiness"
+    );
+    assert!(!settler.has_stable_presentation(snapshot));
+
+    assert!(!settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        11,
+        Duration::from_millis(3),
+        Duration::from_millis(4),
+    )));
+    assert!(settler.observe_presented_frame(presented_acknowledgement(
+        &expectation,
+        12,
+        Duration::from_millis(5),
+        Duration::from_millis(6),
+    )));
+
+    proposed.target_columns = Some(Arc::from([
+        inside.chunk(),
+        announced_outside.chunk(),
+        world::ChunkKey::new(0, 70, 65),
+    ]));
+    let expanded = settler
+        .reconcile_presentation(snapshot, proposed, started + Duration::from_millis(7))
+        .expect("expanded announced membership should arm a new candidate");
+    assert_eq!(expanded.cohort, raw_cohort);
+    assert_ne!(expanded.view_generation, expectation.view_generation);
+    assert!(
+        !settler.has_stable_presentation(snapshot),
+        "a previous presented pair survived an explicit membership change"
+    );
+}
+
+#[test]
 fn presentation_waits_until_the_captured_readiness_ingress_fence_is_consumed() {
     let started = Instant::now();
     let mut snapshot = settled_world_snapshot();
@@ -117,6 +191,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
         delta: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: false,
         tick: 55,
     };
@@ -223,6 +298,7 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
         delta: [0.0; 3],
         pitch: movement.pitch,
         yaw: movement.yaw,
+        subject: protocol::MovementCorrectionSubject::Player,
         on_ground: false,
         tick: 1,
     };
@@ -248,21 +324,19 @@ fn relative_socket_dir_falls_back_to_the_development_project_root() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "rust-mcbe-socket-resolution-{}-{unique}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir()
+        .join(format!(
+            "rust-mcbe-socket-resolution-{}-{unique}",
+            std::process::id()
+        ))
+        .join("long-launch-path-segment".repeat(3));
     let current_dir = root.join("launcher");
     let executable = root.join("project/target/debug/bedrock-client.exe");
     let expected = root.join("project/.local/run");
     std::fs::create_dir_all(&current_dir).unwrap();
     std::fs::create_dir_all(&expected).unwrap();
-    let endpoint_name = if cfg!(windows) {
-        "game.addr"
-    } else {
-        "game.sock"
-    };
-    std::fs::write(expected.join(endpoint_name), "endpoint").unwrap();
+    let project_endpoint = bridge_endpoint_path(&expected);
+    std::fs::write(&project_endpoint, "endpoint").unwrap();
 
     assert_eq!(
         resolve_socket_dir_from(
@@ -273,6 +347,7 @@ fn relative_socket_dir_falls_back_to_the_development_project_root() {
         expected
     );
 
+    let _ = std::fs::remove_file(project_endpoint);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -282,25 +357,39 @@ fn bridge_endpoint_exists_only_for_the_platform_marker() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "rust-mcbe-platform-endpoint-{}-{unique}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir()
+        .join(format!(
+            "rust-mcbe-platform-endpoint-{}-{unique}",
+            std::process::id()
+        ))
+        .join("long-platform-path-segment".repeat(3));
     std::fs::create_dir_all(&root).unwrap();
-    let (expected, wrong) = if cfg!(windows) {
-        ("game.addr", "game.sock")
+    let wrong = if cfg!(windows) {
+        "game.sock"
     } else {
-        ("game.sock", "game.addr")
+        "game.addr"
     };
+    let expected = bridge_endpoint_path(&root);
 
     std::fs::write(root.join(wrong), "wrong platform").unwrap();
+    #[cfg(unix)]
+    {
+        let obsolete_direct = root.join("game.sock");
+        assert_ne!(expected, obsolete_direct);
+        assert_eq!(expected.parent(), Some(Path::new("/tmp")));
+        let name = expected.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with("cinnabar-"));
+        assert!(name.ends_with(".sock"));
+        std::fs::write(obsolete_direct, "obsolete direct marker").unwrap();
+    }
     assert!(!bridge_endpoint_exists(&root));
     preflight_bridge_endpoint(&root)
         .expect_err("a wrong-platform marker must not pass startup preflight");
 
-    std::fs::write(root.join(expected), "expected platform").unwrap();
+    std::fs::write(&expected, "expected platform").unwrap();
     assert!(bridge_endpoint_exists(&root));
 
+    let _ = std::fs::remove_file(expected);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -354,14 +443,14 @@ fn clearing_a_stale_bridge_endpoint_lets_the_wait_observe_a_fresh_bind() {
     std::fs::write(bridge_endpoint_path(&socket_dir), "stale publication").unwrap();
     assert!(bridge_endpoint_exists(&socket_dir));
 
-    crate::menu::clear_stale_bridge_endpoint(&socket_dir)
+    crate::menu::core_process::clear_stale_bridge_endpoint(&socket_dir)
         .expect("a publication left by an earlier core must be removable");
 
     assert!(
         !bridge_endpoint_exists(&socket_dir),
         "a stale publication would satisfy the core wait before the new core binds"
     );
-    crate::menu::clear_stale_bridge_endpoint(&socket_dir)
+    crate::menu::core_process::clear_stale_bridge_endpoint(&socket_dir)
         .expect("clearing an absent publication must succeed");
 
     let _ = std::fs::remove_dir_all(socket_dir);

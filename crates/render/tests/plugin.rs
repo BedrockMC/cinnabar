@@ -74,7 +74,7 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../src/chunk/draw.rs"),
     include_str!("../src/chunk/transparent/liquid.rs"),
 );
-use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
+use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
 
@@ -267,6 +267,12 @@ fn runtime_assets() -> &'static RuntimeAssets {
             })]
             .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
+            provenance: assets::BlobProvenance {
+                source_manifest_sha256: [0xA5; 32],
+                block_registry_sha256: [0x5A; 32],
+                light_registry_sha256: [0x33; 32],
+                biome_registry_sha256: [0x3C; 32],
+            },
         };
         let blob = encode_blob(&compiled).expect("encode synthetic plugin assets");
         RuntimeAssets::decode(&blob).expect("decode synthetic plugin assets")
@@ -341,7 +347,7 @@ fn flowerbed_runtime_assets() -> &'static RuntimeAssets {
         write_flowerbed_pack(directory.path());
         let generated = read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
             .expect("decode committed FlowerBed registry");
-        let records = [0_u32, 3, 7]
+        let mut records = [0_u32, 3, 7]
             .into_iter()
             .enumerate()
             .map(|(sequential_id, growth)| {
@@ -359,6 +365,18 @@ fn flowerbed_runtime_assets() -> &'static RuntimeAssets {
                 record
             })
             .collect::<Vec<_>>();
+        // The compiler resolves canonical air from registry content and fails
+        // closed on an air-less registry, so this family-isolated fixture
+        // appends the real committed minecraft:air record unchanged; its
+        // genuine protocol-1001 identity collides with neither the
+        // renumbered wildflowers ids nor their synthetic 50_000+ hashes.
+        records.push(
+            generated
+                .iter()
+                .find(|record| record.name.as_ref() == "minecraft:air")
+                .expect("committed canonical air record")
+                .clone(),
+        );
         let compiled = compile_pack(directory.path(), &records)
             .expect("compile real FlowerBed render fixture through assets");
         let blob = encode_blob(&compiled).expect("encode compiled FlowerBed render fixture");
@@ -387,7 +405,7 @@ fn flowerbed_sub_chunk(placements: &[([u8; 3], usize)]) -> SubChunk {
     encoded.extend(zig_zag_i32(0));
     encoded.extend(zig_zag_i32(1));
     encoded.extend(zig_zag_i32(2));
-    SubChunk::decode(&encoded).expect("decode packed FlowerBed subchunk")
+    SubChunk::decode(&encoded, &RawBlockIds { air: AIR })
 }
 
 #[path = "plugin/contracts.rs"]

@@ -1,15 +1,45 @@
 pub mod args;
 pub mod asset_startup;
+mod audio;
+mod block_cracks;
+mod block_entities;
+mod block_use;
 pub mod camera;
 mod environment;
+mod first_run;
+mod game_mode_capabilities;
 mod hotbar;
+mod hud_tools;
+mod install_layout;
+mod interaction_authority;
+pub mod lifecycle;
 pub mod local_player;
+mod local_player_camera_receipt;
+#[allow(dead_code, unused_imports, reason = "embedded by the menu module")]
+mod local_worlds;
+mod melee;
 mod menu;
 pub mod metrics;
+mod mining;
 pub mod movement;
+mod named_audio;
+mod native_dialog;
+mod particles;
+mod pick_block;
+mod player_skin;
 mod present_mode;
 pub mod semantic_controls;
+pub mod server_camera;
+pub mod session_audio;
+mod session_cleanup;
 pub mod settings_runtime;
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "consumed by the store screens as they land"
+)]
+mod store;
+mod survival_mining;
 pub mod ui_runtime;
 
 mod acceptance;

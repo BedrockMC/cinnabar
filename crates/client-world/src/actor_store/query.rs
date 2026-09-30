@@ -1,8 +1,14 @@
 use super::*;
 use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use crate::{
+    ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats, item::ActorArmorSnapshot,
+};
 
 impl ActorStore {
+    pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
+        self.rider_to_ridden.get(&rider_unique_id).copied()
+    }
+
     pub(crate) fn player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         let actor = self.actors.get(&runtime_id)?;
         let ActorKind::Player { uuid, .. } = &actor.kind else {
@@ -61,6 +67,10 @@ impl ActorStore {
         players.sort_unstable_by_key(|(actor, _)| actor.runtime_id);
         players
     }
+    pub(crate) fn snapshot_by_unique(&self, unique_id: i64) -> Option<&ActorSnapshot> {
+        self.actors.get(self.unique_to_runtime.get(&unique_id)?)
+    }
+
     /// Resolves an actor's authoritative health attribute by unique id, for
     /// the mount-health HUD row. Non-finite or inverted values fail closed.
     pub(crate) fn health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
@@ -75,6 +85,12 @@ impl ActorStore {
             return None;
         }
         Some((current.min(maximum), maximum))
+    }
+
+    /// Position and view angles `(position, yaw, pitch)` of the actor with this unique id.
+    pub(crate) fn pose_by_unique(&self, unique_id: i64) -> Option<([f32; 3], f32, f32)> {
+        let actor = self.actors.get(self.unique_to_runtime.get(&unique_id)?)?;
+        Some((actor.position, actor.yaw, actor.pitch))
     }
 
     /// Whether the actor with this unique id carries a named attribute, for
@@ -95,11 +111,25 @@ impl ActorStore {
         self.items.canonicalize(stack)
     }
 
+    pub(crate) fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
+        self.items.identifier_for_network_id(network_id)
+    }
+
+    pub(crate) fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
+        self.items.apply_registry(registry)
+    }
+
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(&runtime_id)
     }
+    pub(crate) fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.items.max_use_ticks(identifier)
+    }
     pub(crate) fn len(&self) -> usize {
         self.actors.len()
+    }
+    pub(crate) fn actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        self.actors.values()
     }
     pub(crate) fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.animation.get(runtime_id)
@@ -112,6 +142,16 @@ impl ActorStore {
     }
     pub(crate) fn equipment(&self, runtime_id: u64) -> Option<&ActorEquipmentSnapshot> {
         self.items.get(self.lifetime(runtime_id)?)
+    }
+    pub(crate) fn equipment_in_hand(
+        &self,
+        runtime_id: u64,
+        hand: protocol::ActorHandedness,
+    ) -> Option<&ActorEquipmentSnapshot> {
+        self.items.get_in_hand(self.lifetime(runtime_id)?, hand)
+    }
+    pub(crate) fn armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
+        self.items.armor(runtime_id)
     }
     pub(crate) fn action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
         self.actions.get(self.lifetime(runtime_id)?)

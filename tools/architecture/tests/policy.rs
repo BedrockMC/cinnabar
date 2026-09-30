@@ -28,6 +28,10 @@ forbidden_artifacts = ["**/*.exe", "**/*.png"]
 path = "vendor/"
 ownership_record = "vendor/UPSTREAM.md"
 
+[[owned_artifacts]]
+path = "art/"
+ownership_record = "NOTICES.md"
+
 [[crates]]
 name = "alpha"
 path = "crates/alpha"
@@ -75,6 +79,7 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
         "$marker = 'RUST_MCBE_READY'\n",
     );
     write(&root.join("app/captured.png"), "not really an image");
+    write(&root.join("art/sky.png"), "original art");
     write(
         &root.join("Cargo.toml"),
         "[workspace]\nmembers=['crates/alpha','crates/beta','crates/gamma']\n",
@@ -95,6 +100,16 @@ fn rejects_each_structural_policy_violation_with_sorted_diagnostics() {
         diagnostics
             .iter()
             .any(|line| line.contains("matches forbidden artifact pattern"))
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|line| line.starts_with("art/sky.png"))
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("owned artifact path `art/` is not named"))
     );
     assert!(
         diagnostics
@@ -170,6 +185,7 @@ fn resolves_inherited_workspace_dependencies_before_enforcing_edges() {
         &root.join("vendor/UPSTREAM.md"),
         "owned upstream snapshot\n",
     );
+    write(&root.join("NOTICES.md"), "art/: original\n");
 
     let diagnostics = check_repository(root, &policy).expect("run checker");
     assert!(
@@ -188,8 +204,10 @@ fn permits_declared_vendor_and_log_only_markers() {
         &root.join("vendor/UPSTREAM.md"),
         "owned upstream snapshot\n",
     );
+    write(&root.join("NOTICES.md"), "art/: original\n");
     write(&root.join("vendor/generated.rs"), &"line\n".repeat(50));
     write(&root.join(".local/captured.png"), "ignored local artifact");
+    write(&root.join("art/sky.png"), "original art");
     write(
         &root.join("crates/alpha/Cargo.toml"),
         "[package]\nname='alpha'\nversion='0.1.0'\n",
@@ -249,6 +267,7 @@ fn grandfathered_line_baseline_allows_only_the_recorded_size() {
         &root.join("vendor/UPSTREAM.md"),
         "owned upstream snapshot\n",
     );
+    write(&root.join("NOTICES.md"), "art/: original\n");
 
     assert_eq!(
         check_repository(root, &policy).expect("run checker at baseline"),

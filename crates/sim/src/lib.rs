@@ -2,26 +2,33 @@
 
 mod aabb;
 mod conformance;
+mod destroy;
 mod math;
 mod prediction;
 mod simulator;
 mod world;
 
-pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_HORIZONTAL_EPSILON, PLAYER_WIDTH};
+pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_HORIZONTAL_EPSILON, PLAYER_WIDTH, depenetrate_player};
 pub use conformance::{
     ConformanceError, LegacyTickResult, LegacyTraceRecord, ScenarioAudit, ScenarioEvidence,
     ScenarioScript, ScenarioStep, ScenarioWorld, TraceRecord, audit_scenario_trace_jsonl,
     verify_legacy_trace_jsonl, verify_scenario_trace_jsonl, verify_trace_jsonl,
 };
+pub use destroy::{
+    BlockDestroyInfo, DestroyConditions, HeldTool, ToolKind, ToolTier, block_destroy_info,
+    destroy_progress_per_tick,
+};
 pub use math::Vec3;
-pub use prediction::{PredictionError, PredictionHistory, ReplayResult};
+pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
-    AxisCollisions, MAX_BLOCK_SAMPLES_PER_TICK, MovementEnvironment, MovementInput, PlayerState,
-    SimulationError, Simulator, TICKS_PER_SECOND, TickResult,
+    AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
+    MovementEffects, MovementEnvironment, MovementInput, MovementMode, PlayerState,
+    ProcessedControls, SimulationError, Simulator, TICKS_PER_SECOND, TickResult, pose_fits,
 };
 pub use world::{
-    BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace, CollisionQuery,
-    CollisionRegistry, CollisionRegistryIdentity, CollisionWorld, MAX_COLLISION_IDENTITY_CHUNKS,
-    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, RegistryError, SurfaceResponse,
+    BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
+    CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
+    LenientCollisionBoxes, LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS,
+    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider, RegistryError, SurfaceResponse,
     WorldCollisionIdentity, WorldQueryError,
 };

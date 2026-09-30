@@ -8,6 +8,10 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+mod forms;
+mod language;
+mod mining_mode;
+mod queues;
 
 use protocol::{
     ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, InventoryAuthority, InventoryEvent,
@@ -17,19 +21,32 @@ use protocol::{
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkConfig, NetworkControlEvent,
-    NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer, NetworkSession,
-    PacketSendError, ReadinessIngressCounter, SequencedWorldEvent, WORLD_EVENT_CAPACITY,
-    WorldIngress, bounded_counter_log_due, run_network_pump, send_control_event_or_cancel,
+    COMMAND_CAPACITY, CONTROL_EVENT_CAPACITY, NetworkCommand, NetworkControlEvent,
+    NetworkFailureOrigin, NetworkHandle, NetworkPumpPreference, NetworkPumpWork, NetworkSequencer,
+    NetworkSession, PacketSendError, ReadinessIngressCounter, SequencedWorldEvent,
+    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, bounded_counter_log_due,
+    run_network_pump, run_network_pump_with_trace, send_control_event_or_cancel,
     send_event_or_cancel, send_final_blob_cache_telemetry, send_world_event_or_cancel,
-    start_game_inventory_authority, wait_for_login_or_cancel, wait_for_network_work_or_cancel,
-    wait_for_send_or_cancel, wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    session_failure_display, start_game_inventory_authority, start_game_item_registry,
+    wait_for_login_or_cancel, wait_for_network_work_or_cancel, wait_for_send_or_cancel,
+    wrap_readiness_tracked_event, write_network_pump_terminal_marker,
+    write_network_pump_transfer_marker,
 };
 
+#[path = "close_race_tests.rs"]
+mod close_race_tests;
+#[path = "disconnect_tests.rs"]
+mod disconnect_tests;
 #[path = "physics_send_tests.rs"]
 mod physics_send_tests;
 #[path = "routing_tests.rs"]
 mod routing_tests;
+#[path = "transfer_tests.rs"]
+mod transfer_tests;
+
+fn test_packet() -> protocol::Packet {
+    protocol::request_sub_chunk_column(0, 0, 0, -4, 1).unwrap()
+}
 
 #[test]
 fn readiness_ingress_counter_excludes_transport_only_events() {
@@ -74,23 +91,6 @@ fn readiness_ingress_counter_excludes_transport_only_events() {
     assert_eq!(counter.pending(), 0);
 }
 #[test]
-fn cloned_network_configs_share_the_persistent_verified_blob_cache() {
-    let config = NetworkConfig {
-        session_generation: 7,
-        socket_dir: std::path::PathBuf::from("core.sock"),
-        display_name: "cache-owner".to_owned(),
-        client_blob_cache: protocol::ClientBlobCache::default(),
-    };
-    let reconnect = config.clone();
-    let hash = config
-        .client_blob_cache
-        .insert(b"verified-across-session")
-        .expect("seed verified blob");
-
-    assert!(reconnect.client_blob_cache.contains(hash));
-}
-
-#[test]
 fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
     assert!(bounded_counter_log_due(0, 1));
     assert!(bounded_counter_log_due(1, 2));
@@ -105,7 +105,7 @@ fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
 
 #[test]
 fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
-    let source = include_str!("../session.rs");
+    let source = include_str!("blob_cache_telemetry.rs");
     let telemetry = source
         .split_once("fn emit_blob_cache_telemetry(stats: BlobCacheStats)")
         .expect("blob-cache telemetry function")
@@ -148,6 +148,7 @@ fn network_pump_terminal_marker_carries_the_unmasked_error() {
         "receive",
         "socket read failed: \"peer reset\"",
         7,
+        None,
     );
     let line = String::from_utf8(output).expect("marker is UTF-8");
     let payload = line
@@ -541,6 +542,7 @@ async fn chat_send_receipt_is_emitted_only_after_the_session_send_completes() {
             }),
             physics: None,
             physics_reanchor: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -583,6 +585,7 @@ async fn successful_fast_transfer_flushes_decoded_pending_ingress_then_enqueues_
             }),
             physics: None,
             physics_reanchor: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -654,6 +657,7 @@ async fn failed_fast_transfer_never_arms_a_reset() {
             }),
             physics: None,
             physics_reanchor: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -696,6 +700,7 @@ async fn successful_non_transfer_chat_does_not_arm_blob_rotation() {
             }),
             physics: None,
             physics_reanchor: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -740,6 +745,7 @@ async fn chat_send_failure_identifies_the_exact_outbox_item() {
             }),
             physics: None,
             physics_reanchor: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -784,6 +790,7 @@ async fn fast_transfer_trace_arms_before_send_and_cancels_after_send_failure() {
             }),
             physics: None,
             physics_reanchor: None,
+            interaction: None,
         })
         .unwrap();
     let (control_event_tx, _controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
@@ -833,6 +840,7 @@ async fn single_worker_acks_ready_command_while_ready_inbound_waits_on_full_worl
                 chat: None,
                 physics: None,
                 physics_reanchor: None,
+                interaction: None,
             })
             .unwrap();
     }
@@ -911,14 +919,22 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             session_generation: 7,
             world: bootstrap,
             environment,
+            custom_blocks: protocol::CustomBlocks::default(),
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
+            item_registry: None,
             player_game_mode: PlayerGameMode::Survival,
             world_default_game_mode: PlayerGameMode::Survival,
             player_game_mode_uses_world_default: false,
+            server_authoritative_block_breaking: false,
+            hardcore: false,
+            hud_rules: protocol::HudRules::default(),
+            packs: crate::runtime::network::PackApplication::default(),
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),
             decode_error_count: 7,
+            server_disconnect: None,
+            origin: NetworkFailureOrigin::Startup,
         },
         NetworkControlEvent::Stopped {
             decode_error_count: 8,
@@ -957,6 +973,8 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
         Ok(NetworkControlEvent::Failed {
             message,
             decode_error_count: 7,
+            server_disconnect: None,
+            ..
         }) if message == "failure"
     ));
     assert!(matches!(
@@ -1115,6 +1133,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
                 chat: None,
                 physics: None,
                 physics_reanchor: None,
+                interaction: None,
             })
             .unwrap();
     }
@@ -1126,6 +1145,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
     let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let worker = thread::spawn(|| thread::sleep(Duration::from_millis(250)));
     let mut handle = NetworkHandle {
+        session_generation: 0,
         control_events,
         world_events,
         commands,
@@ -1143,51 +1163,4 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
 
     assert!(started.elapsed() < Duration::from_millis(100));
     assert!(*handle.shutdown.borrow());
-}
-
-#[test]
-fn network_pending_counts_include_ingress_and_outbound_queues() {
-    let (control_event_tx, control_events) = mpsc::channel(2);
-    let (world_event_tx, world_events) = mpsc::channel(2);
-    let (commands, mut command_rx) = mpsc::channel(2);
-    let (shutdown, _shutdown_rx) = watch::channel(false);
-    let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
-    let mut handle = NetworkHandle {
-        control_events,
-        world_events,
-        commands,
-        physics_reanchor,
-        shutdown,
-        thread: None,
-        readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
-    };
-
-    assert_eq!(handle.pending_event_count(), 0);
-    assert_eq!(handle.pending_command_count(), 0);
-    control_event_tx
-        .try_send(NetworkControlEvent::Stopped {
-            decode_error_count: 0,
-        })
-        .unwrap();
-    assert_eq!(handle.pending_event_count(), 1);
-    world_event_tx
-        .try_send(WorldIngress::Event(SequencedWorldEvent {
-            session_generation: 7,
-            sequence: 1,
-            event: WorldEvent::ChunkRadiusUpdated(16),
-        }))
-        .unwrap();
-    assert_eq!(handle.pending_event_count(), 2);
-    handle.control_events_mut().try_recv().unwrap();
-    handle.world_events_mut().try_recv().unwrap();
-    assert_eq!(handle.pending_event_count(), 0);
-
-    handle.send_packet(test_packet()).unwrap();
-    assert_eq!(handle.pending_command_count(), 1);
-    command_rx.try_recv().unwrap();
-    assert_eq!(handle.pending_command_count(), 0);
-}
-
-fn test_packet() -> protocol::Packet {
-    protocol::request_sub_chunk_column(0, 0, 0, -4, 1).unwrap()
 }

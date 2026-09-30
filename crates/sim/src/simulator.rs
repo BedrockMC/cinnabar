@@ -1,17 +1,25 @@
 mod collision;
+mod controls;
+mod effects;
 mod environment;
 mod input;
+mod mode;
+mod scaffolding;
 mod state;
+mod travel;
 
 use crate::{
-    CollisionWorld, Vec3,
+    Aabb, CollisionWorld, Vec3,
     math::{minecraft_cos, minecraft_sin},
 };
 use collision::{clip_sneak_edge, resolve_motion};
-use environment::sample;
+use environment::{contains_liquid, sample};
 
+pub use controls::{ControlledTickResult, ProcessedControls};
+pub use effects::MovementEffects;
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
+pub use mode::{MovementMode, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
 
 pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
@@ -29,18 +37,36 @@ const DEFAULT_AIR_SPEED: f64 = 0.02;
 const SPRINT_AIR_SPEED: f64 = 0.026;
 const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
 const SNEAK_INPUT_MULTIPLIER: f64 = 0.3;
+const CONSUMABLE_INPUT_MULTIPLIER: f64 = 0.1225;
 const INPUT_IMPULSE_MULTIPLIER: f64 = 0.98;
 const SPRINT_JUMP_IMPULSE: f64 = 0.2;
-const JUMP_DELAY_TICKS: u8 = 10;
+/// Simulator post-jump cooldown length in ticks. A consumed request sets
+/// this and each subsequent tick decrements it; prediction replays rebuild
+/// initiations against the same gate, so it is part of the public contract.
+pub const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;
+// Provisional block-modifier and enchantment coefficients with no bedsim oracle;
+// each needs independent measurement.
+const HONEY_JUMP_FACTOR: f64 = 0.5;
+const HONEY_SLIDE_TRIGGER: f64 = -0.13;
+const HONEY_SLIDE_SPEED: f64 = -0.05;
+const SOUL_SPEED_PER_LEVEL: f64 = 0.105;
+const DEPTH_STRIDER_MAX_LEVEL: u8 = 3;
+const WATER_DRAG: f64 = 0.8;
+/// Ground drag depth strider blends water drag toward (default ground friction times air friction).
+const DEPTH_STRIDER_TARGET_DRAG: f64 = 0.546;
+/// Provisional scaffolding sneak-descent speed; needs independent measurement.
+const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 /// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
 /// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
 /// zero and the factor collapses to its constant term.
 const SLIME_WALK_DAMPING: f64 = 0.4;
 /// `bedsim v0.1.3` `landOnBlock` zeroes a slime rebound below this magnitude.
 const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
+/// Pinned v0.1.5 observation for a clear water-to-ledge exit probe.
+const WATER_LEDGE_EXIT_VERTICAL_VELOCITY: f64 = 0.3;
 
 // Known modelling limitation: bedsim distinguishes `state.Sneaking` (the
 // latched sneak state, which start/stop edges can drive independently) from
@@ -51,17 +77,9 @@ const SLIME_REBOUND_DEADZONE: f64 = 1.0e-4;
 // distinguishes them. A future input model that latches sneak across start/stop
 // edges must split this field before it can claim parity on those ticks.
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Simulator {
-    movement_speed: f64,
-}
-
-impl Default for Simulator {
-    fn default() -> Self {
-        Self {
-            movement_speed: DEFAULT_MOVEMENT_SPEED,
-        }
-    }
+    _private: (),
 }
 
 impl Simulator {
@@ -72,8 +90,20 @@ impl Simulator {
         input: MovementInput,
         world: &impl CollisionWorld,
     ) -> Result<TickResult, SimulationError> {
+        self.tick_with_controls(state, input, world)
+            .map(|output| output.tick_result)
+    }
+
+    /// Advances the same transactional tick and publishes its primary controls.
+    pub fn tick_with_controls(
+        &self,
+        state: &mut PlayerState,
+        input: MovementInput,
+        world: &impl CollisionWorld,
+    ) -> Result<ControlledTickResult, SimulationError> {
         state::validate(state)?;
         input::validate(input)?;
+        let controls = controls::process(input);
         let mut next = state.clone();
         next.tick = next
             .tick
@@ -89,44 +119,83 @@ impl Simulator {
         let grounded_at_start = next.on_ground;
         let retained_collisions = next.collisions;
         let sampled = sample(world, next.position, next.velocity)?;
+        if matches!(
+            input.mode,
+            MovementMode::Swimming
+                | MovementMode::Gliding
+                | MovementMode::Flying
+                | MovementMode::Riding
+        ) {
+            return travel::tick_mode(
+                next,
+                state,
+                input,
+                controls,
+                sampled,
+                grounded_at_start,
+                world,
+            );
+        }
         let friction = if grounded_at_start {
             DEFAULT_AIR_FRICTION * sampled.friction
         } else {
             DEFAULT_AIR_FRICTION
         };
+        let ground_factor = if input.soul_speed > 0
+            && sampled.movement.surface_response == crate::SurfaceResponse::SoulSand
+        {
+            sampled
+                .movement
+                .horizontal_speed_factor
+                .max(1.0 + SOUL_SPEED_PER_LEVEL * f64::from(input.soul_speed))
+        } else {
+            sampled.movement.horizontal_speed_factor
+        };
+        let depth_strider = depth_strider_blend(input.depth_strider, grounded_at_start);
         let relative_speed = if grounded_at_start {
-            let speed = self.movement_speed
+            let speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED)
                 * if input.sprinting {
                     SPRINT_SPEED_MULTIPLIER
                 } else {
                     1.0
                 };
-            speed
-                * sampled.movement.horizontal_speed_factor
-                * (0.162_771_36 / (friction * friction * friction))
+            speed * ground_factor * (0.162_771_36 / (friction * friction * friction))
         } else if sampled.movement.in_water || sampled.movement.in_lava {
-            DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor
+            let base = DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor;
+            if sampled.movement.in_water && depth_strider > 0.0 {
+                let ground = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED);
+                base + (ground - base) * depth_strider
+            } else {
+                base
+            }
         } else if input.sprinting {
             SPRINT_AIR_SPEED
         } else {
             DEFAULT_AIR_SPEED
         };
 
-        let max_input = if input.sneaking {
-            SNEAK_INPUT_MULTIPLIER
-        } else {
-            1.0
-        };
         apply_relative_movement(
             &mut next.velocity,
-            input.strafe.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,
-            input.forward.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,
+            controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
+            controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
             input.yaw_degrees,
             relative_speed,
         );
 
         if input.jump_pressed && next.on_ground && next.jump_delay == 0 {
-            next.velocity.y = next.velocity.y.max(DEFAULT_JUMP_HEIGHT);
+            let honey = if sampled.movement.surface_response == crate::SurfaceResponse::Honey {
+                HONEY_JUMP_FACTOR
+            } else {
+                1.0
+            };
+            next.velocity.y = next.velocity.y.max(
+                (DEFAULT_JUMP_HEIGHT
+                    + input
+                        .effects
+                        .jump_boost
+                        .map_or(0.0, |amplifier| 0.1 * (f64::from(amplifier) + 1.0)))
+                    * honey,
+            );
             next.jump_delay = JUMP_DELAY_TICKS;
             if input.sprinting {
                 let yaw = input.yaw_degrees.to_radians();
@@ -145,8 +214,13 @@ impl Simulator {
                 sampled.movement.on_climbable && (retained_collisions.x || retained_collisions.z);
             if input.jumping || wall_climb {
                 next.velocity.y = CLIMB_SPEED;
-            } else if input.sneaking && next.velocity.y < 0.0 {
-                next.velocity.y = 0.0;
+            } else if input.sneaking {
+                // Sneaking descends scaffolding but holds position on a ladder.
+                if sampled.movement.in_scaffolding {
+                    next.velocity.y = -SCAFFOLDING_SNEAK_DESCENT;
+                } else if next.velocity.y < 0.0 {
+                    next.velocity.y = 0.0;
+                }
             }
         }
         if sampled.movement.in_water || sampled.movement.in_lava {
@@ -164,8 +238,19 @@ impl Simulator {
             next.velocity.y *= sampled.movement.vertical_speed_factor;
             next.velocity.z *= sampled.movement.horizontal_speed_factor;
         }
+        if sampled.movement.surface_response == crate::SurfaceResponse::Honey
+            && !grounded_at_start
+            && (retained_collisions.x || retained_collisions.z)
+            && next.velocity.y < HONEY_SLIDE_TRIGGER
+        {
+            next.velocity.y = HONEY_SLIDE_SPEED;
+        }
         let mut identity = sampled.identity;
-        if input.sneaking && grounded_at_start && next.velocity.y <= 0.0 {
+        if input.sneaking
+            && input.mode != MovementMode::Crawling
+            && grounded_at_start
+            && next.velocity.y <= 0.0
+        {
             let (clipped, edge_identity) = clip_sneak_edge(world, next.position, next.velocity)?;
             next.velocity = clipped;
             if let Some(edge_identity) = edge_identity {
@@ -174,7 +259,13 @@ impl Simulator {
         }
 
         let pre_collision_velocity = next.velocity;
-        let motion = resolve_motion(world, next.position, next.velocity, grounded_at_start)?;
+        let motion = resolve_motion(
+            &scaffolding::ScaffoldingView::new(world, next.position.y, input.sneaking),
+            next.position,
+            next.velocity,
+            grounded_at_start,
+            input.mode.hitbox_height(input.sneaking),
+        )?;
         identity = identity.merge(&motion.identity)?;
         next.position += motion.resolved;
         next.on_ground = motion.stepped
@@ -225,17 +316,72 @@ impl Simulator {
             next.velocity.z = 0.0;
         }
 
+        let water_ledge_exit =
+            sampled.movement.in_water && (motion.collisions.x || motion.collisions.z);
         if sampled.movement.in_cobweb {
             next.velocity = Vec3::ZERO;
+            effects::apply_vertical(
+                &mut next.velocity.y,
+                input.effects,
+                NORMAL_GRAVITY,
+                NORMAL_GRAVITY_MULTIPLIER,
+            );
         } else if sampled.movement.in_water || sampled.movement.in_lava {
-            let drag = if sampled.movement.in_lava { 0.5 } else { 0.8 };
+            // When both liquid facts overlap, the pinned v0.1.5 slice follows
+            // water travel rather than composing water gravity with lava drag.
+            let drag = if sampled.movement.in_water {
+                WATER_DRAG + (DEPTH_STRIDER_TARGET_DRAG - WATER_DRAG) * depth_strider
+            } else {
+                0.5
+            };
             next.velocity.x *= drag;
-            next.velocity.y = (next.velocity.y - 0.02) * drag;
+            next.velocity.y *= drag;
             next.velocity.z *= drag;
+            // Pinned v0.1.5 open-water and ledge controls distinguish water's
+            // non-swimming gravity from lava's ordinary liquid gravity.
+            let gravity = if sampled.movement.in_water {
+                0.005
+            } else {
+                0.02
+            };
+            effects::apply_vertical(&mut next.velocity.y, input.effects, gravity, 1.0);
         } else {
-            next.velocity.y = (next.velocity.y - NORMAL_GRAVITY) * NORMAL_GRAVITY_MULTIPLIER;
+            let gravity = if input.effects.slow_falling && next.velocity.y < 0.0 {
+                0.01
+            } else {
+                NORMAL_GRAVITY
+            };
+            effects::apply_vertical(
+                &mut next.velocity.y,
+                input.effects,
+                gravity,
+                NORMAL_GRAVITY_MULTIPLIER,
+            );
             next.velocity.x *= friction;
             next.velocity.z *= friction;
+        }
+        if water_ledge_exit {
+            if motion.collisions.x {
+                next.movement.x = 0.0;
+            }
+            if motion.collisions.z {
+                next.movement.z = 0.0;
+            }
+            // The pinned clear, blocked, and still-submerged cases distinguish
+            // this raised probe from the ordinary swept collision volume.
+            let probe = Aabb::player_at(next.position).translated(Vec3::new(
+                next.velocity.x,
+                next.velocity.y + 0.6 + state.position.y - next.position.y,
+                next.velocity.z,
+            ));
+            let collision_probe = collision::has_collision(world, probe)?;
+            let (liquid_probe, liquid_identity) =
+                contains_liquid(world, probe, sampled.block_samples)?;
+            identity = identity.merge(&collision_probe.identity)?;
+            identity = identity.merge(&liquid_identity)?;
+            if !collision_probe.value && !liquid_probe {
+                next.velocity.y = WATER_LEDGE_EXIT_VERTICAL_VELOCITY;
+            }
         }
         match sampled.movement.surface_response {
             crate::SurfaceResponse::BubbleUp => next.velocity.y = next.velocity.y.max(0.1),
@@ -256,8 +402,17 @@ impl Simulator {
             world_identity: identity,
         };
         *state = next;
-        Ok(result)
+        Ok(ControlledTickResult {
+            tick_result: result,
+            controls,
+        })
     }
+}
+
+/// Depth strider's pull of water travel toward ground travel, `0..=1`; halved airborne.
+fn depth_strider_blend(level: u8, grounded: bool) -> f64 {
+    let blend = f64::from(level.min(DEPTH_STRIDER_MAX_LEVEL)) / f64::from(DEPTH_STRIDER_MAX_LEVEL);
+    if grounded { blend } else { blend * 0.5 }
 }
 
 fn apply_relative_movement(

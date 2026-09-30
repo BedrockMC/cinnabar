@@ -144,7 +144,7 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
             WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
                 dimension: 0,
                 position,
-                nbt: vec![10, 0, 8],
+                nbt: vec![1, 0, 0],
             }),
         )
         .unwrap();
@@ -262,13 +262,16 @@ fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
     let mut payload = vec![9, 1, (-4_i8) as u8, 1];
     payload.extend(zig_zag_i32(7));
     payload.extend(block_entity_nbt("Sign", sub_chunk_position));
-    let mut prepared = super::prepare_sub_chunks(SubChunkBatchEvent {
-        dimension: 0,
-        entries: vec![SubChunkEntryEvent {
-            position: [sub_chunk.x, sub_chunk.y, sub_chunk.z],
-            result: SubChunkResult::Success { payload },
-        }],
-    });
+    let mut prepared = super::prepare_sub_chunks(
+        SubChunkBatchEvent {
+            dimension: 0,
+            entries: vec![SubChunkEntryEvent {
+                position: [sub_chunk.x, sub_chunk.y, sub_chunk.z],
+                result: SubChunkResult::Success { payload },
+            }],
+        },
+        &test_decode_ids(),
+    );
     apply_sub_chunk_result(&mut stream, sub_chunk, prepared.remove(0).result);
     assert_eq!(
         stream.store.block_entity(sub_chunk_entity).unwrap().id(),
@@ -297,7 +300,13 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
     stream
         .submit(
             2,
-            WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled: false }),
+            WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
+                hud: protocol::HudRules {
+                    show_coordinates: Some(true),
+                    show_days_played: None,
+                },
+            }),
         )
         .unwrap();
     stream
@@ -346,6 +355,14 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
             },
         ]
     );
+    // The same packet's HUD rules commit to the UI queue.
+    assert!(stream.committed_ui.iter().any(|event| matches!(
+        event,
+        super::CommittedUiEvent::Ui {
+            sequence: 2,
+            event: protocol::UiEvent::HudRules(_),
+        }
+    )));
     assert_eq!(stream.pending_mesh.len(), pending_mesh_count);
     assert_eq!(stream.mesh_changes.len(), mesh_change_count);
     assert_eq!(stream.connectivity_generation, connectivity_generation);
@@ -407,6 +424,7 @@ fn inline_level_chunk_decodes_full_dimension_biomes_independent_of_block_count()
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    define_custom_biomes(&mut stream, [7]);
     let mut payload = vec![9, 0, (-4_i8) as u8];
     payload.extend(biome_payload(0, 7));
 
@@ -450,6 +468,7 @@ fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
         block_network_ids_are_hashes: false,
     });
 
+    define_custom_biomes(&mut stream, [9]);
     stream
         .submit(
             1,
@@ -500,8 +519,8 @@ fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     stream.resident.insert(neighbour);
@@ -550,23 +569,24 @@ fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
         .store
         .commit_level_chunk(
             source.chunk(),
-            DecodedLevelChunk::decode_with_biomes(
-                -4,
+            DecodedLevelChunk::decode_inline(
+                source.chunk(),
+                world::DimensionSlots {
+                    base_sub_chunk_y: -4,
+                    count: 24,
+                },
                 1,
-                -4,
-                protocol::vanilla_dimension_range(0)
-                    .unwrap()
-                    .sub_chunk_count,
                 &original_payload,
-            )
-            .unwrap(),
+                &RAW_IDS,
+                &RAW_BIOMES,
+            ),
         )
         .unwrap();
     stream
         .store
         .commit_level_chunk(
             diagonal.chunk(),
-            DecodedLevelChunk::decode(-4, 1, block_payload).unwrap(),
+            DecodedLevelChunk::decode(-4, 1, block_payload, &RAW_IDS),
         )
         .unwrap();
     stream.resident.extend([source, diagonal]);
@@ -623,13 +643,13 @@ fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() 
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     stream.store.commit_biome_column(
         ChunkKey::new(0, 1, 1),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     stream.resident.insert(center);
     let generation = stream.mark_dirty_exact(center, Instant::now());
@@ -656,6 +676,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    define_custom_biomes(&mut stream, [1, 2, 3]);
     let chunk = ChunkKey::new(0, 0, 0);
 
     stream
@@ -725,7 +746,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
 }
 
 #[test]
-fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
+fn truncated_request_level_chunk_biomes_repeat_the_last_storage() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -735,6 +756,7 @@ fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    define_custom_biomes(&mut stream, [5, 9]);
 
     stream
         .submit(
@@ -759,20 +781,56 @@ fn malformed_request_level_chunk_neither_commits_nor_enqueues() {
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
 
-    assert_eq!(stream.stats().decode_errors, 1);
-    assert!(stream.take_requests().is_empty());
-    assert_eq!(
-        stream
-            .store
-            .biome_id(SubChunkKey::new(0, 0, -4, 0), 0, 0, 0),
-        Some(5)
-    );
-    assert_eq!(
-        stream
-            .store
-            .biome_id(SubChunkKey::new(0, 0, 19, 0), 0, 0, 0),
-        Some(5)
-    );
+    assert!(stream.take_fatal_error().is_none());
+    assert_eq!(stream.stats().decode_errors, 0);
+    for y in [-4, 19] {
+        assert_eq!(
+            stream.store.biome_id(SubChunkKey::new(0, 0, y, 0), 0, 0, 0),
+            Some(9)
+        );
+    }
+}
+
+#[test]
+fn request_level_chunk_joins_required_cohort_only_after_decode_and_admission() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+                center: [0, 64, 0],
+                radius_blocks: 16,
+            }),
+        )
+        .unwrap();
+    let key = ChunkKey::new(0, 0, 0);
+
+    stream
+        .submit(
+            2,
+            request_level_chunk_event(
+                key.dimension,
+                key.x,
+                key.z,
+                LevelChunkMode::LimitedRequests { highest: 1 },
+                7,
+            ),
+        )
+        .unwrap();
+
+    assert!(!stream.required_columns().contains(&key));
+    complete_pending_decode_jobs(&mut stream);
+
+    assert!(stream.required_columns().contains(&key));
+    assert_eq!(stream.take_requests().len(), 1);
 }
 
 #[test]

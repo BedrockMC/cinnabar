@@ -2,7 +2,9 @@ use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
 impl WorldStream {
-    /// Unique request-mode columns announced in the current publisher epoch.
+    /// Unique columns announced in the current publisher epoch through either
+    /// admission path (request-mode or inline), after each path's decode and
+    /// admission gates.
     #[must_use]
     pub fn required_columns(&self) -> &BTreeSet<ChunkKey> {
         &self.required_columns
@@ -18,8 +20,10 @@ impl WorldStream {
         self.source_capture_sequence = Some(sequence);
     }
     pub fn cohort_status(&self, target: ViewCohort) -> ViewCohortStatus {
+        let uses_explicit_required =
+            self.committed_view_cohort == Some(target) && target.publisher_geometry.is_some();
         let expected_columns = if self.committed_view_cohort == Some(target) {
-            if target.publisher_geometry.is_some() {
+            if uses_explicit_required {
                 self.required_columns.clone()
             } else {
                 target.classifier_columns()
@@ -32,12 +36,24 @@ impl WorldStream {
         let foreign_loaded = self
             .loaded_columns
             .iter()
-            .filter(|column| !target.contains_column(column.dimension, [column.x, column.z]))
+            .filter(|column| {
+                if uses_explicit_required {
+                    !expected_columns.contains(column)
+                } else {
+                    !target.contains_column(column.dimension, [column.x, column.z])
+                }
+            })
             .count();
         let foreign_requested = self
             .requested_sub_chunks
             .keys()
-            .filter(|column| !target.contains_column(column.dimension, [column.x, column.z]))
+            .filter(|column| {
+                if uses_explicit_required {
+                    !expected_columns.contains(column)
+                } else {
+                    !target.contains_column(column.dimension, [column.x, column.z])
+                }
+            })
             .count();
         let foreign_resident = self
             .resident
@@ -46,7 +62,11 @@ impl WorldStream {
             .copied()
             .filter(|key| {
                 let chunk = key.chunk();
-                !target.contains_column(chunk.dimension, [chunk.x, chunk.z])
+                if uses_explicit_required {
+                    !expected_columns.contains(&chunk)
+                } else {
+                    !target.contains_column(chunk.dimension, [chunk.x, chunk.z])
+                }
             })
             .collect::<BTreeSet<_>>()
             .len();

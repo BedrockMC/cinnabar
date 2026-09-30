@@ -471,3 +471,95 @@ fn provided_suggestion_hit_selects_the_matching_scrolled_row() {
     ));
     assert_eq!(runtime.chat_editor().as_str(), "/s4");
 }
+
+fn warp_tree() -> protocol::CommandTreeEvent {
+    let param = |name: &str, kind| protocol::CommandParam {
+        name: Arc::from(name),
+        optional: false,
+        collapse_enum: false,
+        kind,
+    };
+    let mode = protocol::CommandParamKind::Enum {
+        name: Arc::from("Mode"),
+        values: Arc::from([Arc::from("fast"), Arc::from("far"), Arc::from("slow")]),
+    };
+    protocol::CommandTreeEvent {
+        commands: Arc::from([protocol::CommandSpec {
+            name: Arc::from("warp"),
+            aliases: Arc::from([]),
+            permission: 0,
+            overloads: Arc::from([Arc::from([
+                param("mode", mode),
+                param("who", protocol::CommandParamKind::Target),
+            ])]),
+        }]),
+        soft_enums: Arc::from([]),
+    }
+}
+
+#[test]
+fn command_tree_drives_suggestions_usage_and_mid_line_token_replacement() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.open_chat();
+    runtime
+        .apply(envelope(2, 1, UiEvent::AvailableCommands(warp_tree())))
+        .unwrap();
+    runtime.insert_chat_text("/warp fa").unwrap();
+    assert!(runtime.service_pending_chat_autocomplete());
+    assert_eq!(
+        runtime.chat_suggestions(),
+        [Arc::from("far"), Arc::from("fast")]
+    );
+    assert_eq!(
+        runtime.chat_usage_hint(),
+        Some("/warp <fast|far|slow> <who>")
+    );
+
+    runtime.handle_chat_ui_action(UiAction::Navigate([0, 1]));
+    runtime.handle_chat_ui_action(UiAction::Accept);
+    assert_eq!(runtime.chat_editor().as_str(), "/warp fast");
+}
+
+#[test]
+fn tab_inserts_then_cycles_the_same_suggestion_list() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.open_chat();
+    runtime
+        .apply(envelope(2, 1, UiEvent::AvailableCommands(warp_tree())))
+        .unwrap();
+    runtime.insert_chat_text("/warp f").unwrap();
+    assert!(runtime.service_pending_chat_autocomplete());
+
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/warp far");
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/warp fast");
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/warp far");
+    assert_eq!(runtime.chat_suggestions().len(), 2);
+    assert!(runtime.take_chat_autocomplete_request().is_none());
+}
+
+#[test]
+fn typing_after_tab_restarts_completion() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.open_chat();
+    runtime
+        .apply(envelope(2, 1, UiEvent::AvailableCommands(warp_tree())))
+        .unwrap();
+    runtime.insert_chat_text("/warp f").unwrap();
+    assert!(runtime.service_pending_chat_autocomplete());
+    runtime.handle_chat_ui_action(UiAction::TabNext);
+    runtime.insert_chat_text(" ").unwrap();
+    assert!(runtime.take_chat_autocomplete_request().is_some());
+    assert!(runtime.chat_suggestions().is_empty());
+}
+
+#[test]
+fn local_chat_line_does_not_consume_the_next_server_sequence() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.push_local_chat_line(Arc::from("Saved screenshot as a.png"), 5);
+    runtime.push_local_chat_line(Arc::from("Saved screenshot as b.png"), 6);
+    runtime.apply(envelope(2, 0, text("server"))).unwrap();
+    assert_eq!(runtime.chat().messages().len(), 3);
+}

@@ -10,16 +10,18 @@ use std::{
 };
 
 use bevy::prelude::Resource;
+use bytes::Bytes;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, LoginSequence, Packet, PacketIdTraceSnapshot,
-    PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, normalize_authority,
+    BlobCacheStats, ClientBlobCache, CustomBlocks, InventoryEvent, ItemRegistryEvent,
+    LoginSequence, Packet, PacketIdTraceSnapshot, PlayerGameMode, ServerDisconnectEvent,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
 
 use crate::{
     acceptance::mutation::write_stdout_marker,
-    movement::{MovementTicker, PhysicsSendIdentity},
+    movement::{InteractionPacketGuard, MovementTicker, PhysicsSendIdentity},
     ui_runtime::FastTransferAction,
 };
 
@@ -36,6 +38,31 @@ pub struct NetworkConfig {
     pub display_name: String,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
     pub client_blob_cache: ClientBlobCache,
+    /// The client's own skin, uploaded in the ClientData login payload.
+    pub player_skin: crate::player_skin::LocalPlayerSkin,
+}
+
+/// Which transport leg or lifecycle stage produced a session failure.
+///
+/// Only [`NetworkFailureOrigin::Receive`] represents a remote-initiated
+/// termination of an active play session; every other origin is owned by the
+/// local process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkFailureOrigin {
+    /// The active session's inbound transport failed: the server disconnected
+    /// or the upstream read terminated mid-session.
+    Receive,
+    /// The outbound transport failed while writing a packet.
+    Send,
+    /// The session failed before the play pump started (runtime/login).
+    Startup,
+}
+
+/// The bounded server-directed transfer target carried by terminal events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionTransferTarget {
+    pub(crate) host: String,
+    pub(crate) port: u16,
 }
 
 #[derive(Debug)]
@@ -44,10 +71,16 @@ pub enum NetworkControlEvent {
         session_generation: u64,
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
+        custom_blocks: CustomBlocks,
         inventory: InventoryEvent,
+        item_registry: Option<ItemRegistryEvent>,
         player_game_mode: PlayerGameMode,
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
+        server_authoritative_block_breaking: bool,
+        hardcore: bool,
+        hud_rules: protocol::HudRules,
+        packs: super::resource_packs::PackApplication,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -78,6 +111,18 @@ pub enum NetworkControlEvent {
     Failed {
         message: String,
         decode_error_count: u64,
+        server_disconnect: Option<ServerDisconnectEvent>,
+        origin: NetworkFailureOrigin,
+    },
+    /// The server directed the client to a new target, ending this session.
+    ///
+    /// Like [`NetworkControlEvent::Failed`] this is terminal: the pump stops
+    /// after emitting it and no `Stopped` record follows. The wire's
+    /// `reload_world` hint is recorded in the pump's durable transferred
+    /// marker; it does not change the app-side handoff.
+    Transferred {
+        target: SessionTransferTarget,
+        decode_error_count: u64,
     },
     Stopped {
         decode_error_count: u64,
@@ -92,12 +137,27 @@ pub struct SequencedWorldEvent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum InboundWorldEvent {
+    Event(WorldEvent),
+    LevelChunk {
+        event: protocol::LevelChunkEvent,
+        payload: Bytes,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 // The FIFO is strictly bounded to WORLD_EVENT_CAPACITY. Keeping the event
 // inline avoids adding one heap allocation to every normal world packet just
 // to accommodate the rare, small transfer barrier variant.
 #[allow(clippy::large_enum_variant)]
 pub enum WorldIngress {
     Event(SequencedWorldEvent),
+    LevelChunk {
+        session_generation: u64,
+        sequence: u64,
+        event: protocol::LevelChunkEvent,
+        payload: Bytes,
+    },
     FastTransferBarrier {
         session_generation: u64,
         sequence: u64,
@@ -166,6 +226,30 @@ fn wrap_readiness_tracked_event(
     sequenced
 }
 
+fn wrap_inbound_world_event(
+    sequencer: &mut NetworkSequencer,
+    readiness_ingress: &ReadinessIngressCounter,
+    event: InboundWorldEvent,
+) -> WorldIngress {
+    match event {
+        InboundWorldEvent::Event(event) => WorldIngress::Event(wrap_readiness_tracked_event(
+            sequencer,
+            readiness_ingress,
+            event,
+        )),
+        InboundWorldEvent::LevelChunk { event, payload } => {
+            let sequence = sequencer.take_sequence();
+            readiness_ingress.produced.fetch_add(1, Ordering::Release);
+            WorldIngress::LevelChunk {
+                session_generation: sequencer.session_generation(),
+                sequence,
+                event,
+                payload,
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 enum NetworkCommand {
     Send {
@@ -174,6 +258,7 @@ enum NetworkCommand {
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<u64>>,
+        interaction: Option<InteractionPacketGuard>,
     },
 }
 
@@ -224,6 +309,7 @@ impl PacketSendError {
 
 #[derive(Resource)]
 pub struct NetworkHandle {
+    session_generation: u64,
     control_events: mpsc::Receiver<NetworkControlEvent>,
     world_events: mpsc::Receiver<WorldIngress>,
     commands: mpsc::Sender<NetworkCommand>,
@@ -291,15 +377,17 @@ impl NetworkHandle {
         self.readiness_ingress.record_consumed(event);
     }
 
-    #[cfg(test)]
-    pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None, None, None)
+    pub(crate) fn record_level_chunk_consumed(&self) {
+        self.readiness_ingress
+            .consumed
+            .fetch_add(1, Ordering::Release);
     }
 
     pub(crate) fn send_physics_packet(
         &self,
         identity: PhysicsSendIdentity,
         packet: Packet,
+        interaction: Option<InteractionPacketGuard>,
     ) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(
             packet,
@@ -307,11 +395,22 @@ impl NetworkHandle {
             None,
             Some(identity),
             Some(self.physics_reanchor.subscribe()),
+            interaction,
         )
     }
 
     pub(crate) fn send_hotbar_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None, None, None)
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
+    /// Queues an unguarded movement-side packet such as a prediction sync.
+    pub(crate) fn send_movement_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
+    /// Queues an inventory, swing or interaction packet ahead of this frame's movement.
+    pub(crate) fn send_inventory_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
     pub fn send_chat_packet(
@@ -329,6 +428,7 @@ impl NetworkHandle {
                 sequence,
                 fast_transfer_action,
             }),
+            None,
             None,
             None,
         )
@@ -351,6 +451,7 @@ impl NetworkHandle {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -361,6 +462,7 @@ impl NetworkHandle {
         chat: Option<ChatPacketSend>,
         physics: Option<PhysicsSendIdentity>,
         physics_reanchor: Option<watch::Receiver<u64>>,
+        interaction: Option<InteractionPacketGuard>,
     ) -> Result<(), PacketSendError> {
         self.commands
             .try_send(NetworkCommand::Send {
@@ -369,6 +471,7 @@ impl NetworkHandle {
                 chat,
                 physics,
                 physics_reanchor,
+                interaction,
             })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
@@ -411,6 +514,7 @@ fn empty_network_channels() -> (NetworkHandle, watch::Receiver<u64>) {
     let (shutdown, _shutdown_rx) = watch::channel(false);
     (
         NetworkHandle {
+            session_generation: 0,
             control_events,
             world_events,
             commands,
@@ -452,6 +556,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     let _ = control_event_tx.try_send(NetworkControlEvent::Failed {
                         message: format!("failed to create network runtime: {error}"),
                         decode_error_count: 0,
+                        server_disconnect: None,
+                        origin: NetworkFailureOrigin::Startup,
                     });
                     return;
                 }
@@ -462,6 +568,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         &config.socket_dir,
                         &config.display_name,
                         config.client_blob_cache.clone(),
+                        Some(config.player_skin.to_client_skin()),
                     ),
                     &mut shutdown_rx,
                 )
@@ -469,24 +576,44 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 else {
                     return;
                 };
-                let (session, game_data) = match login {
+                let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
-                        let _ = send_control_event_or_cancel(
-                            &control_event_tx,
-                            &mut shutdown_rx,
-                            NetworkControlEvent::Failed {
-                                message: error.to_string(),
-                                decode_error_count: 0,
-                            },
-                        )
-                        .await;
+                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error).await;
                         return;
                     }
                 };
+                // The login handoff is one-shot. Take and validate it before
+                // publishing any StartGame state; optional semantic rejection
+                // remains a live base-assets session.
+                let handoff = session.take_resource_pack_handoff();
+                let (custom_blocks, packs) =
+                    super::resource_packs::prepare_session_packs(handoff, &game_data);
+                let packs_applied = matches!(
+                    &packs.admission,
+                    resource_pack::PackAdmission::Validated(stack) if !stack.packs().is_empty()
+                );
+                if packs_applied {
+                    let socket_dir = config.socket_dir.clone();
+                    tokio::spawn(async move {
+                        protocol::report_pack_application(&socket_dir, true).await;
+                    });
+                }
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
+                let server_authoritative_block_breaking =
+                    protocol::server_authoritative_block_breaking(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
+                let hardcore = protocol::is_hardcore(&game_data);
+                let hud_rules = protocol::HudRules::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
+                let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
+                {
+                    Ok(registry) => registry,
+                    Err(error) => {
+                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error).await;
+                        return;
+                    }
+                };
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
                 let world_default_game_mode =
                     PlayerGameMode::world_default_from_game_data(&game_data);
@@ -499,10 +626,16 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         session_generation,
                         world: bootstrap,
                         environment,
+                        custom_blocks,
                         inventory,
+                        item_registry,
                         player_game_mode,
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
+                        server_authoritative_block_breaking,
+                        hardcore,
+                        hud_rules,
+                        packs,
                     },
                 )
                 .await
@@ -524,9 +657,13 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     network_readiness_ingress,
                 )
                 .await;
+                if packs_applied {
+                    protocol::report_pack_application(&config.socket_dir, false).await;
+                }
             });
         })?;
     Ok(NetworkHandle {
+        session_generation,
         control_events,
         world_events,
         commands,
@@ -537,10 +674,6 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
     })
 }
 
-fn start_game_inventory_authority(game_data: &protocol::GameData) -> InventoryEvent {
-    normalize_authority(game_data.start_game.enable_item_stack_net_manager)
-}
-
 trait NetworkSession: Send {
     type Error: std::fmt::Display + Send;
 
@@ -549,12 +682,31 @@ trait NetworkSession: Send {
         current_dimension: i32,
     ) -> impl Future<Output = Result<WorldEvent, Self::Error>> + Send;
 
+    fn receive_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> impl Future<Output = Result<InboundWorldEvent, Self::Error>> + Send {
+        async move {
+            self.receive_world_event(current_dimension)
+                .await
+                .map(InboundWorldEvent::Event)
+        }
+    }
+
     fn send_packet(
         &mut self,
         packet: Packet,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     fn decode_error_count(&self) -> u64;
+
+    fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
+        None
+    }
+
+    fn take_server_transfer(&mut self) -> Option<protocol::ServerTransferEvent> {
+        None
+    }
 
     fn blob_cache_enabled(&self) -> bool {
         false
@@ -585,6 +737,17 @@ impl NetworkSession for protocol::PlaySession {
         self.recv_world_event(current_dimension)
     }
 
+    fn receive_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> impl Future<Output = Result<InboundWorldEvent, Self::Error>> + Send {
+        self.recv_world_event_mapped(
+            current_dimension,
+            InboundWorldEvent::Event,
+            |event, payload| InboundWorldEvent::LevelChunk { event, payload },
+        )
+    }
+
     fn send_packet(
         &mut self,
         packet: Packet,
@@ -594,6 +757,14 @@ impl NetworkSession for protocol::PlaySession {
 
     fn decode_error_count(&self) -> u64 {
         protocol::PlaySession::decode_error_count(self)
+    }
+
+    fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
+        protocol::PlaySession::take_server_disconnect(self)
+    }
+
+    fn take_server_transfer(&mut self) -> Option<protocol::ServerTransferEvent> {
+        protocol::PlaySession::take_server_transfer(self)
     }
 
     fn blob_cache_enabled(&self) -> bool {
@@ -621,129 +792,42 @@ impl NetworkSession for protocol::PlaySession {
     }
 }
 
-fn try_emit_blob_cache_telemetry<S: NetworkSession>(
-    session: &S,
-    control_event_tx: &mpsc::Sender<NetworkControlEvent>,
-    last_stats: &mut Option<BlobCacheStats>,
+pub(crate) fn session_failure_display(
+    transport_message: &str,
+    server_disconnect: Option<&ServerDisconnectEvent>,
+) -> String {
+    match server_disconnect.and_then(disconnect_display_reason) {
+        Some(reason) => format!("server disconnected: {reason} ({transport_message})"),
+        None => format!("network session failed: {transport_message}"),
+    }
+}
+
+fn emit_network_pump_terminal_marker(
+    stage: &'static str,
+    message: &str,
+    decode_errors: u64,
+    server_disconnect: Option<&ServerDisconnectEvent>,
 ) {
-    if !session.blob_cache_enabled() {
-        return;
-    }
-    let stats = session.blob_cache_stats();
-    if *last_stats == Some(stats) {
-        return;
-    }
-    if control_event_tx
-        .try_send(NetworkControlEvent::BlobCacheTelemetry {
-            enabled: true,
-            stats,
-        })
-        .is_ok()
-    {
-        emit_bounded_blob_cache_warning(last_stats.unwrap_or_default(), stats);
-        emit_blob_cache_telemetry(stats);
-        *last_stats = Some(stats);
-    }
-}
-
-async fn send_final_blob_cache_telemetry<S: NetworkSession>(
-    session: &S,
-    control_event_tx: &mpsc::Sender<NetworkControlEvent>,
-) -> bool {
-    if !session.blob_cache_enabled() {
-        return true;
-    }
-    let stats = session.blob_cache_stats();
-    emit_blob_cache_telemetry(stats);
-    matches!(
-        tokio::time::timeout(
-            FINAL_CONTROL_FLUSH_TIMEOUT,
-            control_event_tx.send(NetworkControlEvent::BlobCacheTelemetry {
-                enabled: true,
-                stats,
-            }),
-        )
-        .await,
-        Ok(Ok(()))
-    )
-}
-
-fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
-    bevy::log::info!(
-        target: "bedrock_client::blob_cache",
-        hashes_classified = stats.hashes_classified,
-        hits = stats.hits,
-        misses = stats.misses,
-        redundant_missing_requests = stats.redundant_missing_requests,
-        admitted_blobs = stats.admitted_blobs,
-        rejected_blobs = stats.rejected_blobs,
-        evictions = stats.evictions,
-        pending_transactions = stats.pending_transactions,
-        pending_bytes = stats.pending_bytes,
-        retained_cached_transactions = stats.retained_cached_transactions,
-        ordinary_ready_events = stats.ordinary_ready_events,
-        ordinary_ready_bytes = stats.ordinary_ready_bytes,
-        recovery_ready_events = stats.recovery_ready_events,
-        recovery_ready_bytes = stats.recovery_ready_bytes,
-        pending_resets = stats.pending_resets,
-        skipped_packets = stats.skipped_packets,
-        skipped_world_events = stats.skipped_world_events,
-        skipped_cached_packets = stats.skipped_cached_packets,
-        skipped_miss_responses = stats.skipped_miss_responses,
-        empty_miss_responses = stats.empty_miss_responses,
-        cached_packet_semantic_shape = stats.cached_packet_semantic_shape,
-        cached_packet_transaction_pressure = stats.cached_packet_transaction_pressure,
-        cached_packet_pending_pressure = stats.cached_packet_pending_pressure,
-        cached_packet_staged_pressure = stats.cached_packet_staged_pressure,
-        cached_packet_reconstruction_pressure = stats.cached_packet_reconstruction_pressure,
-        cached_packet_ready_pressure = stats.cached_packet_ready_pressure,
-        miss_response_unsolicited = stats.miss_response_unsolicited,
-        miss_response_integrity_rejection = stats.miss_response_integrity_rejection,
-        miss_response_cache_pressure = stats.miss_response_cache_pressure,
-        abandoned_cached_transactions = stats.abandoned_cached_transactions,
-        recovery_requests = stats.recovery_requests,
-        ordinary_backpressure = stats.ordinary_backpressure,
-        reconstructed_level_chunks = stats.reconstructed_level_chunks,
-        reconstructed_sub_chunks = stats.reconstructed_sub_chunks,
-        "client blob cache counters"
-    );
-}
-
-fn emit_bounded_blob_cache_warning(previous: BlobCacheStats, current: BlobCacheStats) {
-    let cached_packet_due = bounded_counter_log_due(
-        previous.skipped_cached_packets,
-        current.skipped_cached_packets,
-    );
-    let miss_response_due = bounded_counter_log_due(
-        previous.skipped_miss_responses,
-        current.skipped_miss_responses,
-    );
-    if cached_packet_due || miss_response_due {
-        bevy::log::warn!(
-            target: "bedrock_client::blob_cache",
-            skipped_cached_packets = current.skipped_cached_packets,
-            skipped_miss_responses = current.skipped_miss_responses,
-            cached_packet_semantic_shape = current.cached_packet_semantic_shape,
-            cached_packet_transaction_pressure = current.cached_packet_transaction_pressure,
-            cached_packet_pending_pressure = current.cached_packet_pending_pressure,
-            cached_packet_staged_pressure = current.cached_packet_staged_pressure,
-            cached_packet_reconstruction_pressure = current.cached_packet_reconstruction_pressure,
-            cached_packet_ready_pressure = current.cached_packet_ready_pressure,
-            miss_response_unsolicited = current.miss_response_unsolicited,
-            miss_response_integrity_rejection = current.miss_response_integrity_rejection,
-            miss_response_cache_pressure = current.miss_response_cache_pressure,
-            "skipped semantically invalid client blob-cache packet"
-        );
-    }
-}
-
-fn bounded_counter_log_due(previous: u64, current: u64) -> bool {
-    current != 0 && current > previous && (previous == 0 || current.ilog2() > previous.ilog2())
-}
-
-fn emit_network_pump_terminal_marker(stage: &'static str, message: &str, decode_errors: u64) {
     let mut stdout = std::io::stdout().lock();
-    write_network_pump_terminal_marker(&mut stdout, stage, message, decode_errors);
+    write_network_pump_terminal_marker(
+        &mut stdout,
+        stage,
+        message,
+        decode_errors,
+        server_disconnect,
+    );
+    let _ = stdout.flush();
+}
+
+/// Emits the durable transferred-session record so live evidence attributes
+/// the session end to the server's transfer instead of a transport failure.
+fn emit_network_pump_transfer_marker(
+    target: &SessionTransferTarget,
+    reload_world: bool,
+    decode_errors: u64,
+) {
+    let mut stdout = std::io::stdout().lock();
+    write_network_pump_transfer_marker(&mut stdout, target, reload_world, decode_errors);
     let _ = stdout.flush();
 }
 
@@ -752,12 +836,36 @@ fn write_network_pump_terminal_marker(
     stage: &'static str,
     message: &str,
     decode_errors: u64,
+    server_disconnect: Option<&ServerDisconnectEvent>,
 ) {
-    let marker = serde_json::json!({
+    let mut marker = serde_json::json!({
         "schema": "rust-mcbe-network-pump-terminal-v1",
         "outcome": "failed",
         "stage": stage,
         "message": message,
+        "decode_error_count": decode_errors,
+    });
+    if let Some(disconnect) = server_disconnect {
+        marker["server_disconnect"] = serde_json::json!({
+            "reason": disconnect.reason,
+            "message": disconnect.message,
+            "filtered_message": disconnect.filtered_message,
+        });
+    }
+    let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
+}
+
+fn write_network_pump_transfer_marker(
+    writer: &mut impl Write,
+    target: &SessionTransferTarget,
+    reload_world: bool,
+    decode_errors: u64,
+) {
+    let marker = serde_json::json!({
+        "schema": "rust-mcbe-network-pump-terminal-v1",
+        "outcome": "transferred",
+        "target": { "host": target.host, "port": target.port },
+        "reload_world": reload_world,
         "decode_error_count": decode_errors,
     });
     let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
@@ -782,10 +890,21 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
     );
 }
 
+mod blob_cache_telemetry;
+#[cfg(test)]
+use blob_cache_telemetry::bounded_counter_log_due;
+use blob_cache_telemetry::{
+    emit_blob_cache_telemetry, send_final_blob_cache_telemetry, try_emit_blob_cache_telemetry,
+};
+mod bootstrap;
+mod forms;
+mod handle_state;
+use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 mod pump;
 use pump::*;
 mod pump_runtime;
 use pump_runtime::*;
-
+mod disconnect_display;
+use disconnect_display::disconnect_display_reason;
 #[cfg(test)]
 mod tests;

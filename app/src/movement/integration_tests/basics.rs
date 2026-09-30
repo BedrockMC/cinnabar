@@ -90,6 +90,8 @@ fn completed_physics_ticks_are_the_only_outbound_enqueue_path() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
     for tick in 1_001..=1_020 {
         ticker
             .enqueue_completed_physics(completed_sample(tick, [1.0, 64.0, 2.0]))
@@ -146,10 +148,78 @@ fn start_game_free_camera_reset_discards_queued_physics_and_stays_suppressed() {
 }
 
 #[test]
+fn start_game_world_time_does_not_seed_prediction_and_replacement_restarts_locally() {
+    let position = [0.0, 2.620_01, 0.0];
+    let mut ticker = MovementTicker::default();
+    let mut physics = LocalPhysicsController::default();
+    let mut clock = WorldClock::default();
+    let mut weather = WeatherState::default();
+
+    for (expected_session, world_time) in [
+        (1, 0),
+        (2, 123_456_789),
+        (3, i64::MAX),
+        (4, i64::MIN),
+    ] {
+        replace_session(
+            &mut clock,
+            &mut weather,
+            protocol::WorldEnvironmentBootstrap {
+                initial_time: world_time,
+                day_cycle_lock_time: 0,
+                daylight_cycle_enabled: true,
+                rain_level: 0.0,
+                lightning_level: 0.0,
+            },
+            0.0,
+        );
+        ticker.set_source(MovementSource::FreeCamera);
+        reset_start_game_prediction(
+            &mut ticker,
+            &mut physics,
+            clock.session_generation(),
+            position,
+        );
+
+        assert_eq!(clock.session_generation(), expected_session);
+        assert_eq!(clock.server_time(), Some(world_time as f64));
+        assert_eq!(ticker.session_generation(), expected_session);
+        assert_eq!(ticker.next_tick(), 1);
+        assert_eq!(ticker.pending_count(), 0);
+        assert_eq!(physics.state().expect("StartGame anchors physics").tick, 0);
+
+        PhysicsAuthorityGate::CandidateEvidence
+            .apply_start_game(false, true, &mut ticker, &mut physics)
+            .unwrap();
+        let discarded = physics.advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &Floor,
+        );
+        assert_eq!(discarded.completed_ticks, 0);
+        assert!(discarded.samples.is_empty());
+
+        let first = physics.advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &Floor,
+        );
+        assert_eq!(first.completed_ticks, 1);
+        assert_eq!(first.samples[0].tick, 1);
+        ticker
+            .enqueue_completed_physics(first.samples[0].clone())
+            .unwrap();
+        assert_eq!(ticker.pending_snapshots()[0].tick, 1);
+    }
+}
+
+#[test]
 fn free_camera_authority_rejects_retry_enqueue() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
+    // Transport-focused fixture: the provisional spawn-settle window is
+    // orthogonal to what this test asserts.
     ticker
         .enqueue_completed_physics(completed_sample(1_001, [2.0, 64.0, 3.0]))
         .unwrap();
@@ -161,21 +231,45 @@ fn free_camera_authority_rejects_retry_enqueue() {
 }
 
 #[test]
-fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
+fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 41, [1.0, 64.0, 2.0]);
     ticker.set_source(MovementSource::Physics);
     let mut pressed = completed_sample(42, [1.25, 64.0, 1.5]);
+    pressed.velocity = [0.125, -0.0784, -0.25];
+    pressed.move_vector = [-1.0, 1.0];
     pressed.jumping = true;
     pressed.sprinting = true;
+    // A real takeoff fixture: the simulator consumed a grounded jump request
+    // and narrowed the held sprint, so the processed states ride along.
+    pressed.processed.jump_initiated = true;
+    pressed.processed.jump_arc_active = true;
+    pressed.processed.sprinting = true;
+    pressed.horizontal_collision = true;
+    pressed.vertical_collision = true;
 
     ticker.enqueue_completed_physics(pressed.clone()).unwrap();
     let first = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(first.tick, 42);
-    assert_eq!(first.delta, [0.25, 0.0, -0.5]);
-    assert_eq!(first.move_vector, [0.0, 1.0]);
+    assert_eq!(first.delta, pressed.velocity);
+    assert_eq!(
+        first.move_vector,
+        [std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]
+    );
     assert_eq!(first.position, pressed.position);
     assert_ne!(first.flags.bits() & PlayerInputFlags::UP.bits(), 0);
+    assert_ne!(
+        first.flags.bits() & PlayerInputFlags::UP_LEFT.bits(),
+        0
+    );
+    assert_ne!(
+        first.flags.bits() & PlayerInputFlags::HORIZONTAL_COLLISION.bits(),
+        0,
+    );
+    assert_ne!(
+        first.flags.bits() & PlayerInputFlags::VERTICAL_COLLISION.bits(),
+        0,
+    );
     assert_ne!(first.flags.bits() & PlayerInputFlags::JUMPING.bits(), 0);
     assert_ne!(
         first.flags.bits() & PlayerInputFlags::START_JUMPING.bits(),
@@ -192,10 +286,12 @@ fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
     );
 
     pressed.tick = 43;
+    // A held button without a new takeoff.
+    pressed.processed.jump_initiated = false;
     ticker.enqueue_completed_physics(pressed.clone()).unwrap();
     let held = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(held.tick, 43);
-    assert_eq!(held.delta, [0.0; 3]);
+    assert_eq!(held.delta, pressed.velocity);
     assert_eq!(
         held.flags.bits() & PlayerInputFlags::START_JUMPING.bits(),
         0
@@ -220,6 +316,51 @@ fn tick_snapshots_encode_held_and_edge_flags_and_position_delta() {
         released.flags.bits() & PlayerInputFlags::STOP_SPRINTING.bits(),
         0
     );
+}
+
+#[test]
+fn processed_diagonal_flags_require_exact_digital_diagonals() {
+    let diagonal_mask = PlayerInputFlags::UP_LEFT.bits()
+        | PlayerInputFlags::UP_RIGHT.bits()
+        | PlayerInputFlags::DOWN_LEFT.bits()
+        | PlayerInputFlags::DOWN_RIGHT.bits();
+    let cases = [
+        ([-1.0, 1.0], PlayerInputFlags::UP_LEFT.bits()),
+        ([1.0, 1.0], PlayerInputFlags::UP_RIGHT.bits()),
+        ([-1.0, -1.0], PlayerInputFlags::DOWN_LEFT.bits()),
+        ([1.0, -1.0], PlayerInputFlags::DOWN_RIGHT.bits()),
+        ([0.0, 1.0], 0),
+        ([1.0, 0.0], 0),
+        ([-0.5, 0.75], 0),
+    ];
+
+    for (move_vector, expected_diagonal) in cases {
+        let mut ticker = MovementTicker::default();
+        ticker.reset(1, 41, [1.0, 64.0, 2.0]);
+        ticker.set_source(MovementSource::Physics);
+        let mut sample = completed_sample(42, [1.0, 64.0, 2.0]);
+        sample.move_vector = move_vector;
+
+        ticker.enqueue_completed_physics(sample).unwrap();
+        let snapshot = ticker.pop_pending().unwrap().snapshot;
+        assert_eq!(snapshot.flags.bits() & diagonal_mask, expected_diagonal);
+    }
+}
+
+#[test]
+fn non_finite_predicted_velocity_fails_physics_authority_closed() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 41, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+    let mut sample = completed_sample(42, [1.0, 64.0, 2.0]);
+    sample.velocity[1] = f32::NAN;
+
+    assert_eq!(
+        ticker.enqueue_completed_physics(sample),
+        Err(PhysicsAuthorityFault::InvalidCompletedSample)
+    );
+    assert_eq!(ticker.source(), MovementSource::FreeCamera);
+    assert_eq!(ticker.pending_count(), 0);
 }
 
 #[test]
@@ -248,7 +389,7 @@ fn outbox_is_bounded_and_session_reset_discards_stale_ticks_and_input_edges() {
         .unwrap();
     let new_session = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(new_session.tick, 5_001);
-    assert_eq!(new_session.delta, [0.0; 3]);
+    assert_eq!(new_session.delta, [0.125, -0.0784, -0.25]);
     assert_eq!(
         new_session.flags.bits() & PlayerInputFlags::START_JUMPING.bits(),
         0
@@ -300,20 +441,41 @@ fn retry_front_rejects_over_capacity_without_losing_the_snapshot() {
 }
 
 #[test]
-fn keyboard_diagonal_is_normalized_without_losing_the_raw_vector() {
+fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
+    let component = std::f32::consts::FRAC_1_SQRT_2;
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let frame = physics.advance(
+        Duration::from_millis(50),
+        physics_movement_input(
+            [component, component],
+            180.0,
+            true,
+            false,
+            false,
+            false,
+            false,
+        ),
+        &Floor,
+    );
+    assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+    let [sample] = frame.samples.as_slice() else {
+        panic!("expected exactly one completed physics tick");
+    };
+    assert_eq!(sample.move_vector, [component, component]);
+
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 0, [0.0; 3]);
     ticker.set_source(MovementSource::Physics);
-    let mut diagonal = completed_sample(1, [0.0; 3]);
-    diagonal.move_vector = [1.0, 1.0];
-    ticker.enqueue_completed_physics(diagonal).unwrap();
+    ticker.enqueue_completed_physics(sample.clone()).unwrap();
     let snapshot = ticker.pop_pending().unwrap().snapshot;
 
-    let component = 1.0_f32 / 2.0_f32.sqrt();
-    assert!((snapshot.move_vector[0] - component).abs() < 1e-6);
+    assert!((snapshot.move_vector[0] + component).abs() < 1e-6);
     assert!((snapshot.move_vector[1] - component).abs() < 1e-6);
-    assert_eq!(snapshot.raw_move_vector, [1.0, 1.0]);
-    assert_eq!(snapshot.analogue_move_vector, snapshot.move_vector);
+    assert_ne!(
+        snapshot.flags.bits() & PlayerInputFlags::UP_RIGHT.bits(),
+        0
+    );
 }
 
 struct Floor;
@@ -331,7 +493,7 @@ impl CollisionWorld for Floor {
     }
 }
 
-struct VersionedFloor(u8);
+pub(super) struct VersionedFloor(pub(super) u8);
 
 impl CollisionWorld for VersionedFloor {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
@@ -434,6 +596,9 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
             head_yaw: 180.0,
             camera_orientation: [0.0, 0.0, 1.0],
             input_mode: PlayerInputMode::GamePad,
+            raw_move_vector: [0.0, 1.0],
+            analogue_move_vector: [0.0, 1.0],
+            ..PhysicsSampleContext::default()
         },
         &Floor,
     );
@@ -442,6 +607,7 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     assert_eq!(frame.samples[1].tick, 42);
     assert_eq!(frame.samples[0].input_mode, PlayerInputMode::GamePad);
     assert_eq!(frame.samples[0].position[1], 2.620_01);
+    let expected_deltas = [frame.samples[0].movement, frame.samples[1].movement];
 
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 40, [0.0, 2.620_01, 0.0]);
@@ -453,5 +619,6 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     let second = ticker.pop_pending().unwrap().snapshot;
     assert_eq!((first.tick, second.tick), (41, 42));
     assert_eq!(first.input_mode, PlayerInputMode::GamePad);
-    assert_eq!(second.delta[1], second.position[1] - first.position[1]);
+    assert_eq!(first.delta, expected_deltas[0]);
+    assert_eq!(second.delta, expected_deltas[1]);
 }

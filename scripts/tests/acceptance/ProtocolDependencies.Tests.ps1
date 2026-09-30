@@ -1,17 +1,41 @@
-$expectedForkRevision = '6cd8087fc3f0b500e41708a8afc94a0fa3291525'
-$expectedUpstreamRevision = '6f6806e821a579c183c44d786f76d9b358a2b825'
+$expectedAxolotlStackRevision = 'c4540512dc47833bb40363da7ad1161110d64b67'
+$expectedProtocolgenRevision = '0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
+
+$validationSource = Get-Content -Raw -LiteralPath `
+    (Join-Path $ProjectRoot 'scripts\acceptance\Orchestration\Validate.ps1')
+Assert-True $validationSource.Contains('-ExpectedAxolotlStackRevision $PinnedAxolotlStackCommit') `
+    'acceptance validation does not pass its owned Axolotl Stack pin to protocol provenance'
+Assert-True $validationSource.Contains('-ExpectedProtocolgenRevision $PinnedProtocolgenCommit') `
+    'acceptance validation does not pass its owned protocolgen pin to protocol provenance'
+Assert-True (-not $validationSource.Contains('$PinnedValentineForkCommit')) `
+    'acceptance validation references the removed Valentine fork pin'
+Assert-True (-not $validationSource.Contains('$PinnedValentineUpstreamCommit')) `
+    'acceptance validation references the removed Valentine upstream pin'
 
 . (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
 
-$PinnedValentineForkCommit = $expectedForkRevision
-$PinnedValentineUpstreamCommit = $expectedUpstreamRevision
+$resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
+    -ProjectRoot $ProjectRoot `
+    -ExpectedVersion 'v1.25.3-0.20260929084839-b725d82563e9' `
+    -ExpectedCommit 'b725d82563e93308fd1f92d27da5e97301ad5040'
+Assert-Equal 'b725d82563e93308fd1f92d27da5e97301ad5040' $resolvedGophertunnelCommit `
+    'gophertunnel commit was not derived from the resolved Go module replacement'
+Assert-ThrowsLike {
+    Get-PinnedGophertunnelCommit `
+        -ProjectRoot $ProjectRoot `
+        -ExpectedVersion 'v1.25.3-0.20260807205305-000000000000' `
+        -ExpectedCommit ('0' * 40)
+} '*different*gophertunnel*replacement*' 'gophertunnel provenance accepted a stale expected replacement'
+
+$PinnedAxolotlStackCommit = $expectedAxolotlStackRevision
+$PinnedProtocolgenCommit = $expectedProtocolgenRevision
 $PinnedValentineLicenseSha256 = $expectedLicenseSha256
 $protocolMetadata = Get-ProtocolDependencyProvenanceMetadata
 Assert-Equal 4 $protocolMetadata.Count 'protocol provenance metadata added or omitted a field'
 Assert-Equal 'vendored-path' $protocolMetadata.protocol_dependency_resolution 'protocol dependency resolution metadata drifted'
-Assert-Equal $expectedForkRevision $protocolMetadata.pinned_valentine_fork_commit 'reviewed fork metadata drifted'
-Assert-Equal $expectedUpstreamRevision $protocolMetadata.pinned_valentine_upstream_commit 'upstream snapshot metadata drifted'
+Assert-Equal $expectedAxolotlStackRevision $protocolMetadata.pinned_axolotl_stack_commit 'Axolotl Stack metadata drifted'
+Assert-Equal $expectedProtocolgenRevision $protocolMetadata.pinned_protocolgen_commit 'protocolgen metadata drifted'
 Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_valentine_license_sha256 'retained license metadata drifted'
 
 function Copy-ProtocolDependencyProvenanceFixture {
@@ -34,8 +58,8 @@ function Assert-TestProtocolDependencyProvenance {
 
     Assert-ProtocolDependencyProvenance `
         -ProjectRoot $Root `
-        -ExpectedForkRevision $expectedForkRevision `
-        -ExpectedUpstreamRevision $expectedUpstreamRevision `
+        -ExpectedAxolotlStackRevision $expectedAxolotlStackRevision `
+        -ExpectedProtocolgenRevision $expectedProtocolgenRevision `
         -ExpectedLicenseSha256 $expectedLicenseSha256
 }
 
@@ -85,18 +109,18 @@ $jolyneDecoy = (Get-Content -Raw -LiteralPath $jolyneDecoyManifest).Replace(
 Set-Content -LiteralPath $jolyneDecoyManifest -NoNewline -Value $jolyneDecoy
 $canonicalStringDecoys = @'
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
 '@
 $quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
     "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
 ).Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }'
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
+    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }'
 ).Replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_40"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_40"] }'
+    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }',
+    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_51"] }'
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
@@ -107,19 +131,19 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
 '@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*valentine*exactly once*' 'protocol provenance accepted an additional target-table Valentine declaration'
 
 $inactiveDecoy = $canonicalManifest.Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }',
+    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
     '# active Valentine declaration removed'
 ) + @'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_40", "bedrock_1_26_30"] }
+valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
 '@
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {
@@ -130,15 +154,15 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 $upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'
 $canonicalUpstream = Get-Content -Raw -LiteralPath $upstreamPath
 Set-Content -LiteralPath $upstreamPath -NoNewline -Value `
-    $canonicalUpstream.Replace($expectedForkRevision, ('0' * 40))
+    $canonicalUpstream.Replace($expectedAxolotlStackRevision, ('0' * 40))
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*fork revision*' 'protocol provenance accepted drifted vendored fork metadata'
+} '*Axolotl Stack revision*' 'protocol provenance accepted drifted Axolotl Stack metadata'
 Set-Content -LiteralPath $upstreamPath -NoNewline -Value `
-    $canonicalUpstream.Replace($expectedUpstreamRevision, ('1' * 40))
+    $canonicalUpstream.Replace($expectedProtocolgenRevision, ('1' * 40))
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*upstream revision*' 'protocol provenance accepted drifted upstream merge metadata'
+} '*protocolgen revision*' 'protocol provenance accepted drifted protocolgen metadata'
 Set-Content -LiteralPath $upstreamPath -NoNewline -Value $canonicalUpstream
 
 $licensePath = Join-Path $fixtureRoot 'crates\protocol\vendor\LICENSE'
@@ -153,12 +177,12 @@ $lockPath = Join-Path $fixtureRoot 'Cargo.lock'
 $canonicalLock = Get-Content -Raw -LiteralPath $lockPath
 $driftedLock = $canonicalLock.Replace(
     "name = `"valentine`"`r`nversion = `"0.1.0`"",
-    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
+    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
         "name = `"valentine`"`nversion = `"0.1.0`"",
-        "name = `"valentine`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedForkRevision#$expectedForkRevision`""
+        "name = `"valentine`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
     )
 }
 Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate Valentine resolution'

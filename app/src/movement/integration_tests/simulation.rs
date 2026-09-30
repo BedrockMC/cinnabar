@@ -19,6 +19,209 @@ fn physics_after_one_second(frame_rate: u32) -> LocalPhysicsController {
     physics
 }
 
+fn run_one_tick(physics: &mut LocalPhysicsController, world: &VersionedFloor) -> PhysicsMovementSample {
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        world,
+    );
+    assert!(
+        frame.blocked.is_none(),
+        "unexpected blocked tick: {:?}",
+        frame.blocked
+    );
+    assert_eq!(frame.samples.len(), 1);
+    frame.samples.into_iter().next().unwrap()
+}
+
+#[test]
+fn pos_delta_is_per_tick_displacement_not_carried_velocity() {
+    // gophertunnel PlayerAuthInput.Delta is "the delta between the old and the
+    // new position": this tick's resolved displacement, not the post-tick
+    // velocity. A grounded forward tick decays velocity by friction after it
+    // resolves motion, so the two genuinely differ and the wire delta must be
+    // the displacement.
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let t1 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let t2 = run_one_tick(&mut physics, &VersionedFloor(1));
+
+    for axis in 0..3 {
+        let reported = t2.position[axis] - t1.position[axis];
+        assert!(
+            (t2.movement[axis] - reported).abs() < 1.0e-4,
+            "movement must equal position[t]-position[t-1] on axis {axis}: {:?} vs {reported}",
+            t2.movement[axis],
+        );
+    }
+    assert_ne!(
+        t2.movement, t2.velocity,
+        "a friction-decayed forward tick proves delta is not carried velocity"
+    );
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(9, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(t1.clone()).unwrap();
+    ticker.enqueue_completed_physics(t2.clone()).unwrap();
+    let snapshots = ticker.pending_snapshots();
+    assert_eq!(
+        snapshots[1].delta, t2.movement,
+        "the wire PosDelta must carry the tick's displacement"
+    );
+}
+
+#[test]
+fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
+    let mut walking = LocalPhysicsController::default();
+    walking.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let plain = run_one_tick(&mut walking, &VersionedFloor(1));
+
+    let mut knocked = LocalPhysicsController::default();
+    knocked.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    knocked.queue_server_motion([0.45, 0.42, -0.35], 101);
+    let hit = run_one_tick(&mut knocked, &VersionedFloor(1));
+
+    assert_eq!(hit.tick, plain.tick);
+    assert!(
+        hit.position[0] > plain.position[0] + 0.2,
+        "knockback must dominate the first post-hit tick: {:?} vs {:?}",
+        hit.position,
+        plain.position
+    );
+    assert!(
+        hit.position[1] > plain.position[1],
+        "upward knockback must lift the arc"
+    );
+    assert!(hit.velocity[2] < plain.velocity[2]);
+
+    // The impulse is one-shot: the next tick shows gravity resuming and the
+    // arc continuing, not a fresh upward application.
+    let resumed = run_one_tick(&mut knocked, &VersionedFloor(1));
+    let resumed_plain = run_one_tick(&mut walking, &VersionedFloor(1));
+    assert!(
+        resumed.velocity[1] < hit.velocity[1],
+        "the upward impulse must not refire: {:?} then {:?}",
+        hit.velocity,
+        resumed.velocity
+    );
+    assert!(
+        resumed.velocity[2] < resumed_plain.velocity[2],
+        "lateral knockback momentum carries into the following tick"
+    );
+}
+
+#[test]
+fn authoritative_server_motion_ticks_preserve_ordered_future_impulses() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    physics.queue_server_motion([0.45, 0.42, -0.35], 102);
+    physics.queue_server_motion([0.6, 0.5, -0.1], 103);
+    physics.queue_server_motion([-0.2, 0.8, 0.3], 103);
+
+    let tick_101 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let tick_102 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let tick_103 = run_one_tick(&mut physics, &VersionedFloor(1));
+
+    assert_eq!([tick_101.tick, tick_102.tick, tick_103.tick], [101, 102, 103]);
+    assert!(tick_102.velocity[0] > 0.0, "the first impulse keeps its wire tick");
+    assert!(tick_103.velocity[0] < 0.0, "the second impulse is not coalesced into the first");
+}
+
+#[test]
+fn untimed_server_motion_replaces_velocity_now_and_applies_once_at_the_next_tick() {
+    let mut untimed = LocalPhysicsController::default();
+    untimed.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut timed = untimed.clone();
+    let motion = [0.45, 0.42, -0.35];
+    untimed.queue_server_motion(motion, 0);
+    timed.queue_server_motion(motion, 101);
+    assert_eq!(untimed.state().unwrap().tick, 100);
+    assert_eq!(untimed.state().unwrap().velocity.x, f64::from(motion[0]));
+    for _ in 0..3 {
+        let immediate = run_one_tick(&mut untimed, &VersionedFloor(1));
+        let explicit = run_one_tick(&mut timed, &VersionedFloor(1));
+        assert_eq!(immediate.position, explicit.position);
+        assert_eq!(immediate.velocity, explicit.velocity);
+    }
+}
+
+#[test]
+fn untimed_server_motion_is_discarded_by_session_reanchor() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    physics.queue_server_motion([0.45, 0.42, -0.35], 0);
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut baseline = LocalPhysicsController::default();
+    baseline.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    assert_eq!(run_one_tick(&mut physics, &VersionedFloor(1)).position,
+        run_one_tick(&mut baseline, &VersionedFloor(1)).position);
+}
+
+#[test]
+fn non_finite_server_motion_is_ignored_and_inactive_controllers_drop_it() {
+    let mut physics = LocalPhysicsController::default();
+    physics.queue_server_motion([f32::NAN, 0.0, 0.0], 1);
+    physics.queue_server_motion([0.0, f32::INFINITY, 0.0], 1);
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+
+    let mut baseline = LocalPhysicsController::default();
+    baseline.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+
+    let hit = run_one_tick(&mut physics, &VersionedFloor(1));
+    let plain = run_one_tick(&mut baseline, &VersionedFloor(1));
+    assert_eq!(hit.position, plain.position);
+}
+
+#[test]
+fn correction_replay_reapplies_retained_server_motion_overlays() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let t101 = run_one_tick(&mut physics, &VersionedFloor(1));
+    physics.queue_server_motion([0.45, 0.42, -0.35], 102);
+    let t102 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let t103 = run_one_tick(&mut physics, &VersionedFloor(1));
+    assert_eq!(t102.tick, 102);
+    assert!(t102.position[0] > t101.position[0] + 0.2);
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for sample in [t101.clone(), t102.clone(), t103.clone()] {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let sent = ticker.pop_pending().unwrap();
+    assert_eq!(sent.snapshot.tick, 101);
+
+    // The server confirms tick 101 exactly where the client predicted it, so
+    // the replay's only job is to re-run 102..103 from that anchor.
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        t101.position,
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 2,
+        }
+    ));
+
+    let replayed: Vec<_> = ticker
+        .pending_samples()
+        .iter()
+        .map(|pending| pending.snapshot.position)
+        .collect();
+    assert_eq!(replayed.as_slice(), &[t102.position, t103.position]);
+}
+
 #[test]
 fn local_physics_and_interpolation_are_equivalent_at_30_60_and_144_hz() {
     let at_30 = physics_after_one_second(30);
@@ -37,6 +240,35 @@ fn local_physics_and_interpolation_are_equivalent_at_30_60_and_144_hz() {
         assert!((eye_30[axis] - eye_60[axis]).abs() < 1.0e-5);
         assert!((eye_60[axis] - eye_144[axis]).abs() < 1.0e-5);
     }
+}
+
+#[test]
+fn multi_tick_frames_snapshot_the_authority_present_at_the_frame_boundary() {
+    let mut batched = LocalPhysicsController::default();
+    let mut split = LocalPhysicsController::default();
+    for physics in [&mut batched, &mut split] {
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    }
+    let slower = MovementInput {
+        forward: 1.0,
+        movement_speed: Some(0.2),
+        ..MovementInput::default()
+    };
+    let faster = MovementInput {
+        forward: 1.0,
+        movement_speed: Some(0.4),
+        ..MovementInput::default()
+    };
+
+    let frame = batched.advance(Duration::from_millis(100), slower, &Floor);
+    assert_eq!(frame.completed_ticks, 2);
+    split.advance(Duration::from_millis(50), slower, &Floor);
+    split.advance(Duration::from_millis(50), slower, &Floor);
+    assert_eq!(batched.state(), split.state());
+
+    batched.advance(Duration::from_millis(50), faster, &Floor);
+    split.advance(Duration::from_millis(50), faster, &Floor);
+    assert_eq!(batched.state(), split.state());
 }
 
 #[test]
@@ -261,7 +493,11 @@ fn unknown_runtime_id_collision_data_is_also_deferred_as_transient() {
 }
 
 #[test]
-fn local_physics_catch_up_overflow_remains_fatal_and_reports_due_ticks() {
+fn local_physics_catch_up_overflow_stays_contiguous_and_keeps_authority() {
+    // A render-frame stall that exceeds the per-frame tick budget drops the
+    // excess due time instead of simulating it late. The retained samples stay
+    // contiguous and monotonic, so the outbound input stream remains a valid
+    // 20 Hz sequence and time starvation alone must not revoke authority.
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
 
@@ -274,27 +510,23 @@ fn local_physics_catch_up_overflow_remains_fatal_and_reports_due_ticks() {
         200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64
     );
     assert!(physics.history_len() <= 32);
-
-    let fault = physics_authority_fault_for_frame(&frame).expect("catch-up overflow fault");
     assert_eq!(
-        fault,
-        PhysicsAuthorityFault::PhysicsTickOverflow {
-            due: 200,
-            dropped: 200 - MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64,
-        }
+        physics_authority_fault_for_frame(&frame),
+        None,
+        "time starvation is not an authority fault"
     );
+
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 0, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.record_physics_fault(fault);
-    assert!(!ticker.physics_is_authorized());
-    assert!(matches!(
-        ticker.take_authority_fault().unwrap().fault,
-        PhysicsAuthorityFault::PhysicsTickOverflow {
-            due: 200,
-            dropped: 192
-        }
-    ));
+    let mut ticks = Vec::new();
+    for sample in &frame.samples {
+        ticker.enqueue_completed_physics(sample.clone()).unwrap();
+        ticks.push(sample.tick);
+    }
+    assert_eq!(ticks, (1..=MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64).collect::<Vec<_>>());
+    assert!(ticker.physics_is_authorized());
+    assert!(ticker.take_authority_fault().is_none());
 }
 
 #[test]
@@ -360,10 +592,12 @@ fn frame_boundary_reanchor_discards_only_pre_anchor_elapsed() {
     );
 }
 
-fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
+pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"PREG1001");
-    bytes.extend_from_slice(&1001_u32.to_le_bytes());
+    bytes.extend_from_slice(
+        &crate::asset_startup::active_content_registry_protocol().to_le_bytes(),
+    );
     bytes.extend_from_slice(&u32::try_from(records.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&Sha256::digest(breg));
     for record in records {
@@ -400,12 +634,17 @@ fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
 
 #[test]
 fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
-    let breg = include_bytes!("../../../../crates/assets/data/block-registry-v1001.bin");
-    let records = read_registry(breg).expect("checked-in BREG1001");
+    let breg = include_bytes!("../../../../crates/assets/data/block-registry-v2193.bin");
+    let records = read_registry_for_protocol(breg, 2193).expect("checked-in protocol-2193 BREG");
     let preg = synthetic_preg(breg, &records);
 
-    let registries = PhysicsCollisionRegistries::from_assets(breg, &records, &preg)
-        .expect("BREG-bound PREG facts are valid");
+    let registries = PhysicsCollisionRegistries::from_assets(
+        breg,
+        &records,
+        &preg,
+        crate::asset_startup::active_content_registry_protocol(),
+    )
+    .expect("BREG-bound PREG facts are valid");
 
     assert_eq!(
         registries.registered_count(NetworkIdMode::Sequential),
@@ -437,18 +676,45 @@ fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
 
 #[test]
 fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
-    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true);
+    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true, true);
     assert_eq!(active.strafe, -1.0, "D is bedsim's negative strafe");
     assert_eq!(active.forward, 1.0);
     assert_eq!(active.yaw_degrees, 180.0);
     assert!(active.jumping);
     assert!(active.sneaking);
     assert!(active.sprinting);
+    assert!(
+        !active.using_consumable,
+        "generic Use is not evidence that the held item is consumable"
+    );
 
     assert_eq!(
-        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true),
+        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, true),
         MovementInput::default()
     );
+}
+
+#[test]
+fn processed_sprint_requires_forward_movement_input() {
+    // Vanilla sprints only while moving forward. A held sprint request with
+    // backward, strafe-only, or no movement input is not an active sprint:
+    // neither the simulator speed nor the outbound flags may claim one.
+    let backward = physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, false);
+    assert!(!backward.sprinting, "backward input cannot sprint");
+    let strafe_only = physics_movement_input([1.0, 0.0], 180.0, true, false, false, true, false);
+    assert!(!strafe_only.sprinting, "strafe-only input cannot sprint");
+    let stationary = physics_movement_input([0.0, 0.0], 180.0, true, false, false, true, false);
+    assert!(!stationary.sprinting, "stationary input cannot sprint");
+
+    let forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, false);
+    assert!(forward.sprinting);
+    assert_eq!(forward.forward, 1.0);
+
+    // Sneaking does not cancel an active sprint: vanilla keeps the faster
+    // sneak-sprint pace, so the forward gate alone decides processed sprint.
+    let sneaking_forward =
+        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, false);
+    assert!(sneaking_forward.sprinting);
 }
 
 #[test]

@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "game_version": "1.26.40",
+  "source_tag": "v1.26.40.05",
+  "source_commit": "7844835b6baad4c0010f46901a4accf87413a022",
+  "source_url": "https://github.com/Mojang/bedrock-samples/tree/7844835b6baad4c0010f46901a4accf87413a022",
+  "archive_sha256": "6f6c3a8d5462cf0fc66fd0782a619a2b1a1f1255b981e7787d05dcfbd363a8cb",
+  "atlas_sha256": "13415a73201c43c03afc7ff9c4e5146366ec31e4f3057228f309730daea963c7",
+  "retail_allowlist_sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821",
+  "coverage": "Explicit default icon bindings only; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
+  "routes": [
+    {
+      "identifier": "minecraft:apple",
+      "default_alias": "apple",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/apple.json",
+      "evidence_sha256": "afa76c2146b710d9cf5bf379c916912cb326c1de4dcf651be165994474ff077c"
+    },
+    {
+      "identifier": "minecraft:black_bundle",
+      "default_alias": "bundle_black",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/black_bundle.json",
+      "evidence_sha256": "dc75c04ac45a808036f478623f3d921562db833daf5b6437617dcac74e77fb7d"
+    },
+    {
+      "identifier": "minecraft:blue_bundle",
+      "default_alias": "bundle_blue",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/blue_bundle.json",
+      "evidence_sha256": "cdf795bd7c8d23caeb5af133a3b58d009f7d66d00fed85140e793893e510a3f9"
+    },
+    {
+      "identifier": "minecraft:breeze_rod",
+      "default_alias": "breeze_rod",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/breeze_rod.json",
+      "evidence_sha256": "6099198c64c3849ea252b575279a7c88e13f726dbd0e8ed7657642af810c6f10"
+    },
+    {
+      "identifier": "minecraft:brown_bundle",
+      "default_alias": "bundle_brown",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/brown_bundle.json",
+      "evidence_sha256": "d5bdf112903ea95d03a1d23cc48b3e600f2479e1cbaecb31a497aeaa12a41889"
+    },
+    {
+      "identifier": "minecraft:bundle",
+      "default_alias": "bundle",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/bundle.json",
+      "evidence_sha256": "ea9aa8bc235bc4de48fad1a43e6c66ffdcc0a3418cdefc9a77fa384725a42b4e"
+    },
+    {
+      "identifier": "minecraft:copper_spear",
+      "default_alias": "copper_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/copper_spear.json",
+      "evidence_sha256": "2cc56a66a3d5a9b1148e70e1a49ecdca3493cd30548bc8872787e14c7aefb27c"
+    },
+    {
+      "identifier": "minecraft:cyan_bundle",
+      "default_alias": "bundle_cyan",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/cyan_bundle.json",
+      "evidence_sha256": "9ed92a2be79db27208f5b1387c87a8792e22a0a0c63689f121784c47fe286569"
+    },
+    {
+      "identifier": "minecraft:diamond_spear",
+      "default_alias": "diamond_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/diamond_spear.json",
+      "evidence_sha256": "09c111c9a3500ec861da414e097e590012f6d8be0a4446f82171416a8e9bfd56"
+    },
+    {
+      "identifier": "minecraft:golden_spear",
+      "default_alias": "gold_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/golden_spear.json",
+      "evidence_sha256": "1887596a6dcf73f020931ac289704264195cebdfee13c601d129fe732880eea9"
+    },
+    {
+      "identifier": "minecraft:gray_bundle",
+      "default_alias": "bundle_gray",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/gray_bundle.json",
+      "evidence_sha256": "2e2d4fc5b52d17335d88c9f0e2b562981676e890cf33d46b3018ccd5be2ba42b"
+    },
+    {
+      "identifier": "minecraft:green_bundle",
+      "default_alias": "bundle_green",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/green_bundle.json",
+      "evidence_sha256": "3df6e179f950f1b7cbd9d070663235eef8671c99b7ac1985d74a1548845504d0"
+    },
+    {
+      "identifier": "minecraft:iron_spear",
+      "default_alias": "iron_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/iron_spear.json",
+      "evidence_sha256": "efa3fcb4bfde76b528d22c6c212e44ddc389ede8d9ec3cc8719081bce200a228"
+    },
+    {
+      "identifier": "minecraft:light_blue_bundle",
+      "default_alias": "bundle_light_blue",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/light_blue_bundle.json",
+      "evidence_sha256": "4e7940bad6edd289ff8feb9ae33f023ba8de6c41f4ff4fc46cb9d1d371b4e91f"
+    },
+    {
+      "identifier": "minecraft:light_gray_bundle",
+      "default_alias": "bundle_light_gray",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/light_gray_bundle.json",
+      "evidence_sha256": "3e915b9d25f2ce6ebfc248814bd9ad026fb2a2564e2866ea8c2e4ea2b76ff4fb"
+    },
+    {
+      "identifier": "minecraft:lime_bundle",
+      "default_alias": "bundle_lime",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/lime_bundle.json",
+      "evidence_sha256": "ba5da8b7517bd4760c6e14dbd44fc040dcffceb67e37fb62b681aa88e88191c9"
+    },
+    {
+      "identifier": "minecraft:magenta_bundle",
+      "default_alias": "bundle_magenta",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/magenta_bundle.json",
+      "evidence_sha256": "ca6d56043bbababff4fcd232b5e16106586589f70c6b4fd8e947cee0f4372a7b"
+    },
+    {
+      "identifier": "minecraft:netherite_spear",
+      "default_alias": "netherite_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/netherite_spear.json",
+      "evidence_sha256": "919bf283789b07cf70c9243fcd44e729bc09565c91a45ab8dcc3b5695913bb96"
+    },
+    {
+      "identifier": "minecraft:ominous_trial_key",
+      "default_alias": "ominous_trial_key",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/ominous_trial_key.json",
+      "evidence_sha256": "fb1517708446785ed540bc118b7950ba44d2a15da4e4c5037858a157cdfd9317"
+    },
+    {
+      "identifier": "minecraft:orange_bundle",
+      "default_alias": "bundle_orange",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/orange_bundle.json",
+      "evidence_sha256": "b57944224f3b2c5045def1535e82e76943ce32dc743511fa591b1fe576537506"
+    },
+    {
+      "identifier": "minecraft:pink_bundle",
+      "default_alias": "bundle_pink",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/pink_bundle.json",
+      "evidence_sha256": "55e08e5f55f2af0965a9d6dfa569956c72920345cdbd71de47a3fb5e90d91b8e"
+    },
+    {
+      "identifier": "minecraft:purple_bundle",
+      "default_alias": "bundle_purple",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/purple_bundle.json",
+      "evidence_sha256": "a6ececb97d586cfb0fe12e525aea5a0149aac7e5a7aaf791779b0c4e3bd3021d"
+    },
+    {
+      "identifier": "minecraft:red_bundle",
+      "default_alias": "bundle_red",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/red_bundle.json",
+      "evidence_sha256": "d91d1ba195e277ee04dd275234cda213f6080d263d3ce5d6ad8b2e0b63b619a1"
+    },
+    {
+      "identifier": "minecraft:stone_spear",
+      "default_alias": "stone_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/stone_spear.json",
+      "evidence_sha256": "a1c65b3c0a18f7c83c873175e09f7eb2588cf21eed4558ea21a5082d4eace1a7"
+    },
+    {
+      "identifier": "minecraft:trial_key",
+      "default_alias": "trial_key",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/trial_key.json",
+      "evidence_sha256": "a7dc3a72cab144a48a19955446d5ef032fa9a13d4d64d4b0d99d382adaf3961b"
+    },
+    {
+      "identifier": "minecraft:white_bundle",
+      "default_alias": "bundle_white",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/white_bundle.json",
+      "evidence_sha256": "d78335ae38d60fd1772544b7328bd421cd8f3d39e1e5a79383f57c0f2bb920d8"
+    },
+    {
+      "identifier": "minecraft:wind_charge",
+      "default_alias": "wind_charge",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/wind_charge.json",
+      "evidence_sha256": "4e4f6430b1198106dee9fd10bfa58ad803e2d8ff1f35237cddfbbd11ce682e14"
+    },
+    {
+      "identifier": "minecraft:wooden_spear",
+      "default_alias": "wood_spear",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/wooden_spear.json",
+      "evidence_sha256": "e66540ec034b485bf974bf263e5fecec0dc2e0013728160620a17107e96b8423"
+    },
+    {
+      "identifier": "minecraft:yellow_bundle",
+      "default_alias": "bundle_yellow",
+      "atlas_variant": 0,
+      "evidence_file": "behavior_pack/items/yellow_bundle.json",
+      "evidence_sha256": "59bcdfe2a114267d710bb97059d028361d7b3c62b72b95aba2f207a59c453fd3"
+    }
+  ]
+}

@@ -1,9 +1,11 @@
 use super::super::*;
+use super::fallback::FallbackInventory;
 
 pub(in crate::compiler) struct RuleInputs<'a> {
     pub(in crate::compiler) pack: &'a PackSources,
     pub(in crate::compiler) material_by_descriptor: &'a BTreeMap<Descriptor, u32>,
     pub(in crate::compiler) vanilla_fallback_material: u32,
+    pub(in crate::compiler) fallback: &'static FallbackInventory<'static>,
 }
 
 impl RuleInputs<'_> {
@@ -12,7 +14,7 @@ impl RuleInputs<'_> {
         record: &RegistryRecord,
         face: BlockFace,
     ) -> Option<u32> {
-        descriptor_for(self.pack, record, face)
+        descriptor_for(self.fallback, self.pack, record, face)
             .and_then(|(descriptor, _)| self.material_by_descriptor.get(&descriptor).copied())
     }
 
@@ -59,6 +61,14 @@ pub(in crate::compiler) struct CuboidTemplateKey {
 pub(in crate::compiler) struct PressurePlateTemplateKey {
     pub(in crate::compiler) materials: [u32; 6],
     pub(in crate::compiler) pressed: bool,
+}
+
+/// Template identity for the torch, ladder, and rail families: one selector byte plus up to two materials.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::compiler) struct ThinTemplateKey {
+    pub(in crate::compiler) family: u8,
+    pub(in crate::compiler) shape: u8,
+    pub(in crate::compiler) materials: [u32; 2],
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

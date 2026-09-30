@@ -106,20 +106,26 @@ impl WorldStream {
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         Self {
             store: ChunkStore::new(),
+            block_cracks: block_cracks::BlockCracks::default(),
+            block_events: block_events::BlockEvents::default(),
+            map_images: map_data::MapImages::default(),
+            pending_sign_edit: None,
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
             runtime_assets,
+            custom_block_ids: 0..0,
+            id_remap: Arc::default(),
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
             biome_tint_stream_id,
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
+            form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,
-            local_mount_unique_id: None,
             ordered: SequenceBuffer::new(first_sequence),
             submitted: HashSet::new(),
             heavy_sequences: HashSet::new(),
@@ -184,6 +190,10 @@ impl WorldStream {
             mesh_changes: VecDeque::new(),
             committed_controls: VecDeque::new(),
             committed_ui: VecDeque::new(),
+            local_movement_speed: None,
+            committed_audio: VecDeque::new(),
+            committed_camera: VecDeque::new(),
+            committed_particles: VecDeque::new(),
             publisher_center: Some([
                 floor_to_i32(resolved_server_position.position[0]),
                 floor_to_i32(resolved_server_position.position[1]),
@@ -230,7 +240,9 @@ impl WorldStream {
         let retained_commits = self
             .committed_controls
             .len()
-            .saturating_add(self.committed_ui.len());
+            .saturating_add(self.committed_ui.len())
+            .saturating_add(self.committed_audio.len())
+            .saturating_add(self.committed_camera.len());
         if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits) {
             return Err(WorldStreamError::AdmissionFull {
                 sequence,
@@ -253,6 +265,26 @@ impl WorldStream {
     }
 
     pub fn submit(&mut self, sequence: u64, event: WorldEvent) -> Result<(), WorldStreamError> {
+        self.submit_with_level_chunk_payload(sequence, event, None)
+    }
+
+    /// Additive zero-copy ingress used by the app's private LevelChunk lane.
+    pub fn submit_level_chunk_bytes(
+        &mut self,
+        sequence: u64,
+        mut event: LevelChunkEvent,
+        payload: Bytes,
+    ) -> Result<(), WorldStreamError> {
+        event.payload.clear();
+        self.submit_with_level_chunk_payload(sequence, WorldEvent::LevelChunk(event), Some(payload))
+    }
+
+    fn submit_with_level_chunk_payload(
+        &mut self,
+        sequence: u64,
+        event: WorldEvent,
+        mut level_chunk_payload: Option<Bytes>,
+    ) -> Result<(), WorldStreamError> {
         if sequence < self.ordered.next_sequence() || self.submitted.contains(&sequence) {
             return Err(SequenceError::DuplicateOrPast {
                 sequence,
@@ -294,7 +326,9 @@ impl WorldStream {
         let retained_commits = self
             .committed_controls
             .len()
-            .saturating_add(self.committed_ui.len());
+            .saturating_add(self.committed_ui.len())
+            .saturating_add(self.committed_audio.len())
+            .saturating_add(self.committed_camera.len());
         if self.submitted.len() >= MAX_ADMITTED_WORLD_EVENTS.saturating_sub(retained_commits)
             || (heavy && self.heavy_sequences.len() >= MAX_ADMITTED_HEAVY_EVENTS)
         {
@@ -316,30 +350,32 @@ impl WorldStream {
 
         match event {
             WorldEvent::LevelChunk(
-                event @ LevelChunkEvent {
+                mut event @ LevelChunkEvent {
                     mode: LevelChunkMode::Inline { count },
                     ..
                 },
             ) => {
-                let Some(range) = vanilla_dimension_range(event.dimension)
-                    .filter(|range| count <= range.sub_chunk_count)
-                else {
+                let Some(range) = vanilla_dimension_range(event.dimension) else {
                     self.heavy_sequences.remove(&sequence);
                     self.ordered
                         .insert(sequence, PreparedWorldEvent::NormalizationFailure)?;
                     self.apply_ready();
                     return Ok(());
                 };
+                let ids = self.decode_ids(event.dimension);
                 self.enqueue_decode_job(DecodeJob::InlineLevelChunk {
                     sequence,
+                    payload: level_chunk_payload
+                        .take()
+                        .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
                     event,
-                    base_sub_chunk_y: range.base_sub_chunk_y,
+                    slots: dimension_slots(range),
                     count,
-                    biome_storage_count: range.sub_chunk_count,
+                    ids,
                 });
             }
             WorldEvent::LevelChunk(
-                event @ LevelChunkEvent {
+                mut event @ LevelChunkEvent {
                     mode: LevelChunkMode::LimitedRequests { .. } | LevelChunkMode::LimitlessRequests,
                     ..
                 },
@@ -351,11 +387,15 @@ impl WorldStream {
                     self.apply_ready();
                     return Ok(());
                 };
+                let ids = self.decode_ids(event.dimension);
                 self.enqueue_decode_job(DecodeJob::RequestLevelChunk {
                     sequence,
+                    payload: level_chunk_payload
+                        .take()
+                        .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
                     event,
-                    biome_base_sub_chunk_y: range.base_sub_chunk_y,
-                    biome_storage_count: range.sub_chunk_count,
+                    slots: dimension_slots(range),
+                    ids,
                 });
             }
             WorldEvent::SubChunks(batch) => {
@@ -367,7 +407,12 @@ impl WorldStream {
                     return Ok(());
                 }
                 self.record_sub_chunk_reply_admissions(&batch);
-                self.enqueue_decode_job(DecodeJob::SubChunks { sequence, batch });
+                let ids = self.decode_ids(batch.dimension);
+                self.enqueue_decode_job(DecodeJob::SubChunks {
+                    sequence,
+                    batch,
+                    ids,
+                });
             }
             WorldEvent::SubChunkReplyAdmission(admission) => {
                 self.record_sub_chunk_reply_admission(&admission);
@@ -402,7 +447,9 @@ impl WorldStream {
                 self.submitted
                     .len()
                     .saturating_add(self.committed_controls.len())
-                    .saturating_add(self.committed_ui.len()),
+                    .saturating_add(self.committed_ui.len())
+                    .saturating_add(self.committed_audio.len())
+                    .saturating_add(self.committed_camera.len()),
             )
             .min(MAX_ADMITTED_HEAVY_EVENTS.saturating_sub(self.heavy_sequences.len()))
             .min(OUTBOUND_REQUEST_CAPACITY.saturating_sub(self.requests.len()))

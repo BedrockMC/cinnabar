@@ -103,7 +103,7 @@ fn tint_table_identity_rebuilds_the_gpu_buffer_and_shared_bind_group() {
 #[test]
 fn matching_identity_uploads_acks_and_queues_direct_and_mdi_draws() {
     fn solid_sub_chunk() -> world::SubChunk {
-        world::SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform solid sub-chunk")
+        world::SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 })
     }
 
     let active = ChunkBiomeTintIdentity::new(4, 7);
@@ -866,7 +866,7 @@ fn adapter_failure_releases_capacity_for_later_fitting_extracted_instance() {
     fn solid_sub_chunk(runtime_id: u32) -> world::SubChunk {
         let mut encoded = vec![9, 1, 0, 1];
         encoded.extend(encode_zig_zag_i32(runtime_id as i32));
-        world::SubChunk::decode(&encoded).expect("uniform solid sub-chunk")
+        world::SubChunk::decode(&encoded, &world::RawBlockIds { air: 0 })
     }
 
     let impossible_key = SubChunkKey::new(0, 0, 0, 0);

@@ -51,6 +51,15 @@ type Realm struct {
 	State   string `json:"state"`
 	Target  string `json:"target"`
 	Address string `json:"address,omitempty"`
+	// Details the realms grid binds; all optional.
+	Owner         string `json:"owner,omitempty"`
+	MOTD          string `json:"motd,omitempty"`
+	WorldType     string `json:"world_type,omitempty"`
+	OnlinePlayers int    `json:"online_players"`
+	MaxPlayers    int    `json:"max_players,omitempty"`
+	DaysLeft      int    `json:"days_left,omitempty"`
+	Expired       bool   `json:"expired,omitempty"`
+	Member        bool   `json:"member,omitempty"` // joined, not owned
 }
 
 type Friend struct {
@@ -219,7 +228,7 @@ func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) stri
 		}
 	}
 	for _, image := range item.Images {
-		if image.Type == playfabcatalog.ImageTypeThumbnail && validArtworkURL(image.URL) {
+		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeThumbnail) && validArtworkURL(image.URL) {
 			return image.URL
 		}
 	}
@@ -254,6 +263,12 @@ func cacheArtwork(ctx context.Context, directory string, result *File) {
 }
 
 func cacheArtworkFile(ctx context.Context, directory, rawURL string) (string, error) {
+	return cacheArtworkFileWithTransport(ctx, directory, rawURL, http.DefaultTransport)
+}
+
+func cacheArtworkFileWithTransport(
+	ctx context.Context, directory, rawURL string, transport http.RoundTripper,
+) (string, error) {
 	if !validArtworkURL(rawURL) {
 		return "", errors.New("invalid artwork URL")
 	}
@@ -269,7 +284,19 @@ func cacheArtworkFile(ctx context.Context, directory, rawURL string) (string, er
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Cinnabar/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !validArtworkURL(req.URL.String()) {
+				return errors.New("invalid artwork redirect URL")
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -315,9 +342,21 @@ func fetchRealms(ctx context.Context, src oauth2.TokenSource) ([]Realm, error) {
 	result := make([]Realm, 0, len(values))
 	for _, realm := range values {
 		entry := Realm{
-			Name:   displayName(realm.Name, "", "Realm"),
-			State:  realm.State,
-			Target: fmt.Sprintf("realm_id/%d", realm.ID),
+			Name:       displayName(realm.Name, "", "Realm"),
+			State:      realm.State,
+			Target:     fmt.Sprintf("realm_id/%d", realm.ID),
+			Owner:      strings.TrimSpace(realm.Owner),
+			MOTD:       strings.TrimSpace(realm.MOTD),
+			WorldType:  realm.WorldType,
+			MaxPlayers: realm.MaxPlayers,
+			DaysLeft:   realm.DaysLeft,
+			Expired:    realm.Expired,
+			Member:     realm.Member,
+		}
+		for _, player := range realm.Players {
+			if player.Online {
+				entry.OnlinePlayers++
+			}
 		}
 		joinContext, cancel := context.WithTimeout(ctx, 4*time.Second)
 		address, addressErr := realm.Address(joinContext)
@@ -331,11 +370,18 @@ func fetchRealms(ctx context.Context, src oauth2.TokenSource) ([]Realm, error) {
 }
 
 func newXSAPIClient(ctx context.Context, src oauth2.TokenSource) (*xsapi.Client, error) {
-	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, auth.AndroidConfig.New(src, nil))
+	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, xsapiTokenSource(src))
 	if err != nil {
 		return nil, fmt.Errorf("login to Xbox Live: %w", err)
 	}
 	return client, nil
+}
+
+func xsapiTokenSource(src oauth2.TokenSource) xsapi.TokenSource {
+	if cached, ok := src.(xsapi.TokenSource); ok {
+		return cached
+	}
+	return auth.AndroidConfig.New(src, nil)
 }
 
 func fetchFriends(ctx context.Context, client *xsapi.Client) ([]Friend, error) {

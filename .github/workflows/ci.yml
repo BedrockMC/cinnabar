@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - dev
+      - dev-ox-alpha
   pull_request:
 
 concurrency:
@@ -11,10 +13,74 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  desktop-compile-readiness:
+    name: Desktop compile readiness (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          components: clippy
+      - name: Cache Rust dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Install Linux desktop development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
+      - name: Build release desktop client
+        run: cargo build --release -p bedrock-client --locked
+      - name: Build release Go core on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: go build -trimpath -o "$env:RUNNER_TEMP\bedrock-core.exe" ./core/cmd/bedrock-core
+      - name: Build release Go core on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
+      - name: Test Rust bridge
+        run: cargo test -p bridge --locked
+      - name: Test Go local transport and credential storage
+        run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
+      - name: Test Rust workspace on macOS
+        if: runner.os == 'macOS'
+        run: cargo test --workspace --locked
+      - name: Lint Rust workspace on macOS
+        if: runner.os == 'macOS'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test Go core on macOS
+        if: runner.os == 'macOS'
+        run: go test ./core/...
+      - name: Vet Go core on macOS
+        if: runner.os == 'macOS'
+        run: go vet ./core/...
+
   windows-acceptance:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
       - name: Test hermetic vanilla asset acquisition on Windows PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\vanilla-assets.ps1
@@ -34,9 +100,6 @@ jobs:
           key: ${{ runner.os }}-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-rust-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 1.26.x
       - name: Test Rust workspace on Windows
         run: cargo test --workspace --locked
       - name: Lint Rust workspace on Windows
@@ -50,7 +113,7 @@ jobs:
       - name: Test and vet protocol registry tools on Windows
         shell: powershell
         run: |
-          go -C tools/registrygen test ./cmd/... -count=1
+          go -C tools/registrygen test ./... -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C tools/registrygen vet ./...
 
@@ -74,10 +137,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
-      - name: Install Wayland development library
+      - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev
+          sudo apt-get install --yes libwayland-dev libasound2-dev
       - name: Verify Linux window backends
         shell: bash
         run: |
@@ -89,11 +152,25 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: bash scripts/tests/acceptance_test.sh
+      # The Windows job above exercises the vanilla-asset fetchers through
+      # Windows PowerShell 5.1, where its bash deep legs are conditionally
+      # skipped because hosted Git Bash usually lacks unzip. Run the same
+      # hermetic fixture suite where real Info-ZIP unzip exists so the
+      # production bash extractor's bounded-extraction contracts (including
+      # pre-extraction link-entry rejection) are exercised in CI.
+      - name: Test hermetic vanilla asset acquisition on Linux (bash extractor bounds)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command unzip -ErrorAction SilentlyContinue)) {
+            sudo apt-get update
+            sudo apt-get install --yes unzip
+          }
+          ./scripts/tests/vanilla-assets.ps1
       - run: go test ./core/...
       - run: go vet ./core/...
       - name: Test and vet protocol registry tools
         run: |
-          go -C tools/registrygen test ./cmd/... -count=1
+          go -C tools/registrygen test ./... -count=1
           go -C tools/registrygen vet ./...
       - name: Test and vet pinned chunk fixture generator
         working-directory: tools/chunkfix
@@ -118,11 +195,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
-      - name: Acquire and compile protocol-1001 physics assets through Make
+      - name: Test hermetic vanilla asset acquisition on macOS (bash extractor bounds)
+        shell: pwsh
+        run: ./scripts/tests/vanilla-assets.ps1
+      - name: Install and verify the manifest-owned physics carrier through Make
         run: make physics-assets
-      - name: Verify the generated runtime carrier
-        shell: bash
-        run: |
-          expected="$(tr -d '[:space:]' < crates/assets/data/block-physics-v1001.sha256)"
-          actual="$(shasum -a 256 .local/assets/block-physics-v1001.bin | awk '{print $1}')"
-          test "$actual" = "$expected"

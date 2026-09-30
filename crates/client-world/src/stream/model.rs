@@ -18,22 +18,26 @@ pub(super) struct CorrelatedSubChunkAttempts {
 
 /// Raw block-space witness for a server publisher view.
 ///
-/// The containing chunk and ceiling chunk radius remain on [`ViewCohort`] for
-/// bounded retention. This identity preserves values that would otherwise be
-/// lost when an unaligned block centre or radius is converted to chunks.
+/// The containing chunk and ceiling chunk radius remain on [`ViewCohort`] as a
+/// bounded publisher/control envelope. This identity preserves values that
+/// would otherwise be lost when an unaligned block centre or radius is
+/// converted to chunks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublisherViewGeometry {
     pub center_blocks: [i32; 2],
     pub radius_blocks: u32,
 }
 
-/// One horizontal view cohort with separate required and retention geometry.
+/// One horizontal publisher view with independently tracked required columns.
 ///
-/// `center` and `radius` define the enclosing Chebyshev retention square in
-/// chunk columns. Publisher-created cohorts additionally retain the raw wire
-/// witness, but the protocol does not define an enumerable universal column
-/// set from that witness. Required membership is recorded separately from
-/// unique request-mode `LevelChunk` announcements in the publisher epoch.
+/// `center` and `radius` define the enclosing Chebyshev publisher/control
+/// envelope in chunk columns. Publisher-created cohorts additionally retain
+/// the raw wire witness, but the protocol does not define an enumerable
+/// universal column set from that witness. Required membership is recorded
+/// separately from unique `LevelChunk` announcements — request-mode and inline
+/// alike — in the publisher epoch, each only after its own decode and data
+/// admission gates. The player grid's independent retention geometry is not
+/// stored in this publisher identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewCohort {
     pub dimension: i32,
@@ -331,6 +335,19 @@ pub enum ForcedRemeshManifestState {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommittedControlEvent {
+    /// A MobEffect change for the local movement simulator. Its packet tick is
+    /// retained as correlation metadata, not used as a local expiry clock.
+    /// The same event is also retained in [`CommittedUiEvent::LocalEffect`].
+    LocalMovementEffect {
+        sequence: u64,
+        event: protocol::ActorEffectEvent,
+    },
+    /// Valid current `minecraft:movement` authority for local prediction.
+    LocalMovementSpeed {
+        sequence: u64,
+        dimension: i32,
+        current: f64,
+    },
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,
@@ -341,6 +358,23 @@ pub enum CommittedControlEvent {
         sequence: u64,
         correction: PlayerMovementCorrectionEvent,
         resolved: ResolvedServerPosition,
+    },
+    /// A server-authoritative velocity impulse for the local player
+    /// (knockback, explosion, launch). Other actors have no velocity consumer.
+    LocalActorMotion {
+        sequence: u64,
+        event: protocol::ActorMotionEvent,
+    },
+    /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
+    /// vector toward the damage source when a recent knockback impulse implies one.
+    LocalHurt {
+        sequence: u64,
+        source_direction: Option<[f32; 2]>,
+    },
+    /// The retained authoritative player list changed and Tab/rawtext identity
+    /// consumers must refresh even when no ordinary UI packet committed.
+    PlayerListChanged {
+        sequence: u64,
     },
     ChangeDimension {
         change: ChangeDimensionEvent,
@@ -367,6 +401,19 @@ pub enum CommittedControlEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommittedUiEvent {
+    /// Evidence addressed to the bootstrap's persistent local actor identity.
+    LocalAbilities {
+        sequence: u64,
+        stream_identity: u64,
+        event: protocol::AbilitiesUpdate,
+    },
+    /// Forms carry their committed dimension lifetime, even across a return
+    /// to the same numeric dimension before the UI FIFO is drained.
+    Form {
+        sequence: u64,
+        dimension_epoch: u64,
+        event: protocol::FormRequestEvent,
+    },
     Ui {
         sequence: u64,
         event: UiEvent,
@@ -398,12 +445,36 @@ pub enum CommittedUiEvent {
         sequence: u64,
         event: Box<protocol::ArmorEquipmentEvent>,
     },
-    /// The local player's authoritative mount after a SetActorLink change.
+    /// The local player's authoritative mount after a link or actor-lifetime change.
     /// `None` means the player is no longer riding anything.
     LocalMount {
         sequence: u64,
         ridden_unique_id: Option<i64>,
     },
+}
+
+/// One packet-order-preserving audio command committed by the world stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommittedAudioEvent {
+    pub sequence: u64,
+    pub dimension: i32,
+    pub dimension_epoch: u64,
+    pub event: AudioEvent,
+}
+
+/// One packet-order-preserving particle trigger committed by the world stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommittedParticleEvent {
+    pub sequence: u64,
+    pub dimension: i32,
+    pub event: protocol::ParticleEvent,
+}
+
+/// One packet-order-preserving server camera command committed by the world stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommittedCameraEvent {
+    pub sequence: u64,
+    pub event: protocol::CameraEvent,
 }
 
 #[cfg(test)]
@@ -543,6 +614,8 @@ impl WorldStreamNormalizationStats {
 /// Cumulative diagnostics and current bounded-work gauges.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamStats {
+    /// Monotonic lifetime fact, unaffected by diagnostic drains or timing resets.
+    pub audio_nondefault_camera_observed: bool,
     pub phase2_stages: PublicationStageCounters,
     pub phase2_outcomes: SubChunkOutcomeCounters,
     pub decode_errors: u64,
@@ -572,6 +645,8 @@ pub struct WorldStreamStats {
     pub terminal_light_failures: usize,
     pub admitted_world_events: usize,
     pub admitted_heavy_events: usize,
+    pub committed_audio_events: usize,
+    pub committed_camera_events: usize,
     pub queued_decode_jobs: usize,
     pub in_flight_decode_jobs: usize,
     pub completed_decode_results: usize,
@@ -604,6 +679,15 @@ impl WorldStreamStats {
 
     pub(super) fn observe_mesh_queue_wait(&mut self, queue_wait: Duration) {
         self.max_mesh_queue_wait = self.max_mesh_queue_wait.max(queue_wait);
+    }
+}
+
+impl super::WorldStream {
+    /// Any committed camera command conservatively disables the ordinary-listener
+    /// audio lane for this entire stream. Only fresh bootstrap re-enables it.
+    #[must_use]
+    pub const fn audio_default_camera_eligible(&self) -> bool {
+        !self.stats.audio_nondefault_camera_observed
     }
 }
 
@@ -668,12 +752,12 @@ impl From<SequenceError> for WorldStreamError {
 pub(super) enum PreparedWorldEvent {
     InlineLevelChunk {
         event: LevelChunkEvent,
-        decoded: Result<DecodedLevelChunk, DecodeError>,
+        decoded: DecodedLevelChunk,
         duration: Duration,
     },
     RequestLevelChunk {
         event: LevelChunkEvent,
-        decoded: Result<(DecodedBiomeColumn, DecodedBlockEntities), DecodeError>,
+        decoded: (DecodedBiomeColumn, DecodedBlockEntities),
         duration: Duration,
     },
     SubChunks {
@@ -703,7 +787,7 @@ pub(super) struct PreparedSubChunk {
 
 #[derive(Debug)]
 pub(super) enum PreparedSubChunkResult {
-    Decoded(Result<DecodedSubChunk, DecodeError>),
+    Decoded(DecodedSubChunk),
     AllAir,
     Unavailable(protocol::SubChunkUnavailable),
 }
@@ -726,24 +810,27 @@ pub(super) enum DecodeJob {
     InlineLevelChunk {
         sequence: u64,
         event: LevelChunkEvent,
-        base_sub_chunk_y: i32,
+        payload: Bytes,
+        slots: DimensionSlots,
         count: usize,
-        biome_storage_count: usize,
+        ids: DecodeIds,
     },
     RequestLevelChunk {
         sequence: u64,
         event: LevelChunkEvent,
-        biome_base_sub_chunk_y: i32,
-        biome_storage_count: usize,
+        payload: Bytes,
+        slots: DimensionSlots,
+        ids: DecodeIds,
     },
     SubChunks {
         sequence: u64,
         batch: SubChunkBatchEvent,
+        ids: DecodeIds,
     },
     BlockUpdates {
         sequence: u64,
         batches: Vec<BlockMutationBatch>,
-        air_runtime_id: u32,
+        ids: DecodeIds,
     },
     BlockEntityUpdate {
         sequence: u64,

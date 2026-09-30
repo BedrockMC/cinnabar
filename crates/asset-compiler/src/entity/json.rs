@@ -22,7 +22,7 @@ pub(super) fn parse_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, Asse
     Ok(value)
 }
 
-pub(super) fn parse_fully_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
+pub(crate) fn parse_fully_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
     let uncommented = strip_json_comments(bytes)?;
     let mut deserializer = serde_json::Deserializer::from_slice(&uncommented);
