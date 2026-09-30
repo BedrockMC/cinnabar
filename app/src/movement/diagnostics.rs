@@ -158,3 +158,31 @@ pub(crate) fn note_motion(tick: u64, motion: [f32; 3]) {
         "server movement correction"
     );
 }
+
+static DROPPED_CORRECTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Counts and logs one correction dropped for a tick outside retained history.
+pub(crate) fn note_dropped_correction(tick: u64) -> u64 {
+    let dropped = DROPPED_CORRECTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if admit(Instant::now()).is_some() {
+        info!(
+            tick,
+            dropped, "server movement correction outside retained history dropped"
+        );
+    }
+    dropped
+}
+
+static SKIPPED_AUTHORITY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Counts and logs one finite server value too large for prediction to simulate.
+pub(crate) fn note_skipped_authority(kind: &'static str, value: f64) -> u64 {
+    let skipped = SKIPPED_AUTHORITY.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if admit(Instant::now()).is_some() {
+        info!(
+            kind,
+            value, skipped, "unsimulable server movement value skipped"
+        );
+    }
+    skipped
+}

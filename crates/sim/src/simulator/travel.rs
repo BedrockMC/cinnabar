@@ -26,7 +26,6 @@ const FLY_HOVER_FRICTION_CREATIVE: f64 = 0.375;
 const FLY_HOVER_FRICTION_OTHER: f64 = 0.75;
 const FLY_HOVER_VERTICAL_CREATIVE: f64 = 0.375;
 
-const SWIM_ACCELERATION: f64 = 0.02;
 const SWIM_HORIZONTAL_DRAG: f64 = 0.9;
 const SWIM_VERTICAL_DRAG: f64 = 0.8;
 const SWIM_STEER_RATE: f64 = 0.06;
@@ -115,7 +114,11 @@ pub(super) fn tick_mode(
                 controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
                 controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
                 input.yaw_degrees,
-                SWIM_ACCELERATION,
+                super::water_travel_speed(
+                    &input,
+                    sampled.movement.horizontal_speed_factor,
+                    super::depth_strider_blend(input.depth_strider, grounded_at_start),
+                ),
             );
             let target = -minecraft_sin(input.pitch_degrees.to_radians());
             let rate = if target < SWIM_DIVE_THRESHOLD {

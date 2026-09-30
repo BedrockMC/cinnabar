@@ -523,7 +523,9 @@ pub(crate) fn normalize_move_entity_delta(
             move_data.new_position_y,
             move_data.new_position_z,
         ],
-        position_origin: ActorPositionOrigin::Feet,
+        // `MoveActorDeltaData::parseDeltas` merges into the previous absolute
+        // data, so deltas share the absolute network origin.
+        position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: move_data.rotation_x.map(signed_byte_rotation_degrees),
         yaw: move_data.rotation_y.map(signed_byte_rotation_degrees),
         head_yaw: move_data.rotation_y_head.map(signed_byte_rotation_degrees),
