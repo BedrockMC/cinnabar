@@ -547,3 +547,41 @@ fn absent_neighbour_light_reads_the_dimension_default() {
     };
     assert_eq!(nether.sample_channels([16, 0, 0]), [0, 0]);
 }
+
+#[test]
+fn disjoint_teleport_keeps_columns_the_destination_view_covers() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.5, 70.0, 0.5],
+        world_spawn_position: [0, 70, 0],
+        air_network_id: AIR,
+        block_network_ids_are_hashes: false,
+    });
+    stream.chunk_radius = Some(8);
+    stream.publisher_radius_chunks = Some(8);
+    let kept = SubChunkKey::new(0, 10, -4, 0);
+    let dropped = SubChunkKey::new(0, -8, -4, 0);
+    for key in [kept, dropped] {
+        stream.loaded_columns.insert(key.chunk());
+        stream.resident.insert(key);
+    }
+
+    stream
+        .submit(
+            1,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 1,
+                position: [224.5, 70.0, 0.5],
+                mode: MovePlayerMode::Teleport,
+                teleported: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+
+    assert!(stream.provisional_publisher_rebase);
+    assert!(stream.tracked_columns().contains(&kept.chunk()));
+    assert!(!stream.tracked_columns().contains(&dropped.chunk()));
+}
