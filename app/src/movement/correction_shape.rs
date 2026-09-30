@@ -11,8 +11,8 @@ use sim::CollisionWorld;
 
 use super::physics::LocalPhysicsController;
 use super::{
-    MovementTicker, PhysicsAuthorityFault, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
-    reconcile_candidate_physics_correction,
+    MovementTicker, PhysicsAnchor, PhysicsAuthorityFault, PhysicsCorrectionMode,
+    PhysicsCorrectionOutcome, reconcile_physics_anchor,
 };
 
 /// Largest per-tick displacement still treated as an ordinary reconcilable
@@ -29,11 +29,8 @@ pub const CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS: f32 = 16.0;
 /// How one committed correction must be applied to prediction state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorrectionShape {
-    /// The server position equals the current predicted network position
-    /// exactly in sent `f32` network space and the ground flag agrees: the
-    /// spatial record confirms the local prediction, so only rotation can
-    /// carry new information. Velocity, history, overlays, and the outbound
-    /// tick stream are left completely untouched.
+    /// Position, motion and ground flag match the retained frame within the
+    /// vanilla epsilon, so nothing is replayed and no state is touched.
     Confirmed,
     /// Ordinary small or full correction reconciled by replacing the retained
     /// position/ground at its tick and replaying later inputs. This is today's
@@ -46,23 +43,24 @@ pub enum CorrectionShape {
     TeleportSnap,
 }
 
+/// Squared distance within which vanilla treats a correction's position and
+/// motion as already matching the retained frame (`getAdvanceFrameResult`).
+const CORRECTION_MATCH_EPSILON_SQUARED: f32 = 1.0e-5;
+
 impl LocalPhysicsController {
     /// Classifies one committed correction against prediction state retained
     /// for the correction's own authoritative tick.
     ///
-    /// Position agreement is exact — the same comparison already proven by the
-    /// transport-confirmation rule in [`LocalPhysicsController::apply_correction`]
-    /// — rather than a newly invented epsilon. Anything that does not compare
-    /// exactly degrades to the ordinary replay path, so float jitter on live
-    /// servers keeps working exactly as before. A missing retained tick also
-    /// selects replay so the established not-retained fallback performs its
-    /// bounded authoritative snap instead of comparing unrelated current state.
+    /// Matching position, motion (when carried) and ground flag within the
+    /// vanilla epsilon needs no replay. A missing retained tick selects replay
+    /// so the not-retained policy decides instead of unrelated current state.
     #[must_use]
     pub fn correction_shape(
         &self,
         network_position: [f32; 3],
         correction_tick: u64,
         on_ground: bool,
+        velocity: Option<[f32; 3]>,
     ) -> CorrectionShape {
         if !network_position.into_iter().all(f32::is_finite) {
             // Position resolution bounds non-finite input upstream, so this is
@@ -79,19 +77,35 @@ impl LocalPhysicsController {
             state.position.y as f32 + PLAYER_NETWORK_OFFSET,
             state.position.z as f32,
         ];
-        if current == network_position && state.on_ground == on_ground {
+        let position_error = squared_distance(current, network_position);
+        let velocity_matches = velocity.is_none_or(|velocity| {
+            let retained = [
+                state.velocity.x as f32,
+                state.velocity.y as f32,
+                state.velocity.z as f32,
+            ];
+            squared_distance(retained, velocity) <= CORRECTION_MATCH_EPSILON_SQUARED
+        });
+        if position_error <= CORRECTION_MATCH_EPSILON_SQUARED
+            && velocity_matches
+            && state.on_ground == on_ground
+        {
             return CorrectionShape::Confirmed;
         }
-        let dx = current[0] - network_position[0];
-        let dy = current[1] - network_position[1];
-        let dz = current[2] - network_position[2];
         let bound = CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS;
-        if dx * dx + dy * dy + dz * dz > bound * bound {
+        if position_error > bound * bound {
             CorrectionShape::TeleportSnap
         } else {
             CorrectionShape::Replay
         }
     }
+}
+
+fn squared_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    dx * dx + dy * dy + dz * dz
 }
 
 /// Applies one committed correction to prediction according to its shape.
@@ -106,9 +120,10 @@ pub(crate) fn reconcile_committed_correction(
     network_position: [f32; 3],
     correction_tick: u64,
     on_ground: bool,
+    velocity: Option<[f32; 3]>,
     world: &impl CollisionWorld,
 ) -> Result<Option<PhysicsCorrectionOutcome>, PhysicsAuthorityFault> {
-    let shape = physics.correction_shape(network_position, correction_tick, on_ground);
+    let shape = physics.correction_shape(network_position, correction_tick, on_ground, velocity);
     if shape != CorrectionShape::Confirmed {
         super::diagnostics::note_correction(
             super::diagnostics::CorrectionKind::Correct,
@@ -123,12 +138,15 @@ pub(crate) fn reconcile_committed_correction(
         CorrectionShape::Replay => PhysicsCorrectionMode::ReplayIfRetained,
         CorrectionShape::TeleportSnap => PhysicsCorrectionMode::Snap,
     };
-    reconcile_candidate_physics_correction(
+    reconcile_physics_anchor(
         ticker,
         physics,
-        network_position,
-        correction_tick,
-        on_ground,
+        PhysicsAnchor {
+            network_position,
+            tick: correction_tick,
+            on_ground,
+            velocity,
+        },
         mode,
         world,
     )

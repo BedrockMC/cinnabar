@@ -313,7 +313,7 @@ fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     assert_eq!(
         state.velocity,
         Vec3::ZERO,
-        "CorrectPlayerMovePrediction.Delta is positional error, not velocity"
+        "a hard reanchor starts from rest"
     );
     assert!(!state.on_ground);
     assert_eq!(physics.history_len(), 0);

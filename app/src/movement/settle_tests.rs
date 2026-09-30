@@ -328,6 +328,7 @@ fn a_confirming_correction_mutates_nothing_and_keeps_the_stream_flowing() {
             position,
             tick,
             on_ground,
+            None,
             &VersionedFloor(1),
         ),
         Ok(None),

@@ -33,6 +33,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             [0.25, 2.620_01, 0.0],
             101,
             true,
+            None,
             PhysicsCorrectionMode::ReplayIfRetained,
             confirmation.as_ref(),
             &VersionedFloor(1),
