@@ -1,8 +1,9 @@
 //! Block use as standalone click-block transactions on the press and while held.
 //!
-//! The local use outcome (interaction, placement or nothing) only decides the
-//! transaction's prediction and swing; every outcome stays server-owned. Air
-//! use and item-use-on start/stop actions are not implemented.
+//! The local use outcome (interaction, placement or nothing) decides the
+//! transaction's prediction and swing. A placement whose state is certain is
+//! also applied locally; the server's block updates stay authoritative. Air use
+//! and item-use-on start/stop actions are not implemented.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -223,7 +224,7 @@ impl UseSurroundings {
     }
 }
 
-/// What the local client does with one click, which sets prediction and swing.
+/// The local outcome of one click, which sets the prediction flag and swing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LocalUse {
     Interact,
@@ -375,7 +376,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     ui: Res<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    client_world: Res<'w, ClientWorld>,
+    client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     melee: Res<'w, MeleeRuntime>,
@@ -457,9 +458,20 @@ pub(crate) fn produce_block_use(
         &caps,
     );
     runtime.record(trigger, due, sample.tick, local_use, clock);
+    let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
+    let predicted = (local_use == LocalUse::Place)
+        .then(|| {
+            predicted_placement(
+                &context.collisions,
+                stream,
+                observed.selection.item.block_runtime_id(),
+                surroundings.clicked_identifier.as_deref(),
+            )
+        })
+        .flatten();
+    let local_runtime_id = stream.local_player_runtime_id();
     if local_use == LocalUse::Place {
-        let (position, _) =
-            surroundings.destination(observed.target.position, observed.target.face);
+        let position = destination;
         context
             .audio_cues
             .write(crate::audio::LocalBlockCue::Place {
@@ -478,13 +490,56 @@ pub(crate) fn produce_block_use(
         sample.position,
         trigger,
         local_use,
-        stream.local_player_runtime_id(),
+        local_runtime_id,
         |tick| swings.try_swing(tick, duration),
         sample.tick,
     );
+    let mut sent = !packets.is_empty();
     for packet in packets {
-        let _ = context.network.send_inventory_packet(packet);
+        sent &= context.network.send_inventory_packet(packet).is_ok();
     }
+    // Vanilla places locally as it sends; a correction replaces the prediction.
+    if let (true, Some(block), Some(stream)) =
+        (sent, predicted, context.client_world.stream.as_mut())
+    {
+        stream.predict_block(destination, 0, block);
+    }
+}
+
+/// The store id a placement predicts locally, when its placed state is certain.
+fn predicted_placement(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &client_world::WorldStream,
+    item_block: i32,
+    clicked_identifier: Option<&str>,
+) -> Option<u32> {
+    let block = u32::try_from(item_block).ok().filter(|block| *block != 0)?;
+    let resolved = stream.resolve_block_network_id(block);
+    let mode = stream.network_id_mode();
+    (resolved != stream.air_block_id()
+        && placement_state_is_certain(
+            collisions.block_is_full_cube(mode, resolved),
+            collisions.block_canonical_state(mode, resolved),
+            collisions.block_identifier(mode, resolved),
+            clicked_identifier,
+        ))
+    .then_some(resolved)
+}
+
+/// Only a stateless full cube places as the held state itself: oriented, sized
+/// and merging blocks resolve their state from the click, which is not modelled.
+fn placement_state_is_certain(
+    full_cube: bool,
+    canonical_state: Option<&str>,
+    placed_identifier: Option<&str>,
+    clicked_identifier: Option<&str>,
+) -> bool {
+    let stateless = canonical_state
+        .and_then(|state| {
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(state).ok()
+        })
+        .is_some_and(|states| states.is_empty());
+    full_cube && stateless && placed_identifier.is_some() && placed_identifier != clicked_identifier
 }
 
 /// A successful local use swings before its transaction, which is always sent.

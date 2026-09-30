@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     BlockUseRuntime, LocalUse, RepeatClock, UseSurroundings, placement_cell,
-    repeat_interval_millis, use_packets, verified_use_selection,
+    placement_state_is_certain, repeat_interval_millis, use_packets, verified_use_selection,
 };
 use crate::{game_mode_capabilities::GameModeCapabilities, ui_runtime::UiRuntime};
 
@@ -207,6 +207,33 @@ fn placement_obstruction_uses_the_placed_shape_and_resolved_cell() {
     assert_eq!(grass.destination([2, 64, 0], 4), ([2, 64, 0], true));
     let stone = surroundings("minecraft:stone", "minecraft:air");
     assert_eq!(stone.destination([2, 64, 0], 4), ([1, 64, 0], true));
+}
+
+/// Only a stateless full cube that does not merge into the clicked block is predicted.
+#[test]
+fn only_certain_placement_states_are_predicted() {
+    let stone = Some("minecraft:stone");
+    assert!(placement_state_is_certain(
+        true,
+        Some("{}"),
+        stone,
+        Some("minecraft:dirt")
+    ));
+    assert!(!placement_state_is_certain(
+        true,
+        Some(r#"{"pillar_axis":"y"}"#),
+        Some("minecraft:oak_log"),
+        None
+    ));
+    assert!(!placement_state_is_certain(
+        false,
+        Some("{}"),
+        Some("minecraft:glass_pane"),
+        None
+    ));
+    assert!(!placement_state_is_certain(true, Some("{}"), stone, stone));
+    assert!(!placement_state_is_certain(true, None, stone, None));
+    assert!(!placement_state_is_certain(true, Some("{}"), None, None));
 }
 
 /// Adventure uses doors and containers but cannot place; each ability gates only its own use.
