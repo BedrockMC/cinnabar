@@ -346,6 +346,26 @@ impl VerifiedNetworkItemStack {
         &self.inner.extra_data
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// The stack less one item, carrying `legacy_request_id` as its net id; empty when none
+    /// remain, as a throw leaves it.
+    #[must_use]
+    pub fn less_one(&self, legacy_request_id: i32) -> Self {
+        if self.inner.count <= 1 {
+            return Self {
+                inner: NetworkItemStack::empty(),
+            };
+        }
+        let mut inner = self.inner.clone();
+        inner.count -= 1;
+        inner.stack_network_id = legacy_request_id;
+        Self { inner }
+    }
+
     #[allow(
         dead_code,
         reason = "Task 12 outbound builders consume this Task 10 verification boundary"
