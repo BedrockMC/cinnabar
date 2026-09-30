@@ -489,8 +489,13 @@ impl AudioEngine {
             .unwrap_or(alternatives[0]);
         let category = AudioCategory::from_definition(definition.category.as_deref());
         let request_volume = request.volume.sample(roll[1]);
-        let volume =
-            definition.volume.unwrap_or(1.0) * chosen.volume.unwrap_or(1.0) * request_volume;
+        // Vanilla widens the audible range by the raw volume but clamps the playback gain to unity.
+        let request_gain = if request_volume.is_finite() {
+            request_volume.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let volume = definition.volume.unwrap_or(1.0) * chosen.volume.unwrap_or(1.0) * request_gain;
         let pitch = (definition.pitch.unwrap_or(1.0)
             * chosen.pitch.unwrap_or(1.0)
             * request.pitch.sample(roll[2]))
@@ -790,6 +795,24 @@ mod tests {
         assert_eq!(started.len(), 1);
         assert_eq!(engine.stats.out_of_range, 1);
         assert!((engine.voices[0].gain - 0.5).abs() < 1e-3);
+    }
+
+    // Thunder's volume 1000 widened its range but also became a 1000x output gain.
+    #[test]
+    fn loud_requests_reach_further_without_exceeding_unit_gain() {
+        let mut engine = engine(&[("ambient.weather.thunder", "weather")]);
+        let loud = FloatRange {
+            min: 1000.0,
+            max: 1000.0,
+        };
+        engine.enqueue(
+            SoundRequest::new("ambient.weather.thunder")
+                .at([200.0, 0.0, 0.0])
+                .with_ranges(loud, FloatRange::ONE),
+        );
+        let started = engine.pump(Some(LISTENER), 0.05, &AudioSettings::default());
+        assert_eq!(started.len(), 1, "admitted beyond the default 16 blocks");
+        assert!(engine.voices[0].gain > 0.0 && engine.voices[0].gain <= 1.0);
     }
 
     #[test]
