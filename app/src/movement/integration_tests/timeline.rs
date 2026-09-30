@@ -249,3 +249,40 @@ fn a_server_window_longer_than_the_outbox_retains_and_replays_every_tick() {
         }
     );
 }
+
+/// A nearby tick-stamped teleport rewinds with motion cleared; a distant one resets history.
+#[test]
+fn a_nearby_retained_teleport_rewinds_and_a_distant_one_snaps() {
+    let (mut physics, mut ticker) = walked_physics(4);
+    let target = [1.0, 2.620_01, 1.0];
+    let outcome = crate::movement::reconcile_move_player_teleport(
+        &mut ticker,
+        &mut physics,
+        target,
+        102,
+        true,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 102,
+            replayed_ticks: 2,
+        }
+    ));
+    assert_eq!(physics.history_len(), 4, "the rewind keeps history");
+
+    let far = [40.0, 2.620_01, 1.0];
+    let outcome = crate::movement::reconcile_move_player_teleport(
+        &mut ticker,
+        &mut physics,
+        far,
+        103,
+        true,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(matches!(outcome, PhysicsCorrectionOutcome::Snapped { .. }));
+    assert_eq!(physics.history_len(), 0);
+}
