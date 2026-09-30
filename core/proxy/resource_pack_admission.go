@@ -5,12 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
-	"net/http"
-	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -80,6 +76,7 @@ func reportConnectStage(ctx context.Context, stage ConnectStage) {
 // order within the count and byte bounds; later packs are ignored, not fatal.
 // A pack whose transfer disagrees with its offer is dropped from the handoff so
 // login still succeeds, while transfers past the memory ceiling cancel the upstream dial.
+// It turns gophertunnel's acquisition events into vanilla's progress figures.
 type resourcePackAcquisitionBudget struct {
 	proto  minecraft.Protocol
 	cancel context.CancelCauseFunc
@@ -89,15 +86,14 @@ type resourcePackAcquisitionBudget struct {
 	offered     map[string]uint64
 	excluded    map[string]bool
 	transferred uint64
-	urls        map[string]string // CDN URL -> admitted pack id
 
 	packs      uint32                   // admitted packs not served from the cache
 	finished   uint32                   // downloads completed
 	total      uint64                   // bytes of downloads begun
-	received   uint64                   // chunk and CDN bytes received
+	received   uint64                   // bytes received
 	downloads  map[string]*packDownload // pack id -> download begun
 	onProgress func(ConnectProgress)
-	done       bool // the dial returned; late callbacks must not report
+	done       bool // the dial returned; late events must not report
 }
 
 type packDownload struct {
@@ -109,25 +105,13 @@ func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.C
 	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel}
 }
 
-// observe must see every inbound packet before gophertunnel handles it.
+// observe must see ResourcePacksInfo before gophertunnel handles it: admission needs the offered sizes.
 func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, payload []byte) {
-	if budget == nil {
+	if budget == nil || header.PacketID != packet.IDResourcePacksInfo {
 		return
 	}
-	switch header.PacketID {
-	case packet.IDResourcePacksInfo:
-		info, ok := decodeInboundPacket[*packet.ResourcePacksInfo](budget.proto, header.PacketID, payload)
-		budget.admitOffer(info, ok)
-	case packet.IDResourcePackDataInfo:
-		if info, ok := decodeInboundPacket[*packet.ResourcePackDataInfo](budget.proto, header.PacketID, payload); ok {
-			budget.observeTransfer(info)
-		}
-	case packet.IDResourcePackChunkData:
-		if chunk, ok := decodeInboundPacket[*packet.ResourcePackChunkData](budget.proto, header.PacketID, payload); ok {
-			id, _, _ := strings.Cut(chunk.UUID, "_")
-			budget.observeChunk(id, len(chunk.Data))
-		}
-	}
+	info, ok := decodeInboundPacket[*packet.ResourcePacksInfo](budget.proto, header.PacketID, payload)
+	budget.admitOffer(info, ok)
 }
 
 func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePacksInfo, decoded bool) {
@@ -135,7 +119,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
 	budget.excluded, budget.transferred = map[string]bool{}, 0
-	budget.urls, budget.downloads = map[string]string{}, map[string]*packDownload{}
+	budget.downloads = map[string]*packDownload{}
 	budget.packs, budget.finished, budget.total, budget.received = 0, 0, 0, 0
 	defer budget.reportLocked()
 	if !decoded {
@@ -143,66 +127,56 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	}
 	budget.accepted = make([]bool, len(info.TexturePacks))
 	var total uint64
-	admitted := 0
 	for index, pack := range info.TexturePacks {
-		if admitted == maxSelectedResourcePacks || pack.Size > maxResourcePackArchiveBytes ||
+		if int(budget.packs) == maxSelectedResourcePacks || pack.Size > maxResourcePackArchiveBytes ||
 			pack.Size > maxSelectedResourcePackTotalBytes-total {
 			continue
 		}
 		total += pack.Size
-		admitted++
 		budget.packs++
 		budget.accepted[index] = true
 		budget.offered[pack.UUID.String()] = pack.Size
-		if pack.DownloadURL != "" {
-			budget.urls[pack.DownloadURL] = pack.UUID.String()
+	}
+}
+
+// event is the Dialer's ResourcePackProgress callback.
+func (budget *resourcePackAcquisitionBudget) event(event minecraft.ResourcePackEvent) {
+	id := event.UUID.String()
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	switch event.Kind {
+	case minecraft.ResourcePackStarted:
+		if offered, known := budget.offered[id]; !known || event.Size > offered {
+			budget.excluded[id] = true // dropped from the handoff; login continues
 		}
-	}
-}
-
-// observeTransfer accounts one downloaded pack. A transfer larger than its
-// offer, or one for an unadvertised pack, is dropped from the handoff; the
-// running total past the memory ceiling cancels the dial.
-func (budget *resourcePackAcquisitionBudget) observeTransfer(info *packet.ResourcePackDataInfo) {
-	id, _, _ := strings.Cut(info.UUID, "_")
-	budget.mu.Lock()
-	offered, known := budget.offered[id]
-	if !known || info.Size > offered {
-		budget.excluded[id] = true
-	}
-	budget.transferred = saturatingAdd(budget.transferred, info.Size)
-	overflow := budget.transferred > maxResourcePackTransferBytes
-	budget.beginLocked(id, info.Size)
-	budget.mu.Unlock()
-	if overflow {
-		budget.cancel(errResourcePackTransferTooLarge)
-	}
-}
-
-// excludes reports whether a downloaded pack must be kept out of the handoff.
-func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool {
-	if budget == nil {
-		return false
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	return budget.excluded[pack.UUID().String()]
-}
-
-// admit is the Dialer's DownloadResourcePack callback.
-func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index, total int) bool {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	return total == len(budget.accepted) && index >= 0 && index < total && budget.accepted[index]
-}
-
-// beginLocked starts counting one pack's download of size bytes; a restart replaces its bytes.
-func (budget *resourcePackAcquisitionBudget) beginLocked(id string, size uint64) {
-	if previous := budget.downloads[id]; previous != nil {
+		budget.transferred = saturatingAdd(budget.transferred, event.Size)
+		if budget.transferred > maxResourcePackTransferBytes {
+			budget.cancel(errResourcePackTransferTooLarge)
+		}
+		if previous := budget.downloads[id]; previous != nil {
+			budget.revertLocked(id)
+		}
+		budget.downloads[id] = &packDownload{size: event.Size}
+		budget.total = saturatingAdd(budget.total, event.Size)
+	case minecraft.ResourcePackReceived:
+		download := budget.downloads[id]
+		if download == nil || download.finished {
+			return
+		}
+		download.received = saturatingAdd(download.received, event.Size)
+		budget.received = saturatingAdd(budget.received, event.Size)
+	case minecraft.ResourcePackFinished:
+		if event.Source == minecraft.ResourcePackSourceCache {
+			if _, admitted := budget.offered[id]; admitted && budget.packs > 0 {
+				budget.packs--
+			}
+		} else if download := budget.downloads[id]; download != nil && !download.finished {
+			download.finished = true
+			budget.finished++
+		}
+	case minecraft.ResourcePackFailed:
 		budget.revertLocked(id)
 	}
-	budget.downloads[id] = &packDownload{size: size}
-	budget.total = saturatingAdd(budget.total, size)
 	budget.reportLocked()
 }
 
@@ -214,44 +188,8 @@ func (budget *resourcePackAcquisitionBudget) revertLocked(id string) {
 	}
 	budget.total -= min(download.size, budget.total)
 	budget.received -= min(download.received, budget.received)
+	budget.transferred -= min(download.size, budget.transferred)
 	delete(budget.downloads, id)
-	budget.reportLocked()
-}
-
-// observeChunk counts size received bytes of pack id and reports the download's progress.
-func (budget *resourcePackAcquisitionBudget) observeChunk(id string, size int) {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	download := budget.downloads[id]
-	if download == nil || download.finished {
-		return
-	}
-	download.received = saturatingAdd(download.received, uint64(size))
-	budget.received = saturatingAdd(budget.received, uint64(size))
-	if download.received >= download.size {
-		budget.finishLocked(download)
-	}
-	budget.reportLocked()
-}
-
-func (budget *resourcePackAcquisitionBudget) finishLocked(download *packDownload) {
-	if !download.finished {
-		download.finished = true
-		budget.finished++
-	}
-}
-
-// skip removes a pack served from the cache from the download count.
-func (budget *resourcePackAcquisitionBudget) skip(key minecraft.ResourcePackCacheKey) {
-	if budget == nil {
-		return
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if _, admitted := budget.offered[key.UUID.String()]; admitted && budget.packs > 0 {
-		budget.packs--
-		budget.reportLocked()
-	}
 }
 
 func (budget *resourcePackAcquisitionBudget) reportLocked() {
@@ -274,96 +212,28 @@ func (budget *resourcePackAcquisitionBudget) finish() {
 	budget.mu.Unlock()
 }
 
-func (budget *resourcePackAcquisitionBudget) offeredPack(url string) (string, bool) {
+// excludes reports whether a downloaded pack must be kept out of the handoff.
+func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool {
+	if budget == nil {
+		return false
+	}
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	id, ok := budget.urls[url]
-	return id, ok
+	return budget.excluded[pack.UUID().String()]
 }
 
-// beginURL starts counting a CDN download of pack id, sized by the offer.
-func (budget *resourcePackAcquisitionBudget) beginURL(id string) {
+// admit is the Dialer's DownloadResourcePack callback.
+func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index, total int) bool {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	budget.beginLocked(id, budget.offered[id])
+	return total == len(budget.accepted) && index >= 0 && index < total && budget.accepted[index]
 }
 
-func (budget *resourcePackAcquisitionBudget) endURL(id string, complete bool) {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if download := budget.downloads[id]; complete && download != nil {
-		budget.finishLocked(download)
-		budget.reportLocked()
-		return
-	}
-	budget.revertLocked(id)
-}
-
-// httpClient is base with admitted packs' CDN response bodies counted as progress.
-func (budget *resourcePackAcquisitionBudget) httpClient(base *http.Client) *http.Client {
-	client := http.Client{}
-	if base != nil {
-		client = *base
-	}
-	transport := client.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	client.Transport = packDownloadTransport{base: transport, budget: budget}
-	return &client
-}
-
-type packDownloadTransport struct {
-	base   http.RoundTripper
-	budget *resourcePackAcquisitionBudget
-}
-
-func (transport packDownloadTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	response, err := transport.base.RoundTrip(request)
-	origin := request
-	for origin.Response != nil && origin.Response.Request != nil {
-		origin = origin.Response.Request // a CDN redirect keeps counting against the offered URL
-	}
-	if err != nil || response.StatusCode != http.StatusOK {
-		return response, err
-	}
-	id, offered := transport.budget.offeredPack(origin.URL.String())
-	if !offered {
-		return response, nil
-	}
-	transport.budget.beginURL(id)
-	response.Body = &packDownloadBody{ReadCloser: response.Body, budget: transport.budget, id: id}
-	return response, nil
-}
-
-type packDownloadBody struct {
-	io.ReadCloser
-	budget *resourcePackAcquisitionBudget
-	id     string
-	ended  sync.Once
-}
-
-func (body *packDownloadBody) Read(buffer []byte) (int, error) {
-	read, err := body.ReadCloser.Read(buffer)
-	if read > 0 {
-		body.budget.observeChunk(body.id, read)
-	}
-	if err != nil {
-		body.ended.Do(func() { body.budget.endURL(body.id, errors.Is(err, io.EOF)) })
-	}
-	return read, err
-}
-
-func (body *packDownloadBody) Close() error {
-	body.ended.Do(func() { body.budget.endURL(body.id, false) })
-	return body.ReadCloser.Close()
-}
-
-// withResourcePackAcquisitionBudget routes pack admission, CDN downloads and
-// inbound packet observation through budget, preserving any existing PacketFunc.
+// withResourcePackAcquisitionBudget routes pack admission, acquisition events and
+// ResourcePacksInfo observation through budget, preserving any existing PacketFunc.
 func withResourcePackAcquisitionBudget(dialer minecraft.Dialer, budget *resourcePackAcquisitionBudget) minecraft.Dialer {
 	dialer.DownloadResourcePack = budget.admit
-	dialer.HTTPClient = budget.httpClient(dialer.HTTPClient)
+	dialer.ResourcePackProgress = budget.event
 	next := dialer.PacketFunc
 	dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
 		budget.observe(header, payload)
@@ -415,17 +285,17 @@ func (err *PackAdmissionError) Error() string {
 
 type resourcePackOfferConnection interface {
 	dialerDownstream
-	ConfigureResourcePackOffer([]*resource.Pack, bool) error
+	ConfigureResourcePackOfferSnapshot(minecraft.ResourcePackOfferSnapshot, bool) error
 	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
 }
 
-// configureResourcePackOffer hands off the acquired archives and the upstream
-// stack, always optional so an unavailable pack never blocks login.
+// configureResourcePackOffer hands off the upstream offer and stack projected onto the admitted
+// packs, always optional so an unavailable pack never blocks login.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable
 	}
-	if err := downstream.ConfigureResourcePackOffer(stack.packs, false); err != nil {
+	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, false); err != nil {
 		return err
 	}
 	return downstream.ConfigureResourcePackStack(stack.snapshot, false)
@@ -443,15 +313,18 @@ type resourcePackStackSource interface {
 	ResourcePackStack() (minecraft.ResourcePackStackSnapshot, bool)
 }
 
-// selectedResourcePackStack owns immutable pack clones in exact application
-// order until the prepared connection is released.
+// selectedResourcePackStack owns the upstream offer and stack projected onto the admitted packs
+// until the prepared connection is released.
 type selectedResourcePackStack struct {
-	packs    []*resource.Pack
+	packs    []*resource.Pack // admitted content, in offer order
 	required bool
+	offer    minecraft.ResourcePackOfferSnapshot
 	snapshot minecraft.ResourcePackStackSnapshot
 }
 
-func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResourcePackStack, error) {
+// captureSelectedResourcePackStack admits the stack's downloaded packs within the bounds, less
+// those excluded, and projects the upstream offer and stack onto them.
+func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
 	source, ok := upstream.(resourcePackStackSource)
 	if !ok {
 		return nil, errResourcePackStackUnavailable
@@ -460,9 +333,22 @@ func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResour
 	if !ok {
 		return nil, errResourcePackStackUnavailable
 	}
-	stack := newSelectedResourcePackStack(snapshot.Packs(), snapshot.Required(), resourcePackSize)
-	stack.snapshot = snapshot
-	return stack, nil
+	offer, ok := source.ResourcePackOffer()
+	if !ok {
+		return nil, errResourcePackStackUnavailable
+	}
+	admitted := map[string]bool{}
+	for _, pack := range admitResourcePacks(snapshot.Packs(), excluded, resourcePackSize) {
+		admitted[packIdentity(pack)] = true
+	}
+	offer, snapshot = minecraft.ProjectResourcePacks(offer, snapshot, func(pack *resource.Pack) bool {
+		return admitted[packIdentity(pack)]
+	})
+	return &selectedResourcePackStack{packs: offer.Packs(), required: snapshot.Required(), offer: offer, snapshot: snapshot}, nil
+}
+
+func packIdentity(pack *resource.Pack) string {
+	return pack.UUID().String() + "_" + pack.Version()
 }
 
 type resourcePackSizer func(*resource.Pack) (uint64, bool)
@@ -472,15 +358,13 @@ func resourcePackSize(pack *resource.Pack) (uint64, bool) {
 	return uint64(size), size >= 0
 }
 
-// newSelectedResourcePackStack clones the downloaded packs in stack order while
-// they fit the count and byte bounds. Packs beyond either bound are left out
-// rather than failing the session; the client ignores stack entries it was not
-// offered.
-func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf resourcePackSizer) *selectedResourcePackStack {
-	owned := make([]*resource.Pack, 0, min(len(packs), maxSelectedResourcePacks))
+// admitResourcePacks returns the packs, in stack order, that fit the count and byte bounds and
+// are not excluded. Packs beyond either bound are left out rather than failing the session.
+func admitResourcePacks(packs []*resource.Pack, excluded func(*resource.Pack) bool, sizeOf resourcePackSizer) []*resource.Pack {
+	admitted := make([]*resource.Pack, 0, min(len(packs), maxSelectedResourcePacks))
 	var total uint64
 	for _, pack := range packs {
-		if pack == nil || len(owned) == maxSelectedResourcePacks || sizeOf == nil {
+		if pack == nil || len(admitted) == maxSelectedResourcePacks || sizeOf == nil || (excluded != nil && excluded(pack)) {
 			continue
 		}
 		size, ok := sizeOf(pack)
@@ -488,21 +372,15 @@ func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf 
 			continue
 		}
 		total += size
-		owned = append(owned, pack.Clone())
+		admitted = append(admitted, pack)
 	}
-	return &selectedResourcePackStack{packs: owned, required: required}
-}
-
-// withoutPacks drops the packs whose transfer the acquisition budget rejected.
-func (stack *selectedResourcePackStack) withoutPacks(excluded func(*resource.Pack) bool) {
-	if stack != nil {
-		stack.packs = slices.DeleteFunc(stack.packs, excluded)
-	}
+	return admitted
 }
 
 func (stack *selectedResourcePackStack) release() {
 	if stack != nil {
 		stack.packs = nil
+		stack.offer = minecraft.ResourcePackOfferSnapshot{}
 		stack.snapshot = minecraft.ResourcePackStackSnapshot{}
 	}
 }
@@ -601,7 +479,7 @@ type preparedConnections struct {
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
-	captureResourcePackStack    func(upstreamSession) (*selectedResourcePackStack, error)
+	captureResourcePackStack    func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error)
 	resourcePackCache           minecraft.ResourcePackCache
 	resourcePackAdmission       func(ResourcePackAdmissionSnapshot)
 	resourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
@@ -777,7 +655,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	budget.onProgress = report
 	var cache minecraft.ResourcePackCache
 	if connections.resourcePackCache != nil {
-		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission, hit: budget.skip}
+		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
 	}
 	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission, connections.upstreamClientCache)
 	if target.xbl != nil {
@@ -801,11 +679,10 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		}
 		return nil, err
 	}
-	packStack, err = connections.captureResourcePackStack(upstream)
+	packStack, err = connections.captureResourcePackStack(upstream, budget.excludes)
 	if err != nil {
 		return nil, err
 	}
-	packStack.withoutPacks(budget.excludes)
 	packAdmission.observeOffer(upstream)
 	result = &preparedConnection{
 		upstream:      upstream,

@@ -245,7 +245,6 @@ func (telemetry *resourcePackAdmissionTelemetry) reportFinal() {
 type observedResourcePackCache struct {
 	cache     minecraft.ResourcePackCache
 	telemetry *resourcePackAdmissionTelemetry
-	hit       func(minecraft.ResourcePackCacheKey) // optional
 }
 
 var errResourcePackCacheUnavailable = errors.New("resource pack cache unavailable")
@@ -261,9 +260,6 @@ func (cache observedResourcePackCache) Load(ctx context.Context, key minecraft.R
 		atomicSaturatingIncrement(&cache.telemetry.misses)
 	} else {
 		atomicSaturatingIncrement(&cache.telemetry.hits)
-		if cache.hit != nil {
-			cache.hit(key)
-		}
 	}
 	return pack, nil
 }
