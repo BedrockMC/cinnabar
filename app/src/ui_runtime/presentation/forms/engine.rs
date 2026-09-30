@@ -225,10 +225,8 @@ impl FormEngine {
         self.catalog = Arc::new(catalog);
     }
 
-    /// Render `model` into `nodes`; `Ok(None)` when its template is missing, so the
-    /// caller can fall back to the programmatic dialog. The bound tree is reused
-    /// until the model or catalog changes and the layout until the view state,
-    /// viewport, or scale does, so a static form only repaints each frame.
+    /// Render `model` into `nodes`; `Ok(None)` when its template is missing. The
+    /// bound tree and layout are reused until their inputs change.
     pub(super) fn render(
         &mut self,
         model: &FormModel,
@@ -352,30 +350,13 @@ impl FormEngine {
                 px,
                 language,
             };
-            self.screens.get_or_render(key, || {
-                if !json_ui::is_engine_screen(reference) {
-                    return None;
-                }
-                let tree = self
-                    .screens
-                    .resolved(reference, &self.catalog, context, || {
-                        json_ui::resolve(&self.catalog, reference, context).control
-                    })?;
-                let library = json_ui::CatalogLibrary {
-                    catalog: &self.catalog,
-                    context,
-                };
-                let bound = json_ui::bind(&tree, data, &library);
-                Some(json_ui::render_bound(bound, root, env, view))
-            })
+            self.screens.render(key, env)
         })
     }
 }
 
-/// `vanilla` under the built-in Java HUD pack, less its files for any namespace
-/// in `withdrawn`: a server pack authored against vanilla that restyles a
-/// namespace gets vanilla beneath it there, so it looks as designed. The title
-/// panels then take the logo's shape and the footer carries the disclaimer.
+/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
+/// `withdrawn` (restyled by a server pack authored against vanilla).
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
