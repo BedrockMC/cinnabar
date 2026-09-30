@@ -713,7 +713,7 @@ fn observe_destroy_target(
         stream.current_dimension(),
     );
     let effects = context.effects.mining_effects();
-    let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
+    let helmet = ui.local_armor().helmet;
     let unbreaking =
         protocol::item_enchantment_level(item.extra_data(), UNBREAKING_ENCHANTMENT_ID).unwrap_or(0);
     let wear = tool.filter(|_| !instant).and_then(|tool| {
@@ -758,11 +758,11 @@ fn observe_destroy_target(
             ),
             riding: ui.gameplay_hud().mount_unique_id().is_some(),
             eyes_in_water: eyes_in_water(&world, observed.ray.origin),
-            // Unknown armor reads as absent, which only slows prediction.
-            aqua_affinity: helmet.is_some_and(|helmet| {
-                protocol::item_enchantment_level(&helmet.extra_data, AQUA_AFFINITY_ENCHANTMENT_ID)
-                    .is_some_and(|level| level > 0)
-            }),
+            aqua_affinity: protocol::item_enchantment_level(
+                &helmet.extra_data,
+                AQUA_AFFINITY_ENCHANTMENT_ID,
+            )
+            .is_some_and(|level| level > 0),
         },
         selection: observed.selection,
         wear,

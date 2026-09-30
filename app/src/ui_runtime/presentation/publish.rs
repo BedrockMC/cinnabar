@@ -340,21 +340,16 @@ pub(crate) fn refresh_hud_frame(
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
     };
-    let derived_armor = runtime.gameplay_hud().armor().map(|slots| {
-        let identifiers = [
-            &slots.helmet,
-            &slots.chestplate,
-            &slots.leggings,
-            &slots.boots,
-        ]
-        .map(|stack| {
-            (!stack.is_empty())
-                .then(|| resolve_identifier(stack))
-                .flatten()
-        });
-        item_facts::total_armor_points(identifiers.iter().map(|id| id.as_deref()))
+    let worn = runtime.local_armor();
+    let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
+    let identifiers = worn.map(|stack| {
+        (!stack.is_empty())
+            .then(|| resolve_identifier(stack))
+            .flatten()
     });
-    runtime.set_derived_armor(derived_armor);
+    runtime.set_derived_armor(Some(item_facts::total_armor_points(
+        identifiers.iter().map(|id| id.as_deref()),
+    )));
     let mount_health = runtime
         .gameplay_hud()
         .mount_unique_id()
@@ -826,7 +821,8 @@ pub(crate) fn refresh_hud_frame(
             .as_deref()
             .and_then(|id| stack_icon(runtime, presentation, stack, id))
     });
-    let armor_icons = runtime.gameplay_hud().armor().map_or([None; 4], |armor| {
+    let armor_icons = {
+        let armor = runtime.local_armor();
         [
             &armor.helmet,
             &armor.chestplate,
@@ -838,7 +834,7 @@ pub(crate) fn refresh_hud_frame(
                 .as_deref()
                 .and_then(|id| stack_icon(runtime, presentation, stack, id))
         })
-    });
+    };
     let held_item_icon = selected_stack.and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
