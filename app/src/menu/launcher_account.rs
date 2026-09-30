@@ -1,8 +1,9 @@
-//! [`AccountControl`] over the core's launcher control endpoint. A worker thread
-//! polls `events.v1` and `account_status.v1` often and the slow catalog calls
+//! [`AccountControl`] over the core's launcher control endpoint. Workers poll
+//! `events.v1` and `account_status.v1` often, the slow catalog calls
 //! (`realms_list.v1`, `friends_list.v1`) rarely and the screen feeds
-//! (`featured_servers.v1`, `gatherings.v1`, `profile.v1`) more rarely still, so
-//! the menu never blocks on the socket; sign-out requests queue to the same worker.
+//! (`featured_servers.v1`, `gatherings.v1`, `profile.v1`) more rarely still,
+//! each on its own thread, so neither the menu nor a fast feed waits on a slow
+//! one; sign-out requests queue to the events worker.
 
 use std::{
     collections::HashSet,
@@ -60,21 +61,30 @@ struct Snapshot {
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    /// Dropping it stops the catalog and feed workers.
+    _alive: Sender<()>,
     socket_dir: PathBuf,
 }
 
 impl LauncherAccount {
-    /// Start polling the control endpoint under `socket_dir`; the worker stops
-    /// when this is dropped.
+    /// Start polling the control endpoint under `socket_dir`; the workers stop
+    /// when this is dropped. Events, the slow catalog and the screen feeds each
+    /// poll on their own worker, publishing every answer as it arrives.
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
+        let (alive, stop) = bounded(0);
         let shared = Arc::clone(&snapshot);
-        let worker_dir = socket_dir.clone();
-        thread::spawn(move || poll(&worker_dir, &shared, &requests));
+        let dir = socket_dir.clone();
+        thread::spawn(move || poll_events(&dir, &shared, &requests));
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || poll_catalog(&dir, &shared, &until));
+        let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
+        thread::spawn(move || poll_feeds(&dir, &shared, &stop));
         Self {
             snapshot,
             sign_out,
+            _alive: alive,
             socket_dir,
         }
     }
@@ -93,17 +103,30 @@ impl LauncherAccount {
     }
 }
 
-fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiver<()>) {
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+fn runtime() -> Option<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-    else {
+        .ok()
+}
+
+fn publish(shared: &Mutex<Snapshot>, write: impl FnOnce(&mut Snapshot)) {
+    write(&mut shared.lock().unwrap_or_else(|poison| poison.into_inner()));
+}
+
+/// Waits `interval`; `false` once the link is gone.
+fn wait(stop: &Receiver<()>, interval: Duration) -> bool {
+    !matches!(
+        stop.recv_timeout(interval),
+        Err(crossbeam_channel::RecvTimeoutError::Disconnected)
+    )
+}
+
+fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiver<()>) {
+    let Some(runtime) = runtime() else {
         return;
     };
-    let mut catalog_due = Instant::now();
-    let mut feed_due = Instant::now();
     let mut ping_due = Instant::now();
-    let mut reported = HashSet::new();
     loop {
         match requests.recv_timeout(EVENT_INTERVAL) {
             Ok(()) => {
@@ -112,94 +135,82 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
         }
-        let events = runtime
-            .block_on(launcher_control::poll_events(socket_dir))
-            .ok();
-        let catalog = (Instant::now() >= catalog_due).then(|| {
-            catalog_due = Instant::now() + CATALOG_INTERVAL;
-            (
-                runtime
-                    .block_on(launcher_control::list_realms(socket_dir))
-                    .ok(),
-                runtime
-                    .block_on(launcher_control::list_friends(socket_dir))
-                    .ok(),
-            )
-        });
-        let feeds = (Instant::now() >= feed_due).then(|| {
-            let mut failed = false;
-            let home = settle(
-                "home",
-                runtime.block_on(launcher_control::home(socket_dir)),
-                &mut failed,
-            );
-            if let Some(home) = &home {
-                report_impressions(&runtime, socket_dir, home, &mut reported);
-            }
-            let featured = settle(
-                "featured servers",
-                runtime.block_on(launcher_control::list_featured_servers(socket_dir)),
-                &mut failed,
-            );
-            let gatherings = settle(
-                "gatherings",
-                runtime.block_on(launcher_control::list_gatherings(socket_dir)),
-                &mut failed,
-            );
-            let profile = settle(
-                "profile",
-                runtime.block_on(launcher_control::profile(socket_dir)),
-                &mut failed,
-            );
-            feed_due = Instant::now() + if failed { FEED_RETRY } else { FEED_INTERVAL };
-            (home, featured, gatherings, profile)
-        });
+        if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {
+            publish(shared, |snapshot| {
+                if let Some(disconnect) = events.disconnect
+                    && snapshot.last_disconnect != Some(disconnect.sequence)
+                {
+                    // The first poll only records the standing disconnect.
+                    if snapshot.last_disconnect.is_some() {
+                        // An empty message reads as vanilla's no-reason line.
+                        let reason = disconnect.message.trim().to_owned();
+                        snapshot.events.push(AccountEvent::Disconnected { reason });
+                    }
+                    snapshot.last_disconnect = Some(disconnect.sequence);
+                }
+                snapshot.last_disconnect.get_or_insert(0);
+                snapshot.pack_download = events.pack_download;
+                snapshot.account = Some(events.auth);
+            });
+        }
         let targets = shared
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .ping_targets
             .clone();
-        let pings = (!targets.is_empty() && Instant::now() >= ping_due).then(|| {
+        if !targets.is_empty() && Instant::now() >= ping_due {
             ping_due = Instant::now() + PING_INTERVAL;
-            settle(
-                "ping",
-                runtime.block_on(launcher_control::ping_servers(socket_dir, &targets)),
-                &mut false,
-            )
-        });
-        let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
-        if let Some(Some(pings)) = pings {
-            snapshot.pings = Some(pings);
-        }
-        if let Some((home, featured, gatherings, profile)) = feeds {
-            snapshot.home = home.or(snapshot.home.take());
-            snapshot.featured = featured.or(snapshot.featured.take());
-            snapshot.gatherings = gatherings.or(snapshot.gatherings.take());
-            snapshot.profile = profile.or(snapshot.profile.take());
-        }
-        if let Some(events) = events {
-            if let Some(disconnect) = events.disconnect
-                && snapshot.last_disconnect != Some(disconnect.sequence)
-            {
-                // The first poll only records the standing disconnect.
-                if snapshot.last_disconnect.is_some() {
-                    // An empty message reads as vanilla's no-reason line.
-                    let reason = disconnect.message.trim().to_owned();
-                    snapshot.events.push(AccountEvent::Disconnected { reason });
-                }
-                snapshot.last_disconnect = Some(disconnect.sequence);
+            let pings = runtime.block_on(launcher_control::ping_servers(socket_dir, &targets));
+            if let Some(pings) = settle("ping", pings, &mut false) {
+                publish(shared, |snapshot| snapshot.pings = Some(pings));
             }
-            snapshot.last_disconnect.get_or_insert(0);
-            snapshot.pack_download = events.pack_download;
-            snapshot.account = Some(events.auth);
         }
-        if let Some((realms, friends)) = catalog {
-            if realms.is_some() {
-                snapshot.realms = realms;
-            }
-            if friends.is_some() {
-                snapshot.friends = friends;
-            }
+    }
+}
+
+fn poll_catalog(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
+    let Some(runtime) = runtime() else {
+        return;
+    };
+    loop {
+        if let Ok(realms) = runtime.block_on(launcher_control::list_realms(socket_dir)) {
+            publish(shared, |snapshot| snapshot.realms = Some(realms));
+        }
+        if let Ok(friends) = runtime.block_on(launcher_control::list_friends(socket_dir)) {
+            publish(shared, |snapshot| snapshot.friends = Some(friends));
+        }
+        if !wait(stop, CATALOG_INTERVAL) {
+            return;
+        }
+    }
+}
+
+fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
+    let Some(runtime) = runtime() else {
+        return;
+    };
+    let mut reported = HashSet::new();
+    loop {
+        let mut failed = false;
+        let home = runtime.block_on(launcher_control::home(socket_dir));
+        if let Some(home) = settle("home", home, &mut failed) {
+            publish(shared, |snapshot| snapshot.home = Some(home.clone()));
+            report_impressions(&runtime, socket_dir, &home, &mut reported);
+        }
+        let featured = runtime.block_on(launcher_control::list_featured_servers(socket_dir));
+        if let Some(featured) = settle("featured servers", featured, &mut failed) {
+            publish(shared, |snapshot| snapshot.featured = Some(featured));
+        }
+        let gatherings = runtime.block_on(launcher_control::list_gatherings(socket_dir));
+        if let Some(gatherings) = settle("gatherings", gatherings, &mut failed) {
+            publish(shared, |snapshot| snapshot.gatherings = Some(gatherings));
+        }
+        let profile = runtime.block_on(launcher_control::profile(socket_dir));
+        if let Some(profile) = settle("profile", profile, &mut failed) {
+            publish(shared, |snapshot| snapshot.profile = Some(profile));
+        }
+        if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
+            return;
         }
     }
 }
