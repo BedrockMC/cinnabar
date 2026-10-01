@@ -382,7 +382,7 @@ impl MovementTicker {
         let current_input = HeldInput::from(sample);
         // Samples carry right-positive x; the wire vectors are left-positive.
         let wire = |vector: [f32; 2]| [if vector[0] == 0.0 { 0.0 } else { -vector[0] }, vector[1]];
-        let move_vector = wire(normalize_move_vector(sample.move_vector));
+        let move_vector = encoding::wire_move_vector(sample.move_vector);
         let analogue_move_vector = wire(sample.analogue_move_vector);
         let raw_move_vector = if analogue_move_vector == [0.0; 2] {
             wire(normalize_move_vector(sample.raw_move_vector))
@@ -792,6 +792,16 @@ impl MovementTicker {
                     }
                 }
 
+                let mut previous_input = plan.anchor_input;
+                let rebuilt: Vec<_> = plan
+                    .replayed_samples
+                    .iter()
+                    .map(|sample| {
+                        let flags = input_flags(sample, previous_input);
+                        previous_input = HeldInput::from(sample);
+                        (sample, flags)
+                    })
+                    .collect();
                 let replay_sample = |pending: &mut QueuedPhysicsSample| {
                     if pending.session_generation != self.session_generation {
                         return Err(PhysicsAuthorityFault::PendingSessionMismatch {
@@ -803,10 +813,8 @@ impl MovementTicker {
                     if tick <= plan.corrected_tick {
                         return Ok(None);
                     }
-                    let Some(replayed) = plan
-                        .replayed_samples
-                        .iter()
-                        .find(|sample| sample.tick == tick)
+                    let Some((replayed, flags)) =
+                        rebuilt.iter().find(|(sample, _)| sample.tick == tick)
                     else {
                         return Err(PhysicsAuthorityFault::PendingTickMismatch {
                             expected: tick,
@@ -818,22 +826,17 @@ impl MovementTicker {
                     }
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = replayed.velocity;
-                    pending.snapshot.flags = pending
-                        .snapshot
-                        .flags
-                        .with_mask(
-                            PlayerInputFlags::HORIZONTAL_COLLISION,
-                            replayed.horizontal_collision,
-                        )
-                        .with_mask(
-                            PlayerInputFlags::VERTICAL_COLLISION,
-                            replayed.vertical_collision,
-                        )
-                        .with_mask(PlayerInputFlags::JUMPING, replayed.jumping)
-                        .with_mask(
-                            PlayerInputFlags::START_JUMPING,
-                            replayed.processed.jump_initiated,
-                        );
+                    pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
+                    // Tick-bound actions survive; all movement flags come from replay.
+                    pending.snapshot.flags = [
+                        PlayerInputFlags::HANDLED_TELEPORT,
+                        PlayerInputFlags::MISSED_SWING,
+                        PlayerInputFlags::START_USING_ITEM,
+                    ]
+                    .into_iter()
+                    .fold(*flags, |flags, bit| {
+                        flags.with_mask(bit, pending.snapshot.flags.bits() & bit.bits() != 0)
+                    });
                     pending.evidence.network_position = replayed.position;
                     Ok(Some(()))
                 };
@@ -856,6 +859,7 @@ impl MovementTicker {
                         pending.sample.snapshot.tick > plan.corrected_tick;
                 }
                 self.previous_position = plan.final_position;
+                self.previous_input = previous_input;
                 Ok(())
             }
         }

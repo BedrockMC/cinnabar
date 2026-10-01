@@ -111,10 +111,12 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &impl CollisionWorld,
     ) -> Result<ModeChoice, WorldQueryError> {
-        // A server-set flying state is entered on its rising edge and pins flight until toggled off.
+        // Server ability edges override locally retained flight.
         let server_rise = intent.server_flying && !self.last_server_flying;
+        let server_fall = !intent.server_flying && self.last_server_flying;
         self.last_server_flying = intent.server_flying;
         let flying = intent.can_fly
+            && !server_fall
             && intent.ride.is_none()
             && match self.mode {
                 MovementMode::Flying => {
