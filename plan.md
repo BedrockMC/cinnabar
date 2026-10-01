@@ -3545,3 +3545,21 @@ remaining questions are in `docs/biome-blending.md`. This does not close
 P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
+
+## Terrain particle texture repair (2026-10-01)
+
+Incomplete parity work on `fix/break-particles`: particle level events need the
+same wire-to-internal block palette remap as chunk data. The ordinary destruction
+texture comes from the resolved down face; biome tint is a separate block policy.
+References: Lens 1.26.50.26, artifact 6, RVAs `0x4e95ee0` and `0x4e96080`;
+R:l/LevelRendererPlayer.cpp:24894; R:b/BlockDestructionParticlesComponent.cpp:32;
+the pinned pack's `particles/block_destruct.json`.
+
+The exact particle parity gate stays open for destruction texture/count overrides,
+weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
+and native ambient lighting. Particles now consume the shared atmosphere daylight
+state rather than deriving a separate sun-angle value.
+Landing and sprint dust are not wired by the current particle adapter. Rain splash
+uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
+defines. Offline tests or previews do not close the target-platform visual gate;
+no live server connection is authorized for this work.
