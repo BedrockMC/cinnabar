@@ -503,7 +503,8 @@ impl SemanticInputRouter {
                 axis_strengths[Action::MoveForward as usize]
                     - axis_strengths[Action::MoveBackward as usize],
             ],
-            InputMode::KeyboardMouse | InputMode::Touch => movement,
+            InputMode::KeyboardMouse => [0.0; 2],
+            InputMode::Touch => movement,
         };
         if input_mode == InputMode::Touch && self.context == InputContext::Gameplay {
             movement = touch_movement;

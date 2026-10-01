@@ -32,6 +32,7 @@ fn reference_matrices(
 /// Creates a complete actor submission without any equipment or asset dependency.
 fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
     ActorRigSubmission {
+        culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
                 session_id: 1,

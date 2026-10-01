@@ -666,14 +666,24 @@ fn quad_at(mesh: &meshing::ChunkMesh, origin: [u8; 3], face: Face) -> PackedLiqu
         .expect("liquid quad")
 }
 
+/// Builds liquid fixtures and checks the packed-output bound.
 fn mesh(center: &SubChunk) -> meshing::ChunkMesh {
     let neighbourhood = MeshNeighbourhood::new(center);
-    mesh_sub_chunk_in_neighbourhood(
+    let output = mesh_sub_chunk_in_neighbourhood(
         &BlockClassifier::new(AIR),
         runtime_assets(),
         NetworkIdMode::Sequential,
         &neighbourhood,
-    )
+    );
+    assert!(
+        meshing::mesh_output_byte_len(&output, &meshing::PackedBiomeRecord::fallback())
+            <= meshing::MeshOutputBounds::new(runtime_assets()).for_sub_chunk(
+                center,
+                runtime_assets(),
+                NetworkIdMode::Sequential
+            )
+    );
+    output
 }
 
 fn runtime_assets() -> &'static RuntimeAssets {

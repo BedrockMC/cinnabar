@@ -60,6 +60,7 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
         uv_anim: render::IDENTITY_UV_ANIM,
         light: 0,
         overlay_rgba8: 0,
+        culling_bounds: Default::default(),
     }
 }
 
@@ -176,8 +177,10 @@ fn equipment_submission(runtime_id: u64, layer: u8) -> ActorRigSubmission {
 fn equipment_layers_share_the_actor_and_never_crowd_out_bodies() {
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let mut submissions = Vec::new();
+    // One more layer per player than the instance budget holds, so some must be rejected.
+    let layers_per_player = MAX_ACTOR_RENDER_INSTANCES / MAX_RENDERED_PLAYERS;
     for runtime_id in 1..=MAX_RENDERED_PLAYERS as u64 {
-        for layer in (0..=6).rev() {
+        for layer in (0..=layers_per_player as u8).rev() {
             submissions.push(equipment_submission(runtime_id, layer));
         }
     }

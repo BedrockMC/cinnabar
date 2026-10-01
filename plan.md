@@ -14,6 +14,25 @@ curve, emitting/ordinary face factors and inset model planes. Full current
 shade/solid-render property export, component exponents, dimension shading modes
 and box-average interpolation remain incomplete. The full audit work is in
 progress on fix/world-lighting.
+2026-10-01 chunk streaming: missing-column deadlines are local. New data in the
+current publisher cohort keeps its quiet deadline active; duplicate and foreign
+traffic cannot renew it. Requested neighbours still block and receive priority.
+Provisional, labeled incomplete: the existing one-second fallback for unannounced
+missing columns remains a Cinnabar approximation, not a vanilla parity gate.
+Lens reconstructed client 1.26.50.26 `LevelBuilder::tryRebuild` (RVA 0x04fb7530)
+uses a radius-16 X/Z availability check (0x0319db50, 0x0319d850, 0x0319d450):
+all nine eligible horizontal columns are required, with no timeout exception.
+No new provisional geometry or lighting path is introduced here.
+2026-10-01 modding: Cinnabar extension, disabled by default. The developer-only
+WASM component spike exposes a bounded JSON-UI label and local demo keybind,
+with fuel/memory limits, trap quarantine and transactional hot reload. This is
+not vanilla behavior and closes no parity gate. Incomplete: process isolation,
+compiler quotas, package permissions/signatures, server policy negotiation,
+multi-mod lifecycle, production API stability, vanilla hide-GUI/alpha propagation,
+and native visual/performance
+acceptance. Only explicitly selected local developer components are supported;
+do not treat this as admission for untrusted downloaded mods. See
+`docs/modding-spike.md` for the executable sample and offline evidence harness.
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
@@ -833,9 +852,10 @@ handoff remains bounded and validated.
 Optional stack entries that are unavailable, malformed, duplicated, or select an unsupported
 sub-pack are retained for exact Go replay and ignored by the Rust application handoff instead of
 terminating the session. Required selections remain strict.
-The private core-to-client hop marks even an upstream-required selection optional so incomplete
-pack application does not make otherwise joinable servers unavailable; the upstream negotiation
-has already completed. Per-download byte/count/time bounds, HTTP opt-in policy, and digest-bound
+The private core-to-client hop forwards the upstream offer and stack, projected onto the admitted
+packs, with the server's own required bits; a required offer the core could not fully acquire is
+refused with `disconnectionScreen.resourcePack`, and the client refuses a required pack it cannot
+apply. Per-download byte/count/time bounds, HTTP opt-in policy, and digest-bound
 cache identities from the retired `cinnabar` fork are deliberately not carried onto Lunar's
 resource-pack branch yet. Archives are not extracted or applied, application remains unavailable,
 and this is not live gameplay, native visual, or performance evidence.
@@ -2504,10 +2524,11 @@ store it only under the user's temporary directory, inspect that file, and never
     formatting, and CI are green.
   - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
     mesh waits while any of its 26 neighbours is owed (requested, or unsent in
-    the announced Euclidean disk while the server delivered data within 1 s).
-    Vanilla instead builds against absent chunks at the default brightness and
-    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
-    no native reference. `streaming_harness` measures it.
+    the announced Euclidean disk while its cohort made new progress within 1 s).
+    Current Lens 1.26.50.26 evidence instead requires eligible horizontal columns
+    before rebuilding; the historical missing-column claim is superseded. The
+    1 s quiet fallback remains provisional, with no native reference.
+    `streaming_harness` checks slow delivery for transient geometry and dark seams.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate
@@ -2928,11 +2949,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   processed `PlayerAuthInput` vectors; independently measured mouse sensitivity/window
   behavior; post-login `Transfer`; bounded entity-link endpoint/pending/cycle handling;
   `SetHud` and the broader JSON-UI controller surface; resource-pack activation; crafting;
-  combat; and world ticking remain open where already scoped by their phases. During the
-  current bring-up period, required server packs are deliberately handed to the incomplete
-  downstream application path as optional so developers can still join and test servers.
-  That owner-approved compatibility behavior is a provisional testing deviation, not vanilla
-  pack-admission parity and not acceptance evidence.
+  combat; and world ticking remain open where already scoped by their phases. Required server
+  packs are forwarded as required, as vanilla receives them: a join whose required packs cannot
+  all be acquired or applied is refused with vanilla's resource-pack message rather than
+  downgraded to optional.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
@@ -3026,6 +3046,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   legacy 64x32 skins, outer skin layers, limb animation/Molang, name tags, equipment, mobs/items,
   first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
   visual evidence remain open Phase 4 work.
+  The invisible-player capture fixes retain PlayerSkin updates, polygon bodies, inflated planes,
+  named classic models and native skin texels, and apply vanilla classic alpha validation.
+  Persona face/body atlases now retain their own geometry and texture and follow the pack
+  animation rate and blink controller. Player appearance parity remains incomplete: local
+  piece/tint assembly, repository trust/fallback decisions, geometry version upgrades and persona
+  atlases above the admitted size still need validation. Authored skin visibility bounds now reach
+  render, cave and animation culling; complete transformed-bounds parity still needs evidence.
+  Offline capture renders establish coverage; they do not close native visual parity.
   The complete absolute-movement origin correction, regression suite, independent review, and
   post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live
   ground-contact witness remains open under 4.4.
@@ -3416,33 +3444,19 @@ recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/co
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
 install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).
 
-**Final Go relay/batching polish:** adopt the batch-boundary API from
-[`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)
-after it lands on the pinned `lunar` line. The integration commit must retain the pinned
-`Conn.Abort` work as well as the PR's batch API. Enable `Dialer.EnableBatchReading` and
-`ListenConfig.EnableBatchReading` on the two core legs, replace the relay's single-packet
-`ReadPacket` pumps with `ReadBatch`, and forward each returned slice as exactly one downstream
-batch using `WritePacketImmediate(batch...)` (or a tested `WritePacket` + single `Flush`
-equivalent that preserves buffered ordering). Never mix `ReadBatch` with
-`ReadPacket`/`ReadBytes`/`Read` on a batch-reading connection. Port the PR's
-ordering, slow-reader, mid-batch decode-error, deferred-login-boundary, and pre-disconnect flush
-regressions into `core/internal/relay`; retain bounded lossless backpressure and verify that the
-change improves batching without regressing join latency, memory, or shutdown behavior.
-The PR #80 API is now carried on the published `cinnabar` fork branch, and the core is
-pinned to its exact commit `48765b0f2652229b0fa8d58909bb07a2795cc117`; Cinnabar enables batch reading on both legs,
-preserves source batch boundaries, and retains the exact 1,600-packet split ceiling. Core
-now forwards each bounded slice with `WritePacketImmediate`, pre-flushes existing buffered
-output, tests boundaries in both directions, and prevents the initial loading-screen filter
-from merging adjacent source wire batches. A live 1.26.33.1 BDS regression then proved that
-Rust's duplicate no-ID loading-screen Start/End may occupy two adjacent local batches; the
-bounded filter now holds at most one Start through the next read, drops only the exact initial
-pair, and flushes a mismatch or EOF in its original batch before current traffic. Full core
-tests, independent review, and a successful native BDS join are green through `a6c1ffc`.
-The slow-reader, mid-batch decode-close, deferred-loading-boundary, and pre-disconnect
-batch-boundary regressions are written in `core/proxy/relay_backpressure_test.go` and the
-comparison benchmarks in `core/proxy/relay_compare_test.go` (both uncompiled until reconcile);
-running the benchmarks against a live server for the join-latency/memory record remains open,
-so this final polish item is not yet complete.
+**Core joins phase 2 review corrections:** the core uses the fork pinned in `core/go.mod`,
+including the listener shutdown fix. It preserves batch boundaries, retains friend-world Xbox
+services until the joined session leaves, and checks required acquisition separately from the
+selected pack stack. Offline fixtures cover all required-bit combinations and selected subsets.
+The comparison benchmark now accounts for every packet and measures the first nonempty flush;
+manual ticks and barriers cover idle delivery, coalescing, and failure attribution.
+
+Rust forwards startup Transfer as a typed reconnect event. The startup contract is
+radius → loading-start → local presentation readiness → loading-end → initialized, with
+an actual Rust-through-core order fixture. See [the reconstruction evidence](docs/core-join-startup.md).
+**Incomplete parity:** the existing terrain presentation thresholds, consent UI, dimension
+transitions, and matched retail/live visual and timing evidence remain open. This packet-order
+correction does not close those broader gates. No live server was used for these corrections.
 
 ---
 
@@ -3581,3 +3595,60 @@ isotropic face rotation, complete repeater/comparator geometry and per-species o
 are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
+## Terrain particle texture repair (2026-10-01)
+
+Incomplete parity work on `fix/break-particles`: particle level events need the
+same wire-to-internal block palette remap as chunk data. The ordinary destruction
+texture comes from the resolved down face; biome tint is a separate block policy.
+References: Lens 1.26.50.26, artifact 6, RVAs `0x4e95ee0` and `0x4e96080`;
+R:l/LevelRendererPlayer.cpp:24894; R:b/BlockDestructionParticlesComponent.cpp:32;
+the pinned pack's `particles/block_destruct.json`.
+
+The exact particle parity gate stays open for destruction texture/count overrides,
+weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
+and native ambient lighting. Particles now consume the shared atmosphere daylight
+state rather than deriving a separate sun-angle value.
+Landing and sprint dust are not wired by the current particle adapter. Rain splash
+uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
+defines. Offline tests or previews do not close the target-platform visual gate;
+no live server connection is authorized for this work.
+
+### Zeqa correction audit (2026-10-01, incomplete)
+
+The October 1 trace contains 34 committed corrections. The audit in
+`docs/evidence/2026-10-01-zeqa-movement.md` compares each authoritative position
+with the originally transmitted input, not a prediction already changed by replay.
+Current-client Lens evidence supports these fixes: player corrections preserve look;
+PosDelta carries end-of-tick velocity; zero-stamped SetActorMotion changes live
+velocity without a replay overlay; Jumping follows held processed input and
+StartJumping follows actual initiation; keyboard raw diagonal movement is normalized and analogue axes stay zero;
+MovePlayer teleports acknowledge without an opt-in; teleport snaps preserve raw
+button history and jump cooldown; player collision boxes retain their full width.
+Latency replies preserve native flags and timestamp conversion and follow committed
+motion through the outbound FIFO. Tagged motion remains on the replay timeline.
+
+This does not close movement parity. The capture omits collision volumes/revisions,
+most inbound correction velocity/ground fields, and some motion events. The first
+burst's floor-contact discrepancy and the last burst's exact replay failure need a
+fresh capture. Future/missing correction-frame behavior remains unverified; existing fallback snaps, collision identity policy and teleport
+expiry remain provisional. The simulator still uses its existing f64 arithmetic.
+No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound PAI
+and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
+no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.
+
+### Movement audit continuation (2026-10-01, incomplete)
+
+`fix/zeqa-corrections` merged `origin/dev-sonnet` at `473cec0e`. Ordinary steering
+now follows current-client f32 sin/cos products (Lens 1.26.50.26 RVA `0x99cc8b0`;
+`R:d/DefaultMoveSystems.cpp:32`). Historical Go fixtures remain comparison data,
+not a bit-exact vanilla oracle. Position, collision and other travel arithmetic
+still retain f64; the D01 parity gate remains open. Prediction-sync payload
+sources, historical-world replay, custom dimensions, fluid currents, special
+block effects and the missing gameplay/input scenarios remain incomplete.
+Grounded liquids now select liquid acceleration/ascent; soul sand uses native
+acceleration friction, with Soul Speed removing that penalty. Sneak edge clipping
+runs to supported motion or zero. Prediction sync waits 200 fresh ticks, and live
+and replay packets use actual jump initiation. Server flight-off is authoritative.
+Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9
+(Lens `0x4f32090`; `R:l/LocalPlayer.cpp:5095`) while the ledger retains its real type.
+No live or visual acceptance gate is closed by these changes.

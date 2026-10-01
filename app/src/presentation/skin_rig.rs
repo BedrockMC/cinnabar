@@ -2,8 +2,9 @@
 use assets::SkinGeometry;
 use render::{ActorRigGeometry, EntityRigId, skin_geometry, skin_rig_id};
 
-/// Distinct skin models kept registered; the least recently drawn one is replaced when full.
-pub(crate) const MAX_SKIN_RIGS: usize = 64;
+/// Body and animated skin models for every selected player, plus the local first-person hand.
+pub(crate) const MAX_SKIN_RIGS: usize =
+    render::MAX_RENDERED_PLAYERS * (1 + protocol::MAX_SKIN_ANIMATION_LAYERS) + 1;
 /// Models that failed to build, remembered so they are not rebuilt every frame.
 const MAX_REJECTED_SKIN_RIGS: usize = 64;
 
@@ -24,8 +25,7 @@ impl SkinRigCache {
         self.frame = self.frame.wrapping_add(1);
     }
 
-    /// The rig drawing `geometry`, built and handed to `register` on first use; `None` when the
-    /// model cannot be built (see [`Self::rejects`]) or every slot already draws this frame.
+    /// Registers the model on first use; returns `None` when it cannot be built or no slot is free.
     pub(crate) fn rig(
         &mut self,
         geometry: &SkinGeometry,
@@ -108,5 +108,16 @@ mod tests {
             assert!(ids[MAX_SKIN_RIGS].is_none());
         }
         assert_eq!(builds, MAX_SKIN_RIGS, "each model built once");
+    }
+
+    #[test]
+    fn every_selected_player_and_local_hand_can_have_a_distinct_skin_model() {
+        let mut model = assets::parse_skin_geometry(PATCH, MODEL).unwrap().unwrap();
+        let mut cache = SkinRigCache::default();
+        cache.begin_frame();
+        for index in 0..MAX_SKIN_RIGS {
+            model.digest[..8].copy_from_slice(&(index as u64).to_le_bytes());
+            assert!(cache.rig(&model, |_| {}).is_some(), "player {index}");
+        }
     }
 }

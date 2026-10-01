@@ -54,6 +54,7 @@ fn closed_command_predicate_catches_terminal_queued_after_precheck() {
         control_events,
         world_events,
         commands,
+        pending_latency_reply: std::sync::Mutex::new(None),
         physics_reanchor,
         shutdown,
         thread: None,

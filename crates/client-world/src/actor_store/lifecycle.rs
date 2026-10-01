@@ -1,6 +1,9 @@
 use super::*;
 use crate::item::EquipmentOutcome;
 
+#[path = "lifecycle/interpolation.rs"]
+mod interpolation;
+
 impl ActorStore {
     pub(crate) fn new(session_id: u64, dimension: i32) -> Self {
         Self::with_capacity(
@@ -312,12 +315,13 @@ impl ActorStore {
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
                 }
+                let tick_seconds = crate::ACTOR_TICK_DURATION.as_secs_f32();
                 let elapsed_seconds = movement
                     .source_tick
                     .zip(actor.source_tick)
                     .and_then(|(current, previous)| current.checked_sub(previous))
                     .filter(|ticks| *ticks > 0)
-                    .map_or(0.05, |ticks| ticks as f32 * 0.05);
+                    .map_or(tick_seconds, |ticks| ticks as f32 * tick_seconds);
                 let derived_velocity = if movement.teleported {
                     [0.0; 3]
                 } else {
@@ -388,6 +392,7 @@ impl ActorStore {
             }
             ActorEvent::Status(status) => self.apply_status(status),
             ActorEvent::TakeItem(take) => self.apply_take_item(take),
+            ActorEvent::Skin { uuid, skin } => self.apply_skin_update(uuid, skin),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
                 for entry in update.entries.iter() {
@@ -480,134 +485,6 @@ impl ActorStore {
             return ActorApplyResult::StaleDimension;
         }
         self.apply_link_inner(event)
-    }
-    pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
-        for _ in 0..ticks {
-            for actor in self.actors.values_mut() {
-                let current = actor.current_pose();
-                actor.previous_pose = current;
-                let mut next = actor.received_pose;
-                // The final step lands exactly on the target.
-                if actor.interpolation_ticks_remaining > 1 {
-                    // Each step closes 1/n of the remaining gap; angles take the short way.
-                    let divisor = f32::from(actor.interpolation_ticks_remaining);
-                    let target = actor.received_pose;
-                    next.position = std::array::from_fn(|axis| {
-                        current.position[axis]
-                            + (target.position[axis] - current.position[axis]) / divisor
-                    });
-                    let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
-                    next.pitch = step(current.pitch, target.pitch);
-                    next.yaw = step(current.yaw, target.yaw);
-                    next.head_yaw = step(current.head_yaw, target.head_yaw);
-                }
-                actor.interpolation_ticks_remaining =
-                    actor.interpolation_ticks_remaining.saturating_sub(1);
-                actor.set_current_pose(next);
-                actor.status.tick();
-            }
-            self.seat_riders();
-            let (session_id, dimension) = (self.session_id, self.dimension);
-            let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
-            let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
-            let camera_rotation = self.camera_rotation;
-            let camera_position = self.camera_position;
-            let property_registry = &self.property_registry;
-            let players = &self.players;
-            let local_first_person = self
-                .remote_state_excluded_runtime_id
-                .filter(|_| self.local_first_person);
-            let local_runtime = self.remote_state_excluded_runtime_id;
-            let local_hands = self.local_hands.clone();
-            let view = self.animation_view.as_ref();
-            self.animation.advance_tick(actors, view, local_runtime, |actor| {
-                let lifetime = ActorLifetimeId {
-                    session_id,
-                    dimension,
-                    runtime_id: actor.runtime_id,
-                    spawn_revision: actor.spawn_revision,
-                };
-                let is_local = local_runtime == Some(actor.runtime_id);
-                let held = |hand| {
-                    if is_local {
-                        return local_hands[usize::from(hand != protocol::ActorHandedness::Right)]
-                            .clone();
-                    }
-                    items
-                        .get_in_hand(lifetime, hand)
-                        .filter(|equipment| equipment.item.identity.network_id != 0)
-                        .and_then(|equipment| equipment.item.identifier.clone())
-                };
-                let hand_charged = [
-                    protocol::ActorHandedness::Right,
-                    protocol::ActorHandedness::Left,
-                ]
-                .into_iter()
-                .any(|hand| {
-                    items
-                        .get_in_hand(lifetime, hand)
-                        .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
-                });
-                let main_hand = held(protocol::ActorHandedness::Right);
-                let main_hand_max_use_ticks = main_hand
-                    .as_deref()
-                    .and_then(|identifier| items.max_use_ticks(identifier))
-                    .unwrap_or(0);
-                let kind_of = |unique_id: &i64| {
-                    unique_to_runtime
-                        .get(unique_id)
-                        .and_then(|runtime_id| actors.get(runtime_id))
-                        .map(|actor| &actor.kind)
-                };
-                let riders = rider_to_ridden
-                    .iter()
-                    .filter(|(_, ridden)| **ridden == actor.unique_id)
-                    .map(|(rider, _)| kind_of(rider));
-                let mut has_rider = false;
-                let mut has_player_rider = false;
-                for rider in riders {
-                    has_rider = true;
-                    has_player_rider |= matches!(rider, Some(ActorKind::Player { .. }));
-                }
-                crate::actor_animation::ActorTickContext {
-                    is_riding: rider_to_ridden.contains_key(&actor.unique_id),
-                    hand_charged,
-                    main_hand,
-                    main_hand_max_use_ticks,
-                    off_hand: held(protocol::ActorHandedness::Left),
-                    ridden: rider_to_ridden
-                        .get(&actor.unique_id)
-                        .and_then(kind_of)
-                        .map(|kind| match kind {
-                            ActorKind::Player { .. } => std::sync::Arc::from("minecraft:player"),
-                            ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),
-                        }),
-                    has_rider,
-                    has_player_rider,
-                    is_local_first_person: local_first_person == Some(actor.runtime_id),
-                    camera_rotation,
-                    camera_position,
-                    armor: worn_armor(items.armor(actor.runtime_id)),
-                    properties: property_registry.for_kind(&actor.kind),
-                    skin_geometry: match &actor.kind {
-                        ActorKind::Player { uuid, .. } => players.get(uuid).and_then(|profile| {
-                            match &profile.skin {
-                                protocol::PlayerSkin::Standard(skin) => skin.geometry.clone(),
-                                protocol::PlayerSkin::Unavailable(_) => None,
-                            }
-                        }),
-                        ActorKind::Entity { .. } => None,
-                    },
-                    has_cape: match &actor.kind {
-                        ActorKind::Player { uuid, .. } => players.get(uuid).is_some_and(|profile| {
-                            matches!(&profile.skin, protocol::PlayerSkin::Standard(skin) if skin.cape.is_some())
-                        }),
-                        ActorKind::Entity { .. } => false,
-                    },
-                }
-            });
-            self.actions.advance_tick();
-        }
     }
     pub(crate) fn apply_player_move(
         &mut self,
@@ -964,29 +841,4 @@ impl ActorStore {
             spawn_revision: actor.spawn_revision,
         }
     }
-}
-
-fn wrap_degrees(degrees: f32) -> f32 {
-    (degrees + 180.0).rem_euclid(360.0) - 180.0
-}
-
-/// Worn stacks in helmet, chestplate, leggings, boots, body order.
-fn worn_armor(
-    snapshot: Option<&crate::item::ActorArmorSnapshot>,
-) -> [Option<crate::actor_animation::WornArmor>; 5] {
-    let piece = |piece: &crate::item::ActorArmorPiece| {
-        Some(crate::actor_animation::WornArmor {
-            item: piece.item.identifier.clone()?,
-            dye_rgb: piece.dye_rgb,
-        })
-    };
-    snapshot.map_or_else(Default::default, |armor| {
-        [
-            piece(&armor.helmet),
-            piece(&armor.chestplate),
-            piece(&armor.leggings),
-            piece(&armor.boots),
-            piece(&armor.body),
-        ]
-    })
 }

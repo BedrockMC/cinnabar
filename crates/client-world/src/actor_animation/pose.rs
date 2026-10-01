@@ -54,7 +54,7 @@ pub(super) fn sample_clips(
             anim_tick: clip_tick,
             ..*evaluator
         };
-        let raw_time = clip_tick as f32 * 0.05;
+        let raw_time = clip_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32();
         let time = match clip.loop_mode {
             EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
             // A finished one-shot stops contributing; only hold keeps its last frame.

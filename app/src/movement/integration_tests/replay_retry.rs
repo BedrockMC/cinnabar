@@ -127,10 +127,7 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     );
     assert_ne!(after[0].snapshot.position, before[0].snapshot.position);
     assert_ne!(after[1].snapshot.position, before[1].snapshot.position);
-    // PosDelta is this tick's resolved displacement. The replay re-derives it
-    // from the corrected anchor and reproduces the original motion within f64
-    // arithmetic noise (the wire delta is informational; the server recomputes
-    // it), so compare per axis within a tight tolerance rather than bit-exact.
+    // Translation-only replay preserves end-of-tick motion within float noise.
     for (a, b) in after.iter().zip(&before) {
         for axis in 0..3 {
             assert!(

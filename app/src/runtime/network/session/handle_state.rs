@@ -22,6 +22,7 @@ impl NetworkHandle {
                 control_events,
                 world_events,
                 commands,
+                pending_latency_reply: std::sync::Mutex::new(None),
                 physics_reanchor,
                 shutdown,
                 thread: None,
@@ -40,7 +41,10 @@ pub(crate) struct CapturedPackets(mpsc::Receiver<NetworkCommand>);
 impl CapturedPackets {
     pub(crate) fn drain(&mut self) -> Vec<Packet> {
         std::iter::from_fn(|| self.0.try_recv().ok())
-            .map(|NetworkCommand::Send { packet, .. }| packet)
+            .filter_map(|command| match command {
+                NetworkCommand::Send { packet, .. } => Some(packet),
+                NetworkCommand::FinishLoading => None,
+            })
             .collect()
     }
 }

@@ -112,7 +112,7 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
         ),
     ));
     assert!(graph.dependency().graph().contains_edge(
-        stage_node(graph, ClientFrameSet::UiPublication),
+        stage_node(graph, ClientFrameSet::UiPreparation),
         stage_node(graph, ClientFrameSet::NetworkSend),
     ));
 }

@@ -6,6 +6,23 @@ impl WorldStream {
         previous: Option<&SubChunk>,
         replacement: Option<&SubChunk>,
     ) -> bool {
+        Self::light_semantics_changed(
+            self.classifier,
+            &self.runtime_assets,
+            self.network_id_mode,
+            previous,
+            replacement,
+        )
+    }
+
+    /// Compares the exact block-light inputs against an immutable registry snapshot.
+    pub(in crate::stream) fn light_semantics_changed(
+        classifier: BlockClassifier,
+        assets: &RuntimeAssets,
+        mode: NetworkIdMode,
+        previous: Option<&SubChunk>,
+        replacement: Option<&SubChunk>,
+    ) -> bool {
         if previous.is_some() != replacement.is_some() {
             return true;
         }
@@ -22,16 +39,14 @@ impl WorldStream {
                                 let Some(runtime_id) = sub_chunk.runtime_id(layer, x, y, z) else {
                                     continue;
                                 };
-                                if self.classifier.is_air(runtime_id) {
+                                if classifier.is_air(runtime_id) {
                                     continue;
                                 }
                                 has_non_air = true;
                                 let (block_emission, block_filter) =
                                     *resolved.entry(runtime_id).or_insert_with(|| {
-                                        let properties = self
-                                            .runtime_assets
-                                            .resolve(self.network_id_mode, runtime_id)
-                                            .light_properties();
+                                        let properties =
+                                            assets.resolve(mode, runtime_id).light_properties();
                                         (properties.emission(), properties.filter())
                                     });
                                 emission = emission.max(block_emission);
@@ -113,6 +128,11 @@ impl WorldStream {
         if invalidates_mesh_halo {
             self.mark_mesh_neighbourhood_dirty(key, Instant::now());
         }
+        self.remove_light_key_without_invalidation(key);
+    }
+
+    /// Retires one light source after its batch collected the affected mesh halo.
+    pub(in crate::stream) fn remove_light_key_without_invalidation(&mut self, key: SubChunkKey) {
         self.block_generations.remove(&key);
         self.light_store.remove(key);
         self.light_ownership.remove(&key);
@@ -434,6 +454,10 @@ impl WorldStream {
         let Some(above) = offset_sub_chunk_key(key, [0, 1, 0]) else {
             return true;
         };
-        !self.light_source_is_known(above) || self.light_is_current(above)
+        if self.light_source_is_known(above) {
+            self.light_is_current(above)
+        } else {
+            !self.is_expected_sub_chunk(above)
+        }
     }
 }
