@@ -38,7 +38,15 @@ fn dump_engine_screens() {
     let (Some(catalog), Ok(path)) = (catalog(), std::env::var("JSON_UI_DUMP")) else {
         return;
     };
-    let context = Context::retail(true);
+    let mut context = Context::retail(true);
+    // `$JSON_UI_DUMP_CONTEXT` names a JSON object of extra screen variables.
+    if let Ok(extra) = std::env::var("JSON_UI_DUMP_CONTEXT") {
+        let extra: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(extra).unwrap()).unwrap();
+        for (name, value) in extra {
+            context = context.with_var(&name, value);
+        }
+    }
     let mut out = String::new();
     let _ = writeln!(out, "== catalog diagnostics");
     for line in catalog.diagnostics() {
