@@ -132,7 +132,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = []
+allowed_dependencies = ["server-experience"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]

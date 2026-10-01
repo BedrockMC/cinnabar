@@ -109,6 +109,8 @@ pub struct Manifest {
     pub package_version: String,
     pub permissions: BTreeSet<Permission>,
     pub component: Option<String>,
+    pub channels: Vec<crate::wire::Channel>,
+    pub actions: BTreeSet<String>,
     pub files: Vec<ContentFile>,
 }
 

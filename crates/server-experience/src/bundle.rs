@@ -38,6 +38,15 @@ impl VerifiedBundle {
         ensure!(manifest.version == WIRE_VERSION && manifest.api == API_VERSION, "unsupported manifest API");
         ensure!(manifest.id == offer.id && manifest.publisher_key == offer.publisher_key, "publisher substitution");
         ensure!(manifest.permissions.is_subset(&scope.permissions), "undeclared permission");
+        ensure!(manifest.channels.len() <= MAX_CHANNELS && manifest.actions.len() <= 32, "declaration limit exceeded");
+        let mut channels = BTreeSet::new();
+        for channel in &manifest.channels {
+            ensure!(channel.id.starts_with(&format!("{}.", manifest.id))
+                && crate::manifest::identifier(&channel.id)
+                && channels.insert((&channel.id, channel.schema)) && channel.fields.len() <= 64,
+                "invalid channel declaration");
+        }
+        ensure!(manifest.actions.iter().all(|id| crate::manifest::identifier(id)), "invalid action declaration");
         ensure!(manifest.files.len() + 1 == zip.len(), "unindexed archive entry");
         let mut files = BTreeMap::new();
         for entry in &manifest.files {
@@ -64,6 +73,16 @@ impl VerifiedBundle {
     /// Returns the optional portable component, never serialized native code.
     pub fn component(&self) -> Option<&[u8]> {
         self.manifest.component.as_deref().and_then(|path| self.file(path))
+    }
+
+    /// Counts actual retained file bytes for the aggregate session budget.
+    pub fn expanded_bytes(&self) -> u64 {
+        self.files.values().map(|bytes| bytes.len() as u64).sum()
+    }
+
+    /// Lists only signed and hash-verified asset identities.
+    pub fn paths(&self) -> impl Iterator<Item = &str> {
+        self.files.keys().map(String::as_str)
     }
 }
 

@@ -133,6 +133,7 @@ impl Ingress {
         ensure!(message.sequence == self.next, "replay or reliable sequence gap");
         self.next = self.next.checked_add(1).ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
         ensure!(message.generation == 1 && grant.offer.offer.packages.iter().any(|p| p.id == message.bundle), "wrong bundle generation");
+        ensure!(message.channel.starts_with(&format!("{}.", message.bundle)), "foreign channel namespace");
         ensure!(channels.len() <= MAX_CHANNELS, "channel limit exceeded");
         let Some(channel) = channels.iter().find(|c| c.id == message.channel && c.schema == message.schema) else {
             self.skipped = self.skipped.saturating_add(1);

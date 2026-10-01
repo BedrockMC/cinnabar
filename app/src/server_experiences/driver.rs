@@ -7,13 +7,22 @@ use crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::network::NetworkHan
 #[derive(Resource)]
 struct ExperienceService {
     settings_path: PathBuf,
+    cache_root: PathBuf,
     settings: Option<Settings>,
+    generation: u64,
+    attempted: bool,
+    download: Option<server_experience::download::Download>,
+    live: Option<super::live::Live>,
 }
 
 /// Registers a silent controller; disk and network work wait for a valid marker.
 pub(crate) fn configure(app: &mut App) {
     let settings_path = app.world().resource::<MenuRuntime>().experience_settings_path();
-    app.insert_resource(ExperienceService { settings_path, settings: None })
+    let cache_root = app.world().resource::<MenuRuntime>().experience_cache_dir();
+    app.insert_resource(ExperienceService {
+        settings_path, cache_root, settings: None, generation: 0,
+        attempted: false, download: None, live: None,
+    })
         .add_systems(Update, drive.before(ClientFrameSet::SemanticSample)
             .after(ClientFrameSet::RawInput));
 }
@@ -25,6 +34,7 @@ fn drive(
     mut presentation: ResMut<UiPresentationRuntime>,
     menu: Res<MenuRuntime>,
     network: Res<NetworkHandle>,
+    world: Res<crate::runtime::world::ClientWorld>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -33,6 +43,15 @@ fn drive(
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let generation = runtime.session_id();
     let extension = &mut runtime.experiences;
+    if service.generation != generation {
+        service.generation = generation;
+        service.attempted = false;
+        service.download = None;
+        service.live = None;
+    }
+    if world.fatal_error.is_some() || world.transfer_notice.is_some() {
+        extension.session.disable();
+    }
     if !extension.handled_marker && let Some(marker) = extension.marker.take() {
         extension.handled_marker = true;
         if let Some(audience) = &extension.audience {
@@ -87,11 +106,59 @@ fn drive(
             .is_some_and(|packet| network.send_form_packet(generation, packet).is_ok());
         if !sent { extension.session.disable(); }
     }
+    if let Err(error) = advance_runtime(&mut service, extension, &network, generation, now_ms) {
+        extension.session.disable();
+        extension.active = false;
+        service.download = None;
+        service.live = None;
+        bevy::log::warn!(%error, "server experience runtime disabled");
+    }
     let (text, prompt) = chrome(&extension.session, menu.is_visible());
     if let Err(error) = presentation.set_experience_chrome(text.as_deref(), prompt) {
         extension.session.disable();
         bevy::log::warn!(%error, "server experience trusted UI unavailable");
     }
+}
+
+/// Starts work only for a live signed grant and discards it on every revocation.
+fn advance_runtime(
+    service: &mut ExperienceService,
+    extension: &mut super::ExperienceSession,
+    network: &NetworkHandle,
+    generation: u64,
+    now_ms: u64,
+) -> anyhow::Result<()> {
+    let State::Granted(grant) = &extension.session.state else {
+        service.download = None;
+        service.live = None;
+        extension.active = false;
+        while extension.pop().is_some() {}
+        return Ok(());
+    };
+    if !service.attempted {
+        service.attempted = true;
+        if std::env::var(server_experience::policy::DEVELOPER_ENV).as_deref() != Ok("1") {
+            extension.session.notice = Some("Cinnabar: restricted runtime unavailable; using server fallback. F9: dismiss".into());
+            return Ok(());
+        }
+        service.download = Some(server_experience::download::Download::start(grant.clone(), service.cache_root.clone())?);
+        extension.session.notice = Some("Cinnabar: downloading approved experience. F9: cancel".into());
+    }
+    if let Some(result) = service.download.as_ref().and_then(|download| download.poll()) {
+        service.download = None;
+        let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) { "mod-host.exe" } else { "mod-host" });
+        service.live = Some(super::live::Live::start(grant.clone(), result?, extension.epoch, now_ms, &executable)?);
+        extension.active = true;
+    }
+    if let Some(live) = &mut service.live {
+        while let Some((received_ms, bytes)) = extension.pop() { live.receive(&bytes, received_ms)?; }
+        for bytes in live.poll(extension.epoch, now_ms)? {
+            let packet = protocol::experience_packet(bytes).ok_or_else(|| anyhow::anyhow!("outbound envelope too large"))?;
+            anyhow::ensure!(network.send_form_packet(generation, packet).is_ok(), "extension send unavailable");
+        }
+        extension.session.notice = Some(live.text());
+    }
+    Ok(())
 }
 
 /// Builds plain trusted text; pack data can only fill labeled values.

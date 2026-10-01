@@ -457,6 +457,11 @@ impl MenuRuntime {
         self.config_path.with_file_name(server_experience::trust::SETTINGS_FILE)
     }
 
+    /// The immutable bundle cache follows the installed per-user data layout.
+    pub(crate) fn experience_cache_dir(&self) -> PathBuf {
+        self.layout.experience_cache_dir()
+    }
+
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
     pub(crate) fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
         self.local_worlds = worlds;
