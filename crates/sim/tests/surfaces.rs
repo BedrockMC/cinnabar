@@ -43,6 +43,52 @@ fn surface(response: SurfaceResponse) -> SurfaceWorld {
 }
 
 #[test]
+fn grounded_web_applies_one_slowdown_and_weaving_overrides_each_axis() {
+    let mut world = surface(SurfaceResponse::None);
+    world.facts.flags = BlockPhysicsFlags::COBWEB;
+    world.facts.horizontal_speed_factor = 0.25;
+    world.facts.vertical_speed_factor = 0.05;
+    for (weaving, horizontal, vertical) in [(false, 0.25, 0.05), (true, 0.5, 0.25)] {
+        let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+        state.on_ground = true;
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    effects: MovementEffects {
+                        weaving,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!((tick.movement.z - 0.098_000_004_887_580_87 * horizontal).abs() < 1.0e-8);
+        state.on_ground = false;
+        state.position.y = 3.0;
+        state.velocity = Vec3::new(0.8, -0.8, 0.8);
+        let tick = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    effects: MovementEffects {
+                        weaving,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!((tick.movement.y + 0.8 * vertical).abs() < 1.0e-8);
+        assert_eq!(state.velocity.x, 0.0);
+        assert_eq!(state.velocity.z, 0.0);
+    }
+}
+
+#[test]
 fn cobweb_scales_each_axis_and_stops_residual_motion_after_move() {
     let mut world = surface(SurfaceResponse::None);
     world.floor = false;

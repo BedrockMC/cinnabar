@@ -227,9 +227,14 @@ impl Simulator {
             next.velocity.y *= sampled.movement.vertical_speed_factor;
         }
         if sampled.movement.in_cobweb {
-            next.velocity.x *= 0.25;
-            next.velocity.y *= 0.05;
-            next.velocity.z *= 0.25;
+            let (horizontal, vertical) = if input.effects.weaving {
+                (0.5, 0.25)
+            } else {
+                (0.25, 0.05)
+            };
+            next.velocity.x *= horizontal;
+            next.velocity.y *= vertical;
+            next.velocity.z *= horizontal;
         } else if sampled.movement.in_powder_snow {
             next.velocity.x *= sampled.movement.horizontal_speed_factor;
             next.velocity.y *= sampled.movement.vertical_speed_factor;
