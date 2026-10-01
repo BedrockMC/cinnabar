@@ -48,6 +48,7 @@ impl LocalPhysicsController {
                 corrected_tick: tick,
                 final_tick: tick,
                 final_position: network_position,
+                anchor_input: super::super::encoding::HeldInput::default(),
                 replayed_samples: Vec::new(),
             });
         }
@@ -203,6 +204,12 @@ impl LocalPhysicsController {
             )
         };
         let mut replayed_samples = Vec::with_capacity(replayed_ticks.len());
+        let anchor_input = super::super::encoding::HeldInput::from(
+            self.sample_history
+                .iter()
+                .find(|sample| sample.tick == tick)
+                .expect("retained correction sample was checked"),
+        );
         for output in replayed_ticks {
             let result = output.tick_result;
             let Some(retained) = self
@@ -310,6 +317,7 @@ impl LocalPhysicsController {
             corrected_tick: tick,
             final_tick,
             final_position,
+            anchor_input,
             replayed_samples,
         })
     }
