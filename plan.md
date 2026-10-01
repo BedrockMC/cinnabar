@@ -3591,15 +3591,6 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 
 ### Numeric continuation (2026-10-02, incomplete D01)
 
-Walking vectors, collision arithmetic, AABB centers, jump impulses, gravity and drag
-now round at f32 operations. Motion remains independent of the rounded final position
-(Lens `0x6dcbfc0`; `R:f/FinalizeMoveSystemImpl.cpp:28`). Sprint jumps use native float
-indices and table initialization by `sinf(index / 10430.378f)` (Lens `0x296ccd0`,
-`0xa5dacf0`; `R:m/MobJumpFromGroundSystemImpl.cpp:233`). Exact angle and distant-position
-witnesses cover these changes. D01 remains incomplete: the non-walking travel models
-and exhaustive Windows-versus-host sinf bit equivalence still need validation.
-Water acceleration now multiplies the effective Depth Strider level before dividing by
-its maximum, matching Lens `0xdc3eeb0` and `R:w/WaterTravelSystem.cpp:73`.
 
 ### Registry collision continuation (2026-10-02)
 
