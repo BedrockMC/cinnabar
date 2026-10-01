@@ -1173,10 +1173,11 @@ fn biome_blend_marker_is_acceptance_only_render_committed_and_deduplicated() {
     assert!(marker.starts_with(
         "BIOME_BLEND_COMMITTED stage=app_committed key=0,4,-4,9 generation=17 tint_stream=7 tint_revision=11 record_hash="
     ));
-    assert!(marker.contains(" local=15,0,15 radius=1 denominator=9 samples="));
-    assert!(marker.ends_with(
-        "-1,-1:0:1;0,-1:0:1;1,-1:0:1;-1,0:0:1;0,0:0:1;1,0:0:1;-1,1:0:1;0,1:0:1;1,1:0:1"
-    ));
+    assert!(marker.contains(&format!(
+        " local=15,0,15 radius={} samples=",
+        meshing::biome_lattice::BIOME_BLEND_RADIUS
+    )));
+    assert!(marker.contains("samples=0:1.00000000;0:0.00000000"));
     assert!(biome_blend_diagnostic_marker_if_changed(&mut last_emitted, snapshot).is_none());
 
     let moved =
