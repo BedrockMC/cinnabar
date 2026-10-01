@@ -77,7 +77,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             )
             .with_mask(
                 PlayerInputFlags::JUMPING,
-                !retained.processed.jump_arc_active,
+                !retained.jumping,
             );
     }
     reconcile_candidate_physics_correction(
@@ -95,7 +95,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     assert_eq!(after.len(), before.len());
     for ((live, replayed), retained) in before.into_iter().zip(after).zip(plan.replayed_samples) {
         assert_eq!(replayed.snapshot.position, retained.position);
-        assert_eq!(replayed.snapshot.delta, retained.movement);
+        assert_eq!(replayed.snapshot.delta, retained.velocity);
         assert_ne!(replayed.snapshot.position, [99.0; 3]);
         assert_ne!(replayed.snapshot.delta, [99.0; 3]);
         assert_ne!(replayed.snapshot.position, live.snapshot.position);
@@ -111,7 +111,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             ),
             (
                 PlayerInputFlags::JUMPING,
-                retained.processed.jump_arc_active,
+                retained.jumping,
             ),
         ] {
             assert_eq!(

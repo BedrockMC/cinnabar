@@ -83,7 +83,8 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
+    let fingerprint = stack_fingerprint(&stack);
+    let block_overlay = cached_block_overlay(&fingerprint, custom_blocks, hashed_block_ids, || {
         compile_block_overlay(
             &view,
             custom_blocks,
@@ -114,7 +115,7 @@ pub(super) fn prepare_pack_application(
         item_icons,
         item_components: None,
         glyph_sheets: compile_session_glyphs(&view),
-        entities: super::entity_pack::compile_session_entities(&stack, &view),
+        entities: super::entity_pack::compile_session_entities(&fingerprint, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
         server_ui: collect_server_ui(&view),
         server_sounds: crate::audio::ServerSoundPack::from_view(&view).map(Arc::new),
@@ -214,26 +215,26 @@ pub(super) fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> St
         .collect()
 }
 
+/// Reuses compiled blocks with the fingerprint already computed for this admission.
 fn cached_block_overlay(
-    stack: &resource_pack::ValidatedPackStack,
+    fingerprint: &StackFingerprint,
     blocks: &protocol::CustomBlocks,
     hashed: bool,
     compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
 ) -> Option<Arc<CompiledBlockOverlay>> {
-    let fingerprint = stack_fingerprint(stack);
     let mut cache = OVERLAY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     if let Some(cached) = cache.as_ref()
         && cached.hashed == hashed
-        && cached.stack == fingerprint
+        && cached.stack == *fingerprint
         && cached.blocks == *blocks
     {
         return cached.overlay.clone();
     }
     let overlay = compile();
     *cache = Some(CachedOverlay {
-        stack: fingerprint,
+        stack: fingerprint.clone(),
         hashed,
         blocks: blocks.clone(),
         overlay: overlay.clone(),
@@ -792,13 +793,13 @@ mod tests {
             ]));
         let mut compiles = 0;
         for _ in 0..2 {
-            super::cached_block_overlay(&stack, &blocks, false, || {
+            super::cached_block_overlay(&super::stack_fingerprint(&stack), &blocks, false, || {
                 compiles += 1;
                 None
             });
         }
         assert_eq!(compiles, 1);
-        super::cached_block_overlay(&stack, &blocks, true, || {
+        super::cached_block_overlay(&super::stack_fingerprint(&stack), &blocks, true, || {
             compiles += 1;
             None
         });
@@ -823,3 +824,6 @@ mod tests {
         assert!(matches!(state.admission(), PackAdmission::None));
     }
 }
+
+#[cfg(test)]
+mod fingerprint_bench;

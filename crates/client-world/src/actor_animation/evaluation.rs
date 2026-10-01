@@ -95,6 +95,13 @@ const SEEDED_VARIABLES: [(&str, f32); 20] = [
 ];
 
 impl VariableLayout {
+    /// Resolves a named engine variable in this carrier's symbol table.
+    pub(super) fn slot(&self, assets: &RuntimeEntityAssets, name: &str) -> Option<usize> {
+        assets.molang_symbols()[self.variable_base..self.variable_base + self.variable_count]
+            .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
+            .ok()
+    }
+
     pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
         let symbols = assets.molang_symbols();
         let range = |kind: MolangSymbolKind| {
@@ -402,12 +409,15 @@ impl Evaluator<'_> {
                         .len()
                         .checked_sub(function.arity())
                         .ok_or(EvalError::Invalid)?;
-                    let arguments = stack
-                        .split_off(start)
-                        .iter()
-                        .map(MolangValue::number)
-                        .collect::<Vec<_>>();
-                    let value = molang_call(function, &arguments, &mut || variables.next_random());
+                    let mut arguments = [0.0; 3];
+                    let arguments = arguments
+                        .get_mut(..function.arity())
+                        .ok_or(EvalError::Invalid)?;
+                    for (argument, value) in arguments.iter_mut().zip(&stack[start..]) {
+                        *argument = value.number();
+                    }
+                    stack.truncate(start);
+                    let value = molang_call(function, arguments, &mut || variables.next_random());
                     stack.push(MolangValue::Number(value));
                 }
                 MolangOp::Jump(target) => pc = jump(target)?,

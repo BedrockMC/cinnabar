@@ -195,8 +195,7 @@ pub struct ActionSnapshot {
     /// class contributes to these carriers.
     pub raw_movement: [f32; 2],
     /// Analog-axis contribution of the controlling device (post-deadzone
-    /// gamepad axes); equals [`Self::raw_movement`] for device classes
-    /// without analog movement axes.
+    /// gamepad axes). Keyboard buttons leave this vector empty.
     pub analogue_movement: [f32; 2],
     pub look_delta: [f32; 2],
     pub input_mode: InputMode,

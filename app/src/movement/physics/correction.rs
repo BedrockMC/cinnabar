@@ -30,7 +30,16 @@ impl LocalPhysicsController {
             });
         self.corrections_applied = self.corrections_applied.saturating_add(1);
         if matches!(mode, PhysicsCorrectionMode::Snap) {
+            let jump_delay = self.state.as_ref().map_or(0, |state| state.jump_delay);
+            let previous_jump_held = self.previous_jump_held;
+            let jump_edge_pending = self.jump_edge_pending;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
+            // MovePlayer changes spatial state without resetting jump input.
+            self.previous_jump_held = previous_jump_held;
+            self.jump_edge_pending = jump_edge_pending;
+            if let Some(state) = self.state.as_mut() {
+                state.jump_delay = jump_delay;
+            }
             if let (Some(velocity), Some(state)) = (velocity, self.state.as_mut()) {
                 state.velocity = velocity;
             }
@@ -143,6 +152,12 @@ impl LocalPhysicsController {
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
+        let corrected_velocity = [
+            corrected.velocity.x as f32,
+            corrected.velocity.y as f32,
+            corrected.velocity.z as f32,
+        ];
+        let corrected_collisions = corrected.collisions;
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
         // The replay starts from this exact anchor state; capture its cooldown
@@ -250,6 +265,11 @@ impl LocalPhysicsController {
                 .expect("retained correction sample was checked");
             if let Some(position) = corrected_network_position {
                 corrected_sample.position = position;
+                corrected_sample.velocity = corrected_velocity;
+                corrected_sample.grounded_after_tick = on_ground;
+                corrected_sample.horizontal_collision =
+                    corrected_collisions.x || corrected_collisions.z;
+                corrected_sample.vertical_collision = corrected_collisions.y;
             }
             corrected_sample.world_identity.clone()
         };
