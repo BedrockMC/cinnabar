@@ -63,7 +63,10 @@ fn render_distance_settings_send_is_session_fenced_and_retries_after_backpressur
     ));
     let NetworkCommand::Send {
         packet: accepted, ..
-    } = receiver.try_recv().unwrap();
+    } = receiver.try_recv().unwrap()
+    else {
+        panic!("settings must enqueue a packet send");
+    };
     let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
         protocol::encode(&accepted, &session).unwrap(),
