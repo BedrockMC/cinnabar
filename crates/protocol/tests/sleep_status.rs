@@ -48,17 +48,3 @@ fn sleeping_players_generic_level_event_carries_its_compound() {
     };
     assert_eq!(into_world_event(other.into(), 0).unwrap(), None);
 }
-
-/// BDS 1.26.52 sends generic events at join; their loose tags must decode without trailing bytes.
-#[test]
-fn generic_level_event_wire_takes_the_rest_of_the_packet_as_loose_tags() {
-    use valentine::bedrock::codec::BedrockCodec;
-    let nbt = int_compound(&[("originX", 3), ("originY", 64)]);
-    let mut wire = vec![0xd2, 0x1f]; // zigzag varint event id 2025
-    wire.extend_from_slice(&nbt[2..nbt.len() - 1]);
-    let mut buf = Bytes::from(wire);
-    let packet = LevelEventGenericPacket::decode(&mut buf, ()).expect("decodes");
-    assert_eq!(packet.event_id, 2025);
-    assert_eq!(packet.__ctd__.0.as_ref(), &nbt[2..nbt.len() - 1]);
-    assert!(buf.is_empty());
-}

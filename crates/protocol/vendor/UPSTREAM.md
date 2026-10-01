@@ -35,9 +35,6 @@ shared-codec and Jolyne transport hardening.
 gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that
 conditional. The normalization input fingerprints include this patch.
 
-`LevelEventGenericPacket` is hand-patched to take the rest of the packet as its event data, which
-is loose NBT tags (no root compound or end tag) as gophertunnel documents; the manifest types it as rooted NBT.
-
 The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
 lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.
 
