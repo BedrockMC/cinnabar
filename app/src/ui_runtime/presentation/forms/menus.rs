@@ -28,6 +28,7 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        self.gui_scale_drag_targets.clear();
         let Some(view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
@@ -221,7 +222,16 @@ impl UiPresentationRuntime {
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
         for region in frame.hits.iter().filter(|region| region.enabled) {
-            if let Some(actions) = menu_screens::slider_actions(region) {
+            if let Some(actions) = menu_screens::slider_actions(view, region) {
+                if region.control_name.as_deref() == Some("gui_scale") {
+                    let mut track = region.clone();
+                    track.clip = track.rect;
+                    self.gui_scale_drag_targets.extend(
+                        segments(&track, actions.len(), frame.scale, origin)
+                            .into_iter()
+                            .map(|(step, bounds)| (actions[step], bounds)),
+                    );
+                }
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
                 }
@@ -359,20 +369,85 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
         .collect()
 }
 
-/// A slider split into `steps` equal hit rects, one per value.
+/// Regions select the nearest slider anchor, including anchors at both ends
+/// of the track. The end values therefore occupy half an interior interval.
 fn segments(
     region: &HitRegion,
     steps: usize,
     scale: f32,
     origin: [f32; 2],
 ) -> Vec<(usize, UiRect)> {
-    let width = region.rect.w / steps.max(1) as f64;
+    let interval = region.rect.w / steps.saturating_sub(1).max(1) as f64;
     (0..steps)
         .filter_map(|step| {
             let mut part = region.clone();
-            part.rect.x = region.rect.x + width * step as f64;
-            part.rect.w = width;
+            let left = if step == 0 {
+                0.0
+            } else {
+                (step as f64 - 0.5) * interval
+            };
+            let right = if step + 1 == steps {
+                region.rect.w
+            } else {
+                (step as f64 + 0.5) * interval
+            };
+            part.rect.x = region.rect.x + left;
+            part.rect.w = right - left;
             window_rect(&part, scale, origin).map(|bounds| (step, bounds))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use json_ui::{HitKind, RectOut};
+    use ui::UiPoint;
+
+    use super::*;
+
+    #[test]
+    fn gui_scale_slider_regions_choose_the_nearest_native_step() {
+        let rect = RectOut {
+            x: 10.0,
+            y: 20.0,
+            w: 100.0,
+            h: 12.0,
+        };
+        let region = HitRegion {
+            key: "gui_scale".into(),
+            name: "gui_scale".into(),
+            kind: HitKind::Slider,
+            rect,
+            clip: rect,
+            layer: 0,
+            order: 0,
+            pressed: None,
+            control_name: Some("gui_scale".into()),
+            collection_index: None,
+            collection: None,
+            enabled: true,
+            checked: None,
+            max_length: None,
+            group_index: None,
+            renderer: None,
+        };
+        let hits = segments(&region, 3, 2.0, [5.0, 7.0]);
+        for (track_x, expected) in [
+            (0.0, 0),
+            (24.0, 0),
+            (25.0, 1),
+            (30.0, 1),
+            (70.0, 1),
+            (75.0, 2),
+            (99.0, 2),
+        ] {
+            let point = UiPoint::new(5.0 + 2.0 * (10.0 + track_x), 7.0 + 2.0 * 26.0).unwrap();
+            let selected = hits
+                .iter()
+                .rev()
+                .find(|(_, bounds)| bounds.contains(point))
+                .map(|(step, _)| *step);
+            assert_eq!(selected, Some(expected), "track position {track_x}");
+        }
+    }
 }

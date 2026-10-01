@@ -34,6 +34,7 @@ use crate::{
 mod debug_overlay;
 mod dynamic_textures;
 pub(crate) mod forms;
+mod gui_scale_settings;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod inventory_tooltip;
@@ -70,6 +71,7 @@ mod viewmodel_bob;
 use crate::menu::{MenuAction, MenuView};
 pub(crate) use debug_overlay::DebugLines;
 pub(crate) use forms::{BedHit, ChatHit, LoadingStage, drive_menu_panorama};
+pub(crate) use gui_scale_settings::apply_gui_scale_setting;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
@@ -130,7 +132,7 @@ pub struct UiPresentationRuntime {
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
-    /// Java GUI-scale preference: `None`/0 selects the auto rule.
+    /// Bedrock desktop GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
     /// the retained tree layout, and the render viewport alike.
@@ -184,6 +186,9 @@ pub struct UiPresentationRuntime {
     logged_hotbar: [Option<(Arc<str>, bool)>; 9],
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
+    /// Current full GUI slider geometry, including steps clipped from view.
+    /// Captured drags keep following it while scale changes move the row.
+    gui_scale_drag_targets: Vec<(MenuAction, UiRect)>,
     menu_scrolls: menu_scroll::MenuScrolls,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
@@ -284,6 +289,7 @@ impl UiPresentationRuntime {
             logged_hotbar: Default::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
+            gui_scale_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
             form_presentation: forms::FormPresentation::default(),
             loading_stage: None,
@@ -388,7 +394,7 @@ impl UiPresentationRuntime {
         Self::with_optional_assets(font, hud, None)
     }
 
-    /// Selects a fixed Java GUI scale (1..=4); `None` or 0 restores auto.
+    /// Selects a fixed desktop GUI scale; `None` or 0 restores auto.
     pub fn set_gui_scale_preference(&mut self, preference: Option<u8>) {
         self.gui_scale_preference = preference.filter(|value| *value > 0);
     }
