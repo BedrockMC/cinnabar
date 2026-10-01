@@ -11,14 +11,14 @@ use std::{
 
 use bevy::{
     math::Vec3,
-    prelude::{PerspectiveProjection, Projection, Transform, World},
+    prelude::World,
     time::{Real, Time},
 };
 use client_world::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
-use crate::runtime::network::{ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame};
+use crate::runtime::network::{HandRigBuilder, publish_actor_render_frame};
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const COMPILED: &str = "../.local/assets/compiled";
@@ -206,7 +206,6 @@ fn population(stream: &WorldStream) -> Population {
 fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
     let points: Vec<Vec3> = stream
         .actor_rigs()
-        .iter()
         .filter_map(|rig| stream.actor(rig.actor.runtime_id))
         .filter(|actor| matches!(actor.kind, ActorKind::Entity { .. }))
         .map(|actor| Vec3::from_array(actor.position))
@@ -214,7 +213,11 @@ fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
     (!points.is_empty()).then(|| points.iter().sum::<Vec3>() / points.len() as f32)
 }
 
-fn build_world(capture: &Capture, pack_path: &Path) -> (World, Vec<(u32, Vec<u8>)>, Replay) {
+fn build_world(
+    capture: &Capture,
+    pack_path: &Path,
+    away: bool,
+) -> (World, Vec<(u32, Vec<u8>)>, Replay) {
     let compiled = PathBuf::from(COMPILED);
     let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
         path: compiled.join("vanilla-v2193.mcbea"),
@@ -288,33 +291,25 @@ fn build_world(capture: &Capture, pack_path: &Path) -> (World, Vec<(u32, Vec<u8>
         replay.apply(&mut stream, *id, body);
     }
     drain(&mut stream, replay.local_position);
+    // The camera stands at the local player's eye facing the NPCs, or directly away.
+    let eye = Vec3::from_array(replay.local_position) + Vec3::Y * 1.62;
+    let target = entity_centroid(&stream).unwrap_or(eye + Vec3::NEG_Z);
+    let target = if away { eye * 2.0 - target } else { target };
     let mut client_world = crate::runtime::world::ClientWorld::new_with_entity_assets(
         Arc::clone(&loaded.runtime),
         entity_runtime,
     );
     client_world.pack_entities = Some(pack);
     client_world.stream = Some(stream);
-
-    let mut world = World::new();
-    world.insert_resource(client_world);
-    world.insert_resource(Time::<Real>::new(Instant::now()));
-    world.insert_resource(scene);
-    world.insert_resource(ActorRenderFrame::default());
-    world.insert_resource(crate::local_player::LocalAvatarPresentation::default());
-    world.insert_resource(crate::local_player::LocalAvatarVisibilityCarrier::default());
-    world.insert_resource(crate::camera::CameraSettingsAuthority::default());
-    world.insert_resource(crate::local_player::LocalViewPose::default());
-    world.insert_resource(crate::movement::LocalPhysicsController::default());
-    world.insert_resource(render::ActorRuntimeWitness::default());
-    world.insert_resource(artwork);
-    world.insert_resource(hand);
-    world.insert_resource(render::HandRigScene::default());
-    world.insert_resource(crate::player_skin::LocalPlayerSkin::generated_default(
-        "bench",
-    ));
+    let mut world = crate::tests::actor_frame_allocations::actor_frame_world(
+        client_world,
+        scene,
+        artwork,
+        hand,
+        (eye, target),
+    );
     world.insert_resource(equipment);
     world.insert_resource(RuntimeStageProfiler::new(true));
-    world.insert_resource(ActorFramePartialTick::default());
     let rest = capture.packets[split..].to_vec();
     (world, rest, replay)
 }
@@ -400,30 +395,7 @@ fn lobby_frame_bench() {
         .unwrap_or(900);
     let away = std::env::var_os("CINNABAR_LOBBY_LOOK_AWAY").is_some();
     let capture = read_capture(Path::new(&capture));
-    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack));
-
-    let stream = world
-        .resource::<crate::runtime::world::ClientWorld>()
-        .stream
-        .as_ref()
-        .unwrap();
-    let eye = Vec3::from_array(replay.local_position) + Vec3::Y * 1.62;
-    let target = entity_centroid(stream).unwrap_or(eye + Vec3::NEG_Z);
-    let target = if away { eye * 2.0 - target } else { target };
-    let camera = Transform::from_translation(eye).looking_at(target, Vec3::Y);
-    world.spawn((
-        camera,
-        Projection::Perspective(PerspectiveProjection {
-            fov: 70f32.to_radians(),
-            aspect_ratio: 16.0 / 9.0,
-            ..Default::default()
-        }),
-        crate::camera::FlyCamera::default(),
-    ));
-    world.insert_resource(crate::local_player::LocalViewPose::new(
-        eye,
-        camera.rotation,
-    ));
+    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), away);
 
     let started = Instant::now();
     let mut clock = started;

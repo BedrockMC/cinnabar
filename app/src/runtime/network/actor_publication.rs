@@ -20,7 +20,7 @@ use super::{
 use crate::{
     melee::SwingTracker,
     presentation::actors::{
-        ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
+        ActorRigPresentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
         update_actor_rig_scene,
     },
@@ -141,6 +141,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
     skin_pack: Local<'s, crate::presentation::actors::SkinLayerPack>,
+    poses: Local<'s, crate::presentation::actors::PoseConversions>,
+    layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -171,6 +173,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut cape_state,
         mut skin_rigs,
         mut skin_pack,
+        mut poses,
+        mut layer_poses,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -233,6 +237,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     let step = actor_clock.advance(time.delta());
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
+    poses.begin_frame();
+    if let Some(equipment) = equipment.as_deref_mut() {
+        equipment.begin_frame();
+    }
+    layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let item_use = client_world
         .stream
@@ -332,11 +341,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             .as_ref()
             .map(|stream| {
                 let local_runtime_id = stream.local_player_runtime_id();
-                let mut remotes = Vec::new();
+                let mut remotes = Vec::with_capacity(stream.actor_count());
                 let mut canonical_local = None;
-                let rigs = stream.actor_rigs();
-                let unrigged_actors = stream.actor_count().saturating_sub(rigs.len());
-                for rig in rigs {
+                let mut rigged = 0;
+                for rig in stream.actor_rigs() {
+                    rigged += 1;
                     let Some(actor) = stream.actor(rig.actor.runtime_id) else {
                         continue;
                     };
@@ -364,39 +373,45 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                     }
                     let profile = stream.actor_player_profile(rig.actor.runtime_id);
                     let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
-                        actor_rig_presentation(&rig, actor, profile, step.partial_tick).map(
-                            |mut presentation| {
-                                if let Some(geometry) = rig.skin_geometry {
-                                    // The pose drives the skin's own bones, so only its model fits.
-                                    match skin_rigs.rig(geometry, |built| {
-                                        if let Some(equipment) = equipment.as_deref_mut() {
-                                            equipment.register_skin_rig(
-                                                built.id,
-                                                geometry
-                                                    .bones
-                                                    .iter()
-                                                    .map(|bone| bone.name.clone())
-                                                    .collect(),
-                                            );
-                                        }
-                                        new_geometries.push(built);
-                                    }) {
-                                        Some(id) => presentation.submission.input.rig = id,
-                                        None => {
-                                            presentation.submission.route =
-                                                render::ActorRigRoute::NoDraw;
-                                        }
+                        crate::presentation::actors::actor_rig_presentation_cached(
+                            &rig,
+                            actor,
+                            profile,
+                            step.partial_tick,
+                            &mut poses,
+                        )
+                        .map(|mut presentation| {
+                            if let Some(geometry) = rig.skin_geometry {
+                                // The pose drives the skin's own bones, so only its model fits.
+                                match skin_rigs.rig(geometry, |built| {
+                                    if let Some(equipment) = equipment.as_deref_mut() {
+                                        equipment.register_skin_rig(
+                                            built.id,
+                                            geometry
+                                                .bones
+                                                .iter()
+                                                .map(|bone| bone.name.clone())
+                                                .collect(),
+                                        );
+                                    }
+                                    new_geometries.push(built);
+                                }) {
+                                    Some(id) => presentation.submission.input.rig = id,
+                                    None => {
+                                        presentation.submission.route =
+                                            render::ActorRigRoute::NoDraw;
                                     }
                                 }
-                                presentation
-                            },
-                        )
+                            }
+                            presentation
+                        })
                     } else {
-                        crate::presentation::actors::entity_rig_presentation(
+                        crate::presentation::actors::entity_rig_presentation_cached(
                             &rig,
                             actor,
                             artwork,
                             step.partial_tick,
+                            Some(&mut poses),
                         )
                     };
                     let Some(presentation) = presentation else {
@@ -414,7 +429,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                     stream.current_dimension(),
                     remotes,
                     canonical_local,
-                    unrigged_actors,
+                    stream.actor_count().saturating_sub(rigged),
                 )
             })
             .unwrap_or((0, 0, 0, Vec::new(), None, 0));
@@ -557,10 +572,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     // After equipment, which rides the rig's own model even when a controller draws another.
     if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::entity_layers::apply_render_layers(
+        crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| stream.actor_rig(runtime_id),
             artwork,
+            &mut layer_poses,
         );
     }
     // Layers were built above from the visible body, so hiding the body keeps armor and held items.

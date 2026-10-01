@@ -438,7 +438,7 @@ impl ActorRenderScene {
             view,
             submissions,
             skins_rgba8,
-            &std::collections::BTreeMap::new(),
+            &std::collections::HashMap::new(),
         )
     }
 
@@ -448,7 +448,7 @@ impl ActorRenderScene {
         view: Option<ActorCullView>,
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
         skins_rgba8: Arc<[u8]>,
-        assignments: &std::collections::BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
+        assignments: &std::collections::HashMap<ActorRenderIdentity, ActorArtworkLocation>,
     ) -> &ActorRenderFrame {
         let rig = self
             .rig_builder

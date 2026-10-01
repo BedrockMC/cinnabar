@@ -93,12 +93,12 @@ impl EquipmentRuntime {
         ) else {
             return false;
         };
+        let poses = self.poses.share(body, layer, [&[previous], &[current]]);
         layers.push(layer_presentation(
             body,
             layer,
             geometry.rig,
-            vec![previous],
-            vec![current],
+            poses,
             location,
             0,
         ));
@@ -176,15 +176,8 @@ impl EquipmentRuntime {
         ) else {
             return;
         };
-        layers.push(layer_presentation(
-            body,
-            layer,
-            mesh,
-            vec![previous],
-            vec![current],
-            location,
-            0,
-        ));
+        let poses = self.poses.share(body, layer, [&[previous], &[current]]);
+        layers.push(layer_presentation(body, layer, mesh, poses, location, 0));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -239,12 +232,16 @@ impl EquipmentRuntime {
             ) else {
                 return;
             };
+            let (previous, current) = (
+                elytra::pose(&geometry.names, pose, *previous),
+                elytra::pose(&geometry.names, pose, *current),
+            );
+            let poses = self.poses.share(body, layer, [&previous, &current]);
             layers.push(layer_presentation(
                 body,
                 layer,
                 geometry.rig,
-                elytra::pose(&geometry.names, pose, *previous),
-                elytra::pose(&geometry.names, pose, *current),
+                poses,
                 location,
                 0,
             ));
@@ -267,12 +264,16 @@ impl EquipmentRuntime {
         } else {
             0
         };
+        let (previous, current) = (
+            remap_pose(&map, &body.input.previous_bones),
+            remap_pose(&map, &body.input.current_bones),
+        );
+        let poses = self.poses.share(body, layer, [&previous, &current]);
         layers.push(layer_presentation(
             body,
             layer,
             geometry.rig,
-            remap_pose(&map, &body.input.previous_bones),
-            remap_pose(&map, &body.input.current_bones),
+            poses,
             location,
             tint,
         ));
@@ -299,14 +300,7 @@ impl EquipmentRuntime {
         ) else {
             return;
         };
-        layers.push(layer_presentation(
-            body,
-            layer,
-            rig,
-            vec![*previous],
-            vec![*current],
-            location,
-            0,
-        ));
+        let poses = self.poses.share(body, layer, [&[*previous], &[*current]]);
+        layers.push(layer_presentation(body, layer, rig, poses, location, 0));
     }
 }

@@ -6,7 +6,7 @@ use bytemuck::{Pod, Zeroable};
 
 #[path = "rig/bone_arena.rs"]
 mod bone_arena;
-use bone_arena::append_pose_matrices;
+use bone_arena::PoseMatrixCache;
 #[path = "rig/catalog.rs"]
 mod catalog;
 pub use catalog::ActorRigVertexSegments;
@@ -372,6 +372,18 @@ impl Default for ActorRigRenderFrame {
 pub struct ActorRigFrameBuilder {
     catalog: GeometryCatalog,
     frame_generation: u64,
+    matrices: PoseMatrixCache,
+    scratch: BuildScratch,
+}
+
+/// Buffers a build fills, kept so steady frames reuse their capacity.
+#[derive(Debug, Default)]
+struct BuildScratch {
+    submissions: Vec<ActorRigSubmission>,
+    instances: Vec<ActorGpuInstance>,
+    previous_bones: Vec<[[f32; 4]; 3]>,
+    current_bones: Vec<[[f32; 4]; 3]>,
+    manifest: Vec<ActorDrawManifestEntry>,
 }
 
 impl ActorRigFrameBuilder {
@@ -432,6 +444,8 @@ impl ActorRigFrameBuilder {
         Ok(Self {
             catalog: GeometryCatalog::layout(by_id)?,
             frame_generation: 0,
+            matrices: PoseMatrixCache::default(),
+            scratch: BuildScratch::default(),
         })
     }
 
@@ -550,41 +564,45 @@ impl ActorRigFrameBuilder {
         } else {
             0.0
         };
-        let mut latest = BTreeMap::<(u64, i32, u64, u8), ActorRigSubmission>::new();
-        for submission in submissions {
-            let key = (
-                submission.input.identity.session_id,
-                submission.input.identity.dimension,
-                submission.input.identity.runtime_id,
-                submission.input.identity.layer,
-            );
-            match latest.entry(key) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(submission);
-                }
-                std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    if submission.input.identity > entry.get().input.identity {
-                        entry.insert(submission);
-                    }
-                }
-            }
-        }
-        let mut instances = Vec::new();
-        let mut previous_bones = Vec::new();
-        let mut current_bones = Vec::new();
-        let mut manifest = Vec::new();
+        self.matrices.begin_frame();
+        let mut scratch = std::mem::take(&mut self.scratch);
+        // The newest identity of each actor layer wins; equal identities keep the first.
+        let key = |submission: &ActorRigSubmission| {
+            let identity = submission.input.identity;
+            (
+                identity.session_id,
+                identity.dimension,
+                identity.runtime_id,
+                identity.layer,
+            )
+        };
+        let mut ordered = std::mem::take(&mut scratch.submissions);
+        ordered.extend(submissions);
+        ordered.sort_by(|a, b| {
+            key(a)
+                .cmp(&key(b))
+                .then(b.input.identity.cmp(&a.input.identity))
+        });
+        ordered.dedup_by_key(|submission| key(submission));
+        let mut instances = std::mem::take(&mut scratch.instances);
+        let mut previous_bones = std::mem::take(&mut scratch.previous_bones);
+        let mut current_bones = std::mem::take(&mut scratch.current_bones);
+        let mut manifest = std::mem::take(&mut scratch.manifest);
+        instances.clear();
+        previous_bones.clear();
+        current_bones.clear();
+        manifest.clear();
         let mut maximum_vertex_count = 0;
         let mut rejects = ActorRigRejects::default();
 
         // Bodies first so equipment can never crowd a body out of the instance arena; layers in
         // ascending order so a coplanar overlay draws after the layers beneath it.
-        let mut ordered = latest.into_values().collect::<Vec<_>>();
         ordered.sort_by_key(|submission| {
             let identity = submission.input.identity;
             (identity.layer, page_of(&identity), submission.input.rig)
         });
         let mut body_count = 0usize;
-        for submission in ordered {
+        for submission in ordered.drain(..) {
             if submission.route == ActorRigRoute::NoDraw {
                 rejects.no_draw = rejects.no_draw.saturating_add(1);
                 continue;
@@ -658,10 +676,18 @@ impl ActorRigFrameBuilder {
             }
             let previous_bone_base = previous_bones.len() as u32;
             let current_bone_base = current_bones.len() as u32;
-            let previous_valid =
-                append_pose_matrices(&mut previous_bones, previous, &geometry.bone_pivots);
-            let current_valid =
-                append_pose_matrices(&mut current_bones, current, &geometry.bone_pivots);
+            let previous_valid = self.matrices.append(
+                &mut previous_bones,
+                previous,
+                geometry_id,
+                &geometry.bone_pivots,
+            );
+            let current_valid = self.matrices.append(
+                &mut current_bones,
+                current,
+                geometry_id,
+                &geometry.bone_pivots,
+            );
             if !previous_valid || !current_valid {
                 previous_bones.truncate(previous_bone_base as usize);
                 current_bones.truncate(current_bone_base as usize);
@@ -713,18 +739,26 @@ impl ActorRigFrameBuilder {
         debug_assert!(
             previous_bones.len() * ACTOR_BONE_MATRIX_BYTES * 2 <= MAX_ACTOR_BONE_ARENA_BYTES
         );
-        ActorRigRenderFrame {
+        let frame = ActorRigRenderFrame {
             frame_generation,
             geometry_revision: self.catalog.revision,
-            instances: Arc::from(instances),
-            previous_bones: Arc::from(previous_bones),
-            current_bones: Arc::from(current_bones),
+            instances: Arc::from(instances.as_slice()),
+            previous_bones: Arc::from(previous_bones.as_slice()),
+            current_bones: Arc::from(current_bones.as_slice()),
             geometry_vertices: self.catalog.vertices.clone(),
             geometry_spans: Arc::clone(&self.catalog.published_spans),
-            manifest: Arc::from(manifest),
+            manifest: Arc::from(manifest.as_slice()),
             maximum_vertex_count,
             rejects,
-        }
+        };
+        self.scratch = BuildScratch {
+            submissions: ordered,
+            instances,
+            previous_bones,
+            current_bones,
+            manifest,
+        };
+        frame
     }
 }
 

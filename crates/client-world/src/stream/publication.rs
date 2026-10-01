@@ -242,7 +242,7 @@ impl WorldStream {
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
-    pub fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
+    pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
     }
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {

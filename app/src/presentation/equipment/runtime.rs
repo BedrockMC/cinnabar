@@ -119,9 +119,15 @@ pub(crate) struct EquipmentRuntime {
     pack: Option<PackEquipment>,
     /// `(identifier, reason)` pairs already logged as drawing no layer.
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
+    poses: PoseMemo,
 }
 
 impl EquipmentRuntime {
+    /// Releases memoized poses of layers no recent frame drew.
+    pub(crate) fn begin_frame(&mut self) {
+        self.poses.begin_frame();
+    }
+
     /// Places the item atlas and attachable textures on new artwork pages. Returns the runtime,
     /// the extended artwork, and the entity-catalog geometries the actor scene must register.
     pub(crate) fn build(
@@ -235,6 +241,7 @@ impl EquipmentRuntime {
             skulls,
             pack: None,
             logged_misses: Default::default(),
+            poses: PoseMemo::default(),
         };
         (runtime, artwork, geometries)
     }
@@ -362,8 +369,13 @@ impl EquipmentRuntime {
                 .collect::<Vec<_>>()
         };
         let mut masked = body.clone();
-        masked.input.previous_bones = Arc::from(mask(&body.input.previous_bones));
-        masked.input.current_bones = Arc::from(mask(&body.input.current_bones));
+        let (previous, current) = (
+            mask(&body.input.previous_bones),
+            mask(&body.input.current_bones),
+        );
+        [masked.input.previous_bones, masked.input.current_bones] =
+            self.poses
+                .share(body, FIRST_PERSON_MASK_LAYER, [&previous, &current]);
         Some(masked)
     }
 
@@ -488,13 +500,55 @@ impl EquipmentRuntime {
     }
 }
 
+/// Memo key of the first-person arm mask, which no worn layer uses.
+const FIRST_PERSON_MASK_LAYER: u8 = u8::MAX;
+
+/// Frames an actor layer may go undrawn before its poses are released.
+const POSE_MEMO_RETENTION_FRAMES: u64 = 4;
+
+type RenderPose = Arc<[RenderBoneTransform]>;
+
+/// The poses each actor layer last drew: an unchanged pose keeps its allocation, so frames of a
+/// tick share it and its bone matrices.
+#[derive(Debug, Default)]
+pub(super) struct PoseMemo {
+    entries: std::collections::HashMap<(u64, u8), ([RenderPose; 2], u64)>,
+    frame: u64,
+}
+
+impl PoseMemo {
+    fn begin_frame(&mut self) {
+        self.frame += 1;
+        let oldest = self.frame.saturating_sub(POSE_MEMO_RETENTION_FRAMES);
+        self.entries.retain(|_, entry| entry.1 >= oldest);
+    }
+
+    /// Shared allocations holding `poses` (previous, current) for `body`'s `layer`.
+    pub(super) fn share(
+        &mut self,
+        body: &ActorRigSubmission,
+        layer: u8,
+        poses: [&[RenderBoneTransform]; 2],
+    ) -> [Arc<[RenderBoneTransform]>; 2] {
+        let key = (body.input.identity.runtime_id, layer);
+        let old = self.entries.get(&key).map(|entry| entry.0.clone());
+        let shared = poses.map(|pose| {
+            old.iter()
+                .flatten()
+                .find(|known| ***known == *pose)
+                .map_or_else(|| Arc::from(pose), Arc::clone)
+        });
+        self.entries.insert(key, (shared.clone(), self.frame));
+        shared
+    }
+}
+
 /// An equipment instance that shares `body`'s identity, transform, and generations.
 pub(super) fn layer_presentation(
     body: &ActorRigSubmission,
     layer: u8,
     rig: EntityRigId,
-    previous: Vec<RenderBoneTransform>,
-    current: Vec<RenderBoneTransform>,
+    [previous, current]: [Arc<[RenderBoneTransform]>; 2],
     location: ActorArtworkLocation,
     tint: u32,
 ) -> EquipmentPresentation {
@@ -505,8 +559,8 @@ pub(super) fn layer_presentation(
             input: ActorRigRenderInput {
                 identity,
                 rig,
-                previous_bones: Arc::from(previous),
-                current_bones: Arc::from(current),
+                previous_bones: previous,
+                current_bones: current,
                 completed_tick: body.input.completed_tick,
                 reset_generation: body.input.reset_generation,
             },
