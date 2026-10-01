@@ -5,7 +5,7 @@
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{material_class, shade_surface}
+#import cinnabar::enhanced_view::{material_class, shade_surface, waved_position}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
@@ -226,6 +226,8 @@ fn vertex(
     out.world_position = world;
 #ifdef ENHANCED
     out.material_class = material_class(material_id);
+    out.world_position = waved_position(world, out.material_class, clamp(template_position.y, 0.0, 1.0));
+    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
     out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
 #endif
     return out;

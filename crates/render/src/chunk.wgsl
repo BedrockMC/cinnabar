@@ -5,7 +5,7 @@
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{material_class, shade_surface}
+#import cinnabar::enhanced_view::{material_class, shade_surface, waved_position}
 #endif
 
 struct PackedQuad {
@@ -274,6 +274,8 @@ fn vertex(
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 3u);
 #ifdef ENHANCED
     out.material_class = material_class(quad.material_id);
+    out.world_position = waved_position(world_position, out.material_class, 1.0);
+    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
 #endif
     return out;
 }

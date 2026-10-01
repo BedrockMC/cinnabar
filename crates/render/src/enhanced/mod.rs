@@ -66,8 +66,8 @@ impl Default for EnhancedRendering {
             shadow_cascades: 2,
             shadow_distance: 96.0,
             bloom: true,
-            light_shafts: false,
-            waving: false,
+            light_shafts: true,
+            waving: true,
             water_reflections: false,
         }
     }

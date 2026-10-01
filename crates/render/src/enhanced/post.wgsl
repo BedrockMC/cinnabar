@@ -55,7 +55,7 @@ fn light_shafts(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let clip = frame.cascade_clip_from_world[cascade] * vec4(camera + direction * travel, 1.0);
         let shadow_ndc = clip.xyz / clip.w;
         let uv = vec2(shadow_ndc.x * 0.5 + 0.5, 0.5 - shadow_ndc.y * 0.5);
-        if (all(uv > vec2(0.0)) && all(uv < vec2(1.0)) && shadow_ndc.z < 1.0) {
+        if (all(uv > vec2(0.0)) && all(uv < vec2(1.0)) && shadow_ndc.z > 0.0 && shadow_ndc.z < 1.0) {
             lit += textureSampleCompareLevel(
                 shadow_map,
                 shadow_sampler,
@@ -63,8 +63,6 @@ fn light_shafts(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
                 i32(cascade),
                 shadow_ndc.z - bias,
             );
-        } else {
-            lit += 1.0;
         }
     }
     let visibility = lit / f32(SHAFT_STEPS);
