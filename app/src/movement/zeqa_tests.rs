@@ -120,20 +120,73 @@ fn teleport_does_not_fabricate_a_second_raw_jump_press() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 33572, anchor);
     ticker.set_source(MovementSource::Physics);
-    let input = MovementInput { jumping: true, ..MovementInput::default() };
+    let input = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
     let frame = physics.advance(Duration::from_millis(300), input, &world);
     assert_eq!(frame.samples.len(), 6);
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
-    super::reconcile_move_player_teleport(
-        &mut ticker, &mut physics, anchor, 0, false, &world,
-    ).unwrap();
+    super::reconcile_move_player_teleport(&mut ticker, &mut physics, anchor, 0, false, &world)
+        .unwrap();
     // Discard the elapsed frame that predates the teleport.
     physics.advance(Duration::from_millis(50), input, &world);
     let frame = physics.advance(Duration::from_millis(50), input, &world);
-    ticker.enqueue_completed_physics(frame.samples[0].clone()).unwrap();
+    ticker
+        .enqueue_completed_physics(frame.samples[0].clone())
+        .unwrap();
     let flags = ticker.pending_snapshots()[0].flags.bits();
-    assert_ne!(flags & protocol::PlayerInputFlags::JUMP_CURRENT_RAW.bits(), 0);
-    assert_eq!(flags & protocol::PlayerInputFlags::JUMP_PRESSED_RAW.bits(), 0);
+    assert_ne!(
+        flags & protocol::PlayerInputFlags::JUMP_CURRENT_RAW.bits(),
+        0
+    );
+    assert_eq!(
+        flags & protocol::PlayerInputFlags::JUMP_PRESSED_RAW.bits(),
+        0
+    );
+}
+
+#[test]
+fn teleport_preserves_jump_cooldown_until_the_next_allowed_takeoff() {
+    let anchor = [0.0, 100.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
+    let world = RecordedFloor(100.0);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(anchor, 33572, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 33572, anchor);
+    ticker.set_source(MovementSource::Physics);
+    let input = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let frame = physics.advance(Duration::from_millis(300), input, &world);
+    assert_eq!(frame.samples.len(), 6);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let cooldown = physics.state().unwrap().jump_delay;
+    assert!(cooldown > 0);
+    super::reconcile_move_player_teleport(&mut ticker, &mut physics, anchor, 0, true, &world)
+        .unwrap();
+    assert_eq!(physics.state().unwrap().jump_delay, cooldown);
+    assert!(physics
+        .advance(Duration::from_millis(50), input, &world)
+        .samples
+        .is_empty());
+    for _ in 0..cooldown {
+        let frame = physics.advance(Duration::from_millis(50), input, &world);
+        assert_eq!(frame.samples.len(), 1);
+        assert!(!frame.samples[0].processed.jump_initiated);
+        assert!(frame.samples[0].grounded_after_tick);
+    }
+    let frame = physics.advance(Duration::from_millis(50), input, &world);
+    assert!(frame.samples[0].processed.jump_initiated);
+    assert!(!frame.samples[0].grounded_after_tick);
+
+    physics.reanchor_network_position(anchor, 0, true);
+    assert_eq!(physics.state().unwrap().jump_delay, 0);
+    let frame = physics.advance(Duration::from_millis(50), input, &world);
+    assert!(frame.samples[0].processed.jump_initiated);
 }
