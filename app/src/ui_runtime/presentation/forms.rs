@@ -50,7 +50,7 @@ use assets::RuntimeUiAssets;
 pub(crate) use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
 pub(crate) use engine::hud_renderers;
 pub(crate) use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
-pub(crate) use server_pack::ServerUiPack;
+pub(crate) use server_pack::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -129,8 +129,11 @@ impl UiPresentationRuntime {
             return;
         };
         engine.set_server_pack(&pack.ui_layers);
-        let atlas =
-            server_pack::ServerAtlas::new(&pack.textures, dynamic_textures::SERVER_UI_PAGES);
+        let atlas = server_pack::ServerAtlas::new(
+            &pack.textures,
+            pack.view.clone(),
+            dynamic_textures::SERVER_UI_PAGES,
+        );
         bevy::log::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),

@@ -17,7 +17,8 @@ use image::{ImageReader, Limits, imageops::FilterType};
 use super::IconRef;
 
 const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_SOURCE_SIDE: u32 = 4_096;
+/// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
+const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
@@ -37,7 +38,7 @@ pub(super) struct MenuArtworkAtlas {
     pub(super) refs: HashMap<String, IconRef>,
 }
 
-/// Decoded artwork: premultiplied RGBA8 and its size.
+/// Decoded artwork: straight-alpha RGBA8, which the UI shader premultiplies, and its size.
 struct Artwork {
     path: String,
     width: u32,
@@ -176,14 +177,7 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     };
     let image = image.into_rgba8();
     let (width, height) = image.dimensions();
-    let mut pixels = image.into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
-        let alpha = u16::from(pixel[3]);
-        pixel[0] = ((u16::from(pixel[0]) * alpha + 127) / 255) as u8;
-        pixel[1] = ((u16::from(pixel[1]) * alpha + 127) / 255) as u8;
-        pixel[2] = ((u16::from(pixel[2]) * alpha + 127) / 255) as u8;
-    }
-    Some((pixels, width, height))
+    Some((image.into_raw(), width, height))
 }
 
 /// Every downloaded artwork path the menu view can draw.

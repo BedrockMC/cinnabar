@@ -123,12 +123,11 @@ pub(super) fn prepare_pack_application(
     }
 }
 
-/// Bounds on the pack UI handed to the form engine.
+/// Bound on the pack UI json handed to the form engine.
 const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
-const MAX_SERVER_UI_TEXTURES: usize = 4096;
 
-/// Each pack's `ui/**/*.json` (lowest precedence first) and the winning texture
-/// files that ui references; `None` when no pack carries ui.
+/// Each pack's `ui/**/*.json` (lowest precedence first), with the stack its
+/// textures read from; `None` when no pack carries ui or textures.
 fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
     let mut total = 0usize;
     let mut pack = ServerUiPack::default();
@@ -150,22 +149,11 @@ fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
         }
         pack.ui_layers.push(files);
     }
-    if pack.is_empty() {
+    // A pack that only restyles textures still overrides vanilla UI art.
+    if pack.is_empty() && view.list("textures/").is_empty() {
         return None;
     }
-    let dirs = ServerUiPack::referenced_texture_dirs(&pack.ui_layers);
-    for path in view.list("textures/") {
-        if pack.textures.len() >= MAX_SERVER_UI_TEXTURES || total > MAX_SERVER_UI_BYTES {
-            break;
-        }
-        if !ServerUiPack::wants_texture(&dirs, path) {
-            continue;
-        }
-        if let Some(bytes) = view.read_capped(path, MAX_TEXTURE_SOURCE_BYTES as u64) {
-            total = total.saturating_add(bytes.len());
-            pack.textures.push((path.to_owned(), bytes.into_vec()));
-        }
-    }
+    pack.view = Some(view.clone());
     Some(Arc::new(pack))
 }
 
@@ -289,7 +277,8 @@ pub(super) fn install_chunk_textures(
     }
 }
 
-const MAX_TEXTURE_SOURCE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TEXTURE_SOURCE_BYTES: usize =
+    crate::ui_runtime::presentation::MAX_PACK_TEXTURE_BYTES as usize;
 const MAX_TEXTURE_SIDE: u32 = 1024;
 const MAX_DECODE_ALLOC: u64 = 16 * 1024 * 1024;
 pub(super) const MAX_CATALOG_ENTRIES: usize = 16_384;

@@ -98,7 +98,80 @@ fn split_sentence(text: &str, limit: usize) -> (&str, Option<&str>) {
     }
 }
 
+/// Most strips a gradient paints; a taller one steps coarser.
+const MAX_GRADIENT_STRIPS: usize = 512;
+
 impl Painter<'_> {
+    /// Messaging art, drawn as its first frame.
+    pub(super) fn animated_gif(
+        &mut self,
+        data: &BTreeMap<String, Value>,
+        dest: [f32; 4],
+        alpha: &impl Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let path = data.get("#gif_path")?.as_str()?;
+        let image = self.art.images?.get(path)?;
+        let opacity = data
+            .get("#alpha")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let tint = alpha([255, 255, 255, (255.0 * opacity) as u8]);
+        Some((
+            UiVisual::Sprite {
+                texture_page: image.page,
+                uv: image.uv,
+                color: tint,
+            },
+            dest,
+        ))
+    }
+
+    /// `GradientRenderer`: `color1` to `color2` (both default white) top to
+    /// bottom, or left to right when `gradient_direction` is `horizontal`, in
+    /// one-pixel strips.
+    pub(super) fn gradient(
+        &mut self,
+        data: &BTreeMap<String, Value>,
+        dest: [f32; 4],
+        alpha: &impl Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let color = |key: &str| {
+            data.get(key)
+                .and_then(json_ui::color_value)
+                .unwrap_or([255; 4])
+        };
+        let (from, to) = (color("color1"), color("color2"));
+        let horizontal =
+            data.get("gradient_direction").and_then(Value::as_str) == Some("horizontal");
+        let (start, end) = if horizontal {
+            (dest[0], dest[2])
+        } else {
+            (dest[1], dest[3])
+        };
+        let strips = ((end - start).ceil().max(1.0) as usize).min(MAX_GRADIENT_STRIPS);
+        let step = (end - start) / strips as f32;
+        for strip in 0..strips {
+            let t = (strip as f32 + 0.5) / strips as f32;
+            let mix =
+                |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+            let tint = alpha(std::array::from_fn(|channel| {
+                mix(from[channel], to[channel])
+            }));
+            let (a, b) = (
+                start + step * strip as f32,
+                start + step * (strip + 1) as f32,
+            );
+            let bounds = if horizontal {
+                [a, dest[1], b, dest[3]]
+            } else {
+                [dest[0], a, dest[2], b]
+            };
+            self.solid(bounds, tint).ok()?;
+        }
+        None
+    }
+
     /// The preview raster posed and framed as this vanilla player renderer
     /// asks; the pose is requested for the next raster.
     pub(super) fn player_preview(

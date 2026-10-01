@@ -51,7 +51,7 @@ mod retained_hud;
 pub(crate) mod screens;
 mod session_glyphs;
 mod session_icons;
-pub(crate) use forms::ServerUiPack;
+pub(crate) use forms::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
 pub(crate) use session_glyphs::SessionGlyphSheets;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
