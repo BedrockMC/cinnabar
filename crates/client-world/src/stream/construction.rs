@@ -170,6 +170,7 @@ impl WorldStream {
             pending_mesh_removal_deferred: BinaryHeap::new(),
             pending_mesh_removal_ready: BinaryHeap::new(),
             mesh_scheduler_camera_cell: None,
+            view_forward: None,
             in_flight: HashMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
             staged_mesh_completions: VecDeque::new(),

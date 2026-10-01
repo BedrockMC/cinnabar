@@ -13,6 +13,7 @@ const FRAME: Duration = Duration::from_millis(8);
 const REPLY_LATENCY_FRAMES: u64 = 3;
 const MESH_JOBS_PER_FRAME: usize = 64;
 const MAX_FRAMES: u64 = 4_000;
+const NEAR_CHUNKS: f32 = 4.0;
 
 /// Floating island one sub-chunk thick with pillars, void everywhere else.
 fn solid(key: SubChunkKey) -> bool {
@@ -44,6 +45,8 @@ struct Report {
     frames_to_100: Option<u64>,
     millis_to_90: Option<u128>,
     millis_to_100: Option<u128>,
+    /// Time until every in-view sub-chunk within `NEAR_CHUNKS` presents its converged mesh.
+    millis_to_near: Option<u128>,
     artifact_frames: u64,
     dark_meshes: u64,
     geometry_meshes: u64,
@@ -313,6 +316,7 @@ impl Harness {
 
     fn step(&mut self) {
         self.deliver();
+        self.stream.set_view_forward([0.0, 0.0, 1.0]);
         let _ = self.stream.poll(self.camera, MESH_JOBS_PER_FRAME);
         let _ = self.stream.take_committed_controls();
         self.answer_requests();
@@ -416,22 +420,28 @@ impl Harness {
                 converged_at.remove(&published.key);
             }
         }
+        let camera = self.camera;
+        let near = in_view
+            .iter()
+            .filter(|key| {
+                (key.x as f32 * 16.0 + 8.0 - camera[0]).hypot(key.z as f32 * 16.0 + 8.0 - camera[2])
+                    <= NEAR_CHUNKS * 16.0
+            })
+            .collect::<Vec<_>>();
         for offset in 0..presented_per_frame.len() {
             let frame = start_frame + offset as u64;
+            let converged_by = |key: &&SubChunkKey| {
+                converged_at
+                    .get(*key)
+                    .is_some_and(|converged| *converged <= frame)
+            };
             if artifact_windows
                 .iter()
                 .any(|(from, to)| (*from..*to).contains(&frame))
             {
                 report.artifact_frames += 1;
             }
-            let presented = in_view
-                .iter()
-                .filter(|key| {
-                    converged_at
-                        .get(key)
-                        .is_some_and(|converged| *converged <= frame)
-                })
-                .count();
+            let presented = in_view.iter().filter(converged_by).count();
             let shown = presented_per_frame[offset]
                 .iter()
                 .filter(|key| in_view.contains(key))
@@ -441,6 +451,9 @@ impl Harness {
             if report.frames_to_90.is_none() && presented * 10 >= in_view.len() * 9 {
                 report.frames_to_90 = Some(offset as u64 + 1);
                 report.millis_to_90 = Some(elapsed);
+            }
+            if report.millis_to_near.is_none() && near.iter().all(converged_by) {
+                report.millis_to_near = Some(elapsed);
             }
             if report.frames_to_100.is_none() && presented == in_view.len() {
                 report.frames_to_100 = Some(offset as u64 + 1);
@@ -584,4 +597,20 @@ fn disjoint_teleport_keeps_columns_the_destination_view_covers() {
     assert!(stream.provisional_publisher_rebase);
     assert!(stream.tracked_columns().contains(&kept.chunk()));
     assert!(!stream.tracked_columns().contains(&dropped.chunk()));
+}
+
+#[test]
+fn scheduler_serves_sub_chunks_in_view_before_nearer_ones_behind() {
+    let view = super::SchedulerView {
+        position: [8.0, 72.0, 8.0],
+        forward: Some([0.0, 0.0, 1.0]),
+    };
+    let ahead = SubChunkKey::new(0, 0, 4, 3);
+    let behind = SubChunkKey::new(0, 0, 4, -2);
+    let mut candidates = BinaryHeap::from([
+        PendingSchedulerCandidate::new(behind, 1, view, false),
+        PendingSchedulerCandidate::new(ahead, 1, view, false),
+    ]);
+
+    assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
 }
