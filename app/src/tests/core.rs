@@ -428,7 +428,9 @@ pub(super) fn overworld_biome_payload() -> Vec<u8> {
 }
 
 pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
-    for _ in 0..10_000 {
+    // A wall-clock bound, not a spin count: decode workers can be starved on a loaded machine.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < deadline {
         stream.poll([0.0; 3], 0);
         let stats = stream.stats();
         if stats.queued_decode_jobs == 0
@@ -437,7 +439,7 @@ pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
         {
             return;
         }
-        std::thread::yield_now();
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     panic!("world stream decode did not complete");
 }
