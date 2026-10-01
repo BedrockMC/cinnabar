@@ -57,7 +57,8 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
     assert!(has_sprite(&presentation, "textures/blocks/netherrack"));
 }
 
-/// Local-only: writes `loading_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
+/// Local-only: writes `loading_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is
+/// set, over `CINNABAR_FORM_PACK_DIR`'s server pack when that is set too.
 #[test]
 fn loading_screen_snapshot() {
     let Some(mut presentation) =
@@ -65,14 +66,28 @@ fn loading_screen_snapshot() {
     else {
         return;
     };
+    if let Some(pack) = super::super::forms::pack_harness::env_pack() {
+        presentation.set_server_ui_pack(&pack);
+    }
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
-    let input = presentation
-        .build(
-            &UiRuntime::new(1),
-            0,
-            [1280, 720],
-            DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
+    let build = |presentation: &mut UiPresentationRuntime| {
+        presentation
+            .build(
+                &UiRuntime::new(1),
+                0,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap()
+    };
+    // The first frame places pack textures; the second draws their full-resolution copies.
+    build(&mut presentation);
+    presentation.finish_menu_artwork();
+    let input = build(&mut presentation);
     super::super::forms::snapshot::write(&input, "loading_screen");
+    if std::env::var_os("CINNABAR_FORM_PACK_DIR").is_some() {
+        presentation.drop_full_res_art();
+        let input = build(&mut presentation);
+        super::super::forms::snapshot::write(&input, "loading_screen-server-page");
+    }
 }

@@ -193,6 +193,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         runtime.menu_artwork.refs =
             menu_artwork::rebase(&runtime.menu_artwork_loader.relative, art_start as u16);
         runtime.menu_artwork_dirty = false;
+        runtime.refresh_full_res_art();
     }
     let previous = runtime.textures.pages();
     // The small pages between the preview and the session icons stay reserved.

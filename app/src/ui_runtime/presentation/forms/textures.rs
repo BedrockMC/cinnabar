@@ -33,6 +33,8 @@ pub(super) struct TextureSet {
     pub(super) server_page: u16,
     vanilla: Option<PathBuf>,
     pub(super) remote: RemoteImages,
+    /// Full-resolution art-page copies of server textures too big for a server page.
+    full_res: HashMap<String, IconRef>,
 }
 
 impl TextureSet {
@@ -62,6 +64,11 @@ impl TextureSet {
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
+    /// Where oversized server textures' full-resolution copies sit, by texture key.
+    pub(super) fn set_full_res(&mut self, full_res: HashMap<String, IconRef>) {
+        self.full_res = full_res;
+    }
+
     /// The carrier, icon and vanilla lookups without the server atlas's pack or
     /// residency, for laying out a no-pack screen on another thread.
     pub(super) fn detached(&self) -> Self {
@@ -73,6 +80,7 @@ impl TextureSet {
             icons: self.icons.clone(),
             vanilla: self.vanilla.clone(),
             remote: RemoteImages::default(),
+            full_res: HashMap::new(),
             ..*self
         }
     }
@@ -163,6 +171,10 @@ impl Textures<'_> {
             return Some((image.page, [u0, v0, u1 - u0, v1 - v0]));
         }
         let key = self.canonical(path);
+        if let Some(art) = self.set.full_res.get(key.as_ref()) {
+            let [u0, v0, u1, v1] = art.uv.map(f32::from);
+            return Some((art.page, [u0, v0, u1 - u0, v1 - v0]));
+        }
         if let Some(server) = self.atlas.placement(&key) {
             return Some((
                 self.set.server_page.saturating_add(server.page),
@@ -185,10 +197,7 @@ impl TextureSource for Textures<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
         if let Some(image) = self.image(path) {
             let [u0, v0, u1, v1] = image.uv.map(f64::from);
-            return Some(TextureMeta {
-                base_size: [u1 - u0, v1 - v0],
-                nineslice: None,
-            });
+            return Some(TextureMeta::plain([u1 - u0, v1 - v0]));
         }
         let key = self.canonical(path);
         let key = key.as_ref();
@@ -196,8 +205,12 @@ impl TextureSource for Textures<'_> {
             return Some(meta);
         }
         if let Some(sidecar) = self.assets.sidecar(key) {
+            let base_size = sidecar.base_size.map(f64::from);
             return Some(TextureMeta {
-                base_size: sidecar.base_size.map(f64::from),
+                base_size,
+                pixels: self.assets.texture(key).map_or(base_size, |placement| {
+                    [f64::from(placement.width), f64::from(placement.height)]
+                }),
                 nineslice: sidecar.nineslice.map(|inset| NineSlice {
                     left: f64::from(inset.left),
                     top: f64::from(inset.top),
@@ -207,17 +220,14 @@ impl TextureSource for Textures<'_> {
             });
         }
         if let Some(placement) = self.assets.texture(key) {
-            return Some(TextureMeta {
-                base_size: [f64::from(placement.width), f64::from(placement.height)],
-                nineslice: None,
-            });
+            return Some(TextureMeta::plain([
+                f64::from(placement.width),
+                f64::from(placement.height),
+            ]));
         }
         if let Some(icon) = self.icon(key) {
             let [u0, v0, u1, v1] = icon.uv.map(f64::from);
-            return Some(TextureMeta {
-                base_size: [u1 - u0, v1 - v0],
-                nineslice: None,
-            });
+            return Some(TextureMeta::plain([u1 - u0, v1 - v0]));
         }
         self.atlas.fallback_meta(key)
     }

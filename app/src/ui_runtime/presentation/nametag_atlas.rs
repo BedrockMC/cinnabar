@@ -148,6 +148,7 @@ fn rasterize<'p>(
             baseline_64: TEXT_BASELINE_64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .ok()?;
     let advance = layout.size_64()[0].div_ceil(64).max(1);

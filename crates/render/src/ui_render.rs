@@ -12,14 +12,14 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_resource::{
-            AddressMode, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
-            Buffer, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferSize,
-            BufferUsages, CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension, Variants,
-            VertexAttribute, VertexFormat, VertexState, VertexStepMode,
+            AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
+            BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
+            BufferDescriptor, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, FilterMode,
+            FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer, SpecializerKey,
+            TextureFormat, TextureSampleType, TextureViewDimension, Variants, VertexAttribute,
+            VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -31,7 +31,9 @@ use bytemuck::{Pod, Zeroable};
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
-use textures::UiGpuTextures;
+use textures::{UiGpuTextures, prepare_ui_bind_group};
+#[path = "ui_render/composite.rs"]
+pub(crate) mod composite;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/uploads.rs"]
@@ -77,9 +79,16 @@ fn install_ui_render(app: &mut App) {
     let stats = app.world().resource::<UiRenderStats>().clone();
     app.add_plugins(ExtractResourcePlugin::<UiRenderScene>::default());
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", Shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        composite::UI_COMPOSITE_SHADER_HANDLE,
+        "ui_composite.wgsl",
+        Shader::from_wgsl
+    );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
         .init_resource::<UiPipeline>()
+        .init_resource::<composite::UiCompositePipeline>()
         .insert_resource(stats)
         .init_resource::<UiHandCoverage>()
         .add_systems(RenderStartup, init_ui_gpu)
@@ -87,6 +96,7 @@ fn install_ui_render(app: &mut App) {
             Render,
             (
                 prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+                composite::prepare_ui_layers.in_set(RenderSystems::PrepareResources),
                 prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_ui_overlay.in_set(RenderSystems::Queue),
             ),
@@ -118,6 +128,8 @@ pub(crate) struct UiGpu {
     started: std::time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
+    /// `bilinear` sprites sample through this instead.
+    linear_sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     // Admission watermark survives every draw rejection, even after payload drop.
@@ -127,6 +139,8 @@ pub(crate) struct UiGpu {
     uploads: uploads::BufferUploads,
     view_pipelines:
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
+    /// Each view's UI-layer composite pipeline.
+    composite_pipelines: std::collections::BTreeMap<Entity, CachedRenderPipelineId>,
 }
 
 fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: SystemChangeTick) {
@@ -139,16 +153,20 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         }),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("shared nearest UI texture sampler"),
-        address_mode_u: AddressMode::ClampToEdge,
-        address_mode_v: AddressMode::ClampToEdge,
-        address_mode_w: AddressMode::ClampToEdge,
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
-        ..default()
-    });
+    let sampler_with = |label, filter| {
+        render_device.create_sampler(&SamplerDescriptor {
+            label: Some(label),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: filter,
+            min_filter: filter,
+            mipmap_filter: FilterMode::Nearest,
+            ..default()
+        })
+    };
+    let sampler = sampler_with("shared nearest UI texture sampler", FilterMode::Nearest);
+    let linear_sampler = sampler_with("shared bilinear UI texture sampler", FilterMode::Linear);
     commands.insert_resource(UiGpu {
         device: render_device.wgpu_device().clone(),
         device_observation: DeviceObservation::new(tick.this_run()),
@@ -163,6 +181,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
         sampler,
+        linear_sampler,
         batches: Arc::from([]),
         accepted_revision: None,
         last_admitted_revision: None,
@@ -170,6 +189,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         index_count: 0,
         uploads: uploads::BufferUploads::default(),
         view_pipelines: std::collections::BTreeMap::new(),
+        composite_pipelines: std::collections::BTreeMap::new(),
     });
 }
 
@@ -421,6 +441,12 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
         ],
     )
 }
@@ -513,6 +539,8 @@ struct UiPipelineKey {
     msaa: Msaa,
     hdr: bool,
     invert_blend: bool,
+    /// Draws into the gamma-space UI layer rather than the view target.
+    layer: bool,
 }
 
 impl Specializer<RenderPipeline> for UiPipelineSpecializer {
@@ -523,11 +551,13 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
-        descriptor.multisample.count = key.msaa.samples();
         let target = descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap();
-        target.format = if key.hdr {
+        descriptor.multisample.count = if key.layer { 1 } else { key.msaa.samples() };
+        target.format = if key.layer {
+            composite::UI_LAYER_FORMAT
+        } else if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
         } else {
             TextureFormat::bevy_default()
@@ -538,42 +568,6 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
             ui_alpha_blend_state()
         });
         Ok(key)
-    }
-}
-
-fn prepare_ui_bind_group(
-    render_device: Res<RenderDevice>,
-    pipeline_cache: Res<PipelineCache>,
-    pipeline: Res<UiPipeline>,
-    mut gpu: ResMut<UiGpu>,
-) {
-    if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
-        return;
-    }
-    let viewport = gpu.viewport_buffer.clone();
-    let sampler = gpu.sampler.clone();
-    for bucket in &mut gpu.textures.buckets {
-        if bucket.bind_group.is_some() {
-            continue;
-        }
-        bucket.bind_group = Some(render_device.create_bind_group(
-            "shared retained UI bind group",
-            &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: viewport.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&bucket.view),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(&sampler),
-                },
-            ],
-        ));
     }
 }
 

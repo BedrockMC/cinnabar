@@ -1,0 +1,142 @@
+//! Vanilla label wrapping: hyphen chops, overflowing glyphs, per-line
+//! alignment, line padding, `...` at a line limit and explicit `§f` white.
+
+use std::sync::Arc;
+
+use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use sha2::{Digest, Sha256};
+use ui::{
+    BedrockColor, TextError, TextLayout, TextLayoutCache, TextLayoutRequest, TextLineAlign,
+    TextStyle, TextWrap, UiScale, WordChop,
+};
+
+// Every glyph is two texels wide with a two-texel advance.
+fn font() -> CompiledFontCatalog {
+    let rgba8 = vec![255u8; 32 * 8 * 4].into_boxed_slice();
+    let page = FontTexturePage {
+        source_path: "font/page0.png".into(),
+        source_bytes: rgba8.len() as u32,
+        source_sha256: [1; 32],
+        pixels_sha256: Sha256::digest(&rgba8).into(),
+        width: 32,
+        height: 8,
+        rgba8,
+    };
+    let glyphs: Vec<GlyphMetrics> = [' ', '-', '.', 'W', 'a', 'b', 'c', 'd', '\u{fffd}']
+        .into_iter()
+        .enumerate()
+        .map(|(index, codepoint)| GlyphMetrics {
+            codepoint,
+            page: 0,
+            uv: [index as u16 * 2, 0, index as u16 * 2 + 2, 8],
+            bearing: [0, 0],
+            advance_64: 2 * 64,
+        })
+        .collect();
+    let identity = [9; 32];
+    let bytes = encode_font_catalog(identity, &glyphs, &[page]).unwrap();
+    CompiledFontCatalog::decode(&bytes, identity).unwrap()
+}
+
+fn layout(text: &str, width: u32, wrap: TextWrap) -> Result<Arc<TextLayout>, TextError> {
+    let font = font();
+    TextLayoutCache::new(4, 64 * 1024).layout(TextLayoutRequest {
+        text,
+        style: TextStyle::default(),
+        width_64: width * 64,
+        line_height_64: 8 * 64,
+        baseline_64: 0,
+        scale: UiScale::default(),
+        font: &font,
+        wrap,
+    })
+}
+
+fn lines(layout: &TextLayout) -> Vec<String> {
+    let mut out = vec![String::new(); usize::from(layout.line_count())];
+    for glyph in layout.glyphs() {
+        out[usize::from(glyph.line)].push(glyph.codepoint);
+    }
+    out
+}
+
+fn label(chop: WordChop) -> TextWrap {
+    TextWrap {
+        chop,
+        ..TextWrap::default()
+    }
+}
+
+// An overlong word chops so its prefix plus `-` fits, then draws the `-`.
+#[test]
+fn overlong_words_chop_with_a_hyphen() {
+    let chopped = layout("abcdabcd", 8, label(WordChop::Hyphen)).unwrap();
+    assert_eq!(lines(&chopped), ["abc-", "dab-", "cd"]);
+    let bare = layout("abcdabcd", 8, label(WordChop::Bare)).unwrap();
+    assert_eq!(lines(&bare), ["abc", "dab", "cd"]);
+}
+
+// A glyph wider than the whole line overflows instead of failing the layout.
+#[test]
+fn a_glyph_wider_than_the_line_overflows() {
+    assert!(matches!(
+        layout("W", 1, TextWrap::default()),
+        Err(TextError::VisualWidthExceeded { .. })
+    ));
+    let overflow = layout("W", 1, label(WordChop::Hyphen)).unwrap();
+    assert_eq!(lines(&overflow), ["W"]);
+}
+
+// Each wrapped line centres on its own, not the block as a whole.
+#[test]
+fn alignment_places_each_line() {
+    let wrap = TextWrap {
+        align: TextLineAlign::Center,
+        ..label(WordChop::Hyphen)
+    };
+    let centred = layout("abcd ab", 8, wrap).unwrap();
+    let first = centred.glyphs().iter().find(|g| g.line == 0).unwrap();
+    let second = centred.glyphs().iter().find(|g| g.line == 1).unwrap();
+    assert_eq!(first.bounds_64[0], 0);
+    assert_eq!(second.bounds_64[0], 2 * 64);
+}
+
+// `line_padding` adds to the pitch between lines, not after the last.
+#[test]
+fn line_padding_spaces_lines() {
+    let wrap = TextWrap {
+        line_padding_64: 4 * 64,
+        ..TextWrap::default()
+    };
+    let padded = layout("a\nb", 64, wrap).unwrap();
+    assert_eq!(padded.size_64()[1], (8 + 4 + 8) * 64);
+    let b = padded.glyphs().iter().find(|g| g.codepoint == 'b').unwrap();
+    assert_eq!(b.bounds_64[1], 12 * 64);
+}
+
+// Past the line limit the text stops and the last line ends in `...`.
+#[test]
+fn line_limit_ends_in_an_ellipsis() {
+    let wrap = TextWrap {
+        max_lines: Some(1),
+        ..label(WordChop::Hyphen)
+    };
+    let cut = layout("abcd abcd", 10, wrap).unwrap();
+    assert_eq!(lines(&cut), ["ab..."]);
+    assert!(cut.ellipsized());
+    let whole = layout("abcd", 10, wrap).unwrap();
+    assert!(!whole.ellipsized());
+}
+
+// `§f` is white, not the label's own colour; `§` then a newline is one token.
+#[test]
+fn explicit_white_and_formatting_newlines() {
+    let spans = ui::parse_bedrock_text("§fX", 64).unwrap();
+    assert_eq!(spans[0].style.color, BedrockColor::White);
+    assert_eq!(
+        ui::parse_bedrock_text("X", 64).unwrap()[0].style.color,
+        BedrockColor::Base
+    );
+    let joined = layout("a§\nb", 64, TextWrap::default()).unwrap();
+    assert_eq!(lines(&joined), ["ab"]);
+}

@@ -524,6 +524,7 @@ fn nine_slice_image_emits_nine_sprites() {
         "textures/ui/panel".to_owned(),
         TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: Some(json_ui::NineSlice {
                 left: 4.0,
                 top: 4.0,

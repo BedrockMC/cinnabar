@@ -3,6 +3,16 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
+(keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
+axes and scale, clip direction none by default with pixel-perfect snapping),
+labels follow `TextComponent` (0.5/1/2/4 font sizes, line padding, locked
+colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
+in sRGB-encoded values through an offscreen layer. Not live-accepted.
+Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
+material not inspected); placeholder hiding ignores focus; `font_type` and
+`enable_profanity_filter` reach the host but select nothing.
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
