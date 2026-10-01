@@ -183,6 +183,8 @@ impl UiPresentationRuntime {
             preview: self.hud_frame.player_preview,
             preview_view: Some(&preview_view),
             pointer,
+            now: self.menu_seconds,
+            clocks: Some(&self.scene_clock),
             ..engine::ScreenArt::default()
         };
         let translate = |key: &str| runtime.translation(key);
@@ -378,6 +380,11 @@ impl ScreenCache {
 /// Whether the engine has a vanilla screen for the open inventory or window.
 pub(crate) fn engine_screen_for(runtime: &UiRuntime) -> bool {
     ScreenLayout::of(runtime, None).is_some()
+}
+
+/// The vanilla screen the open inventory or container draws.
+pub(crate) fn container_screen_reference(runtime: &UiRuntime) -> Option<&'static str> {
+    ScreenLayout::of(runtime, None).map(|layout| layout.screen().0)
 }
 
 /// Whether a point lies on the engine-drawn container's `root_panel`.

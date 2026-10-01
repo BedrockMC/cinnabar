@@ -167,8 +167,8 @@ pub(super) struct HudScreens {
 }
 
 impl UiPresentationRuntime {
-    /// Draw the gameplay HUD through the engine; `Ok(false)` when the engine is
-    /// not loaded.
+    /// Draw the gameplay HUD screen, or its crosshair overlay screen, through
+    /// the engine; `Ok(false)` when the engine is not loaded.
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn append_engine_hud(
         &mut self,
@@ -178,6 +178,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
         now_millis: u64,
+        crosshair: bool,
     ) -> Result<bool, UiPresentationError> {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
@@ -185,50 +186,57 @@ impl UiPresentationRuntime {
         let mut frame = self.hud_frame.clone();
         frame.now_millis = now_millis;
         let mut icons = Vec::new();
-        let sidebar = self
-            .scoreboard
-            .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
-            .map(sidebar_model);
-        let model = hud_model(runtime, &frame, sidebar, &mut icons);
-        self.form_presentation.hud.clocks = hud_clocks(&model);
+        let data = if crosshair {
+            self.form_presentation.hud.clocks.clear();
+            DataSource::new()
+        } else {
+            let sidebar = self
+                .scoreboard
+                .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
+                .map(sidebar_model);
+            let model = hud_model(runtime, &frame, sidebar, &mut icons);
+            self.form_presentation.hud.clocks = hud_clocks(&model);
+            hud_data_source(&model)
+        };
+        self.form_presentation
+            .hud
+            .clocks
+            .extend(self.scene_clock.clone());
         let paint = hud_layout::capture_hud_paint(runtime, &frame, self.hud_textures.as_ref());
         let context = hud_context(renderer.context());
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let translate = |key: &str| runtime.translation(key);
+        let screens = &mut self.form_presentation.hud;
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,
             hud: Some(&paint),
+            clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
-        let translate = |key: &str| runtime.translation(key);
-        let screens = &mut self.form_presentation.hud;
-        let art = ScreenArt {
-            clocks: Some(&screens.clocks),
-            ..art
+        let (reference, screen) = if crosshair {
+            (CROSSHAIR_SCREEN, &mut screens.crosshair)
+        } else {
+            (HUD_SCREEN, &mut screens.hud)
         };
-        for (reference, data, screen) in [
-            (HUD_SCREEN, hud_data_source(&model), &mut screens.hud),
-            (CROSSHAIR_SCREEN, DataSource::new(), &mut screens.crosshair),
-        ] {
-            let inputs = EngineInputs {
-                layouts: &mut self.layouts,
-                font: &self.font,
-                metrics,
-                solid_page: self.solid_texture_page,
-                safe_area: self.safe_area,
-                content,
-                translate: &translate,
-            };
-            let out = EngineOutput {
-                nodes: &mut *nodes,
-                next: &mut *next,
-                overlay: &[],
-            };
-            renderer.draw(art, inputs, out, |env, root| {
-                screen.render(reference, &catalog, &context, data, (root, px), env)
-            })?;
-        }
+        let inputs = EngineInputs {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content,
+            translate: &translate,
+        };
+        let out = EngineOutput {
+            nodes: &mut *nodes,
+            next: &mut *next,
+            overlay: &[],
+        };
+        renderer.draw(art, inputs, out, |env, root| {
+            screen.render(reference, &catalog, &context, data, (root, px), env)
+        })?;
         Ok(true)
     }
 }

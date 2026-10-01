@@ -382,6 +382,9 @@ pub(crate) fn drive_menu_input(
             _ => {}
         }
     }
+    if let Some(scale) = menu.take_gui_scale_change() {
+        presentation.set_gui_scale_preference(Some(scale));
+    }
     // The menu owns the pointer and keyboard for this frame. This also keeps
     // the camera's recapture-on-click path from turning a menu click into a
     // gameplay attack or mouse grab.

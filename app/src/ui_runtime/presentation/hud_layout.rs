@@ -213,14 +213,15 @@ impl<'a> HudLayout<'a> {
         })
     }
 
-    /// The Java-styled surfaces outside the engine HUD: inventory screens, the
-    /// sleep overlay, and the first-person hands.
+    /// The Java-styled surfaces outside the engine HUD: the legacy inventory
+    /// screens for a container scene, else the sleep overlay and first-person hands.
     pub(super) fn append(
         &mut self,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        container: bool,
     ) -> Result<(), UiPresentationError> {
-        if runtime.inventory_open() {
+        if container {
             self.inventory_screen(runtime, frame)?;
             return Ok(());
         }

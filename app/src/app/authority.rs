@@ -40,6 +40,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
                 drive_sign_editor,
                 drive_server_form_input,
                 drive_chat_ui_actions,

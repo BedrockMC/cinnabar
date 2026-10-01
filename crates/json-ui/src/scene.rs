@@ -215,6 +215,7 @@ impl<K: Copy + PartialEq> SceneStack<K> {
     }
 }
 
+#[derive(Debug)]
 enum NavOp<K> {
     Push(K),
     Pop(usize),
@@ -223,6 +224,7 @@ enum NavOp<K> {
 
 /// A navigation history of screens with `SceneStack`'s immediate and scheduled
 /// push/pop operations; scheduled ones apply on the next [`ScreenNav::update`].
+#[derive(Debug)]
 pub struct ScreenNav<K> {
     stack: Vec<K>,
     scheduled: VecDeque<NavOp<K>>,

@@ -256,9 +256,10 @@ fn escape_from_pause_settings_returns_to_pause_and_teardown_clears_context() {
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::Navigate(MenuScreen::Settings));
     press_key(&mut app, window, KeyCode::Escape, None);
+    // Back pops to the play screen the failed join started from, never the old pause.
     assert_eq!(
         app.world().resource::<MenuRuntime>().view().screen,
-        MenuScreen::Home
+        MenuScreen::Play
     );
 
     {

@@ -48,6 +48,10 @@ pub struct Step {
 pub struct Chain {
     pub steps: Vec<Step>,
     pub looping: bool,
+    /// The `play_event` that starts it (a screen transition); it plays only
+    /// from the caller clock of that name.
+    #[serde(default)]
+    pub event: Option<String>,
 }
 
 /// A chain applied to a draw: its value divided by `rest` (the control's static
@@ -75,9 +79,14 @@ impl Fade {
     }
 }
 
-/// The product of every fade's multiplier at `now`.
+/// The product of every fade's multiplier at `now`; an event-started fade
+/// holds until its event fires.
 pub fn fade_factor(fades: &[Fade], now: f64) -> f32 {
-    fades.iter().map(|fade| fade.factor(now)).product()
+    fades
+        .iter()
+        .filter(|fade| fade.chain.event.is_none())
+        .map(|fade| fade.factor(now))
+        .product()
 }
 
 /// [`fade_factor`] with each fade's creation time read from `clocks` when it names one.
@@ -89,12 +98,12 @@ pub fn fade_factor_at(
     fades
         .iter()
         .map(|fade| {
-            let born = fade
-                .clock
-                .as_ref()
-                .and_then(|clock| clocks.get(clock))
-                .copied()
-                .unwrap_or(fade.born);
+            let clock = fade.chain.event.as_ref().or(fade.clock.as_ref());
+            let born = match clock.and_then(|clock| clocks.get(clock)) {
+                Some(born) => *born,
+                None if fade.chain.event.is_some() => return 1.0,
+                None => fade.born,
+            };
             fade.factor(now - born + fade.born)
         })
         .product()
@@ -217,6 +226,7 @@ pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Op
     let mut owner = String::new();
     let mut next = Some(reference.to_owned());
     let mut looping = false;
+    let mut event = None;
     while let Some(text) = next.take() {
         let target = ControlRef::parse(&text, &owner);
         if seen.contains(&target) {
@@ -229,9 +239,13 @@ pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Op
         let def = catalog.lookup(&target.namespace, &target.name)?;
         let props = Value::Object(def.props.clone());
         let props = substitute(&props, env, &mut Vec::new());
-        // An event-started animation (screen transitions) never plays by itself.
-        if steps.is_empty() && props.get("play_event").is_some_and(|event| event != "") {
-            return None;
+        // An event-started animation (screen transitions) waits for its event.
+        if steps.is_empty() {
+            event = props
+                .get("play_event")
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned);
         }
         let number = |key: &str, fallback: f64| match props.get(key) {
             Some(Value::Number(value)) => value.as_f64().unwrap_or(fallback),
@@ -269,7 +283,11 @@ pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Op
     steps
         .iter()
         .any(|step| step.kind == StepKind::Alpha)
-        .then_some(Chain { steps, looping })
+        .then_some(Chain {
+            steps,
+            looping,
+            event,
+        })
 }
 
 /// What a control takes from its ancestors: the creation time of the nearest
@@ -442,6 +460,7 @@ mod tests {
                 step(StepKind::Alpha, 1.0, 1.0, 0.0),
             ],
             looping: false,
+            event: None,
         };
         assert_eq!(chain.value_at(0.5, 1.0), 0.5);
         assert_eq!(chain.value_at(2.0, 1.0), 1.0);
@@ -458,6 +477,7 @@ mod tests {
                 step(StepKind::Alpha, 1.0, 0.5, 0.0),
             ],
             looping: false,
+            event: None,
         };
         let fade = Fade {
             chain,
@@ -468,5 +488,26 @@ mod tests {
         assert_eq!(fade.factor(105.0), 1.0);
         assert_eq!(fade.factor(110.5), 0.5);
         assert_eq!(fade.factor(200.0), 0.0);
+    }
+
+    // A screen-transition fade holds until the caller's clock names its event.
+    #[test]
+    fn event_fades_wait_for_their_clock() {
+        let fade = Fade {
+            chain: Chain {
+                steps: vec![step(StepKind::Alpha, 1.0, 0.0, 1.0)],
+                looping: false,
+                event: Some("screen.entrance_push".to_owned()),
+            },
+            rest: 1.0,
+            born: 0.0,
+            clock: None,
+        };
+        let fades = [fade];
+        assert_eq!(fade_factor(&fades, 5.0), 1.0);
+        let mut clocks = std::collections::BTreeMap::new();
+        assert_eq!(fade_factor_at(&fades, 5.0, &clocks), 1.0);
+        clocks.insert("screen.entrance_push".to_owned(), 4.5);
+        assert_eq!(fade_factor_at(&fades, 5.0, &clocks), 0.5);
     }
 }
