@@ -355,10 +355,17 @@ impl CompiledBiomeAssets {
         temperature: f32,
         downfall: f32,
     ) -> Result<LinearBiomeTints, AssetError> {
+        let mut grass = self.resolve_source_rgb(rule.grass, temperature, downfall)?;
+        if rule.flags & BIOME_RULE_FLAG_GRASS_SHADED != 0
+            && rule.grass.map_id() == Some(TintMapId::Grass)
+        {
+            // Lens 1.26.50.26 0x1dcd030: shade bytes before color-space conversion.
+            grass = ((grass & 0x00fe_fefe) + 0x0028_340a) >> 1;
+        }
         Ok(LinearBiomeTints {
             raw_id: rule.id,
             flags: u32::from(rule.flags),
-            grass: self.resolve_source(rule.grass, temperature, downfall)?,
+            grass: rgb_to_linear(grass),
             foliage: self.resolve_source(rule.foliage, temperature, downfall)?,
             birch: self.resolve_source(TintSource::map(TintMapId::Birch), temperature, downfall)?,
             evergreen: self.resolve_source(
@@ -371,12 +378,24 @@ impl CompiledBiomeAssets {
         })
     }
 
+    /// Resolves palette bytes before the material's linear color conversion.
     fn resolve_source(
         &self,
         source: TintSource,
         temperature: f32,
         downfall: f32,
     ) -> Result<[f32; 4], AssetError> {
+        self.resolve_source_rgb(source, temperature, downfall)
+            .map(rgb_to_linear)
+    }
+
+    /// Selects either an explicit packed color or a climate palette entry.
+    fn resolve_source_rgb(
+        &self,
+        source: TintSource,
+        temperature: f32,
+        downfall: f32,
+    ) -> Result<u32, AssetError> {
         let rgb = if let Some(rgb) = source.direct_rgb() {
             rgb
         } else {
@@ -391,7 +410,7 @@ impl CompiledBiomeAssets {
                 .ok_or_else(|| invalid("tint map lookup exceeds validated storage"))?;
             (u32::from(channels[0]) << 16) | (u32::from(channels[1]) << 8) | u32::from(channels[2])
         };
-        Ok(rgb_to_linear(rgb))
+        Ok(rgb)
     }
 }
 
