@@ -101,7 +101,7 @@ impl LocalWorlds {
 }
 
 /// Opens a fixed https URL in the system browser; failures are ignored.
-fn open_url(url: &str) {
+pub(crate) fn open_url(url: &str) {
     let mut command = if cfg!(target_os = "macos") {
         std::process::Command::new("open")
     } else if cfg!(target_os = "windows") {

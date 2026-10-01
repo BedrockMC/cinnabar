@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -284,10 +285,9 @@ func (handler secretSafeResourcePackHandler) Enabled(ctx context.Context, level 
 }
 
 func (handler secretSafeResourcePackHandler) Handle(ctx context.Context, record slog.Record) error {
-	clean := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	clean := slog.NewRecord(record.Time, record.Level, redactURLs(record.Message), record.PC)
 	record.Attrs(func(attr slog.Attr) bool {
-		key := strings.ToLower(attr.Key)
-		if key != "uuid" && key != "version" && key != "url" && key != "content_key" && key != "digest" && key != "path" {
+		if attr, ok := redactResourcePackAttr(attr); ok {
 			clean.AddAttrs(attr)
 		}
 		return true
@@ -298,12 +298,46 @@ func (handler secretSafeResourcePackHandler) Handle(ctx context.Context, record 
 func (handler secretSafeResourcePackHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	clean := make([]slog.Attr, 0, len(attrs))
 	for _, attr := range attrs {
-		key := strings.ToLower(attr.Key)
-		if key != "uuid" && key != "version" && key != "url" && key != "content_key" && key != "digest" && key != "path" {
+		if attr, ok := redactResourcePackAttr(attr); ok {
 			clean = append(clean, attr)
 		}
 	}
 	return secretSafeResourcePackHandler{next: handler.next.WithAttrs(clean)}
+}
+
+// resourcePackIdentityKeys name pack identities and locations; a key equal to or ending in one is dropped.
+var resourcePackIdentityKeys = []string{"uuid", "version", "url", "content_key", "digest", "path"}
+
+// redactResourcePackAttr drops identity attributes at any group depth and strips URLs, which may be
+// signed CDN links, from the text of the rest, including errors.
+func redactResourcePackAttr(attr slog.Attr) (slog.Attr, bool) {
+	key := strings.ToLower(attr.Key)
+	for _, identity := range resourcePackIdentityKeys {
+		if key == identity || strings.HasSuffix(key, "_"+identity) {
+			return slog.Attr{}, false
+		}
+	}
+	value := attr.Value.Resolve()
+	switch value.Kind() {
+	case slog.KindGroup:
+		var members []any
+		for _, member := range value.Group() {
+			if member, ok := redactResourcePackAttr(member); ok {
+				members = append(members, member)
+			}
+		}
+		return slog.Group(attr.Key, members...), true
+	case slog.KindString, slog.KindAny:
+		return slog.String(attr.Key, redactURLs(value.String())), true
+	}
+	return slog.Attr{Key: attr.Key, Value: value}, true
+}
+
+// urlPattern matches absolute URLs, including the quoted ones net/http puts in errors.
+var urlPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"']+`)
+
+func redactURLs(text string) string {
+	return urlPattern.ReplaceAllString(text, "[url]")
 }
 
 func (handler secretSafeResourcePackHandler) WithGroup(name string) slog.Handler {
