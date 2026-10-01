@@ -2587,6 +2587,12 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
+ "toml",
+ "wasmtime",
+ "wat",
+ "wit-component",
 ]
 
 [[package]]
