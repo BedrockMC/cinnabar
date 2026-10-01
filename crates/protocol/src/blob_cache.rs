@@ -211,9 +211,7 @@ impl ClientBlobCache {
     pub fn insert(&self, payload: &[u8]) -> Result<u64, BlobCacheError> {
         let hash = client_blob_hash(payload);
         let mut store = self.lock();
-        let mut candidate = store.clone();
-        insert_verified(&mut candidate, self.limits, hash, payload)?;
-        *store = candidate;
+        insert_verified(&mut store, self.limits, hash, payload)?;
         Ok(hash)
     }
 
@@ -484,6 +482,7 @@ fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCache
     }
 }
 
+/// Validates one insertion before changing cache metadata.
 fn insert_verified(
     store: &mut CacheStore,
     limits: BlobCacheLimits,
@@ -496,11 +495,12 @@ fn insert_verified(
         }
         return Ok(());
     }
-    store.clock = store.clock.saturating_add(1);
-    store.total_bytes = store
+    let total_bytes = store
         .total_bytes
         .checked_add(payload.len())
         .ok_or(BlobCacheError::ByteCountOverflow)?;
+    store.clock = store.clock.saturating_add(1);
+    store.total_bytes = total_bytes;
     store.entries.insert(
         hash,
         CacheEntry {
@@ -541,3 +541,6 @@ fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod perf_tests;
