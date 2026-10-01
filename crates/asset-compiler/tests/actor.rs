@@ -157,14 +157,14 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
         .save(pack.path().join("textures/entity/example.png"))
         .unwrap();
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.bindings, 0);
-    assert!(
-        compiled
-            .report
-            .fallbacks
-            .iter()
-            .any(|entry| entry.reason.as_ref() == "missing_or_ambiguous_texture")
-    );
+    assert_eq!(compiled.report.bindings, 1);
+    let entities =
+        encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entities).unwrap();
+    let texture = &catalog.textures()[0];
+    assert_eq!((texture.width, texture.height), (32, 16));
+    assert_eq!(texture.rgba8.len(), 32 * 16 * 4);
+    assert_eq!(&texture.rgba8[texture.rgba8.len() - 4..], &[1, 2, 3, 255]);
 }
 
 #[test]
@@ -279,4 +279,56 @@ fn sibling_compiler_preserves_duplicate_json_and_source_size_protections() {
     if let Ok(compiled) = compile_actor_assets(escaped.path(), MANIFEST) {
         assert_eq!(compiled.report.bindings, 0);
     }
+}
+
+/// Builds a sprite whose authored texture size can differ from its source raster.
+fn item_sprite_pack(path: &str, declared: u16, raster: u32) -> TempDir {
+    let pack = pack(0, "entity_alphatest", false);
+    let root = pack.path();
+    let entity_path = root.join("entity/example.entity.json");
+    let mut entity: serde_json::Value =
+        serde_json::from_slice(&fs::read(&entity_path).unwrap()).unwrap();
+    entity["minecraft:client_entity"]["description"]["textures"]["default"] =
+        serde_json::json!(path);
+    fs::write(entity_path, serde_json::to_vec(&entity).unwrap()).unwrap();
+    write(root, "models/entity/example.geo.json", format!(r#"{{"format_version":"1.12.0","minecraft:geometry":[{{"description":{{"identifier":"geometry.example","texture_width":{declared},"texture_height":{declared}}},"bones":[{{"name":"body","cubes":[{{"origin":[-4,-2,0],"size":[8,8,0],"uv":{{"north":{{"uv":[0,0],"uv_size":[8,8]}}}}}}]}}]}}]}}"#).as_bytes());
+    let image_path = root.join(format!("{path}.png"));
+    fs::create_dir_all(image_path.parent().unwrap()).unwrap();
+    RgbaImage::from_pixel(raster, raster, Rgba([30, 180, 120, 255]))
+        .save(image_path)
+        .unwrap();
+    pack
+}
+
+#[test]
+fn thrown_item_artwork_accepts_item_icon_sources() {
+    let pack = item_sprite_pack("textures/items/example", 16, 16);
+    let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        compiled.report.bindings, 1,
+        "{:?}",
+        compiled.report.fallbacks
+    );
+    let entity =
+        encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity).unwrap();
+    assert_eq!(catalog.textures().len(), 1);
+}
+
+#[test]
+fn sprite_uvs_use_declared_dimensions_independently_of_raster_resolution() {
+    let pack = item_sprite_pack("textures/entity/example", 8, 16);
+    let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        compiled.report.bindings, 1,
+        "{:?}",
+        compiled.report.fallbacks
+    );
+    let entity =
+        encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity).unwrap();
+    assert_eq!(
+        (catalog.textures()[0].width, catalog.textures()[0].height),
+        (16, 16)
+    );
 }
