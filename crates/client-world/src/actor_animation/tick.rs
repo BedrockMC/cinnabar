@@ -19,6 +19,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local_first_person: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub(crate) camera_rotation: [f32; 2],
+    /// World position of the view, for camera-relative queries.
+    pub(crate) camera_position: [f32; 3],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
     pub(crate) armor: [Option<WornArmor>; 5],
     /// The player's skin carries a cape image.
@@ -198,6 +200,18 @@ pub(super) fn evaluate_state(
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
     }
+    // Authored scale scripts read the variables pre_animation just set.
+    let scale = match rig.scale_expressions {
+        None => None,
+        Some(expressions) => {
+            let mut scale = [1.0; 4];
+            for (slot, expression) in scale.iter_mut().zip(expressions) {
+                let value = evaluator.number(expression as usize, &mut variables, 1.0, budget)?;
+                *slot = if value.is_finite() { value } else { 1.0 };
+            }
+            Some(scale)
+        }
+    };
     // Provisional: without an assignment the first-person swing would not move at all, so the
     // factor takes the value the pack computes under its older name.
     if variables
@@ -227,41 +241,51 @@ pub(super) fn evaluate_state(
     let direct_end = direct_first
         .checked_add(candidate.animation_count as usize)
         .ok_or(EvalError::Invalid)?;
-    for binding in assets
+    let direct = assets
         .rig_animations()
         .get(direct_first..direct_end)
-        .ok_or(EvalError::Invalid)?
-    {
-        budget.charge_work()?;
-        let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
-        if weight != 0.0 {
-            weighted_clips.push(WeightedClip {
-                clip: binding.clip as usize,
-                weight,
-                started_tick: 0,
-            });
-        }
-    }
+        .ok_or(EvalError::Invalid)?;
     let controller_first = candidate.first_controller as usize;
     let controller_end = controller_first
         .checked_add(candidate.controller_count as usize)
         .ok_or(EvalError::Invalid)?;
-    for binding in assets
+    let bound = assets
         .rig_controllers()
         .get(controller_first..controller_end)
-        .ok_or(EvalError::Invalid)?
-    {
+        .ok_or(EvalError::Invalid)?;
+    // Clips and controllers run interleaved in the authored `animate` order.
+    let (mut next_clip, mut next_controller) = (0, 0);
+    while next_clip < direct.len() || next_controller < bound.len() {
         budget.charge_work()?;
-        let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
-        if weight != 0.0 {
-            let mut walk = ControllerWalk {
-                evaluator: &evaluator,
-                variables: &mut variables,
-                controllers: &mut controllers,
-                clips: &mut weighted_clips,
-                budget,
-            };
-            walk.evaluate(binding.controller as usize, weight, 0)?;
+        let clip_first = match (direct.get(next_clip), bound.get(next_controller)) {
+            (Some(clip), Some(controller)) => clip.order <= controller.order,
+            (clip, _) => clip.is_some(),
+        };
+        if clip_first {
+            let binding = &direct[next_clip];
+            next_clip += 1;
+            let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
+            if weight != 0.0 {
+                weighted_clips.push(WeightedClip {
+                    clip: binding.clip as usize,
+                    weight,
+                    started_tick: 0,
+                });
+            }
+        } else {
+            let binding = &bound[next_controller];
+            next_controller += 1;
+            let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
+            if weight != 0.0 {
+                let mut walk = ControllerWalk {
+                    evaluator: &evaluator,
+                    variables: &mut variables,
+                    controllers: &mut controllers,
+                    clips: &mut weighted_clips,
+                    budget,
+                };
+                walk.evaluate(binding.controller as usize, weight, 0)?;
+            }
         }
     }
     let local = sample_clips(
@@ -276,14 +300,30 @@ pub(super) fn evaluate_state(
     let render = super::render::evaluate_render(
         &evaluator,
         &mut variables,
-        state.rig_binding,
-        state.posed_bone_names(),
+        super::render::RenderRig {
+            binding: state.rig_binding,
+            geometry: candidate.geometry,
+            bone_names: state.posed_bone_names(),
+            skeletons: &state.layer_skeletons,
+        },
         budget,
     )
-    .ok();
+    .ok()
+    .map(|mut layers| {
+        super::render::pose_layers(
+            &evaluator,
+            &variables,
+            &state.layer_skeletons,
+            &weighted_clips,
+            &mut layers,
+            budget,
+        );
+        layers
+    });
     Ok(EvaluatedState {
         pose,
         render,
+        scale,
         controllers,
         variables,
     })

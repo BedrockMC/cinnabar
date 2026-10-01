@@ -169,38 +169,18 @@ func (probe *formSchemaProbe) observe(header packet.Header, payload []byte, sour
 	probe.emit(record)
 }
 
-func formSchemaVaruint(payload []byte, cursor *int) (uint32, bool) {
-	var value uint32
-	for i := 0; i < 5; i++ {
-		if *cursor >= len(payload) {
-			return 0, false
-		}
-		b := payload[*cursor]
-		*cursor++
-		if i == 4 && b > 15 {
-			return 0, false
-		}
-		value |= uint32(b&127) << (7 * i)
-		if b&128 == 0 {
-			return value, true
-		}
-	}
-	return 0, false
-}
-
 func formSchemaRecord(payload []byte) string {
 	if len(payload) > formSchemaByteLimit+10 {
 		return "refused=bytes"
 	}
-	cursor := 0
-	if _, ok := formSchemaVaruint(payload, &cursor); !ok {
+	var request packet.ModalFormRequest
+	if !decodeObserved(&request, payload) {
 		return "refused=wire"
 	}
-	length, ok := formSchemaVaruint(payload, &cursor)
-	if !ok || length > formSchemaByteLimit || uint64(length) != uint64(len(payload)-cursor) {
-		return "refused=wire"
+	if len(request.FormData) > formSchemaByteLimit {
+		return "refused=bytes"
 	}
-	decoder := json.NewDecoder(bytes.NewReader(payload[cursor:]))
+	decoder := json.NewDecoder(bytes.NewReader(request.FormData))
 	decoder.UseNumber()
 	walk := formSchemaWalk{decoder: decoder}
 	if !walk.value("", -1, 0) {

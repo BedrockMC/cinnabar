@@ -13,12 +13,13 @@ pub(super) const REQUIRED_CARRIERS: &[&str] = &[
     "vanilla-v1.mcbehud",
     "vanilla-v1.mcbeico",
     "vanilla-v1.mcbelang",
+    "vanilla-v1.mcbeui",
     "ui-monocraft-v1.mcbefont",
     "ui-font-notices.txt",
 ];
 
-const COMPILED: &str = ".local/assets/compiled";
-const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
+pub(super) const COMPILED: &str = ".local/assets/compiled";
+pub(super) const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
 const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";
 const FONT_MANIFEST: &str = "assets/ui-font-source.json";
 const REGISTRY_DIR: &str = "crates/assets/data";
@@ -50,6 +51,18 @@ struct FontSource {
     font_file: String,
     fallback_commit: String,
     fallback_font_file: String,
+}
+
+/// Where the fetch script extracts the pinned pack, relative to the workspace.
+pub(super) fn cache_dir(root: &Path) -> Result<String> {
+    let vanilla: VanillaSource = read_json(&root.join(VANILLA_MANIFEST))?;
+    Ok(vanilla.cache_dir)
+}
+
+/// The bundled UI font's file name, from the kit's copy of the font manifest.
+pub(super) fn ui_font_file(kit: &Path) -> Result<String> {
+    let font: FontSource = read_json(&kit.join(FONT_MANIFEST))?;
+    Ok(font.font_file)
 }
 
 pub(super) fn carriers_present(dir: &Path) -> bool {
@@ -92,7 +105,7 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
     };
     Ok(vec![
         step(
-            "Downloading the Minecraft sample resource pack",
+            "Unpacking the Minecraft sample resource pack",
             Action::Script("fetch-vanilla-assets"),
             true,
         ),
@@ -268,7 +281,7 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
                 "vanilla-v1.mcbeui",
                 "ui-assets.json",
             ),
-            false,
+            true,
         ),
         step(
             "Compiling particles",

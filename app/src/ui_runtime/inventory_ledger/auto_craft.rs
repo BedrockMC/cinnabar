@@ -57,6 +57,23 @@ impl PlayerInventoryLedger {
         (needed == 0).then_some(sources)
     }
 
+    /// Whether any inventory stack is one of `recipe`'s ingredients.
+    #[must_use]
+    pub fn holds_any_ingredient(&self, recipe: &RecipeHandle) -> bool {
+        let views = recipe.ingredient_views();
+        (0..PLAYER_INVENTORY_SLOT_COUNT as u8).any(|slot| {
+            let Some(held) = self.view().get(Cell::Inventory(slot)) else {
+                return false;
+            };
+            let Some(entry) = self.negotiated_item_entry(held.stack.network_id) else {
+                return false;
+            };
+            views.iter().flatten().any(|ingredient| {
+                ingredient.accepts(&entry.identifier, held.stack.metadata, &entry.item_tags)
+            })
+        })
+    }
+
     /// Whether the inventory holds every ingredient of `recipe`.
     #[must_use]
     pub fn can_auto_craft(&self, recipe: &RecipeHandle) -> bool {

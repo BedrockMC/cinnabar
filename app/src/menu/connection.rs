@@ -194,7 +194,7 @@ pub(crate) fn drive_menu_connection(
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
 ) {
-    menu.poll_catalog();
+    menu.poll_catalog(launcher_account.is_some());
     menu.sync_audio_settings(audio_settings);
     let in_session = session.client_world.stream.is_some();
     if let Some(slot) = session.launcher.as_deref_mut() {

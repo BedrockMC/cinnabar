@@ -121,7 +121,7 @@ fn decode_raster(path: &str, bytes: &[u8], binary_alpha: bool) -> Option<Decoded
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_ACTOR_TEXTURE_SIDE.into());
     limits.max_image_height = Some(MAX_ACTOR_TEXTURE_SIDE.into());
-    limits.max_alloc = Some(4 * 1024 * 1024);
+    limits.max_alloc = Some(MAX_ACTOR_PIXEL_BYTES as u64);
     reader.limits(limits);
     let image = reader.decode().ok()?;
     let (width, height) = (
@@ -225,26 +225,16 @@ fn build_artwork(
                 }
                 let index = match table.get(&source) {
                     Some(&index) => index,
-                    None => {
-                        if textures.len() == MAX_ACTOR_TEXTURES
-                            || pixel_bytes
-                                .checked_add(raster.pixels.len())
-                                .is_none_or(|total| total > MAX_ACTOR_PIXEL_BYTES)
-                        {
+                    None => match admit(&mut textures, &mut pixel_bytes, source, raster) {
+                        Some(index) => {
+                            table.insert(source, index);
+                            index
+                        }
+                        None => {
                             reject(&mut fallbacks, "texture_budget");
                             continue;
                         }
-                        pixel_bytes += raster.pixels.len();
-                        textures.push(ActorTexture {
-                            source,
-                            width: raster.width,
-                            height: raster.height,
-                            pixel_sha256: Sha256::digest(&raster.pixels).into(),
-                            rgba8: Arc::from(raster.pixels.as_slice()),
-                        });
-                        table.insert(source, textures.len() - 1);
-                        textures.len() - 1
-                    }
+                    },
                 };
                 default_texture.get_or_insert(index);
             }
@@ -263,6 +253,55 @@ fn build_artwork(
                 pose_mode: assets::ActorPoseMode::CompiledLiteral,
             });
         }
+        // Controllers drawing their own geometry sample rasters sized for that geometry.
+        let layer_sizes: Vec<(u16, u16)> = layers
+            .iter()
+            .flat_map(|layer| {
+                render.geometries[layer.first_geometry as usize..]
+                    [..usize::from(layer.geometry_count)]
+                    .iter()
+            })
+            .filter(|choice| {
+                lenient
+                    || neutral_actor_geometry_uvs_are_supported(
+                        &entities.geometries,
+                        choice.geometry as usize,
+                    )
+            })
+            .map(|choice| {
+                let geometry = &entities.geometries[choice.geometry as usize];
+                (geometry.texture_width, geometry.texture_height)
+            })
+            .collect();
+        if layer_sizes.is_empty() {
+            continue;
+        }
+        for &source in &sources {
+            if table.contains_key(&source)
+                || (!lenient
+                    && !entities.sources[source as usize]
+                        .path
+                        .starts_with("textures/entity/"))
+            {
+                continue;
+            }
+            if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
+                let path = entities.sources[source as usize].path.as_ref();
+                slot.insert(decode_raster(path, &read(source)?, !lenient));
+            }
+            let Some(raster) = decoded[&source].as_ref() else {
+                continue;
+            };
+            if !lenient && !layer_sizes.contains(&(raster.width, raster.height)) {
+                continue;
+            }
+            match admit(&mut textures, &mut pixel_bytes, source, raster) {
+                Some(index) => {
+                    table.insert(source, index);
+                }
+                None => reject(&mut fallbacks, "texture_budget"),
+            }
+        }
     }
     Ok(ArtworkBuild {
         textures,
@@ -272,8 +311,87 @@ fn build_artwork(
     })
 }
 
+/// Adds `raster` to the texture table, halved until it fits the pixel budget (UVs are
+/// normalised, so it draws blurred rather than not at all); `None` once the table is full.
+fn admit(
+    textures: &mut Vec<ActorTexture>,
+    pixel_bytes: &mut usize,
+    source: u32,
+    raster: &DecodedRaster,
+) -> Option<usize> {
+    if textures.len() == MAX_ACTOR_TEXTURES {
+        return None;
+    }
+    let (mut width, mut height, mut pixels) = (
+        raster.width,
+        raster.height,
+        std::borrow::Cow::Borrowed(&raster.pixels),
+    );
+    while pixel_bytes.saturating_add(pixels.len()) > MAX_ACTOR_PIXEL_BYTES {
+        if width.max(height) <= 1 {
+            return None;
+        }
+        let (half_width, half_height) = (width.div_ceil(2), height.div_ceil(2));
+        pixels = std::borrow::Cow::Owned(halve(&pixels, width, height));
+        (width, height) = (half_width, half_height);
+    }
+    *pixel_bytes += pixels.len();
+    textures.push(ActorTexture {
+        source,
+        width,
+        height,
+        pixel_sha256: Sha256::digest(pixels.as_slice()).into(),
+        rgba8: Arc::from(pixels.as_slice()),
+    });
+    Some(textures.len() - 1)
+}
+
+/// 2x2 box filter of an RGBA8 raster; odd edges average the texels they have.
+fn halve(pixels: &[u8], width: u16, height: u16) -> Vec<u8> {
+    let (width, height) = (usize::from(width), usize::from(height));
+    let (out_width, out_height) = (width.div_ceil(2), height.div_ceil(2));
+    let mut output = Vec::with_capacity(out_width * out_height * 4);
+    for y in 0..out_height {
+        for x in 0..out_width {
+            let mut sum = [0u32; 4];
+            let mut count = 0;
+            for source_y in 2 * y..(2 * y + 2).min(height) {
+                for source_x in 2 * x..(2 * x + 2).min(width) {
+                    let at = (source_y * width + source_x) * 4;
+                    for (total, value) in sum.iter_mut().zip(&pixels[at..at + 4]) {
+                        *total += u32::from(*value);
+                    }
+                    count += 1;
+                }
+            }
+            output.extend(sum.map(|total| (total / count) as u8));
+        }
+    }
+    output
+}
+
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A raster past the remaining pixel budget is halved until it fits, not rejected.
+    #[test]
+    fn a_raster_past_the_pixel_budget_is_halved_to_fit() {
+        let raster = DecodedRaster {
+            width: 4,
+            height: 2,
+            pixels: vec![200; 4 * 2 * 4],
+        };
+        let mut textures = Vec::new();
+        let mut pixel_bytes = MAX_ACTOR_PIXEL_BYTES - 8;
+        assert_eq!(admit(&mut textures, &mut pixel_bytes, 3, &raster), Some(0));
+        assert_eq!((textures[0].width, textures[0].height), (2, 1));
+        assert_eq!(pixel_bytes, MAX_ACTOR_PIXEL_BYTES);
     }
 }

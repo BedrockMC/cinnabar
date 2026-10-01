@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
 use crate::api::{self, TreeLimits};
+use crate::export;
 use crate::scene::{Frame, Session, View};
 
 #[wasm_bindgen]
@@ -112,10 +113,27 @@ impl Editor {
                     .ui_paths()
                     .map(|path| json!({ "path": path, "edited": layer.is_edited(path) }))
                     .collect();
-                json!({ "layer": index, "name": layer.name, "files": files })
+                json!({ "layer": index, "name": layer.name, "scratch": layer.is_scratch(), "files": files })
             })
             .collect();
         Value::Array(layers).to_string()
+    }
+
+    /// A new scratch-layer file holding `text` (a starter screen when empty):
+    /// `{layer, path}`.
+    pub fn new_scratch_file(&mut self, text: &str) -> String {
+        self.frame = None;
+        let (layer, path) = self.session.workspace.new_scratch_file(text);
+        json!({ "layer": layer, "path": path }).to_string()
+    }
+
+    /// The control to preview for a file, if it has one.
+    pub fn pick_screen(&mut self, layer: usize, path: &str) -> Option<String> {
+        api::pick_screen(&mut self.session, layer, path)
+    }
+
+    pub fn has_control(&mut self, reference: &str) -> bool {
+        api::has_control(&mut self.session, reference)
     }
 
     pub fn file_text(&self, layer: usize, path: &str) -> Option<String> {
@@ -207,9 +225,62 @@ impl Editor {
         }
     }
 
-    /// Edited files as a zip.
-    pub fn export_edits(&self) -> Result<Vec<u8>, JsValue> {
-        self.session.workspace.export_edits().map_err(js_error)
+    /// A new pack's settings: the given UUIDs, version 1.0.0, the pinned game version.
+    pub fn default_pack(&self, name: &str, header_uuid: &str, module_uuid: &str) -> String {
+        let uuids = [header_uuid.to_owned(), module_uuid.to_owned()];
+        json!(export::PackInfo::new(name, uuids)).to_string()
+    }
+
+    /// `pack` one patch version on (`PackInfo` JSON in and out).
+    pub fn bump_pack(&self, pack: &str) -> Result<String, JsValue> {
+        let pack: export::PackInfo = serde_json::from_str(pack).map_err(js_error)?;
+        Ok(json!(pack.bumped()).to_string())
+    }
+
+    /// What `request` would ship: `{plan, manifest, warnings}`.
+    pub fn export_plan(&mut self, request: &str) -> Result<String, JsValue> {
+        let request: export::Request = serde_json::from_str(request).map_err(js_error)?;
+        let plan = export::plan(
+            &mut self.session.workspace,
+            request.mode,
+            request.layer,
+            request.own_layer,
+        );
+        let warnings = api::export_warnings(&mut self.session);
+        Ok(json!({
+            "plan": plan,
+            "manifest": request.pack.manifest().map_err(js_error)?,
+            "warnings": warnings,
+        })
+        .to_string())
+    }
+
+    /// The packaged export for `request`, with an optional `pack_icon.png`.
+    pub fn export_pack(
+        &mut self,
+        request: &str,
+        icon: Option<Vec<u8>>,
+    ) -> Result<Vec<u8>, JsValue> {
+        let request: export::Request = serde_json::from_str(request).map_err(js_error)?;
+        let plan = export::plan(
+            &mut self.session.workspace,
+            request.mode,
+            request.layer,
+            request.own_layer,
+        );
+        export::package(&plan, &request.pack, icon.as_deref(), request.format).map_err(js_error)
+    }
+
+    /// The download name for a pack called `name` in `format` (`mcpack`, `zip`, `mcaddon`).
+    pub fn pack_file_name(&self, name: &str, format: &str) -> String {
+        format!("{}.{format}", export::file_stem(name))
+    }
+
+    /// Warnings for a `pack_icon.png`, or an error when it is not a PNG.
+    pub fn check_icon(&self, bytes: &[u8]) -> Result<String, JsValue> {
+        export::check_icon(bytes)
+            .map(|w| json!(w).to_string())
+            .map_err(js_error)
     }
 }
 

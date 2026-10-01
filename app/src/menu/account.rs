@@ -52,7 +52,7 @@ impl MenuRuntime {
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        match command.spawn() {
+        match crate::lifecycle::children::spawn(&mut command) {
             Ok(child) => self.catalog_process = Some(child),
             Err(_) => {
                 self.catalog_message =
@@ -61,10 +61,16 @@ impl MenuRuntime {
         }
     }
 
-    pub(super) fn poll_catalog(&mut self) {
+    /// `core_feeds`: a launcher core serves the lists, so the one-shot catalog
+    /// process (which would overwrite them with other join addresses) stays off.
+    pub(super) fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        if core_feeds {
+            self.stop_catalog();
+            return;
+        }
         self.start_catalog();
-        let Some(child) = self.catalog_process.as_mut() else {
+        let Some(child) = self.catalog_process.as_ref() else {
             return;
         };
         if let Ok(bytes) = fs::read(&self.catalog_path) {
@@ -88,9 +94,9 @@ impl MenuRuntime {
     }
 
     pub(super) fn stop_catalog(&mut self) {
-        if let Some(mut child) = self.catalog_process.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(child) = self.catalog_process.take() {
+            child.kill();
+            child.wait();
         }
     }
 

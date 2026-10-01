@@ -76,7 +76,7 @@ fn hand_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 20u;
+    let instance_base = instance_index * 25u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -126,6 +126,9 @@ fn hand_vertex(
 @fragment
 fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     if (input.valid == 0u) {
+        discard;
+    }
+    if (!front && input.back_uv.x < -1.0e8) {
         discard;
     }
     let uv = select(input.back_uv, input.uv, front);

@@ -96,27 +96,77 @@ impl UiRuntime {
         }
     }
 
-    /// Crafting recipes the inventory can supply now that fit the open grid,
-    /// after skipping `skip`, at most `take`.
+    /// The result the open screen previews before it is taken: the chosen
+    /// recipe's on the stonecutter, smithing and cartography tables, the
+    /// grid's recipe on a crafter.
+    pub(crate) fn predicted_screen_output(&self) -> Option<protocol::RecipeOutput> {
+        match self.inventory_ledger().window_kind()? {
+            WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography => {
+                self.active_screen_recipe()?.output
+            }
+            WindowKind::Crafter => {
+                let cells = self.inventory_ledger().crafter_grid_cells()?;
+                if cells.iter().all(Option::is_none) {
+                    return None;
+                }
+                let items: Vec<_> = cells
+                    .iter()
+                    .map(|cell| {
+                        cell.as_ref()
+                            .map(super::inventory_ledger::CraftGridCell::item)
+                    })
+                    .collect();
+                match protocol::match_crafting_grid(self.screen_catalog()?, 3, &items) {
+                    protocol::CraftGridMatch::Unique(recipe) => Some(recipe.output()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the recipe book filters by the inventory: on by default outside
+    /// creative, as `CraftingScreenController` opens.
+    pub(crate) fn recipe_filtering(&self) -> bool {
+        self.screen_state()
+            .recipe_filtering
+            .unwrap_or(self.player_game_mode() != Some(protocol::PlayerGameMode::Creative))
+    }
+
+    /// Crafting recipes the recipe book lists for the open grid, after
+    /// skipping `skip`, at most `take`. Filtering keeps the craftable ones,
+    /// first, then those the inventory holds some ingredient of; otherwise
+    /// every recipe lists, the uncraftable ones shown disabled.
     pub(crate) fn book_recipes(&self, skip: usize, take: usize) -> Vec<RecipeHandle> {
         let Some(catalog) = self.screen_catalog() else {
             return Vec::new();
         };
         let ledger = self.inventory_ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
-        catalog
+        let filtering = self.recipe_filtering();
+        let mut listed: Vec<(bool, RecipeHandle)> = catalog
             .crafting_handles()
             .into_iter()
             .filter(|recipe| {
                 let (width, height) = recipe.dimensions();
-                let fits = !small
+                !small
                     || if recipe.is_shapeless() {
                         recipe.ingredient_views().len() <= 4
                     } else {
                         width <= 2 && height <= 2
-                    };
-                fits && ledger.can_auto_craft(recipe)
+                    }
             })
+            .map(|recipe| (ledger.can_auto_craft(&recipe), recipe))
+            .filter(|(craftable, recipe)| {
+                !filtering || *craftable || ledger.holds_any_ingredient(recipe)
+            })
+            .collect();
+        if filtering {
+            listed.sort_by_key(|(craftable, _)| !craftable);
+        }
+        listed
+            .into_iter()
+            .map(|(_, recipe)| recipe)
             .skip(skip)
             .take(take)
             .collect()

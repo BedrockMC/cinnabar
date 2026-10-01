@@ -32,6 +32,8 @@ pub struct Index {
     sites: HashMap<String, Vec<Def>>,
     /// Top-level control name -> the namespaces defining it.
     tops: HashMap<String, Vec<String>>,
+    /// Each indexed file's namespace, by `(layer, path)`.
+    files: HashMap<(usize, String), String>,
     /// Syntax errors per `(layer, path)`.
     pub syntax: Vec<(usize, String, outline::SyntaxError)>,
 }
@@ -60,6 +62,9 @@ impl Index {
                     },
                 };
                 namespaces.insert(path.clone(), namespace.clone());
+                index
+                    .files
+                    .insert((layer_index, path.clone()), namespace.clone());
                 let file = FileCtx {
                     layer: layer_index,
                     path: &path,
@@ -178,6 +183,13 @@ impl Index {
             .collect();
         nested.sort();
         nested.first().map_or_else(Vec::new, |site| self.defs(site))
+    }
+
+    /// The namespace `path` in `layer` defines or extends.
+    pub fn file_namespace(&self, layer: usize, path: &str) -> Option<&str> {
+        self.files
+            .get(&(layer, path.to_owned()))
+            .map(String::as_str)
     }
 
     pub fn has_site(&self, site: &str) -> bool {

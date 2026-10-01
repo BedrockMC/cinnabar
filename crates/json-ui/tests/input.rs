@@ -211,6 +211,65 @@ fn scroll_view_offsets_content_and_sizes_its_box() {
     assert!(scroll_target(&regions, [10.0, 10.0]).is_some());
 }
 
+// A gated render lays out only the scroll content its viewport shows.
+#[test]
+fn gated_render_skips_scroll_content_outside_the_viewport() {
+    let rows = (0..1000)
+        .map(|index| {
+            ctrl(
+                "row",
+                "button",
+                json!({ "size": [90, 10], "collection_index": index }),
+                vec![],
+            )
+        })
+        .collect();
+    let mut root = screen(vec![scroll_view(0.0)]);
+    let content = &mut root.children[0].children[0].children[0];
+    content.control_type = Some("stack_panel".to_owned());
+    content
+        .properties
+        .insert("size".to_owned(), json!(["100%", "100%c"]));
+    content.children = rows;
+    let state = ViewState {
+        scroll: [("/root/scroll".to_owned(), 500.0)].into_iter().collect(),
+        ..ViewState::default()
+    };
+    let mut measures = json_ui::MeasureCache::default();
+    let render = json_ui::render_bound_gated(root, [200.0, 100.0], &env(), &state, &mut measures);
+    assert_eq!(render.report.scrolls["/root/scroll"].content, 10_000.0);
+    let rows: Vec<usize> = render
+        .hits
+        .iter()
+        .filter(|region| region.name == "row")
+        .filter_map(|region| region.collection_index)
+        .collect();
+    assert_eq!(rows, (50..55).collect::<Vec<_>>());
+    // Reused measurements lay a scrolled tree out as fresh ones do.
+    let state = ViewState {
+        scroll: [("/root/scroll".to_owned(), 205.0)].into_iter().collect(),
+        ..ViewState::default()
+    };
+    let reused =
+        json_ui::render_bound_gated(render.bound, [200.0, 100.0], &env(), &state, &mut measures);
+    let fresh = json_ui::render_bound_gated(
+        reused.bound.clone(),
+        [200.0, 100.0],
+        &env(),
+        &state,
+        &mut json_ui::MeasureCache::default(),
+    );
+    assert_eq!(reused.hits, fresh.hits);
+    assert_eq!(
+        reused
+            .hits
+            .iter()
+            .filter(|region| region.name == "row")
+            .count(),
+        6
+    );
+}
+
 #[test]
 fn slider_box_travels_with_the_value_and_progress_clips() {
     let slider = ctrl(

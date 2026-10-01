@@ -4,8 +4,8 @@
 
 use json_ui::{Draw, DrawNode};
 use protocol::{
-    ActorEffectAction, ActorEffectEvent, ActorMetadata, ActorMetadataValue, ArmorEquipmentEvent,
-    ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack, PlayerGameMode,
+    ActorEffectAction, ActorEffectEvent, ActorMetadata, ActorMetadataValue, ContainerIdentity,
+    InventoryContentEvent, InventoryEvent, NetworkItemStack, PlayerGameMode,
 };
 
 use super::*;
@@ -458,20 +458,6 @@ fn heart_variants_mount_rows_air_and_armor_follow_authoritative_state() {
         !paint(&runtime, &frame).bubbles.is_empty(),
         "bubbles while submerged"
     );
-    runtime
-        .apply_local_armor(
-            1,
-            4,
-            &ArmorEquipmentEvent {
-                actor_runtime_id: 1,
-                helmet: item(100, 1),
-                chestplate: NetworkItemStack::empty(),
-                leggings: NetworkItemStack::empty(),
-                boots: NetworkItemStack::empty(),
-                body: NetworkItemStack::empty(),
-            },
-        )
-        .unwrap();
     runtime.set_derived_armor(Some(0));
     assert!(
         paint(&runtime, &frame).armor.is_empty(),
