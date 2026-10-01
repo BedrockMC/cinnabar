@@ -37,6 +37,7 @@ impl CollectionItem {
 pub struct DataSource {
     pub(super) globals: BTreeMap<String, Scalar>,
     pub(super) collections: BTreeMap<String, Vec<CollectionItem>>,
+    pub(super) collection_defaults: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// Controls created through named factories (`chat_item_factory`, …).
     pub(super) factories: BTreeMap<String, Vec<FactoryItem>>,
     /// `[columns, rows]` a `grid_dimension_binding` reads.
@@ -80,6 +81,15 @@ impl DataSource {
     /// Replace a named collection's per-index items.
     pub fn set_collection(&mut self, name: impl Into<String>, items: Vec<CollectionItem>) {
         self.collections.insert(name.into(), items);
+    }
+
+    /// Answer collection bindings when their indexed item is absent, without creating a row.
+    pub fn set_collection_defaults(
+        &mut self,
+        name: impl Into<String>,
+        values: BTreeMap<String, Scalar>,
+    ) {
+        self.collection_defaults.insert(name.into(), values);
     }
 
     /// The controls the factory named `name` holds, oldest first.
