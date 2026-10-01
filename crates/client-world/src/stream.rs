@@ -62,6 +62,7 @@ mod map_data;
 mod meshing;
 mod model;
 mod movement_attribute;
+mod particle_events;
 mod polling;
 mod prediction;
 mod publication;
