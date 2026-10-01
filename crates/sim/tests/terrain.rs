@@ -261,6 +261,11 @@ fn air_speed_ignores_ground_movement_authority() {
 fn sneaking_clips_motion_at_each_exposed_ledge_orientation() {
     for velocity in [
         Vec3::new(0.8, 0.0, 0.0),
+        Vec3::new(3.0, 0.0, 0.0),
+        Vec3::new(-3.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 3.0),
+        Vec3::new(0.0, 0.0, -3.0),
+        Vec3::new(3.0, 0.0, 3.0),
         Vec3::new(-0.8, 0.0, 0.0),
         Vec3::new(0.0, 0.0, 0.8),
         Vec3::new(0.0, 0.0, -0.8),
