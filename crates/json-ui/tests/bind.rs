@@ -525,3 +525,34 @@ fn listed_grid_cells_index_their_collection_by_position() {
     assert_eq!(prop(&bound.children[0], "text"), &json!("d"));
     assert_eq!(prop(&bound.children[1], "text"), &json!("b"));
 }
+
+// `property_bag_for_children` values bind in descendants, not the parent.
+#[test]
+fn child_property_bag_reaches_descendants() {
+    let label = ctrl("child", Some("label"), json!({ "text": "#title" }));
+    let panel = ctrl_children(
+        "panel",
+        Some("panel"),
+        json!({ "property_bag_for_children": { "#title": "Child title" } }),
+        vec![label],
+    );
+    let bound = bind(&panel, &DataSource::new(), &EmptyLibrary);
+    assert_eq!(prop(&bound.children[0], "text"), &json!("Child title"));
+    assert!(!bound.properties.contains_key("#title"));
+}
+
+// A `#texture_file_system` names the texture's domain, never a texture path.
+#[test]
+fn texture_file_system_is_not_a_texture() {
+    let image = ctrl(
+        "image",
+        Some("image"),
+        json!({ "bindings": [
+            { "binding_name": "#fs", "binding_name_override": "#texture_file_system" }
+        ] }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#fs", Scalar::Text("InUserPackage".into()));
+    let bound = bind(&image, &data, &EmptyLibrary);
+    assert!(!bound.properties.contains_key("texture"));
+}

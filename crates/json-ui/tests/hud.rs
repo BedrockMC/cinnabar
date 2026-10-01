@@ -70,6 +70,7 @@ impl PackTextures {
         };
         Some(TextureMeta {
             base_size: [dimension(16)?, dimension(20)?],
+            pixels: [dimension(16)?, dimension(20)?],
             nineslice: None,
         })
     }

@@ -224,6 +224,20 @@ impl<'a> Binder<'a> {
         scope: &Scope,
     ) -> Vec<Node> {
         let control = src.get();
+        // `property_bag_for_children` seeds every descendant's own values.
+        let seeded;
+        let scope = match property_bag_named(control, "property_bag_for_children") {
+            bag if bag.is_empty() => scope,
+            bag => {
+                let mut values = (*scope.values).clone();
+                values.extend(bag);
+                seeded = Scope {
+                    values: std::sync::Arc::new(values),
+                    ..scope.clone()
+                };
+                &seeded
+            }
+        };
         if is_collection_factory(control) {
             self.expand_factory(control, own, scope)
         } else if let Some(reference) = self.screen_factory(control) {
@@ -802,9 +816,8 @@ fn bake_properties(
             scalar_to_value(&Scalar::Num(ratio)),
         );
     }
-    if let Some(texture) =
-        nonempty_text(own.get("#texture")).or(nonempty_text(own.get("#texture_file_system")))
-    {
+    // `#texture_file_system` names the texture's domain, never its path.
+    if let Some(texture) = nonempty_text(own.get("#texture")) {
         out.insert("texture".to_owned(), Value::String(texture));
     }
     out
@@ -866,8 +879,12 @@ impl Bindings for ChainBindings<'_> {
 
 /// A control's `property_bag`: initial `#` values that bindings then override.
 fn property_bag(control: &ResolvedControl) -> BTreeMap<String, Scalar> {
+    property_bag_named(control, "property_bag")
+}
+
+fn property_bag_named(control: &ResolvedControl, key: &str) -> BTreeMap<String, Scalar> {
     let mut own = BTreeMap::new();
-    if let Some(Value::Object(bag)) = control.properties.get("property_bag") {
+    if let Some(Value::Object(bag)) = control.properties.get(key) {
         for (name, value) in bag {
             let scalar = match value {
                 Value::Bool(flag) => Scalar::Bool(*flag),

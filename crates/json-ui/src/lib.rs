@@ -23,6 +23,7 @@ mod form;
 mod hud;
 mod input;
 mod json5;
+mod label;
 mod layout;
 mod localize;
 mod merge;
@@ -31,6 +32,7 @@ mod predicate;
 mod resolve;
 mod screens;
 mod sidecar;
+mod sprite;
 mod state;
 mod tree;
 mod widgets;
@@ -46,8 +48,8 @@ pub use bind::{
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, color_value, emit,
-    emit_gated, nine_slice,
+    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, StateGate, TextAlign, UvRect, color_value,
+    emit, emit_gated,
 };
 pub use env::Env;
 pub use expr::{
@@ -67,6 +69,7 @@ pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
     scroll_target,
 };
+pub use label::{LabelShape, TextOptions};
 pub use layout::{
     LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
 };
@@ -77,6 +80,7 @@ pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
+pub use sprite::nine_slice;
 pub use state::{LayoutReport, ScrollMetrics, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 

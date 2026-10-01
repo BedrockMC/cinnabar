@@ -196,6 +196,7 @@ impl Painter<'_, '_> {
                 align,
                 scale,
                 localize,
+                ..
             } => {
                 let style = TextPaint {
                     color: alpha(*color),
@@ -215,7 +216,9 @@ impl Painter<'_, '_> {
                     self.push(visual, dest);
                 }
             }
-            Draw::Sprite { texture, uv, color } => {
+            Draw::Sprite {
+                texture, uv, color, ..
+            } => {
                 let Some((page, [w, h])) = self.textures.sprite(texture) else {
                     return;
                 };
@@ -416,6 +419,7 @@ mod tests {
                     texture: "textures/ui/none".into(),
                     uv: UvRect::full(),
                     color: [255; 4],
+                    filter: Default::default(),
                 },
             ),
             node(

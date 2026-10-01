@@ -62,6 +62,22 @@ pub(crate) fn enabled(control: &ResolvedControl) -> bool {
         .unwrap_or(true)
 }
 
+/// An `edit_box`'s `place_holder_control` to hide: vanilla shows it only while
+/// its `text_control` is empty.
+pub(crate) fn hidden_placeholder(control: &ResolvedControl) -> Option<&str> {
+    if control.control_type.as_deref() != Some("edit_box") {
+        return None;
+    }
+    let placeholder = prop_str(control, "place_holder_control")?;
+    let text_control = prop_str(control, "text_control")?;
+    let text = control
+        .find(&|child| child.name == text_control)?
+        .properties
+        .get("text")?
+        .as_str()?;
+    (!text.is_empty()).then_some(placeholder)
+}
+
 /// A toggle's checked state: the bound `#toggle_state`, else its default.
 pub(crate) fn toggle_checked(control: &ResolvedControl) -> bool {
     bound_bool(control, "#toggle_state")

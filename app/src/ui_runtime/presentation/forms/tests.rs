@@ -301,6 +301,7 @@ impl json_ui::TextureSource for NoTextures {
     fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
         Some(json_ui::TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: None,
         })
     }
