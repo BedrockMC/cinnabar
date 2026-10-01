@@ -451,6 +451,8 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
+		// The Rust client owns the spawn sequence; the server's startup reaches it unchanged.
+		RelayStartup: true,
 		// The Dialer field itself stays false in every configuration:
 		// gophertunnel copies it into conn.cacheEnabled, which on this pinned
 		// module gates only the outbound ClientCacheStatus byte written after
@@ -553,13 +555,10 @@ type packetSession interface {
 
 type downstreamSession interface {
 	packetSession
-	StartGameContext(context.Context, minecraft.GameData) error
 }
 
 type upstreamSession interface {
 	packetSession
-	DoSpawnContext(context.Context) error
-	GameData() minecraft.GameData
 	ResourcePacks() []*resource.Pack
 	TexturePacksRequired() bool
 }
@@ -578,57 +577,7 @@ func serveConnectionsWithCacheTelemetry(
 		err = errors.Join(err, shutdownSession(downstream), shutdownSession(upstream))
 	}()
 
-	if err := spawnBarrier(ctx, downstream, upstream); err != nil {
-		return err
-	}
 	return relayPacketsWithCacheTelemetry(ctx, downstream, upstream, cacheTelemetry)
-}
-
-func spawnBarrier(ctx context.Context, downstream downstreamSession, upstream upstreamSession) error {
-	barrierCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	type result struct {
-		operation string
-		err       error
-	}
-	results := make(chan result, 2)
-	go func() {
-		results <- result{
-			operation: "start downstream game",
-			err:       callWithoutPanic(func() error { return downstream.StartGameContext(barrierCtx, upstream.GameData()) }),
-		}
-	}()
-	go func() {
-		results <- result{
-			operation: "spawn upstream client",
-			err:       callWithoutPanic(func() error { return upstream.DoSpawnContext(barrierCtx) }),
-		}
-	}()
-
-	first := <-results
-	if first.err != nil {
-		cancel()
-	}
-	second := <-results
-	if second.err != nil {
-		cancel()
-	}
-
-	var joined error
-	for _, result := range []result{first, second} {
-		if result.err == nil {
-			continue
-		}
-		if errors.Is(result.err, context.Canceled) && (first.err != nil || second.err != nil) && ctx.Err() == nil {
-			continue
-		}
-		joined = errors.Join(joined, fmt.Errorf("proxy: %s: %w", result.operation, result.err))
-	}
-	if joined != nil {
-		return joined
-	}
-	return ctx.Err()
 }
 
 func relayPackets(ctx context.Context, downstream, upstream packetSession) error {
@@ -738,7 +687,6 @@ func pumpPacketsWithCacheTelemetry(
 			err = fmt.Errorf("panic while relaying packets: %v", recovered)
 		}
 	}()
-	dropInitialSpawnLoadingScreens := fromDownstream
 	var upstreamIdentity login.IdentityData
 	if fromDownstream {
 		// The Rust client connects to this listener with authentication disabled;
@@ -772,36 +720,10 @@ func pumpPacketsWithCacheTelemetry(
 		}
 		return flushOutputBatch()
 	}
-	var pendingInitialStart packet.Packet
 	for {
 		batch, err := source.ReadBatch()
 		if err != nil {
-			err = attributeRelayError(err, !fromDownstream)
-			if pendingInitialStart != nil {
-				if writeErr := writePacket(pendingInitialStart); writeErr != nil {
-					return errors.Join(err, writeErr)
-				}
-				if flushErr := flushOutputBatch(); flushErr != nil {
-					return errors.Join(err, flushErr)
-				}
-			}
-			return err
-		}
-		if pendingInitialStart != nil {
-			if len(batch) != 0 && isLoadingScreen(batch[0], packet.LoadingScreenTypeEnd) {
-				pendingInitialStart = nil
-				dropInitialSpawnLoadingScreens = false
-				batch = batch[1:]
-			} else {
-				if err := writePacket(pendingInitialStart); err != nil {
-					return err
-				}
-				if err := flushOutputBatch(); err != nil {
-					return err
-				}
-				pendingInitialStart = nil
-				dropInitialSpawnLoadingScreens = false
-			}
+			return attributeRelayError(err, !fromDownstream)
 		}
 		for _, value := range batch {
 			if fromDownstream {
@@ -810,39 +732,10 @@ func pumpPacketsWithCacheTelemetry(
 			if !fromDownstream && cacheTelemetry != nil {
 				cacheTelemetry.observeRelayPacket(value)
 			}
-			// Each gophertunnel side performs its own initial spawn handshake. The
-			// downstream listener defers ServerBoundLoadingScreen packets because it
-			// does not handle them internally; forwarding those two acknowledgements
-			// after the spawn barrier repeats the upstream client's acknowledgements
-			// and BDS disconnects with UnexpectedPacket. The Phase-0 clients emit an
-			// adjacent no-ID Start/End pair. Buffer Start until End proves that exact
-			// pair; any mismatch disables the filter and preserves FIFO.
-			if dropInitialSpawnLoadingScreens {
-				if pendingInitialStart == nil {
-					if isLoadingScreen(value, packet.LoadingScreenTypeStart) {
-						pendingInitialStart = value
-						continue
-					}
-					dropInitialSpawnLoadingScreens = false
-				} else if isLoadingScreen(value, packet.LoadingScreenTypeEnd) {
-					pendingInitialStart = nil
-					dropInitialSpawnLoadingScreens = false
-					continue
-				} else {
-					if err := writePacket(pendingInitialStart); err != nil {
-						return err
-					}
-					pendingInitialStart = nil
-					dropInitialSpawnLoadingScreens = false
-				}
-			}
 			if err := writePacket(value); err != nil {
 				return err
 			}
 		}
-		// Keep one no-ID Start pending across exactly the next source batch. If
-		// that batch does not begin with the matching End, the pending packet is
-		// flushed as its own original batch before any current-batch packet.
 		if err := flushOutputBatch(); err != nil {
 			return err
 		}
@@ -859,15 +752,6 @@ func normalizeUpstreamChatIdentity(value packet.Packet, identity login.IdentityD
 	rewritten.SourceName = identity.DisplayName
 	rewritten.XUID = identity.XUID
 	return &rewritten
-}
-
-func isLoadingScreen(value packet.Packet, loadingType int32) bool {
-	loading, ok := value.(*packet.ServerBoundLoadingScreen)
-	if !ok || loading.Type != loadingType {
-		return false
-	}
-	_, hasID := loading.LoadingScreenID.Value()
-	return !hasID
 }
 
 func callWithoutPanic(call func() error) (err error) {
