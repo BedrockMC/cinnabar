@@ -8,21 +8,30 @@ const SAMPLE_COMPONENT_ENV: &str = "CINNABAR_MOD_SNAPSHOT_COMPONENT";
 /// A real engine over a small HUD fixture, independent of local carrier files.
 fn presentation() -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
-    presentation.set_server_ui_pack(&ServerUiPack {
-        ui_layers: vec![vec![(
-            "ui/hud_screen.json".to_owned(),
-            br#"{
-            "namespace": "hud",
-            "hud_screen": { "type": "screen", "controls": [{ "label": {
-                "type": "label", "size": [100, 12],
-                "anchor_from": "bottom_middle", "anchor_to": "bottom_middle",
-                "text": "Base HUD" } }] }
-        }"#
-            .to_vec(),
-        )]],
-        ..Default::default()
-    });
+    presentation.set_server_ui_pack(&hud_pack(
+        br#"{
+        "namespace": "hud",
+        "hud_screen": { "type": "screen", "controls": [{ "label": {
+            "type": "label", "size": [100, 12],
+            "anchor_from": "bottom_middle", "anchor_to": "bottom_middle",
+            "text": "Base HUD" } }] }
+    }"#,
+    ));
     presentation
+}
+
+/// Registers the HUD fixture as a loadable pack document.
+fn hud_pack(hud: &[u8]) -> ServerUiPack {
+    ServerUiPack {
+        ui_layers: vec![vec![
+            (
+                "ui/_ui_defs.json".to_owned(),
+                br#"{"ui_defs":["ui/hud_screen.json"]}"#.to_vec(),
+            ),
+            ("ui/hud_screen.json".to_owned(), hud.to_vec()),
+        ]],
+        ..Default::default()
+    }
 }
 
 /// Builds the same offline frame so only the extension state can change its pixels.
@@ -55,7 +64,18 @@ fn extension_mount_update_and_revoke_use_json_ui() {
         .set_mod_label(Some("Cinnabar extension: Hello"))
         .unwrap();
     let first = frame(&mut presentation);
-    assert_ne!(before, snapshot::rasterize(&first));
+    assert!(presentation.form_presentation.hud.hud.has_visible_content());
+    assert!(
+        presentation
+            .form_presentation
+            .mod_hud
+            .as_ref()
+            .unwrap()
+            .screen
+            .passes
+            > 0
+    );
+    assert!(before != snapshot::rasterize(&first));
     assert_eq!(first, frame(&mut presentation));
     assert_eq!(
         presentation
@@ -109,16 +129,11 @@ fn extension_is_hidden_while_chat_or_inventory_owns_input() {
 #[test]
 fn extension_cannot_restore_a_server_hidden_hud() {
     let mut presentation = presentation();
-    presentation.set_server_ui_pack(&ServerUiPack {
-        ui_layers: vec![vec![(
-            "ui/hud_screen.json".to_owned(),
-            br#"{
-            "namespace": "hud", "hud_screen": { "type": "screen", "visible": false }
-        }"#
-            .to_vec(),
-        )]],
-        ..Default::default()
-    });
+    presentation.set_server_ui_pack(&hud_pack(
+        br#"{
+        "namespace": "hud", "hud_screen": { "type": "screen", "visible": false }
+    }"#,
+    ));
     let before = frame(&mut presentation);
     presentation
         .set_mod_label(Some("Hidden extension"))
