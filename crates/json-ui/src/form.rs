@@ -10,6 +10,8 @@
 //! its title/body/button texts fed as the popup's global values. Binding names are
 //! read from the vanilla pack's `server_form.json`/`popup_dialog.json`.
 
+use std::sync::Arc;
+
 use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
 use crate::catalog::Catalog;
 use crate::emit::{DrawNode, RectOut, emit};
@@ -131,7 +133,8 @@ pub struct FormRender {
     /// The bound tree, for structural inspection.
     pub bound: ResolvedControl,
     pub nodes: Vec<DrawNode>,
-    pub hits: Vec<HitRegion>,
+    /// Immutable input regions shared by redraws of this layout.
+    pub hits: Arc<[HitRegion]>,
     pub report: LayoutReport,
     /// Where `button.menu_cancel` (Escape/back) routes on this screen.
     pub cancel_target: Option<String>,
@@ -611,7 +614,7 @@ fn lay_out_and_emit(
             } else {
                 emit(&laid, env)
             },
-            hit_regions(&laid),
+            hit_regions(&laid).into(),
             report,
             global_mapping(&laid, "button.menu_cancel"),
             find_rect(&laid, "root_panel"),

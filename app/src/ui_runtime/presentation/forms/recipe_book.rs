@@ -14,6 +14,9 @@ use crate::ui_runtime::inventory_actions::{BookEntry, recipe_book_entries};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 use crate::ui_runtime::presentation::screens::{SEARCH_TAB, Widget};
 
+/// The controller collection filled by the recipe book.
+const COLLECTION: &str = "recipe_book";
+
 /// `CraftingScreenController::addStaticScreenVars`: radio indexes of the tabs
 /// and layout toggles.
 const INDEXES: [(&str, u64); 9] = [
@@ -189,7 +192,7 @@ pub(super) fn book_data(
         .collect();
     let items = std::sync::Arc::from(items);
     *cache = BookCache::capture(runtime, frame, first_icon, icons, &items);
-    data.set_shared_collection("recipe_book", items);
+    data.set_shared_collection(COLLECTION, items);
 }
 
 /// `#container_item_modifier`: a folded group head shows the expand icon (2),
@@ -221,7 +224,7 @@ fn background(runtime: &UiRuntime, entry: &BookEntry<'_>) -> &'static str {
 /// The widget a recipe book control presses: an entry, a tab, the search
 /// field, or the layout toggle that flips the panel.
 pub(super) fn book_hit(region: &HitRegion, shown: bool) -> Option<InventoryCellHit> {
-    if region.collection.as_deref() == Some("recipe_book") {
+    if region.collection.as_deref() == Some(COLLECTION) {
         return Some(InventoryCellHit::RecipeBook(
             u16::try_from(region.collection_index?).ok()?,
         ));

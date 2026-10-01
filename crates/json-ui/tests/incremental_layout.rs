@@ -34,7 +34,8 @@ fn tree(text: &str, count: usize) -> ResolvedControl {
         properties: BTreeMap::from([
             ("text".into(), json!(text)),
             ("size".into(), json!(["default", "default"])),
-        ]),
+        ])
+        .into(),
         children: Vec::new(),
         base: None,
         unresolved_base: None,
@@ -45,7 +46,8 @@ fn tree(text: &str, count: usize) -> ResolvedControl {
     root.properties = BTreeMap::from([
         ("orientation".into(), json!("vertical")),
         ("size".into(), json!(["100%cm", "100%c"])),
-    ]);
+    ])
+    .into();
     root.children = (0..count)
         .map(|index| label(&index.to_string(), if index == 0 { text } else { "fixed" }))
         .collect();
@@ -94,4 +96,41 @@ fn unchanged_tree_keeps_label_measurements() {
     cache.update_tree(&mut rendered.bound, tree("one", 3));
     render_bound_cached(rendered.bound, [480.0, 270.0], &env, &state, &mut cache);
     assert_eq!(text.0.get(), 0);
+}
+
+/// A changed visual target or lock state must invalidate cached state masks.
+#[test]
+fn changed_widget_targets_match_fresh_gated_layouts() {
+    let text = Text::default();
+    let env = LayoutEnv {
+        text: &text,
+        textures: &Textures,
+    };
+    let state = ViewState::default();
+    let mut next = tree("default", 2);
+    next.control_type = Some("button".into());
+    next.properties.clear();
+    next.properties.insert("size".into(), json!([100, 40]));
+    next.properties.insert("default_control".into(), json!("0"));
+    next.properties.insert("hover_control".into(), json!("1"));
+    let mut cache = MeasureCache::default();
+    let mut rendered =
+        json_ui::render_bound_gated(next.clone(), [480.0, 270.0], &env, &state, &mut cache);
+    for (default, enabled) in [("1", true), ("0", false), ("0", true)] {
+        next.properties
+            .insert("default_control".into(), json!(default));
+        next.properties.insert("enabled".into(), json!(enabled));
+        cache.update_tree(&mut rendered.bound, next.clone());
+        rendered =
+            json_ui::render_bound_gated(rendered.bound, [480.0, 270.0], &env, &state, &mut cache);
+        let cold = json_ui::render_bound_gated(
+            next.clone(),
+            [480.0, 270.0],
+            &env,
+            &state,
+            &mut MeasureCache::default(),
+        );
+        assert_eq!(rendered.nodes, cold.nodes);
+        assert_eq!(rendered.hits, cold.hits);
+    }
 }

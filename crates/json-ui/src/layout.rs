@@ -130,6 +130,8 @@ pub struct LaidOut<'a> {
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
     pub children: Vec<LaidOut<'a>>,
+    /// Bound-tree state masks reused by the gated emit pass.
+    pub(crate) state_targets: Option<measure::Targets>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -222,7 +224,7 @@ fn lay_out<'a>(
     (laid, ctx.report)
 }
 
-struct PlaceCtx<'e, 'x> {
+struct PlaceCtx<'tree, 'e, 'x> {
     env: &'e LayoutEnv<'x>,
     state: &'e ViewState,
     /// Skip placing scroll content wholly outside its viewport.
@@ -232,9 +234,9 @@ struct PlaceCtx<'e, 'x> {
     /// Enclosing sliders: fraction, box and progress names, rect, and axis.
     sliders: Vec<widgets::SliderFrame>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
-    ancestors: Vec<(String, Rect, Rect)>,
+    ancestors: Vec<(&'tree str, Rect, Rect)>,
     /// State controls enclosing stateful controls show or hide: target, shown, state mask.
-    overrides: Vec<(*const ResolvedControl, bool, u8)>,
+    overrides: Vec<(usize, bool, u8)>,
     /// Enclosing disabled controls; their descendants are locked.
     disabled: usize,
     /// Descendant names an enclosing edit box hides (its placeholder).
@@ -269,14 +271,14 @@ fn place_subtree<'a>(
     parent_clip: Rect,
     (parent_layer, shown, packed, parent_allows): (i32, bool, bool, bool),
     inherited: &Inherited,
-    ctx: &mut PlaceCtx,
+    ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
     // A state control a stateful ancestor shows or hides overrides its own `visible`.
     let forced = ctx
         .overrides
         .iter()
         .rev()
-        .find(|(target, _, _)| std::ptr::eq(*target, control))
+        .find(|(target, _, _)| *target == std::ptr::from_ref(control).addr())
         .map(|(_, shown, mask)| (*shown, *mask));
     let own_visible = forced.map_or(visible(control), |(shown, _)| shown);
     let clips = clip_children(control);
@@ -326,23 +328,19 @@ fn place_subtree<'a>(
     }
     let overrides_len = ctx.overrides.len();
     let bits = widgets::state_index(ctx.state, &key);
+    let state_targets = measure::state_targets(control, !enabled);
     ctx.overrides.extend(
-        widgets::state_targets(control, bits, !enabled)
-            .into_iter()
-            .map(|target| {
-                (
-                    target.control as *const ResolvedControl,
-                    target.shown,
-                    target.mask,
-                )
-            }),
+        state_targets
+            .iter()
+            .flat_map(|targets| targets.iter())
+            .map(|&(target, mask)| (target, mask & (1 << bits) != 0, mask)),
     );
     let placeholder = widgets::hidden_placeholder(control);
     if let Some(name) = placeholder {
         ctx.hidden_names.push(name.to_owned());
     }
     let dropdown = widgets::dropdown_area(control);
-    ctx.ancestors.push((control.name.clone(), rect, child_clip));
+    ctx.ancestors.push((&control.name, rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
@@ -382,8 +380,11 @@ fn place_subtree<'a>(
         // A dropdown's content drops from the dropdown, kept inside its named area.
         if let Some((drop, area, content)) = &dropdown
             && *content == child.name
-            && let Some((_, area_rect, area_clip)) =
-                ctx.ancestors.iter().rev().find(|(name, _, _)| name == area)
+            && let Some((_, area_rect, area_clip)) = ctx
+                .ancestors
+                .iter()
+                .rev()
+                .find(|(name, _, _)| *name == area.as_str())
             && let Some((_, drop_rect)) =
                 placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
@@ -486,6 +487,7 @@ fn place_subtree<'a>(
         visible: shown && own_visible,
         enabled,
         children,
+        state_targets,
     }
 }
 

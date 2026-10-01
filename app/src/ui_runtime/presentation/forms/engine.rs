@@ -99,7 +99,7 @@ impl FormEngine {
             textures: TextureSet::new(first_page),
             assets,
             catalog: Arc::clone(&base),
-            screens: screen_cache::ScreenCache::resolving_settings(&base),
+            screens: screen_cache::ScreenCache::default(),
             vanilla,
             base,
             context: super::menu_screens::retail_context(),

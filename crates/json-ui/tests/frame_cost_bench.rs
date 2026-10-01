@@ -74,6 +74,7 @@ fn frame_cost_bench_server_pack_hud() {
     run_hud_bench("server_pack_hud", Some(PathBuf::from(pack)));
 }
 
+/// Time the original full-refresh workload, with optional incremental measurements.
 fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let vanilla = support::vanilla_pack().join("ui");
@@ -150,12 +151,14 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     let mut state = BindState::new();
     let mut stateful_time = std::time::Duration::ZERO;
     let mut layout_time = std::time::Duration::ZERO;
+    let incremental = std::env::var_os("CINNABAR_BENCH_INCREMENTAL").is_some();
     let mut incremental_time = std::time::Duration::ZERO;
     let mut measures = json_ui::MeasureCache::default();
     let mut previous: Option<json_ui::FormRender> = None;
     let frames: u32 = std::env::var("CINNABAR_BENCH_FRAMES")
         .ok()
         .and_then(|value| value.parse().ok())
+        .filter(|frames| *frames > 0)
         .unwrap_or(200);
     for frame in 0..=frames {
         model.boss_bars[0].progress = f64::from(frame % 100) / 100.0;
@@ -168,7 +171,12 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
         let bound = bind_shared(&tree, &data, &library);
         let bind_elapsed = started.elapsed();
         let started = Instant::now();
-        let (mut updated, _) = black_box(bind_stateful(&tree, &data, &library, &mut state));
+        let updated = if incremental {
+            Some(black_box(bind_stateful(&tree, &data, &library, &mut state)).0)
+        } else {
+            black_box(bind_stateful(&tree, &data, &library, &mut state));
+            None
+        };
         let stateful_elapsed = started.elapsed();
         let started = Instant::now();
         black_box(render_bound(
@@ -179,33 +187,42 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
         ));
         let layout_elapsed = started.elapsed();
         let started = Instant::now();
-        if let Some(old) = previous.take() {
-            let mut retained = old.bound;
-            measures.update_tree(&mut retained, updated);
-            updated = retained;
+        if let Some(mut updated) = updated {
+            if let Some(old) = previous.take() {
+                let mut retained = old.bound;
+                measures.update_tree(&mut retained, updated);
+                updated = retained;
+            }
+            previous = Some(black_box(render_bound_cached(
+                updated,
+                [480.0, 270.0],
+                &env,
+                &ViewState::default(),
+                &mut measures,
+            )));
+            if frame > 0 {
+                incremental_time += started.elapsed();
+            }
         }
-        previous = Some(black_box(render_bound_cached(
-            updated,
-            [480.0, 270.0],
-            &env,
-            &ViewState::default(),
-            &mut measures,
-        )));
         if frame > 0 {
-            incremental_time += started.elapsed();
             bind_time += bind_elapsed;
             stateful_time += stateful_elapsed;
             layout_time += layout_elapsed;
         }
     }
     eprintln!(
-        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms stateful_bind={:.3}ms layout_emit={:.3}ms total={:.3}ms incremental_layout={:.3}ms incremental_total={:.3}ms",
+        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms stateful_bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
         cold_resolve.as_secs_f64() * 1e3,
         (bind_time / frames).as_secs_f64() * 1e3,
         (stateful_time / frames).as_secs_f64() * 1e3,
         (layout_time / frames).as_secs_f64() * 1e3,
-        ((bind_time + layout_time) / frames).as_secs_f64() * 1e3,
-        (incremental_time / frames).as_secs_f64() * 1e3,
-        ((stateful_time + incremental_time) / frames).as_secs_f64() * 1e3
+        ((bind_time + layout_time) / frames).as_secs_f64() * 1e3
     );
+    if incremental {
+        eprintln!(
+            "FRAME_INCREMENTAL {name}: layout={:.3}ms total={:.3}ms",
+            (incremental_time / frames).as_secs_f64() * 1e3,
+            ((stateful_time + incremental_time) / frames).as_secs_f64() * 1e3
+        );
+    }
 }

@@ -29,7 +29,7 @@ fn ctrl_children(
         control_type: control_type.map(str::to_owned),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }

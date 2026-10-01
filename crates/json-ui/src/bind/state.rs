@@ -20,6 +20,13 @@ pub(super) fn key_hash(seed: u64, bytes: &[u8]) -> u64 {
 /// The hash of the empty key, where every layout key starts.
 pub(super) const KEY_ROOT: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// Properties that scroll layout publishes back into binding bags.
+pub(super) const SCROLL_PROPERTIES: [&str; 3] = [
+    "#scrolled_to_end",
+    "#scrollbar_hit_bottom",
+    "#scroll_bar_visible",
+];
+
 /// Hashes a map key that already is a key hash.
 #[derive(Default)]
 pub(super) struct Prehashed(u64);
@@ -103,13 +110,12 @@ impl BindState {
         let mut changed = false;
         for (key, metrics) in &report.scrolls {
             let published = [
-                Some(("#scrolled_to_end", metrics.scrolled_to_end)),
-                Some(("#scrollbar_hit_bottom", metrics.hit_bottom)),
-                metrics
-                    .bar_visible
-                    .map(|visible| ("#scroll_bar_visible", visible)),
+                Some(metrics.scrolled_to_end),
+                Some(metrics.hit_bottom),
+                metrics.bar_visible,
             ];
-            for (name, value) in published.into_iter().flatten() {
+            for (name, value) in SCROLL_PROPERTIES.into_iter().zip(published) {
+                let Some(value) = value else { continue };
                 if self.value(key, name) != Some(&Scalar::Bool(value)) {
                     self.publish(key, name, Scalar::Bool(value));
                     changed = true;

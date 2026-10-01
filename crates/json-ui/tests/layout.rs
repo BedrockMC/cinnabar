@@ -81,7 +81,10 @@ fn natural_measurements_run_once_per_width_and_reset_for_each_layout() {
         assert_eq!(laid.rect.w, 180.0);
         assert_eq!(laid.rect.h, 10.0);
     }
-    assert_eq!(text.0.borrow().get(&None), Some(&2));
+    assert!(
+        !text.0.borrow().contains_key(&None),
+        "an explicit width needs no unconstrained measure"
+    );
     assert_eq!(text.0.borrow().get(&Some(180.0_f64.to_bits())), Some(&1));
     let scaled = CountingText::default();
     let new_env = LayoutEnv {
@@ -134,7 +137,7 @@ fn ctrl(
         control_type: control_type.map(str::to_owned),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }

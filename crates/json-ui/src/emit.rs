@@ -180,12 +180,12 @@ fn collect_gated(
     out: &mut Vec<(i32, usize, DrawNode)>,
     order: &mut usize,
     gates: &mut Vec<StateGate>,
-    pending: &mut Vec<(*const ResolvedControl, StateGate)>,
+    pending: &mut Vec<(usize, StateGate)>,
 ) {
     let gate = pending
         .iter()
         .rev()
-        .find(|(target, _)| std::ptr::eq(*target, node.control))
+        .find(|(target, _)| *target == std::ptr::from_ref(node.control).addr())
         .map(|(_, gate)| gate.clone());
     // A state control the neutral state hides still emits, gated, if any state shows it.
     let shows_somewhere = gate.as_ref().is_some_and(|gate| gate.mask != 0);
@@ -201,14 +201,15 @@ fn collect_gated(
     }
     let before = pending.len();
     pending.extend(
-        crate::widgets::state_targets(node.control, 0, !node.enabled)
-            .into_iter()
-            .map(|target| {
+        node.state_targets
+            .iter()
+            .flat_map(|targets| targets.iter())
+            .map(|&(target, mask)| {
                 (
-                    target.control as *const ResolvedControl,
+                    target,
                     StateGate {
                         key: node.key.clone(),
-                        mask: target.mask,
+                        mask,
                     },
                 )
             }),

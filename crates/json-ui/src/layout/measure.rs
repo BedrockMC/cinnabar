@@ -55,6 +55,10 @@ pub(super) struct Children {
 
 type PlaceMemo = Memo<(usize, u64, u64), Placements>;
 
+/// Stable target addresses and visibility masks, shared with the emit pass.
+pub(super) type Targets = std::sync::Arc<[(usize, u8)]>;
+type TargetMemo = Memo<(usize, bool), Targets>;
+
 /// Contiguous grid rows in placement order, including earlier rows' overhang.
 struct Row {
     top: f64,
@@ -134,6 +138,8 @@ thread_local! {
     /// [`placed_children`]: child indices and rects relative to the parent's
     /// origin, by parent address and size.
     static PLACED: RefCell<PlaceMemo> = RefCell::new(PlaceMemo::default());
+    /// Widget state masks by control address and ancestor lock state.
+    static TARGETS: RefCell<TargetMemo> = RefCell::new(TargetMemo::default());
     /// Scroll bar panels hidden while their content fits, by address.
     static SUPPRESSED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
 }
@@ -146,6 +152,7 @@ pub(super) fn reset() {
     LENGTHS.with(|memo| memo.borrow_mut().clear());
     FLAGS.with(|memo| memo.borrow_mut().clear());
     PLACED.with(|memo| memo.borrow_mut().clear());
+    TARGETS.with(|memo| memo.borrow_mut().clear());
     SUPPRESSED.with(|set| set.borrow_mut().clear());
     super::scroll::reset();
 }
@@ -187,6 +194,7 @@ pub struct MeasureCache {
     lengths: Memo<(usize, u8), Option<Length>>,
     flags: Memo<usize, size::Flags>,
     placed: PlaceMemo,
+    targets: TargetMemo,
     suppressed: HashSet<usize>,
     roles: super::scroll::RoleMemo,
     /// The root's address last layout; a moved root's entries go stale.
@@ -212,6 +220,7 @@ impl MeasureCache {
         self.lengths.retain(|key, _| !dirty.contains(&key.0));
         self.flags.retain(|key, _| !dirty.contains(key));
         self.placed.retain(|key, _| !dirty.contains(&key.0));
+        self.targets.retain(|key, _| !dirty.contains(&key.0));
         self.roles.clear();
     }
 
@@ -222,6 +231,7 @@ impl MeasureCache {
         LENGTHS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.lengths));
         FLAGS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.flags));
         PLACED.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.placed));
+        TARGETS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.targets));
         SUPPRESSED.with(|set| std::mem::swap(&mut *set.borrow_mut(), &mut self.suppressed));
         super::scroll::swap(&mut self.roles);
     }
@@ -238,8 +248,11 @@ impl MeasureCache {
             LENGTHS.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             FLAGS.with(|memo| memo.borrow_mut().retain(|key, _| *key != stale));
             PLACED.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
-            SUPPRESSED.with(|set| set.borrow_mut().clear());
-            super::scroll::reset();
+            TARGETS.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
+            SUPPRESSED.with(|set| {
+                set.borrow_mut().remove(&stale);
+            });
+            super::scroll::forget(stale);
             self.root = address;
         }
     }
@@ -248,6 +261,23 @@ impl MeasureCache {
     pub(super) fn leave(&mut self) {
         self.swap();
     }
+}
+
+/// Resolve a widget's masks once per bound tree and ancestor lock state.
+pub(super) fn state_targets(control: &ResolvedControl, locked: bool) -> Option<Targets> {
+    if !crate::widgets::has_state_targets(control) {
+        return None;
+    }
+    let key = (std::ptr::from_ref(control).addr(), locked);
+    if let Some(targets) = TARGETS.with(|memo| memo.borrow().get(&key).cloned()) {
+        return Some(targets);
+    }
+    let targets: Targets = crate::widgets::state_targets(control, locked)
+        .into_iter()
+        .map(|target| (std::ptr::from_ref(target.control).addr(), target.mask))
+        .collect();
+    TARGETS.with(|memo| memo.borrow_mut().insert(key, targets.clone()));
+    Some(targets)
 }
 
 /// Identify a control and its exact known `[width, height]` for the lifetime of this layout.

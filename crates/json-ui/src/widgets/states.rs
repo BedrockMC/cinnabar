@@ -47,11 +47,9 @@ const SLIDER_PAIRS: [(&str, &str); 3] = [
     ("progress_control", "progress_hover_control"),
 ];
 
-/// A state control and whether it shows, plus the interaction states (a mask
-/// over [`state_index`]) it shows under.
+/// A state control and the interaction states (a mask over [`state_index`]) it shows under.
 pub(crate) struct StateTarget<'a> {
     pub control: &'a ResolvedControl,
-    pub shown: bool,
     pub mask: u8,
 }
 
@@ -62,35 +60,35 @@ pub(crate) fn state_index(state: &ViewState, key: &str) -> u8 {
         | (u8::from(state.is_focused(key)) << 2)
 }
 
-/// The state targets of `control` under `bits` (from [`state_index`]);
-/// `ancestor_locked` is a disabled ancestor's lock, which shows locked looks.
-pub(crate) fn state_targets(
-    control: &ResolvedControl,
-    bits: u8,
-    ancestor_locked: bool,
-) -> Vec<StateTarget<'_>> {
-    if !matches!(
+/// Whether this control has component-managed visual states.
+pub(crate) fn has_state_targets(control: &ResolvedControl) -> bool {
+    matches!(
         control.control_type.as_deref(),
         Some("button" | "edit_box" | "toggle" | "dropdown" | "slider")
-    ) {
+    )
+}
+
+/// Named visual targets and the interaction states under which each shows.
+pub(crate) fn state_targets(
+    control: &ResolvedControl,
+    ancestor_locked: bool,
+) -> Vec<StateTarget<'_>> {
+    if !has_state_targets(control) {
         return Vec::new();
     }
     let mut targets: Vec<StateTarget<'_>> = Vec::new();
+    let mut resolved = Vec::new();
     for index in 0..8u8 {
-        for (target, shown) in writes(control, index, ancestor_locked) {
+        for (target, shown) in writes(control, index, ancestor_locked, &mut resolved) {
             match targets
                 .iter_mut()
                 .find(|known| std::ptr::eq(known.control, target))
             {
                 Some(known) => {
                     known.mask = set(known.mask, index, shown);
-                    if index == bits {
-                        known.shown = shown;
-                    }
                 }
                 None => targets.push(StateTarget {
                     control: target,
-                    shown: index == bits && shown,
                     mask: set(0, index, shown),
                 }),
             }
@@ -102,7 +100,7 @@ pub(crate) fn state_targets(
 /// Names of direct children the control hides at rest (no hover, press or
 /// focus): they add nothing to its `%c`/`%cm`.
 pub(crate) fn rest_hidden_children(control: &ResolvedControl) -> Vec<&str> {
-    writes(control, 0, false)
+    writes(control, 0, false, &mut Vec::new())
         .into_iter()
         .filter(|(target, shown)| {
             !shown
@@ -125,14 +123,21 @@ fn set(mask: u8, index: u8, shown: bool) -> u8 {
 
 /// The ordered visibility writes for interaction `bits`, resolved so the
 /// last write to a shared target wins, as in vanilla.
-fn writes(
-    control: &ResolvedControl,
+fn writes<'a>(
+    control: &'a ResolvedControl,
     bits: u8,
     ancestor_locked: bool,
-) -> Vec<(&ResolvedControl, bool)> {
+    cache: &mut Targets<'a>,
+) -> Vec<(&'a ResolvedControl, bool)> {
+    if !matches!(
+        control.control_type.as_deref(),
+        Some("button" | "edit_box" | "toggle" | "dropdown" | "slider")
+    ) {
+        return Vec::new();
+    }
     let (hovered, pressed, focused) = (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0);
     let locked = ancestor_locked || !enabled(control);
-    let mut out: Vec<(&str, bool)> = Vec::new();
+    let mut out: Vec<(&'static str, bool)> = Vec::new();
     match control.control_type.as_deref().unwrap_or("") {
         "button" | "edit_box" => {
             let selected = bound_bool(control, "#text_edit_selected") == Some(true);
@@ -176,10 +181,8 @@ fn writes(
                 }
                 out.push((over, hover));
             }
-            let mut resolved = resolve(control, &out);
-            if let Some(box_control) =
-                prop_str(control, "slider_box_control").and_then(|name| descendant(control, name))
-            {
+            let mut resolved = resolve(control, &out, cache);
+            if let Some(box_control) = target(control, "slider_box_control", cache) {
                 let selected = bound_bool(control, super::SLIDER_BOX_SELECTED) == Some(true);
                 let shown = if locked {
                     "locked_control"
@@ -190,28 +193,28 @@ fn writes(
                 } else {
                     "default_control"
                 };
-                let box_writes: Vec<(&str, bool)> = SLIDER_BOX
+                let box_writes: Vec<(&'static str, bool)> = SLIDER_BOX
                     .iter()
                     .map(|name| (*name, *name == shown))
                     .collect();
-                resolved.extend(resolve(box_control, &box_writes));
+                resolved.extend(resolve(box_control, &box_writes, cache));
             }
             return resolved;
         }
         _ => return Vec::new(),
     }
-    resolve(control, &out)
+    resolve(control, &out, cache)
 }
 
 /// Property-named writes as target controls, last write per target winning.
 fn resolve<'a>(
     control: &'a ResolvedControl,
-    writes: &[(&str, bool)],
+    writes: &[(&'static str, bool)],
+    cache: &mut Targets<'a>,
 ) -> Vec<(&'a ResolvedControl, bool)> {
     let mut out: Vec<(&ResolvedControl, bool)> = Vec::new();
     for (property, shown) in writes {
-        let Some(target) = prop_str(control, property).and_then(|name| descendant(control, name))
-        else {
+        let Some(target) = target(control, property, cache) else {
             continue;
         };
         match out
@@ -235,4 +238,25 @@ fn descendant<'a>(control: &'a ResolvedControl, name: &str) -> Option<&'a Resolv
         queue.extend(next.children.iter());
     }
     None
+}
+
+/// Targets resolved once while computing all eight interaction masks.
+type Targets<'a> = Vec<(usize, &'static str, Option<&'a ResolvedControl>)>;
+
+/// Reuse a property’s descendant search across interaction states.
+fn target<'a>(
+    control: &'a ResolvedControl,
+    property: &'static str,
+    cache: &mut Targets<'a>,
+) -> Option<&'a ResolvedControl> {
+    let address = std::ptr::from_ref(control).addr();
+    if let Some((_, _, target)) = cache
+        .iter()
+        .find(|(at, name, _)| *at == address && *name == property)
+    {
+        return *target;
+    }
+    let found = prop_str(control, property).and_then(|name| descendant(control, name));
+    cache.push((address, property, found));
+    found
 }

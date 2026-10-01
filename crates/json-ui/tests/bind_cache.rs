@@ -46,3 +46,20 @@ fn edited_templates_rebind_and_cached_diagnostics_repeat() {
     assert_eq!(bound.properties["text"], json!("second"));
     assert!(diagnostics.is_empty());
 }
+
+/// Editing one clone cannot change its template or sibling, including nested JSON.
+#[test]
+fn shared_properties_detach_and_round_trip_as_plain_json() {
+    let original = json_ui::Properties::from([("nested".into(), json!({"value":1}))]);
+    let sibling = original.clone();
+    let mut edited = original.clone();
+    edited.get_mut("nested").unwrap()["value"] = json!(2);
+    assert_eq!(original["nested"]["value"], json!(1));
+    assert_eq!(sibling, original);
+    let encoded = serde_json::to_value(&edited).unwrap();
+    assert_eq!(encoded, json!({"nested":{"value":2}}));
+    assert_eq!(
+        serde_json::from_value::<json_ui::Properties>(encoded).unwrap(),
+        edited
+    );
+}

@@ -16,7 +16,7 @@ use super::ServerFormIdentity;
 pub(crate) struct EngineFrame {
     /// The form drawn, or `None` for a container screen.
     pub(crate) identity: Option<ServerFormIdentity>,
-    pub(crate) hits: Vec<HitRegion>,
+    pub(crate) hits: Arc<[HitRegion]>,
     pub(crate) report: LayoutReport,
     /// Where `button.menu_cancel` (Escape) routes on this screen.
     pub(crate) cancel_target: Option<String>,
