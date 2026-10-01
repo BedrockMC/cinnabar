@@ -28,6 +28,7 @@ impl TextureSource for FixedTextures {
     fn texture(&self, _path: &str) -> Option<TextureMeta> {
         Some(TextureMeta {
             base_size: [16.0; 2],
+            pixels: [16.0; 2],
             nineslice: None,
         })
     }

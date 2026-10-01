@@ -679,6 +679,7 @@ fn held_stack(
                 align: TextAlign::Right,
                 scale: 1.0,
                 localize: false,
+                options: Default::default(),
             },
         ));
     }

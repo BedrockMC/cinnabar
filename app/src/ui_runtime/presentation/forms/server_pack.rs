@@ -372,10 +372,19 @@ impl ServerAtlas {
 
 impl Source {
     fn meta(&self) -> TextureMeta {
-        self.meta.unwrap_or(TextureMeta {
-            base_size: self.size.map(f64::from),
-            nineslice: None,
-        })
+        let pixels = self.size.map(f64::from);
+        match self.meta {
+            Some(meta) => TextureMeta {
+                base_size: if meta.base_size == [0.0, 0.0] {
+                    pixels
+                } else {
+                    meta.base_size
+                },
+                pixels,
+                ..meta
+            },
+            None => TextureMeta::plain(pixels),
+        }
     }
 }
 

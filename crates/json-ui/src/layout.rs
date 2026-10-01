@@ -22,11 +22,13 @@ use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
 use crate::widgets::{self, ScrollFrame};
 
+mod clip;
 mod grid;
 mod measure;
 
 pub use measure::MeasureCache;
 
+use clip::{clip_children, clip_rect};
 use grid::{fitted_columns, grid_children, grid_columns};
 
 /// A virtual-pixel rectangle, top-left origin.
@@ -70,6 +72,21 @@ pub trait TextMeasure {
     fn localize<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
         std::borrow::Cow::Borrowed(text)
     }
+
+    /// A label's extent in `shape`, wrapped at `max_width` when known; the
+    /// default scales the unscaled measure and ignores line padding.
+    fn label(
+        &self,
+        text: &str,
+        max_width: Option<f64>,
+        shape: crate::label::LabelShape,
+    ) -> [f64; 2] {
+        let [w, h] = match max_width {
+            Some(width) if width > 0.0 => self.wrapped(text, width / shape.scale),
+            _ => self.extent(text),
+        };
+        [w * shape.scale, h * shape.scale]
+    }
 }
 
 /// Resolves a `texture` path to its sidecar metadata (base size, nine-slice). The
@@ -99,6 +116,8 @@ pub struct LaidOut<'a> {
     /// Animations scaling `alpha` at paint time, own and propagated.
     pub fades: Vec<Fade>,
     pub visible: bool,
+    /// False when this control or an ancestor is disabled (locked styling).
+    pub enabled: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
     pub children: Vec<LaidOut<'a>>,
@@ -164,6 +183,10 @@ fn lay_out<'a>(
         scrolls: Vec::new(),
         sliders: Vec::new(),
         ancestors: Vec::new(),
+        disabled: 0,
+        hidden_names: Vec::new(),
+        allow_clipping: true,
+        screen,
     };
     let key = child_key("", root);
     let laid = place_subtree(
@@ -189,6 +212,13 @@ struct PlaceCtx<'e, 'x> {
     sliders: Vec<(f64, [Option<String>; 3])>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
     ancestors: Vec<(String, Rect, Rect)>,
+    /// Enclosing disabled controls; their descendants draw locked.
+    disabled: usize,
+    /// Descendant names an enclosing edit box hides (its placeholder).
+    hidden_names: Vec<String>,
+    /// The inherited `allow_clipping`; an unclipped control draws within `screen`.
+    allow_clipping: bool,
+    screen: Rect,
 }
 
 /// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
@@ -220,8 +250,16 @@ fn place_subtree<'a>(
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
     let (own_alpha, fades, inherit) = inherited.apply(control, alpha(control));
+    let allow_clipping =
+        widgets::bound_bool(control, "allow_clipping").unwrap_or(ctx.allow_clipping);
+    let parent_clip = if allow_clipping {
+        parent_clip
+    } else {
+        ctx.screen
+    };
+    let inherited_allow = std::mem::replace(&mut ctx.allow_clipping, allow_clipping);
     let child_clip = if clip_children(control) {
-        parent_clip.intersect(rect)
+        parent_clip.intersect(clip_rect(control, rect))
     } else {
         parent_clip
     };
@@ -237,8 +275,16 @@ fn place_subtree<'a>(
         ctx.sliders.push(entry);
     }
     let hidden = widgets::hidden_state_children(control, &key, ctx.state);
+    let placeholder = widgets::hidden_placeholder(control);
+    if let Some(name) = placeholder {
+        ctx.hidden_names.push(name.to_owned());
+    }
     let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
+    let enabled = ctx.disabled == 0 && widgets::enabled(control);
+    if !enabled {
+        ctx.disabled += 1;
+    }
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
     let placed = if ctx.cull && !visible(control) {
         Vec::new()
@@ -247,7 +293,8 @@ fn place_subtree<'a>(
     };
     let mut children = Vec::with_capacity(placed.len());
     for (child, mut child_rect) in placed {
-        let mut child_shown = !hidden.contains(&child.name);
+        let mut child_shown =
+            !hidden.contains(&child.name) && !ctx.hidden_names.contains(&child.name);
         let mut clip_for_child = child_clip;
         // A dropdown's content lays out inside its named area, not its parent.
         if let Some((area, content)) = &dropdown
@@ -299,6 +346,13 @@ fn place_subtree<'a>(
         ));
     }
     ctx.ancestors.pop();
+    if placeholder.is_some() {
+        ctx.hidden_names.pop();
+    }
+    ctx.allow_clipping = inherited_allow;
+    if !enabled {
+        ctx.disabled -= 1;
+    }
     if opened_slider {
         ctx.sliders.pop();
     }
@@ -318,6 +372,7 @@ fn place_subtree<'a>(
         alpha: own_alpha,
         fades,
         visible: shown && visible(control),
+        enabled,
         children,
     }
 }
@@ -696,7 +751,7 @@ fn siblings_max(parent: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
 /// Natural content size: an opted-in image's texture `base_size`, a label's text extent
 /// (wrapped at `width` when known), scaled by `font_scale_factor`.
 fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Option<[f64; 2]> {
-    if !matches!(control.control_type.as_deref(), Some("label" | "image")) {
+    if !crate::label::is_label(control) && control.control_type.as_deref() != Some("image") {
         return None;
     }
     measure::natural(control, width, || natural_uncached(control, env, width))
@@ -709,49 +764,9 @@ fn natural_uncached(
     width: Option<f64>,
 ) -> Option<[f64; 2]> {
     match control.control_type.as_deref() {
-        // An image sizes to its texture only when it opts in; otherwise a
-        // default axis fills the parent like any control.
-        Some("image")
-            if widgets::bound_bool(control, "default_size_scales_to_ratio") == Some(true) =>
-        {
-            texture_path(control)
-                .and_then(|path| env.textures.texture(&path).map(|meta| meta.base_size))
-        }
-        Some("label") => {
-            let scale = font_scale(control);
-            let text = label_text(control);
-            let text = if localizes(control) {
-                env.text.localize(&text)
-            } else {
-                std::borrow::Cow::Borrowed(text.as_str())
-            };
-            let [w, h] = match width {
-                Some(width) if width > 0.0 => env.text.wrapped(&text, width / scale),
-                _ => env.text.extent(&text),
-            };
-            Some([w * scale, h * scale])
-        }
+        Some("image") => crate::sprite::natural(control, env, width),
+        _ if crate::label::is_label(control) => Some(crate::label::natural(control, env, width)),
         _ => None,
-    }
-}
-
-/// A label's glyph scale: `font_scale_factor` (1 when absent or non-positive)
-/// times its `font_size` step.
-pub(crate) fn font_scale(control: &ResolvedControl) -> f64 {
-    let factor = widgets::bound_number(control, "font_scale_factor")
-        .filter(|scale| *scale > 0.0)
-        .unwrap_or(1.0);
-    factor * font_size_scale(control)
-}
-
-/// Glyph scale of a `font_size` (small/normal/large/extra_large); needs native
-/// measurement of the client's font-size table.
-fn font_size_scale(control: &ResolvedControl) -> f64 {
-    match control.properties.get("font_size").and_then(Value::as_str) {
-        Some("small") => 0.75,
-        Some("large") => 1.5,
-        Some("extra_large") => 2.0,
-        _ => 1.0,
     }
 }
 
@@ -891,12 +906,6 @@ fn stack_axis(control: &ResolvedControl) -> Option<Axis> {
     }
 }
 
-fn clip_children(control: &ResolvedControl) -> bool {
-    ["clips_children", "clip_children"]
-        .iter()
-        .any(|key| matches!(control.properties.get(*key), Some(Value::Bool(true))))
-}
-
 fn layer(control: &ResolvedControl) -> i32 {
     control
         .properties
@@ -926,27 +935,6 @@ fn visible(control: &ResolvedControl) -> bool {
         Some(Value::Bool(flag)) => *flag,
         Some(Value::String(text)) => text != "false",
         _ => true,
-    }
-}
-
-fn texture_path(control: &ResolvedControl) -> Option<String> {
-    control
-        .properties
-        .get("texture")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-}
-
-/// A label localizes its text unless `localize` is `false`.
-pub(crate) fn localizes(control: &ResolvedControl) -> bool {
-    control.properties.get("localize") != Some(&Value::Bool(false))
-}
-
-fn label_text(control: &ResolvedControl) -> String {
-    match control.properties.get("text").and_then(Value::as_str) {
-        // A `#binding` has no literal extent until data binds in a later tranche.
-        Some(text) if !text.starts_with('#') => text.to_owned(),
-        _ => String::new(),
     }
 }
 
