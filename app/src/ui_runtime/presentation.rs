@@ -3,7 +3,6 @@ use std::{fmt, sync::Arc};
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::{
     camera::Camera,
-    math::Vec3,
     prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, Resource, Time, With},
     time::Real,
     window::{PrimaryWindow, Window},

@@ -19,6 +19,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "server_form.long_form",
     "server_form.custom_form",
     "popup_dialog.modal_dialog_popup",
+    "rating_prompt.rating_prompt_screen",
     "crafting.inventory_screen",
     "crafting.crafting_screen",
     "chest.small_chest_screen",

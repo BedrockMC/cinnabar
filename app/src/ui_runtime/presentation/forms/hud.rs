@@ -47,8 +47,6 @@ pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
     ),
 ];
 
-/// Chat lines stay this long before their one-second fade (Java: 200 ticks).
-const CHAT_LIFETIME_SECONDS: f64 = 10.0;
 /// Java's per-line chat background opacity.
 const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
 /// Newest chat lines the controller keeps alive.
@@ -60,9 +58,6 @@ const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
 const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
-/// Behind the position and days lines: the controls' authored alpha, as the
-/// text-background opacity option's default is unrecovered.
-const TEXT_BACKGROUND_ALPHA: f64 = 0.7;
 /// Ticks in one Minecraft day.
 const TICKS_PER_DAY: f64 = 24_000.0;
 
@@ -240,6 +235,7 @@ pub(super) struct HudScreens {
     /// This frame's fade clocks (title, action bar, item name).
     clocks: std::collections::BTreeMap<String, f64>,
     model: Option<HudModel>,
+    opacity: Option<i32>,
     data: Arc<DataSource>,
 }
 
@@ -260,6 +256,16 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
         };
+        if self
+            .form_presentation
+            .chat
+            .settings
+            .options
+            .value("hide_hud")
+            != 0
+        {
+            return Ok(true);
+        }
         let mut frame = self.hud_frame.clone();
         frame.now_millis = now_millis;
         let mut icons = Vec::new();
@@ -270,11 +276,21 @@ impl UiPresentationRuntime {
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
                 .map(sidebar_model);
-            let model = hud_model(runtime, &frame, sidebar, &mut icons);
+            let options = &self.form_presentation.chat.settings.options;
+            let mut model = hud_model(runtime, &frame, sidebar, &mut icons, options);
+            super::settings_chat::apply_hud(options, &mut model);
+            let opacity = options.value("interface_opacity");
             let hud = &mut self.form_presentation.hud;
             hud.clocks = hud_clocks(&model);
-            if hud.model.as_ref() != Some(&model) {
-                hud.data = Arc::new(hud_data_source(&model));
+            if hud.model.as_ref() != Some(&model) || hud.opacity != Some(opacity) {
+                let mut data = hud_data_source(&model);
+                data.set_global(
+                    "#hud_alpha",
+                    json_ui::Scalar::Num(f64::from(opacity) / 100.0),
+                );
+                data.set_global("#hud_propagate_alpha", json_ui::Scalar::Bool(true));
+                hud.data = Arc::new(data);
+                hud.opacity = Some(opacity);
                 hud.model = Some(model);
             }
             Arc::clone(&hud.data)
@@ -342,6 +358,7 @@ fn hud_model(
     frame: &HudFrame,
     sidebar: Option<Sidebar>,
     icons: &mut Vec<IconRef>,
+    settings: &crate::menu::settings_options::SettingsOptions,
 ) -> HudModel {
     let seconds = |millis: u64| millis as f64 / 1_000.0;
     let now = frame.now_millis;
@@ -413,7 +430,7 @@ fn hud_model(
             born: seconds(changed),
         });
     let chat_visible = !runtime.chat_focused() && !runtime.inventory_open();
-    let horizon = seconds(now) - CHAT_LIFETIME_SECONDS - 1.0;
+    let horizon = seconds(now) - settings.chat_lifetime() - 1.0;
     let messages = runtime.chat().messages();
     let chat = messages
         .iter()
@@ -422,7 +439,7 @@ fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: bounded_visible_text(text.as_ref()).to_owned(),
+                text: super::settings_chat::message_text(settings, text.as_ref()),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
@@ -460,7 +477,7 @@ fn hud_model(
         item_name,
         chat,
         chat_visible,
-        chat_lifetime: CHAT_LIFETIME_SECONDS,
+        chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         sidebar,
         boss_bars: runtime
@@ -482,7 +499,7 @@ fn hud_model(
             .collect(),
         player_position,
         days_played,
-        text_background_alpha: TEXT_BACKGROUND_ALPHA,
+        text_background_alpha: f64::from(settings.value("hud_text_background_opacity")) / 100.0,
     }
 }
 

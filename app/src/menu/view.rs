@@ -312,7 +312,12 @@ pub(crate) struct MenuView {
     pub(crate) local_worlds: Vec<LocalWorldCard>,
     /// The local-world create, edit and template screens and their modals.
     pub(crate) local: crate::local_worlds::WorldsView,
-    pub(crate) volumes: super::settings_values::Volumes,
+    pub(crate) settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
+    pub(crate) storage: std::sync::Arc<super::settings_storage::StorageView>,
+    pub(crate) settings_dropdown: Option<u16>,
+    pub(crate) key_remap: Option<u16>,
+    pub(crate) settings_advanced_graphics: bool,
+    pub(crate) language_choices: std::sync::Arc<[(String, String)]>,
     pub(crate) feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub(crate) store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,

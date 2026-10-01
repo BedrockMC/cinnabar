@@ -32,12 +32,21 @@ const MESSAGES_VIEW: &str = "messages_panel";
 pub(crate) enum ChatHit {
     Suggestion(usize),
     Send,
+    CopyCoordinates,
+    Paste,
+    CoordinateDropdown,
+    CoordinateSource(bool),
     Close,
+    SettingsOpen,
+    SettingsClose,
+    SettingsAction(crate::menu::MenuAction),
 }
 
 /// The chat screen's cached layout and last frame's input geometry.
 #[derive(Default)]
 pub(super) struct ChatScreen {
+    pub(super) settings: super::settings_chat::ChatSettings,
+    pub(super) coordinates: super::chat_coordinates::ChatCoordinates,
     screen: CachedScreen,
     /// Window-logical hit rects and their layout keys, from the last frame.
     hits: Vec<(ChatHit, UiRect, String)>,
@@ -75,7 +84,17 @@ impl UiPresentationRuntime {
         }
         chat.open = true;
         chat.messages = messages;
-        let mut data = chat_data(runtime, now_millis);
+        let mut data = chat_data(runtime, now_millis, &chat.settings.options);
+        super::chat_coordinates::bind(chat, &mut data, now_millis, &|key| {
+            runtime
+                .translation(key)
+                .map_or_else(|| key.to_owned(), |value| value.to_string())
+        });
+        super::settings_chat::bind(&chat.settings, &mut data, &|key| {
+            runtime
+                .translation(key)
+                .map_or_else(|| key.to_owned(), |value| value.to_string())
+        });
         // The view's bag (`#scrolled_to_end`) as it stood last frame, for its view bindings.
         if let Some((key, metrics)) = &chat.scroll
             && let Some(name) = key.rsplit('/').next()
@@ -132,11 +151,30 @@ impl UiPresentationRuntime {
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
             .map(|(key, metrics)| (key.clone(), metrics.clone()));
         for region in frame.hits.iter().filter(|region| region.enabled) {
+            if chat.settings.open && !region.key.contains("popup_factory") {
+                continue;
+            }
             if region.kind == HitKind::EditBox {
                 chat.edit_box = Some(region.key.clone());
                 continue;
             }
-            let Some(hit) = chat_hit(region) else {
+            if let Some(actions) = super::settings_controls::slider_actions(region) {
+                for (step, bounds) in
+                    super::menus::segments(region, actions.len(), frame.scale, frame.origin)
+                {
+                    chat.hits.push((
+                        ChatHit::SettingsAction(actions[step]),
+                        bounds,
+                        region.key.clone(),
+                    ));
+                }
+                continue;
+            }
+            let hit = super::settings_chat::action(&chat.settings, region)
+                .map(ChatHit::SettingsAction)
+                .or_else(|| super::chat_coordinates::action(region))
+                .or_else(|| chat_hit(region));
+            let Some(hit) = hit else {
                 continue;
             };
             if let Some(bounds) = window_rect(region, frame.scale, frame.origin) {
@@ -150,6 +188,7 @@ impl UiPresentationRuntime {
     pub(in super::super) fn close_chat_screen(&mut self) {
         let chat = &mut self.form_presentation.chat;
         chat.open = false;
+        chat.settings.open = false;
         chat.hits.clear();
         chat.pointer = None;
     }
@@ -231,7 +270,11 @@ impl ChatScreen {
 }
 
 /// What the chat controller binds, from the runtime's chat state.
-fn chat_data(runtime: &UiRuntime, now_millis: u64) -> DataSource {
+fn chat_data(
+    runtime: &UiRuntime,
+    now_millis: u64,
+    settings: &crate::menu::settings_options::SettingsOptions,
+) -> DataSource {
     let mut data = DataSource::new();
     data.set_strict(true);
     let translate = |key: &str| runtime.translation(key);
@@ -262,16 +305,33 @@ fn chat_data(runtime: &UiRuntime, now_millis: u64) -> DataSource {
     let items = messages
         .iter()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
+        .filter(|_| settings.value("hide_chat") == 0)
         .map(|line| {
             let text = resolve_chat_line(line, translate);
             FactoryItem::new("chat_screen_messages", 0.0)
                 .value(
                     "#text",
-                    Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
+                    Scalar::Text(super::settings_chat::message_text(settings, text.as_ref())),
                 )
-                .var("chat_font_type", Value::from("default"))
-                .var("chat_font_scale_factor", Value::from(1.0))
-                .var("chat_line_spacing", Value::from(0.0))
+                .var(
+                    "chat_font_type",
+                    Value::from(
+                        if !settings.chat_smooth_available() || settings.value("chat_typeface") == 0
+                        {
+                            "default"
+                        } else {
+                            "smooth"
+                        },
+                    ),
+                )
+                .var(
+                    "chat_font_scale_factor",
+                    Value::from(settings.chat_font_scale()),
+                )
+                .var(
+                    "chat_line_spacing",
+                    Value::from(settings.chat_line_padding()),
+                )
         })
         .collect();
     data.set_factory("messages_factory", items);
@@ -298,6 +358,8 @@ fn chat_data(runtime: &UiRuntime, now_millis: u64) -> DataSource {
 
 fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
     match region.pressed.as_deref()? {
+        "button.open_chat_settings" => Some(ChatHit::SettingsOpen),
+        "button.close_chat_settings" => Some(ChatHit::SettingsClose),
         "button.click_autocomplete" => region.collection_index.map(ChatHit::Suggestion),
         "button.send" => Some(ChatHit::Send),
         "button.menu_exit" | "button.menu_cancel" | "button.chat_menu_cancel" => {

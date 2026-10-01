@@ -245,13 +245,27 @@ fn sliders_split_into_their_settings_values() {
             MenuAction::SettingsScale(0)
         ]
     );
-    slider.control_name = Some("music_volume".to_owned());
-    let music = slider_actions(&view, &slider).unwrap();
-    assert_eq!(music.len(), usize::from(VOLUME_STEPS));
-    assert_eq!(music[0], MenuAction::SettingsVolume(1, 0));
-    assert_eq!(music.last(), Some(&MenuAction::SettingsVolume(1, 100)));
-    slider.control_name = Some("fov".to_owned());
-    assert!(slider_actions(&view, &slider).is_none());
+    for (index, option) in crate::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .enumerate()
+    {
+        if !matches!(
+            option.kind,
+            crate::menu::settings_options::SettingKind::Slider
+        ) {
+            continue;
+        }
+        slider.control_name = Some(option.name.to_owned());
+        let actions = slider_actions(&view, &slider).unwrap();
+        assert_eq!(
+            actions.first(),
+            Some(&MenuAction::SettingsOption(index as u16, option.min))
+        );
+        assert_eq!(
+            actions.last(),
+            Some(&MenuAction::SettingsOption(index as u16, option.max))
+        );
+    }
 }
 
 #[test]

@@ -179,7 +179,8 @@ pub(super) fn fixture_view(dir: &std::path::Path) -> MenuView {
     view
 }
 
-fn snapshot(view: &MenuView, name: &str) {
+/// Captures a menu screen after its retained layout has settled.
+pub(super) fn snapshot(view: &MenuView, name: &str) {
     snapshot_at(view, name, 0);
 }
 

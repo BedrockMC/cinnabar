@@ -348,3 +348,153 @@ fn chat_screen_snapshot() {
         .unwrap();
     super::super::forms::snapshot::write(&input, "chat_screen");
 }
+
+/// The real carrier supplies the gear, popup and persisted controls without a network session.
+#[test]
+fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
+    use crate::menu::{
+        MenuAction,
+        settings_options::{SETTINGS_OPTIONS, SettingsOptions},
+    };
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    let lang = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/compiled/vanilla-v1.mcbelang");
+    if let Some(lang) = std::fs::read(lang)
+        .ok()
+        .and_then(|bytes| assets::RuntimeLangCatalog::decode(&bytes).ok())
+    {
+        runtime.set_lang_catalog(Arc::new(lang));
+    }
+    chat(&mut runtime, 1, "Visible chat history");
+    runtime.open_chat();
+    runtime.insert_chat_text("Unsent draft").unwrap();
+    let mut options = SettingsOptions::default();
+    presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
+    let input = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "settings-chat-before");
+    assert!(
+        presentation
+            .chat_hits()
+            .iter()
+            .any(|(hit, _)| *hit == ChatHit::SettingsOpen)
+    );
+    presentation.set_chat_settings_open(true);
+    let input = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "settings-chat-after");
+    let hits = presentation.chat_hits();
+    assert!(
+        hits.iter().any(|(hit, _)| *hit == ChatHit::SettingsClose),
+        "{hits:?}"
+    );
+    let mute = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "hide_chat")
+        .unwrap();
+    assert!(
+        hits.iter()
+            .any(|(hit, _)| *hit
+                == ChatHit::SettingsAction(MenuAction::SettingsOption(mute as u16, 1))),
+        "{hits:?}"
+    );
+    assert!(!hits.iter().any(|(hit, _)| *hit == ChatHit::Send));
+    options.set(mute, 1);
+    presentation.set_chat_settings_snapshot((Arc::new(options), None));
+    presentation.set_chat_settings_open(false);
+    build(&mut presentation, &runtime, 0);
+    assert!(!texts(presentation.chat_draw_nodes()).contains(&"Visible chat history"));
+    assert_eq!(runtime.chat_editor().as_str(), "Unsent draft");
+}
+
+#[test]
+fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat();
+    runtime.insert_chat_text("draft").unwrap();
+    let mut options = SettingsOptions::default();
+    let coordinate_option = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "copy_coordinate_ui")
+        .unwrap();
+    options.set(coordinate_option, 1);
+    presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
+    presentation.set_chat_coordinates(Some([1.25, 64.0, -3.5]), Some([1, 63, -4]));
+    build(&mut presentation, &runtime, 0);
+    let hits = presentation.chat_hits();
+    for expected in [
+        ChatHit::CopyCoordinates,
+        ChatHit::Paste,
+        ChatHit::CoordinateDropdown,
+    ] {
+        assert!(
+            hits.iter().any(|(hit, _)| *hit == expected),
+            "{expected:?}: {hits:?}"
+        );
+    }
+    assert!(texts(presentation.chat_draw_nodes()).contains(&"1.25 64.00 -3.50"));
+    assert_eq!(
+        presentation.chat_coordinate_text().as_deref(),
+        Some("1.25 64.00 -3.50")
+    );
+    presentation.select_chat_coordinates(None);
+    build(&mut presentation, &runtime, 0);
+    for expected in [
+        ChatHit::CoordinateSource(false),
+        ChatHit::CoordinateSource(true),
+    ] {
+        assert!(
+            presentation
+                .chat_hits()
+                .iter()
+                .any(|(hit, _)| *hit == expected),
+            "{expected:?}: {:?}",
+            presentation.chat_hits()
+        );
+    }
+    presentation.select_chat_coordinates(Some(true));
+    build(&mut presentation, &runtime, 0);
+    assert_eq!(
+        presentation.chat_coordinate_text().as_deref(),
+        Some("1 63 -4")
+    );
+    let input = presentation
+        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "settings-creator-coordinates");
+    presentation.chat_coordinates_copied(10);
+    build(&mut presentation, &runtime, 10);
+    assert!(texts(presentation.chat_draw_nodes()).contains(&"chat.coordinateCopiedToast"));
+    build(&mut presentation, &runtime, 1000);
+    assert!(!texts(presentation.chat_draw_nodes()).contains(&"chat.coordinateCopiedToast"));
+    presentation.set_chat_coordinates(Some([1.25, 64.0, -3.5]), None);
+    build(&mut presentation, &runtime, 1000);
+    assert_eq!(presentation.chat_coordinate_text(), None);
+    assert!(
+        !presentation
+            .chat_hits()
+            .iter()
+            .any(|(hit, _)| *hit == ChatHit::CopyCoordinates)
+    );
+    options.set(coordinate_option, 0);
+    presentation.set_chat_settings_snapshot((Arc::new(options), None));
+    build(&mut presentation, &runtime, 1000);
+    assert!(!presentation.chat_hits().iter().any(|(hit, _)| matches!(
+        hit,
+        ChatHit::CopyCoordinates | ChatHit::Paste | ChatHit::CoordinateDropdown
+    )));
+    assert_eq!(runtime.chat_editor().as_str(), "draft");
+}

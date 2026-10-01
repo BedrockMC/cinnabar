@@ -9,11 +9,13 @@ mod launch;
 mod model;
 mod progress;
 mod prompt;
+#[cfg(test)]
+mod settings_storage_flow_tests;
 
 use std::{io, path::PathBuf};
 
 use bevy::{
-    prelude::{App, MessageReader, Plugin, ResMut, Resource, Update},
+    prelude::{App, MessageReader, Plugin, Res, ResMut, Resource, Update},
     window::WindowFocused,
 };
 
@@ -37,6 +39,7 @@ pub(crate) struct LocalWorlds {
     playing: bool,
     focused: bool,
     pause_menu: bool,
+    pause_on_unfocus: bool,
     /// The pause last sent to the core.
     paused: bool,
 }
@@ -49,6 +52,7 @@ impl Default for LocalWorlds {
             playing: false,
             focused: true,
             pause_menu: false,
+            pause_on_unfocus: true,
             paused: false,
         }
     }
@@ -121,7 +125,7 @@ impl LocalWorlds {
 
     /// Sends a pause change when playing and the wanted state moved; the core ignores it for BDS.
     fn sync_pause(&mut self) {
-        let wanted = self.playing && (self.pause_menu || !self.focused);
+        let wanted = self.playing && (self.pause_menu || (self.pause_on_unfocus && !self.focused));
         if wanted != self.paused {
             self.paused = wanted;
             self.dispatch(vec![Effect::SetPaused(wanted)]);
@@ -162,7 +166,16 @@ fn pump_local_worlds(mut worlds: ResMut<LocalWorlds>) {
     worlds.pump();
 }
 
-fn pause_on_focus(mut focus: MessageReader<WindowFocused>, mut worlds: ResMut<LocalWorlds>) {
+/// Applies the desktop focus preference before forwarding focus changes to the local world.
+fn pause_on_focus(
+    mut focus: MessageReader<WindowFocused>,
+    mut worlds: ResMut<LocalWorlds>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+) {
+    if let Some(menu) = menu {
+        worlds.pause_on_unfocus = menu.settings_snapshot().0.value("pause_menu_on_focus_lost") != 0;
+        worlds.sync_pause();
+    }
     for message in focus.read() {
         worlds.focus_changed(message.focused);
     }
@@ -221,5 +234,24 @@ mod tests {
         worlds.input(Input::Back);
         worlds.input(Input::Refresh);
         assert!(worlds.menu().busy());
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    /// Disabling focus pause preserves explicit pause-menu control.
+    #[test]
+    fn focus_preference_does_not_disable_explicit_pause() {
+        let mut worlds = LocalWorlds::default();
+        worlds.set_playing(true);
+        worlds.focus_changed(false);
+        assert!(worlds.paused);
+        worlds.pause_on_unfocus = false;
+        worlds.sync_pause();
+        assert!(!worlds.paused);
+        worlds.set_pause_menu(true);
+        assert!(worlds.paused);
     }
 }

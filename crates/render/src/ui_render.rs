@@ -34,10 +34,13 @@ pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/composite.rs"]
 pub(crate) mod composite;
+#[path = "ui_render/glint.rs"]
+mod glint;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/uploads.rs"]
 mod uploads;
+pub use glint::UiGlintSettings;
 use overlay::queue_ui_overlay;
 pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, install_overlay_graph};
 
@@ -68,6 +71,7 @@ struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
     app.init_resource::<UiRenderScene>()
+        .init_resource::<UiGlintSettings>()
         .init_resource::<UiRenderStats>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
@@ -77,7 +81,10 @@ fn install_ui_render(app: &mut App) {
         return;
     }
     let stats = app.world().resource::<UiRenderStats>().clone();
-    app.add_plugins(ExtractResourcePlugin::<UiRenderScene>::default());
+    app.add_plugins((
+        ExtractResourcePlugin::<UiRenderScene>::default(),
+        ExtractResourcePlugin::<UiGlintSettings>::default(),
+    ));
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", Shader::from_wgsl);
     load_internal_asset!(
         app,
@@ -110,7 +117,7 @@ struct UiViewportUniform {
     viewport_size: [f32; 2],
     /// Seconds since the UI renderer started; animates the item glint.
     time_seconds: f32,
-    _padding: f32,
+    glint_strength: f32,
 }
 
 #[derive(Resource)]
@@ -149,7 +156,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         contents: bytemuck::bytes_of(&UiViewportUniform {
             viewport_size: [1.0, 1.0],
             time_seconds: 0.0,
-            _padding: 0.0,
+            glint_strength: UiGlintSettings::default().strength,
         }),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
@@ -200,7 +207,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStats>,
     tick: SystemChangeTick,
-    coverage: Option<Res<UiHandCoverage>>,
+    (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
@@ -231,8 +238,12 @@ pub(crate) fn prepare_ui_resources(
     // Written every frame: the glint animates without a new UI revision.
     let viewport = UiViewportUniform {
         viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
-        time_seconds: gpu.started.elapsed().as_secs_f32() % 3600.0,
-        _padding: 0.0,
+        time_seconds: glint
+            .as_deref()
+            .copied()
+            .unwrap_or_default()
+            .animation_seconds(gpu.started.elapsed().as_secs_f32()),
+        glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
     render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     if let Some(previous) = gpu.last_admitted_revision {

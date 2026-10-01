@@ -517,9 +517,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
+    let saved_settings = crate::menu::settings_options::SettingsOptions::load(
+        &layout
+            .server_file()
+            .with_file_name(crate::menu::settings_options::SETTINGS_FILE),
+    );
     let active_lang = crate::asset_startup::load_active_language(
         &loaded_assets.selected_path,
-        args.language.as_deref(),
+        args.language.as_deref().or(saved_settings.language()),
     );
     // The sound-definition catalog binds optionally (VPA-017): absence falls
     // back to a bounded empty catalog with this one-time notice, while a
@@ -813,13 +818,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         PhysicsAuthorityGate::ProductionEnabled
     })
     .insert_resource(local_player_skin.clone())
-    .insert_resource(MenuRuntime::new_with_layout(
-        !connection_requested,
-        args.gui_scale,
-        args.display_name.clone(),
-        layout,
-        local_player_skin,
-    ))
+    .insert_resource(
+        MenuRuntime::new_with_layout(
+            !connection_requested,
+            args.gui_scale,
+            args.display_name.clone(),
+            layout,
+            local_player_skin,
+        )
+        .with_language_assets(
+            loaded_assets.selected_path.clone(),
+            args.language.as_deref(),
+        ),
+    )
     .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
     .insert_resource(named_audio)
