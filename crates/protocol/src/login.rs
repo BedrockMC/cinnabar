@@ -862,7 +862,7 @@ fn level_event_generic(raw: &RawPacket) -> Option<Packet> {
         event_id,
         __ctd__: Nbt(body),
     });
-    Some(Packet::new(raw.header.clone(), data))
+    Some(Packet::new(raw.header, data))
 }
 
 /// Reclassifies the raw UI pre-validator's semantic rejections as skippable
