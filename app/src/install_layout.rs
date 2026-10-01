@@ -296,7 +296,11 @@ fn development_root(executable: &Path) -> Option<(PathBuf, PathBuf)> {
                 .components()
                 .next()?
                 .as_os_str();
-            if profile != "debug" && profile != "release" {
+            // Cargo profile directories this repository builds the client into.
+            if !["debug", "release", "play"]
+                .iter()
+                .any(|known| profile == *known)
+            {
                 continue;
             }
             let root = ancestor.parent()?.to_owned();
@@ -458,6 +462,20 @@ mod tests {
             xdg_data_home: None,
             xdg_runtime_dir: None,
         }
+    }
+
+    /// `make play` builds into `target/play`, which must still use the checkout's `.local`.
+    #[test]
+    fn play_profile_binary_uses_the_development_layout() {
+        let layout = InstallLayout::resolve(
+            Platform::Linux,
+            &environment("/work/cinnabar/target/play/bedrock-client", "/home/dev"),
+        )
+        .unwrap();
+        assert_eq!(
+            layout.runtime_root,
+            PathBuf::from("/work/cinnabar/.local/run")
+        );
     }
 
     #[test]
