@@ -305,7 +305,7 @@ func runWithResourcePackCacheFactory(
 	serveErr := serve(ctx, proxy.Config{
 		SocketDir:           opts.socketDir,
 		Upstream:            opts.upstream,
-		TokenSource:         tokenSource,
+		Account:             account,
 		Logger:              logger,
 		UpstreamClientCache: opts.upstreamClientCache,
 		Transfers:           transfers,

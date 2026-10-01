@@ -81,7 +81,7 @@ func TestResourcePackAdmissionSnapshotsCoverOfferPolicyAndOneShotReporting(t *te
 	}{
 		{name: "none", wantOffer: ResourcePackOfferNone, wantResult: ResourcePackDownstreamNone},
 		{name: "optional", packs: []*resource.Pack{pack}, selected: []*resource.Pack{pack}, wantOffer: ResourcePackOfferOptional, wantResult: ResourcePackDownstreamOfferedOptional},
-		{name: "required compatibility", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamOfferedOptional},
+		{name: "required", packs: []*resource.Pack{pack}, required: true, selected: []*resource.Pack{pack}, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamOfferedRequired},
 		{name: "required offer with empty selected stack", packs: []*resource.Pack{pack}, required: true, selectedRequired: true, wantOffer: ResourcePackOfferRequired, wantResult: ResourcePackDownstreamStrippedIgnored},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -154,19 +154,20 @@ func TestOptionalStatusChangesOnlyAfterLocalNegotiationCompletes(t *testing.T) {
 	}
 }
 
-func TestRequiredCompatibilityStatusReachesLocalHandoff(t *testing.T) {
+// A required offer is forwarded as required and reported as such through the handoff.
+func TestRequiredStatusReachesLocalHandoff(t *testing.T) {
 	telemetry := newResourcePackAdmissionTelemetry(1, nil)
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}, required: true}
 	upstream := newFakeUpstream(nil)
 	upstream.packs, upstream.required = stack.packs, true
 	telemetry.observeOffer(upstream)
 	telemetry.observePolicyOutcome(stack, true)
-	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamOfferedOptional {
-		t.Fatalf("configured required compatibility outcome = %q, want offered_optional", got)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamOfferedRequired {
+		t.Fatalf("configured required outcome = %q, want offered_required", got)
 	}
 	telemetry.observeLocalHandoff(stack)
-	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamHandedOffOptional {
-		t.Fatalf("accepted required compatibility outcome = %q, want handed_off_optional", got)
+	if got := telemetry.snapshot().DownstreamOutcome; got != ResourcePackDownstreamHandedOffRequired {
+		t.Fatalf("accepted required outcome = %q, want handed_off_required", got)
 	}
 }
 
@@ -261,13 +262,19 @@ func testAdmissionPack(t *testing.T) *resource.Pack {
 
 func testAdmissionPackArchive(t *testing.T) []byte {
 	t.Helper()
+	return admissionPackArchiveWithID(t, "00112233-4455-6677-8899-aabbccddeeff")
+}
+
+// admissionPackArchiveWithID gives selection fixtures distinct pack identities.
+func admissionPackArchiveWithID(t *testing.T, id string) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	manifest, err := writer.Create("manifest.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fmt.Fprint(manifest, `{"format_version":2,"header":{"name":"test","description":"test","uuid":"00112233-4455-6677-8899-aabbccddeeff","version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`)
+	_, err = fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"test","description":"test","uuid":%q,"version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id)
 	if err != nil {
 		t.Fatal(err)
 	}

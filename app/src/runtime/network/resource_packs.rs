@@ -46,20 +46,44 @@ impl Default for PackApplication {
     }
 }
 
+/// A server-required pack the client could not apply; vanilla refuses such a join.
+#[derive(Debug, thiserror::Error)]
+#[error("required resource pack could not be applied ({rejected} of the stack rejected)")]
+pub(super) struct RequiredPackRejected {
+    rejected: usize,
+}
+
 /// Reads StartGame's custom blocks and item icon keys, then applies the stack.
 pub(super) fn prepare_session_packs(
     handoff: protocol::ResourcePackHandoff,
     game_data: &protocol::GameData,
-) -> (protocol::CustomBlocks, PackApplication) {
+) -> Result<(protocol::CustomBlocks, PackApplication), RequiredPackRejected> {
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
     let block_items = custom_block_items(game_data, &custom_blocks);
     let hashed = game_data.start_game.block_network_ids_are_hashes;
+    let required = handoff.required();
     let mut packs =
         prepare_pack_application(handoff, &custom_blocks, &icon_keys, &block_items, hashed);
+    required_packs_applied(required, &packs.admission)?;
     packs.item_components =
         crate::ui_runtime::item_facts::SessionItemComponents::from_game_data(game_data);
-    (custom_blocks, packs)
+    Ok((custom_blocks, packs))
+}
+
+/// Optional packs that fail validation are dropped; a required one ends the join.
+fn required_packs_applied(
+    required: bool,
+    admission: &PackAdmission,
+) -> Result<(), RequiredPackRejected> {
+    match admission {
+        PackAdmission::Validated(stack) if required && !stack.rejections().is_empty() => {
+            Err(RequiredPackRejected {
+                rejected: stack.rejections().len(),
+            })
+        }
+        _ => Ok(()),
+    }
 }
 
 /// `block_items` pairs each custom block item with the block it draws as.
@@ -654,6 +678,43 @@ mod tests {
             AdmissionError::InvalidZipFooter
         );
         assert!(overlay.is_none());
+    }
+
+    // A required pack that fails validation refuses the join in vanilla's words;
+    // an optional one is dropped and the join goes on.
+    #[test]
+    fn a_rejected_required_pack_refuses_the_join() {
+        let _cache = overlay_cache();
+        for required in [false, true] {
+            let broken = protocol::ResourcePackArchive::unencrypted(
+                "11111111-2222-3333-4444-555555555555".parse().unwrap(),
+                "1.2.3".into(),
+                String::new(),
+                vec![0; 32],
+            );
+            let handoff =
+                protocol::ResourcePackHandoff::from_archives(vec![broken]).with_required(required);
+            assert_eq!(handoff.required(), required);
+            let application = super::prepare_pack_application(
+                handoff,
+                &protocol::CustomBlocks::default(),
+                &[],
+                &[],
+                false,
+            );
+            let outcome = super::required_packs_applied(required, &application.admission);
+            assert_eq!(outcome.is_err(), required);
+            if let Err(error) = outcome {
+                let failure =
+                    crate::runtime::network::session_failure_display(&error.to_string(), None);
+                assert_eq!(
+                    crate::menu::disconnect::describe(&failure).body,
+                    crate::menu::disconnect::DisconnectBody::Key(
+                        "disconnectionScreen.resourcePack"
+                    )
+                );
+            }
+        }
     }
 
     fn lang_pack(id: u128, lang: &[u8]) -> protocol::ResourcePackArchive {
