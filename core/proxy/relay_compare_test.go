@@ -38,6 +38,9 @@ func (*replaySource) Close() error                                { return nil }
 type discardSink struct {
 	flushes, packets atomic.Int64
 	firstWrite       chan struct{}
+	firstDelivery    chan struct{}
+	deliveryOnce     sync.Once
+	delivered        atomic.Int64
 	firstOnce        sync.Once
 	stall            bool
 	closed           chan struct{}
@@ -45,7 +48,7 @@ type discardSink struct {
 }
 
 func newDiscardSink(stall bool) *discardSink {
-	return &discardSink{firstWrite: make(chan struct{}), stall: stall, closed: make(chan struct{})}
+	return &discardSink{firstWrite: make(chan struct{}), firstDelivery: make(chan struct{}), stall: stall, closed: make(chan struct{})}
 }
 
 func (s *discardSink) ReadBatch() ([]packet.Packet, error) {
@@ -62,9 +65,22 @@ func (s *discardSink) WritePacket(packet.Packet) error {
 	s.packets.Add(1)
 	return nil
 }
-func (*discardSink) WritePacketImmediate(...packet.Packet) error { return nil }
+
+// WritePacketImmediate performs the same buffering work and then submits it.
+func (s *discardSink) WritePacketImmediate(packets ...packet.Packet) error {
+	for _, value := range packets {
+		if err := s.WritePacket(value); err != nil {
+			return err
+		}
+	}
+	return s.Flush()
+}
 func (s *discardSink) Flush() error {
 	s.flushes.Add(1)
+	if count := s.packets.Load(); count > s.delivered.Load() {
+		s.delivered.Store(count)
+		s.deliveryOnce.Do(func() { close(s.firstDelivery) })
+	}
 	return nil
 }
 func (s *discardSink) Abort() error {
@@ -98,7 +114,8 @@ func perPacketPump(source *replaySource, sink *discardSink) {
 }
 
 func BenchmarkRelayCompareThroughput(b *testing.B) {
-	batches := compareBatches(200, 50)
+	const batchCount, batchSize = 200, 50
+	batches := compareBatches(batchCount, batchSize)
 	for name, run := range map[string]func(*replaySource, *discardSink){
 		"batched":   func(src *replaySource, sink *discardSink) { _ = pumpPackets(src, sink, false) },
 		"perPacket": perPacketPump,
@@ -110,6 +127,9 @@ func BenchmarkRelayCompareThroughput(b *testing.B) {
 				sink := newDiscardSink(false)
 				run(&replaySource{batches: batches}, sink)
 				flushes = sink.flushes.Load()
+				if sink.packets.Load() != batchCount*batchSize || sink.delivered.Load() != batchCount*batchSize {
+					b.Fatalf("packets buffered/delivered = %d/%d", sink.packets.Load(), sink.delivered.Load())
+				}
 			}
 			b.ReportMetric(float64(flushes), "flushes/op")
 		})
@@ -117,16 +137,22 @@ func BenchmarkRelayCompareThroughput(b *testing.B) {
 }
 
 func BenchmarkRelayCompareFirstPacketLatency(b *testing.B) {
-	batches := compareBatches(1, 50)
+	const batchSize = 50
+	batches := compareBatches(1, batchSize)
 	var total time.Duration
 	for i := 0; i < b.N; i++ {
 		sink := newDiscardSink(false)
 		start := time.Now()
-		go func() { _ = pumpPackets(&replaySource{batches: batches}, sink, false) }()
-		<-sink.firstWrite
+		done := make(chan struct{})
+		go func() { _ = pumpPackets(&replaySource{batches: batches}, sink, false); close(done) }()
+		<-sink.firstDelivery
 		total += time.Since(start)
+		<-done
+		if sink.delivered.Load() != batchSize {
+			b.Fatal("pump did not deliver the whole batch")
+		}
 	}
-	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "first-write-ns")
+	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "first-delivery-ns")
 }
 
 func BenchmarkRelayCompareShutdownWithStalledPeer(b *testing.B) {
@@ -144,4 +170,24 @@ func BenchmarkRelayCompareShutdownWithStalledPeer(b *testing.B) {
 		total += time.Since(start)
 	}
 	b.ReportMetric(float64(total.Nanoseconds())/float64(b.N), "shutdown-ns")
+}
+
+// TestRelayComparisonAccountsForEveryPacket keeps the benchmark baseline honest.
+func TestRelayComparisonAccountsForEveryPacket(t *testing.T) {
+	const batchCount, batchSize = 3, 7
+	for name, run := range map[string]func(*replaySource, *discardSink){
+		"batched":   func(src *replaySource, sink *discardSink) { _ = pumpPackets(src, sink, false) },
+		"perPacket": perPacketPump,
+	} {
+		t.Run(name, func(t *testing.T) {
+			sink := newDiscardSink(false)
+			run(&replaySource{batches: compareBatches(batchCount, batchSize)}, sink)
+			if sink.packets.Load() != batchCount*batchSize || sink.delivered.Load() != batchCount*batchSize {
+				t.Fatalf("buffered/delivered = %d/%d", sink.packets.Load(), sink.delivered.Load())
+			}
+			if name == "perPacket" && sink.flushes.Load() != batchCount*batchSize {
+				t.Fatalf("baseline flushes = %d", sink.flushes.Load())
+			}
+		})
+	}
 }
