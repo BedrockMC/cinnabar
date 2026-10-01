@@ -14,13 +14,34 @@ impl CollisionWorld for EmptyWorld {
     }
 }
 
+/// Minimal admission context; the outbox refuses to flush queued inputs without one.
+fn evidence_context() -> crate::movement::PhysicsTickEvidenceContext {
+    crate::movement::PhysicsTickEvidenceContext {
+        fifo_sequence: 1,
+        pose_generation: 1,
+        dimension: 0,
+        perspective: semantic_input::PerspectiveMode::FirstPerson,
+        camera_blocked: false,
+        camera_fallback: false,
+        local_avatar_visible: false,
+        look_delta: [0.0, 0.0],
+        outbound_authorized: true,
+        outbox_depth: 1,
+        outbox_drops: 0,
+        free_camera_packet_count: 0,
+    }
+}
+
 /// Admits completed movement to the actual outbound command FIFO.
 fn flush_inputs(app: &mut App) {
     let mut ticker = app.world_mut().remove_resource::<MovementTicker>().unwrap();
     let network = app.world().resource::<NetworkHandle>();
-    crate::movement::flush_player_auth_inputs(&mut ticker, 8, None, |identity, packet| {
-        network.send_physics_packet(identity, packet, None)
-    })
+    crate::movement::flush_player_auth_inputs(
+        &mut ticker,
+        8,
+        Some(evidence_context()),
+        |identity, packet| network.send_physics_packet(identity, packet, None),
+    )
     .unwrap();
     app.insert_resource(ticker);
 }
