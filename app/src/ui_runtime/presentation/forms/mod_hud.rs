@@ -111,7 +111,7 @@ impl UiPresentationRuntime {
                 &hud.catalog,
                 &Context::default(),
                 data,
-                (root, px),
+                (root, px, runtime.text_generation()),
                 env,
                 &ViewState::default(),
             )
