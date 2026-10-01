@@ -50,6 +50,7 @@ use super::{ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, Re
 mod block_cracks;
 mod block_entities;
 mod block_events;
+mod cave_visibility;
 mod cohort;
 mod commit_budget;
 mod connectivity;
@@ -74,6 +75,7 @@ mod request_queue;
 mod requests;
 mod residency;
 mod retries;
+mod scheduler_refresh;
 mod sequencing;
 mod sign_edit;
 
@@ -321,7 +323,7 @@ pub struct WorldStream {
     pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_light_deferred: BinaryHeap<PendingSchedulerCandidate>,
     light_priority_wakeups: HashMap<SubChunkKey, u64>,
-    light_scheduler_camera_cell: Option<[i32; 4]>,
+    light_scheduler_refresh: scheduler_refresh::SchedulerRefresh<2>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     next_light_batch_id: u64,
     in_flight_light_batches: HashMap<u64, usize>,
@@ -340,7 +342,7 @@ pub struct WorldStream {
     pending_resident_mesh_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_mesh_removal_deferred: BinaryHeap<PendingSchedulerCandidate>,
     pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
-    mesh_scheduler_camera_cell: Option<[i32; 4]>,
+    mesh_scheduler_refresh: scheduler_refresh::SchedulerRefresh<4>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,

@@ -319,7 +319,74 @@ impl Harness {
             && self.stream.requested_sub_chunks.is_empty()
     }
 
+    /// Separates nearby publication delays from their data and lighting prerequisites.
+    fn trace_near_waits(&self) {
+        let center = ChunkKey::new(
+            self.stream.current_dimension,
+            floor_to_i32(self.camera[0]).div_euclid(16),
+            floor_to_i32(self.camera[2]).div_euclid(16),
+        );
+        let now = Instant::now();
+        let mut counts = [0_usize; 7];
+        let mut light_blockers = BTreeSet::new();
+        let mut runnable = Vec::new();
+        for column in spiral(center, NEAR_CHUNKS as i32) {
+            for y in [4, 5] {
+                let key = SubChunkKey::from_chunk(column, y);
+                if !solid(key) || !in_frustum(key, self.camera) {
+                    continue;
+                }
+                let halo_blockers = key
+                    .mesh_neighbourhood_dependents()
+                    .filter(|neighbour| {
+                        self.stream.light_source_is_known(*neighbour)
+                            && !self.stream.light_is_current(*neighbour)
+                    })
+                    .collect::<Vec<_>>();
+                let bucket = if self.presented.contains_key(&key) {
+                    0
+                } else if !self.stream.resident.contains(&key) {
+                    1
+                } else if key
+                    .mesh_neighbourhood_dependents()
+                    .filter(|neighbour| *neighbour != key)
+                    .any(|neighbour| self.stream.sub_chunk_is_due(neighbour, now))
+                {
+                    2
+                } else if !self.stream.light_is_current(key) {
+                    3
+                } else if !halo_blockers.is_empty() {
+                    4
+                } else if self.stream.in_flight.contains_key(&key) {
+                    5
+                } else {
+                    runnable.push(key);
+                    6
+                };
+                if bucket == 3 || bucket == 4 {
+                    light_blockers.extend(halo_blockers);
+                }
+                counts[bucket] += 1;
+            }
+        }
+        let pending_light = light_blockers
+            .iter()
+            .filter(|key| self.stream.pending_light.contains_key(key))
+            .count();
+        let running_light = light_blockers
+            .iter()
+            .filter(|key| self.stream.in_flight_light.contains_key(key))
+            .count();
+        println!(
+            "near frame={} [shown,absent,due,center_light,halo_light,mesh_running,runnable]={counts:?} light_blockers_pending={pending_light} running={running_light} first_blockers={:?} first_runnable={:?}",
+            self.frame,
+            light_blockers.iter().take(5).collect::<Vec<_>>(),
+            runnable.iter().take(5).collect::<Vec<_>>()
+        );
+    }
+
     fn step(&mut self) {
+        self.stream.begin_frame_work();
         self.deliver();
         self.stream.set_view_forward([0.0, 0.0, 1.0]);
         let poll_started = Instant::now();
@@ -343,6 +410,16 @@ impl Harness {
                 self.stream.in_flight.len(),
                 self.presented.len(),
             );
+            println!(
+                "light_work frame={} workers={} channel={} dispatched={} accepted={} stale={}",
+                self.frame,
+                self.stream.running_light_jobs.load(Ordering::Acquire),
+                self.stream.light_rx.len(),
+                self.stream.stats.phase2_stages.light_jobs_dispatched,
+                self.stream.stats.accepted_light_jobs,
+                self.stream.stats.stale_light_jobs,
+            );
+            self.trace_near_waits();
         }
         self.frame += 1;
         std::thread::sleep(self.frame_sleep);
@@ -440,6 +517,21 @@ impl Harness {
                     <= NEAR_CHUNKS * 16.0
             })
             .collect::<Vec<_>>();
+        if std::env::var_os("CINNABAR_HARNESS_TRACE").is_some() {
+            let mut last_near = near
+                .iter()
+                .filter_map(|key| {
+                    converged_at
+                        .get(*key)
+                        .map(|frame| (*frame - start_frame, **key))
+                })
+                .collect::<Vec<_>>();
+            last_near.sort_unstable();
+            println!(
+                "last_near_completion {:?}",
+                last_near.iter().rev().take(5).collect::<Vec<_>>()
+            );
+        }
         for offset in 0..presented_per_frame.len() {
             let frame = start_frame + offset as u64;
             let converged_by = |key: &&SubChunkKey| {
