@@ -1,6 +1,23 @@
 use super::{Vec3, apply_relative_movement};
 
 #[test]
+fn water_acceleration_multiplies_effective_level_before_division() {
+    for (speed, level, grounded, expected) in [
+        (0.1, 2, true, 0x3d96_2fc9),
+        (0.13, 1, true, 0x3d68_1b4e),
+        (0.13, 3, false, 0x3d99_9999),
+    ] {
+        let input = super::MovementInput {
+            movement_speed: Some(speed),
+            ..Default::default()
+        };
+        let effective = super::depth_strider_level(level, grounded);
+        let actual = super::water_travel_speed(&input, 1.0, effective);
+        assert_eq!((actual as f32).to_bits(), expected);
+    }
+}
+
+#[test]
 fn jump_lookup_uses_float_indices_and_float_division_for_table_angles() {
     // Lens 0xa5dacf0 indexes the table initialized by 0x296ccd0 with sinf(i / 10430.378f).
     for (yaw, sine, cosine) in [
