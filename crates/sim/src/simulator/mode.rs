@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, Vec3, WorldQueryError};
 
-/// Sneaking hitbox height. Public wiki value, not oracle-validated.
-const SNEAK_HEIGHT: f64 = 1.5;
+/// Current Player constructor's SneakingHeightChangeVersion value (RVA 0x1eba20).
+const SNEAK_HEIGHT: f64 = 1.49_f32 as f64;
 /// Swimming, crawling and gliding hitbox height. Public wiki value.
 const LOW_POSE_HEIGHT: f64 = 0.6;
 /// Vertical inset applied before the fit test so exact contact still fits.
@@ -67,7 +67,10 @@ mod tests {
         assert_eq!(MovementMode::Swimming.hitbox_height(false), 0.6);
         assert_eq!(MovementMode::Crawling.hitbox_height(true), 0.6);
         assert_eq!(MovementMode::Gliding.hitbox_height(false), 0.6);
-        assert_eq!(MovementMode::Walking.hitbox_height(true), 1.5);
+        assert_eq!(
+            MovementMode::Walking.hitbox_height(true),
+            f64::from(1.49_f32)
+        );
         assert_eq!(MovementMode::Walking.hitbox_height(false), PLAYER_HEIGHT);
         assert_eq!(MovementMode::Flying.hitbox_height(true), PLAYER_HEIGHT);
     }
