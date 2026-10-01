@@ -13,6 +13,9 @@ use std::{
 };
 use uuid::Uuid;
 
+mod storage;
+mod tiers;
+
 const CATALOG_FILE: &str = "global_packs.json";
 const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
 
@@ -33,6 +36,8 @@ pub struct InstalledPack {
     pub description: String,
     pub min_engine_version: Option<[u32; 3]>,
     pub subpacks: Vec<Subpack>,
+    #[serde(default)]
+    pub revision: u64,
 }
 
 impl InstalledPack {
@@ -43,7 +48,16 @@ impl InstalledPack {
 
     /// Derives a safe archive filename exclusively from parsed identity fields.
     pub(crate) fn filename(&self) -> String {
-        format!("{}-{}.mcpack", self.id, self.version_text())
+        if self.revision == 0 {
+            format!("{}-{}.mcpack", self.id, self.version_text())
+        } else {
+            format!(
+                "{}-{}-{}.mcpack",
+                self.id,
+                self.version_text(),
+                self.revision
+            )
+        }
     }
 }
 
@@ -53,6 +67,8 @@ pub struct ActivePack {
     pub id: Uuid,
     #[serde(default)]
     pub subpack: String,
+    #[serde(default)]
+    pub revision: u64,
 }
 
 /// Independent outcomes from a resource pack or add-on bundle import.
@@ -79,8 +95,6 @@ pub enum LibraryError {
     UnknownPack,
     #[error("pack requires a newer game version")]
     NewerEngine,
-    #[error("deactivate this pack and Apply before importing its replacement")]
-    ActiveReplacement,
     #[error("installed resource-pack catalog exceeds its storage limit")]
     CatalogTooLarge,
 }
@@ -91,6 +105,10 @@ struct Catalog {
     available: Vec<InstalledPack>,
     #[serde(default)]
     active: Vec<ActivePack>,
+    #[serde(default)]
+    retained: Vec<InstalledPack>,
+    #[serde(default)]
+    next_revision: u64,
 }
 
 /// Disk-backed library. Selection edits are staged until `apply` succeeds.
@@ -99,9 +117,7 @@ pub struct GlobalPackLibrary {
     engine_version: [u32; 3],
     catalog: Catalog,
     active: Vec<ActivePack>,
-    /// Packs held by any preview that could still receive a runtime acknowledgement.
-    previewed: Vec<ActivePack>,
-    latest_preview: Vec<ActivePack>,
+    memory_tier: u32,
 }
 
 impl GlobalPackLibrary {
@@ -123,9 +139,27 @@ impl GlobalPackLibrary {
             engine_version,
             catalog,
             active,
-            previewed: Vec::new(),
-            latest_preview: Vec::new(),
+            memory_tier: 0,
         })
+    }
+
+    /// Sets vanilla's memory tier for newly activated packs; manual selections remain intact.
+    pub fn set_device_memory(&mut self, bytes: u64) {
+        self.memory_tier = tiers::memory_tier(bytes);
+    }
+
+    /// Reports the tier used to warn about unsupported manual choices.
+    pub fn device_memory_tier(&self) -> u32 {
+        self.memory_tier
+    }
+
+    /// Resolves the immutable archive version referenced by a selection.
+    pub fn metadata(&self, active: &ActivePack) -> Option<&InstalledPack> {
+        self.catalog
+            .available
+            .iter()
+            .chain(&self.catalog.retained)
+            .find(|pack| pack.id == active.id && pack.revision == active.revision)
     }
 
     /// Lists installed resource packs, including active packs.
@@ -147,18 +181,18 @@ impl GlobalPackLibrary {
         let (mut report, archives) = crate::import::read_import(bytes)?;
         let mut candidate = self.catalog.clone();
         let mut accepted = Vec::new();
-        for (metadata, bytes) in archives {
-            if self
-                .active
+        for (mut metadata, bytes) in archives {
+            candidate.next_revision = candidate
+                .next_revision
+                .checked_add(1)
+                .ok_or(LibraryError::CatalogTooLarge)?;
+            metadata.revision = candidate.next_revision;
+            if let Some(previous) = candidate
+                .available
                 .iter()
-                .chain(&self.catalog.active)
-                .chain(&self.previewed)
-                .any(|active| active.id == metadata.id)
+                .find(|pack| pack.id == metadata.id)
             {
-                report
-                    .rejected
-                    .push(LibraryError::ActiveReplacement.to_string());
-                continue;
+                candidate.retained.push(previous.clone());
             }
             candidate.available.retain(|pack| pack.id != metadata.id);
             candidate.available.push(metadata.clone());
@@ -171,7 +205,32 @@ impl GlobalPackLibrary {
         }
         atomic_write(&self.root.join(CATALOG_FILE), &catalog_bytes)?;
         self.catalog = candidate;
+        for active in &mut self.active {
+            if let Some(pack) = self
+                .catalog
+                .available
+                .iter()
+                .find(|pack| pack.id == active.id)
+            {
+                active.revision = pack.revision;
+                if !pack
+                    .subpacks
+                    .iter()
+                    .any(|pack| pack.folder == active.subpack)
+                {
+                    active.subpack = tiers::select(&pack.subpacks, self.memory_tier).to_owned();
+                }
+            }
+        }
         Ok(report)
+    }
+
+    /// Reads one installed pack's own icon without activating it or consulting overlays.
+    pub fn pack_icon(&self, metadata: &InstalledPack) -> Result<Option<Box<[u8]>>, LibraryError> {
+        let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
+        let (pack, _) =
+            validate_archive_parts(metadata.id, &metadata.version_text(), "", bytes, None)?;
+        Ok(pack.read_file_with_limit("pack_icon.png", 4 * 1024 * 1024)?)
     }
 
     /// Adds a pack at the top of the staged stack, without duplicating it.
@@ -198,7 +257,8 @@ impl GlobalPackLibrary {
             0,
             ActivePack {
                 id,
-                subpack: String::new(),
+                subpack: tiers::select(&pack.subpacks, self.memory_tier).to_owned(),
+                revision: pack.revision,
             },
         );
         Ok(())
@@ -255,12 +315,7 @@ impl GlobalPackLibrary {
             rejections: Box::default(),
         };
         for active in self.active.iter().rev() {
-            let metadata = self
-                .catalog
-                .available
-                .iter()
-                .find(|pack| pack.id == active.id)
-                .ok_or(LibraryError::UnknownPack)?;
+            let metadata = self.metadata(active).ok_or(LibraryError::UnknownPack)?;
             if metadata
                 .min_engine_version
                 .is_some_and(|minimum| minimum > self.engine_version)
@@ -281,12 +336,6 @@ impl GlobalPackLibrary {
             };
             stack = ValidatedPackStack::compose(&stack, &next)?;
         }
-        for active in &self.active {
-            if !self.previewed.iter().any(|pending| pending.id == active.id) {
-                self.previewed.push(active.clone());
-            }
-        }
-        self.latest_preview = self.active.clone();
         Ok(Arc::new(stack))
     }
 
@@ -295,24 +344,20 @@ impl GlobalPackLibrary {
         if selection.len() > MAX_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
+        let mut selection = selection.to_vec();
         let mut seen = std::collections::HashSet::new();
-        for active in selection {
+        for active in &mut selection {
             if !seen.insert(active.id) {
                 return Err(AdmissionError::DuplicatePack.into());
             }
-            let pack = self
-                .catalog
-                .available
-                .iter()
-                .find(|pack| pack.id == active.id)
-                .ok_or(LibraryError::UnknownPack)?;
+            let pack = self.metadata(active).ok_or(LibraryError::UnknownPack)?;
             if !active.subpack.is_empty()
                 && !pack
                     .subpacks
                     .iter()
                     .any(|subpack| subpack.folder == active.subpack)
             {
-                return Err(AdmissionError::InvalidSubpack.into());
+                active.subpack.clear();
             }
         }
         let previous = std::mem::replace(&mut self.catalog.active, selection.to_vec());
@@ -320,8 +365,8 @@ impl GlobalPackLibrary {
             self.catalog.active = previous;
             return Err(error);
         }
-        if selection == self.latest_preview {
-            self.previewed.clear();
+        if selection == self.active {
+            storage::prune(&self.root, &mut self.catalog)?;
         }
         Ok(())
     }

@@ -15,6 +15,7 @@ fn fixture() -> resource_pack::InstalledPack {
         name: "Copper Test Pack".into(),
         description: "A local resource pack for reload verification.".into(),
         min_engine_version: None,
+        revision: 0,
         subpacks: vec![resource_pack::Subpack {
             folder: "high".into(),
             name: "High resolution".into(),
@@ -50,6 +51,7 @@ fn global_resources_screen_renders_actions_and_pack_settings() {
         selection: vec![resource_pack::ActivePack {
             id: pack.id,
             subpack: "high".into(),
+            revision: 0,
         }],
         selected: Some((true, 0)),
         ..Snapshot::default()

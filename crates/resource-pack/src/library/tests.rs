@@ -291,7 +291,7 @@ fn preview_does_not_persist_and_acknowledgement_preserves_newer_edits() {
 }
 
 #[test]
-fn active_and_in_flight_versions_cannot_be_replaced_before_deactivation_is_applied() {
+fn active_replacement_preserves_old_snapshots_and_updates_on_apply() {
     let fixture = Fixture::new();
     let mut library = fixture.library();
     let id = Uuid::from_u128(1);
@@ -305,10 +305,10 @@ fn active_and_in_flight_versions_cannot_be_replaced_before_deactivation_is_appli
     );
     library.import(&source).unwrap();
     library.activate(id).unwrap();
-    let committed = library.active().to_vec();
-    let in_flight = library.preview().unwrap();
-    library.deactivate(id);
+    let old = LayeredPackView::new(library.apply().unwrap());
+    library.preview().unwrap();
     for manifest in [original.clone(), original.replace("[1,0,0]", "[2,0,0]")] {
+        let pending = library.active().to_vec();
         let replacement = fixture.write(
             "replacement.zip",
             &zip(&[
@@ -316,78 +316,51 @@ fn active_and_in_flight_versions_cannot_be_replaced_before_deactivation_is_appli
                 ("textures/test.txt", b"changed"),
             ]),
         );
-        let report = library.import(&replacement).unwrap();
-        assert!(report.imported.is_empty());
-        assert_eq!(
-            report.rejected,
-            vec![LibraryError::ActiveReplacement.to_string()]
-        );
-        assert_eq!(library.available()[0].version, [1, 0, 0]);
+        assert_eq!(library.import(&replacement).unwrap().imported.len(), 1);
+        let restarted = LayeredPackView::new(fixture.library().preview().unwrap());
+        assert_eq!(fixture.library().active(), pending);
+        assert!(restarted.read("textures/test.txt").is_some());
+        library.commit_selection(&pending).unwrap();
+        let new = LayeredPackView::new(library.apply().unwrap());
+        assert_eq!(new.read("textures/test.txt").unwrap().as_ref(), b"changed");
+        assert_eq!(old.read("textures/test.txt").unwrap().as_ref(), b"original");
+        assert_eq!(fixture.library().active(), library.active());
     }
-    library.commit_selection(&committed).unwrap();
-    assert_eq!(fixture.library().active(), committed);
-    assert_eq!(
-        LayeredPackView::new(in_flight)
-            .read("textures/test.txt")
-            .unwrap()
-            .as_ref(),
-        b"original"
-    );
-    library.preview().unwrap();
-    let changed = fixture.write(
-        "changed.zip",
-        &zip(&[
-            ("manifest.json", original.as_bytes()),
-            ("textures/test.txt", b"changed"),
-        ]),
-    );
-    assert!(
-        library.import(&changed).unwrap().imported.is_empty(),
-        "committed version remains protected until acknowledgement"
-    );
-    library.commit_selection(&[]).unwrap();
-    assert_eq!(library.import(&changed).unwrap().imported.len(), 1);
-    library.activate(id).unwrap();
-    assert_eq!(
-        LayeredPackView::new(library.preview().unwrap())
-            .read("textures/test.txt")
-            .unwrap()
-            .as_ref(),
-        b"changed"
-    );
 }
 
 #[test]
-fn staged_selection_blocks_replacement_even_before_preview() {
+fn pack_icons_are_read_from_their_own_archive_without_activation() {
     let fixture = Fixture::new();
     let mut library = fixture.library();
-    let manifest = manifest(1, "resources", "");
-    let source = fixture.write("pack.zip", &zip(&[("manifest.json", manifest.as_bytes())]));
-    library.import(&source).unwrap();
-    library.activate(Uuid::from_u128(1)).unwrap();
-    assert!(library.import(&source).unwrap().imported.is_empty());
-    library.deactivate(Uuid::from_u128(1));
-    assert_eq!(library.import(&source).unwrap().imported.len(), 1);
-}
-
-#[test]
-fn superseded_preview_ids_stay_protected_until_the_latest_selection_is_acknowledged() {
-    let fixture = Fixture::new();
-    let mut library = fixture.library();
-    let id = Uuid::from_u128(1);
-    let manifest = manifest(1, "resources", "");
-    let source = fixture.write("pack.zip", &zip(&[("manifest.json", manifest.as_bytes())]));
-    library.import(&source).unwrap();
-    library.activate(id).unwrap();
-    let old = library.active().to_vec();
-    library.preview().unwrap();
-    library.deactivate(id);
-    library.preview().unwrap();
-    assert!(library.import(&source).unwrap().imported.is_empty());
-    library.commit_selection(&old).unwrap();
-    assert!(library.import(&source).unwrap().imported.is_empty());
-    library.commit_selection(&[]).unwrap();
-    assert_eq!(library.import(&source).unwrap().imported.len(), 1);
+    for id in [1, 2] {
+        let manifest = manifest(id, "resources", "");
+        let icon = [id as u8];
+        let source = fixture.write(
+            "pack.zip",
+            &zip(&[
+                ("manifest.json", manifest.as_bytes()),
+                ("pack_icon.png", &icon),
+            ]),
+        );
+        library.import(&source).unwrap();
+    }
+    assert!(library.active().is_empty());
+    assert_eq!(
+        library
+            .pack_icon(&library.available()[0])
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        &[1]
+    );
+    assert_eq!(
+        library
+            .pack_icon(&library.available()[1])
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        &[2]
+    );
 }
 
 #[test]

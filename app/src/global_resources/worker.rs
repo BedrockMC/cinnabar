@@ -51,6 +51,7 @@ fn run(
     outgoing: crossbeam_channel::Sender<Event>,
 ) {
     let mut snapshot = Snapshot::default();
+    let icon_root = root.join("icons");
     let mut library = match GlobalPackLibrary::open(root, engine_version()) {
         Ok(library) => library,
         Err(error) => {
@@ -59,6 +60,8 @@ fn run(
             return;
         }
     };
+    library.set_device_memory(super::memory::physical_bytes());
+    super::icons::refresh(&library, &mut snapshot, &icon_root);
     match library.preview() {
         Ok(stack) => {
             let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
@@ -79,12 +82,12 @@ fn run(
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
         let result = match command {
             Command::Commit(selection) => library.commit_selection(&selection),
-            Command::Import(path) => import(&mut library, path, &mut snapshot),
+            Command::Import(path) => import(&mut library, path, &mut snapshot, &icon_root),
             Command::Action {
                 action: Action::Import,
                 ..
             } => match super::picker::pick() {
-                Ok(Some(path)) => import(&mut library, path, &mut snapshot),
+                Ok(Some(path)) => import(&mut library, path, &mut snapshot, &icon_root),
                 Ok(None) => {
                     snapshot.message.clear();
                     Ok(())
@@ -116,17 +119,12 @@ fn engine_version() -> [u32; 3] {
 
 /// Rebuilds the UI lists from the library's highest-priority-first selection.
 fn refresh(library: &GlobalPackLibrary, snapshot: &mut Snapshot) {
+    snapshot.memory_tier = library.device_memory_tier();
     snapshot.selection = library.active().to_vec();
     snapshot.active = library
         .active()
         .iter()
-        .filter_map(|active| {
-            library
-                .available()
-                .iter()
-                .find(|pack| pack.id == active.id)
-                .cloned()
-        })
+        .filter_map(|active| library.metadata(active).cloned())
         .collect();
     snapshot.available = library
         .available()
@@ -141,8 +139,10 @@ fn import(
     library: &mut GlobalPackLibrary,
     path: PathBuf,
     snapshot: &mut Snapshot,
+    icon_root: &std::path::Path,
 ) -> Result<(), LibraryError> {
     let report = library.import(&path)?;
+    super::icons::refresh(library, snapshot, icon_root);
     snapshot.message = format!(
         "Imported {} resource packs; skipped {} behavior packs. {}",
         report.imported.len(),
@@ -201,13 +201,7 @@ fn act(
                 .settings
                 .and_then(|index| snapshot.active.get(index))
             {
-                let folder = if index == 0 {
-                    Some("")
-                } else {
-                    pack.subpacks
-                        .get(index - 1)
-                        .map(|subpack| subpack.folder.as_str())
-                };
+                let folder = pack.subpacks.get(index).map(|pack| pack.folder.as_str());
                 if let Some(folder) = folder {
                     library.select_subpack(pack.id, folder)?;
                 }

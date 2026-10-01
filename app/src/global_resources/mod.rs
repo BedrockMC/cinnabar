@@ -1,5 +1,7 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
+mod icons;
+mod memory;
 mod picker;
 mod worker;
 
@@ -31,6 +33,8 @@ pub(crate) enum Action {
 #[derive(Clone, Debug)]
 pub(crate) struct Snapshot {
     pub revision: u64,
+    pub memory_tier: u32,
+    pub icons: std::collections::BTreeMap<(String, u64), String>,
     pub available: Vec<InstalledPack>,
     pub active: Vec<InstalledPack>,
     pub selection: Vec<ActivePack>,
@@ -47,6 +51,8 @@ impl Default for Snapshot {
     fn default() -> Self {
         Self {
             revision: 0,
+            memory_tier: 0,
+            icons: Default::default(),
             available: Vec::new(),
             active: Vec::new(),
             selection: Vec::new(),
@@ -73,7 +79,9 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {
             Update,
             crate::runtime::network::reload_resource_packs
                 .after(crate::runtime::network::receive_network_events)
-                .before(crate::app::ClientFrameSet::UiPublication),
+                .before(crate::runtime::world::drive_world_stream)
+                .before(crate::app::ClientFrameSet::UiPublication)
+                .before(render::ChunkRenderApplySet),
         );
 }
 
