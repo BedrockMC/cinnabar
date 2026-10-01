@@ -536,7 +536,7 @@ impl<'a> Binder<'a> {
                 .properties
                 .insert(GRID_TEMPLATE_KEY.to_owned(), Value::Bool(true));
         });
-        cells.push(self.build(template_node, scope));
+        cells.push(unbound(template_node));
         cells
     }
 
@@ -937,6 +937,20 @@ fn with_index(src: Src, index: usize) -> Src {
             .properties
             .insert("collection_index".to_owned(), Value::from(index as u64));
     })
+}
+
+/// A node for a control and its subtree without binding: the grid template is
+/// only measured, as the client's template binds no data.
+fn unbound(src: Src) -> Node {
+    let children = (0..src.get().children.len())
+        .map(|index| unbound(src.child(index)))
+        .collect();
+    Node {
+        src,
+        own: BTreeMap::new(),
+        children,
+        deferred: None,
+    }
 }
 
 /// A templated grid's cell count, or `None` when a filling grid's count waits

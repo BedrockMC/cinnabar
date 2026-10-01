@@ -202,30 +202,65 @@ fn context(
     }
 }
 
-/// Whether the height resolves before the width: the width's rules read the
-/// height or the children while the height's read neither, or a ratio-scaled
-/// image derives its default width from its height.
+/// Rule properties read on every solve, derived once per layout.
+#[derive(Clone, Copy)]
+pub(super) struct Flags {
+    pub(super) height_first: bool,
+    pub(super) reads_sibling_max: bool,
+    /// `inherit_max_sibling_width`, `inherit_max_sibling_height`.
+    pub(super) inherits: [bool; 2],
+}
+
+pub(super) fn flags(control: &ResolvedControl) -> Flags {
+    let address = std::ptr::from_ref(control).addr();
+    if let Some(flags) = measure::FLAGS.with(|memo| memo.borrow().get(&address).copied()) {
+        return flags;
+    }
+    let flags = Flags {
+        height_first: solves_height_first(control),
+        reads_sibling_max: [Axis::X, Axis::Y]
+            .into_iter()
+            .any(|axis| reads(control, axis, &[Unit::PercentSiblingMax])),
+        inherits: ["inherit_max_sibling_width", "inherit_max_sibling_height"]
+            .map(|key| control.properties.get(key) == Some(&Value::Bool(true))),
+    };
+    measure::FLAGS.with(|memo| memo.borrow_mut().insert(address, flags));
+    flags
+}
+
+/// Whether the height resolves before the width.
 pub(super) fn height_first(control: &ResolvedControl) -> bool {
+    flags(control).height_first
+}
+
+/// The width's rules read the height or the children while the height's read
+/// neither, or a ratio-scaled image derives its default width from its height.
+fn solves_height_first(control: &ResolvedControl) -> bool {
     use Unit::{PercentChildren, PercentChildrenMax, PercentX, PercentY};
     let width_reads = reads(
         control,
         Axis::X,
         &[PercentY, PercentChildren, PercentChildrenMax],
     );
-    let height_free = matches!(size_length(control, Axis::Y), Some(Length::Terms(_)))
-        && !reads(
-            control,
-            Axis::Y,
-            &[PercentX, PercentChildren, PercentChildrenMax],
-        );
+    let height_free = with_size(control, Axis::Y, |length| {
+        matches!(length, Some(Length::Terms(_)))
+    }) && !reads(
+        control,
+        Axis::Y,
+        &[PercentX, PercentChildren, PercentChildrenMax],
+    );
     (width_reads && height_free) || ratio_scaled_width(control)
 }
 
 /// A ratio-scaled image whose width alone is `default` takes it from its height.
 fn ratio_scaled_width(control: &ResolvedControl) -> bool {
     scales_to_ratio(control)
-        && matches!(size_length(control, Axis::X), Some(Length::Default))
-        && !matches!(size_length(control, Axis::Y), Some(Length::Default))
+        && with_size(control, Axis::X, |length| {
+            matches!(length, Some(Length::Default))
+        })
+        && !with_size(control, Axis::Y, |length| {
+            matches!(length, Some(Length::Default))
+        })
 }
 
 /// Whether `axis`'s size or bound rules use any of `units`.
@@ -252,19 +287,23 @@ pub(super) fn reads(control: &ResolvedControl, axis: Axis, units: &[Unit]) -> bo
     )
 }
 
-/// The parsed size rule on `axis`.
-pub(super) fn size_length(control: &ResolvedControl, axis: Axis) -> Option<Length> {
+/// `read` over the parsed size rule on `axis`, without cloning it.
+pub(super) fn with_size<R>(
+    control: &ResolvedControl,
+    axis: Axis,
+    read: impl FnOnce(Option<&Length>) -> R,
+) -> R {
     memo_length(
         control,
         SIZE_SLOT + axis_index(axis) as u8,
         || Some(length(control, axis)),
-        |length| length.cloned(),
+        read,
     )
 }
 
 /// Whether the size on `axis` is `fill`.
 pub(super) fn is_fill(control: &ResolvedControl, axis: Axis) -> bool {
-    matches!(size_length(control, axis), Some(Length::Fill))
+    with_size(control, axis, |length| matches!(length, Some(Length::Fill)))
 }
 
 fn memo_length<R>(
@@ -336,7 +375,9 @@ fn natural(
                     numerator / denominator
                 }
             };
-            let other_default = matches!(size_length(control, other(axis)), Some(Length::Default));
+            let other_default = with_size(control, other(axis), |length| {
+                matches!(length, Some(Length::Default))
+            });
             Some(match (axis, other_default) {
                 (Axis::X, true) => tw,
                 (Axis::Y, true) => th,

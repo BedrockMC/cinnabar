@@ -157,15 +157,17 @@ pub(super) fn own_size(
     if !has_template(control) {
         return None;
     }
-    let scale = match size::size_length(control, axis)? {
-        Length::Default => 1.0,
-        Length::Terms(terms) => terms
-            .iter()
-            .filter(|term| term.unit == Unit::PercentChildren)
-            .map(|term| term.coeff / 100.0)
-            .sum(),
-        Length::Fill => 0.0,
-    };
+    let scale = size::with_size(control, axis, |length| match length? {
+        Length::Default => Some(1.0),
+        Length::Terms(terms) => Some(
+            terms
+                .iter()
+                .filter(|term| term.unit == Unit::PercentChildren)
+                .map(|term| term.coeff / 100.0)
+                .sum(),
+        ),
+        Length::Fill => Some(0.0),
+    })?;
     if scale <= 0.0 {
         return None;
     }
@@ -251,9 +253,10 @@ impl Layout {
     ) -> [f64; 2] {
         let mut size = size::resolve_size(child, extent, [0.0; 2], env);
         for (index, axis) in [Axis::X, Axis::Y].into_iter().enumerate() {
-            let expression = matches!(
-                size::size_length(child, axis),
-                Some(Length::Terms(terms)) if !terms.is_empty()
+            let expression = size::with_size(
+                child,
+                axis,
+                |length| matches!(length, Some(Length::Terms(terms)) if !terms.is_empty()),
             );
             if !expression {
                 size[index] = self.even(index);
