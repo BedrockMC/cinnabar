@@ -6,7 +6,7 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEven
 use render::{ActorArtworkPages, ActorRigRoute};
 use std::{fs, path::PathBuf, sync::Arc};
 
-struct Pack(PathBuf);
+pub(super) struct Pack(PathBuf);
 impl Pack {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -42,6 +42,16 @@ fn weighted_fixture(
     weight: &str,
     repetitions: usize,
 ) -> (Pack, ActorArtworkPages, Arc<RuntimeEntityAssets>) {
+    compiled_fixture(weight, repetitions, assets::ActorPoseMode::RestPose)
+}
+
+/// A one-entity pack (`minecraft:example`) whose wave clip is weighted by `weight`, compiled with
+/// its rig drawn in `pose_mode`.
+pub(super) fn compiled_fixture(
+    weight: &str,
+    repetitions: usize,
+    pose_mode: assets::ActorPoseMode,
+) -> (Pack, ActorArtworkPages, Arc<RuntimeEntityAssets>) {
     let pack = Pack::new();
     pack.write("entity/example.json", br#"{"format_version":"1.8.0","minecraft:client_entity":{"description":{"identifier":"minecraft:example","geometry":{"default":"geometry.example"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/example"},"animations":{"wave":"animation.example.wave"},"animation_controllers":[{"general":"controller.animation.example"}],"render_controllers":["controller.render.example"]}}}"#);
     pack.write("models/entity/example.json", br#"{"format_version":"1.8.0","geometry.base":{"texturewidth":16,"textureheight":16,"bones":[{"name":"root","pivot":[1,0,0],"rotation":[0,0,90]}]},"geometry.example:geometry.base":{"texturewidth":16,"textureheight":16,"bones":[{"name":"tail","parent":"root","pivot":[3,0,0],"cubes":[{"origin":[0,0,0],"size":[0,2,7],"uv":[0,0]}]}]}}"#);
@@ -57,11 +67,11 @@ fn weighted_fixture(
     let entities = asset_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     let bytes = encode_entity_blob(&entities).unwrap();
     let compiled = asset_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
-    // The compiler binds every rig as a compiled pose; re-encode with the rest route forced.
+    // The compiler binds every rig as a compiled pose; re-encode with the requested route.
     let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &bytes).unwrap();
     let mut bindings = catalog.bindings().to_vec();
     assert_eq!(bindings.len(), 1);
-    bindings[0].pose_mode = assets::ActorPoseMode::RestPose;
+    bindings[0].pose_mode = pose_mode;
     let rest_bytes = assets::encode_actor_catalog(&bytes, catalog.textures(), &bindings).unwrap();
     let catalog = RuntimeActorCatalog::decode(&rest_bytes, &bytes).unwrap();
     (
@@ -96,7 +106,7 @@ fn spawn_runtime(runtime_id: u64, unique_id: i64) -> WorldEvent {
         links: Arc::from([]),
     }))
 }
-fn stream(entities: Arc<RuntimeEntityAssets>) -> WorldStream {
+pub(super) fn stream(entities: Arc<RuntimeEntityAssets>) -> WorldStream {
     WorldStream::new_with_asset_sets(
         WorldBootstrap {
             local_player_unique_id: 1,

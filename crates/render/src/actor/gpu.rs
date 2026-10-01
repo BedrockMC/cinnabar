@@ -4,9 +4,72 @@ use std::{
     time::Instant,
 };
 
-use bevy::prelude::Resource;
+use bevy::{
+    prelude::Resource,
+    render::{
+        render_resource::{Buffer, BufferDescriptor, BufferUsages},
+        renderer::{RenderDevice, RenderQueue},
+    },
+};
 
-use super::ActorDrawManifestEntry;
+use super::{ActorDrawManifestEntry, ActorRigVertex, ActorRigVertexSegments};
+
+/// A storage buffer mirroring rig vertex segments: it uploads only segments of the same epoch it
+/// has not seen, and is replaced (with headroom) only for a new epoch or when it runs out of room.
+#[derive(Default)]
+pub(crate) struct SegmentedVertexBuffer {
+    buffer: Option<Buffer>,
+    epoch: u64,
+    segments: usize,
+    bytes: u64,
+}
+
+impl SegmentedVertexBuffer {
+    /// Brings the buffer up to `vertices`; bind groups holding the old buffer must be rebuilt.
+    pub(crate) fn sync(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        label: &'static str,
+        vertices: &ActorRigVertexSegments,
+    ) {
+        let vertex = std::mem::size_of::<ActorRigVertex>() as u64;
+        let total = vertices.len() as u64 * vertex;
+        if total == 0 {
+            *self = Self::default();
+            return;
+        }
+        let appendable = self.buffer.as_ref().is_some_and(|buffer| {
+            self.epoch == vertices.epoch
+                && self.segments <= vertices.segments.len()
+                && total <= buffer.size()
+        });
+        let (first, mut offset) = if appendable {
+            (self.segments, self.bytes)
+        } else {
+            self.buffer = Some(device.create_buffer(&BufferDescriptor {
+                label: Some(label),
+                size: (total + total / 4).next_multiple_of(4),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            (0, 0)
+        };
+        let buffer = self.buffer.as_ref().expect("buffer allocated above");
+        for segment in &vertices.segments[first..] {
+            let bytes = bytemuck::cast_slice::<ActorRigVertex, u8>(segment);
+            queue.write_buffer(buffer, offset, bytes);
+            offset += bytes.len() as u64;
+        }
+        self.epoch = vertices.epoch;
+        self.segments = vertices.segments.len();
+        self.bytes = offset;
+    }
+
+    pub(crate) const fn buffer(&self) -> Option<&Buffer> {
+        self.buffer.as_ref()
+    }
+}
 
 pub const MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS: usize = 64;
 pub(crate) const MAX_ACTOR_PRESENTATION_CALLBACKS: usize = 8;
@@ -207,6 +270,8 @@ pub(crate) struct ActorDrawSpan {
     pub page: u8,
     pub first: u32,
     pub count: u32,
+    /// Vertices of the geometry every instance of the span draws.
+    pub vertex_count: u32,
 }
 
 impl ActorDrawTracker {
@@ -317,6 +382,7 @@ mod tests {
             page: 0,
             first: 0,
             count: 1,
+            vertex_count: 3,
         };
         assert!(tracker.begin(draw(1), 9, &[span]));
         assert!(tracker.take_drawn().is_none());
@@ -337,11 +403,13 @@ mod tests {
                 page: 0,
                 first: 0,
                 count: 1,
+                vertex_count: 3,
             },
             ActorDrawSpan {
                 page: 1,
                 first: 1,
                 count: 1,
+                vertex_count: 3,
             },
         ];
         assert!(tracker.begin(frame.clone(), 8, &spans));
@@ -384,5 +452,28 @@ mod tests {
         let now = Instant::now();
         gate.publish_reserved(stale, now, now);
         assert!(gate.drain().is_empty());
+    }
+
+    /// A segment appended within an epoch writes into the same buffer; a new epoch replaces it.
+    #[test]
+    fn appended_segments_reuse_the_buffer_and_new_epochs_replace_it() {
+        use crate::actor::{ActorRigVertex, ActorRigVertexSegments};
+        use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (
+            RenderDevice::from(device),
+            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
+        );
+        let first = ActorRigVertexSegments::from_vertices(vec![ActorRigVertex::default(); 64]);
+        let mut mirror = super::SegmentedVertexBuffer::default();
+        mirror.sync(&device, &queue, "test", &first);
+        let buffer = mirror.buffer().unwrap().id();
+        // The headroom holds a small registration without reallocating.
+        let grown = first.with_segment(Arc::from(vec![ActorRigVertex::default(); 8]));
+        mirror.sync(&device, &queue, "test", &grown);
+        assert_eq!(mirror.buffer().unwrap().id(), buffer);
+        let relaid = ActorRigVertexSegments::from_vertices(vec![ActorRigVertex::default(); 64]);
+        mirror.sync(&device, &queue, "test", &relaid);
+        assert_ne!(mirror.buffer().unwrap().id(), buffer);
     }
 }

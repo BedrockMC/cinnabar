@@ -28,6 +28,12 @@ pub enum RuntimeStage {
     /// Main-world wall time from `First` to `Last`.
     MainFrame,
     ActorPublication,
+    /// Fixed-tick actor animation and Molang, inside `ActorPublication`.
+    ActorAnimation,
+    /// Per-frame actor presentation, culling and layers, inside `ActorPublication`.
+    ActorPreparation,
+    /// Bone matrices and instance arena build, inside `ActorPublication`.
+    ActorRigBuild,
     UiPublication,
     Particles,
     Audio,
@@ -35,7 +41,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 23] = [
         Self::NetworkIngestion,
         Self::WorldStream,
         Self::CaveVisibility,
@@ -52,6 +58,9 @@ impl RuntimeStage {
         Self::AcceptanceTelemetry,
         Self::MainFrame,
         Self::ActorPublication,
+        Self::ActorAnimation,
+        Self::ActorPreparation,
+        Self::ActorRigBuild,
         Self::UiPublication,
         Self::Particles,
         Self::Audio,
@@ -77,6 +86,9 @@ impl RuntimeStage {
             Self::AcceptanceTelemetry => "acceptance_telemetry",
             Self::MainFrame => "main_frame",
             Self::ActorPublication => "actor_publication",
+            Self::ActorAnimation => "actor_animation",
+            Self::ActorPreparation => "actor_preparation",
+            Self::ActorRigBuild => "actor_rig_build",
             Self::UiPublication => "ui_publication",
             Self::Particles => "particles",
             Self::Audio => "audio",

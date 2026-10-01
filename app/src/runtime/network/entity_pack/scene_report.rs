@@ -372,8 +372,9 @@ fn draw_actors(
             (texel[3] >= 26).then(|| [texel[0], texel[1], texel[2], 255])
         };
         let span = rig.geometry_spans[instance.geometry_id as usize];
-        let vertices =
-            &rig.geometry_vertices[span.first_vertex as usize..][..span.vertex_count as usize];
+        let Some(vertices) = rig.geometry_vertices.span(span) else {
+            continue;
+        };
         for corners in vertices.chunks_exact(3) {
             let placed = std::array::from_fn(|corner| {
                 let vertex = corners[corner];

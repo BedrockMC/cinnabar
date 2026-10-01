@@ -91,6 +91,7 @@ impl ActorStore {
             local_hands: [None, None],
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
+            animation_view: None,
             seat_defaults: Default::default(),
             property_registry: Default::default(),
             local_knockback: None,
@@ -518,7 +519,8 @@ impl ActorStore {
                 .filter(|_| self.local_first_person);
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_hands = self.local_hands.clone();
-            self.animation.advance_tick(actors, |actor| {
+            let view = self.animation_view.as_ref();
+            self.animation.advance_tick(actors, view, local_runtime, |actor| {
                 let lifetime = ActorLifetimeId {
                     session_id,
                     dimension,

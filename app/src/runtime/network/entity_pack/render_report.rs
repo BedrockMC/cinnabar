@@ -211,8 +211,9 @@ fn draw(
             continue;
         };
         let span = rig.geometry_spans[instance.geometry_id as usize];
-        let vertices =
-            &rig.geometry_vertices[span.first_vertex as usize..][..span.vertex_count as usize];
+        let Some(vertices) = rig.geometry_vertices.span(span) else {
+            continue;
+        };
         for corners in vertices.chunks_exact(3) {
             let points = std::array::from_fn(|corner| {
                 let vertex = corners[corner];
