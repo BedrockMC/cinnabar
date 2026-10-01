@@ -181,6 +181,7 @@ pub(super) struct PhysicsCorrectionPlan {
     pub(super) corrected_tick: u64,
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
+    pub(super) anchor_input: super::encoding::HeldInput,
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
 }
 
