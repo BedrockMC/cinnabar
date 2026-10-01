@@ -34,7 +34,7 @@ fn render_projectile_states() {
     std::fs::create_dir_all(&out).unwrap();
     for (name, identifier, pitch, yaw) in [
         ("arrow_flight", "minecraft:arrow", -20.0, 60.0),
-        ("arrow_stuck", "minecraft:arrow", 0.0, 60.0),
+        ("arrow_stuck", "minecraft:arrow", 0.0, -60.0),
         ("ender_pearl", "minecraft:ender_pearl", 0.0, 0.0),
         ("snowball", "minecraft:snowball", 0.0, 0.0),
     ] {
