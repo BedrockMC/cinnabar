@@ -7,9 +7,7 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::version::v1_26_51::{
-    McpePacketData, McpePacketName, NetworkStackLatencyPacket,
-};
+use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::blob_cache::ResolverReady;
@@ -24,6 +22,7 @@ mod boundary;
 mod latency_probe;
 mod packet_trace;
 use boundary::boundary_wakeup;
+pub use latency_probe::network_stack_latency_reply;
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
 #[cfg(test)]
@@ -224,9 +223,18 @@ impl<T: Transport> PlaySession<T> {
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldEvent, ProtocolError> {
-        self.recv_world_ingress(current_dimension)
-            .await
-            .map(WorldIngress::into_world_event)
+        loop {
+            let event = self
+                .recv_world_ingress(current_dimension)
+                .await?
+                .into_world_event();
+            if let WorldEvent::NetworkStackLatency(creation_time) = event {
+                self.send(network_stack_latency_reply(creation_time))
+                    .await?;
+            } else {
+                return Ok(event);
+            }
+        }
     }
 
     /// Receives world work while allowing the app to retain an uncopied LevelChunk payload.
@@ -264,10 +272,6 @@ impl<T: Transport> PlaySession<T> {
                 }
             };
             self.packet_id_trace.observe(raw.id);
-            if raw.id == McpePacketName::NetworkStackLatencyPacket {
-                self.answer_network_stack_latency_probe(raw).await?;
-                continue;
-            }
             if raw.id == McpePacketName::LevelChunkPacket {
                 let raw = raw.into_retention_bounded();
                 let borrowed = raw
@@ -319,31 +323,6 @@ impl<T: Transport> PlaySession<T> {
         crate::codec::validate_packet(&packet)?;
         self.stream.send_packet(packet).await?;
         Ok(())
-    }
-
-    /// Answers one from-server latency probe immediately with its provisionally
-    /// scaled creation time (`latency_probe::scaled_creation_time`) and the
-    /// from-server flag cleared. Probes not marked from-server are ignored.
-    /// Malformed probe wire stays fatal like every other decode failure.
-    async fn answer_network_stack_latency_probe(
-        &mut self,
-        raw: RawPacket,
-    ) -> Result<(), ProtocolError> {
-        let packet = match self.stream.decode_raw_packet(raw) {
-            Ok(packet) => packet,
-            Err(error) => return Err(self.fail_session(error)),
-        };
-        let McpePacketData::NetworkStackLatencyPacket(probe) = packet.data else {
-            unreachable!("NetworkStackLatency packet ID decoded to another variant")
-        };
-        if !probe.is_from_server {
-            return Ok(());
-        }
-        let echo = NetworkStackLatencyPacket {
-            creation_time: latency_probe::scaled_creation_time(probe.creation_time),
-            is_from_server: false,
-        };
-        self.send(echo.into()).await
     }
 
     /// Starts a bounded, secret-safe packet-ID trace for native acceptance.
@@ -504,10 +483,6 @@ impl<T: Transport> PlaySession<T> {
             self.packet_id_trace.observe(raw.id);
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
-            if packet_name == McpePacketName::NetworkStackLatencyPacket {
-                self.answer_network_stack_latency_probe(raw).await?;
-                continue;
-            }
             let raw = if packet_name == McpePacketName::LevelChunkPacket {
                 raw.into_retention_bounded()
             } else {
@@ -804,6 +779,7 @@ fn decode_world_raw_with(
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
             | McpePacketName::SetActorMotionPacket
+            | McpePacketName::NetworkStackLatencyPacket
             | McpePacketName::SetTimePacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
