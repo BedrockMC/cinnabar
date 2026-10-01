@@ -1,25 +1,28 @@
 use std::{fs, path::PathBuf};
 
+/// Loads the same generated biome module used by the renderer.
 fn shader(name: &str) -> String {
-    fs::read_to_string(
+    let source = fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join(name),
     )
-    .unwrap_or_else(|error| panic!("read {name}: {error}"))
+    .unwrap_or_else(|error| panic!("read {name}: {error}"));
+    if name == "biome_tint.wgsl" {
+        meshing::biome_lattice::shader_source(&source)
+    } else {
+        source
+    }
 }
 
 #[test]
 fn shared_shader_uses_lattice_kernel_and_uniform_fast_path() {
     let source = shader("biome_tint.wgsl");
 
-    assert!(source.contains("BIOME_LATTICE_STEP: i32 = 4"));
-    assert!(source.contains("fn lattice_tap_weights(t: f32)"));
-    assert!(source.contains("for (var tz = 0; tz < 4; tz += 1)"));
-    assert!(source.contains("for (var tx = 0; tx < 4; tx += 1)"));
+    assert!(source.contains("BIOME_DISTANCE_EPSILON"));
+    assert!(source.contains("lattice_point_index(position) * BIOME_POINT_WORDS"));
     assert!(source.contains("if (uniform_tint != 0xffffffffu)"));
-    assert!(source.contains("coordinate.x = clamp(coordinate.x, 0, 15)"));
-    assert!(source.contains("coordinate.z = clamp(coordinate.z, 0, 15)"));
+    assert!(source.contains("offset.y"));
 }
 
 #[test]
@@ -38,10 +41,24 @@ fn every_tinted_pipeline_calls_the_shared_blender() {
 }
 
 #[test]
-fn special_foliage_bypasses_neighbour_average_but_uses_live_center_rule() {
+fn foliage_variants_select_their_palette_inside_the_shared_average() {
     let source = shader("biome_tint.wgsl");
     assert!(source.contains("fn special_foliage_tint("));
     assert!(source.contains("case 0x200u: { return unpack_linear_rgb10(tint.birch); }"));
     assert!(source.contains("case 0x400u: { return unpack_linear_rgb10(tint.evergreen); }"));
     assert!(source.contains("case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }"));
+    assert!(source.contains("tint_domain_colour(tint, tint_kind, material_flags)"));
+    assert!(!source.contains("if (tint_kind == 0x20u"));
+}
+
+#[test]
+fn biome_shader_uses_vanilla_inverse_distance_weights() {
+    assert!(shader("biome_tint.wgsl").contains("BIOME_DISTANCE_EPSILON"));
+}
+
+#[test]
+fn model_tints_use_the_block_position_for_every_vertex() {
+    let source = shader("model.wgsl");
+    assert!(source.contains("out.local_position = block_position;"));
+    assert!(source.contains("@interpolate(flat) local_position"));
 }
