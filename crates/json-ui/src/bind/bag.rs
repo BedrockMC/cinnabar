@@ -14,24 +14,46 @@ use crate::tree::ResolvedControl;
 
 pub(super) type Bag = BTreeMap<String, Scalar>;
 
-/// `(own bag, children bag)` for `control` under a parent children bag.
-pub(super) fn bags(control: &ResolvedControl, inherited: &Arc<Bag>) -> (Bag, Arc<Bag>) {
-    let mut own = members(control.properties.get("property_bag"));
-    let mut children = members(control.properties.get("property_bag_for_children"));
-    for (name, value) in inherited.iter() {
-        own.entry(name.clone()).or_insert_with(|| value.clone());
+/// Evaluated literal bags belonging to one immutable control template.
+pub(super) struct Bags {
+    own: Bag,
+    children: Arc<Bag>,
+}
+
+impl Bags {
+    /// Evaluate template literals once; inherited bags are applied at creation.
+    pub(super) fn new(control: &ResolvedControl) -> Self {
+        Self {
+            own: members(control.properties.get("property_bag")),
+            children: Arc::new(members(control.properties.get("property_bag_for_children"))),
+        }
     }
-    let children = if children.is_empty() {
-        Arc::clone(inherited)
-    } else {
+
+    /// The control's creation bag, with inherited values filling missing members.
+    pub(super) fn own(&self, inherited: &Bag) -> Bag {
+        let mut own = self.own.clone();
+        for (name, value) in inherited {
+            own.entry(name.clone()).or_insert_with(|| value.clone());
+        }
+        own
+    }
+
+    /// Share unchanged children bags; merge only when both scopes supply values.
+    pub(super) fn children(&self, inherited: &Arc<Bag>) -> Arc<Bag> {
+        if self.children.is_empty() {
+            return Arc::clone(inherited);
+        }
+        if inherited.is_empty() {
+            return Arc::clone(&self.children);
+        }
+        let mut children = (*self.children).clone();
         for (name, value) in inherited.iter() {
             children
                 .entry(name.clone())
                 .or_insert_with(|| value.clone());
         }
         Arc::new(children)
-    };
-    (own, children)
+    }
 }
 
 /// A bag literal's members, each through `UIResolvedDef::_evaluate`: a

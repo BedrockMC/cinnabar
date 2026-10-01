@@ -4,11 +4,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-use super::{Binding, Src, spec};
+use super::{Binding, Src, bag, spec};
 use crate::tree::ResolvedControl;
 
 /// Parsed bindings and creation diagnostics shared by template instances.
 pub(super) struct Declaration {
+    pub(super) bags: bag::Bags,
     pub(super) bindings: Arc<Vec<Binding>>,
     pub(super) diagnostics: Vec<String>,
     pub(super) observes_scroll: bool,
@@ -39,6 +40,7 @@ pub(super) fn get(src: &Src) -> Arc<Declaration> {
         let mut diagnostics = Vec::new();
         let bindings = Arc::new(spec::parse(control, &mut diagnostics));
         let declaration = Arc::new(Declaration {
+            bags: bag::Bags::new(control),
             observes_scroll: spec::observes_scroll(control, &bindings),
             bindings,
             diagnostics,
