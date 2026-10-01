@@ -541,11 +541,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         cull_view,
     );
     if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::actors::light_bodies(
-            &mut batch,
-            stream,
-            super::dropped_items::DAYLIGHT,
-        );
+        crate::presentation::actors::light_bodies(&mut batch, stream);
     }
     if let (Some(stream), Some(cape)) = (
         client_world.stream.as_ref(),
@@ -647,8 +643,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             HandRigLight {
                 block_level: u32::from(block),
                 sky_level: u32::from(sky),
-                // Daylight is full until the celestial curve feeds the first-person pass; sky
-                // light is already sampled per-position above.
+                // Reserved legacy field; the hand samples the shared world lightmap.
                 daylight: 1.0,
                 pad: 0,
             }

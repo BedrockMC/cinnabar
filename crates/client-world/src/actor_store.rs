@@ -279,6 +279,15 @@ impl ActorSnapshot {
         ))
     }
 
+    /// Samples 0.66 of the body height above interpolated feet (Lens 1.26.50.26 0x1c0e520).
+    /// Network position offsets have already been removed by the actor store.
+    pub fn brightness_sample_position(&self, mut feet: [f32; 3]) -> [f32; 3] {
+        if let Some((min, max)) = self.bounding_box() {
+            feet[1] += 0.66 * (max[1] - min[1]);
+        }
+        feet
+    }
+
     fn network_position_offset(&self) -> f32 {
         match &self.kind {
             ActorKind::Player { .. } => {
