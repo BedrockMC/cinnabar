@@ -200,23 +200,16 @@ pub(super) fn flags(control: &ResolvedControl) -> Flags {
     if let Some(flags) = measure::FLAGS.with(|memo| memo.borrow().get(&address).copied()) {
         return flags;
     }
+    let [width, height] = [Axis::X, Axis::Y].map(|axis| rule_flags(control, axis));
     let flags = Flags {
-        height_first: solves_height_first(control),
-        children: [Axis::X, Axis::Y].map(|axis| {
-            reads(
-                control,
-                axis,
-                &[Unit::PercentChildren, Unit::PercentChildrenMax],
-            )
-        }),
-        natural: [Axis::X, Axis::Y].map(|axis| {
-            with_size(control, axis, |length| {
-                matches!(length, Some(Length::Default))
-            })
-        }),
-        reads_sibling_max: [Axis::X, Axis::Y]
-            .into_iter()
-            .any(|axis| reads(control, axis, &[Unit::PercentSiblingMax])),
+        height_first: ((width.cross || width.children)
+            && height.terms
+            && !height.cross
+            && !height.children)
+            || (scales_to_ratio(control) && width.default && !height.default),
+        children: [width.children, height.children],
+        natural: [width.default, height.default],
+        reads_sibling_max: width.sibling || height.sibling,
         inherits: ["inherit_max_sibling_width", "inherit_max_sibling_height"]
             .map(|key| control.properties.get(key) == Some(&Value::Bool(true))),
     };
@@ -229,58 +222,48 @@ pub(super) fn height_first(control: &ResolvedControl) -> bool {
     flags(control).height_first
 }
 
-/// The width's rules read the height or the children while the height's read
-/// neither, or a ratio-scaled image derives its default width from its height.
-fn solves_height_first(control: &ResolvedControl) -> bool {
-    use Unit::{PercentChildren, PercentChildrenMax, PercentX, PercentY};
-    let width_reads = reads(
-        control,
-        Axis::X,
-        &[PercentY, PercentChildren, PercentChildrenMax],
-    );
-    let height_free = with_size(control, Axis::Y, |length| {
-        matches!(length, Some(Length::Terms(_)))
-    }) && !reads(
-        control,
-        Axis::Y,
-        &[PercentX, PercentChildren, PercentChildrenMax],
-    );
-    (width_reads && height_free) || ratio_scaled_width(control)
+/// Dependencies gathered from one axis's size, minimum and maximum rules.
+#[derive(Default)]
+struct RuleFlags {
+    default: bool,
+    terms: bool,
+    children: bool,
+    cross: bool,
+    sibling: bool,
 }
 
-/// A ratio-scaled image whose width alone is `default` takes it from its height.
-fn ratio_scaled_width(control: &ResolvedControl) -> bool {
-    scales_to_ratio(control)
-        && with_size(control, Axis::X, |length| {
-            matches!(length, Some(Length::Default))
-        })
-        && !with_size(control, Axis::Y, |length| {
-            matches!(length, Some(Length::Default))
-        })
-}
-
-/// Whether `axis`'s size or bound rules use any of `units`.
-pub(super) fn reads(control: &ResolvedControl, axis: Axis, units: &[Unit]) -> bool {
+/// Inspect each parsed rule once instead of querying each dependency separately.
+fn rule_flags(control: &ResolvedControl, axis: Axis) -> RuleFlags {
     let index = axis_index(axis) as u8;
-    let uses = |length: Option<&Length>| {
-        length.is_some_and(|length| units.iter().any(|unit| length.uses(*unit)))
-    };
-    memo_length(
-        control,
-        SIZE_SLOT + index,
-        || Some(length(control, axis)),
-        uses,
-    ) || memo_length(
-        control,
-        MAX_SLOT + index,
-        || bound_length(control, "max_size", index as usize),
-        uses,
-    ) || memo_length(
-        control,
-        MIN_SLOT + index,
-        || bound_length(control, "min_size", index as usize),
-        uses,
-    )
+    let mut flags = RuleFlags::default();
+    for slot in [SIZE_SLOT, MAX_SLOT, MIN_SLOT] {
+        memo_length(
+            control,
+            slot + index,
+            || match slot {
+                SIZE_SLOT => Some(length(control, axis)),
+                MAX_SLOT => bound_length(control, "max_size", index as usize),
+                _ => bound_length(control, "min_size", index as usize),
+            },
+            |length| {
+                if slot == SIZE_SLOT {
+                    flags.default = matches!(length, Some(Length::Default));
+                    flags.terms = matches!(length, Some(Length::Terms(_)));
+                }
+                if let Some(length) = length {
+                    flags.children |=
+                        length.uses(Unit::PercentChildren) || length.uses(Unit::PercentChildrenMax);
+                    flags.cross |= length.uses(if axis == Axis::X {
+                        Unit::PercentY
+                    } else {
+                        Unit::PercentX
+                    });
+                    flags.sibling |= length.uses(Unit::PercentSiblingMax);
+                }
+            },
+        );
+    }
+    flags
 }
 
 /// `read` over the parsed size rule on `axis`, without cloning it.

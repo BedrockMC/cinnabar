@@ -18,7 +18,7 @@ pub use scroll_motion::ScrollMotion;
 
 mod states;
 
-pub(crate) use states::{rest_hidden_children, state_index, state_targets};
+pub(crate) use states::{has_state_targets, rest_hidden_children, state_index, state_targets};
 
 /// The slider bag value holding its box's selected (indent) state.
 pub(crate) use crate::component::SLIDER_BOX_SELECTED;

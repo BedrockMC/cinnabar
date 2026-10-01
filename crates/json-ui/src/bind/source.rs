@@ -17,7 +17,7 @@ pub(super) struct Src {
     pub(super) patch: Option<Arc<Patch>>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub(super) struct Patch {
     pub(super) name: Option<String>,
     pub(super) properties: BTreeMap<String, Value>,

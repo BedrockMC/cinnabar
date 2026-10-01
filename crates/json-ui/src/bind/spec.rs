@@ -299,20 +299,41 @@ fn property_evaluation(value: Option<&Value>) -> Option<Source> {
 
 /// Whether layout feedback can change this control's bound values.
 pub(super) fn observes_scroll(control: &ResolvedControl, bindings: &[Binding]) -> bool {
-    let is_scroll = |name: &str| {
-        matches!(
-            name,
-            "#scrolled_to_end" | "#scrollbar_hit_bottom" | "#scroll_bar_visible"
-        )
-    };
-    control
-        .properties
-        .values()
-        .any(|value| value.as_str().is_some_and(is_scroll))
+    let is_scroll = |name: &str| super::state::SCROLL_PROPERTIES.contains(&name);
+    control.properties.values().any(value_observes_scroll)
         || bindings.iter().any(|binding| match &binding.kind {
             Kind::Global { source, .. }
             | Kind::Collection { source, .. }
             | Kind::View { source, .. } => source.properties().any(is_scroll),
             Kind::Details { .. } => false,
         })
+}
+
+/// Keep feedback enabled for references anywhere in authored JSON expressions.
+fn value_observes_scroll(value: &Value) -> bool {
+    match value {
+        Value::String(value) => super::state::SCROLL_PROPERTIES
+            .iter()
+            .any(|name| value.contains(name)),
+        Value::Array(values) => values.iter().any(value_observes_scroll),
+        Value::Object(values) => values.values().any(value_observes_scroll),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_feedback_expressions_are_observed() {
+        for property in super::super::state::SCROLL_PROPERTIES {
+            let value =
+                serde_json::json!({"property_bag": {"#nested": [format!("(not {property})")]}});
+            assert!(value_observes_scroll(&value));
+        }
+        assert!(!value_observes_scroll(
+            &serde_json::json!({"text":"unrelated"})
+        ));
+    }
 }

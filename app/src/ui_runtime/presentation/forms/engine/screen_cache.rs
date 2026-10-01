@@ -190,31 +190,6 @@ impl ScreenCache {
         bind(&mut bindings[index].state)
     }
 
-    /// A cache already resolving the settings screen on a background thread,
-    /// while the UI continues to draw its current screen.
-    pub(super) fn resolving_settings(catalog: &Arc<Catalog>) -> Self {
-        let (reference, context) = super::super::menu_screens::settings_target();
-        let cache = Self::default();
-        *lock(&cache.preparing) = Some(reference);
-        let (resolved, preparing, catalog) = (
-            Arc::clone(&cache.resolved),
-            Arc::clone(&cache.preparing),
-            Arc::clone(catalog),
-        );
-        let spawned = std::thread::Builder::new()
-            .name("screen-resolve".to_owned())
-            .spawn(move || {
-                resolved_in(&resolved, reference, &catalog, &context, || {
-                    json_ui::resolve(&catalog, reference, &context).control
-                });
-                *lock(&preparing) = None;
-            });
-        if spawned.is_err() {
-            *lock(&cache.preparing) = None;
-        }
-        cache
-    }
-
     /// Resolve, bind and lay out `screen` on a background thread so opening it
     /// later is a cache hit; returns false while its requested layout is pending.
     pub(super) fn prepare(&self, screen: Prepared, engine: &super::FormEngine) -> bool {
@@ -402,7 +377,7 @@ mod tests {
                 factory: None,
             },
             nodes: Vec::new(),
-            hits: Vec::new(),
+            hits: Arc::from([]),
             report: Default::default(),
             cancel_target: None,
             root_panel: None,

@@ -100,7 +100,7 @@ pub use sidecar::{
 };
 pub use sprite::nine_slice;
 pub use state::{FocusMemory, LayoutReport, ScrollMetrics, ScrollRetained, ViewState};
-pub use tree::{ControlRef, Factory, ResolvedControl};
+pub use tree::{ControlRef, Factory, Properties, ResolvedControl};
 pub use widgets::{Draggable, ScrollMotion};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any

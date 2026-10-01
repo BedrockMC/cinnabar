@@ -8,6 +8,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod properties;
+pub use properties::Properties;
+
 /// A fully qualified `namespace.name` handle for a control definition.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ControlRef {
@@ -124,7 +127,7 @@ pub struct ResolvedControl {
     /// base); the node is still emitted so callers see the gap.
     pub unresolved_base: Option<String>,
     /// Remaining properties, `$var`/global substituted, size/`view` left symbolic.
-    pub properties: BTreeMap<String, Value>,
+    pub properties: Properties,
     /// Ordered children with `ignored` controls removed.
     pub children: Vec<ResolvedControl>,
     /// Recorded factory, if this control declares one.

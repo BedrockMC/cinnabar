@@ -78,6 +78,13 @@ fn roles(view: &ResolvedControl) -> Roles {
     found
 }
 
+/// Forget only the moved root; descendant allocations remain stable.
+pub(super) fn forget(address: usize) {
+    ROLES.with(|memo| {
+        memo.borrow_mut().remove(&address);
+    });
+}
+
 /// Forget the role paths of every view (a new tree).
 pub(super) fn reset() {
     ROLES.with(|memo| memo.borrow_mut().clear());

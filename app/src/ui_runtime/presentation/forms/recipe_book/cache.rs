@@ -5,7 +5,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use json_ui::{CollectionItem, DataSource};
 use protocol::{CreativeContentEvent, PlayerGameMode};
 
-use super::{HudFrame, IconRef, SEARCH_TAB, UiRuntime};
+use super::{COLLECTION, HudFrame, IconRef, SEARCH_TAB, UiRuntime};
 
 pub(in super::super) struct BookCache {
     catalog: CreativeContentEvent,
@@ -49,7 +49,7 @@ impl BookCache {
             return false;
         }
         icons.extend_from_slice(&cache.icons);
-        data.set_shared_collection("recipe_book", Arc::clone(&cache.items));
+        data.set_shared_collection(COLLECTION, Arc::clone(&cache.items));
         true
     }
 

@@ -52,7 +52,7 @@ pub(crate) fn ctrl(
         control_type: Some(kind.to_owned()),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }

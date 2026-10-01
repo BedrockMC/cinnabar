@@ -20,7 +20,7 @@ fn ctrl(name: &str, kind: &str, props: Value, children: Vec<ResolvedControl>) ->
         control_type: Some(kind.to_owned()),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }

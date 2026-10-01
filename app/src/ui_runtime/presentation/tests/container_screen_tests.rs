@@ -552,6 +552,7 @@ fn hovering_slots_never_lays_the_screen_out_again() {
         presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
     }
     let layouts = presentation.engine_container_layouts();
+    let hits = std::sync::Arc::clone(&presentation.engine_container_frame().unwrap().hits);
     let mut frames = Vec::new();
     for frame in 0..bench_frames(24) {
         let step = frame % 24;
@@ -565,6 +566,10 @@ fn hovering_slots_never_lays_the_screen_out_again() {
             .build(&runtime, 1_000 + frame, [1280, 720], dpi)
             .unwrap();
         frames.push(started.elapsed());
+        assert!(std::sync::Arc::ptr_eq(
+            &hits,
+            &presentation.engine_container_frame().unwrap().hits
+        ));
     }
     frames.sort();
     eprintln!(

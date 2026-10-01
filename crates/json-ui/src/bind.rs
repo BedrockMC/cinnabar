@@ -11,7 +11,7 @@
 //! `collection` items and named-factory feeds. A [`BindState`] is the live
 //! controls between binds; binding without one is a fresh screen.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -27,6 +27,7 @@ mod declarations;
 mod feed;
 mod grid;
 mod native;
+mod output;
 mod source;
 mod spec;
 mod state;
@@ -130,29 +131,13 @@ fn bind_with(
         reported: HashSet::new(),
         resolved: BTreeMap::new(),
         resolved_with: BTreeMap::new(),
-        parsed: HashMap::new(),
-        empty_bindings: Arc::default(),
         keys: state::KeyMap::default(),
         retain,
     };
-    let prof = std::env::var_os("CINNABAR_BIND_PROFILE").is_some();
-    let at = std::time::Instant::now();
     let mut node = binder.build(Src::root(Arc::clone(root)), &Scope::default());
-    let built = at.elapsed();
     binder.settle_views(&mut node);
-    let viewed = at.elapsed();
     let baked = binder.bake(&node);
-    let baked_at = at.elapsed();
     binder.retain(node);
-    if prof {
-        eprintln!(
-            "BIND_PROFILE retain={retain} build={} views={} bake={} retain_us={}",
-            built.as_micros(),
-            (viewed - built).as_micros(),
-            (baked_at - viewed).as_micros(),
-            (at.elapsed() - baked_at).as_micros()
-        );
-    }
     (baked, binder.diagnostics)
 }
 
@@ -247,9 +232,6 @@ struct Binder<'a> {
     resolved: BTreeMap<ControlRef, Option<Arc<ResolvedControl>>>,
     /// Factory-item resolutions, keyed by reference and serialized `$vars`.
     resolved_with: BTreeMap<(ControlRef, String), Option<Arc<ResolvedControl>>>,
-    /// Parsed binding declarations per template control.
-    parsed: HashMap<usize, Arc<Vec<Binding>>>,
-    empty_bindings: Arc<Vec<Binding>>,
     /// Keys handed out this refresh, with how often.
     keys: state::KeyMap<usize>,
     /// Whether the refresh's state outlives it.
@@ -263,41 +245,21 @@ impl<'a> Binder<'a> {
         }
     }
 
-    fn bindings_of(&mut self, src: &Src) -> Arc<Vec<Binding>> {
-        let control = src.get();
-        if !control.properties.contains_key("bindings")
-            && !control.properties.contains_key("grid_dimension_binding")
-        {
-            self.state.scroll_observed |= spec::observes_scroll(control, &[]);
-            return Arc::clone(&self.empty_bindings);
-        }
-        let id = control as *const ResolvedControl as usize;
-        if let Some(parsed) = self.parsed.get(&id) {
-            return Arc::clone(parsed);
-        }
+    fn declaration(&mut self, src: &Src) -> Arc<declarations::Declaration> {
         let declaration = declarations::get(src);
         for note in &declaration.diagnostics {
             self.note(note.clone());
         }
         self.state.scroll_observed |= declaration.observes_scroll;
-        self.parsed.insert(id, Arc::clone(&declaration.bindings));
-        Arc::clone(&declaration.bindings)
+        declaration
     }
 
     /// Create `src` under `scope`: its bag, its bindings for this refresh, and
     /// its subtree unless it is hidden.
     fn build(&mut self, src: Src, scope: &Scope) -> Node {
-        let mut key = state::key_hash(scope.parent_key, b"/");
-        key = state::key_hash(key, src.name().as_bytes());
-        if let Some(index) = src.prop("collection_index").and_then(Value::as_u64) {
-            key = state::key_hash(key, format!("[{index}]").as_bytes());
-        }
-        // Same-named siblings share a layout key; their binding state must not.
-        let repeats = self.keys.entry(key).or_insert(0);
-        *repeats += 1;
-        if *repeats > 1 {
-            key = state::key_hash(key, format!("~{repeats}").as_bytes());
-        }
+        let key = self.control_key(&src, scope.parent_key);
+        let declaration = self.declaration(&src);
+        let bindings = Arc::clone(&declaration.bindings);
         let mut scope = scope.clone();
         self.attach_item(&src, &mut scope);
         let control = src.get();
@@ -343,7 +305,6 @@ impl<'a> Binder<'a> {
             props: std::mem::take(&mut memory.native),
             collection_length: None,
         };
-        let bindings = self.bindings_of(&src);
         self.run_bindings(
             control,
             &bindings,
@@ -358,7 +319,8 @@ impl<'a> Binder<'a> {
         if let Some(capacity) = grid_capacity(&src) {
             own.insert("#grid_number_size".to_owned(), Scalar::Int(capacity as i64));
         }
-        let mut child_scope = scope.clone();
+        let layout_key = scope.layout_key.clone();
+        let mut child_scope = scope;
         child_scope.parent_key = key;
         // Only state a refresh cannot rebuild from literals is retained.
         let retained = !bindings.is_empty()
@@ -378,7 +340,7 @@ impl<'a> Binder<'a> {
         let mut node = Node {
             src,
             key,
-            layout_key: scope.layout_key.clone(),
+            layout_key,
             own,
             native,
             memory,
@@ -400,6 +362,22 @@ impl<'a> Binder<'a> {
             }
         }
         node
+    }
+
+    /// A stable key for retained state and unchanged bound properties.
+    fn control_key(&mut self, src: &Src, parent: u64) -> u64 {
+        let mut key = state::key_hash(parent, b"/");
+        key = state::key_hash(key, src.name().as_bytes());
+        if let Some(index) = src.prop("collection_index").and_then(Value::as_u64) {
+            key = state::key_hash(key, format!("[{index}]").as_bytes());
+        }
+        // Same-named siblings share a layout key; their binding state must not.
+        let repeats = self.keys.entry(key).or_insert(0);
+        *repeats += 1;
+        if *repeats > 1 {
+            key = state::key_hash(key, format!("~{repeats}").as_bytes());
+        }
+        key
     }
 
     /// `UIControlFactory`'s collection item: a child of a collection panel is
@@ -571,6 +549,31 @@ impl<'a> Binder<'a> {
     /// Bake bag values and bound component state into literals.
     fn bake(&self, node: &Node) -> ResolvedControl {
         let control = node.src.get();
+        let properties = if self.data.components.is_empty()
+            && let Some(properties) = output::get(node)
+        {
+            properties
+        } else {
+            let properties = self.bake_output(node);
+            if self.data.components.is_empty() {
+                output::put(node, properties.clone());
+            }
+            properties
+        };
+        ResolvedControl {
+            name: node.src.name().to_owned(),
+            control_type: control.control_type.clone(),
+            base: control.base.clone(),
+            unresolved_base: control.unresolved_base.clone(),
+            properties,
+            children: node.children.iter().map(|child| self.bake(child)).collect(),
+            factory: control.factory.clone(),
+        }
+    }
+
+    /// Bake the properties of one changed control; its children cache independently.
+    fn bake_output(&self, node: &Node) -> crate::tree::Properties {
+        let control = node.src.get();
         let mut properties = bake_properties(&control.properties, &node.own);
         properties.extend(
             node.native
@@ -591,15 +594,7 @@ impl<'a> Binder<'a> {
                     .map(|(key, value)| (key.clone(), value.clone())),
             );
         }
-        ResolvedControl {
-            name: node.src.name().to_owned(),
-            control_type: control.control_type.clone(),
-            base: control.base.clone(),
-            unresolved_base: control.unresolved_base.clone(),
-            properties,
-            children: node.children.iter().map(|child| self.bake(child)).collect(),
-            factory: control.factory.clone(),
-        }
+        properties.into()
     }
 
     /// Keep every built control's bag and binding memory for the next refresh,
@@ -688,32 +683,28 @@ fn native_grid(src: Src, native: &Native) -> Src {
 /// bag's `#names`. An unbound `text` becomes empty rather than the literal
 /// `#name`; a `##` text is literal.
 fn bake_properties(properties: &BTreeMap<String, Value>, own: &Bag) -> BTreeMap<String, Value> {
-    let mut out = BTreeMap::new();
-    for (key, value) in properties {
-        // Only binding reads the created controls' scope.
-        if key == crate::resolve::FACTORY_SCOPE {
-            continue;
-        }
-        match value {
-            Value::String(reference)
-                if reference.starts_with('#')
-                    && !(key == "text" && reference.starts_with("##")) =>
-            {
-                match own.get(reference) {
-                    Some(scalar) => {
-                        out.insert(key.clone(), scalar.to_json());
+    let mut out: BTreeMap<String, Value> = properties
+        .iter()
+        .filter_map(|(key, value)| {
+            if key == crate::resolve::FACTORY_SCOPE {
+                return None;
+            }
+            let value = match value {
+                Value::String(reference)
+                    if reference.starts_with('#')
+                        && !(key == "text" && reference.starts_with("##")) =>
+                {
+                    match own.get(reference) {
+                        Some(scalar) => scalar.to_json(),
+                        None if key == "text" => Value::String(String::new()),
+                        None => return None,
                     }
-                    None if key == "text" => {
-                        out.insert(key.clone(), Value::String(String::new()));
-                    }
-                    None => {}
                 }
-            }
-            _ => {
-                out.insert(key.clone(), value.clone());
-            }
-        }
-    }
+                _ => value.clone(),
+            };
+            Some((key.clone(), value))
+        })
+        .collect();
     for (name, value) in own {
         if name.starts_with('#') {
             out.insert(name.clone(), value.to_json());

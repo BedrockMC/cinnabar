@@ -306,7 +306,7 @@ fn multi_line_button_labels_never_overlap() {
     assert!(
         texts
             .iter()
-            .any(|text| text == "Updates In - 2m 24sKills - ...")
+            .any(|text| text == "Updates In - 2m 24sKills - 7...")
     );
 }
 

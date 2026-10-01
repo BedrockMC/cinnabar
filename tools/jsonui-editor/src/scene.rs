@@ -242,7 +242,7 @@ impl Session {
                 control_type: None,
                 base: None,
                 unresolved_base: None,
-                properties: BTreeMap::new(),
+                properties: Default::default(),
                 children: Vec::new(),
                 factory: None,
             }),

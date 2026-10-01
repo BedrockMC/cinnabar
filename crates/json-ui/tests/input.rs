@@ -46,7 +46,7 @@ fn ctrl(
         control_type: Some(control_type.to_owned()),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }

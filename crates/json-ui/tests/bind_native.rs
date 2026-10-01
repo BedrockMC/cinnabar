@@ -28,7 +28,7 @@ fn bound(kind: &str, extra: Value, target: &str, value: Value) -> ResolvedContro
         control_type: Some(kind.to_owned()),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children: Vec::new(),
         factory: None,
     };
@@ -348,7 +348,8 @@ fn unbound_bag_literal_does_not_reach_components() {
         control_type: Some("panel".to_owned()),
         base: None,
         unresolved_base: None,
-        properties: BTreeMap::from([("property_bag".to_owned(), json!({ "#visible": false }))]),
+        properties: BTreeMap::from([("property_bag".to_owned(), json!({ "#visible": false }))])
+            .into(),
         children: Vec::new(),
         factory: None,
     };

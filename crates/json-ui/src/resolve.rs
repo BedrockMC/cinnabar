@@ -142,7 +142,7 @@ impl<'a> Resolver<'a> {
             control_type,
             base: provenance,
             unresolved_base,
-            properties,
+            properties: properties.into(),
             children,
             factory,
         }
