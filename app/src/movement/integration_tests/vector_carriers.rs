@@ -239,3 +239,26 @@ fn digital_gamepad_direction_uses_the_normalized_raw_fallback() {
     assert_eq!(snapshot.raw_move_vector,
         [-std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]);
 }
+
+#[test]
+fn keyboard_neutral_vectors_preserve_positive_zero_on_the_wire() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 40, [0.0, 64.0, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(PhysicsMovementSample {
+            move_vector: [0.0; 2],
+            raw_move_vector: [0.0; 2],
+            analogue_move_vector: [0.0; 2],
+            ..completed_sample(41, [0.0, 64.0, 0.0])
+        })
+        .unwrap();
+    let snapshot = ticker.pop_pending().unwrap().snapshot;
+    for vector in [
+        snapshot.move_vector,
+        snapshot.raw_move_vector,
+        snapshot.analogue_move_vector,
+    ] {
+        assert_eq!(vector.map(f32::to_bits), [0.0_f32.to_bits(); 2]);
+    }
+}
