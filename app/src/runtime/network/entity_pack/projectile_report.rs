@@ -51,7 +51,11 @@ fn render_projectile_states() {
                     kind: ActorKind::Entity {
                         identifier: identifier.into(),
                     },
-                    position: [0.0; 3],
+                    position: if name == "arrow_stuck" {
+                        [-0.5, 0.0, 0.0]
+                    } else {
+                        [0.0; 3]
+                    },
                     velocity: [0.0; 3],
                     pitch,
                     yaw,
