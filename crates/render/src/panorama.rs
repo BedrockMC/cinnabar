@@ -81,9 +81,20 @@ pub struct PanoramaScene {
     pub(crate) faces: Option<Arc<PanoramaFaces>>,
     pub(crate) faces_revision: u64,
     pub(crate) view: Option<PanoramaView>,
+    game_hidden: bool,
 }
 
 impl PanoramaScene {
+    /// Scene-stack visibility is independent of whether a panorama texture is available.
+    pub fn set_game_visible(&mut self, visible: bool) {
+        self.game_hidden = !visible;
+    }
+
+    /// Whether world and first-person passes may submit this frame.
+    pub(crate) fn game_visible(&self) -> bool {
+        !self.game_hidden && self.view.is_none()
+    }
+
     pub fn set_faces(&mut self, faces: Option<Arc<PanoramaFaces>>) {
         self.faces = faces;
         self.faces_revision = self.faces_revision.wrapping_add(1);
@@ -112,14 +123,43 @@ impl PanoramaScene {
     }
 }
 
-/// Render run condition: world passes queue nothing while the launcher panorama is shown.
+/// World passes queue nothing under a replacement background or an opaque pack screen.
 pub(crate) fn world_passes_enabled(scene: Option<bevy::prelude::Res<PanoramaScene>>) -> bool {
-    scene.is_none_or(|scene| scene.view.is_none())
+    scene.is_none_or(|scene| scene.game_visible())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_policy_suppresses_world_queues_without_any_panorama_faces() {
+        use bevy::prelude::*;
+        #[derive(Resource, Default)]
+        struct Queued(u32);
+        let mut app = App::new();
+        app.init_resource::<PanoramaScene>()
+            .init_resource::<Queued>()
+            .add_systems(
+                Update,
+                (|mut queued: ResMut<Queued>| queued.0 += 1).run_if(world_passes_enabled),
+            );
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .set_game_visible(false);
+        app.update();
+        assert_eq!(app.world().resource::<Queued>().0, 0);
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .set_game_visible(true);
+        app.update();
+        assert_eq!(app.world().resource::<Queued>().0, 1);
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .show(Some(view(1.0)));
+        app.update();
+        assert_eq!(app.world().resource::<Queued>().0, 1);
+    }
 
     fn view(aspect: f32) -> PanoramaView {
         PanoramaView {

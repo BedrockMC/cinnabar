@@ -282,6 +282,7 @@ mod input_publication;
 mod inventory;
 mod inventory_schedule;
 mod inventory_secondary_input;
+mod menu_scene;
 mod molang_conformance;
 mod pack_entity_metadata;
 mod phase2_evidence;

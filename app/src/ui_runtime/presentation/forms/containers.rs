@@ -64,7 +64,7 @@ impl ScreenLayout {
         })
     }
 
-    fn screen(self) -> (&'static str, &'static str) {
+    pub(super) fn screen(self) -> (&'static str, &'static str) {
         match self {
             Self::Personal { .. } => ("crafting.inventory_screen", "container.crafting"),
             Self::Workbench { .. } => ("crafting.crafting_screen", "container.crafting"),

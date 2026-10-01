@@ -3,6 +3,24 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 world lighting (incomplete): the classic RGB table now has the current
+Lens composition, gamma, night-vision normalization and darkness subtraction,
+shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
+the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
+and material color-space conversion remain unverified. The existing sky-darken
+and effect-envelope inputs remain provisional. Offline GPU evidence is not a
+native visual parity gate. AO now uses channel maxima, the conditional diagonal, the opaque-block shade
+curve, emitting/ordinary face factors and inset model planes. Full current
+shade/solid-render property export, component exponents, dimension shading modes
+and box-average interpolation remain incomplete. The full audit work is in
+progress on fix/world-lighting.
+2026-10-01 menu scene ownership: gameplay input uses the screen absorption policy;
+world queues and both first-person paths obey game visibility. Pack flags retain
+vanilla defaults and inheritance. The existing full-screen Settings panorama also
+suppresses gameplay. Incomplete: a version-matched native comparison of the menu
+background stack and hand appearance; offline snapshots do not close that gate.
+References and the raw-input audit: `docs/parity/menu-scene-policy.md`.
+
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
