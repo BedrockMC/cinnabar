@@ -113,6 +113,11 @@ impl WorldStream {
         if invalidates_mesh_halo {
             self.mark_mesh_neighbourhood_dirty(key, Instant::now());
         }
+        self.remove_light_key_without_invalidation(key);
+    }
+
+    /// Retires one light source after its batch collected the affected mesh halo.
+    pub(in crate::stream) fn remove_light_key_without_invalidation(&mut self, key: SubChunkKey) {
         self.block_generations.remove(&key);
         self.light_store.remove(key);
         self.light_ownership.remove(&key);
