@@ -1,3 +1,5 @@
+mod remapping;
+
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
@@ -264,6 +266,11 @@ pub(crate) fn drive_menu_input(
     }
     menu.pressed = None;
     if !window.focused {
+        if !menu.is_visible() && menu.settings_options.value("pause_menu_on_focus_lost") != 0 {
+            menu.open_pause();
+            cursor.grab_mode = CursorGrabMode::None;
+            cursor.visible = true;
+        }
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
         menu.pointer_down = false;
@@ -276,6 +283,26 @@ pub(crate) fn drive_menu_input(
         } else {
             menu.note_player_alive();
         }
+    }
+    if !menu.is_visible() && runtime.as_ref().is_none_or(|runtime| !runtime.ui_focused()) {
+        // R:v/VanillaClientInputMappingFactory.cpp:10994,11010 uses fixed F1/F8 shortcuts.
+        for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
+            if keys.just_pressed(key) {
+                let value = 1 - menu.settings_options.value(option);
+                menu.set_named_option(option, value);
+            }
+        }
+    }
+    if !menu.is_visible()
+        && super::settings_options::binding_pressed(
+            Some(&menu),
+            "key.fullscreen",
+            &keys,
+            &mouse_buttons,
+        )
+    {
+        let value = 1 - menu.settings_options.value("full_screen");
+        menu.set_named_option("full_screen", value);
     }
     if !menu.is_visible() {
         // Gameplay/chat handled these messages already. In particular, do not
@@ -295,31 +322,13 @@ pub(crate) fn drive_menu_input(
     }
 
     if menu.key_remap.is_some() {
-        for input in keyboard_messages.read() {
-            if input.state != ButtonState::Pressed {
-                continue;
-            }
-            if input.key_code == KeyCode::Escape {
-                menu.key_remap = None;
-                break;
-            }
-            if let Some(code) = crate::semantic_controls::keyboard_usage(input.key_code) {
-                menu.capture_key(semantic_input::PhysicalControl::KeyboardUsage(code));
-                break;
-            }
-        }
-        for (button, code) in [
-            (MouseButton::Left, 1),
-            (MouseButton::Right, 2),
-            (MouseButton::Middle, 3),
-        ] {
-            if mouse_buttons.just_pressed(button) {
-                menu.capture_key(semantic_input::PhysicalControl::MouseButton(code));
-                break;
-            }
-        }
-        keys.reset_all();
-        mouse_buttons.reset_all();
+        remapping::capture(
+            &mut menu,
+            &mut keyboard_messages,
+            &mut keys,
+            &mut mouse_buttons,
+            &gamepads,
+        );
         return;
     }
 
@@ -394,10 +403,10 @@ pub(crate) fn drive_menu_input(
         {
             menu.move_focus(1);
         }
-        if gamepad.just_pressed(GamepadButton::South) {
+        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::South)) {
             menu.activate_focused();
         }
-        if gamepad.just_pressed(GamepadButton::East) {
+        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::East)) {
             menu.go_back_from_input();
         }
     }

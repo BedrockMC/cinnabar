@@ -37,7 +37,10 @@ pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("view_subscriptions_forced_index", 22),
     ("sound_forced_index", 23),
     ("global_texture_pack_forced_index", 24),
-    ("storage_management_forced_index", 25),
+    (
+        "storage_management_forced_index",
+        crate::menu::settings_storage::SECTION_INDEX,
+    ),
     ("edu_cloud_storage_forced_index", 26),
     ("language_forced_index", 27),
     ("preview_forced_index", 28),
@@ -198,6 +201,9 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 super::settings_language::bind(view, &mut data);
                 super::settings_account::bind(view, &mut data);
                 super::settings_resources::bind(&mut data);
+                super::settings_storage::bind(view, &mut data, &|key| {
+                    translated(translate, key, key)
+                });
                 super::settings_keys::bind(view, &mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
@@ -383,6 +389,27 @@ pub(super) fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::SettingsResetBindings(gamepad) => (
+            translated(
+                translate,
+                "controllerLayoutScreen.resetAllBindings",
+                "Reset to Default",
+            ),
+            translated(
+                translate,
+                "controllerLayoutScreen.confirmation.reset",
+                "Reset all bindings to their defaults?",
+            ),
+            translated(translate, "options.continue", "Continue"),
+            translated(translate, "controllerLayoutScreen.cancel", "Cancel"),
+            MenuAction::SettingsConfirmResetBindings(gamepad),
+        ),
+        MenuDialog::SettingsSupport(dialog) => {
+            return super::settings_support::dialog_model(dialog, translate);
+        }
+        MenuDialog::StorageDelete | MenuDialog::StorageError => {
+            return super::settings_storage::dialog_model(view, dialog, translate);
+        }
         MenuDialog::Exit => (
             translated(
                 translate,
@@ -569,6 +596,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
     if view.screen == MenuScreen::Settings
         && let Some(action) = super::settings_language::action(region)
             .or_else(|| super::settings_account::action(region))
+            .or_else(|| super::settings_storage::action(region))
+            .or_else(|| super::settings_support::action(region))
             .or_else(|| super::settings_keys::action(region))
             .or_else(|| super::settings_controls::action(view, region))
     {

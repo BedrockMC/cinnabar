@@ -6,7 +6,7 @@ use semantic_input::{
     KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
 };
 
-mod physical;
+pub(crate) mod physical;
 pub(crate) use physical::{
     PendingDeviceFrame, SemanticRouteState, collect_raw_input,
     finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,

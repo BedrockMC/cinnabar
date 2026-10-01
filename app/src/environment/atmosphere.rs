@@ -131,7 +131,21 @@ pub(crate) fn update_atmosphere_frame(
     vision: Res<crate::camera::VisionEffects>,
     outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
     mut display: Local<WeatherDisplay>,
+    preferences: (
+        Option<Res<crate::menu::MenuRuntime>>,
+        Option<ResMut<render::CloudVisibility>>,
+    ),
 ) {
+    let (menu, clouds) = preferences;
+    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    if let Some(mut clouds) = clouds {
+        clouds.0 = options
+            .as_ref()
+            .is_none_or(|options| options.value("render_clouds") != 0);
+    }
+    let darkness_scale = options
+        .as_ref()
+        .map_or(1.0, |options| options.value("darkness") as f32 / 100.0);
     let (mut frame, mut route) = outputs;
     let elapsed = time.elapsed_secs_f64();
     let shown = display.advance(*weather, elapsed);
@@ -155,7 +169,11 @@ pub(crate) fn update_atmosphere_frame(
     let next_frame = next_frame
         .with_underwater_fog_fraction(underwater_fog_fraction(submerged))
         .with_lightning_flash(flash.level(elapsed))
-        .with_vision_effects(vision.blindness, vision.darkness, vision.night_vision);
+        .with_vision_effects(
+            vision.blindness,
+            vision.darkness * darkness_scale,
+            vision.night_vision,
+        );
     *frame = apply_boss_environment(next_frame, medium.0, state);
     *route = next_route;
 }

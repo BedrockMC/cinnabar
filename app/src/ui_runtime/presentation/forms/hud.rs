@@ -47,9 +47,6 @@ const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
 const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
-/// Behind the position and days lines: the controls' authored alpha, as the
-/// text-background opacity option's default is unrecovered.
-const TEXT_BACKGROUND_ALPHA: f64 = 0.7;
 /// Ticks in one Minecraft day.
 const TICKS_PER_DAY: f64 = 24_000.0;
 
@@ -180,6 +177,16 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
         };
+        if self
+            .form_presentation
+            .chat
+            .settings
+            .options
+            .value("hide_hud")
+            != 0
+        {
+            return Ok(true);
+        }
         let mut frame = self.hud_frame.clone();
         frame.now_millis = now_millis;
         let mut icons = Vec::new();
@@ -212,8 +219,22 @@ impl UiPresentationRuntime {
             clocks: Some(&screens.clocks),
             ..art
         };
+        let mut hud_data = hud_data_source(&model);
+        hud_data.set_global(
+            "#hud_alpha",
+            json_ui::Scalar::Num(
+                f64::from(
+                    self.form_presentation
+                        .chat
+                        .settings
+                        .options
+                        .value("interface_opacity"),
+                ) / 100.0,
+            ),
+        );
+        hud_data.set_global("#hud_propagate_alpha", json_ui::Scalar::Bool(true));
         for (reference, data, screen) in [
-            (HUD_SCREEN, hud_data_source(&model), &mut screens.hud),
+            (HUD_SCREEN, hud_data, &mut screens.hud),
             (CROSSHAIR_SCREEN, DataSource::new(), &mut screens.crosshair),
         ] {
             let inputs = EngineInputs {
@@ -385,7 +406,7 @@ fn hud_model(
             .collect(),
         player_position,
         days_played,
-        text_background_alpha: TEXT_BACKGROUND_ALPHA,
+        text_background_alpha: f64::from(settings.value("hud_text_background_opacity")) / 100.0,
     }
 }
 

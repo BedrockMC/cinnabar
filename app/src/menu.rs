@@ -21,6 +21,8 @@ pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) mod servers;
 pub(crate) mod settings_options;
+pub(crate) mod settings_storage;
+pub(crate) mod settings_support;
 mod settings_values;
 mod view;
 mod worlds_tab;
@@ -107,6 +109,10 @@ pub(crate) enum MenuServerTab {
 pub(crate) enum MenuDialog {
     Exit,
     RemoveSaved(usize),
+    StorageDelete,
+    StorageError,
+    SettingsSupport(settings_support::SupportDialog),
+    SettingsResetBindings(bool),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,11 +149,15 @@ pub(crate) enum MenuAction {
     AddSaveConnect,
     AddBack,
     SettingsScale(u8),
+    SettingsStorage(settings_storage::StorageAction),
+    SettingsSupport(settings_support::SupportAction),
     SettingsOption(u16, i32),
     SettingsDropdown(u16),
     SettingsLanguage(u16),
     SettingsKey(u16),
     SettingsResetKey(u16),
+    SettingsResetBindings(bool),
+    SettingsConfirmResetBindings(bool),
     SettingsResetChat,
     SettingsAdvancedGraphics,
     PauseResume,
@@ -236,6 +246,7 @@ pub(crate) struct MenuRuntime {
     /// The Marketplace's presented state while its screen is up.
     store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
     settings_options: std::sync::Arc<settings_options::SettingsOptions>,
+    storage: std::sync::Arc<settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
     settings_dirty: bool,
     settings_apply: bool,
@@ -346,6 +357,7 @@ impl MenuRuntime {
             local_worlds: self.local_worlds.clone(),
             local: self.local_view(),
             settings_options: std::sync::Arc::clone(&self.settings_options),
+            storage: std::sync::Arc::clone(&self.storage),
             settings_dropdown: self.settings_dropdown,
             language_choices: std::sync::Arc::clone(&self.language_choices),
             key_remap: self.key_remap,
@@ -672,11 +684,15 @@ impl MenuRuntime {
                     self.focus_field(MenuField::Name);
                 }
             }
+            MenuAction::SettingsStorage(action) => self.activate_storage(action),
+            MenuAction::SettingsSupport(action) => self.activate_support(action),
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SettingsSection(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsLanguage(_)
             | MenuAction::SettingsDropdown(_)
+            | MenuAction::SettingsResetBindings(_)
+            | MenuAction::SettingsConfirmResetBindings(_)
             | MenuAction::SettingsKey(_)
             | MenuAction::SettingsResetKey(_)
             | MenuAction::SettingsResetChat

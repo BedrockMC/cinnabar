@@ -176,3 +176,181 @@ fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     assert_eq!(restored.chat_color_code(), 'c');
     assert_eq!(restored.chat_lifetime(), 30.0);
 }
+
+#[test]
+fn gamepad_remaps_reach_router_and_reset_independently() {
+    use super::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
+    let mut settings = SettingsOptions::default();
+    let jump = GAMEPAD_OFFSET
+        + GAMEPAD_BINDINGS
+            .iter()
+            .position(|(_, name)| *name == "key.jump")
+            .unwrap();
+    assert!(settings.remap(jump, PhysicalControl::GamepadButton(3)));
+    assert!(!settings.remap(jump, PhysicalControl::KeyboardUsage(0x0c)));
+    let keyboard = KEY_BINDINGS
+        .iter()
+        .position(|(_, name)| *name == "key.forward")
+        .unwrap();
+    assert!(settings.remap(keyboard, PhysicalControl::KeyboardUsage(0x0c)));
+    let mut restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(
+        restored
+            .user_settings()
+            .controls
+            .bindings()
+            .iter()
+            .any(|binding| binding.action == semantic_input::Action::Jump
+                && binding.context == InputContext::Gameplay
+                && binding.chord.control == PhysicalControl::GamepadButton(3))
+    );
+    restored.reset_bindings(false);
+    assert_eq!(
+        restored.key_control(jump),
+        Some(PhysicalControl::GamepadButton(3))
+    );
+    assert_eq!(
+        restored.key_control(keyboard),
+        SettingsOptions::default().key_control(keyboard)
+    );
+    restored.reset_bindings(true);
+    assert_eq!(
+        restored.key_control(jump),
+        SettingsOptions::default().key_control(jump)
+    );
+}
+
+#[test]
+fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
+    use super::{EXTRA_KEYS, binding_key, binding_mouse, binding_pressed};
+    use bevy::prelude::{ButtonInput, KeyCode, MouseButton};
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
+    let index = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.inventory")
+            .unwrap();
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .remap(index, PhysicalControl::KeyboardUsage(0x0c))
+    );
+    let mut keys = ButtonInput::default();
+    let mut mouse = ButtonInput::default();
+    keys.press(KeyCode::KeyI);
+    assert!(binding_key(Some(&menu), "key.inventory", KeyCode::KeyI));
+    assert!(!binding_key(Some(&menu), "key.inventory", KeyCode::KeyE));
+    assert!(binding_pressed(Some(&menu), "key.inventory", &keys, &mouse));
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .remap(index, PhysicalControl::MouseButton(4))
+    );
+    mouse.press(MouseButton::Back);
+    assert!(binding_mouse(Some(&menu), "key.inventory", &mouse));
+    assert!(binding_pressed(Some(&menu), "key.inventory", &keys, &mouse));
+}
+
+#[test]
+fn resetting_a_ui_key_preserves_remaps_when_its_default_was_reassigned() {
+    use super::EXTRA_KEYS;
+    let mut settings = SettingsOptions::default();
+    let inventory = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.inventory")
+            .unwrap();
+    let attack = KEY_BINDINGS
+        .iter()
+        .position(|(_, name)| *name == "key.attack")
+        .unwrap();
+    assert!(settings.remap(inventory, PhysicalControl::KeyboardUsage(0x0c)));
+    assert!(settings.remap(attack, PhysicalControl::KeyboardUsage(0x08)));
+    assert!(!settings.reset_key(inventory));
+    assert_eq!(
+        settings.key_control(inventory),
+        Some(PhysicalControl::KeyboardUsage(0x0c))
+    );
+}
+
+#[test]
+fn every_supplemental_binding_survives_reload_and_individual_reset() {
+    use super::{EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
+    for (row, _) in EXTRA_KEYS.iter().enumerate() {
+        let mut settings = SettingsOptions::default();
+        let index = KEY_BINDINGS.len() + row;
+        let control = PhysicalControl::KeyboardUsage(0x45);
+        assert!(settings.remap(index, control));
+        let mut restored =
+            SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(restored.key_control(index), Some(control));
+        assert!(restored.reset_key(index));
+        assert_eq!(
+            restored.key_control(index),
+            SettingsOptions::default().key_control(index)
+        );
+    }
+    for (row, _) in EXTRA_GAMEPAD.iter().enumerate() {
+        let mut settings = SettingsOptions::default();
+        let index = GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + row;
+        let control = PhysicalControl::GamepadButton(9);
+        assert!(settings.remap(index, control));
+        let mut restored =
+            SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(restored.key_control(index), Some(control));
+        assert!(restored.reset_key(index));
+        assert_eq!(
+            restored.key_control(index),
+            SettingsOptions::default().key_control(index)
+        );
+    }
+}
+
+#[test]
+fn controller_swaps_agree_between_display_capture_router_and_menu() {
+    use super::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
+    use bevy::input::gamepad::GamepadButton;
+    let mut settings = SettingsOptions::default();
+    settings.set(index("swap_gamepad_ab_buttons"), 1);
+    settings.set(index("swap_gamepad_xy_buttons"), 1);
+    let jump = GAMEPAD_OFFSET
+        + GAMEPAD_BINDINGS
+            .iter()
+            .position(|(_, name)| *name == "key.jump")
+            .unwrap();
+    assert_eq!(
+        settings.key_control(jump),
+        Some(PhysicalControl::GamepadButton(1))
+    );
+    assert_eq!(
+        settings.gamepad_button(GamepadButton::South),
+        GamepadButton::East
+    );
+    assert_eq!(
+        settings.gamepad_button(GamepadButton::North),
+        GamepadButton::West
+    );
+    assert!(
+        settings
+            .user_settings()
+            .controls
+            .bindings()
+            .iter()
+            .any(|binding| binding.action == semantic_input::Action::Jump
+                && binding.context == InputContext::Gameplay
+                && binding.chord.control == PhysicalControl::GamepadButton(1))
+    );
+    assert!(settings.remap(jump, PhysicalControl::GamepadButton(2)));
+    assert_eq!(
+        settings.key_control(jump),
+        Some(PhysicalControl::GamepadButton(2))
+    );
+    assert!(
+        settings
+            .user_settings()
+            .controls
+            .bindings()
+            .iter()
+            .any(|binding| binding.action == semantic_input::Action::Jump
+                && binding.context == InputContext::Gameplay
+                && binding.chord.control == PhysicalControl::GamepadButton(2))
+    );
+}

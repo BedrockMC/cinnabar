@@ -1,6 +1,12 @@
 //! Desktop key remapping uses the same physical controls as the gameplay router.
 
-use super::SettingsOptions;
+use super::{
+    SettingsOptions,
+    control_bindings::{
+        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, decode_control,
+        encode_control, is_gamepad,
+    },
+};
 use semantic_input::{Action, ControlSettings, InputContext, PhysicalControl};
 
 pub(crate) const KEY_BINDINGS: &[(Action, &str)] = &[
@@ -26,44 +32,87 @@ pub(crate) const KEY_BINDINGS: &[(Action, &str)] = &[
 ];
 
 impl SettingsOptions {
-    /// Returns the selected keyboard or mouse control, using the router defaults initially.
+    /// Resolves a settings row to its persisted name and optional semantic action.
+    fn binding(&self, index: usize) -> Option<(String, Option<Action>, Option<PhysicalControl>)> {
+        if let Some(index) = index.checked_sub(GAMEPAD_OFFSET) {
+            if let Some((action, name)) = GAMEPAD_BINDINGS.get(index) {
+                return Some((format!("gamepad:{name}"), Some(*action), None));
+            }
+            let (name, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
+            return Some((format!("gamepad:{name}"), None, *control));
+        }
+        if let Some((action, name)) = KEY_BINDINGS.get(index) {
+            return Some(((*name).to_owned(), Some(*action), None));
+        }
+        let (name, control) = EXTRA_KEYS.get(index.checked_sub(KEY_BINDINGS.len())?)?;
+        Some(((*name).to_owned(), None, Some(*control)))
+    }
+
+    /// Reads the persisted device binding, falling back to the gameplay router's defaults.
     pub(crate) fn key_control(&self, index: usize) -> Option<PhysicalControl> {
-        let (action, name) = KEY_BINDINGS.get(index)?;
+        let (name, action, fallback) = self.binding(index)?;
         self.keys
-            .get(*name)
+            .get(&name)
             .and_then(|code| decode_control(*code))
+            .filter(|control| is_gamepad(*control) == (index >= GAMEPAD_OFFSET))
+            .or(fallback)
             .or_else(|| {
                 ControlSettings::default()
                     .bindings()
                     .iter()
                     .find(|binding| {
                         binding.context == InputContext::Gameplay
-                            && binding.action == *action
-                            && matches!(
-                                binding.chord.control,
-                                PhysicalControl::KeyboardUsage(_) | PhysicalControl::MouseButton(_)
-                            )
+                            && Some(binding.action) == action
+                            && is_gamepad(binding.chord.control) == (index >= GAMEPAD_OFFSET)
+                            && !matches!(binding.chord.control, PhysicalControl::MouseAxis(_))
                     })
                     .map(|binding| binding.chord.control)
             })
+            .map(|control| self.swap_gamepad_control(control))
+    }
+
+    /// Reads an existing UI action through the same remapping table as the settings grid.
+    pub(crate) fn named_key_control(&self, name: &str) -> Option<PhysicalControl> {
+        let index = KEY_BINDINGS
+            .iter()
+            .position(|(_, label)| *label == name)
+            .or_else(|| {
+                EXTRA_KEYS
+                    .iter()
+                    .position(|(label, _)| *label == name)
+                    .map(|index| KEY_BINDINGS.len() + index)
+            })?;
+        self.key_control(index)
+    }
+
+    /// Restores one device's full layout without disturbing bindings on the other device.
+    pub(crate) fn reset_bindings(&mut self, gamepad: bool) {
+        self.keys
+            .retain(|name, _| name.starts_with("gamepad:") != gamepad);
     }
 
     /// Saves a mapping only if the complete gameplay binding set remains valid.
     pub(crate) fn remap(&mut self, index: usize, control: PhysicalControl) -> bool {
-        let Some((_, name)) = KEY_BINDINGS.get(index) else {
+        let Some((name, _, _)) = self.binding(index) else {
             return false;
         };
-        let Some(code) = encode_control(control) else {
+        if is_gamepad(control) != (index >= GAMEPAD_OFFSET) {
+            return false;
+        }
+        let Some(code) = encode_control(self.swap_gamepad_control(control)) else {
             return false;
         };
-        let previous = self.keys.insert((*name).to_owned(), code);
+        if self.binding_conflicts(index, control) {
+            return false;
+        }
+        let previous = self.keys.insert(name.to_owned(), code);
         if self.controls().is_err() {
             match previous {
                 Some(code) => {
-                    self.keys.insert((*name).to_owned(), code);
+                    self.keys.insert(name.to_owned(), code);
                 }
                 None => {
-                    self.keys.remove(*name);
+                    self.keys.remove(&name);
                 }
             }
             return false;
@@ -71,16 +120,31 @@ impl SettingsOptions {
         true
     }
 
+    /// Rejects collisions across semantic actions and host-owned UI actions on one device.
+    fn binding_conflicts(&self, index: usize, control: PhysicalControl) -> bool {
+        let indices = if index >= GAMEPAD_OFFSET {
+            GAMEPAD_OFFSET..GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()
+        } else {
+            0..KEY_BINDINGS.len() + EXTRA_KEYS.len()
+        };
+        indices
+            .into_iter()
+            .any(|other| other != index && self.key_control(other) == Some(control))
+    }
+
     /// Restores one action's default control while preserving other remaps.
     pub(crate) fn reset_key(&mut self, index: usize) -> bool {
-        let Some((_, name)) = KEY_BINDINGS.get(index) else {
+        let Some((name, _, _)) = self.binding(index) else {
             return false;
         };
-        let previous = self.keys.remove(*name);
-        if self.controls().is_err()
+        let previous = self.keys.remove(&name);
+        if (self.controls().is_err()
+            || self
+                .key_control(index)
+                .is_some_and(|control| self.binding_conflicts(index, control)))
             && let Some(previous) = previous
         {
-            self.keys.insert((*name).to_owned(), previous);
+            self.keys.insert(name.to_owned(), previous);
             return false;
         }
         true
@@ -90,18 +154,21 @@ impl SettingsOptions {
     pub(super) fn controls(&self) -> Result<ControlSettings, semantic_input::BindingError> {
         let original = ControlSettings::default();
         let mut bindings = original.bindings().to_vec();
-        for (action, name) in KEY_BINDINGS {
-            let Some(control) = self.keys.get(*name).and_then(|code| decode_control(*code)) else {
+        for index in (0..KEY_BINDINGS.len())
+            .chain((0..GAMEPAD_BINDINGS.len()).map(|index| GAMEPAD_OFFSET + index))
+        {
+            let Some((name, Some(action), _)) = self.binding(index) else {
+                continue;
+            };
+            let Some(control) = self.keys.get(&name).and_then(|code| decode_control(*code)) else {
                 continue;
             };
             let mut replaced = false;
             bindings.retain_mut(|binding| {
-                if binding.action != *action
+                if binding.action != action
                     || binding.context != InputContext::Gameplay
-                    || !matches!(
-                        binding.chord.control,
-                        PhysicalControl::KeyboardUsage(_) | PhysicalControl::MouseButton(_)
-                    )
+                    || is_gamepad(binding.chord.control) != (index >= GAMEPAD_OFFSET)
+                    || matches!(binding.chord.control, PhysicalControl::MouseAxis(_))
                 {
                     return true;
                 }
@@ -113,6 +180,9 @@ impl SettingsOptions {
                 true
             });
         }
+        for binding in &mut bindings {
+            binding.chord.control = self.swap_gamepad_control(binding.chord.control);
+        }
         ControlSettings::new(
             bindings,
             original.mouse_sensitivity,
@@ -123,26 +193,6 @@ impl SettingsOptions {
             original.gamepad_move_deadzone,
             original.gamepad_look_deadzone,
         )
-    }
-}
-
-/// Encodes keyboard and mouse controls without serializing engine enum representations.
-fn encode_control(control: PhysicalControl) -> Option<u16> {
-    match control {
-        PhysicalControl::KeyboardUsage(code) if (0x04..=0xe7).contains(&code) => Some(code),
-        PhysicalControl::MouseButton(button) if (1..=8).contains(&button) => {
-            Some(0x100 + u16::from(button))
-        }
-        _ => None,
-    }
-}
-
-/// Rejects persisted values outside the supported keyboard and mouse ranges.
-fn decode_control(code: u16) -> Option<PhysicalControl> {
-    match code {
-        0x04..=0xe7 => Some(PhysicalControl::KeyboardUsage(code)),
-        0x101..=0x108 => Some(PhysicalControl::MouseButton((code - 0x100) as u8)),
-        _ => None,
     }
 }
 

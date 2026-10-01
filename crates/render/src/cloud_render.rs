@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{
             AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
@@ -33,8 +34,21 @@ use crate::{
 };
 use meshing::{CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD, cloud_instance_origins};
 
+/// The user's cloud visibility preference, copied into the render world each frame.
+#[derive(Resource, ExtractResource, Clone, Copy)]
+pub struct CloudVisibility(pub bool);
+
+impl Default for CloudVisibility {
+    /// Clouds remain visible until the app supplies its saved preference.
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
 const CLOUD_SHADER_HANDLE: Handle<Shader> = uuid_handle!("8dcfe9d0-c182-44cc-ae4c-7e5233b68659");
 pub(crate) fn install_cloud_render(app: &mut App) {
+    app.init_resource::<CloudVisibility>()
+        .add_plugins(ExtractResourcePlugin::<CloudVisibility>::default());
     load_internal_asset!(app, CLOUD_SHADER_HANDLE, "cloud.wgsl", Shader::from_wgsl);
     app.sub_app_mut(RenderApp)
         .init_resource::<CloudPipeline>()
@@ -320,11 +334,12 @@ fn queue_clouds(
     mut pipeline: ResMut<CloudPipeline>,
     gpu: Res<CloudGpu>,
     atmosphere: Res<AtmosphereFrame>,
+    visibility: Res<CloudVisibility>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.record_count == 0 {
+    if gpu.record_count == 0 || !visibility.0 {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();

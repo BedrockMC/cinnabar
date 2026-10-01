@@ -2,7 +2,7 @@
 
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{ButtonInput, MouseButton, Query, Res, ResMut, Window, With},
+    prelude::{ButtonInput, KeyCode, MouseButton, Query, Res, ResMut, Window, With},
     window::PrimaryWindow,
 };
 use protocol::PlayerGameMode;
@@ -20,20 +20,30 @@ use crate::{
 
 #[derive(SystemParam)]
 pub(crate) struct PickBlockContext<'w, 's> {
+    gamepads: Query<'w, 's, &'static bevy::input::gamepad::Gamepad>,
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
+    keys: Res<'w, ButtonInput<KeyCode>>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
     network: Res<'w, NetworkHandle>,
 }
 
 /// Sends one block-pick request per middle-click on a block in reach.
 pub(crate) fn produce_pick_block(context: PickBlockContext, ui: ResMut<UiRuntime>) {
-    if !context.mouse.just_pressed(MouseButton::Middle)
-        || context.menu.is_visible()
+    if !(crate::menu::settings_options::binding_gamepad(
+        Some(&context.menu),
+        "key.pickItem",
+        &context.gamepads,
+    ) || crate::menu::settings_options::binding_pressed(
+        Some(&context.menu),
+        "key.pickItem",
+        &context.keys,
+        &context.mouse,
+    )) || context.menu.is_visible()
         || ui.ui_focused()
         || !context.windows.single().is_ok_and(|window| window.focused)
         || ui

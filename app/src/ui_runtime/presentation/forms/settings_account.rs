@@ -18,7 +18,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
 pub(super) fn action(region: &HitRegion) -> Option<MenuAction> {
     Some(match region.pressed.as_deref()? {
         "sign_in_button" | "button.switch_accounts" => MenuAction::StartSignIn,
-        "sign_out_button" => MenuAction::SignOut,
+        "sign_out_button" | "button.sign_out" => MenuAction::SignOut,
         "realms_invites_button" => MenuAction::Navigate(MenuScreen::Social),
         _ => return None,
     })

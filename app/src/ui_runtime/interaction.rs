@@ -23,6 +23,7 @@ use bevy::{
 };
 
 use crate::acceptance::markers::FAST_TRANSFER_ACTION;
+use crate::menu::settings_options::{binding_gamepad, binding_key, binding_mouse, binding_pressed};
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
@@ -440,14 +441,16 @@ fn scroll_container(
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
 /// (Control+Q the whole stack) and a right-click with a book in hand opens it.
 pub(crate) fn drive_world_inventory_keys(
+    gamepads: Query<&Gamepad>,
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     mut runtime: ResMut<UiRuntime>,
 ) {
-    let drop = keys.just_pressed(KeyCode::KeyQ);
-    let use_book = mouse.just_pressed(MouseButton::Right);
+    let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
+        || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
+    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
     if !window.focused
         || runtime.ui_focused()
         || menu.as_ref().is_some_and(|menu| menu.is_visible())
@@ -611,6 +614,7 @@ pub(crate) fn paste_chat_shortcut<C: ChatClipboard>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_keyboard_input(
+    gamepads: Query<&Gamepad>,
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -655,6 +659,27 @@ pub(crate) fn drive_chat_keyboard_input(
     let inventory_owned_pointer = runtime.inventory_open();
     let mut inventory_ownership_changed = false;
     let mut consumed_gameplay = runtime.ui_focused();
+    if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
+        if binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons)
+            || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
+        {
+            runtime.toggle_inventory();
+            inventory_ownership_changed = true;
+            consumed_gameplay = true;
+        } else if !runtime.inventory_open()
+            && (binding_mouse(menu.as_deref(), "key.chat", &mouse_buttons)
+                || binding_gamepad(menu.as_deref(), "key.chat", &gamepads))
+        {
+            runtime.open_chat();
+            consumed_gameplay = true;
+        } else if !runtime.inventory_open()
+            && binding_mouse(menu.as_deref(), "key.command", &mouse_buttons)
+        {
+            runtime.open_chat();
+            let _ = runtime.insert_chat_text("/");
+            consumed_gameplay = true;
+        }
+    }
     for input in keyboard_messages.read() {
         runtime.inventory_keys.track_modifier(input);
         if input.state != ButtonState::Pressed {
@@ -696,13 +721,16 @@ pub(crate) fn drive_chat_keyboard_input(
                 continue;
             }
             match input.key_code {
-                KeyCode::KeyE => {
+                key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory();
                     inventory_ownership_changed = true;
                 }
                 KeyCode::Escape => {
                     runtime.close_inventory();
                     inventory_ownership_changed = true;
+                }
+                key if binding_key(menu.as_deref(), "key.drop", key) => {
+                    runtime.inventory_keys.press(KeyCode::KeyQ)
                 }
                 key => runtime.inventory_keys.press(key),
             }
@@ -712,10 +740,10 @@ pub(crate) fn drive_chat_keyboard_input(
             // The bed screen: Escape leaves the bed, T opens chat over it.
             match input.key_code {
                 KeyCode::Escape => runtime.request_wake(),
-                KeyCode::KeyT => {
+                key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat();
                 }
-                KeyCode::Slash => {
+                key if binding_key(menu.as_deref(), "key.command", key) => {
                     runtime.open_chat();
                     let _ = runtime.insert_chat_text("/");
                 }
@@ -725,16 +753,16 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         if !runtime.chat_focused() {
             match input.key_code {
-                KeyCode::KeyE => {
+                key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory();
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
-                KeyCode::KeyT => {
+                key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat();
                     consumed_gameplay = true;
                 }
-                KeyCode::Slash => {
+                key if binding_key(menu.as_deref(), "key.command", key) => {
                     runtime.open_chat();
                     let _ = runtime.insert_chat_text("/");
                     consumed_gameplay = true;

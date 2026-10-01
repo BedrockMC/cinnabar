@@ -193,6 +193,7 @@ pub(crate) fn publish_ui_runtime(
             .canonical_item_stack(stack)?
             .identifier
     });
+    let hide_hand = menu_runtime.settings_snapshot().0.value("hide_hand") != 0;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
@@ -200,7 +201,7 @@ pub(crate) fn publish_ui_runtime(
         skin.as_deref(),
         pose,
         runtime.inventory_open() || menu_runtime.is_visible(),
-        first_person && !hand_rig.is_active(),
+        first_person && !hide_hand && !hand_rig.is_active(),
         now_millis as f64 / 1000.0,
     );
     super::forms::observe_station_block(
@@ -233,6 +234,7 @@ pub(crate) fn publish_ui_runtime(
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
+    presentation.hud_frame.first_person &= !hide_hand;
     presentation.hud_frame.hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
@@ -241,10 +243,15 @@ pub(crate) fn publish_ui_runtime(
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
-            menu_runtime.is_visible() || presentation.loading_stage.is_some(),
+            hide_hand || menu_runtime.is_visible() || presentation.loading_stage.is_some(),
             physical_size,
         );
     }
+    let show_names = menu_runtime
+        .settings_snapshot()
+        .0
+        .value("ingame_player_names")
+        != 0;
     let anchors = client_world
         .stream
         .as_ref()
@@ -255,7 +262,7 @@ pub(crate) fn publish_ui_runtime(
                 .map(|(camera, transform)| (camera, GlobalTransform::from(*transform))),
         )
         .map(|(stream, (camera, transform))| {
-            project_below_name_anchors(
+            nametags::project_below_name_anchors(
                 runtime.scoreboards(),
                 stream,
                 camera,
@@ -266,7 +273,7 @@ pub(crate) fn publish_ui_runtime(
             )
         })
         .unwrap_or_default();
-    presentation.set_below_name_anchors(anchors);
+    presentation.set_below_name_anchors(if show_names { anchors } else { Vec::new() });
     let nametags = client_world
         .stream
         .as_ref()
@@ -285,6 +292,7 @@ pub(crate) fn publish_ui_runtime(
                 [logical_width, logical_height],
                 presentation.safe_area,
                 actor_partial.0,
+                show_names,
             )
         })
         .unwrap_or_default();
@@ -936,50 +944,6 @@ pub(crate) fn refresh_hud_frame(
         );
         presentation.last_hud_diagnostics = diagnostics;
     }
-}
-
-fn project_below_name_anchors(
-    scoreboards: &ui::ScoreboardStore,
-    stream: &client_world::WorldStream,
-    camera: &Camera,
-    camera_transform: &GlobalTransform,
-    logical_size: [f32; 2],
-    safe_area: SafeArea,
-    partial_tick: f32,
-) -> Vec<BelowNameAnchor> {
-    let content_width = (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0);
-    let content_height = (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0);
-    stream
-        .render_players()
-        .into_iter()
-        .filter_map(|(actor, _profile)| {
-            let below_name = scoreboards
-                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
-                .or_else(|| {
-                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
-                })?;
-            let name = stream.actor_display_name(actor.unique_id)?;
-            let position =
-                Vec3::from_array(actor.interpolated_position(partial_tick)?) + Vec3::Y * 2.35;
-            let viewport = camera.world_to_viewport(camera_transform, position).ok()?;
-            let x = viewport.x - safe_area.left();
-            let y = viewport.y - safe_area.top();
-            (x.is_finite()
-                && y.is_finite()
-                && x >= 0.0
-                && x <= content_width
-                && y >= 0.0
-                && y <= content_height)
-                .then_some(BelowNameAnchor {
-                    x,
-                    y,
-                    name,
-                    score: below_name.0,
-                    objective: below_name.1,
-                })
-        })
-        .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
-        .collect()
 }
 
 impl UiPresentationRuntime {

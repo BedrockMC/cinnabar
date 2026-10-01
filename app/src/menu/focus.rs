@@ -44,6 +44,24 @@ impl MenuRuntime {
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
         if let Some(dialog) = self.dialog {
             return match dialog {
+                MenuDialog::SettingsResetBindings(gamepad) => vec![
+                    MenuAction::SettingsConfirmResetBindings(gamepad),
+                    MenuAction::DismissDialog,
+                ],
+                MenuDialog::SettingsSupport(super::settings_support::SupportDialog::Help) => vec![
+                    MenuAction::SettingsSupport(super::settings_support::SupportAction::Open(
+                        super::settings_support::SupportLink::Help,
+                    )),
+                    MenuAction::DismissDialog,
+                ],
+                MenuDialog::SettingsSupport(_) => vec![MenuAction::DismissDialog],
+                MenuDialog::StorageError => vec![MenuAction::DismissDialog],
+                MenuDialog::StorageDelete => vec![
+                    MenuAction::SettingsStorage(
+                        super::settings_storage::StorageAction::ConfirmDelete,
+                    ),
+                    MenuAction::DismissDialog,
+                ],
                 MenuDialog::Exit => vec![MenuAction::ConfirmExit, MenuAction::DismissDialog],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),

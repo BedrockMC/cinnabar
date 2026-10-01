@@ -519,6 +519,24 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
+        MenuDialog::SettingsResetBindings(gamepad) => (
+            "Reset to Default",
+            "Reset all bindings to their defaults?",
+            MenuAction::SettingsConfirmResetBindings(gamepad),
+        ),
+        MenuDialog::SettingsSupport(_) => ("Settings", "", MenuAction::DismissDialog),
+        MenuDialog::StorageError => (
+            "Storage",
+            view.storage.error.as_deref().unwrap_or_default(),
+            MenuAction::DismissDialog,
+        ),
+        MenuDialog::StorageDelete => (
+            "Delete Cached Data permanently?",
+            "Downloaded packs will be downloaded again when required.",
+            MenuAction::SettingsStorage(
+                crate::menu::settings_storage::StorageAction::ConfirmDelete,
+            ),
+        ),
         MenuDialog::Exit => (
             "Quit Cinnabar?",
             "Your saved servers and account cache will remain available.",
