@@ -3,6 +3,14 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 mesh backlog: worker admission keeps a bounded queue beyond one worker wave;
+light changes coalesce into one pending successor even while cancelled work retires.
+Current-light halo checks, cancellation and output memory reservations remain required.
+Retired sessions no longer repeat their last publication backlog in later frames.
+See [offline investigation](docs/reviews/mesh-stall.md) for commit attribution and vanilla
+references. Incomplete: exact native rebuild timing, release frame spikes and network
+latency acceptance. Offline drains do not close those gates.
+
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
