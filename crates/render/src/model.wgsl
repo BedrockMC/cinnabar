@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
@@ -193,14 +193,15 @@ fn vertex(
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
     out.current_texture = frame.current;
-    out.normal = vec3(0.0, 1.0, 0.0);
+    let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
+    out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), packed_transform >> 12u) - vec3(0.5,0.0,0.5);
     out.material_flags = material.flags;
     out.local_position = block_position;
     out.biome_record = u32(origin.value.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 3u);
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     return out;

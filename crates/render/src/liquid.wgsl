@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
@@ -215,7 +215,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         u32(chunk_origin.value.w),
         vec3<f32>(block_coordinate),
     );
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 3u);
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
     out.depth_write_route = packed_material >> 31u;
     out.world_position = world_position;
     return out;

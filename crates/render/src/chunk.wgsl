@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct PackedQuad {
     geometry: u32,
@@ -255,7 +255,7 @@ fn vertex(
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 3u);
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
     return out;
 }
 
