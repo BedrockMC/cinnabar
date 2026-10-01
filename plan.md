@@ -3633,6 +3633,7 @@ witnesses cover these changes. D01 remains incomplete: the non-walking travel mo
 and exhaustive Windows-versus-host sinf bit equivalence still need validation.
 Water acceleration now multiplies the effective Depth Strider level before dividing by
 its maximum, matching Lens `0xdc3eeb0` and `R:w/WaterTravelSystem.cpp:73`.
+Collision flags use the native float epsilon (`0x14ffab690`), with exact boundary witnesses.
 
 ### Registry collision continuation (2026-10-02)
 

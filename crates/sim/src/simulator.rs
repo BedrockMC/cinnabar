@@ -46,7 +46,8 @@ const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 /// this and each subsequent tick decrements it; prediction replays rebuild
 /// initiations against the same gate, so it is part of the public contract.
 pub const JUMP_DELAY_TICKS: u8 = 10;
-const COLLISION_EPSILON: f64 = 1.0e-5;
+// Lens FinalizeMove 0x6dcbfc0 reads 0x14ffab690: the native float epsilon.
+const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;
 // Provisional block-modifier and enchantment coefficients with no bedsim oracle;

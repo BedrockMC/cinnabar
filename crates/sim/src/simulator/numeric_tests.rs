@@ -1,6 +1,44 @@
 use super::{Vec3, apply_relative_movement};
 
 #[test]
+fn collision_flags_use_the_native_float_epsilon_boundary() {
+    use crate::{Aabb, CollisionQuery, CollisionWorld, WorldQueryError};
+    struct Wall;
+    impl CollisionWorld for Wall {
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            let wall = Aabb::new(
+                Vec3::new(f64::from(0.3_f32), 0.0, -1.0),
+                Vec3::new(1.0, 4.0, 1.0),
+            );
+            Ok(CollisionQuery::synthetic(if wall.intersects(query) {
+                vec![wall]
+            } else {
+                Vec::new()
+            }))
+        }
+    }
+    for (speed, expected) in [
+        (f32::EPSILON, false),
+        (f32::EPSILON.next_up(), true),
+        (2.0e-6, true),
+    ] {
+        let motion = super::collision::resolve_motion(
+            &Wall,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(f64::from(speed), 0.0, 0.0),
+            false,
+            1.8,
+        )
+        .unwrap();
+        assert_eq!(motion.resolved.x, 0.0);
+        assert_eq!(motion.collisions.x, expected);
+    }
+}
+
+#[test]
 fn water_acceleration_multiplies_effective_level_before_division() {
     for (speed, level, grounded, expected) in [
         (0.1, 2, true, 0x3d96_2fc9),
