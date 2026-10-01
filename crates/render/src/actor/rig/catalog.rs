@@ -50,6 +50,16 @@ impl ActorRigVertexSegments {
         }
     }
 
+    /// These segments followed by `segment`, in the same epoch.
+    #[must_use]
+    pub fn with_segment(&self, segment: Arc<[ActorRigVertex]>) -> Self {
+        Self {
+            epoch: self.epoch,
+            len: self.len + segment.len(),
+            segments: self.segments.iter().cloned().chain([segment]).collect(),
+        }
+    }
+
     /// Vertices across every segment.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -161,18 +171,7 @@ impl GeometryCatalog {
             }
             self.geometries.insert(geometry.id, geometry);
         }
-        let segments: Vec<_> = self
-            .vertices
-            .segments
-            .iter()
-            .cloned()
-            .chain([Arc::from(segment)])
-            .collect();
-        self.vertices = ActorRigVertexSegments {
-            epoch: self.vertices.epoch,
-            segments: segments.into(),
-            len: self.vertices.len() + added_vertices,
-        };
+        self.vertices = self.vertices.with_segment(Arc::from(segment));
         self.published_spans = Arc::from(self.spans.as_slice());
         self.revision = revision;
         Ok(())
