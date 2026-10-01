@@ -20,12 +20,17 @@ use crate::{
     menu::MenuRuntime,
     mining::FrozenMiningSelection,
     movement::{LocalMovementEffectTimeline, MovementTicker},
-    runtime::{network::NetworkHandle, world::ClientWorld},
+    runtime::{
+        network::{BatchSendError, NetworkHandle},
+        world::ClientWorld,
+    },
     semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
 };
 
+mod admission;
 mod classify;
+use admission::step_and_send;
 pub(crate) use classify::{AirUse, Cooldown, Needs, classify};
 
 const QUICK_CHARGE_ENCHANTMENT_ID: i16 = 35;
@@ -72,10 +77,12 @@ pub(crate) struct UseOutcome {
     pub(crate) started: bool,
     /// A throw swung the arm; its swing packet precedes `packets`.
     pub(crate) swung: bool,
+    used: bool,
+    released: bool,
 }
 
 /// The press latch, the accepted use, cooldowns and the throw prediction.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct ItemUseRuntime {
     latched_press: bool,
     active: Option<ActiveUse>,
@@ -86,6 +93,10 @@ pub(crate) struct ItemUseRuntime {
     predicted: Option<PredictedStack>,
     /// The use button has stayed down since a press no block interaction consumed.
     repeat_armed: bool,
+    /// A rejected click retries only while its verified selection remains current.
+    deferred_selection: Option<FrozenMiningSelection>,
+    /// A rejected release still precedes the next use, even if Use is pressed again.
+    release_pending: bool,
     /// `TypedClientNetId<ItemStackLegacyRequestIdTag>`'s process-wide counter.
     last_legacy_request_id: i32,
 }
@@ -104,18 +115,32 @@ impl ItemUseRuntime {
     /// A new session drops the press, the use, cooldowns and the prediction without packets.
     pub(crate) fn synchronize(&mut self, session: u64) {
         if self.session.is_some_and(|previous| previous != session) {
-            self.latched_press = false;
-            self.active = None;
-            self.rearm_millis = None;
-            self.cooldowns.clear();
-            self.predicted = None;
-            self.repeat_armed = false;
+            self.cancel();
         }
         self.session = Some(session);
     }
 
     pub(crate) fn observe_press(&mut self, pressed: bool) {
-        self.latched_press |= pressed;
+        if pressed {
+            self.deferred_selection = None;
+            self.latched_press = true;
+        }
+    }
+
+    /// Screens, focus loss and spectator mode cancel queued clicks, but accepted uses release.
+    pub(crate) fn cancel_pending_input(&mut self) {
+        self.latched_press = false;
+        self.repeat_armed = false;
+        self.deferred_selection = None;
+    }
+
+    fn cancel(&mut self) {
+        self.cancel_pending_input();
+        self.active = None;
+        self.rearm_millis = None;
+        self.cooldowns.clear();
+        self.predicted = None;
+        self.release_pending = false;
     }
 
     /// Whether this frame has anything to resolve against an unsent tick.
@@ -131,7 +156,8 @@ impl ItemUseRuntime {
             self.repeat_armed = !frame.press_consumed;
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
-        self.end_use(frame, &mut outcome);
+        let release_pending = std::mem::take(&mut self.release_pending);
+        self.end_use(frame, &mut outcome, release_pending);
         if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, &mut outcome);
         }
@@ -141,7 +167,7 @@ impl ItemUseRuntime {
         outcome
     }
 
-    fn end_use(&mut self, frame: &UseFrame, outcome: &mut UseOutcome) {
+    fn end_use(&mut self, frame: &UseFrame, outcome: &mut UseOutcome, release_pending: bool) {
         let Some(active) = &self.active else {
             return;
         };
@@ -158,7 +184,7 @@ impl ItemUseRuntime {
             // An in-flight inventory request hides the stack; keep the one the use began with.
             None => active.selection.clone(),
         };
-        if frame.held {
+        if frame.held && !release_pending {
             // A depleted use completes locally; the client sends nothing for it.
             if frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks) {
                 self.active = None;
@@ -168,6 +194,7 @@ impl ItemUseRuntime {
         self.active = None;
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
             outcome.packets.push(packet);
+            outcome.released = true;
         }
     }
 
@@ -259,6 +286,7 @@ impl ItemUseRuntime {
         }
         if let Ok(packet) = protocol::click_air_packet(held_request(&selection, frame), change) {
             outcome.packets.push(packet);
+            outcome.used = true;
         }
     }
 
@@ -426,6 +454,9 @@ pub(crate) fn produce_item_use(
     } else {
         true
     };
+    if !admitted {
+        runtime.cancel_pending_input();
+    }
     runtime.observe_press(admitted && use_phase.pressed);
     let held = admitted && use_phase.held;
     let Some(stream) = context.client_world.stream.as_ref() else {
@@ -459,20 +490,15 @@ pub(crate) fn produce_item_use(
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         crate::movement::note_click_drop("use", reason);
     }
-    let outcome = runtime.step(&frame);
     let duration = swing_duration(context.effects.mining_effects());
-    if outcome.swung && swings.try_swing(sample.tick, duration) {
-        let _ = context
-            .network
-            .send_inventory_packet(protocol::swing_arm_packet(
-                stream.local_player_runtime_id(),
-                protocol::SwingSource::ThrowItem,
-            ));
-    }
-    for packet in outcome.packets {
-        let _ = context.network.send_inventory_packet(packet);
-    }
-    if outcome.started {
+    if step_and_send(
+        &mut runtime,
+        &mut swings,
+        &frame,
+        stream.local_player_runtime_id(),
+        duration,
+        |packets| context.network.send_inventory_packets(packets),
+    ) {
         movement.mark_started_using_item(sample.tick);
     }
 }
