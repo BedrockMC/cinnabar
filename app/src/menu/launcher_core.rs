@@ -106,19 +106,27 @@ impl LauncherCoreSlot {
         }
     }
 
-    /// The game socket a join dials after selecting its target on the launcher
-    /// core; `None` leaves the join to a per-session core.
-    pub(super) fn prepare_join(
+    /// Selects a join's target on the launcher core off the frame; the receiver
+    /// yields the game socket to dial. `None` leaves the join to a per-session core.
+    pub(super) fn begin_join(
         &self,
         address: &str,
         local_world: bool,
         authenticated: bool,
-    ) -> Option<Result<PathBuf, String>> {
+    ) -> Option<crossbeam_channel::Receiver<Result<PathBuf, String>>> {
         let core = self.core.as_ref()?;
         if !local_world && core.authenticated != authenticated {
             return None;
         }
-        Some(core.prepare(address, local_world))
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (socket_dir, target) = (core.socket_dir.clone(), target_for(address));
+        std::thread::Builder::new()
+            .name("launcher-join".to_owned())
+            .spawn(move || {
+                let _ = sender.send(prepare(socket_dir, target, local_world));
+            })
+            .ok()?;
+        Some(receiver)
     }
 }
 
@@ -134,14 +142,13 @@ impl LauncherCore {
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
-        let child = launcher_command(
+        let child = crate::lifecycle::children::spawn(&mut launcher_command(
             layout,
             &executable,
             &socket_dir,
             auth_cache,
             upstream_client_cache,
-        )
-        .spawn()
+        ))
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
         guard.replace(child);
@@ -153,15 +160,20 @@ impl LauncherCore {
             attached: false,
         })
     }
+}
 
-    fn prepare(&self, address: &str, local_world: bool) -> Result<PathBuf, String> {
-        wait_for_core(&self.socket_dir).map_err(|error| error.to_string())?;
-        // An opened local world is already the core's route.
-        if !local_world {
-            select(&self.socket_dir, target_for(address))?;
-        }
-        Ok(self.socket_dir.clone())
+/// Waits for the core and selects `target`; blocks, so it runs on the join worker.
+fn prepare(
+    socket_dir: PathBuf,
+    target: ConnectTarget,
+    local_world: bool,
+) -> Result<PathBuf, String> {
+    wait_for_core(&socket_dir).map_err(|error| error.to_string())?;
+    // An opened local world is already the core's route.
+    if !local_world {
+        select(&socket_dir, target)?;
     }
+    Ok(socket_dir)
 }
 
 fn launcher_command(
@@ -199,31 +211,31 @@ fn launcher_command(
     command
 }
 
-/// Sends `connect.v1` off the frame thread, waiting a bounded time for the answer.
+/// Sends `connect.v1`, waiting a bounded time for the answer.
 fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
-    let (sender, receiver) = crossbeam_channel::bounded(1);
-    let socket_dir = socket_dir.to_owned();
-    std::thread::spawn(move || {
-        let result = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| error.to_string())
-            .and_then(|runtime| {
-                runtime
-                    .block_on(launcher_control::connect_target(&socket_dir, &target))
-                    .map_err(|error| error.to_string())
-            });
-        let _ = sender.send(result);
-    });
-    receiver
-        .recv_timeout(SELECT_TIMEOUT)
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?;
+    runtime
+        .block_on(tokio::time::timeout(
+            SELECT_TIMEOUT,
+            launcher_control::connect_target(socket_dir, &target),
+        ))
         .map_err(|_| "the launcher core did not answer".to_owned())?
+        .map_err(|error| error.to_string())
 }
+
+/// Marks a menu address as a gathering's experience ID, joined when selected.
+pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
 
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
 /// prefixes, else a server that gets the default port when it names none).
 fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
+    if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
+        return ConnectTarget::Gathering(id.to_owned());
+    }
     if let Some(id) = address.strip_prefix("realm_id/") {
         return ConnectTarget::Realm(id.to_owned());
     }
@@ -267,6 +279,10 @@ mod tests {
     fn menu_addresses_map_to_connect_targets() {
         assert_eq!(target_for("realm_id/42"), ConnectTarget::Realm("42".into()));
         assert_eq!(
+            target_for("gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"),
+            ConnectTarget::Gathering("5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f".into())
+        );
+        assert_eq!(
             target_for("friend_xuid/2535"),
             ConnectTarget::Friend("2535".into())
         );
@@ -290,7 +306,7 @@ mod tests {
 
     #[test]
     fn the_launcher_core_serves_control_and_signs_in_only_when_validated() {
-        let layout = InstallLayout::discover().expect("development layout");
+        let layout = InstallLayout::scratch("launcher-args");
         let args = |auth: Option<&Path>| -> Vec<String> {
             launcher_command(
                 &layout,

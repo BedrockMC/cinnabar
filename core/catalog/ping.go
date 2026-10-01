@@ -3,12 +3,12 @@ package catalog
 import (
 	"context"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sandertv/go-raknet"
+	"github.com/sandertv/gophertunnel/minecraft"
 )
 
 // PingResult is one server's RakNet pong as the server rows show it.
@@ -72,19 +72,13 @@ func pingOne(ctx context.Context, address string, ping func(context.Context, str
 		return result
 	}
 	result.PingMillis = time.Since(started).Milliseconds()
-	result.MOTD, result.Players, result.MaxPlayers, result.Online = parsePong(data)
-	return result
-}
-
-// parsePong reads the edition;motd;protocol;version;players;max;... pong; odd fields read as zero.
-func parsePong(data []byte) (motd string, players, maxPlayers int, ok bool) {
-	fields := strings.Split(string(data), ";")
-	if len(fields) < 6 {
-		return "", 0, 0, false
+	status, err := minecraft.ParsePong(data)
+	if err != nil {
+		return PingResult{Address: address}
 	}
-	players, _ = strconv.Atoi(strings.TrimSpace(fields[4]))
-	maxPlayers, _ = strconv.Atoi(strings.TrimSpace(fields[5]))
-	return strings.TrimSpace(fields[1]), max(players, 0), max(maxPlayers, 0), true
+	result.MOTD, result.Online = strings.TrimSpace(status.ServerName), true
+	result.Players, result.MaxPlayers = max(status.PlayerCount, 0), max(status.MaxPlayers, 0)
+	return result
 }
 
 func withDefaultPort(address string) string {

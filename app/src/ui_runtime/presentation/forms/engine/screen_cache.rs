@@ -1,8 +1,13 @@
 //! Laid-out engine screens reused while their inputs are unchanged, so a static
-//! menu only repaints each frame, and resolved trees reused across hover and
-//! value changes, which only re-bind and re-lay out.
+//! menu only repaints each frame; hover, press and focus are gated in the
+//! layout and only repaint. Resolved trees are reused across value changes,
+//! which only re-bind and re-lay out, and a screen about to open (Settings from
+//! the start screen) is laid out on a background thread ahead of time.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Condvar, Mutex},
+    time::Duration,
+};
 
 use json_ui::{Catalog, Context, DataSource, FormRender, ResolvedControl, ViewState};
 
@@ -15,6 +20,7 @@ pub(super) struct ScreenKey<'a> {
     pub(super) catalog: &'a Arc<Catalog>,
     pub(super) context: &'a Context,
     pub(super) data: &'a DataSource,
+    /// Only its scroll offsets key the layout.
     pub(super) view: &'a ViewState,
     pub(super) root: [f64; 2],
     pub(super) px: f32,
@@ -41,7 +47,7 @@ impl Entry {
             && self.root == key.root
             && self.px == key.px
             && self.language == key.language
-            && self.view == *key.view
+            && self.view.scroll == key.view.scroll
             && self.context == *key.context
             && self.data == *key.data
     }
@@ -57,11 +63,11 @@ struct Resolved {
 
 #[derive(Default)]
 pub(super) struct ScreenCache {
-    laid: Mutex<Vec<Entry>>,
-    /// Shared with prewarm threads.
+    /// Shared with preparing threads.
+    laid: Arc<Mutex<Vec<Entry>>>,
     resolved: Arc<Mutex<Vec<Resolved>>>,
-    /// Screens a prewarm thread was started for.
-    warming: Mutex<Vec<String>>,
+    /// The screen a preparing thread is laying out; notified when it finishes.
+    preparing: Arc<(Mutex<Option<&'static str>>, Condvar)>,
     /// Each screen's live bindings across data refreshes.
     bindings: Mutex<Vec<Bound>>,
 }
@@ -82,10 +88,7 @@ impl ScreenCache {
         key: ScreenKey<'_>,
         render: impl FnOnce() -> Option<FormRender>,
     ) -> Option<Arc<FormRender>> {
-        let mut entries = self
-            .laid
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let mut entries = lock(&self.laid);
         if let Some(index) = entries.iter().position(|entry| entry.matches(&key)) {
             let entry = entries.remove(index);
             let render = Arc::clone(&entry.render);
@@ -101,7 +104,10 @@ impl ScreenCache {
             catalog: Arc::clone(key.catalog),
             context: key.context.clone(),
             data: key.data.clone(),
-            view: key.view.clone(),
+            view: ViewState {
+                scroll: key.view.scroll.clone(),
+                ..ViewState::default()
+            },
             root: key.root,
             px: key.px,
             language: key.language,
@@ -117,6 +123,7 @@ impl ScreenCache {
         key: ScreenKey<'_>,
         env: &json_ui::LayoutEnv,
     ) -> Option<Arc<FormRender>> {
+        self.await_preparation(&key);
         let (reference, catalog, context, data, view, root) = (
             key.reference,
             key.catalog,
@@ -136,7 +143,10 @@ impl ScreenCache {
             let bound = self.with_binding(reference, catalog, context, |state| {
                 json_ui::bind_stateful(&tree, data, &library, state).0
             });
-            Some(json_ui::render_bound(bound, root, env, view))
+            let measures = &mut json_ui::MeasureCache::default();
+            Some(json_ui::render_bound_gated(
+                bound, root, env, view, measures,
+            ))
         })
     }
 
@@ -148,10 +158,7 @@ impl ScreenCache {
         context: &Context,
         bind: impl FnOnce(&mut json_ui::BindState) -> T,
     ) -> T {
-        let mut bindings = self
-            .bindings
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let mut bindings = lock(&self.bindings);
         let index = match bindings.iter().position(|bound| {
             bound.reference == reference
                 && Arc::ptr_eq(&bound.catalog, catalog)
@@ -174,45 +181,85 @@ impl ScreenCache {
         bind(&mut bindings[index].state)
     }
 
-    /// Resolve `reference` under `context` on a background thread, once, so
-    /// its first open does not stall a frame.
-    pub(super) fn prewarm(
-        &self,
-        reference: &'static str,
-        catalog: &Arc<Catalog>,
-        context: Context,
-    ) {
-        let mut warming = self
-            .warming
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if warming.iter().any(|started| started == reference) {
+    /// A cache already resolving the settings screen on a background thread,
+    /// which its preparation or an early open then waits for.
+    pub(super) fn resolving_settings(catalog: &Arc<Catalog>) -> Self {
+        let (reference, context) = super::super::menu_screens::settings_target();
+        let cache = Self::default();
+        *lock(&cache.preparing.0) = Some(reference);
+        let (resolved, preparing, catalog) = (
+            Arc::clone(&cache.resolved),
+            Arc::clone(&cache.preparing),
+            Arc::clone(catalog),
+        );
+        let spawned = std::thread::Builder::new()
+            .name("screen-resolve".to_owned())
+            .spawn(move || {
+                resolved_in(&resolved, reference, &catalog, &context, || {
+                    json_ui::resolve(&catalog, reference, &context).control
+                });
+                *lock(&preparing.0) = None;
+                preparing.1.notify_all();
+            });
+        if spawned.is_err() {
+            *lock(&cache.preparing.0) = None;
+        }
+        cache
+    }
+
+    /// On a miss for the screen a thread is preparing, waits for it: finishing
+    /// that is never slower than laying the screen out again here.
+    fn await_preparation(&self, key: &ScreenKey<'_>) {
+        let (flag, done) = &*self.preparing;
+        let running = lock(flag);
+        if *running == Some(key.reference)
+            && !lock(&self.laid).iter().any(|entry| entry.matches(key))
+        {
+            let wait = Duration::from_secs(2);
+            let _ = done.wait_timeout_while(running, wait, |running| running.is_some());
+        }
+    }
+
+    /// Resolve, bind and lay out `screen` on a background thread so opening it
+    /// later is a cache hit; one preparation runs at a time.
+    pub(super) fn prepare(&self, screen: Prepared, engine: &super::FormEngine) {
+        // Only a no-pack catalog lays out identically off the frame.
+        if !Arc::ptr_eq(&engine.catalog, &engine.base) {
             return;
         }
-        warming.push(reference.to_owned());
-        let (resolved, catalog) = (Arc::clone(&self.resolved), Arc::clone(catalog));
-        std::thread::spawn(move || {
-            let Some(root) = json_ui::resolve(&catalog, reference, &context).control else {
-                return;
-            };
-            let mut entries = resolved.lock().unwrap_or_else(|poison| poison.into_inner());
-            let present = entries.iter().any(|entry| {
-                entry.reference == reference
-                    && Arc::ptr_eq(&entry.catalog, &catalog)
-                    && entry.context == context
-            });
-            if !present {
-                if entries.len() >= SLOTS {
-                    entries.remove(0);
-                }
-                entries.push(Resolved {
-                    reference: reference.to_owned(),
-                    catalog,
-                    context,
-                    root: Arc::new(root),
-                });
-            }
-        });
+        let key = ScreenKey {
+            reference: screen.reference,
+            catalog: &engine.catalog,
+            context: &screen.context,
+            data: &screen.data,
+            view: &ViewState::default(),
+            root: screen.root,
+            px: screen.px,
+            language: screen.language.clone(),
+        };
+        if lock(&self.laid).iter().any(|entry| entry.matches(&key)) {
+            return;
+        }
+        let mut preparing = lock(&self.preparing.0);
+        if preparing.is_some() {
+            return;
+        }
+        *preparing = Some(screen.reference);
+        drop(preparing);
+        let detached = Detached {
+            catalog: Arc::clone(&engine.catalog),
+            assets: Arc::clone(&engine.assets),
+            textures: engine.textures.detached(),
+            laid: Arc::clone(&self.laid),
+            resolved: Arc::clone(&self.resolved),
+            preparing: Arc::clone(&self.preparing),
+        };
+        let spawned = std::thread::Builder::new()
+            .name("screen-prepare".to_owned())
+            .spawn(move || detached.lay_out(screen));
+        if spawned.is_err() {
+            *lock(&self.preparing.0) = None;
+        }
     }
 
     /// The resolved tree of `reference` under `context`, else `resolve()`'s;
@@ -224,18 +271,29 @@ impl ScreenCache {
         context: &Context,
         resolve: impl FnOnce() -> Option<ResolvedControl>,
     ) -> Option<Arc<ResolvedControl>> {
-        let mut entries = self
-            .resolved
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if let Some(entry) = entries.iter().find(|entry| {
-            entry.reference == reference
-                && Arc::ptr_eq(&entry.catalog, catalog)
-                && entry.context == *context
-        }) {
-            return Some(Arc::clone(&entry.root));
-        }
-        let root = Arc::new(resolve()?);
+        resolved_in(&self.resolved, reference, catalog, context, resolve)
+    }
+}
+
+/// [`ScreenCache::resolved`] over a shared list, resolving outside its lock.
+fn resolved_in(
+    list: &Mutex<Vec<Resolved>>,
+    reference: &str,
+    catalog: &Arc<Catalog>,
+    context: &Context,
+    resolve: impl FnOnce() -> Option<ResolvedControl>,
+) -> Option<Arc<ResolvedControl>> {
+    let same = |entry: &Resolved| {
+        entry.reference == reference
+            && Arc::ptr_eq(&entry.catalog, catalog)
+            && entry.context == *context
+    };
+    if let Some(entry) = lock(list).iter().find(|entry| same(entry)) {
+        return Some(Arc::clone(&entry.root));
+    }
+    let root = Arc::new(resolve()?);
+    let mut entries = lock(list);
+    if !entries.iter().any(same) {
         if entries.len() >= SLOTS {
             entries.remove(0);
         }
@@ -245,7 +303,91 @@ impl ScreenCache {
             context: context.clone(),
             root: Arc::clone(&root),
         });
-        Some(root)
+    }
+    Some(root)
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// A screen to lay out ahead of its first open, with what it measures text by.
+pub(in super::super) struct Prepared {
+    pub(in super::super) reference: &'static str,
+    pub(in super::super) context: Context,
+    pub(in super::super) data: DataSource,
+    pub(in super::super) root: [f64; 2],
+    pub(in super::super) px: f32,
+    pub(in super::super) language: crate::ui_runtime::LanguageIdentity,
+    pub(in super::super) font: Arc<assets::RuntimeFontCatalog>,
+    pub(in super::super) metrics: super::super::super::TextMetrics,
+    pub(in super::super) translator: crate::ui_runtime::Translator,
+}
+
+/// The engine state a background layout needs, owned by its thread.
+struct Detached {
+    catalog: Arc<Catalog>,
+    assets: Arc<assets::RuntimeUiAssets>,
+    textures: super::TextureSet,
+    laid: Arc<Mutex<Vec<Entry>>>,
+    resolved: Arc<Mutex<Vec<Resolved>>>,
+    preparing: Arc<(Mutex<Option<&'static str>>, Condvar)>,
+}
+
+impl Detached {
+    fn lay_out(self, screen: Prepared) {
+        let (catalog, context) = (&self.catalog, &screen.context);
+        let tree = resolved_in(&self.resolved, screen.reference, catalog, context, || {
+            json_ui::resolve(catalog, screen.reference, context).control
+        });
+        if let Some(tree) = tree {
+            let library = json_ui::CatalogLibrary { catalog, context };
+            let bound = json_ui::bind(&tree, &screen.data, &library);
+            let atlas = self.textures.lock();
+            let textures = super::Textures {
+                assets: &self.assets,
+                set: &self.textures,
+                atlas: &atlas,
+                images: None,
+            };
+            let mut cache = ui::TextLayoutCache::new(
+                super::super::super::TEXT_CACHE_ENTRIES,
+                super::super::super::TEXT_CACHE_BYTES,
+            );
+            let layouts = std::cell::RefCell::new(&mut cache);
+            let translate = |key: &str| screen.translator.lookup(key);
+            let measure = super::Measure {
+                layouts: &layouts,
+                font: &screen.font,
+                metrics: screen.metrics,
+                px: screen.px,
+                translate: &translate,
+            };
+            let env = json_ui::LayoutEnv {
+                text: &measure,
+                textures: &textures,
+            };
+            let view = ViewState::default();
+            let measures = &mut json_ui::MeasureCache::default();
+            let render = json_ui::render_bound_gated(bound, screen.root, &env, &view, measures);
+            let mut entries = lock(&self.laid);
+            if entries.len() >= SLOTS {
+                entries.remove(0);
+            }
+            entries.push(Entry {
+                reference: screen.reference.to_owned(),
+                catalog: Arc::clone(catalog),
+                context: screen.context.clone(),
+                data: screen.data.clone(),
+                view,
+                root: screen.root,
+                px: screen.px,
+                language: screen.language.clone(),
+                render: Arc::new(render),
+            });
+        }
+        *lock(&self.preparing.0) = None;
+        self.preparing.1.notify_all();
     }
 }
 

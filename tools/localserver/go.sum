@@ -36,8 +36,8 @@ github.com/hashimthearab/dragonfly v0.0.0-20260930194619-58003c1d2ced h1:wZvabF/
 github.com/hashimthearab/dragonfly v0.0.0-20260930194619-58003c1d2ced/go.mod h1:j6z5M3W+Uj07i1VXZUSX+fwECzfXOgr0eWgYXUw0ZBE=
 github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca h1:C1HGBjObux+PjxQlbfGZ+hj67WSFwnfh+5ath5UH9vo=
 github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20260929084839-b725d82563e9 h1:L6DDXUD/pGjR1+vJCbe4YXds9pv8OuW4Wb/GQTl3JRI=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20260929084839-b725d82563e9/go.mod h1:M+013cMvX3f3V8DfbR5q9wsr+y58bk2raBS22TMZ0tU=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260930211114-ddbaa9c36ff5 h1:kJzwbqrbzq9e/VGlVebi5hQmGiARWf+RpmBN+IU8WUs=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20260930211114-ddbaa9c36ff5/go.mod h1:M+013cMvX3f3V8DfbR5q9wsr+y58bk2raBS22TMZ0tU=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/klauspost/compress v1.13.6/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=

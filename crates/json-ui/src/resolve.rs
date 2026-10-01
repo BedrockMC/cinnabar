@@ -132,7 +132,7 @@ impl<'a> Resolver<'a> {
         )
     }
 
-    /// Replace `@anim` references in `alpha`/`anims` with their resolved chains,
+    /// Replace `@anim` references in `alpha`/`offset`/`anims` with their resolved chains,
     /// and an animated `uv` with its first frame plus the flip-book that plays it.
     fn resolve_anims(&self, properties: &mut std::collections::BTreeMap<String, Value>, env: &Env) {
         if let Some(Value::String(reference)) = properties.get("uv")
@@ -157,10 +157,20 @@ impl<'a> Resolver<'a> {
             chains.extend(anim::resolve_chain(self.catalog, reference, env));
             properties.remove("alpha");
         }
+        let mut slide = None;
+        if let Some(Value::String(reference)) = properties.get("offset")
+            && reference.starts_with('@')
+        {
+            slide = anim::resolve_slide(self.catalog, reference, env);
+            properties.remove("offset");
+        }
         if let Some(Value::Array(items)) = properties.get("anims") {
             for reference in items.iter().filter_map(Value::as_str) {
                 if reference.starts_with('@') {
                     chains.extend(anim::resolve_chain(self.catalog, reference, env));
+                    if slide.is_none() {
+                        slide = anim::resolve_slide(self.catalog, reference, env);
+                    }
                 }
             }
         }
@@ -168,6 +178,9 @@ impl<'a> Resolver<'a> {
             && let Ok(value) = serde_json::to_value(chains)
         {
             properties.insert(anim::CHAINS_KEY.to_owned(), value);
+        }
+        if let Some(value) = slide.and_then(|slide| serde_json::to_value(slide).ok()) {
+            properties.insert(anim::SLIDE_KEY.to_owned(), value);
         }
     }
 

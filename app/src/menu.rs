@@ -32,7 +32,7 @@ pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
-use servers::{load_servers, save_servers};
+use servers::{ServerWriter, load_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 pub(crate) use view::{
     ButtonArt, InboxItem, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard,
@@ -45,7 +45,6 @@ pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
 use std::{
     fs,
     path::PathBuf,
-    process::Child,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -186,6 +185,7 @@ pub(crate) struct MenuRuntime {
     launcher: bool,
     servers: Vec<SavedServer>,
     config_path: PathBuf,
+    saves: ServerWriter,
     pending_connect: Option<PendingConnect>,
     connecting: bool,
     disconnect_requested: bool,
@@ -200,7 +200,7 @@ pub(crate) struct MenuRuntime {
     catalog_message: Option<String>,
     catalog_started: bool,
     catalog_path: PathBuf,
-    catalog_process: Option<Child>,
+    catalog_process: Option<crate::lifecycle::children::Spawned>,
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
@@ -232,6 +232,8 @@ pub(crate) struct MenuRuntime {
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
     session_directory: Option<SessionDirectoryGuard>,
+    /// The join provisioning behind the connecting screen.
+    join: Option<connection::JoinAttempt>,
 }
 
 #[derive(Debug)]
@@ -286,6 +288,7 @@ impl MenuRuntime {
             gui_scale: gui_scale.clamp(1, 4),
             display_name,
             servers: loaded.servers,
+            saves: ServerWriter::new(config_path.clone()),
             config_path,
             pending_connect: None,
             connecting: false,
@@ -307,6 +310,7 @@ impl MenuRuntime {
             layout,
             player_skin,
             session_directory: None,
+            join: None,
             editing: None,
             settings_section: 0,
             disconnect_message: None,
@@ -568,6 +572,7 @@ impl MenuRuntime {
 
     /// Releases the session runtime directory now (after the core has been
     /// stopped); a no-op when nothing is bound.
+    #[cfg(test)]
     pub(crate) fn release_session_directory(&mut self) {
         self.session_directory = None;
     }
@@ -627,7 +632,7 @@ impl MenuRuntime {
                 if index < self.servers.len() {
                     self.servers[index].last_joined_unix = now_unix();
                     let address = self.servers[index].address.clone();
-                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.save_servers();
                     self.request_connect(address);
                 }
             }
@@ -666,7 +671,7 @@ impl MenuRuntime {
                     } else {
                         format!("{} removed from Favorites.", server.name)
                     });
-                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.save_servers();
                 }
             }
             MenuAction::RemoveSavedDialog(index) => {
@@ -679,7 +684,7 @@ impl MenuRuntime {
                 if index < self.servers.len() {
                     let removed = self.servers.remove(index);
                     self.feeds.selected_saved = None;
-                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.save_servers();
                     self.message = Some(format!("Removed {}.", removed.name));
                 }
                 self.dialog = None;
@@ -823,11 +828,25 @@ impl MenuRuntime {
         } else {
             self.servers.push(server);
         }
-        if let Err(error) = save_servers(&self.config_path, &self.servers) {
+        if let Err(error) = self.saves.save(&self.servers) {
             self.message = Some(format!("Could not save server: {error}"));
             return false;
         }
         true
+    }
+
+    /// Queues the list for writing; a schema refusal leaves only the log.
+    fn save_servers(&mut self) {
+        if let Err(error) = self.saves.save(&self.servers) {
+            bevy::log::warn!("saved servers not written: {error:#}");
+        }
+    }
+
+    /// Surfaces a saved-server write that failed on the worker.
+    pub(crate) fn poll_saves(&mut self) {
+        if let Some(error) = self.saves.take_error() {
+            self.message = Some(format!("Could not save servers: {error}"));
+        }
     }
 
     /// Joins the live event's venue, or opens the Servers tab when it routes there.

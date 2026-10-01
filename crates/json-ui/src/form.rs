@@ -226,6 +226,8 @@ const MODAL_SOURCE: &str = "modal_bg_buttons";
 /// Map a form model onto the `#binding` names its template reads.
 pub fn form_data_source(model: &FormModel) -> DataSource {
     let mut data = DataSource::new();
+    // Forms take pointer input, so gamepad-only chrome (focus outlines) stays hidden.
+    data.set_global("#is_using_gamepad", Scalar::Bool(false));
     match model {
         FormModel::Action(form) => long_form_source(&mut data, form),
         FormModel::Modal(form) => {
