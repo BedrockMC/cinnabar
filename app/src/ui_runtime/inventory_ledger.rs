@@ -182,7 +182,7 @@ pub struct PlayerInventoryLedger {
     /// `confirmed` with pending groups folded on top; `None` while idle.
     view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
-    item_registry: Option<BTreeMap<i32, ItemRegistryEntry>>,
+    item_registry: Option<std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>>,
     creative: Option<protocol::CreativeContentEvent>,
     /// Enchanting-table options for the current input item.
     enchant_options: Option<std::sync::Arc<[protocol::EnchantOption]>>,

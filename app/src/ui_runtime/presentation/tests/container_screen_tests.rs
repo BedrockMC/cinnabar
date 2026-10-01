@@ -104,7 +104,7 @@ fn creative() -> UiRuntime {
     creative_with(300)
 }
 
-fn creative_with(count: u32) -> UiRuntime {
+pub(super) fn creative_with(count: u32) -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
     let mut runtime = session();
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);

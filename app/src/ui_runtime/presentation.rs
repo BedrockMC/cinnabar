@@ -75,7 +75,10 @@ use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
-pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
+pub(crate) use publish::{
+    PreparedUiPublication, observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime,
+    publish_ui_runtime,
+};
 use retained_hud::{BelowNameAnchor, PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::{StartupPresentationState, StartupReadinessInput};
 use text_metrics::{
@@ -444,6 +447,7 @@ impl UiPresentationRuntime {
         self.layouts.len()
     }
 
+    /// Builds the frame from its retained UI authority.
     pub fn build(
         &mut self,
         runtime: &UiRuntime,

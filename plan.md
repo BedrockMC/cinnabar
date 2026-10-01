@@ -11,6 +11,7 @@ response, the exact current public-config request and complete gathering click
 behavior remain unverified. No visual parity gate is closed. See
 [the investigation](docs/home-promo-investigation.md).
 
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
@@ -1000,7 +1001,7 @@ Phase status at this audit:
 
 | Gate | Accurate state |
 |---|---|
-| Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
+| Phase 2.5 biome blending | Open: source-backed 3D lattice cache port is local; graphics dispatch, native boundary comparison and live acceptance remain incomplete |
 | Phase 2.6 visual coverage | Open: the production carrier has zero diagnostic states, but 2,397 non-air states across 487 names use an explicitly provisional vanilla fallback. This removes pink vanilla blocks without claiming exact geometry/UV parity; each fallback remains an open acceptance item |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
 | Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live, performance, and touch-parity acceptance remain open. By owner decision touch is deprioritized and does not gate Phase 3 acceptance; the scenario records it as deferred rather than satisfied. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
@@ -2500,10 +2501,11 @@ store it only under the user's temporary directory, inspect that file, and never
     formatting, and CI are green.
   - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
     mesh waits while any of its 26 neighbours is owed (requested, or unsent in
-    the announced Euclidean disk while the server delivered data within 1 s).
-    Vanilla instead builds against absent chunks at the default brightness and
-    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
-    no native reference. `streaming_harness` measures it.
+    the announced Euclidean disk while its cohort made new progress within 1 s).
+    Current Lens 1.26.50.26 evidence instead requires eligible horizontal columns
+    before rebuilding; the historical missing-column claim is superseded. The
+    1 s quiet fallback remains provisional, with no native reference.
+    `streaming_harness` checks slow delivery for transient geometry and dark seams.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate
@@ -3522,3 +3524,23 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 `ChunkRadiusUpdated` + `SubChunk` request flow. Custom block-entity renderers remain
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
+
+### Projectile rendering fixes (incomplete parity)
+
+The `fix/projectile-render` investigation fixes item-icon carrier admission and
+resolution, sprite UV eligibility, arrow face UV defaults and neutral-profile plane
+backs, projectile world yaw, and remote motion retention/initial arrow orientation.
+See `docs/projectile-rendering.md` for Lens citations and failing-first regressions.
+Offline frame coverage does not close the native projectile gate. Exact projectile
+lerp steps, stuck-state/shake runtime, tipped-arrow behavior, target materials and
+lighting, and AddActor velocity-only launch remain open. No live connection was used.
+
+## Biome boundary cache port (2026-10-01)
+
+Incomplete parity work on `fix/biome-blend`: the reconstructed 1.26.50.26
+lattice cache replaces the provisional CPU box/shader separable kernels,
+including vertical neighbours and inverse-distance weights. Evidence and
+remaining questions are in `docs/biome-blending.md`. This does not close
+P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
+neighbour-arrival remeshing and the owner's live screenshot attribution remain
+unverified. CPU palette previews are not native or GPU acceptance.

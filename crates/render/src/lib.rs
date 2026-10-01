@@ -154,7 +154,7 @@ pub use lightning::{
 };
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
-    NAMETAG_TEXT_LIFT_BLOCKS, NametagRecord, NametagScene,
+    NAMETAG_TEXT_LIFT_BLOCKS, NametagAtlasRect, NametagRecord, NametagScene,
 };
 pub use panorama::{
     MAX_PANORAMA_FACE_SIDE, PANORAMA_WGSL, PanoramaFaces, PanoramaScene, PanoramaView,

@@ -1,5 +1,7 @@
 //! Draws [`NametagScene`] in the transparent 3D phase: a see-through pass over everything and
 //! a depth-tested pass, as vanilla's `name_tag` and `name_tag_depth_tested` materials do.
+use std::sync::Arc;
+
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -32,7 +34,9 @@ use bevy::{
     },
 };
 
-use crate::nametag::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
+use crate::nametag::{
+    MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagAtlasRect, NametagRecord, NametagScene,
+};
 
 const NAMETAG_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5d1f0c8e-2a47-4b93-9e6c-1f7a3b8d4c20");
 const RECORD_BYTES: usize = std::mem::size_of::<NametagRecord>();
@@ -69,7 +73,7 @@ struct NametagGpu {
     atlas_view: TextureView,
     atlas_texture: bevy::render::render_resource::Texture,
     sampler: Sampler,
-    atlas_revision: u64,
+    atlas: Arc<[NametagAtlasRect]>,
     see_through: u32,
     total: u32,
     bind_group: Option<BindGroup>,
@@ -113,7 +117,7 @@ fn init_nametag_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         atlas_view,
         atlas_texture,
         sampler,
-        atlas_revision: 0,
+        atlas: Arc::from([]),
         see_through: 0,
         total: 0,
         bind_group: None,
@@ -136,29 +140,32 @@ fn prepare_nametags(
             bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
         );
     }
-    let side = NAMETAG_ATLAS_SIDE as usize;
-    if scene.atlas_revision != gpu.atlas_revision && scene.atlas.len() == side * side * 4 {
+    if Arc::ptr_eq(&scene.atlas, &gpu.atlas) {
+        return;
+    }
+    for rectangle in NametagAtlasRect::updates(&scene.atlas, &gpu.atlas) {
+        let [x, y, width, height] = rectangle.cell;
         render_queue.write_texture(
             bevy::render::render_resource::TexelCopyTextureInfo {
                 texture: &gpu.atlas_texture,
                 mip_level: 0,
-                origin: default(),
+                origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: TextureAspect::All,
             },
-            &scene.atlas,
+            &rectangle.rgba8,
             TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(NAMETAG_ATLAS_SIDE * 4),
-                rows_per_image: Some(NAMETAG_ATLAS_SIDE),
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
             },
             Extent3d {
-                width: NAMETAG_ATLAS_SIDE,
-                height: NAMETAG_ATLAS_SIDE,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
         );
-        gpu.atlas_revision = scene.atlas_revision;
     }
+    gpu.atlas = Arc::clone(&scene.atlas);
 }
 
 struct NametagPipelineSpecializer;

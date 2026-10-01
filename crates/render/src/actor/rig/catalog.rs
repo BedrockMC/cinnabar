@@ -1,5 +1,4 @@
-//! Every registered rig geometry's vertices, laid out as append-only segments so registering a
-//! skin model or item mesh copies and uploads only that geometry, not the whole catalog.
+//! Immutable geometry pages with stable addresses and metadata-only relocation at capacity.
 
 use std::{
     collections::BTreeMap,
@@ -14,18 +13,15 @@ use super::{
     MAX_ACTOR_RIG_VERTICES,
 };
 
-/// Segments beyond which a registration compacts the catalog back into one.
-const MAX_SEGMENTS: usize = 32;
-
-/// Distinct for every full layout, so a renderer never appends to another layout's buffer.
+/// Distinct for independently constructed catalogs.
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 
-/// Rig vertices as segments: within one `epoch` existing segments never change and new ones are
-/// only appended, so a mirror uploads just the segments it has not seen.
+/// Immutable geometry pages and their storage-buffer addresses.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActorRigVertexSegments {
     pub epoch: u64,
     pub segments: Arc<[Arc<[ActorRigVertex]>]>,
+    pub(crate) offsets: Arc<[usize]>,
     len: usize,
 }
 
@@ -34,154 +30,219 @@ impl Default for ActorRigVertexSegments {
         Self {
             epoch: 0,
             segments: Arc::from([]),
+            offsets: Arc::from([]),
             len: 0,
         }
     }
 }
 
 impl ActorRigVertexSegments {
+    /// Starts an independent catalog containing one page.
+    #[cfg(test)]
     #[must_use]
-    pub fn from_vertices(vertices: impl Into<Arc<[ActorRigVertex]>>) -> Self {
+    pub(crate) fn from_vertices(vertices: impl Into<Arc<[ActorRigVertex]>>) -> Self {
         let vertices = vertices.into();
         Self {
             epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
             len: vertices.len(),
             segments: Arc::from([vertices]),
+            offsets: Arc::from([0]),
         }
     }
 
-    /// These segments followed by `segment`, in the same epoch.
+    /// Appends a page without changing any existing address.
+    #[cfg(test)]
     #[must_use]
-    pub fn with_segment(&self, segment: Arc<[ActorRigVertex]>) -> Self {
+    pub(crate) fn with_segment(&self, segment: Arc<[ActorRigVertex]>) -> Self {
         Self {
             epoch: self.epoch,
             len: self.len + segment.len(),
             segments: self.segments.iter().cloned().chain([segment]).collect(),
+            offsets: self.offsets.iter().copied().chain([self.len]).collect(),
         }
     }
 
-    /// Vertices across every segment.
+    /// Length of the occupied address range, including reusable gaps.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
 
+    /// Whether there are no addressable vertices.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    /// The vertices of `span`, which never crosses a segment boundary.
+    /// The vertices of a span within one immutable page.
     #[must_use]
     pub fn span(&self, span: ActorRigGeometrySpan) -> Option<&[ActorRigVertex]> {
-        let mut start = span.first_vertex as usize;
-        for segment in self.segments.iter() {
-            if start < segment.len() {
-                return segment.get(start..start + span.vertex_count as usize);
-            }
-            start -= segment.len();
-        }
-        None
+        let start = span.first_vertex as usize;
+        self.segments
+            .iter()
+            .zip(self.offsets.iter())
+            .find_map(|(segment, &offset)| {
+                start
+                    .checked_sub(offset)
+                    .and_then(|start| segment.get(start..start + span.vertex_count as usize))
+            })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct GeometryCatalog {
     pub(super) geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
-    /// Span index of each geometry; stable while the geometry stays registered.
+    /// Stable span index for each registered geometry.
     pub(super) indices: BTreeMap<EntityRigId, u32>,
     spans: Vec<ActorRigGeometrySpan>,
     pub(super) published_spans: Arc<[ActorRigGeometrySpan]>,
     pub(super) vertices: ActorRigVertexSegments,
-    /// Vertices of replaced geometries still occupying the segments.
-    dead: usize,
     pub(super) revision: u64,
 }
 
 impl GeometryCatalog {
-    /// Lays out every geometry in one segment.
+    /// Places immutable geometry pages consecutively without copying their vertices.
     pub(super) fn layout(
         geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
     ) -> Result<Self, ActorRigGeometryError> {
         let mut indices = BTreeMap::new();
-        let mut vertices = Vec::new();
+        let mut segments = Vec::with_capacity(geometries.len());
+        let mut offsets = Vec::with_capacity(geometries.len());
         let mut spans = Vec::with_capacity(geometries.len());
+        let mut len = 0;
         for (id, geometry) in &geometries {
-            let first_vertex = u32::try_from(vertices.len())
-                .map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
-            if vertices.len() + geometry.vertices.len() > MAX_ACTOR_RIG_VERTICES {
+            if len + geometry.vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
             indices.insert(*id, spans.len() as u32);
-            vertices.extend_from_slice(&geometry.vertices);
+            offsets.push(len);
+            segments.push(Arc::clone(&geometry.vertices));
             spans.push(ActorRigGeometrySpan {
-                first_vertex,
+                first_vertex: len as u32,
                 vertex_count: geometry.vertices.len() as u32,
             });
+            len += geometry.vertices.len();
         }
-        let revision = content_revision(&vertices, &spans);
+        let revision = content_revision(&segments, &spans);
         Ok(Self {
             geometries,
             indices,
             published_spans: Arc::from(spans.as_slice()),
             spans,
-            vertices: ActorRigVertexSegments::from_vertices(vertices),
-            dead: 0,
+            vertices: ActorRigVertexSegments {
+                epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
+                segments: segments.into(),
+                offsets: offsets.into(),
+                len,
+            },
             revision,
         })
     }
 
-    /// Adds or replaces `added` in one new segment; a replaced geometry's old vertices stay as
-    /// dead space until a compaction. On error the catalog is unchanged.
+    /// Reuses vacant addresses; capacity fragmentation changes only page addresses.
+    /// Admission is transactional and uses live vertices, as with the former full repack.
     pub(super) fn append(
         &mut self,
         added: Vec<ActorRigGeometry>,
         revision: u64,
     ) -> Result<(), ActorRigGeometryError> {
-        let added_vertices: usize = added.iter().map(|geometry| geometry.vertices.len()).sum();
-        let live = self.vertices.len() - self.dead;
-        if self.vertices.len() + added_vertices > MAX_ACTOR_RIG_VERTICES
-            || self.vertices.segments.len() >= MAX_SEGMENTS
-            || self.dead > live
+        let mut geometries = self.geometries.clone();
+        geometries.extend(added.into_iter().map(|geometry| (geometry.id, geometry)));
+        if geometries
+            .values()
+            .map(|geometry| geometry.vertices.len())
+            .sum::<usize>()
+            > MAX_ACTOR_RIG_VERTICES
         {
-            let mut geometries = self.geometries.clone();
-            geometries.extend(added.into_iter().map(|geometry| (geometry.id, geometry)));
-            *self = Self {
-                revision,
-                ..Self::layout(geometries)?
-            };
-            return Ok(());
+            return Err(ActorRigGeometryError::CatalogCapacity);
         }
-        let mut segment = Vec::with_capacity(added_vertices);
-        for geometry in added {
-            let span = ActorRigGeometrySpan {
-                first_vertex: (self.vertices.len() + segment.len()) as u32,
-                vertex_count: geometry.vertices.len() as u32,
-            };
-            segment.extend_from_slice(&geometry.vertices);
-            match self.indices.get(&geometry.id) {
-                Some(&index) => {
-                    self.dead += self.spans[index as usize].vertex_count as usize;
-                    self.spans[index as usize] = span;
-                }
-                None => {
-                    self.indices.insert(geometry.id, self.spans.len() as u32);
-                    self.spans.push(span);
-                }
+        let mut segments = self.vertices.segments.to_vec();
+        let mut spans = self.spans.clone();
+        let mut occupied = BTreeMap::new();
+        for (id, &index) in &self.indices {
+            let span = spans[index as usize];
+            if Arc::ptr_eq(&self.geometries[id].vertices, &geometries[id].vertices) {
+                occupied.insert(span.first_vertex as usize, span.vertex_count as usize);
             }
-            self.geometries.insert(geometry.id, geometry);
         }
-        self.vertices = self.vertices.with_segment(Arc::from(segment));
-        self.published_spans = Arc::from(self.spans.as_slice());
+        let mut relocate = false;
+        for (id, geometry) in &geometries {
+            let index = match self.indices.get(id) {
+                Some(&index) => index as usize,
+                None => {
+                    let index = spans.len();
+                    self.indices.insert(*id, index as u32);
+                    spans.push(ActorRigGeometrySpan::default());
+                    segments.push(Arc::clone(&geometry.vertices));
+                    index
+                }
+            };
+            if self
+                .geometries
+                .get(id)
+                .is_some_and(|old| Arc::ptr_eq(&old.vertices, &geometry.vertices))
+            {
+                continue;
+            }
+            let count = geometry.vertices.len();
+            let offset = vacant_range(&occupied, count);
+            relocate |= offset.is_none();
+            let offset = offset.unwrap_or(0);
+            occupied.insert(offset, count);
+            segments[index] = Arc::clone(&geometry.vertices);
+            spans[index] = ActorRigGeometrySpan {
+                first_vertex: offset as u32,
+                vertex_count: count as u32,
+            };
+        }
+        if relocate {
+            let mut offset = 0;
+            for span in &mut spans {
+                span.first_vertex = offset;
+                offset += span.vertex_count;
+            }
+        }
+        let offsets: Arc<[usize]> = spans
+            .iter()
+            .map(|span| span.first_vertex as usize)
+            .collect();
+        let len = spans
+            .iter()
+            .map(|span| span.first_vertex as usize + span.vertex_count as usize)
+            .max()
+            .unwrap_or(0);
+        self.geometries = geometries;
+        self.vertices = ActorRigVertexSegments {
+            epoch: self.vertices.epoch,
+            segments: segments.into(),
+            offsets,
+            len,
+        };
+        self.published_spans = Arc::from(spans.as_slice());
+        self.spans = spans;
         self.revision = revision;
         Ok(())
     }
 }
 
-fn content_revision(vertices: &[ActorRigVertex], spans: &[ActorRigGeometrySpan]) -> u64 {
+/// Finds the first contiguous unused address range within the existing vertex ceiling.
+fn vacant_range(occupied: &BTreeMap<usize, usize>, count: usize) -> Option<usize> {
+    let mut start = 0;
+    for (&offset, &len) in occupied {
+        if offset >= start + count {
+            return Some(start);
+        }
+        start = start.max(offset + len);
+    }
+    (start + count <= MAX_ACTOR_RIG_VERTICES).then_some(start)
+}
+
+/// Hashes initial page contents in the same order as the former contiguous layout.
+fn content_revision(segments: &[Arc<[ActorRigVertex]>], spans: &[ActorRigGeometrySpan]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in bytemuck::cast_slice::<ActorRigVertex, u8>(vertices)
+    for byte in segments
         .iter()
+        .flat_map(|segment| bytemuck::cast_slice::<ActorRigVertex, u8>(segment))
         .chain(bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(spans))
     {
         hash ^= u64::from(*byte);
@@ -191,43 +252,5 @@ fn content_revision(vertices: &[ActorRigVertex], spans: &[ActorRigGeometrySpan])
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn cuboid(id: u32) -> ActorRigGeometry {
-        ActorRigGeometry::synthetic_cuboid(EntityRigId(id), [0.0; 3], [1.0; 3], 1).unwrap()
-    }
-
-    /// A registration appends one segment to the same epoch and leaves earlier segments shared.
-    #[test]
-    fn registering_appends_a_segment_without_copying_the_catalog() {
-        let mut catalog =
-            GeometryCatalog::layout([(EntityRigId(1), cuboid(1))].into_iter().collect()).unwrap();
-        let before = catalog.vertices.clone();
-        catalog.append(vec![cuboid(2), cuboid(1)], 7).unwrap();
-        assert_eq!(catalog.vertices.epoch, before.epoch);
-        assert_eq!(catalog.vertices.segments.len(), 2);
-        assert!(Arc::ptr_eq(
-            &catalog.vertices.segments[0],
-            &before.segments[0]
-        ));
-        // The replaced geometry now draws from the new segment.
-        let span = catalog.published_spans[catalog.indices[&EntityRigId(1)] as usize];
-        assert_eq!(span.first_vertex, 72);
-        assert_eq!(catalog.vertices.span(span), Some(&cuboid(1).vertices[..]));
-    }
-
-    /// Too many segments or too much dead space compacts into a fresh single-segment epoch.
-    #[test]
-    fn churn_compacts_into_a_new_epoch() {
-        let mut catalog =
-            GeometryCatalog::layout([(EntityRigId(1), cuboid(1))].into_iter().collect()).unwrap();
-        let epoch = catalog.vertices.epoch;
-        for _ in 0..3 {
-            catalog.append(vec![cuboid(1)], 9).unwrap();
-        }
-        assert_ne!(catalog.vertices.epoch, epoch);
-        assert_eq!((catalog.vertices.segments.len(), catalog.dead), (1, 0));
-        assert_eq!(catalog.revision, 9);
-    }
-}
+#[path = "catalog/tests.rs"]
+mod tests;
