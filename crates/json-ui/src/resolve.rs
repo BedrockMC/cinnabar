@@ -1,16 +1,15 @@
-//! Stage C: turn raw controls into the resolved tree. For each control we build a
-//! variable scope (inherited scope, then `$decl`s, then matching `variables[]`
-//! blocks), substitute `$vars` in properties, record any factory, drop `ignored`
-//! children, and recurse. Base references on child keys are resolved here because
-//! they may be `$var`s that only the scope knows.
+//! Stage C: turn raw controls into the resolved tree, in the vanilla
+//! `UIResolvedDef` order: `ignored` evaluates in the enclosing scope, then the
+//! control's `$` declarations and selected `variables` blocks form its frame, and
+//! its properties, factory and children resolve in that scope. Base references on
+//! child keys are resolved here because they may be `$var`s only the scope knows.
 
 use serde_json::{Map, Value};
 
 use crate::anim;
 use crate::catalog::{Catalog, RawControl, child_controls};
-use crate::env::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
+use crate::env::{Env, evaluate, substitute};
 use crate::merge::{Layering, flatten_def, inherit};
-use crate::predicate;
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 const MAX_DEPTH: usize = 256;
@@ -64,12 +63,12 @@ impl<'a> Resolver<'a> {
         }
         let (control, provenance) =
             flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
-        let env = self.build_env(root_env, &control.props);
         // An ignored definition creates nothing, whether a screen or a
         // factory's instance (a pack's title overlay gated on one title).
-        if self.is_ignored(&control, &env) {
+        if self.is_ignored(&control, root_env) {
             return None;
         }
+        let env = self.build_env(root_env, &control.props);
         Some(self.resolve_with_env(&control, provenance, None, &env, 0))
     }
 
@@ -86,7 +85,7 @@ impl<'a> Resolver<'a> {
         let control_type = control
             .props
             .get("type")
-            .map(|value| substitute(value, env, &mut missing))
+            .map(|value| evaluate(value, env))
             .and_then(value_string);
         let (factory, control_ids_consumed) =
             self.extract_factory(control, control_type.as_deref(), env);
@@ -123,13 +122,8 @@ impl<'a> Resolver<'a> {
     /// The variables `env` holds beyond the root scope, which the controls a
     /// factory or grid creates resolve with, as they would inside it.
     fn local_scope(&self, env: &Env) -> Value {
-        let root = self.root.as_ref();
-        Value::Object(
-            env.iter()
-                .filter(|(name, value)| root.and_then(|root| root.get(name)) != Some(*value))
-                .map(|(name, value)| (name.clone(), value.clone()))
-                .collect(),
-        )
+        let root = self.root.clone().unwrap_or_default();
+        Value::Object(env.above(&root).into_iter().collect())
     }
 
     /// Replace `@anim` references in `alpha`/`anims` with their resolved chains,
@@ -186,15 +180,16 @@ impl<'a> Resolver<'a> {
             }
             return Vec::new();
         }
-        // A `$var` child list (`"controls": "$button_contents"`) is read here;
-        // it replaces the static list even when it resolves to nothing.
+        // A `$var` child list (`"controls": "$button_contents"`) is read here, its
+        // entries left for each child's own scope; it replaces the static list
+        // even when it resolves to nothing.
         let dynamic = match control.props.get("controls") {
-            Some(Value::String(reference)) => Some(
-                match reference.strip_prefix('$').and_then(|name| env.get(name)) {
-                    Some(value) => child_controls(&control.owner_ns, value, &mut self.diagnostics),
-                    None => Vec::new(),
-                },
-            ),
+            Some(reference @ Value::String(_)) => Some(match evaluate(reference, env) {
+                value @ Value::Array(_) => {
+                    child_controls(&control.owner_ns, &value, &mut self.diagnostics)
+                }
+                _ => Vec::new(),
+            }),
             _ => None,
         };
         let children = dynamic.as_ref().unwrap_or(&control.children);
@@ -221,24 +216,28 @@ impl<'a> Resolver<'a> {
         resolved
     }
 
+    /// `ignored`, evaluated in the enclosing scope: a bool or integer decides; a
+    /// string (an unset `$var`, literal text) keeps the control, as does an
+    /// expression that needs runtime bindings.
     fn is_ignored(&mut self, control: &RawControl, env: &Env) -> bool {
-        match control.props.get("ignored") {
-            None => false,
-            Some(Value::Bool(flag)) => *flag,
-            Some(Value::String(expression)) => match predicate::eval(expression, env) {
-                Some(flag) => flag,
-                None => {
-                    self.diagnostics.push(format!(
-                        "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
-                        control.owner_ns,
-                        control.name,
-                        clipped(expression),
-                        expression.len()
-                    ));
-                    false
-                }
-            },
-            Some(_) => false,
+        let Some(raw) = control.props.get("ignored") else {
+            return false;
+        };
+        match evaluate(raw, env) {
+            Value::Bool(flag) => flag,
+            Value::Number(number) => number.as_i64().is_some_and(|value| value != 0)
+                || number.as_u64().is_some_and(|value| value != 0),
+            Value::String(expression) if expression.starts_with('(') => {
+                self.diagnostics.push(format!(
+                    "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
+                    control.owner_ns,
+                    control.name,
+                    clipped(&expression),
+                    expression.len()
+                ));
+                false
+            }
+            _ => false,
         }
     }
 
@@ -300,38 +299,64 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The control's frame over `parent`: its `$` declarations in name order,
+    /// each evaluated as it is declared, then its selected `variables` blocks.
     fn build_env(&mut self, parent: &Env, props: &Map<String, Value>) -> Env {
-        let mut env = parent.clone();
-        apply_declarations(&mut env, props);
-        self.apply_variables_blocks(props.get("variables"), &mut env);
-        env
+        let mut env = parent.child();
+        for (key, value) in props {
+            if let Some(name) = key.strip_prefix('$') {
+                let value = evaluate(value, &env);
+                env.set(name, value);
+            }
+        }
+        if let Some(blocks) = props.get("variables") {
+            match evaluate(blocks, &env) {
+                Value::Array(blocks) => {
+                    for block in blocks.iter().filter_map(Value::as_object) {
+                        self.apply_block(block, &mut env);
+                    }
+                }
+                Value::Object(block) => self.apply_block(&block, &mut env),
+                _ => {}
+            }
+        }
+        env.settle()
     }
 
-    fn apply_variables_blocks(&mut self, blocks: Option<&Value>, env: &mut Env) {
-        let Some(Value::Array(blocks)) = blocks else {
-            return;
+    /// One `variables` block: `requires` selects it by the vanilla typed rules
+    /// (a nonzero number, a nonempty string, a nonempty array or object; missing
+    /// or null never), and its `$` members then follow `$` references.
+    fn apply_block(&mut self, block: &Map<String, Value>, env: &mut Env) {
+        let raw = block.get("requires").unwrap_or(&Value::Null);
+        let selected = match evaluate(raw, env) {
+            Value::Null => false,
+            Value::Bool(flag) => flag,
+            Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
+            // Lenient: a condition that needs runtime bindings selects nothing.
+            Value::String(text) if text.starts_with('(') => false,
+            Value::String(text) => !text.is_empty(),
+            Value::Array(items) => !items.is_empty(),
+            Value::Object(map) => !map.is_empty(),
         };
-        let mut sink = Vec::new();
-        for block in blocks {
-            let Value::Object(entries) = block else {
+        if !selected {
+            return;
+        }
+        for (key, value) in block {
+            let Some(name) = key.strip_prefix('$') else {
                 continue;
             };
-            let selected = match entries.get("requires").and_then(Value::as_str) {
-                Some(expression) => predicate::eval(expression, env) == Some(true),
-                None => true,
-            };
-            if !selected {
-                continue;
-            }
-            for (key, value) in entries {
-                if key == "requires" {
-                    continue;
+            let mut value = value.clone();
+            for _ in 0..MAX_BLOCK_HOPS {
+                if !value.as_str().is_some_and(|text| text.starts_with('$')) {
+                    break;
                 }
-                if let Some((name, _)) = parse_var_key(key) {
-                    let resolved = fold_expression(value, substitute(value, env, &mut sink), env);
-                    env.set(name, resolved);
+                let next = evaluate(&value, env);
+                if next == value {
+                    break;
                 }
+                value = next;
             }
+            env.set(name, value);
         }
     }
 
@@ -391,6 +416,9 @@ impl<'a> Resolver<'a> {
     }
 }
 
+/// Most times a `variables` block value may follow a `$` reference.
+const MAX_BLOCK_HOPS: usize = 8;
+
 /// A stable digest of a scope's serialized vars.
 fn scope_key(scope: &Value) -> String {
     use std::hash::{Hash, Hasher};
@@ -415,8 +443,7 @@ fn build_properties(
         if control_ids_consumed && key == "control_ids" {
             continue;
         }
-        let substituted = substitute(value, env, missing);
-        properties.insert(key.clone(), fold_expression(value, substituted, env));
+        properties.insert(key.clone(), substitute(value, env, missing));
     }
     properties
 }
@@ -435,7 +462,7 @@ fn control_id_map(
     env: &Env,
 ) -> std::collections::BTreeMap<String, ControlRef> {
     let mut map = std::collections::BTreeMap::new();
-    let value = value.map(|value| substitute(value, env, &mut Vec::new()));
+    let value = value.map(|value| evaluate(value, env));
     if let Some(Value::Object(entries)) = &value {
         for (role, reference) in entries {
             if let Some(text) = reference.as_str() {
