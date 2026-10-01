@@ -513,6 +513,7 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            ..HitRegion::default()
         };
         let hits = segments(&region, 3, 2.0, [5.0, 7.0]);
         for (track_x, expected) in [
