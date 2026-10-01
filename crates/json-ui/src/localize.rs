@@ -1,12 +1,10 @@
-//! Label localization as the vanilla client applies it (`Localization::_get`):
-//! text without `%` is one whole key; otherwise each `%token` is replaced by its
-//! translation, and a missing token draws without its `%`. Keys match exactly,
-//! then lowercased. Unknown text draws verbatim.
+//! Label localization as the client's `Localization::_get` applies it: text
+//! without `%` is one whole key; otherwise each `%token` (ASCII letters,
+//! digits, `-`, `.`, `_`) is replaced by its translation or, when missing, by
+//! its own text, so an empty token drops its `%`. The character ending a token
+//! is kept as is. Keys match exactly, then lowercased.
 
 use std::{borrow::Cow, sync::Arc};
-
-/// Longest string worth a key lookup; lang keys are far shorter.
-const MAX_KEY_BYTES: usize = 256;
 
 /// `text` localized through `lookup` (the active language table).
 pub fn localize_text<'a>(text: &'a str, lookup: &dyn Fn(&str) -> Option<Arc<str>>) -> Cow<'a, str> {
@@ -20,31 +18,34 @@ pub fn localize_text<'a>(text: &'a str, lookup: &dyn Fn(&str) -> Option<Arc<str>
         };
     }
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find('%') {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + 1..];
-        let length = after
-            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_')))
-            .unwrap_or(after.len());
-        let token = &after[..length];
-        if token.is_empty() {
-            // A lone `%` is kept (vanilla's handling is unconfirmed).
-            out.push('%');
-        } else {
-            match key(token, lookup) {
-                Some(value) => out.push_str(&value),
-                None => out.push_str(token),
+    let mut token: Option<usize> = None;
+    for (at, ch) in text.char_indices() {
+        match token {
+            Some(_) if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_') => {}
+            Some(start) => {
+                substitute(&text[start..at], lookup, &mut out);
+                out.push(ch);
+                token = None;
             }
+            None if ch == '%' => token = Some(at + 1),
+            None => out.push(ch),
         }
-        rest = &after[length..];
     }
-    out.push_str(rest);
+    if let Some(start) = token {
+        substitute(&text[start..], lookup, &mut out);
+    }
     Cow::Owned(out)
 }
 
+fn substitute(token: &str, lookup: &dyn Fn(&str) -> Option<Arc<str>>, out: &mut String) {
+    match key(token, lookup) {
+        Some(value) => out.push_str(&value),
+        None => out.push_str(token),
+    }
+}
+
 fn key(text: &str, lookup: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<Arc<str>> {
-    if text.len() > MAX_KEY_BYTES {
+    if text.is_empty() {
         return None;
     }
     lookup(text).or_else(|| {
@@ -77,6 +78,14 @@ mod tests {
         assert_eq!(localize_text("Hello there", &table), "Hello there");
         assert_eq!(localize_text("§l%menu.play!", &table), "§lPlay!");
         assert_eq!(localize_text("%missing.key x", &table), "missing.key x");
-        assert_eq!(localize_text("100% sure", &table), "100% sure");
+        assert_eq!(localize_text("100% sure", &table), "100 sure");
+        assert_eq!(localize_text("%", &table), "");
+        assert_eq!(
+            localize_text("%menu.play%menu.play", &table),
+            "Play%menu.play"
+        );
+        let long = format!("k{}", "a".repeat(256));
+        let found = |key: &str| (key == long).then(|| Arc::from("long"));
+        assert_eq!(localize_text(&long, &found), "long");
     }
 }

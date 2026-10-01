@@ -47,8 +47,8 @@ pub use anim::{
     motion_offset,
 };
 pub use bind::{
-    CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_reporting,
-    bind_shared, scoped_key,
+    BindState, CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind,
+    bind_reporting, bind_shared, bind_stateful, scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{

@@ -5,9 +5,9 @@ mod support;
 use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
 
 use json_ui::{
-    BossBar, CachedLibrary, Catalog, CatalogLibrary, Context, HUD_SCREEN, HudModel, LayoutEnv,
-    ResolveCache, Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState, bind_shared,
-    hud_context, hud_data_source, render_bound, resolve,
+    BindState, BossBar, CachedLibrary, Catalog, CatalogLibrary, Context, HUD_SCREEN, HudModel,
+    LayoutEnv, ResolveCache, Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState,
+    bind_shared, bind_stateful, hud_context, hud_data_source, render_bound, resolve,
 };
 
 /// Stable font metrics keep this benchmark independent of the rasterizer and GPU.
@@ -100,6 +100,9 @@ fn frame_cost_bench_changing_hud_bind_layout() {
         ..HudModel::default()
     };
     let mut bind_time = std::time::Duration::ZERO;
+    // The host keeps live binding state across refreshes.
+    let mut state = BindState::new();
+    let mut stateful_time = std::time::Duration::ZERO;
     let mut layout_time = std::time::Duration::ZERO;
     const FRAMES: u32 = 200;
     for frame in 0..=FRAMES {
@@ -109,6 +112,9 @@ fn frame_cost_bench_changing_hud_bind_layout() {
         let bound = bind_shared(&tree, &data, &library);
         let bind_elapsed = started.elapsed();
         let started = Instant::now();
+        black_box(bind_stateful(&tree, &data, &library, &mut state));
+        let stateful_elapsed = started.elapsed();
+        let started = Instant::now();
         black_box(render_bound(
             bound,
             [480.0, 270.0],
@@ -117,13 +123,15 @@ fn frame_cost_bench_changing_hud_bind_layout() {
         ));
         if frame > 0 {
             bind_time += bind_elapsed;
+            stateful_time += stateful_elapsed;
             layout_time += started.elapsed();
         }
     }
     eprintln!(
-        "FRAME_COST changing_hud: cold_resolve={:.3}ms bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
+        "FRAME_COST changing_hud: cold_resolve={:.3}ms bind={:.3}ms stateful_bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
         cold_resolve.as_secs_f64() * 1e3,
         (bind_time / FRAMES).as_secs_f64() * 1e3,
+        (stateful_time / FRAMES).as_secs_f64() * 1e3,
         (layout_time / FRAMES).as_secs_f64() * 1e3,
         ((bind_time + layout_time) / FRAMES).as_secs_f64() * 1e3
     );

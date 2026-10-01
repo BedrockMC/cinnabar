@@ -298,7 +298,7 @@ fn view_binding_over_a_sibling_drives_visibility() {
 }
 
 #[test]
-fn empty_texture_binding_emits_no_texture_property() {
+fn empty_texture_binding_applies_the_empty_filename() {
     let image = ctrl(
         "image",
         Some("image"),
@@ -309,11 +309,9 @@ fn empty_texture_binding_emits_no_texture_property() {
     let mut data = DataSource::new();
     data.set_global("#tex", Scalar::Text(String::new()));
 
+    // The empty filename reaches the sprite, which then draws nothing.
     let bound = bind(&image, &data, &EmptyLibrary);
-    assert!(
-        !bound.properties.contains_key("texture"),
-        "empty texture is dropped"
-    );
+    assert_eq!(prop(&bound, "texture"), &json!(""));
 
     let mut present = DataSource::new();
     present.set_global("#tex", Scalar::Text("textures/items/apple".into()));
@@ -335,8 +333,9 @@ fn strict_screens_hide_unbound_visibility_flags_but_keep_text() {
         }),
     );
     let mut data = DataSource::new();
+    // Unanswered, the bag holds nothing and the visible reader's default shows it.
     let lenient = bind(&control, &data, &EmptyLibrary);
-    assert!(!lenient.properties.contains_key("visible"));
+    assert_eq!(prop(&lenient, "visible"), &json!(true));
     data.set_strict(true);
     let strict = bind(&control, &data, &EmptyLibrary);
     assert_eq!(prop(&strict, "visible"), &json!(false));
@@ -486,7 +485,7 @@ fn collection_bindings_outside_a_grid_read_the_first_item() {
     );
     let bound = bind(&label, &data, &EmptyLibrary);
     assert_eq!(prop(&bound, "text"), &json!("12"));
-    assert_eq!(prop(&bound, "#collection_index"), &json!(0.0));
+    assert_eq!(prop(&bound, "#collection_index"), &json!(0));
     assert_eq!(prop(&bound, "#collection_name"), &json!("fuel_items"));
 }
 

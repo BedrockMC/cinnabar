@@ -1,26 +1,45 @@
-//! The vanilla UI expression evaluator (`UIEval::evalExpression` and
-//! `UiExpression::evaluate`), shared by `ignored`, `requires`, folded property
-//! expressions and binding `view` expressions. Operands are typed jsoncpp values:
-//! bool, 32-bit int, 32-bit float, string, or null (an unset `$var`); `'` and `"`
-//! quote strings. Unary `+`, `-` and `not` bind to the operand right after them;
-//! binary operators reduce left to right by level: `*` `/`, then `+` `-`, then
-//! `<` `>` `=`, then `and` `or`. An unbound `#binding` yields `None`, and the
-//! caller decides the lenient default.
+//! The UI expression language shared by `ignored`, `variables[]` `requires` and
+//! data bindings, following the client's `UIEval`/`UiExpression`: tokens split
+//! at spaces, parentheses, `$` and operator characters; literals typed as int,
+//! float, bool or string; prefix `+`/`-`/`not` bound tightest; then `*` `/`,
+//! `+` `-`, `=` `<` `>`, and `and` `or`, all left-associative. Values carry the
+//! client's JSON types (int32, float32, string, bool, other) and each operator
+//! its per-type rules. A `#name` reads the property bag (missing reads null);
+//! with no bag at all the expression is undecidable. An unbound `$var` is null.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::env::Env;
 
-/// Longest server-supplied expression evaluated; evaluation itself is iterative.
-pub(crate) const MAX_BYTES: usize = 1 << 20;
+mod ops;
+mod token;
 
-/// A resolved binding scalar: the value a `#name` lookup yields and the value a
-/// `view` expression produces.
+pub(crate) use token::Operand;
+use token::Token;
+
+/// Bounds on a server-supplied expression; beyond any of them it is undecidable.
+pub(crate) const MAX_BYTES: usize = 64 * 1024;
+const MAX_TOKENS: usize = 16 * 1024;
+pub(crate) const MAX_NESTING: usize = 512;
+/// Parsed expressions kept per thread; a pack's distinct expressions fit.
+const PARSE_CACHE: usize = 4096;
+
+/// A property-bag value: what a binding writes and an expression reads, typed
+/// as the client's JSON value is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Scalar {
     Bool(bool),
     Text(String),
+    /// A real number.
     Num(f64),
+    /// An integral number.
+    Int(i64),
+    /// Null, an array or an object.
+    Json(Value),
 }
 
 impl Scalar {
@@ -33,637 +52,244 @@ impl Scalar {
                 "false" => Some(false),
                 _ => None,
             },
-            Scalar::Num(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The value as JSON, integral numbers staying integers.
+    pub fn to_json(&self) -> Value {
+        match self {
+            Scalar::Bool(value) => Value::Bool(*value),
+            Scalar::Text(text) => Value::String(text.clone()),
+            Scalar::Num(number) => serde_json::Number::from_f64(*number)
+                .map(Value::Number)
+                .unwrap_or(Value::Null),
+            Scalar::Int(number) => Value::from(*number),
+            Scalar::Json(value) => value.clone(),
+        }
+    }
+
+    /// A JSON value as a bag value, keeping integers apart from reals.
+    pub fn from_json(value: &Value) -> Scalar {
+        match value {
+            Value::Bool(flag) => Scalar::Bool(*flag),
+            Value::String(text) => Scalar::Text(text.clone()),
+            Value::Number(number) => match number.as_i64() {
+                Some(int) => Scalar::Int(int),
+                None if number.is_u64() => Scalar::Json(value.clone()),
+                None => Scalar::Num(number.as_f64().unwrap_or(0.0)),
+            },
+            other => Scalar::Json(other.clone()),
+        }
+    }
+
+    /// The number a numeric value holds.
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            Scalar::Num(number) => Some(*number),
+            Scalar::Int(number) => Some(*number as f64),
+            Scalar::Json(Value::Number(number)) => number.as_f64(),
+            _ => None,
         }
     }
 }
 
-/// Resolves `#name` bindings for a `view` expression against a control's bound
-/// values. The name is passed with its leading `#`.
+/// Resolves `#name` reads for an expression: a control's property bag.
 pub trait Bindings {
     fn get(&self, name: &str) -> Option<Scalar>;
+
+    /// Whether there is a bag at all; without one a `#name` is undecidable.
+    fn has_bag(&self) -> bool {
+        true
+    }
 }
 
-/// No binding scope: every `#name` is undecidable.
+/// No property bag: every `#name` is undecidable. `ignored`/`requires` never
+/// read runtime bindings.
 pub struct NoBindings;
 
 impl Bindings for NoBindings {
     fn get(&self, _name: &str) -> Option<Scalar> {
         None
     }
+
+    fn has_bag(&self) -> bool {
+        false
+    }
 }
 
-/// Evaluate an expression with no binding scope to its jsoncpp truth value.
+/// Evaluate a boolean predicate with no binding scope, or `None` when undecidable.
 pub fn eval(expression: &str, env: &Env) -> Option<bool> {
-    evaluate(expression, env, &NoBindings).map(|value| value.truth())
+    eval_bool(expression, env, &NoBindings)
 }
 
-/// Evaluate a `view` expression to its scalar result, or `None` when undecidable.
-pub fn eval_scalar(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Scalar> {
-    evaluate(expression, env, bindings).map(Operand::into_scalar)
-}
-
-/// Evaluate an expression with no `#binding` to its JSON value; `None` when it
-/// needs a binding or is malformed, so the text stays for the binder.
-pub fn eval_value(expression: &str, env: &Env) -> Option<Value> {
-    evaluate(expression, env, &NoBindings).map(Operand::into_value)
-}
-
-/// A jsoncpp value as an expression token holds it.
-#[derive(Clone, Debug, PartialEq)]
-enum Operand {
-    Null,
-    Bool(bool),
-    Int(i32),
-    Float(f32),
-    Str(String),
-}
-
-impl Operand {
-    /// `Json::Value::asBool`: nonzero numbers and nonempty strings are true.
-    fn truth(&self) -> bool {
-        match self {
-            Operand::Null => false,
-            Operand::Bool(value) => *value,
-            Operand::Int(value) => *value != 0,
-            Operand::Float(value) => *value != 0.0,
-            Operand::Str(text) => !text.is_empty(),
-        }
-    }
-
-    fn as_int(&self) -> i32 {
-        match self {
-            Operand::Bool(value) => i32::from(*value),
-            Operand::Int(value) => *value,
-            Operand::Float(value) => *value as i32,
-            Operand::Null | Operand::Str(_) => 0,
-        }
-    }
-
-    /// `Json::Value::asFloat`: a string reads as zero.
-    fn as_float(&self) -> f32 {
-        match self {
-            Operand::Bool(value) => f32::from(u8::from(*value)),
-            Operand::Int(value) => *value as f32,
-            Operand::Float(value) => *value,
-            Operand::Null | Operand::Str(_) => 0.0,
-        }
-    }
-
-    /// The text a string operator reads: strings and bools, anything else empty.
-    fn text(&self) -> String {
-        match self {
-            Operand::Str(text) => text.clone(),
-            Operand::Bool(value) => value.to_string(),
-            _ => String::new(),
-        }
-    }
-
-    fn is_str(&self) -> bool {
-        matches!(self, Operand::Str(_))
-    }
-
-    fn from_json(value: &Value) -> Self {
-        match value {
-            Value::Null => Operand::Null,
-            Value::Bool(value) => Operand::Bool(*value),
-            Value::Number(number) => match number.as_i64().map(i32::try_from) {
-                Some(Ok(value)) => Operand::Int(value),
-                _ => Operand::Float(number.as_f64().unwrap_or(0.0) as f32),
-            },
-            Value::String(text) => Operand::Str(text.clone()),
-            Value::Array(items) => Operand::Bool(!items.is_empty()),
-            Value::Object(map) => Operand::Bool(!map.is_empty()),
-        }
-    }
-
-    fn from_scalar(scalar: Scalar) -> Self {
-        match scalar {
-            Scalar::Bool(value) => Operand::Bool(value),
-            Scalar::Text(text) => Operand::Str(text),
-            Scalar::Num(number)
-                if number.fract() == 0.0
-                    && number >= f64::from(i32::MIN)
-                    && number <= f64::from(i32::MAX) =>
-            {
-                Operand::Int(number as i32)
-            }
-            Scalar::Num(number) => Operand::Float(number as f32),
-        }
-    }
-
-    fn into_scalar(self) -> Scalar {
-        match self {
-            Operand::Null => Scalar::Bool(false),
-            Operand::Bool(value) => Scalar::Bool(value),
-            Operand::Int(value) => Scalar::Num(f64::from(value)),
-            Operand::Float(value) => Scalar::Num(f64::from(value)),
-            Operand::Str(text) => Scalar::Text(text),
-        }
-    }
-
-    fn into_value(self) -> Value {
-        match self {
-            Operand::Null => Value::Null,
-            Operand::Bool(value) => Value::Bool(value),
-            Operand::Int(value) => Value::from(value),
-            Operand::Float(value) => {
-                serde_json::Number::from_f64(f64::from(value)).map_or(Value::Null, Value::Number)
-            }
-            Operand::Str(text) => Value::String(text),
-        }
-    }
-}
-
-/// A string result re-read as a token literal: a quoted string, an int, a float,
-/// a bool, else the text itself.
-fn reparse(text: String) -> Operand {
-    let bytes = text.as_bytes();
-    if bytes.len() > 1 && matches!(bytes[0], b'\'' | b'"') && bytes[bytes.len() - 1] == bytes[0] {
-        return Operand::Str(text[1..text.len() - 1].to_owned());
-    }
-    literal(text)
-}
-
-/// An unquoted word: an int, a float, a bool, else a string.
-fn literal(word: String) -> Operand {
-    if let Ok(value) = word.parse::<i32>() {
-        return Operand::Int(value);
-    }
-    if word.bytes().any(|byte| byte.is_ascii_digit())
-        && let Ok(value) = word.parse::<f32>()
-    {
-        return Operand::Float(value);
-    }
-    match word.as_str() {
-        "true" => Operand::Bool(true),
-        "false" => Operand::Bool(false),
-        _ => Operand::Str(word),
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Op {
-    And,
-    Or,
-    Greater,
-    Less,
-    Eq,
-    Plus,
-    Minus,
-    Times,
-    Divide,
-    Not,
-}
-
-impl Op {
-    /// Binary level; a higher level reduces first.
-    fn level(self) -> u8 {
-        match self {
-            Op::And | Op::Or => 1,
-            Op::Greater | Op::Less | Op::Eq => 2,
-            Op::Plus | Op::Minus => 3,
-            Op::Times | Op::Divide => 4,
-            Op::Not => 0,
-        }
-    }
-
-    fn unary(self) -> bool {
-        matches!(self, Op::Plus | Op::Minus | Op::Not)
-    }
-}
-
-enum Item {
-    Value(Operand),
-    Op(Op),
-}
-
-fn is_delimiter(byte: u8) -> bool {
-    matches!(
-        byte,
-        b' ' | b'\t'
-            | b'\n'
-            | b'\r'
-            | b'$'
-            | b'('
-            | b')'
-            | b'*'
-            | b'+'
-            | b'-'
-            | b'/'
-            | b'<'
-            | b'='
-            | b'>'
-            | b'\''
-            | b'"'
-    )
-}
-
-/// Evaluate `expression`; `None` when malformed or a binding is unbound.
-fn evaluate(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Operand> {
-    if expression.len() > MAX_BYTES {
-        return None;
-    }
-    let bytes = expression.as_bytes();
-    // One stack per open parenthesis.
-    let mut frames: Vec<Vec<Item>> = vec![Vec::new()];
-    let mut i = 0;
-    while i < bytes.len() {
-        let byte = bytes[i];
-        let operand = match byte {
-            b' ' | b'\t' | b'\n' | b'\r' => {
-                i += 1;
-                continue;
-            }
-            b'(' => {
-                frames.push(Vec::new());
-                i += 1;
-                continue;
-            }
-            b')' => {
-                let frame = frames.pop()?;
-                if frames.is_empty() {
-                    return None;
-                }
-                i += 1;
-                finish(frame)?
-            }
-            b'\'' | b'"' => {
-                let end = i + 1 + bytes[i + 1..].iter().position(|&next| next == byte)?;
-                let text = expression[i + 1..end].to_owned();
-                i = end + 1;
-                Operand::Str(text)
-            }
-            b'*' | b'+' | b'-' | b'/' | b'<' | b'=' | b'>' => {
-                let op = match byte {
-                    b'*' => Op::Times,
-                    b'+' => Op::Plus,
-                    b'-' => Op::Minus,
-                    b'/' => Op::Divide,
-                    b'<' => Op::Less,
-                    b'=' => Op::Eq,
-                    _ => Op::Greater,
-                };
-                i += 1;
-                push_op(frames.last_mut()?, op)?;
-                continue;
-            }
-            _ => {
-                let start = i;
-                i += 1;
-                while i < bytes.len() && !is_delimiter(bytes[i]) {
-                    i += 1;
-                }
-                let word = &expression[start..i];
-                match word {
-                    "and" | "or" | "not" => {
-                        let op = match word {
-                            "and" => Op::And,
-                            "or" => Op::Or,
-                            _ => Op::Not,
-                        };
-                        push_op(frames.last_mut()?, op)?;
-                        continue;
-                    }
-                    _ => word_operand(word, env, bindings)?,
-                }
-            }
-        };
-        push_value(frames.last_mut()?, operand)?;
-    }
-    if frames.len() != 1 {
-        return None;
-    }
-    finish(frames.pop()?)
-}
-
-fn word_operand(word: &str, env: &Env, bindings: &dyn Bindings) -> Option<Operand> {
-    if let Some(name) = word.strip_prefix('$') {
-        return Some(match env.get(name) {
-            // A variable naming a binding reads that binding.
-            Some(Value::String(text)) if text.starts_with('#') => {
-                Operand::from_scalar(bindings.get(text)?)
-            }
-            Some(value) => Operand::from_json(value),
-            None => Operand::Null,
-        });
-    }
-    if word.starts_with('#') {
-        return bindings.get(word).map(Operand::from_scalar);
-    }
-    Some(literal(word.to_owned()))
-}
-
-fn push_op(frame: &mut Vec<Item>, op: Op) -> Option<()> {
-    if matches!(frame.last(), Some(Item::Value(_))) {
-        if op == Op::Not {
-            return None;
-        }
-        reduce(frame, op.level())?;
-    } else if !op.unary() {
-        return None;
-    }
-    frame.push(Item::Op(op));
-    Some(())
-}
-
-/// Push an operand, applying any unary operators written directly before it.
-fn push_value(frame: &mut Vec<Item>, mut operand: Operand) -> Option<()> {
-    if matches!(frame.last(), Some(Item::Value(_))) {
-        return None;
-    }
-    while let Some(Item::Op(op)) = frame.last() {
-        let op = *op;
-        let at = frame.len() - 1;
-        if !op.unary() || (at > 0 && !matches!(frame[at - 1], Item::Op(_))) {
-            break;
-        }
-        frame.pop();
-        operand = match op {
-            Op::Not => Operand::Bool(!operand.truth()),
-            Op::Minus => match operand {
-                Operand::Float(value) => Operand::Float(-value),
-                other => Operand::Int(other.as_int().wrapping_neg()),
-            },
-            _ => match operand {
-                Operand::Float(value) => Operand::Float(value),
-                other => Operand::Int(other.as_int()),
-            },
-        };
-    }
-    frame.push(Item::Value(operand));
-    Some(())
-}
-
-/// Reduce `a op b` triples whose operator level is at least `level`.
-fn reduce(frame: &mut Vec<Item>, level: u8) -> Option<()> {
-    while frame.len() >= 3 {
-        let at = frame.len();
-        let Item::Op(op) = frame[at - 2] else {
-            return None;
-        };
-        if op.level() < level || op == Op::Not {
-            break;
-        }
-        let Some(Item::Value(right)) = frame.pop() else {
-            return None;
-        };
-        frame.pop();
-        let Some(Item::Value(left)) = frame.pop() else {
-            return None;
-        };
-        frame.push(Item::Value(binary(op, left, right)));
-    }
-    Some(())
-}
-
-fn finish(mut frame: Vec<Item>) -> Option<Operand> {
-    reduce(&mut frame, 1)?;
-    match (frame.pop(), frame.is_empty()) {
-        (Some(Item::Value(value)), true) => Some(value),
+/// Evaluate a predicate to a boolean against `bindings`: a bool, `"true"`/
+/// `"false"` text, or a nonzero number; `None` when undecidable.
+pub fn eval_bool(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<bool> {
+    match evaluate(expression, env, bindings, 0)? {
+        Operand::Bool(value) => Some(value),
+        Operand::Int(value) => Some(value != 0),
+        Operand::Float(value) => Some(value != 0.0),
+        Operand::Str(text) => match text.as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        Operand::Other(Value::Null) => Some(false),
         _ => None,
     }
 }
 
-/// Removes every non-overlapping occurrence of `needle` from `text`.
-fn subtract_text(text: &str, needle: &str) -> String {
-    if needle.is_empty() {
-        text.to_owned()
-    } else {
-        text.replace(needle, "")
+/// Evaluate an expression to the value the client's evaluator returns, or
+/// `None` when undecidable.
+pub fn eval_scalar(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Scalar> {
+    evaluate(expression, env, bindings, 0).map(|operand| Scalar::from_json(&ops::to_json(operand)))
+}
+
+/// The `#name` tokens an expression reads, in order, nested groups included.
+pub(crate) fn property_tokens(expression: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(tokens) = parsed(expression) {
+        collect_properties(&tokens, &mut names);
     }
+    names
 }
 
-/// `"%.Ns"` picks the first N characters of the other operand.
-fn truncation(format: &str) -> Option<usize> {
-    format.strip_prefix("%.")?.strip_suffix('s')?.parse().ok()
+/// Evaluate `expression` with its first `rewrite` `#name` tokens replaced by
+/// the token `replacement` parses to, as a global binding rewrites its
+/// expression to read the property it writes; `None` when undecidable.
+pub(crate) fn eval_rewritten(
+    expression: &str,
+    rewrite: usize,
+    replacement: &str,
+    env: &Env,
+    bindings: &dyn Bindings,
+) -> Option<Scalar> {
+    let mut tokens = (*parsed(expression)?).clone();
+    let with = match replacement {
+        "" => Token::Value(Operand::Str(String::new())),
+        text => token::parse_word(text),
+    };
+    rewrite_properties(&mut tokens, &mut rewrite.clone(), &with);
+    let scope = EvalScope {
+        env,
+        bindings,
+        depth: 0,
+    };
+    let result = ops::resolve_final(ops::evaluate(&tokens, &scope)?, &scope)?;
+    Some(Scalar::from_json(&ops::to_json(result)))
 }
 
-fn number(
-    left: &Operand,
-    right: &Operand,
-    int: fn(i32, i32) -> i32,
-    float: fn(f32, f32) -> f32,
-) -> Operand {
-    if matches!(left, Operand::Float(_)) || matches!(right, Operand::Float(_)) {
-        Operand::Float(float(left.as_float(), right.as_float()))
-    } else {
-        Operand::Int(int(left.as_int(), right.as_int()))
-    }
-}
-
-/// One binary operator with the vanilla type rules.
-fn binary(op: Op, left: Operand, right: Operand) -> Operand {
-    use Operand::{Bool, Int, Str};
-    match op {
-        Op::And => Bool(left.truth() && right.truth()),
-        Op::Or => Bool(left.truth() || right.truth()),
-        Op::Greater | Op::Less => {
-            let greater = op == Op::Greater;
-            Bool(match (&left, &right) {
-                (Str(a), Str(b)) => {
-                    if greater {
-                        a > b
-                    } else {
-                        a < b
-                    }
-                }
-                _ if left.is_str() || right.is_str() => {
-                    if greater {
-                        left.truth() && !right.truth()
-                    } else {
-                        !left.truth() && right.truth()
-                    }
-                }
-                _ if greater => left.as_float() > right.as_float(),
-                _ => left.as_float() < right.as_float(),
-            })
+fn rewrite_properties(tokens: &mut [Token], left: &mut usize, with: &Token) {
+    for token in tokens {
+        if *left == 0 {
+            return;
         }
-        Op::Eq => Bool(match (&left, &right) {
-            (Str(a), Str(b)) => a == b,
-            (Str(_), _) => left.truth() == right.truth(),
-            (Bool(_), _) | (_, Bool(_)) => left.truth() == right.truth(),
-            _ => left.as_float() == right.as_float(),
-        }),
-        Op::Plus => match (&left, &right) {
-            (Str(text), Int(value)) => reparse(format!("{text}{value}")),
-            (Str(text), _) => reparse(format!("{text}{}", right.text())),
-            (_, Str(text)) => reparse(format!("{}{text}", left.as_int())),
-            _ => number(&left, &right, i32::wrapping_add, |a, b| a + b),
-        },
-        Op::Minus => match (&left, &right) {
-            (Str(text), _) => reparse(subtract_text(text, &right.text())),
-            (_, Str(_)) => left,
-            _ => number(&left, &right, i32::wrapping_sub, |a, b| a - b),
-        },
-        Op::Times => match (&left, &right) {
-            (Str(format), _) => {
-                let text = right.text();
-                reparse(match truncation(format) {
-                    Some(count) => text.chars().take(count).collect(),
-                    None => text,
-                })
+        match token {
+            Token::Property(_) => {
+                *token = with.clone();
+                *left -= 1;
             }
-            (_, Str(_)) => left,
-            _ => number(&left, &right, i32::wrapping_mul, |a, b| a * b),
-        },
-        Op::Divide => match (&left, &right) {
-            (Str(text), _) => {
-                let needle = right.text();
-                Int(if needle.is_empty() {
-                    1
-                } else {
-                    text.matches(needle.as_str()).count() as i32
-                })
-            }
-            (_, Str(_)) => left,
-            // Dividing by zero keeps the left operand.
-            _ if right.as_float() == 0.0 => left,
-            _ => number(&left, &right, i32::wrapping_div, |a, b| a / b),
-        },
-        Op::Not => Operand::Null,
+            Token::Group(inner) => rewrite_properties(inner, left, with),
+            _ => {}
+        }
     }
+}
+
+fn collect_properties(tokens: &[Token], names: &mut Vec<String>) {
+    for token in tokens {
+        match token {
+            Token::Property(name) => names.push(name.clone()),
+            Token::Group(inner) => collect_properties(inner, names),
+            _ => {}
+        }
+    }
+}
+
+thread_local! {
+    static CACHE: RefCell<HashMap<String, Option<Arc<Vec<Token>>>>> = RefCell::new(HashMap::new());
+}
+
+/// The tokens of `expression`, parsed once per thread.
+fn parsed(expression: &str) -> Option<Arc<Vec<Token>>> {
+    CACHE.with(|cache| {
+        if let Some(hit) = cache.borrow().get(expression) {
+            return hit.clone();
+        }
+        let tokens = token::tokenize(expression).map(Arc::new);
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= PARSE_CACHE {
+            cache.clear();
+        }
+        cache.insert(expression.to_owned(), tokens.clone());
+        tokens
+    })
+}
+
+fn evaluate(expression: &str, env: &Env, bindings: &dyn Bindings, depth: usize) -> Option<Operand> {
+    if depth >= MAX_NESTING {
+        return None;
+    }
+    let tokens = parsed(expression)?;
+    let scope = EvalScope {
+        env,
+        bindings,
+        depth,
+    };
+    let result = ops::evaluate(&tokens, &scope)?;
+    ops::resolve_final(result, &scope)
+}
+
+struct EvalScope<'a> {
+    env: &'a Env,
+    bindings: &'a dyn Bindings,
+    depth: usize,
+}
+
+impl ops::Scope for EvalScope<'_> {
+    fn result_property(&self, name: &str) -> Option<Operand> {
+        if !self.bindings.has_bag() {
+            // `getPropertyValue` without a bag yields the name as text.
+            return Some(Operand::Str(name.to_owned()));
+        }
+        self.property(name)
+    }
+
+    fn property(&self, name: &str) -> Option<Operand> {
+        if !self.bindings.has_bag() {
+            return None;
+        }
+        Some(match self.bindings.get(name) {
+            Some(value) => Operand::from_json(&value.to_json()),
+            None => Operand::Other(Value::Null),
+        })
+    }
+
+    fn variable(&self, name: &str) -> Option<Operand> {
+        let name = name.split_once('|').map_or(name, |(name, _)| name);
+        let Some(value) = self.env.get(name) else {
+            return Some(Operand::Other(Value::Null));
+        };
+        match value {
+            // A variable naming a binding reads it, so a resolve-time fold
+            // leaves `(not $selected)` for the binder.
+            Value::String(text) if text.starts_with('#') => self.property(text),
+            // A variable holding a parenthesised expression evaluates it, as
+            // `$include_world_section: "($a and $b)"` does in vanilla.
+            Value::String(text) if is_expression(text) => {
+                let result = evaluate(text, self.env, self.bindings, self.depth + 1)?;
+                Some(Operand::from_json(&ops::to_json(result)))
+            }
+            other => Some(Operand::from_json(other)),
+        }
+    }
+}
+
+/// `(...)` wrapping the whole text: an expression, not a string value.
+fn is_expression(text: &str) -> bool {
+    let text = text.trim();
+    text.len() > 2 && text.starts_with('(') && text.ends_with(')')
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Bindings, MAX_BYTES, Scalar, eval, eval_scalar, eval_value, evaluate};
-
-    fn eval_bool(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<bool> {
-        evaluate(expression, env, bindings).map(|value| value.truth())
-    }
-    use crate::env::Env;
-    use serde_json::json;
-
-    struct Map(std::collections::BTreeMap<String, Scalar>);
-
-    impl Bindings for Map {
-        fn get(&self, name: &str) -> Option<Scalar> {
-            self.0.get(name).cloned()
-        }
-    }
-
-    fn bindings(entries: &[(&str, Scalar)]) -> Map {
-        Map(entries
-            .iter()
-            .map(|(name, value)| ((*name).to_owned(), value.clone()))
-            .collect())
-    }
-
-    fn env() -> Env {
-        let mut env = Env::new();
-        env.set("desktop_screen", json!(true));
-        env.set("pocket_screen", json!(false));
-        env.set("use_custom_title_control", json!(false));
-        env.set("show_close_button", json!(true));
-        env.set("banner_text_binding_name", json!(""));
-        env
-    }
-
-    fn value(expression: &str) -> Option<serde_json::Value> {
-        eval_value(expression, &env())
-    }
-
-    #[test]
-    fn variables_and_logic() {
-        assert_eq!(eval("(not $use_custom_title_control)", &env()), Some(true));
-        assert_eq!(eval("(not $show_close_button)", &env()), Some(false));
-        assert_eq!(
-            eval("$desktop_screen and (not $pocket_screen)", &env()),
-            Some(true)
-        );
-        assert_eq!(
-            eval("($pocket_screen or $desktop_screen)", &env()),
-            Some(true)
-        );
-        assert_eq!(eval("($banner_text_binding_name = '')", &env()), Some(true));
-        assert_eq!(eval("true or false and false", &env()), Some(false));
-    }
-
-    // An unbound `$var` is null; an unbound `#binding` is undecidable.
-    #[test]
-    fn unbound_variable_is_null_and_binding_undecidable() {
-        assert_eq!(eval("$never_set", &env()), Some(false));
-        assert_eq!(eval("(not $never_set)", &env()), Some(true));
-        assert_eq!(eval("($never_set = '')", &env()), Some(true));
-        assert_eq!(eval("($never_set = 0)", &env()), Some(true));
-        assert_eq!(eval("(not #visible)", &env()), None);
-        assert_eq!(value("(not #visible)"), None);
-    }
-
-    #[test]
-    fn view_bindings_drive_visibility_and_text() {
-        let present = bindings(&[("#texture", Scalar::Text("textures/x".into()))]);
-        let loading = bindings(&[("#texture", Scalar::Text("loading".into()))]);
-        let expr = "(not ((#texture = '') or (#texture = 'loading')))";
-        assert_eq!(eval_bool(expr, &env(), &present), Some(true));
-        assert_eq!(eval_bool(expr, &env(), &loading), Some(false));
-        let scope = bindings(&[("#name", Scalar::Text("apple".into()))]);
-        assert_eq!(
-            eval_scalar("'textures/items/' + #name", &env(), &scope),
-            Some(Scalar::Text("textures/items/apple".into()))
-        );
-    }
-
-    #[test]
-    fn string_operators_follow_the_vanilla_rules() {
-        let scope = bindings(&[("#t", Scalar::Text("@mineville/boxes:Spirit Bundle".into()))]);
-        let strip = eval_scalar("(#t - '@mineville/boxes' - ':')", &env(), &scope);
-        assert_eq!(strip, Some(Scalar::Text("Spirit Bundle".into())));
-        assert_eq!(value("('a-b-a' / 'a')"), Some(json!(2)));
-        assert_eq!(value("('%.3s' * 'abcdef')"), Some(json!("abc")));
-        assert_eq!(value("('x12' - 'x')"), Some(json!(12)));
-        assert_eq!(value("100%"), Some(json!("100%")));
-    }
-
-    // Double-quoted operands and unary `+`/`-` parse.
-    #[test]
-    fn double_quotes_and_unary_arithmetic() {
-        assert_eq!(value("(\"a\" = \"a\")"), Some(json!(true)));
-        assert_eq!(value("(+ 2 = 2)"), Some(json!(true)));
-        assert_eq!(value("(- (2) = -2)"), Some(json!(true)));
-    }
-
-    // Unary `not` binds to the operand after it, before any comparison.
-    #[test]
-    fn not_binds_tighter_than_comparison() {
-        assert_eq!(value("(not 1 < 2)"), Some(json!(true)));
-    }
-
-    // Integers divide as integers; comparisons convert to 32-bit floats.
-    #[test]
-    fn numbers_keep_native_types() {
-        assert_eq!(value("(3 / 2 = 1)"), Some(json!(true)));
-        assert_eq!(value("(3 / 2)"), Some(json!(1)));
-        assert_eq!(value("(3.0 / 2)"), Some(json!(1.5)));
-        assert_eq!(value("(16777216 = 16777217)"), Some(json!(true)));
-        assert_eq!(value("(7 / 0)"), Some(json!(7)));
-    }
-
-    // A nonempty string is true, whatever it spells.
-    #[test]
-    fn strings_use_json_truth() {
-        assert_eq!(value("(not 'false')"), Some(json!(false)));
-        assert_eq!(value("('abc' and true)"), Some(json!(true)));
-    }
-
-    // String results reparse as signed numbers; a number times a string keeps the number.
-    #[test]
-    fn string_results_reparse() {
-        assert_eq!(value("(('x-2' - 'x') < 0)"), Some(json!(true)));
-        assert_eq!(value("(2 * 'x' = 2)"), Some(json!(true)));
-    }
-
-    // Deep nesting evaluates iteratively; only absurd lengths are refused.
-    #[test]
-    fn deep_expressions_evaluate_without_recursion() {
-        let parens = format!("{}true{}", "(".repeat(20_000), ")".repeat(20_000));
-        assert_eq!(eval(&parens, &env()), Some(true));
-        let nots = format!("{}true", "not ".repeat(20_001));
-        assert_eq!(eval(&nots, &env()), Some(false));
-        let long = format!("'{}' = ''", "x".repeat(MAX_BYTES + 1));
-        assert_eq!(eval(&long, &env()), None);
-        assert_eq!(eval("(true", &env()), None);
-        assert_eq!(eval("true)", &env()), None);
-    }
-}
+mod tests;

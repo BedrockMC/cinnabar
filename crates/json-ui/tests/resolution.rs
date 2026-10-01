@@ -109,11 +109,14 @@ fn wrapped_string_variables_unwrap() {
     );
 }
 
-// A constant parenthesised property evaluates without any `$` reference.
+// A constant parenthesised property evaluates without any `$` reference; a
+// token parses as an int from its leading digits (`Util::toNumber<int>`), so
+// `1.0` is 1 and only `.5` is a float.
 #[test]
 fn constant_property_expressions_fold() {
-    let tree = root(r#""root":{"type":"panel","alpha":"(1.0 / 2.0)"}"#);
-    assert_eq!(tree.properties["alpha"], json!(0.5));
+    let tree = root(r#""root":{"type":"panel","alpha":"(1.0 / 2.0)","layer":"(.5 * 3)"}"#);
+    assert_eq!(tree.properties["alpha"], json!(0));
+    assert_eq!(tree.properties["layer"], json!(1.5));
 }
 
 // `variables` may be one object or a `$var` holding the blocks.
