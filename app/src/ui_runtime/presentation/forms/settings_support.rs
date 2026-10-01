@@ -75,6 +75,7 @@ pub(super) fn dialog_model(
 
 /// Populates FeedbackPromptController's three bindings on the actual rating prompt.
 pub(super) fn help_data(data: &mut DataSource, translate: Translate<'_>) {
+    data.set_strict(true);
     data.set_global(
         "#title",
         Scalar::Text(translated(
