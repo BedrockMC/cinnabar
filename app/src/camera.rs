@@ -735,7 +735,9 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
+    let steals = ui.as_deref().map(|ui| ui.steals_mouse(menu.as_deref()));
     if crate::screen_policy::absorbs_input(ui.as_deref(), menu.as_deref(), presentation.as_deref())
+        || steals == Some(false)
     {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
