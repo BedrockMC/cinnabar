@@ -891,41 +891,21 @@ fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
 }
 
 #[test]
-fn the_replay_jump_fold_matches_the_simulator_consumption_rule() {
-    let input = |jumping: bool, pressed: bool| MovementInput {
-        jumping,
-        jump_pressed: pressed,
-        ..MovementInput::default()
-    };
+fn the_replay_jump_fold_uses_actual_simulator_initiations() {
+    let mut fresh = ReplayJumpArcFold::seed(true, false, false);
+    assert_eq!(fresh.step(true, false), (true, true));
+    assert_eq!(fresh.step(false, false), (false, true));
+    assert_eq!(fresh.step(false, true), (false, false));
 
-    // A grounded, cooldown-cleared anchor consumes the retained press.
-    let mut fresh = ReplayJumpArcFold::seed(true, 0, false, false);
-    assert_eq!(fresh.step(&input(true, true), false), (true, true));
-    // The simulator's post-jump cooldown then refuses repeats even while the
-    // button stays held, and landing closes the carried arc.
-    assert_eq!(fresh.step(&input(true, false), false), (false, true));
-    assert_eq!(fresh.step(&input(true, true), false), (false, true));
-    assert_eq!(fresh.step(&input(true, false), true), (false, false));
+    let mut refused = ReplayJumpArcFold::seed(true, false, false);
+    assert_eq!(refused.step(false, false), (false, false));
 
-    // A short tap latches its press edge across zero-tick frames; the
-    // simulator consumes such an edge from ground even when the button reads
-    // released on the tick itself, so the fold must too.
-    let mut latched = ReplayJumpArcFold::seed(true, 5, false, false);
-    assert_eq!(latched.step(&input(false, true), false), (true, true));
+    let mut carried = ReplayJumpArcFold::seed(false, false, true);
+    assert_eq!(carried.step(false, false), (false, true));
+    assert_eq!(carried.step(false, true), (false, false));
 
-    // A held press inside the seeded cooldown initiates nothing.
-    let mut cooling = ReplayJumpArcFold::seed(true, sim::JUMP_DELAY_TICKS, false, false);
-    assert_eq!(cooling.step(&input(true, true), true), (false, false));
-
-    // An airborne anchor carries the recorded arc forward until grounding.
-    let mut carried = ReplayJumpArcFold::seed(false, 3, false, true);
-    assert_eq!(carried.step(&input(false, false), false), (false, true));
-    assert_eq!(carried.step(&input(false, false), true), (false, false));
-
-    // A server-reported ground contact at the anchor outranks a retained
-    // initiation instead of asserting Jumping through corrected-ground ticks.
-    let mut outranked = ReplayJumpArcFold::seed(true, 3, true, true);
-    assert_eq!(outranked.step(&input(false, false), false), (false, false));
+    let mut outranked = ReplayJumpArcFold::seed(true, true, true);
+    assert_eq!(outranked.step(false, false), (false, false));
 }
 
 #[test]

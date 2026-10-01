@@ -14,6 +14,8 @@ use sim::{
 };
 use thiserror::Error;
 
+mod connected;
+
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
 const FULL_CUBE: assets::CollisionBox = assets::CollisionBox {
     min_x: 0,
@@ -159,12 +161,13 @@ impl PhysicsCollisionRegistries {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
                 .expect("strict PREG decoder covers every supplied BREG record");
-            let boxes = fact
-                .boxes
-                .iter()
-                .copied()
-                .map(collision_box_to_aabb)
-                .collect::<Vec<_>>();
+            let boxes = connected::shapes(record).unwrap_or_else(|| {
+                fact.boxes
+                    .iter()
+                    .copied()
+                    .map(collision_box_to_aabb)
+                    .collect::<Vec<_>>()
+            });
             let full_cube = record.model_family == assets::ModelFamily::Cube
                 && fact.boxes.len() == 1
                 && fact.boxes[0] == FULL_CUBE;

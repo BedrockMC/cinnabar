@@ -119,10 +119,8 @@ fn action_slots(action: &StackRequestAction) -> impl Iterator<Item = StackReques
     first.into_iter().chain(second)
 }
 
-pub fn container_close_packet(
-    window_id: i32,
-    window_type: i8,
-) -> Result<crate::Packet, InventoryPacketError> {
+/// Closes the named window using the native client's unspecified container type.
+pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, InventoryPacketError> {
     let container_id = match window_id {
         -128..=-1 => (window_id as i8).to_ne_bytes()[0],
         0..=255 => window_id as u8,
@@ -134,7 +132,7 @@ pub fn container_close_packet(
     };
     Ok(ContainerClosePacket {
         container_id,
-        container_type: window_type.to_ne_bytes()[0],
+        container_type: super::NO_CONTAINER_WINDOW_TYPE.to_ne_bytes()[0],
         server_initiated_close: false,
     }
     .into())
@@ -145,6 +143,17 @@ mod tests {
     use valentine::bedrock::version::v1_26_51::McpePacketData;
 
     use super::*;
+
+    #[test]
+    fn client_close_uses_native_unspecified_type() {
+        let packet = container_close_packet(4).unwrap();
+        let McpePacketData::ContainerClosePacket(close) = packet.data else {
+            panic!("expected ContainerClose packet");
+        };
+        assert_eq!(close.container_id, 4);
+        assert_eq!(close.container_type, 0xf7);
+        assert!(!close.server_initiated_close);
+    }
 
     #[test]
     fn personal_inventory_open_targets_self_without_a_position() {

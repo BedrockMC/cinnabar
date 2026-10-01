@@ -93,7 +93,6 @@ pub(super) fn clip_sneak_edge(
     velocity: Vec3,
 ) -> Result<(Vec3, Option<WorldCollisionIdentity>), WorldQueryError> {
     const OFFSET: f64 = 0.05;
-    const MAX_ITERATIONS: usize = 24;
     let full_player = Aabb::player_at(position);
     let player = Aabb::new(
         Vec3::new(
@@ -107,13 +106,11 @@ pub(super) fn clip_sneak_edge(
             full_player.max.z - 0.025,
         ),
     );
+    crate::world::validate_collision_query(player.swept(velocity))?;
     let mut clipped = velocity;
     let mut identity: Option<WorldCollisionIdentity> = None;
     for axis in [0, 2] {
-        for _ in 0..MAX_ITERATIONS {
-            if clipped[axis] == 0.0 {
-                break;
-            }
+        while clipped[axis] != 0.0 {
             let mut probe = Vec3::new(0.0, -STEP_HEIGHT * 1.01, 0.0);
             probe[axis] = clipped[axis];
             let query = bounded_collision_boxes(world, player.translated(probe))?;
@@ -127,10 +124,7 @@ pub(super) fn clip_sneak_edge(
             clipped[axis] = reduce_toward_zero(clipped[axis], OFFSET);
         }
     }
-    for _ in 0..MAX_ITERATIONS {
-        if clipped.x == 0.0 || clipped.z == 0.0 {
-            break;
-        }
+    while clipped.x != 0.0 && clipped.z != 0.0 {
         let query = bounded_collision_boxes(
             world,
             player.translated(Vec3::new(clipped.x, -STEP_HEIGHT * 1.01, clipped.z)),

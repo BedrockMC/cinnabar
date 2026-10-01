@@ -3571,3 +3571,6 @@ expiry remain provisional. The simulator still uses its existing f64 arithmetic.
 No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound PAI
 and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
 no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.
+
+### Movement audit continuation (2026-10-01, incomplete)
+

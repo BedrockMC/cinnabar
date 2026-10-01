@@ -11,12 +11,17 @@ pub struct MovementEffects {
     pub jump_boost: Option<i32>,
     pub levitation: Option<i32>,
     pub slow_falling: bool,
+    #[serde(default)]
+    pub weaving: bool,
 }
 
 impl MovementEffects {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.jump_boost.is_none() && self.levitation.is_none() && !self.slow_falling
+        self.jump_boost.is_none()
+            && self.levitation.is_none()
+            && !self.slow_falling
+            && !self.weaving
     }
 }
 
