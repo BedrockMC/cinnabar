@@ -660,7 +660,9 @@ fn actor_world_yaw(actor: &ActorSnapshot, rig: &ActorRigSnapshot<'_>, alpha: f32
         | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
         | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
         | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"));
-    if actor.target_rotation_is_absolute() || billboard {
+    if billboard {
+        180.0
+    } else if actor.target_rotation_is_absolute() {
         0.0
     } else {
         lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
