@@ -19,7 +19,11 @@ fn root(body: &str) -> ResolvedControl {
 }
 
 fn text(control: &ResolvedControl) -> Value {
-    control.properties.get("text").cloned().unwrap_or(Value::Null)
+    control
+        .properties
+        .get("text")
+        .cloned()
+        .unwrap_or(Value::Null)
 }
 
 fn root_text(control: &str) -> Value {
@@ -46,7 +50,10 @@ fn defaults_resolve_after_every_concrete_scope() {
 // the exact `|default` suffix has fallback meaning.
 #[test]
 fn variable_names_are_exact() {
-    assert_eq!(root_text(r#"{"type":"label","$a.b":"OK","text":"$a.b"}"#), json!("OK"));
+    assert_eq!(
+        root_text(r#"{"type":"label","$a.b":"OK","text":"$a.b"}"#),
+        json!("OK")
+    );
     assert_eq!(
         root_text(r#"{"type":"label","$x|default":"OK","text":"$x|default"}"#),
         json!("OK")
@@ -77,7 +84,10 @@ fn strings_are_not_interpolation_templates() {
         root_text(r#"{"type":"label","$x":"red","text":"Color: $x"}"#),
         json!("Color: $x")
     );
-    assert_eq!(root_text(r#"{"type":"label","$x":"red","text":"('$x')"}"#), json!("$x"));
+    assert_eq!(
+        root_text(r#"{"type":"label","$x":"red","text":"('$x')"}"#),
+        json!("$x")
+    );
     assert_eq!(
         root_text(r#"{"type":"label","$x":"Joe's","text":"('Hi ' + $x)"}"#),
         json!("Hi Joe's")
@@ -110,7 +120,9 @@ fn constant_property_expressions_fold() {
 #[test]
 fn variables_accept_objects_and_variables() {
     assert_eq!(
-        root_text(r#"{"type":"label","$x":"old","variables":{"requires":"true","$x":"new"},"text":"$x"}"#),
+        root_text(
+            r#"{"type":"label","$x":"old","variables":{"requires":"true","$x":"new"},"text":"$x"}"#
+        ),
         json!("new")
     );
     assert_eq!(
@@ -146,16 +158,36 @@ fn requires_uses_the_typed_dispatch() {
 #[test]
 fn ignored_uses_the_typed_dispatch_and_enclosing_scope() {
     assert!(resolve_in(r#""root":{"type":"panel","ignored":1}"#, &Context::empty()).is_none());
-    assert!(resolve_in(r#""root":{"type":"panel","ignored":"(1)"}"#, &Context::empty()).is_none());
-    assert!(resolve_in(r#""root":{"type":"panel","ignored":"true"}"#, &Context::empty()).is_some());
+    assert!(
+        resolve_in(
+            r#""root":{"type":"panel","ignored":"(1)"}"#,
+            &Context::empty()
+        )
+        .is_none()
+    );
+    assert!(
+        resolve_in(
+            r#""root":{"type":"panel","ignored":"true"}"#,
+            &Context::empty()
+        )
+        .is_some()
+    );
     let context = Context::empty().with_flag("omit", false);
-    assert!(resolve_in(r#""root":{"type":"panel","$omit":true,"ignored":"$omit"}"#, &context).is_some());
+    assert!(
+        resolve_in(
+            r#""root":{"type":"panel","$omit":true,"ignored":"$omit"}"#,
+            &context
+        )
+        .is_some()
+    );
 }
 
 // `factory` may be a `$var`, and its fields evaluate in the declaring scope.
 #[test]
 fn factory_declarations_evaluate() {
-    let spec = root(r#""root":{"type":"panel","$spec":{"name":"f","control_ids":{"r":"a.r"}},"factory":"$spec"}"#);
+    let spec = root(
+        r#""root":{"type":"panel","$spec":{"name":"f","control_ids":{"r":"a.r"}},"factory":"$spec"}"#,
+    );
     let factory = spec.factory.expect("factory from a variable");
     assert_eq!(factory.name.as_deref(), Some("f"));
     assert_eq!(factory.control_ids["r"].name, "r");
@@ -169,7 +201,9 @@ fn factory_declarations_evaluate() {
     assert!(factory.insert_front);
     assert_eq!(factory.instance_names["r"], "instance");
     assert_eq!(factory.variables["n"], json!("f"));
-    let unlimited = root(r#""root":{"type":"panel","factory":{"name":"f","max_children_size":0,"control_ids":{"r":"a.r"}}}"#);
+    let unlimited = root(
+        r#""root":{"type":"panel","factory":{"name":"f","max_children_size":0,"control_ids":{"r":"a.r"}}}"#,
+    );
     assert_eq!(unlimited.factory.unwrap().max_children_size, None);
 }
 
@@ -200,10 +234,21 @@ mod factories {
         "s":{"type":"label","text":"s"}"#;
 
     fn bound(host: &str, data: &DataSource) -> ResolvedControl {
-        let catalog = catalog(&format!(r#"{TEMPLATES},"root":{{"type":"panel","controls":[{{"f":{host}}}]}}"#));
+        let catalog = catalog(&format!(
+            r#"{TEMPLATES},"root":{{"type":"panel","controls":[{{"f":{host}}}]}}"#
+        ));
         let context = Context::empty();
-        let tree = json_ui::resolve(&catalog, "a.root", &context).control.unwrap();
-        json_ui::bind(&tree, data, &CatalogLibrary { catalog: &catalog, context: &context })
+        let tree = json_ui::resolve(&catalog, "a.root", &context)
+            .control
+            .unwrap();
+        json_ui::bind(
+            &tree,
+            data,
+            &CatalogLibrary {
+                catalog: &catalog,
+                context: &context,
+            },
+        )
     }
 
     fn fed(items: Vec<FactoryItem>) -> DataSource {
@@ -213,7 +258,11 @@ mod factories {
     }
 
     fn names(control: &ResolvedControl) -> Vec<&str> {
-        control.children.iter().map(|child| child.name.as_str()).collect()
+        control
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect()
     }
 
     fn texts(control: &ResolvedControl) -> Vec<Value> {
@@ -259,7 +308,12 @@ mod factories {
     // Zero is unlimited; the cap counts every child and front insertion evicts from the back.
     #[test]
     fn max_children_and_insert_location() {
-        let two = || vec![FactoryItem::new("r", 0.0).named("one"), FactoryItem::new("r", 1.0).named("two")];
+        let two = || {
+            vec![
+                FactoryItem::new("r", 0.0).named("one"),
+                FactoryItem::new("r", 1.0).named("two"),
+            ]
+        };
         let unlimited = bound(
             r#"{"type":"panel","factory":{"name":"f","max_children_size":0,"control_ids":{"r":"a.r"}}}"#,
             &fed(two()),
@@ -323,7 +377,10 @@ mod factories {
     #[test]
     fn unknown_collection_roles_create_nothing() {
         let mut data = DataSource::new();
-        data.set_collection("rows", vec![CollectionItem::new("unknown"), CollectionItem::new("r")]);
+        data.set_collection(
+            "rows",
+            vec![CollectionItem::new("unknown"), CollectionItem::new("r")],
+        );
         let host = bound(
             r#"{"type":"panel","collection_name":"rows","factory":{"name":"f","control_ids":{"r":"a.r"}}}"#,
             &data,

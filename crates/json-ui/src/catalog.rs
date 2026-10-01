@@ -405,7 +405,12 @@ mod document_tests {
             ],
         );
         assert_eq!(catalog.lookup("n", "c").unwrap().props["size"][0], 2);
-        assert_eq!(catalog.diagnostics().len(), 1, "{:?}", catalog.diagnostics());
+        assert_eq!(
+            catalog.diagnostics().len(),
+            1,
+            "{:?}",
+            catalog.diagnostics()
+        );
     }
 
     // A pack file no `_ui_defs.json` lists is never registered.
@@ -421,8 +426,14 @@ mod document_tests {
         )]);
         assert!(catalog.lookup("extra", "c").is_none());
         catalog.apply_pack([
-            ("ui/_ui_defs.json", br#"{"ui_defs":["ui/extra.json"]}"#.as_slice()),
-            ("ui/extra.json", br#"{"namespace":"extra","c":{}}"#.as_slice()),
+            (
+                "ui/_ui_defs.json",
+                br#"{"ui_defs":["ui/extra.json"]}"#.as_slice(),
+            ),
+            (
+                "ui/extra.json",
+                br#"{"namespace":"extra","c":{}}"#.as_slice(),
+            ),
         ]);
         assert!(catalog.lookup("extra", "c").is_some());
     }
@@ -450,8 +461,14 @@ mod document_tests {
                   "base":{"type":"panel"}}"#,
             )],
         );
-        let root = resolve(&catalog, "a.root", &Context::empty()).control.unwrap();
-        let names: Vec<_> = root.children.iter().map(|child| child.name.as_str()).collect();
+        let root = resolve(&catalog, "a.root", &Context::empty())
+            .control
+            .unwrap();
+        let names: Vec<_> = root
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect();
         assert_eq!(names, ["5", "a.b"]);
     }
 }

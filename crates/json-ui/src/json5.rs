@@ -37,7 +37,12 @@ impl Reader<'_> {
     fn error(&self, message: &'static str) -> ParseError {
         let before = &self.bytes[..self.pos.min(self.bytes.len())];
         let line = before.iter().filter(|&&byte| byte == b'\n').count() + 1;
-        let column = before.iter().rev().take_while(|&&byte| byte != b'\n').count() + 1;
+        let column = before
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte != b'\n')
+            .count()
+            + 1;
         ParseError {
             message,
             line,
@@ -100,7 +105,10 @@ impl Reader<'_> {
         }
     }
 
-    fn nested(&mut self, read: fn(&mut Self) -> Result<Value, ParseError>) -> Result<Value, ParseError> {
+    fn nested(
+        &mut self,
+        read: fn(&mut Self) -> Result<Value, ParseError>,
+    ) -> Result<Value, ParseError> {
         if self.depth >= MAX_DEPTH {
             return Err(self.error("nesting too deep"));
         }
@@ -305,7 +313,10 @@ mod tests {
     #[test]
     fn native_reader_tolerances_are_kept() {
         assert_eq!(parse(r#"{"n":01}"#).unwrap(), json!({"n": 1}));
-        assert_eq!(parse("{\"text\":\"a\nb\"}").unwrap(), json!({"text": "a\nb"}));
+        assert_eq!(
+            parse("{\"text\":\"a\nb\"}").unwrap(),
+            json!({"text": "a\nb"})
+        );
         assert_eq!(
             parse(r#"{"namespace":"a","c":{}} {}"#).unwrap(),
             json!({"namespace": "a", "c": {}})
@@ -321,7 +332,10 @@ mod tests {
     #[test]
     fn numbers_escapes_and_nesting_decode() {
         let value = parse(r#"{"i":-3,"f":1.5e1,"s":"é\n","a":[true,false,null]}"#).unwrap();
-        assert_eq!(value, json!({"i": -3, "f": 15.0, "s": "é\n", "a": [true, false, null]}));
+        assert_eq!(
+            value,
+            json!({"i": -3, "f": 15.0, "s": "é\n", "a": [true, false, null]})
+        );
         let deep = format!("{}{}", "[".repeat(5000), "]".repeat(5000));
         assert!(parse(&deep).is_err());
     }

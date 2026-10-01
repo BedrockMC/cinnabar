@@ -104,7 +104,11 @@ pub fn evaluate(value: &Value, env: &Env) -> Value {
                 let raw = wrapper.get("__rawtext") == Some(&Value::Bool(true));
                 current = wrapper.get("value").cloned().unwrap_or(Value::Null);
                 if raw {
-                    return if current.is_null() { value.clone() } else { current };
+                    return if current.is_null() {
+                        value.clone()
+                    } else {
+                        current
+                    };
                 }
             }
             found => current = found.clone(),
@@ -123,7 +127,11 @@ pub fn evaluate(value: &Value, env: &Env) -> Value {
             None => break,
         }
     }
-    if current.is_null() { value.clone() } else { current }
+    if current.is_null() {
+        value.clone()
+    } else {
+        current
+    }
 }
 
 /// How many times a folded expression's result may fold again.
@@ -139,7 +147,12 @@ pub fn substitute(value: &Value, env: &Env, unresolved: &mut Vec<String>) -> Val
 /// How deep structured variable values are followed into.
 const MAX_SUBSTITUTION_DEPTH: usize = 8;
 
-fn substitute_within(value: &Value, env: &Env, unresolved: &mut Vec<String>, depth: usize) -> Value {
+fn substitute_within(
+    value: &Value,
+    env: &Env,
+    unresolved: &mut Vec<String>,
+    depth: usize,
+) -> Value {
     match value {
         Value::String(text) => {
             let evaluated = evaluate(value, env);
@@ -216,8 +229,21 @@ fn bind_operands(expression: &str, env: &Env) -> String {
 fn is_operand_end(byte: u8) -> bool {
     matches!(
         byte,
-        b' ' | b'\t' | b'\n' | b'\r' | b'$' | b'(' | b')' | b'*' | b'+' | b'-' | b'/' | b'<' | b'='
-            | b'>' | b'\'' | b'"'
+        b' ' | b'\t'
+            | b'\n'
+            | b'\r'
+            | b'$'
+            | b'('
+            | b')'
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'/'
+            | b'<'
+            | b'='
+            | b'>'
+            | b'\''
+            | b'"'
     )
 }
 
@@ -306,7 +332,10 @@ mod tests {
         env.set("dropdown_name", json!("custom_dropdown"));
         env.set("selected", json!("#is_selected_slot"));
         env.set("boxes", json!("@mineville/boxes"));
-        assert_eq!(evaluate(&json!("('#' + $dropdown_name)"), &env), json!("#custom_dropdown"));
+        assert_eq!(
+            evaluate(&json!("('#' + $dropdown_name)"), &env),
+            json!("#custom_dropdown")
+        );
         assert_eq!(evaluate(&json!("(Beta)"), &env), json!("Beta"));
         let runtime = json!("(not #enabled)");
         assert_eq!(substitute(&runtime, &env, &mut Vec::new()), runtime);

@@ -71,7 +71,9 @@ impl Catalog {
             if self.lists(path) {
                 self.merge_overlay_file(path, &String::from_utf8_lossy(bytes));
             } else {
-                self.note(format!("pack {path}: not listed in any _ui_defs.json; skipped"));
+                self.note(format!(
+                    "pack {path}: not listed in any _ui_defs.json; skipped"
+                ));
             }
         }
     }
@@ -279,7 +281,9 @@ fn apply_modifications(control: &mut RawControl, items: &[Value], diagnostics: &
             notes.push(message);
         }
         for message in notes {
-            diagnostics.push(format!("{label}: modification `{operation}` on `{array}`: {message}"));
+            diagnostics.push(format!(
+                "{label}: modification `{operation}` on `{array}`: {message}"
+            ));
         }
     }
     for (array, target) in targets {
@@ -294,7 +298,8 @@ fn apply_modifications(control: &mut RawControl, items: &[Value], diagnostics: &
         if array == "controls" {
             control.props.remove("controls");
             control.has_controls = true;
-            control.children = child_controls(&control.owner_ns, &Value::Array(values), diagnostics);
+            control.children =
+                child_controls(&control.owner_ns, &Value::Array(values), diagnostics);
         } else if values.is_empty() {
             control.props.insert(array, Value::Null);
         } else {
@@ -352,7 +357,9 @@ impl Target {
         let value = item.get("value").filter(|value| !value.is_null());
         let values = || -> Result<Vec<Slot>, String> {
             match value {
-                Some(Value::Array(items)) => Ok(items.iter().cloned().map(Slot::Inserted).collect()),
+                Some(Value::Array(items)) => {
+                    Ok(items.iter().cloned().map(Slot::Inserted).collect())
+                }
                 Some(value) => Ok(vec![Slot::Inserted(value.clone())]),
                 None => Err("missing `value`".to_owned()),
             }
@@ -379,7 +386,11 @@ impl Target {
             "move_front" | "move_back" => {
                 let at = self.slot_of(selected, notes)?;
                 let moved = self.slots.remove(at);
-                let to = if operation == "move_front" { 0 } else { self.slots.len() };
+                let to = if operation == "move_front" {
+                    0
+                } else {
+                    self.slots.len()
+                };
                 self.slots.insert(to, moved);
             }
             "move_after" | "move_before" | "swap" => {
@@ -518,7 +529,12 @@ mod tests {
         ] } }"##;
         catalog.apply_pack([("ui/screen.json", pack.as_slice())]);
         assert_eq!(names(&catalog), ["first", "middle"]);
-        assert!(catalog.diagnostics().iter().any(|line| line.contains("no element named `middle`")));
+        assert!(
+            catalog
+                .diagnostics()
+                .iter()
+                .any(|line| line.contains("no element named `middle`"))
+        );
     }
 
     #[test]
@@ -564,7 +580,11 @@ mod tests {
     }
 
     fn control_names(control: &RawControl) -> Vec<&str> {
-        control.children.iter().map(|child| child.name.as_str()).collect()
+        control
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect()
     }
 
     // Same-path overlays merge object properties member by member.
@@ -588,21 +608,30 @@ mod tests {
         let mut catalog = base();
         catalog.overlay_globals_text(r#"{ "$g": { "a": 1 } }"#);
         catalog.overlay_globals_text(r#"{ "$g": { "b": 2 } }"#);
-        assert_eq!(catalog.global("g"), Some(&serde_json::json!({ "a": 1, "b": 2 })));
+        assert_eq!(
+            catalog.global("g"),
+            Some(&serde_json::json!({ "a": 1, "b": 2 }))
+        );
     }
 
     // An empty `array_name` with a `control_name` targets `controls`; none at all is an error.
     #[test]
     fn array_name_defaults_and_native_string_conversion() {
-        let with_name = panel(br##"{ "panel": { "modifications": [
+        let with_name = panel(
+            br##"{ "panel": { "modifications": [
             { "array_name": "", "control_name": "first", "operation": "insert_back",
-              "value": { "b": {} } } ] } }"##);
+              "value": { "b": {} } } ] } }"##,
+        );
         assert_eq!(control_names(&with_name), ["first", "second", "b"]);
-        let without = panel(br##"{ "panel": { "modifications": [
-            { "operation": "insert_back", "value": { "b": {} } } ] } }"##);
+        let without = panel(
+            br##"{ "panel": { "modifications": [
+            { "operation": "insert_back", "value": { "b": {} } } ] } }"##,
+        );
         assert_eq!(control_names(&without), ["first", "second"]);
-        let converted = panel(br##"{ "panel": { "true": [], "modifications": [
-            { "array_name": true, "operation": "insert_back", "value": 1 } ] } }"##);
+        let converted = panel(
+            br##"{ "panel": { "true": [], "modifications": [
+            { "array_name": true, "operation": "insert_back", "value": 1 } ] } }"##,
+        );
         assert_eq!(converted.props["true"], serde_json::json!([1]));
     }
 
@@ -613,24 +642,39 @@ mod tests {
             { "array_name": "controls", "operation": "remove", "where": { "first": { "type": "image" } } },
             { "array_name": "bindings", "operation": "remove", "control_name": "binding_name" } ] } }"##);
         assert_eq!(control_names(&removed), ["second"]);
-        assert_eq!(removed.props["bindings"], serde_json::json!([{ "binding_name": "#b" }]));
-        let moved = panel(br##"{ "panel": { "controls": [ { "a": {} }, { "b": {} }, { "c": {} } ],
+        assert_eq!(
+            removed.props["bindings"],
+            serde_json::json!([{ "binding_name": "#b" }])
+        );
+        let moved = panel(
+            br##"{ "panel": { "controls": [ { "a": {} }, { "b": {} }, { "c": {} } ],
             "modifications": [ { "array_name": "controls", "operation": "move_after",
-              "control_name": "a", "target": { "b": {} } } ] } }"##);
+              "control_name": "a", "target": { "b": {} } } ] } }"##,
+        );
         assert_eq!(control_names(&moved), ["b", "a", "c"]);
     }
 
     // An object `where` matches on any member, removes the first match only, and `{}` matches nothing.
     #[test]
     fn where_matches_any_member_and_removes_one() {
-        let any = panel(br##"{ "panel": { "bindings": [ { "k": 1, "v": 0 }, { "k": 2, "v": 3 } ],
+        let any = panel(
+            br##"{ "panel": { "bindings": [ { "k": 1, "v": 0 }, { "k": 2, "v": 3 } ],
             "modifications": [ { "array_name": "bindings", "operation": "remove",
-              "where": { "k": 1, "v": 3 } } ] } }"##);
-        assert_eq!(any.props["bindings"], serde_json::json!([{ "k": 2, "v": 3 }]));
-        let first = panel(br##"{ "panel": { "bindings": [ { "k": 1 }, { "k": 1 }, { "k": 2 } ],
+              "where": { "k": 1, "v": 3 } } ] } }"##,
+        );
+        assert_eq!(
+            any.props["bindings"],
+            serde_json::json!([{ "k": 2, "v": 3 }])
+        );
+        let first = panel(
+            br##"{ "panel": { "bindings": [ { "k": 1 }, { "k": 1 }, { "k": 2 } ],
             "modifications": [ { "array_name": "bindings", "operation": "remove",
-              "where": { "k": 1 } } ] } }"##);
-        assert_eq!(first.props["bindings"], serde_json::json!([{ "k": 1 }, { "k": 2 }]));
+              "where": { "k": 1 } } ] } }"##,
+        );
+        assert_eq!(
+            first.props["bindings"],
+            serde_json::json!([{ "k": 1 }, { "k": 2 }])
+        );
         let empty = panel(br##"{ "panel": { "bindings": [ { "k": 1 } ],
             "modifications": [ { "array_name": "bindings", "operation": "remove", "where": {} } ] } }"##);
         assert_eq!(empty.props["bindings"], serde_json::json!([{ "k": 1 }]));
@@ -639,11 +683,15 @@ mod tests {
     // A missing or scalar condition falls back to the first element.
     #[test]
     fn missing_conditions_select_the_first_element() {
-        let missing = panel(br##"{ "panel": { "modifications": [
-            { "array_name": "controls", "operation": "remove" } ] } }"##);
+        let missing = panel(
+            br##"{ "panel": { "modifications": [
+            { "array_name": "controls", "operation": "remove" } ] } }"##,
+        );
         assert_eq!(control_names(&missing), ["second"]);
-        let scalar = panel(br##"{ "panel": { "modifications": [
-            { "array_name": "controls", "operation": "remove", "where": 5 } ] } }"##);
+        let scalar = panel(
+            br##"{ "panel": { "modifications": [
+            { "array_name": "controls", "operation": "remove", "where": 5 } ] } }"##,
+        );
         assert_eq!(control_names(&scalar), ["second"]);
     }
 
@@ -653,29 +701,44 @@ mod tests {
         let replaced = panel(br##"{ "panel": { "bindings": [ { "k": 1 }, { "k": 2 } ],
             "modifications": [ { "array_name": "bindings", "operation": "replace", "where": { "k": 1 } },
               { "array_name": "bindings", "operation": "insert_back", "value": null } ] } }"##);
-        assert_eq!(replaced.props["bindings"], serde_json::json!([{ "k": 1 }, { "k": 2 }]));
+        assert_eq!(
+            replaced.props["bindings"],
+            serde_json::json!([{ "k": 1 }, { "k": 2 }])
+        );
     }
 
     // Self-relative moves are silent no-ops.
     #[test]
     fn self_relative_moves_are_valid_no_ops() {
         let mut catalog = base();
-        catalog.apply_pack([("ui/screen.json", br##"{ "panel": { "modifications": [
+        catalog.apply_pack([(
+            "ui/screen.json",
+            br##"{ "panel": { "modifications": [
             { "array_name": "controls", "operation": "move_after", "control_name": "first",
-              "target_control": "first" } ] } }"##.as_slice())]);
+              "target_control": "first" } ] } }"##
+                .as_slice(),
+        )]);
         assert_eq!(names(&catalog), ["first", "second"]);
-        assert!(catalog.diagnostics().is_empty(), "{:?}", catalog.diagnostics());
+        assert!(
+            catalog.diagnostics().is_empty(),
+            "{:?}",
+            catalog.diagnostics()
+        );
     }
 
     // Null, string and absent targets have no elements; the result rebuilds from insertions.
     #[test]
     fn non_array_targets_rebuild_from_insertions() {
-        let null = panel(br##"{ "panel": { "bindings": null, "modifications": [
-            { "array_name": "bindings", "operation": "insert_back", "value": { "k": 1 } } ] } }"##);
+        let null = panel(
+            br##"{ "panel": { "bindings": null, "modifications": [
+            { "array_name": "bindings", "operation": "insert_back", "value": { "k": 1 } } ] } }"##,
+        );
         assert_eq!(null.props["bindings"], serde_json::json!([{ "k": 1 }]));
-        let dynamic = panel(br##"{ "panel": { "$kids": [ { "a": {} } ], "controls": "$kids",
+        let dynamic = panel(
+            br##"{ "panel": { "$kids": [ { "a": {} } ], "controls": "$kids",
             "modifications": [ { "array_name": "controls", "operation": "insert_back",
-              "value": { "b": {} } } ] } }"##);
+              "value": { "b": {} } } ] } }"##,
+        );
         assert_eq!(control_names(&dynamic), ["b"]);
         assert!(!dynamic.props.contains_key("controls"));
     }
@@ -685,14 +748,19 @@ mod tests {
     fn overlay_properties_merge_before_modifications() {
         let merged = panel(br##"{ "panel": { "variables": [ { "$x": 2 } ], "modifications": [
             { "array_name": "variables", "operation": "insert_back", "value": { "$y": 3 } } ] } }"##);
-        assert_eq!(merged.props["variables"], serde_json::json!([{ "$x": 2 }, { "$y": 3 }]));
+        assert_eq!(
+            merged.props["variables"],
+            serde_json::json!([{ "$x": 2 }, { "$y": 3 }])
+        );
     }
 
     // Removing every element leaves `null`, as the vanilla rebuild does.
     #[test]
     fn an_emptied_array_is_null() {
-        let emptied = panel(br##"{ "panel": { "bindings": [ { "k": 1 } ], "modifications": [
-            { "array_name": "bindings", "operation": "remove", "where": { "k": 1 } } ] } }"##);
+        let emptied = panel(
+            br##"{ "panel": { "bindings": [ { "k": 1 } ], "modifications": [
+            { "array_name": "bindings", "operation": "remove", "where": { "k": 1 } } ] } }"##,
+        );
         assert_eq!(emptied.props["bindings"], serde_json::Value::Null);
     }
 
@@ -700,16 +768,23 @@ mod tests {
     #[test]
     fn malformed_modifications_have_distinct_diagnostics() {
         let mut catalog = base();
-        catalog.apply_pack([("ui/screen.json", br##"{ "panel": { "modifications": [
+        catalog.apply_pack([(
+            "ui/screen.json",
+            br##"{ "panel": { "modifications": [
             { "array_name": "controls", "operation": "insert" },
             { "array_name": "controls" },
-            { "operation": "remove" } ] } }"##.as_slice())]);
+            { "operation": "remove" } ] } }"##
+                .as_slice(),
+        )]);
         let lines = catalog.diagnostics().join("\n");
         assert!(lines.contains("invalid operation `insert`"), "{lines}");
         assert!(lines.contains("missing `operation`"), "{lines}");
         assert!(lines.contains("missing `array_name`"), "{lines}");
         let mut catalog = base();
-        catalog.apply_pack([("ui/screen.json", br##"{ "panel": { "modifications": {} } }"##.as_slice())]);
+        catalog.apply_pack([(
+            "ui/screen.json",
+            br##"{ "panel": { "modifications": {} } }"##.as_slice(),
+        )]);
         assert!(catalog.diagnostics().is_empty());
     }
 }

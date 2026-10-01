@@ -243,8 +243,10 @@ impl<'a> Resolver<'a> {
         };
         match evaluate(raw, env) {
             Value::Bool(flag) => flag,
-            Value::Number(number) => number.as_i64().is_some_and(|value| value != 0)
-                || number.as_u64().is_some_and(|value| value != 0),
+            Value::Number(number) => {
+                number.as_i64().is_some_and(|value| value != 0)
+                    || number.as_u64().is_some_and(|value| value != 0)
+            }
             Value::String(expression) if expression.starts_with('(') => {
                 self.diagnostics.push(format!(
                     "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
@@ -442,7 +444,9 @@ impl<'a> Resolver<'a> {
                         if let Some((instance, _)) = reference.split_once('@')
                             && !instance.is_empty()
                         {
-                            factory.instance_names.insert(role.clone(), instance.to_owned());
+                            factory
+                                .instance_names
+                                .insert(role.clone(), instance.to_owned());
                         }
                         factory
                             .control_ids
@@ -454,7 +458,9 @@ impl<'a> Resolver<'a> {
         if let Some(Value::Array(names)) = field("factory_variables") {
             for name in names.iter().filter_map(Value::as_str) {
                 let key = name.strip_prefix('$').unwrap_or(name).to_owned();
-                factory.variables.insert(key, evaluate(&Value::from(name), env));
+                factory
+                    .variables
+                    .insert(key, evaluate(&Value::from(name), env));
             }
         }
         match field("max_children_size").as_ref().and_then(Value::as_i64) {
@@ -465,8 +471,8 @@ impl<'a> Resolver<'a> {
             Some(max) if max > 0 => factory.max_children_size = usize::try_from(max).ok(),
             _ => {}
         }
-        factory.insert_front = field("insert_location").and_then(value_string).as_deref()
-            == Some("front");
+        factory.insert_front =
+            field("insert_location").and_then(value_string).as_deref() == Some("front");
         factory
     }
 }
@@ -565,8 +571,13 @@ mod tests {
     }
 
     fn names(catalog: &Catalog, reference: &str) -> Vec<String> {
-        let root = resolve(catalog, reference, &Context::empty()).control.unwrap();
-        root.children.iter().map(|child| child.name.clone()).collect()
+        let root = resolve(catalog, reference, &Context::empty())
+            .control
+            .unwrap();
+        root.children
+            .iter()
+            .map(|child| child.name.clone())
+            .collect()
     }
 
     // A derived `controls`, even an empty dynamic one, replaces the base's children.
@@ -583,7 +594,9 @@ mod tests {
         );
         assert_eq!(names(&catalog, "a.derived"), ["new"]);
         assert!(names(&catalog, "a.dynamic").is_empty());
-        let inline = resolve(&catalog, "a.inline", &Context::empty()).control.unwrap();
+        let inline = resolve(&catalog, "a.inline", &Context::empty())
+            .control
+            .unwrap();
         assert!(inline.children[0].children.is_empty());
     }
 }
