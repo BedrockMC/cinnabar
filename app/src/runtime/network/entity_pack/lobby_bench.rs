@@ -333,6 +333,68 @@ fn gpu_draws(frame: &ActorRenderFrame) -> (usize, u64) {
     (draws, invocations)
 }
 
+/// Order-independent digest of everything each drawn instance sends the GPU: identity, layer,
+/// transform, texture, tint, light, uv_anim, geometry size and both bone palettes.
+fn frame_digest(frame: &ActorRenderFrame) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let rig = &frame.rig;
+    let skin = render::STANDARD_SKIN_BYTES;
+    let mut records: Vec<(u64, u8, u64)> = rig
+        .instances
+        .iter()
+        .zip(rig.manifest.iter())
+        .zip(frame.instance_pages())
+        .map(|((instance, entry), page)| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            let bits = |values: &[f32], hasher: &mut std::collections::hash_map::DefaultHasher| {
+                for value in values {
+                    value.to_bits().hash(hasher);
+                }
+            };
+            bits(instance.world_from_actor.as_flattened(), &mut hasher);
+            bits(&instance.uv_anim, &mut hasher);
+            // Skin slots and skin rig ids are allocation order; their pixels are what draws.
+            if *page == 0 {
+                let layer = instance.texture_layer as usize;
+                frame
+                    .skins_rgba8
+                    .get(layer * skin..(layer + 1) * skin)
+                    .hash(&mut hasher);
+            } else {
+                (page, instance.texture_layer).hash(&mut hasher);
+            }
+            (
+                instance.tint,
+                instance.overlay_rgba8,
+                instance.light,
+                entry.bone_count,
+            )
+                .hash(&mut hasher);
+            rig.geometry_spans[instance.geometry_id as usize]
+                .vertex_count
+                .hash(&mut hasher);
+            let bones = entry.bone_count as usize;
+            for palette in [
+                &rig.previous_bones[entry.previous_bone_base as usize..][..bones],
+                &rig.current_bones[entry.current_bone_base as usize..][..bones],
+            ] {
+                for matrix in palette {
+                    bits(matrix.as_flattened(), &mut hasher);
+                }
+            }
+            (
+                entry.identity.runtime_id,
+                entry.identity.layer,
+                hasher.finish(),
+            )
+        })
+        .collect();
+    records.sort_unstable();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    records.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[repr(C)]
 struct Timespec {
     seconds: i64,
@@ -394,6 +456,7 @@ fn lobby_frame_bench() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(900);
     let away = std::env::var_os("CINNABAR_LOBBY_LOOK_AWAY").is_some();
+    let digest = std::env::var_os("CINNABAR_LOBBY_DIGEST").is_some();
     let capture = read_capture(Path::new(&capture));
     let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), away);
 
@@ -415,7 +478,8 @@ fn lobby_frame_bench() {
         Series::default(),
     );
     let mut next_packet = 0usize;
-    for frame in 0..frames {
+    for frame_index in 0..frames {
+        let frame = frame_index;
         let due = rest.len() * (frame + 1) / frames;
         {
             let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
@@ -465,6 +529,12 @@ fn lobby_frame_bench() {
                 .push(snapshot.samples[stage as usize].total.as_secs_f64() * 1e3);
         }
         let frame = world.resource::<ActorRenderFrame>();
+        if digest {
+            eprintln!(
+                "LOBBY_DIGEST frame={frame_index} hash={:016x}",
+                frame_digest(frame)
+            );
+        }
         let rig = &frame.rig;
         instances.0.push(rig.instances.len() as f64);
         vertices.0.push(f64::from(rig.maximum_vertex_count));
