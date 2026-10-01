@@ -62,6 +62,7 @@ pub(crate) use speed_authority::LocalMovementSpeedAuthority;
 pub use state::ProcessedMovementState;
 pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
+pub(crate) use trace::note_click_drop;
 #[cfg(test)]
 pub(crate) use trace::trace_line_if;
 pub(crate) use trace::{pending_trace_line, write_trace_line};

@@ -363,3 +363,33 @@ fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
         ["AnimatePacket", "InventoryTransactionPacket"]
     );
 }
+
+/// Only an open screen or spectator mode stops the attack button; an unknown or not yet
+/// received game mode still swings (Zeqa's StartGame carries survival, mode 0).
+#[test]
+fn only_a_screen_or_spectator_stops_the_attack_button() {
+    use protocol::PlayerGameMode::{Adventure, Creative, Spectator, Survival, Unknown};
+    for mode in [
+        None,
+        Some(Survival),
+        Some(Creative),
+        Some(Adventure),
+        Some(Unknown),
+    ] {
+        assert_eq!(press_admission(true, mode), Ok(()), "{mode:?}");
+    }
+    assert_eq!(press_admission(true, Some(Spectator)), Err("spectator"));
+    assert_eq!(press_admission(false, Some(Survival)), Err("screen_open"));
+}
+
+/// A press into the air swings and reports MissedSwing on its tick.
+#[test]
+fn an_air_press_swings_and_reports_a_missed_swing() {
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.observe_input(true, true);
+    let outcome = runtime.resolve(Crosshair::Miss, &press(PlayerInputMode::Mouse), &mut swings);
+    assert_eq!(kinds(&outcome.packets), ["AnimatePacket"]);
+    assert!(outcome.missed_swing);
+    assert!(swings.take_started().is_some());
+}

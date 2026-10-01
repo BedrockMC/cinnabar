@@ -87,6 +87,16 @@ fn format_trace_line(
     serde_json::to_string(&line).ok()
 }
 
+/// Records why an attack or use press produced no swing, when tracing is enabled.
+pub(crate) fn note_click_drop(action: &'static str, reason: &'static str) {
+    if movement_trace_enabled() {
+        write_trace_line(
+            &json!({"schema": "rust-mcbe-click-trace-v1", "action": action, "dropped": reason})
+                .to_string(),
+        );
+    }
+}
+
 /// Writes one already-formatted trace line to stdout without buffering.
 ///
 /// Write failures are ignored on purpose: losing diagnostic output must never
