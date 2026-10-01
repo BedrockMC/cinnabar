@@ -13,9 +13,10 @@ fn presentation() -> UiPresentationRuntime {
             "ui/hud_screen.json".to_owned(),
             br#"{
             "namespace": "hud",
-            "hud_screen": { "type": "label", "size": [100, 12],
+            "hud_screen": { "type": "screen", "controls": [{ "label": {
+                "type": "label", "size": [100, 12],
                 "anchor_from": "bottom_middle", "anchor_to": "bottom_middle",
-                "text": "Base HUD" }
+                "text": "Base HUD" } }] }
         }"#
             .to_vec(),
         )]],
@@ -112,7 +113,7 @@ fn extension_cannot_restore_a_server_hidden_hud() {
         ui_layers: vec![vec![(
             "ui/hud_screen.json".to_owned(),
             br#"{
-            "namespace": "hud", "hud_screen": { "type": "panel", "visible": false }
+            "namespace": "hud", "hud_screen": { "type": "screen", "visible": false }
         }"#
             .to_vec(),
         )]],
