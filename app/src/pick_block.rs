@@ -23,6 +23,7 @@ pub(crate) struct PickBlockContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
     menu: Res<'w, MenuRuntime>,
+    presentation: Option<Res<'w, crate::ui_runtime::presentation::UiPresentationRuntime>>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
@@ -33,8 +34,11 @@ pub(crate) struct PickBlockContext<'w, 's> {
 /// Sends one block-pick request per middle-click on a block in reach.
 pub(crate) fn produce_pick_block(context: PickBlockContext, ui: ResMut<UiRuntime>) {
     if !context.mouse.just_pressed(MouseButton::Middle)
-        || context.menu.is_visible()
-        || ui.ui_focused()
+        || crate::screen_policy::absorbs_input(
+            Some(&ui),
+            Some(&context.menu),
+            context.presentation.as_deref(),
+        )
         || !context.windows.single().is_ok_and(|window| window.focused)
         || ui
             .player_game_mode()

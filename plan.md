@@ -3,6 +3,13 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 menu scene ownership: gameplay input uses the screen absorption policy;
+world queues and both first-person paths obey game visibility. Pack flags retain
+vanilla defaults and inheritance. The existing full-screen Settings panorama also
+suppresses gameplay. Incomplete: a version-matched native comparison of the menu
+background stack and hand appearance; offline snapshots do not close that gate.
+References and the raw-input audit: `docs/parity/menu-scene-policy.md`.
+
 2026-10-01 chunk streaming: missing-column deadlines are local. New data in the
 current publisher cohort keeps its quiet deadline active; duplicate and foreign
 traffic cannot renew it. Requested neighbours still block and receive priority.

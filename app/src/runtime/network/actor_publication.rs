@@ -152,6 +152,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
+    menu: Option<Res<'w, crate::menu::MenuRuntime>>,
+    ui_presentation: Option<Res<'w, crate::ui_runtime::presentation::UiPresentationRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
@@ -187,6 +189,8 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         collisions,
         item_use,
         ui,
+        menu,
+        ui_presentation,
         mut dropped_items,
         profiler,
         mut partial_tick,
@@ -438,7 +442,12 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
     // First person draws the player's own rig near the camera: the visible arms with every other
     // bone hidden, and a drawable held item on the posed `rightItem` bone. Anything not covered
     // (an undrawable item) leaves the CPU viewmodel in charge.
-    let hand_source: Option<HandSource> = if first_person {
+    let hand_source: Option<HandSource> = if first_person
+        && crate::screen_policy::renders_game(
+            ui.as_deref(),
+            menu.as_deref(),
+            ui_presentation.as_deref(),
+        ) {
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;

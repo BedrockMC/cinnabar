@@ -39,6 +39,8 @@ const HOTBAR_DIGIT_ACTIONS: [Action; 9] = [
 pub(crate) fn select_hotbar_slot(
     input: Res<SemanticInputSnapshot>,
     scroll: Res<AccumulatedMouseScroll>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
     network: Res<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
@@ -52,8 +54,7 @@ pub(crate) fn select_hotbar_slot(
         }
     }
 
-    // Relative cycling: controller buttons (router-gated) and the mouse wheel (gated on chat
-    // focus here, since the wheel is read directly rather than through the router).
+    // Controller actions are router-gated; raw wheel input needs the same screen ownership.
     let mut cycle: i32 = 0;
     if input.phase(Action::HotbarNext).pressed {
         cycle += 1;
@@ -61,9 +62,12 @@ pub(crate) fn select_hotbar_slot(
     if input.phase(Action::HotbarPrevious).pressed {
         cycle -= 1;
     }
-    if !runtime.ui_focused() {
-        // One slot per scroll frame. Scroll up selects the previous slot, scroll down the next
-        // (matches vanilla). The wheel is read directly, so it is gated on chat focus here.
+    if !crate::screen_policy::absorbs_input(
+        Some(&runtime),
+        menu.as_deref(),
+        presentation.as_deref(),
+    ) {
+        // One slot per frame: scrolling up selects the previous slot.
         if scroll.delta.y > 0.0 {
             cycle -= 1;
         } else if scroll.delta.y < 0.0 {
@@ -217,6 +221,64 @@ mod tests {
             block_runtime_id: 92,
             extra_data: Arc::from([]),
         }
+    }
+
+    /// A wheel frame passes through the production hotbar system.
+    fn wheel_selection(menu: Option<crate::menu::MenuScreen>) -> u8 {
+        let runtime = UiRuntime::new(1);
+        let mut menu_runtime = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+        if let Some(screen) = menu {
+            menu_runtime.activate(crate::menu::MenuAction::Navigate(screen));
+        }
+        wheel_with_ui(runtime, menu_runtime)
+    }
+
+    /// Delivers the same raw wheel frame with an arbitrary focused UI screen.
+    fn wheel_with_ui(mut runtime: UiRuntime, menu_runtime: crate::menu::MenuRuntime) -> u8 {
+        use bevy::{ecs::system::RunSystemOnce, prelude::*};
+        let mut app = App::new();
+        runtime.set_local_selected_slot(0);
+        app.insert_resource(runtime)
+            .insert_resource(menu_runtime)
+            .insert_resource(SemanticInputSnapshot::default())
+            .insert_resource(AccumulatedMouseScroll {
+                delta: Vec2::new(0.0, -1.0),
+                ..Default::default()
+            })
+            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(ClientWorld::default());
+        app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        app.world()
+            .resource::<UiRuntime>()
+            .selected_hotbar_slot()
+            .unwrap()
+    }
+
+    #[test]
+    fn menu_input_leak_settings_wheel_never_selects_a_hotbar_slot() {
+        assert_eq!(wheel_selection(Some(crate::menu::MenuScreen::Settings)), 0);
+    }
+
+    #[test]
+    fn menu_input_leak_hud_wheel_selects_the_next_hotbar_slot() {
+        assert_eq!(wheel_selection(None), 1);
+    }
+
+    #[test]
+    fn menu_input_leak_chat_inventory_forms_and_pause_absorb_the_wheel() {
+        assert_eq!(wheel_selection(Some(crate::menu::MenuScreen::Pause)), 0);
+        let hidden = || crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+        let mut chat = UiRuntime::new(1);
+        chat.open_chat();
+        assert_eq!(wheel_with_ui(chat, hidden()), 0);
+        let mut inventory = identified_runtime();
+        inventory.publish_inventory_authority(protocol::InventoryAuthority::Server);
+        inventory.toggle_inventory();
+        assert!(inventory.inventory_open());
+        assert_eq!(wheel_with_ui(inventory, hidden()), 0);
+        let form =
+            crate::ui_runtime::presentation::forms::pack_harness::action_form("Form", &["OK"]);
+        assert_eq!(wheel_with_ui(form, hidden()), 0);
     }
 
     #[test]
