@@ -1,7 +1,7 @@
 use std::{
     io::Read,
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -14,6 +14,8 @@ use anyhow::{Context, Result};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};
 use serde::Deserialize;
 use url::Url;
+
+use crate::lifecycle::children::Spawned;
 
 const MAX_LINE_BYTES: usize = 4096;
 const EVENT_CAPACITY: usize = 8;
@@ -125,7 +127,7 @@ impl LineDecoder {
 
 #[derive(Debug)]
 pub(crate) struct AuthSupervisor {
-    child: Option<Child>,
+    child: Option<Spawned>,
     receiver: Receiver<ReaderMessage>,
     reader: Option<JoinHandle<()>>,
     state: AuthState,
@@ -141,22 +143,23 @@ pub(crate) struct AuthSupervisor {
 
 impl AuthSupervisor {
     pub(crate) fn spawn(executable: &Path, cache: &Path) -> Result<Self> {
-        let child = Command::new(executable)
-            .arg("-auth-events")
-            .arg("-auth-cache")
-            .arg(cache)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .with_context(|| format!("start sign-in helper {}", executable.display()))?;
+        let child = crate::lifecycle::children::spawn(
+            Command::new(executable)
+                .arg("-auth-events")
+                .arg("-auth-cache")
+                .arg(cache)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        )
+        .with_context(|| format!("start sign-in helper {}", executable.display()))?;
         Self::from_child(child)
     }
 
-    pub(super) fn from_child(mut child: Child) -> Result<Self> {
+    pub(super) fn from_child(child: impl Into<Spawned>) -> Result<Self> {
+        let child = child.into();
         let stdout = child
-            .stdout
-            .take()
+            .take_stdout()
             .context("sign-in helper stdout was not piped")?;
         let (sender, receiver) = bounded(EVENT_CAPACITY);
         let reader = thread::spawn(move || read_events(stdout, sender));
@@ -203,7 +206,7 @@ impl AuthSupervisor {
         if matches!(self.state, AuthState::Failed(_)) {
             self.request_cancel();
         }
-        let Some(child) = self.child.as_mut() else {
+        let Some(child) = self.child.as_ref() else {
             return;
         };
         let inspection_failed = match child.try_wait() {
@@ -270,8 +273,8 @@ impl AuthSupervisor {
             self.state = AuthState::SignedOut;
             self.terminal = true;
         }
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
+        if let Some(child) = self.child.as_ref() {
+            child.kill();
         }
     }
 
@@ -284,7 +287,7 @@ impl AuthSupervisor {
     }
 
     fn handoff_reap(&mut self) {
-        let Some(mut child) = self.child.take() else {
+        let Some(child) = self.child.take() else {
             return;
         };
         let reader = self.reader.take();
@@ -431,6 +434,7 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
+        process::Child,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
