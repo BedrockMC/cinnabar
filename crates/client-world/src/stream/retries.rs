@@ -230,7 +230,9 @@ impl WorldStream {
         // Older deferred retries own newly free outbound slots. Expirations
         // observed in this pass must never bypass that FIFO.
         self.pump_deferred_retries();
-        loop {
+        let mut checked = 0;
+        while checked == 0 || !self.poll_budget_exhausted() {
+            checked += 1;
             let Some(&(deadline, key)) = self.sub_chunk_deadlines.first() else {
                 break;
             };
@@ -282,7 +284,11 @@ impl WorldStream {
     }
     pub(super) fn pump_deferred_retries(&mut self) {
         self.pump_deferred_recovery_requests();
-        while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
+        let mut checked = 0;
+        while self.requests.len() < OUTBOUND_REQUEST_CAPACITY
+            && (checked == 0 || !self.poll_budget_exhausted())
+        {
+            checked += 1;
             let Some(key) = self.deferred_retries.pop_front() else {
                 break;
             };
@@ -297,7 +303,11 @@ impl WorldStream {
     }
 
     pub(super) fn pump_deferred_recovery_requests(&mut self) {
-        while self.requests.len() < OUTBOUND_REQUEST_CAPACITY {
+        let mut checked = 0;
+        while self.requests.len() < OUTBOUND_REQUEST_CAPACITY
+            && (checked == 0 || !self.poll_budget_exhausted())
+        {
+            checked += 1;
             let Some(request) = self.deferred_recovery_requests.pop_front() else {
                 break;
             };

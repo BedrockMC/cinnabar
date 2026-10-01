@@ -119,6 +119,19 @@ impl WorldStream {
             .collect()
     }
 
+    /// Validates synthetic completed CPU work before the fixture's timed world poll.
+    /// Channel, publication-item and byte limits remain production limits; this fixture
+    /// measures publication frames, while real CPU deadlines have separate coverage.
+    #[doc(hidden)]
+    pub fn service_publication_fixture_completions(&mut self) {
+        while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
+            let Ok(completion) = self.mesh_rx.try_recv() else {
+                break;
+            };
+            self.accept_mesh_completion(completion);
+        }
+    }
+
     /// Stages a current known-air dirty revision. The next real poll dispatch
     /// converts it to a permitted zero-byte removal.
     #[doc(hidden)]

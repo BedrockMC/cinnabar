@@ -51,6 +51,7 @@ mod block_cracks;
 mod block_entities;
 mod block_events;
 mod cohort;
+mod commit_budget;
 mod connectivity;
 mod construction;
 mod decode;
@@ -367,6 +368,9 @@ pub struct WorldStream {
     last_request_player_chunk: Option<ChunkKey>,
     /// When the server last delivered column or sub-chunk data; a quiet stream has sent all it will.
     last_column_arrival: Option<Instant>,
+    poll_deadline: Option<Instant>,
+    polling: bool,
+    pending_sub_chunk_commit: Option<commit_budget::PendingSubChunkCommit>,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,

@@ -450,20 +450,23 @@ impl WorldStream {
     }
     /// Retries completions that were denied a publication permit, in arrival order.
     pub(in crate::stream) fn retry_staged_mesh_completions(&mut self) {
-        let staged = std::mem::take(&mut self.staged_mesh_completions);
-        self.staged_mesh_bytes = 0;
-        let mut staged = staged.into_iter();
-        while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
-            let Some(completion) = staged.next() else {
-                return;
-            };
-            if let Some(denied) = self.publish_mesh_completion(completion) {
-                self.stage_denied_mesh_completion(denied);
+        let count = self.staged_mesh_completions.len();
+        for index in 0..count {
+            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
+                || (index != 0 && self.poll_budget_exhausted())
+            {
                 break;
             }
-        }
-        for completion in staged {
-            self.stage_denied_mesh_completion(completion);
+            let Some(completion) = self.staged_mesh_completions.pop_front() else {
+                break;
+            };
+            let bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
+            self.staged_mesh_bytes -= bytes;
+            if let Some(denied) = self.publish_mesh_completion(completion) {
+                self.staged_mesh_bytes += bytes;
+                self.staged_mesh_completions.push_front(denied);
+                break;
+            }
         }
     }
     /// Keeps a current mesh for a later permit instead of meshing it again;

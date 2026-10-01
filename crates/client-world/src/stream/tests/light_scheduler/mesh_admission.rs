@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn light_waits_for_requested_above_during_partial_column_commit() {
+    let mut stream = lit_stream(0);
+    let key = SubChunkKey::new(0, 0, 4, 0);
+    let above = SubChunkKey::new(0, 0, 5, 0);
+    assert!(stream.light_dispatch_ready(key));
+    stream
+        .requested_sub_chunks
+        .entry(key.chunk())
+        .or_default()
+        .insert(above.y, Default::default());
+    assert!(!stream.light_dispatch_ready(key));
+    install_current_light(&mut stream, above, 0, 15, true);
+    assert!(stream.light_dispatch_ready(key));
+    stream.mark_light_dirty_exact(above).unwrap();
+    assert!(!stream.light_dispatch_ready(key));
+}
+
+#[test]
 fn queued_mesh_cancellation_skips_superseded_geometry() {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
