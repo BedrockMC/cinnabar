@@ -481,6 +481,71 @@ fn snapshot_pack_forms() {
     }
 }
 
+// Writes a snapshot of a pack's 2x2 image grid with a featured card (local only).
+#[test]
+fn snapshot_pack_image_grid() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    let Some(pack) = env_pack() else {
+        return;
+    };
+    presentation.set_server_ui_pack(&pack);
+    let modes = ["mace", "skywars", "crystalpvp", "sumo", "build", "mace"];
+    let labels: Vec<String> = modes
+        .iter()
+        .enumerate()
+        .map(|(index, mode)| {
+            let flags = if index == 0 {
+                "§f§e§a§x§p§i§r§s§h"
+            } else {
+                ""
+            };
+            format!(
+                "{flags}§e{}\n§a 19\n§7- - - - - - -",
+                mode.to_ascii_uppercase()
+            )
+        })
+        .collect();
+    let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let images = modes
+        .iter()
+        .map(|mode| {
+            Some(protocol::FormButtonImage::Path(
+                format!("textures/ui/zeqa/icons/gm/{mode}").into(),
+            ))
+        })
+        .collect();
+    let runtime = image_form("Free For All§zfp0;", &labels, images);
+    let dpi = DpiScale::new(2.0).unwrap();
+    for _ in 0..2 {
+        presentation.build(&runtime, 0, [1280, 1440], dpi).unwrap();
+    }
+    let input = presentation.build(&runtime, 0, [1280, 1440], dpi).unwrap();
+    super::snapshot::write(&input, "image-grid");
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let hovered = presentation.form_engine_frame(identity).and_then(|frame| {
+        frame
+            .hits
+            .iter()
+            .filter(|hit| hit.kind == json_ui::HitKind::Button)
+            .nth(3)
+            .map(|hit| hit.key.clone())
+    });
+    let mut runtime = runtime;
+    runtime.server_forms_mut().engine_mut().view.hovered = hovered;
+    let input = presentation.build(&runtime, 0, [1280, 1440], dpi).unwrap();
+    super::snapshot::write(&input, "image-grid-hover");
+    let (drawn, missing) = presentation
+        .form_presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .drawn_sprites();
+    eprintln!("drawn {drawn:?}, unresolved {missing:?}");
+}
+
 /// The start screen shows no unresolved `$variable`, raw key or demo control.
 #[test]
 fn start_screen_text_resolves_through_the_language_table() {

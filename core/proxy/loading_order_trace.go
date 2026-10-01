@@ -1,17 +1,17 @@
 package proxy
 
 import (
-	"encoding/binary"
+	"bytes"
 	"sync"
 	"sync/atomic"
 
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 const (
-	loadingOrderTraceLimit    = 16
-	maxPublisherSavedChunks   = 9216
-	maxPublisherVaruint32Size = 5
+	loadingOrderTraceLimit  = 16
+	maxPublisherSavedChunks = 9216
 )
 
 // publisherOrderEvidence contains only the bounded numeric fields needed to
@@ -120,98 +120,33 @@ func (boundary *publisherBoundaryTrace) snapshot() publisherBoundarySnapshot {
 	}
 }
 
-// parsePublisherOrderEvidence follows the current NetworkChunkPublisherUpdate
-// marshaller: three zig-zag varint32 block coordinates, a varuint32 block
-// radius, a little-endian uint32 saved/server-built chunk-list count, then that
-// many pairs of zig-zag varint32 chunk coordinates. It validates the entire
-// payload but retains only the list count. Both varints and the list are capped;
-// the parser never allocates from wire-provided sizes and never calls protocol
-// readers whose malformed-data path may panic.
+// parsePublisherOrderEvidence decodes the payload with the library codec and keeps only the
+// bounded numeric fields; a list longer than maxPublisherSavedChunks counts as malformed.
 func parsePublisherOrderEvidence(payload []byte) (publisherOrderEvidence, bool) {
-	reader := publisherEvidenceReader{payload: payload}
-	x, ok := reader.varint32()
-	if !ok {
-		return publisherOrderEvidence{}, false
-	}
-	y, ok := reader.varint32()
-	if !ok {
-		return publisherOrderEvidence{}, false
-	}
-	z, ok := reader.varint32()
-	if !ok {
-		return publisherOrderEvidence{}, false
-	}
-	radius, ok := reader.varuint32()
-	if !ok {
-		return publisherOrderEvidence{}, false
-	}
-	count, ok := reader.uint32()
-	if !ok || count > maxPublisherSavedChunks {
-		return publisherOrderEvidence{}, false
-	}
-	for index := uint32(0); index < count; index++ {
-		if _, ok := reader.varint32(); !ok {
-			return publisherOrderEvidence{}, false
-		}
-		if _, ok := reader.varint32(); !ok {
-			return publisherOrderEvidence{}, false
-		}
-	}
-	if reader.offset != len(reader.payload) {
+	var update packet.NetworkChunkPublisherUpdate
+	if !decodeObserved(&update, payload) || len(update.SavedChunks) > maxPublisherSavedChunks {
 		return publisherOrderEvidence{}, false
 	}
 	return publisherOrderEvidence{
-		CenterX:         x,
-		CenterY:         y,
-		CenterZ:         z,
-		RadiusBlocks:    radius,
-		SavedChunkCount: count,
+		CenterX:         update.Position.X(),
+		CenterY:         update.Position.Y(),
+		CenterZ:         update.Position.Z(),
+		RadiusBlocks:    update.Radius,
+		SavedChunkCount: boundedUint32Len(len(update.SavedChunks)),
 	}, true
 }
 
-type publisherEvidenceReader struct {
-	payload []byte
-	offset  int
-}
-
-func (reader *publisherEvidenceReader) varint32() (int32, bool) {
-	value, ok := reader.varuint32()
-	if !ok {
-		return 0, false
-	}
-	decoded := int32(value >> 1)
-	if value&1 != 0 {
-		decoded = ^decoded
-	}
-	return decoded, true
-}
-
-func (reader *publisherEvidenceReader) varuint32() (uint32, bool) {
-	var value uint32
-	for index := uint(0); index < maxPublisherVaruint32Size; index++ {
-		if reader.offset >= len(reader.payload) {
-			return 0, false
+// decodeObserved decodes an upstream callback payload as the dialer's Conn does (no reader
+// limits; lengths are still checked against the payload); malformed data reports false.
+func decodeObserved(pk packet.Packet, payload []byte) (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
 		}
-		current := reader.payload[reader.offset]
-		reader.offset++
-		if index == maxPublisherVaruint32Size-1 && current&0xf0 != 0 {
-			return 0, false
-		}
-		value |= uint32(current&0x7f) << (index * 7)
-		if current&0x80 == 0 {
-			return value, true
-		}
-	}
-	return 0, false
-}
-
-func (reader *publisherEvidenceReader) uint32() (uint32, bool) {
-	if len(reader.payload)-reader.offset < 4 {
-		return 0, false
-	}
-	value := binary.LittleEndian.Uint32(reader.payload[reader.offset : reader.offset+4])
-	reader.offset += 4
-	return value, true
+	}()
+	buffer := bytes.NewBuffer(payload)
+	pk.Marshal(protocol.NewReader(buffer, 0, false))
+	return buffer.Len() == 0
 }
 
 func boundedUint32Len(length int) uint32 {

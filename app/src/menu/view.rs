@@ -88,9 +88,9 @@ pub(crate) struct MenuProfile {
     pub(crate) picture_path: String,
     pub(crate) real_name: String,
     pub(crate) presence: String,
-    pub(crate) gamerscore: i64,
-    pub(crate) friends: u32,
-    pub(crate) followers: u32,
+    pub(crate) gamerscore: Option<i64>,
+    pub(crate) friends: Option<u32>,
+    pub(crate) followers: Option<u32>,
 }
 
 /// Service feed data beyond the catalog cards: featured-server details keyed

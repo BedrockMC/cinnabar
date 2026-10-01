@@ -4,20 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/df-mc/go-playfab/v2"
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
-	"github.com/df-mc/go-xsapi/v2"
+	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
-	"golang.org/x/oauth2"
 )
 
 // FeaturedServer is a featured server with the details the play screen's
@@ -50,114 +47,82 @@ type Image struct {
 	Path string `json:"path,omitempty"`
 }
 
-// Gathering is a community experience; Address is empty when joining it
-// could not be resolved.
+// Gathering is a community experience; it is joined by ID only when the player connects.
 type Gathering struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Caption     string `json:"caption"`
 	Description string `json:"description,omitempty"`
 	Creator     string `json:"creator,omitempty"`
-	Address     string `json:"address,omitempty"`
 	Image       Image  `json:"image"`
 	StartUnix   int64  `json:"start_unix,omitempty"`
 	EndUnix     int64  `json:"end_unix,omitempty"`
 }
 
-// Profile is the signed-in account as the start and profile screens show it.
+// Profile is the signed-in account as the start and profile screens show it. A count whose
+// lookup failed is omitted rather than reported as zero.
 type Profile struct {
 	Gamertag     string `json:"gamertag"`
 	XUID         string `json:"xuid"`
 	Gamerpic     Image  `json:"gamerpic"`
 	RealName     string `json:"real_name,omitempty"`
 	PresenceText string `json:"presence_text,omitempty"`
-	Gamerscore   int64  `json:"gamerscore"`
-	Friends      int    `json:"friends"`
-	Followers    int    `json:"followers"`
+	Gamerscore   *int64 `json:"gamerscore,omitempty"`
+	Friends      *int   `json:"friends,omitempty"`
+	Followers    *int   `json:"followers,omitempty"`
+	partial      error
 }
 
+// Partial returns why lookups failed; their fields are left unset. Callers redact it before logging.
+func (p Profile) Partial() error { return p.partial }
+
 // FeaturedServers lists the featured servers from the gatherings service.
-func FeaturedServers(ctx context.Context, src oauth2.TokenSource) ([]FeaturedServer, error) {
+func FeaturedServers(ctx context.Context, account *authcache.Account) ([]FeaturedServer, error) {
 	var result []FeaturedServer
-	err := withGatherings(ctx, src, func(_ *xsapi.Client, client *gatherings.Client) error {
+	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
 		values, err := client.FeaturedServers(ctx)
 		if err != nil {
 			return err
 		}
 		result = featuredServers(values)
 		return nil
-	}, nil)
+	})
 	return result, err
 }
 
-// Gatherings lists the community experiences with their join addresses.
-func Gatherings(ctx context.Context, src oauth2.TokenSource) ([]Gathering, error) {
+// Gatherings lists the community experiences; listing never joins one.
+func Gatherings(ctx context.Context, account *authcache.Account) ([]Gathering, error) {
 	var result []Gathering
-	err := withGatherings(ctx, src, func(_ *xsapi.Client, client *gatherings.Client) error {
+	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
 		values, err := client.Experiences(ctx)
 		if err != nil {
 			return err
 		}
 		result = make([]Gathering, 0, len(values))
 		for _, experience := range values {
-			if experience == nil || !experience.Valid() {
-				continue
+			if experience != nil && experience.Valid() {
+				result = append(result, gathering(experience))
 			}
-			entry := gathering(experience)
-			entry.Address = joinAddresses.lookup(entry.ID, func() string {
-				joinContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-				defer cancel()
-				if address, err := experience.Join(joinContext); err == nil && address != nil && address.String() != ":0" {
-					return address.String()
-				}
-				return ""
-			})
-			result = append(result, entry)
 		}
 		return nil
-	}, nil)
+	})
 	return result, err
 }
 
-// joinTTL keeps an experience's join allocation for the rows, pings and
-// details keyed by it; a fresh Join may place the player on another server.
-const joinTTL = 10 * time.Minute
-
-type joinMemo struct {
-	mu      sync.Mutex
-	entries map[string]joinEntry
-}
-
-type joinEntry struct {
-	address string
-	at      time.Time
-}
-
-var joinAddresses = &joinMemo{entries: map[string]joinEntry{}}
-
-// lookup returns id's remembered address, joining again once it is stale or
-// failed.
-func (m *joinMemo) lookup(id string, join func() string) string {
-	m.mu.Lock()
-	entry, ok := m.entries[id]
-	m.mu.Unlock()
-	if ok && entry.address != "" && time.Since(entry.at) < joinTTL {
-		return entry.address
-	}
-	address := join()
-	m.mu.Lock()
-	m.entries[id] = joinEntry{address: address, at: time.Now()}
-	m.mu.Unlock()
-	return address
+// JoinGathering joins the experience now and returns its typed server assignment.
+func JoinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID) (*gatherings.Address, error) {
+	var address *gatherings.Address
+	err := withGatherings(ctx, account, func(client *gatherings.Client) (err error) {
+		address, err = client.JoinExperience(ctx, id)
+		return err
+	})
+	return address, err
 }
 
 // AccountProfile returns the signed-in gamertag, XUID and gamerpic; a missing
 // gamerpic is not an error.
-func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error) {
-	if src == nil {
-		return Profile{}, errors.New("catalog authentication token source is nil")
-	}
-	xbl, err := newXSAPIClient(ctx, src)
+func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, error) {
+	xbl, err := newXSAPIClient(ctx, account)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -165,7 +130,10 @@ func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error
 	info := xbl.UserInfo()
 	profile := Profile{Gamertag: info.GamerTag, XUID: info.XUID}
 	social := xbl.Social()
-	if user, err := social.UserByXUID(ctx, info.XUID); err == nil {
+	var failures []error
+	if user, err := social.UserByXUID(ctx, info.XUID); err != nil {
+		failures = append(failures, fmt.Errorf("profile: %w", err))
+	} else {
 		if validArtworkURL(user.DisplayPictureRawURL) {
 			profile.Gamerpic.URL = user.DisplayPictureRawURL
 		}
@@ -174,64 +142,49 @@ func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error
 		}
 		profile.RealName = strings.TrimSpace(user.RealName)
 		profile.PresenceText = strings.TrimSpace(user.PresenceText)
-		if score, err := user.GamerScore.Int64(); err == nil && score > 0 {
-			profile.Gamerscore = score
+		if score, err := user.GamerScore.Int64(); err == nil && score >= 0 {
+			profile.Gamerscore = &score
 		}
 	}
-	if friends, err := social.Friends(ctx); err == nil {
-		profile.Friends = len(friends)
+	if friends, err := social.Friends(ctx); err != nil {
+		failures = append(failures, fmt.Errorf("friends: %w", err))
+	} else {
+		count := len(friends)
+		profile.Friends = &count
 	}
-	if followers, err := social.Followers(ctx); err == nil {
-		profile.Followers = len(followers)
+	if followers, err := social.Followers(ctx); err != nil {
+		failures = append(failures, fmt.Errorf("followers: %w", err))
+	} else {
+		count := len(followers)
+		profile.Followers = &count
 	}
+	profile.partial = errors.Join(failures...)
 	return profile, nil
 }
 
-// withGatherings signs in to Xbox Live, PlayFab and the Minecraft-services
-// auth environment, then hands a gatherings client and/or a service session
-// to whichever callbacks are set.
-func withGatherings(
-	ctx context.Context,
-	src oauth2.TokenSource,
-	runGatherings func(*xsapi.Client, *gatherings.Client) error,
-	runServices func(*serviceSession) error,
-) error {
-	if src == nil {
-		return errors.New("catalog authentication token source is nil")
+// withGatherings hands run a gatherings client on the discovered endpoint and the account's token.
+func withGatherings(ctx context.Context, account *authcache.Account, run func(*gatherings.Client) error) error {
+	if account == nil {
+		return errNoAccount
 	}
-	xbl, err := newXSAPIClient(ctx, src)
-	if err != nil {
-		return err
-	}
-	defer xbl.Close()
 	discovery, err := service.Default(ctx)
 	if err != nil {
 		return fmt.Errorf("discover services: %w", err)
 	}
-	env := new(service.AuthorizationEnvironment)
-	if err := discovery.Environment(env); err != nil {
-		return fmt.Errorf("resolve services: %w", err)
-	}
-	session, err := playfab.LoginWithXbox(ctx, env.PlayFabTitleID, xbl, playfab.ClientConfig{CreateAccount: true})
+	client, err := gatheringsClient(discovery, account)
 	if err != nil {
-		return fmt.Errorf("PlayFab login: %w", err)
+		return err
 	}
-	defer session.Close()
-	tokens := env.TokenSource(session, service.TokenConfig{})
-	if runGatherings != nil {
-		if err := runGatherings(xbl, gatherings.NewClient(tokens)); err != nil {
-			return err
-		}
+	return run(client)
+}
+
+// gatheringsClient builds the gatherings client on discovery's endpoint; there is no fallback host.
+func gatheringsClient(discovery *service.Discovery, tokens service.TokenSource) (*gatherings.Client, error) {
+	env := new(gatherings.Environment)
+	if err := discovery.Environment(env); err != nil {
+		return nil, fmt.Errorf("resolve gatherings service: %w", err)
 	}
-	if runServices != nil {
-		return runServices(&serviceSession{
-			discovery: discovery,
-			tokens:    tokens,
-			xuid:      xbl.UserInfo().XUID,
-			client:    http.DefaultClient,
-		})
-	}
-	return nil
+	return env.New(tokens), nil
 }
 
 func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {

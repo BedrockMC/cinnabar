@@ -39,7 +39,10 @@ pub(crate) struct ShutdownWatchdog {
 
 impl ShutdownWatchdog {
     pub(crate) fn process(timeout: Duration) -> Self {
-        Self::new(timeout, |code| std::process::exit(code))
+        Self::new(timeout, |code| {
+            crate::lifecycle::children::stop_all(std::time::Duration::ZERO);
+            std::process::exit(code)
+        })
     }
 
     pub(crate) fn new<F>(timeout: Duration, terminate: F) -> Self

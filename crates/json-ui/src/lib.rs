@@ -40,7 +40,10 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-pub use anim::{Chain, Fade, FlipBook, Step, StepKind, fade_factor, fade_factor_at};
+pub use anim::{
+    Chain, Fade, FlipBook, Motion, Motions, Step, StepKind, fade_factor, fade_factor_at,
+    motion_offset,
+};
 pub use bind::{
     CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_reporting,
     bind_shared, scoped_key,
