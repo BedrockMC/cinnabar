@@ -233,10 +233,9 @@ impl<'a> Binder<'a> {
                     .map(|resolved| vec![self.build(Src::root(resolved), scope)])
                     .unwrap_or_default(),
             )
-        } else if let Some(items) = self.feed(control) {
-            Some(self.expand_feed(control, items, scope))
         } else {
-            None
+            self.feed(control)
+                .map(|items| self.expand_feed(control, items, scope))
         };
         if let Some(factory) = &control.factory {
             // A `control_name` template clears the declaration-time children.
