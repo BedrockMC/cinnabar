@@ -11,6 +11,8 @@ mod gpu;
 mod materials;
 mod post;
 mod shadows;
+mod snapshot;
+use snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode};
 #[cfg(test)]
 mod validation;
 pub(crate) use frame::CascadeBounds;
@@ -68,7 +70,7 @@ impl Default for EnhancedRendering {
             bloom: true,
             light_shafts: true,
             waving: true,
-            water_reflections: false,
+            water_reflections: true,
         }
     }
 }
@@ -128,6 +130,7 @@ impl Plugin for EnhancedRenderPlugin {
 
 /// Orders the world grade before the hand and UI.
 fn install_graph(world: &mut World) {
+    let snapshot = ViewNodeRunner::<EnhancedSnapshotNode>::new(EnhancedSnapshotNode, world);
     let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
     let post = ViewNodeRunner::<EnhancedPostNode>::new(EnhancedPostNode, world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
@@ -136,6 +139,12 @@ fn install_graph(world: &mut World) {
     let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
         return;
     };
+    graph.add_node(EnhancedSnapshotLabel, snapshot);
+    graph.add_node_edges((
+        Node3d::MainOpaquePass,
+        EnhancedSnapshotLabel,
+        Node3d::MainTransparentPass,
+    ));
     graph.add_node(EnhancedShadowLabel, shadow);
     graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
     graph.add_node(EnhancedPostLabel, post);

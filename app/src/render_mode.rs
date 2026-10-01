@@ -110,7 +110,12 @@ impl Plugin for RenderModePlugin {
             .add_systems(Startup, seed_render_mode)
             .add_systems(
                 Update,
-                (apply_menu_render_mode, apply_render_mode_to_cameras).chain(),
+                (
+                    apply_menu_render_mode,
+                    apply_render_mode_to_cameras,
+                    sync_enhanced_bloom,
+                )
+                    .chain(),
             );
     }
 }
@@ -192,10 +197,6 @@ fn apply_render_mode_to_cameras(
                 commands.entity(entity).insert((
                     EnhancedRendering::default(),
                     Hdr,
-                    Bloom {
-                        intensity: 0.12,
-                        ..default()
-                    },
                     VanillaDepthUsage(original),
                 ));
             } else {
@@ -206,6 +207,26 @@ fn apply_render_mode_to_cameras(
                     .entity(entity)
                     .remove::<(EnhancedRendering, Hdr, Bloom, VanillaDepthUsage)>();
             }
+        }
+    }
+}
+
+/// Apply the per-camera bloom quality switch without changing other effects.
+fn sync_enhanced_bloom(
+    mut commands: Commands,
+    cameras: Query<(Entity, &EnhancedRendering, Has<Bloom>), With<FlyCamera>>,
+) {
+    for (entity, enhanced, has_bloom) in &cameras {
+        if enhanced.bloom == has_bloom {
+            continue;
+        }
+        if enhanced.bloom {
+            commands.entity(entity).insert(Bloom {
+                intensity: 0.12,
+                ..default()
+            });
+        } else {
+            commands.entity(entity).remove::<Bloom>();
         }
     }
 }
@@ -281,7 +302,10 @@ mod tests {
                 attributable: false,
                 path: None,
             })
-            .add_systems(Update, apply_render_mode_to_cameras);
+            .add_systems(
+                Update,
+                (apply_render_mode_to_cameras, sync_enhanced_bloom).chain(),
+            );
         let camera = app
             .world_mut()
             .spawn((Camera3d::default(), FlyCamera::default()))
@@ -296,6 +320,18 @@ mod tests {
         app.update();
         assert!(app.world().get::<EnhancedRendering>(camera).is_some());
         assert!(app.world().get::<Hdr>(camera).is_some());
+        assert!(app.world().get::<Bloom>(camera).is_some());
+        app.world_mut()
+            .get_mut::<EnhancedRendering>(camera)
+            .unwrap()
+            .bloom = false;
+        app.update();
+        assert!(app.world().get::<Bloom>(camera).is_none());
+        app.world_mut()
+            .get_mut::<EnhancedRendering>(camera)
+            .unwrap()
+            .bloom = true;
+        app.update();
         assert!(app.world().get::<Bloom>(camera).is_some());
         let usage = TextureUsages::from(
             app.world()
