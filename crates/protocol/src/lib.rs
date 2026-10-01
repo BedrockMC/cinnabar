@@ -82,7 +82,7 @@ pub use inventory::{
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    lectern_update_packet,
+    crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,

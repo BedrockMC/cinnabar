@@ -560,6 +560,8 @@ pub(crate) struct ActorStore {
     local_hands: [Option<std::sync::Arc<str>>; 2],
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
+    /// View world position, sampled into each animation tick.
+    camera_position: [f32; 3],
     /// Seat layouts for mounts whose riders stream no seat offset.
     seat_defaults: std::sync::Arc<SeatDefaults>,
     property_registry: properties::PropertyRegistry,

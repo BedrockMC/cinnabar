@@ -19,6 +19,7 @@ var (
 
 	ErrEULARequired       = errors.New("the Minecraft EULA must be accepted before the server is downloaded")
 	ErrBackendUnavailable = errors.New("world backend is not available on this platform")
+	ErrVanillaNeedsBDS    = errors.New("default worlds need Bedrock Dedicated Server; create a superflat world instead")
 )
 
 const (
@@ -28,11 +29,11 @@ const (
 	GameModeCreative  = "creative"
 	GameModeAdventure = "adventure"
 
-	GeneratorNormal = "normal"
+	GeneratorNormal = "normal" // vanilla terrain; BDS only
 	GeneratorFlat   = "flat"
 
 	BackendBDS       = "bds"       // Bedrock Dedicated Server: vanilla worldgen and mobs
-	BackendDragonfly = "dragonfly" // fallback where BDS does not run
+	BackendDragonfly = "dragonfly" // superflat only, where BDS does not run
 
 	DifficultyPeaceful = "peaceful"
 	DifficultyEasy     = "easy"
@@ -59,7 +60,7 @@ type Spec struct {
 	GameMode   string `json:"game_mode,omitempty"`
 	Generator  string `json:"generator,omitempty"`
 	Difficulty string `json:"difficulty,omitempty"`
-	Backend    string `json:"backend,omitempty"` // empty takes the store default
+	Backend    string `json:"backend,omitempty"` // empty takes BDS for normal worlds, else the store default
 	Seed       *int64 `json:"seed,omitempty"`
 }
 
@@ -109,6 +110,12 @@ func (spec Spec) normalize() (Spec, error) {
 	}
 	if spec.Backend, err = oneOf(spec.Backend, "", BackendBDS, BackendDragonfly); err != nil {
 		return Spec{}, err
+	}
+	if spec.Generator == GeneratorNormal {
+		if spec.Backend == BackendDragonfly {
+			return Spec{}, ErrVanillaNeedsBDS
+		}
+		spec.Backend = BackendBDS
 	}
 	return spec, nil
 }

@@ -18,6 +18,7 @@ mod oreui;
 pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
+pub(crate) use panorama::{built_in_faces, launcher_view};
 #[cfg(test)]
 mod play_flow_snapshots;
 mod play_screen;
@@ -35,6 +36,7 @@ mod textures;
 mod toast_screen;
 
 pub(crate) use chat_screen::ChatHit;
+pub(crate) use container_data::observe_station_block;
 pub(crate) use loading_screen::LoadingStage;
 pub(crate) use oreui::BedHit;
 pub(crate) use panorama::drive_menu_panorama;

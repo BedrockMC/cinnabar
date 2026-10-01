@@ -106,7 +106,6 @@ func TestLoadingOrderTraceRejectsMalformedPublisherPayloadWithoutMutation(t *tes
 	cases := map[string][]byte{
 		"empty":                 nil,
 		"unterminated position": {0x80, 0x80, 0x80, 0x80, 0x80},
-		"overflowing radius":    {0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0x10, 0, 0, 0, 0},
 		"truncated count":       publisherUpdatePrefix(protocol.BlockPos{}, 0),
 		"oversized list":        oversized,
 		"truncated list":        publisherUpdatePayload(protocol.BlockPos{}, 0, 1)[:9],

@@ -278,3 +278,14 @@ fn packcache_item_icon_keys_resolve_when_requested() {
     eprintln!("{resolved} of {declared} cached-pack item icon keys resolved");
     assert!(resolved * 10 >= declared * 8, "{resolved} of {declared}");
 }
+
+// Every server item keeps its icon: a pack with more icons than the old 512 cap loses none.
+#[test]
+fn icon_count_is_bounded_by_the_item_registry_not_a_fixed_cap() {
+    let key = |identifier: String| (Arc::<str>::from(identifier), Arc::<str>::from("test:gem"));
+    let keys: Vec<_> = (0..600)
+        .map(|index| key(format!("cosmetic:item_{index}")))
+        .collect();
+    let icons = compile_session_icons(&view(), &keys, BlockIcons::default()).expect("icons");
+    assert_eq!(icons.icons.len(), 600);
+}

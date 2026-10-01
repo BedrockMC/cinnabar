@@ -443,6 +443,35 @@ func TestExclusiveLeaseAcrossProcess(t *testing.T) {
 	}
 }
 
+// A SIGKILLed holder never strands the root lease: the next core opens the cache.
+func TestDeadHolderLeaseIsReclaimed(t *testing.T) {
+	base := secureTempDir(t)
+	root := filepath.Join(base, "objects")
+	ready, stop := filepath.Join(base, "ready"), filepath.Join(base, "stop")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestExclusiveLeaseAcrossProcess$")
+	cmd.Env = append(os.Environ(), "PACKCACHE_LEASE_HELPER=1", "PACKCACHE_ROOT="+root, "PACKCACHE_READY="+ready, "PACKCACHE_STOP="+stop)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	for i := 0; i < 500; i++ {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := New(root); !errors.Is(err, ErrInUse) {
+		t.Fatalf("New beside a live holder = %v, want ErrInUse", err)
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	c, err := New(root)
+	if err != nil {
+		t.Fatalf("New after the holder died = %v", err)
+	}
+	_ = c.Close()
+}
+
 func TestStartupCleansAllPrivateTempsBeforeEntryLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("creates more than 100,000 temporary directory entries")

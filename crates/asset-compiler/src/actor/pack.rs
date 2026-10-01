@@ -77,6 +77,52 @@ mod tests {
         );
     }
 
+    // A tall flipbook (as display packs animate with `uv_anim`) keeps its artwork whole.
+    #[test]
+    fn a_tall_flipbook_texture_keeps_its_artwork() {
+        let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"test:logo","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/logo"},"geometry":{"default":"geometry.logo"},"render_controllers":["controller.render.logo"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.logo","texture_width":8,"texture_height":8},"bones":[{"name":"root","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[8,8,0],"uv":[0,0]}]}]}]}"#;
+        let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.logo":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 1024, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let compiled = compile_actor_pack(vec![
+            ("entity/logo.json".into(), entity.to_vec()),
+            ("models/entity/logo.geo.json".into(), geometry.to_vec()),
+            ("render_controllers/logo.json".into(), controller.to_vec()),
+            ("textures/entity/logo.png".into(), png),
+        ])
+        .unwrap()
+        .expect("entity compiles");
+        assert_eq!(compiled.bindings.len(), 1, "{:?}", compiled.fallbacks);
+        assert_eq!(compiled.textures[0].height, 1024);
+    }
+
+    // A weighted object binding two animations (as camel's controller does) compiles both.
+    #[test]
+    fn a_weighted_object_with_several_animations_compiles_every_binding() {
+        let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"test:camel","materials":{"default":"entity"},"textures":{"default":"textures/entity/camel"},"geometry":{"default":"geometry.camel"},"animations":{"walk":"animation.camel.walk","baby_walk":"animation.camel.baby_walk","move":"controller.animation.camel.move"},"scripts":{"animate":["move"]},"render_controllers":["controller.render.camel"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.camel","texture_width":16,"texture_height":16},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[4,4,4],"uv":[0,0]}]}]}]}"#;
+        let animations = br#"{"format_version":"1.8.0","animations":{"animation.camel.walk":{"loop":true,"bones":{"body":{"rotation":[10,0,0]}}},"animation.camel.baby_walk":{"loop":true,"bones":{"body":{"rotation":[20,0,0]}}}}}"#;
+        let controllers = br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.camel.move":{"initial_state":"default","states":{"default":{"animations":[{"walk":"!query.is_baby","baby_walk":"query.is_baby"}]}}}}}"#;
+        let render = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.camel":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+        let compiled = compile_actor_pack(vec![
+            ("entity/camel.json".into(), entity.to_vec()),
+            ("models/entity/camel.geo.json".into(), geometry.to_vec()),
+            ("animations/camel.json".into(), animations.to_vec()),
+            (
+                "animation_controllers/camel.json".into(),
+                controllers.to_vec(),
+            ),
+            ("render_controllers/camel.json".into(), render.to_vec()),
+        ])
+        .unwrap()
+        .expect("entity compiles");
+        assert_eq!(compiled.entities.controllers.len(), 1);
+        assert_eq!(compiled.entities.controller_animations.len(), 2);
+    }
+
     // A pack shipping only attachables (custom armor) still yields its equipment bindings.
     #[test]
     fn an_attachable_only_pack_compiles_its_equipment() {

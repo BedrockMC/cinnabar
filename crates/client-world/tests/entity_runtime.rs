@@ -144,6 +144,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             channel_count: 1,
             source: 1,
             override_previous: false,
+            geometry: None,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -239,6 +240,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             initialize: None,
             pre_animation: None,
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
+            scale_expressions: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -255,6 +257,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             name: 0,
             controller: 0,
             weight: None,
+            order: 0,
         }]
         .into_boxed_slice(),
         item_visuals: Box::new([]),

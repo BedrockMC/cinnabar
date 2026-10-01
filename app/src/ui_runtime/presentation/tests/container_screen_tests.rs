@@ -101,6 +101,10 @@ fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
 /// The creative inventory over a 300-item catalog across the four tabs, whose
 /// first construction items fold into a named group, the second one unfolded.
 fn creative() -> UiRuntime {
+    creative_with(300)
+}
+
+fn creative_with(count: u32) -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
     let mut runtime = session();
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
@@ -127,7 +131,7 @@ fn creative() -> UiRuntime {
         CreativeCategory::Construction,
         "itemGroup.name.stone",
     ));
-    let items = (0..300u32)
+    let items = (0..count)
         .map(|index| CreativeItem {
             creative_network_id: index + 1,
             stack: NetworkItemStack {
@@ -192,7 +196,12 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
         (
             "inventory",
             personal(),
-            vec![Craft(28), Craft(31), CraftOutput, Widget(W::BookToggle)],
+            vec![
+                Craft(28),
+                Craft(31),
+                CraftOutput,
+                Widget(W::InventoryLayout(2)),
+            ],
         ),
         (
             "book",
@@ -224,7 +233,23 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 runtime.screen_state_mut().book_open = true;
                 runtime
             },
-            vec![Widget(W::BookToggle), CreativeTab(1), CreativeSearch],
+            vec![
+                Widget(W::InventoryLayout(1)),
+                CreativeTab(1),
+                CreativeSearch,
+            ],
+        ),
+        (
+            "inventory_recipe_search",
+            {
+                let mut runtime = personal();
+                runtime.screen_state_mut().book_open = true;
+                runtime
+                    .screen_state_mut()
+                    .select_tab(crate::ui_runtime::presentation::screens::SEARCH_TAB);
+                runtime
+            },
+            vec![Widget(W::RecipeFilter), CreativeSearch],
         ),
         (
             "creative",
@@ -234,7 +259,7 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 RecipeBook(20),
                 CreativeTab(2),
                 CreativeSearch,
-                Widget(W::BookToggle),
+                Widget(W::InventoryLayout(3)),
             ],
         ),
         (
@@ -329,6 +354,16 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
         ("dropper", opened(WINDOW_TYPE_DROPPER, 9), storage(9)),
         ("crafter", opened(WINDOW_TYPE_CRAFTER, 9), storage(9)),
         ("horse", opened(WINDOW_TYPE_HORSE, 17), storage(17)),
+        // A chested llama wears only a carpet, in container slot 1.
+        (
+            "llama",
+            {
+                let mut runtime = opened(WINDOW_TYPE_HORSE, 17);
+                runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
+                runtime
+            },
+            (1..17).map(Storage).collect(),
+        ),
     ]
 }
 
@@ -377,4 +412,365 @@ fn every_container_screen_draws_through_the_engine() {
             assert!(reached.contains(&hit), "{name}: {hit:?} unreachable");
         }
     }
+}
+
+// A disabled crafter slot shows its button over the cell; pressing it asks
+// the server to re-enable the slot, and clicking an empty slot disables it.
+#[test]
+fn crafter_slots_toggle_through_their_buttons() {
+    use crate::ui_runtime::inventory_drag::PointerAction;
+    use crate::ui_runtime::presentation::screens::Widget as W;
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = opened(protocol::WINDOW_TYPE_CRAFTER, 9);
+    runtime.screen_state_mut().crafter.observe(0b101, true, 0);
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<InventoryCellHit> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            let center = [
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ];
+            presentation.engine_container_hit(center)
+        })
+        .collect();
+    for hit in [
+        InventoryCellHit::Widget(W::CrafterSlot(0)),
+        InventoryCellHit::Widget(W::CrafterSlot(2)),
+        InventoryCellHit::Storage(1),
+    ] {
+        assert!(reached.contains(&hit), "{hit:?} unreachable");
+    }
+    assert!(!reached.contains(&InventoryCellHit::Storage(0)));
+    runtime.perform_pointer_action(PointerAction::Click(InventoryCellHit::Widget(
+        W::CrafterSlot(0),
+    )));
+    runtime.perform_pointer_action(PointerAction::Click(InventoryCellHit::Storage(4)));
+    assert_eq!(runtime.screen_state().crafter.shown_disabled(), 0b1_0100);
+    let toggles: Vec<String> = std::iter::from_fn(|| runtime.take_client_packet())
+        .map(|packet| format!("{:?}", packet.data))
+        .collect();
+    assert_eq!(toggles.len(), 2);
+    assert!(toggles[0].contains("slot_index: 0") && toggles[0].contains("is_disabled: false"));
+    assert!(toggles[1].contains("slot_index: 4") && toggles[1].contains("is_disabled: true"));
+}
+
+// A llama's single equip cell is its carpet slot, never the saddle's.
+#[test]
+fn llama_equip_cell_addresses_the_carpet_slot() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = opened(protocol::WINDOW_TYPE_HORSE, 17);
+    runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<InventoryCellHit> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            let center = [
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ];
+            presentation.engine_container_hit(center)
+        })
+        .collect();
+    assert!(reached.contains(&InventoryCellHit::Storage(1)));
+    assert!(!reached.contains(&InventoryCellHit::Storage(0)));
+}
+
+// Creative's wide list drops the player inventory for the catalog and keeps
+// the hotbar beneath it; its toggles pick each layout.
+#[test]
+fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
+    use crate::ui_runtime::presentation::screens::Widget as W;
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = creative();
+    runtime.screen_state_mut().creative_wide = true;
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let input = presentation
+        .build(&runtime, 5_000, [1280, 720], dpi)
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "container-creative_wide");
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<InventoryCellHit> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            let center = [
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ];
+            presentation.engine_container_hit(center)
+        })
+        .collect();
+    for hit in [
+        InventoryCellHit::RecipeBook(0),
+        InventoryCellHit::Player(0),
+        InventoryCellHit::Player(8),
+        InventoryCellHit::Widget(W::InventoryLayout(2)),
+    ] {
+        assert!(reached.contains(&hit), "{hit:?} unreachable");
+    }
+    assert!(!reached.contains(&InventoryCellHit::Player(9)));
+}
+
+// Moving the pointer across slots only changes which hover states show: the
+// screen never lays out again, however long the creative catalog.
+#[test]
+fn hovering_slots_never_lays_the_screen_out_again() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = creative_with(1500);
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let layouts = presentation.engine_container_layouts();
+    let mut frames = Vec::new();
+    for step in 0..24u64 {
+        let point = [
+            60.0 + (step % 8) as f32 * 18.0,
+            70.0 + (step / 8) as f32 * 18.0,
+        ];
+        runtime.set_inventory_pointer_gui(Some(point));
+        let started = std::time::Instant::now();
+        presentation
+            .build(&runtime, 1_000 + step, [1280, 720], dpi)
+            .unwrap();
+        frames.push(started.elapsed());
+    }
+    frames.sort();
+    eprintln!(
+        "hover frame with 1500 catalog entries: median {:?}, fastest {:?}",
+        frames[frames.len() / 2],
+        frames[0]
+    );
+    assert_eq!(presentation.engine_container_layouts(), layouts);
+}
+
+// Scrolling the creative catalog lays out only what the viewport shows.
+#[test]
+fn scrolling_the_creative_catalog_stays_interactive() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = creative_with(1500);
+    let dpi = DpiScale::new(1.0).unwrap();
+    presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let frame = presentation.engine_container_frame().unwrap();
+    let (key, metrics) = frame
+        .report
+        .scrolls
+        .iter()
+        .max_by(|a, b| a.1.content.total_cmp(&b.1.content))
+        .map(|(key, metrics)| (key.clone(), *metrics))
+        .unwrap();
+    assert!(metrics.max_offset() > 700.0, "{metrics:?}");
+    let mut frames = Vec::new();
+    for step in 1..=12u64 {
+        runtime
+            .screen_state_mut()
+            .container_scroll
+            .insert(key.clone(), step as f64 * 60.0);
+        let started = std::time::Instant::now();
+        presentation
+            .build(&runtime, step, [1280, 720], dpi)
+            .unwrap();
+        frames.push(started.elapsed());
+    }
+    frames.sort();
+    eprintln!(
+        "scroll frame with 1500 catalog entries: median {:?}, fastest {:?}",
+        frames[frames.len() / 2],
+        frames[0]
+    );
+    let frame = presentation.engine_container_frame().unwrap();
+    assert_eq!(frame.report.scrolls[&key].offset, 720.0);
+}
+
+// The inventory's live player renderer faces the viewer and turns toward the
+// pointer: pointers on either side of the model draw different rasters.
+#[test]
+fn inventory_player_model_turns_toward_the_pointer() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = personal();
+    let dpi = DpiScale::new(1.0).unwrap();
+    let skin = steve_skin();
+    let mut rasters = Vec::new();
+    for (name, pointer) in [
+        ("left", [40.0, 60.0]),
+        ("centre", [178.0, 70.0]),
+        ("right", [400.0, 60.0]),
+    ] {
+        runtime.set_inventory_pointer_gui(Some(pointer));
+        for now in [0, 500] {
+            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation.sync_player_preview(skin.as_deref(), Default::default(), true, false, 0.0);
+            presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+        }
+        let input = presentation
+            .build(&runtime, 1_000, [1280, 720], dpi)
+            .unwrap();
+        super::super::forms::snapshot::write(&input, &format!("doll-{name}"));
+        rasters.push(presentation.player_preview_raster());
+        if let Ok(dir) = std::env::var("CINNABAR_FORM_SNAPSHOT_DIR") {
+            let raster = rasters.last().unwrap().clone();
+            image::RgbaImage::from_raw(96, 112, raster)
+                .unwrap()
+                .save(format!("{dir}/raster-{name}.png"))
+                .unwrap();
+        }
+    }
+    assert!(
+        rasters
+            .iter()
+            .all(|raster| raster.iter().any(|byte| *byte != 0))
+    );
+    assert_ne!(rasters[0], rasters[2], "the model turns with the pointer");
+}
+
+/// Steve from the local vanilla pack, else `None` (the built-in skin).
+fn steve_skin() -> Option<Vec<u8>> {
+    let steve = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/textures/entity/steve.png",
+    );
+    image::open(steve)
+        .ok()
+        .map(|image| image.to_rgba8().into_raw())
+}
+
+// The pause screen's paper doll shows the model from the front, turned by its
+// starting rotation, not the player's world facing.
+#[test]
+fn pause_paper_doll_faces_the_viewer() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.mark_connected();
+    menu.open_pause();
+    presentation.set_menu_view(Some(menu.view()));
+    let runtime = session();
+    let skin = steve_skin();
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        // The world facing must not turn the doll.
+        let pose = super::super::player_preview::PlayerPreviewPose::new(97.0, 97.0, 0.0, false);
+        presentation.sync_player_preview(skin.as_deref(), pose, true, false, 0.0);
+        presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+    }
+    let input = presentation
+        .build(&runtime, 1_000, [1280, 720], dpi)
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "pause-doll");
+    assert!(
+        presentation
+            .player_preview_raster()
+            .iter()
+            .any(|byte| *byte != 0)
+    );
+}
+
+/// A pack texture as preview art, when the local vanilla pack has it.
+fn pack_texture(path: &str) -> Option<super::super::player_preview::PreviewTexture> {
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack")
+        .join(path);
+    let image = image::open(file).ok()?.to_rgba8();
+    Some(super::super::player_preview::PreviewTexture {
+        width: image.width() as u16,
+        height: image.height() as u16,
+        rgba: image.into_raw().into(),
+        tint: None,
+    })
+}
+
+// Worn armor and the held item draw on the model over the bare skin.
+#[test]
+fn inventory_player_model_wears_armor_and_holds_items() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let (Some(layer_1), Some(layer_2), Some(sword)) = (
+        pack_texture("textures/models/armor/diamond_1.png"),
+        pack_texture("textures/models/armor/diamond_2.png"),
+        pack_texture("textures/items/diamond_sword.png"),
+    ) else {
+        return;
+    };
+    let mut runtime = personal();
+    runtime.set_inventory_pointer_gui(Some([260.0, 40.0]));
+    let skin = steve_skin();
+    let dpi = DpiScale::new(1.0).unwrap();
+    let mut rasters = Vec::new();
+    for gear in [
+        super::super::player_preview::PreviewEquipment::default(),
+        super::super::player_preview::PreviewEquipment {
+            armor: [
+                Some(layer_1.clone()),
+                Some(layer_1.clone()),
+                Some(layer_2),
+                Some(layer_1),
+            ],
+            held: Some(sword),
+        },
+    ] {
+        presentation.player_preview_gear = gear;
+        for now in [0, 500] {
+            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation.sync_player_preview(skin.as_deref(), Default::default(), true, false, 0.0);
+            presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+        }
+        let input = presentation
+            .build(&runtime, 1_000, [1280, 720], dpi)
+            .unwrap();
+        let name = if rasters.is_empty() {
+            "doll-bare"
+        } else {
+            "doll-armored"
+        };
+        super::super::forms::snapshot::write(&input, name);
+        rasters.push(presentation.player_preview_raster());
+    }
+    assert_ne!(
+        rasters[0], rasters[1],
+        "armor and the held item change the model"
+    );
 }
