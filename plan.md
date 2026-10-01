@@ -8,7 +8,8 @@ WASM component spike exposes a bounded JSON-UI label and local demo keybind,
 with fuel/memory limits, trap quarantine and transactional hot reload. This is
 not vanilla behavior and closes no parity gate. Incomplete: process isolation,
 compiler quotas, package permissions/signatures, server policy negotiation,
-multi-mod lifecycle, production API stability and native visual/performance
+multi-mod lifecycle, production API stability, vanilla hide-GUI/alpha propagation,
+and native visual/performance
 acceptance. Only explicitly selected local developer components are supported;
 do not treat this as admission for untrusted downloaded mods. See
 `docs/modding-spike.md` for the executable sample and offline evidence harness.

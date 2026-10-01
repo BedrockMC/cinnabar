@@ -23,6 +23,15 @@ Route local builds through the shared limiter as required by
 `bench` or the tests. Launching the client still requires its normal pinned carriers.
 No mod is loaded when the environment variable is absent.
 
+The last command opens the launcher. Select a server only in a separately
+authorized live session. To exercise the same startup switch, scheduled adapter,
+window-focus check and F8 action entirely offline, run:
+
+```sh
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm \
+  cargo test -p bedrock-client --lib configured_sample_drives_the_app_adapter_offline --locked
+```
+
 During gameplay, F8 changes the label. UI focus and window focus suppress the
 action. The mod cannot generate input, chat, packets or world mutations. Rebuild
 the guest and package to a temporary sibling file, then atomically rename it over
@@ -65,6 +74,7 @@ cargo test -p bedrock-client --lib mod_hud --locked
 To capture the real compiled sample through the existing offline renderer:
 
 ```sh
+mkdir -p /tmp/cinnabar-mod-frames
 CINNABAR_FORM_SNAPSHOT_DIR=/tmp/cinnabar-mod-frames \
 CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
   cargo test -p bedrock-client --lib mod_spike_snapshot_with_real_carrier --locked -- --nocapture
@@ -72,6 +82,19 @@ CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
 
 This writes before, initial-label and keybind PNGs without starting a network
 session. The test requires the real carrier when a snapshot directory is set.
+
+Measure the real CPU UI build with zero mods and with the sample loaded:
+
+```sh
+CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
+  cargo test -p bedrock-client --lib mod_spike_offline_frame_overhead --locked -- --ignored --nocapture
+```
+
+This alternates warmed baseline/sample batches at the same viewport and reports
+both totals and paired differences. It includes the guest callback, label adapter
+and JSON-UI build; it excludes Bevy scheduling, reload polling, rasterization and
+GPU work. No-mod scheduling installs zero extension systems. These development
+profile measurements are diagnostic, not a release frame-budget acceptance test.
 
 The host tests execute actual components, including traps, endless loops,
 memory growth, missing authority and failed/successful reloads. The Rust sample
@@ -88,3 +111,9 @@ limits, bounded IPC and watchdog restart. Recheck the runtime's security support
 and advisories before release. The design also requires signed packages, explicit
 permission grants, revocation, a server policy protocol and cross-platform tests.
 There is no claim of server approval or native visual acceptance.
+
+HUD visibility remains incomplete: the existing vanilla data source hardcodes
+HUD-visible bindings and alpha. The spike suppresses its label for focus, menus,
+loading and a statically hidden underlying HUD, but does not yet follow vanilla
+hide-GUI, partial server HUD visibility or animated opacity. See `plan.md`; the
+hidden-HUD test is not full visibility parity evidence.
