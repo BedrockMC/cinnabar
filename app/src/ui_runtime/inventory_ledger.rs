@@ -461,7 +461,7 @@ impl PlayerInventoryLedger {
 
     pub fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
         if let Some(close) = self.pending_closes.front().copied() {
-            return container_close_packet(close.window_id, close.window_type)
+            return container_close_packet(close.window_id)
                 .map(Some)
                 .map_err(|_| InventoryGestureError::InvalidRequest);
         }
