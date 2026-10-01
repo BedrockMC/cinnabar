@@ -322,6 +322,49 @@ fn compound_slab_step_and_head_collision_use_exact_shapes() {
     assert!(hit.movement.y < 0.8);
 }
 
+/// MaxAutoStepComponent starts at 0.5625, below this obstacle's top.
+#[test]
+fn a_point_five_eight_step_is_too_high() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, -1.0, -8.0), Vec3::new(8.0, 0.0, 8.0));
+    world.boxes.push(Aabb::new(
+        Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(1.0, 0.58, 4.0),
+    ));
+    let mut state = PlayerState::new(Vec3::new(0.5, 0.0, 0.5));
+    state.on_ground = true;
+    state.velocity.z = 0.4;
+    let tick = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert_eq!(state.position.y, 0.0);
+    assert!(tick.collisions.z);
+}
+
+/// Current sneak height is f32 1.49, so a 1.495-high passage admits it.
+#[test]
+fn sneaking_fits_below_a_one_point_four_nine_five_ceiling() {
+    let mut world = TerrainWorld::floor(Vec3::new(-8.0, -1.0, -8.0), Vec3::new(8.0, 0.0, 8.0));
+    world.boxes.push(Aabb::new(
+        Vec3::new(0.0, 1.495, 1.0),
+        Vec3::new(1.0, 3.0, 4.0),
+    ));
+    let mut state = PlayerState::new(Vec3::new(0.5, 0.0, 0.5));
+    state.on_ground = true;
+    state.velocity.z = 0.4;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                sneaking: true,
+                ..Default::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert!(state.position.z > 0.8);
+    assert!(!tick.collisions.z);
+}
+
 #[test]
 fn query_failure_is_transactional_and_sampling_is_bounded() {
     let world = TerrainWorld {
