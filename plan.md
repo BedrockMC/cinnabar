@@ -3514,3 +3514,13 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 `ChunkRadiusUpdated` + `SubChunk` request flow. Custom block-entity renderers remain
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
+
+### Projectile rendering fixes (incomplete parity)
+
+The `fix/projectile-render` investigation fixes item-icon carrier admission and
+resolution, sprite UV eligibility, arrow face UV defaults and neutral-profile plane
+backs, projectile world yaw, and remote motion retention/initial arrow orientation.
+See `docs/projectile-rendering.md` for Lens citations and failing-first regressions.
+Offline frame coverage does not close the native projectile gate. Exact projectile
+lerp steps, stuck-state/shake runtime, tipped-arrow behavior, target materials and
+lighting, and AddActor velocity-only launch remain open. No live connection was used.
