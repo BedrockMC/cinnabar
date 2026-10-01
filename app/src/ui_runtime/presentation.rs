@@ -506,6 +506,13 @@ impl UiPresentationRuntime {
                 [content_width, content_height],
                 now_millis,
             )?;
+            self.append_mod_hud(
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+            );
         }
 
         if !inventory_open && !menu_visible {
