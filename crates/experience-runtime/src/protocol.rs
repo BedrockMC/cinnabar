@@ -113,7 +113,9 @@ pub enum Request {
         snapshot: Vec<Cell>,
         call: Call,
     },
-    Shutdown,
+    /// An empty struct variant, not a unit variant: serde ignores unknown fields on internally
+    /// tagged unit variants even under `deny_unknown_fields`.
+    Shutdown {},
 }
 
 /// A texture binding; `path` is absolute and validated by the runtime.
@@ -127,8 +129,11 @@ pub struct Texture {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Mining {
-    Unbreakable,
-    Breakable { hardness: f32 },
+    /// Empty struct variant so unknown fields are rejected (see [`Request::Shutdown`]).
+    Unbreakable {},
+    Breakable {
+        hardness: f32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,8 +256,27 @@ struct Limits {
     protocol: u32,
 }
 
+/// Every protocol enum string, so the Go adapter can check its sets against Rust.
+#[derive(Serialize)]
+struct Enums {
+    faces: [Face; 6],
+    causes: [Cause; 3],
+    fail_kinds: [FailKind; 4],
+}
+
+/// Lists every variant of a fieldless enum. The same list feeds an exhaustive `match`, so adding
+/// a variant fails to compile until it is listed here.
+macro_rules! all_variants {
+    ($ty:ident: $($variant:ident),+ $(,)?) => {{
+        let _exhaustive = |value: $ty| match value {
+            $($ty::$variant)|+ => (),
+        };
+        [$($ty::$variant),+]
+    }};
+}
+
 /// The golden fixtures, as `(file stem, pretty JSON with a trailing newline)`: one per
-/// request, response, outcome, op and call variant, plus `limits`.
+/// request, response, outcome, op and call variant, plus `limits` and `enums`.
 pub fn fixtures() -> Vec<(&'static str, String)> {
     fn pretty(msg: &impl Serialize) -> String {
         serde_json::to_string_pretty(msg).expect("fixtures serialize") + "\n"
@@ -379,7 +403,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                 },
             )),
         ),
-        ("request_shutdown", pretty(&Request::Shutdown)),
+        ("request_shutdown", pretty(&Request::Shutdown {})),
         (
             "response_loaded",
             pretty(&Response::Loaded {
@@ -400,7 +424,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                         id: "benergistics:creative_energy_cell".to_owned(),
                         display_name: "Creative Energy Cell".to_owned(),
                         textures: vec![texture("*", "creative_energy_cell.png")],
-                        mining: Mining::Unbreakable,
+                        mining: Mining::Unbreakable {},
                     },
                 ],
             }),
@@ -461,6 +485,14 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             pretty(&Limits {
                 max_frame_bytes: MAX_FRAME_BYTES,
                 protocol: PROTOCOL_VERSION,
+            }),
+        ),
+        (
+            "enums",
+            pretty(&Enums {
+                faces: all_variants!(Face: Down, Up, North, South, West, East),
+                causes: all_variants!(Cause: Player, Guest, Environment),
+                fail_kinds: all_variants!(FailKind: Trap, Fuel, Deadline, Limit),
             }),
         ),
     ]
