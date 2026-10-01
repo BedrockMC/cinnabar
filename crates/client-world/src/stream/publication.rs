@@ -183,6 +183,10 @@ impl WorldStream {
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);
     }
+    /// Sets the view's world position that camera-relative queries sample per tick.
+    pub fn set_actor_camera_position(&mut self, position: [f32; 3]) {
+        self.actors.set_camera_position(position);
+    }
     /// Feeds this frame's client-authored local-player pose into the shared actor rig. Call
     /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
     /// third-person body and first-person hand read a driven rig instead of a static fallback.

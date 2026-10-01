@@ -14,52 +14,53 @@ use crate::menu::{
     MenuAction, MenuDialog, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
 };
 
-/// Settings selector indices as `SettingsScreenController::addStaticScreenVars`
-/// assigns them, fed to the screen as its `$*_forced_index` vars.
 const SETTINGS_SECTIONS: &[(&str, u8)] = &[
-    ("server", 1),
-    ("accessibility", 2),
-    ("game", 3),
-    ("classroom", 4),
-    ("edu_cloud_level", 5),
-    ("multiplayer", 6),
-    ("world", 7),
-    ("members", 8),
-    ("realms_saves", 9),
-    ("subscription", 10),
-    ("backup", 11),
-    ("dev_options", 12),
-    ("keyboard_and_mouse", 13),
-    ("controller_and_switch", 14),
-    ("touch", 15),
-    ("party", 16),
-    ("general", 17),
-    ("account", 18),
-    ("creator", 19),
-    ("video", 20),
-    ("view_subscriptions", 21),
-    ("sound", 22),
-    ("global_texture_pack", 23),
-    ("storage_management", 24),
-    ("edu_cloud_storage", 25),
-    ("language", 26),
-    ("preview", 27),
-    ("debug", 28),
-    ("discovery_debug", 29),
-    ("ui_debug", 30),
-    ("edu_debug", 31),
-    ("marketplace_debug", 32),
-    ("gatherings_debug", 33),
-    ("flighting_debug", 34),
-    ("realms_debug", 35),
-    ("automation", 36),
-    ("invite_links", 40),
-    ("general_invite_link", 41),
-    ("advanced_invite_link", 42),
-    ("realms_advanced", 43),
+    ("server_forced_index", 1),
+    ("accessibility_forced_index", 2),
+    ("how_to_play_index", 3),
+    ("game_forced_index", 4),
+    ("classroom_forced_index", 5),
+    ("edu_cloud_level_forced_index", 6),
+    ("multiplayer_forced_index", 7),
+    ("world_forced_index", 8),
+    ("members_forced_index", 9),
+    ("realms_saves_forced_index", 10),
+    ("subscription_forced_index", 11),
+    ("backup_forced_index", 12),
+    ("dev_options_forced_index", 13),
+    ("keyboard_and_mouse_forced_index", 14),
+    ("controller_and_switch_forced_index", 15),
+    ("touch_forced_index", 16),
+    ("party_forced_index", 17),
+    ("general_forced_index", 18),
+    ("account_forced_index", 19),
+    ("creator_forced_index", 20),
+    ("video_forced_index", 21),
+    ("view_subscriptions_forced_index", 22),
+    ("sound_forced_index", 23),
+    ("global_texture_pack_forced_index", 24),
+    ("storage_management_forced_index", 25),
+    ("edu_cloud_storage_forced_index", 26),
+    ("language_forced_index", 27),
+    ("preview_forced_index", 28),
+    ("debug_forced_index", 29),
+    ("discovery_debug_forced_index", 30),
+    ("ui_debug_forced_index", 31),
+    ("edu_debug_forced_index", 32),
+    ("marketplace_debug_forced_index", 33),
+    ("flighting_debug_forced_index", 34),
+    ("realms_debug_forced_index", 35),
+    ("automation_forced_index", 36),
+    ("level_texture_pack_index", 37),
+    ("broadcast_forced_index", 38),
+    ("addon_index", 39),
+    ("invite_links_forced_index", 40),
+    ("general_invite_link_forced_index", 41),
+    ("advanced_invite_link_forced_index", 42),
+    ("realms_advanced_forced_index", 43),
 ];
 /// The section the settings screen opens on before one is picked.
-const VIDEO_SECTION: u8 = 20;
+const VIDEO_SECTION: &str = "video_forced_index";
 /// GUI scale choices the settings slider steps through (1..=4).
 const GUI_SCALE_STEPS: f64 = 4.0;
 
@@ -370,10 +371,9 @@ fn split_address(address: &str) -> (String, String) {
 }
 
 fn settings_screen(view: &MenuView, data: &mut DataSource) {
-    let section = if view.settings_section == 0 {
-        VIDEO_SECTION
-    } else {
-        view.settings_section
+    let section = match view.settings_section {
+        0 => section_index(VIDEO_SECTION),
+        picked => picked,
     };
     data.select_radio("navigation_tab", usize::from(section));
     let scale = f64::from(view.gui_scale.clamp(1, 4));
@@ -415,6 +415,14 @@ pub(super) fn settings_prewarm() -> (&'static str, Context) {
 fn settings_context(context: Context) -> Context {
     let flags: &[(&str, bool)] = &[
         ("include_controls_and_settings_sections", true),
+        // Set when "/settings" resolves to JSON UI, as retail does with the
+        // `mc-new-settings-screen` flight off.
+        ("include_migrated_json_ui_settings_tabs", true),
+        ("show_fullscreen_toggle", true),
+        ("supports_user_configured_safezone", true),
+        ("feedback_visible", true),
+        ("is_global_texture_packs_visible", true),
+        ("supports_cross_platform_play_toggle", false),
         ("is_world_create", false),
         ("is_world_edit", false),
         ("is_template_create", false),
@@ -456,8 +464,15 @@ fn settings_context(context: Context) -> Context {
     SETTINGS_SECTIONS
         .iter()
         .fold(context, |context, (name, index)| {
-            context.with_var(&format!("{name}_forced_index"), Value::from(*index))
+            context.with_var(name, Value::from(*index))
         })
+}
+
+fn section_index(name: &str) -> u8 {
+    SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(section, index)| (*section == name).then_some(*index))
+        .unwrap_or_default()
 }
 
 /// The menu action a pressed region means on `view`'s screen.

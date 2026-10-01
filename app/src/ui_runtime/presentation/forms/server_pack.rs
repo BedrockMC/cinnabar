@@ -19,6 +19,9 @@ use super::remote_images::{RemoteImages, RemoteState, is_remote};
 
 /// Image extensions a texture path may resolve to, in lookup order.
 const IMAGE_EXTENSIONS: [&str; 4] = [".png", ".tga", ".jpg", ".jpeg"];
+/// Where vanilla's in-package resource pack sits; its files read from the local
+/// vanilla pack.
+pub(super) const VANILLA_IN_PACKAGE: &str = "resource_packs/vanilla/";
 
 /// Side of a dynamic UI page, which also bounds one server texture.
 const PAGE_SIDE: u32 = 256;
@@ -217,9 +220,10 @@ impl ServerAtlas {
             }
         } else {
             let root = self.vanilla.as_ref()?;
-            let found = key.starts_with("textures/").then(|| {
+            let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
+            let found = (key.starts_with("textures/") || relative != key).then(|| {
                 IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                    let bytes = std::fs::read(root.join(format!("{key}{extension}"))).ok()?;
+                    let bytes = std::fs::read(root.join(format!("{relative}{extension}"))).ok()?;
                     source(bytes.into(), None)
                 })
             });

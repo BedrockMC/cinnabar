@@ -8,14 +8,15 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
+	"strings"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -24,33 +25,46 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
+	shutdownGrace      = 2 * time.Second
+	parentPollInterval = 250 * time.Millisecond
+)
+
 func main() {
-	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	if handled, code := helperMode(signalCtx, os.Args[1:], os.Stdout, os.Stderr); handled {
-		stopSignals()
+	args := os.Args[1:]
+	var stdin io.Reader
+	if bindsStdin(args) {
+		stdin = os.Stdin
+	}
+	ctx, stop := lifeline.Start(context.Background(), lifeline.Config{
+		Stdin:      stdin,
+		ParentGone: lifeline.WatchParent(lifeline.ParentFromEnv(), parentPollInterval),
+		Grace:      shutdownGrace,
+	})
+	if handled, code := helperMode(ctx, args, os.Stdout, os.Stderr); handled {
+		stop()
 		os.Exit(code)
 	}
-	ctx := signalCtx
-	stopStdin := func() {}
-	if !catalogMode(os.Args[1:]) {
-		ctx, stopStdin = contextWithStdinEOF(signalCtx, os.Stdin)
-	}
-	exitCode := execute(ctx, os.Args[1:], os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
-	stopStdin()
-	stopSignals()
+	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
+	stop()
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
 }
 
-func catalogMode(args []string) bool {
+// bindsStdin reports whether the client pipes stdin, whose EOF then ends the core; the sign-in and
+// update helpers run with a null stdin.
+func bindsStdin(args []string) bool {
+	if len(args) > 0 && args[0] == "check-update" {
+		return false
+	}
 	for _, arg := range args {
-		if arg == "-auth-events" ||
-			arg == "-catalog-file" || len(arg) > len("-catalog-file=") && arg[:len("-catalog-file=")] == "-catalog-file=" {
-			return true
+		if arg == "-auth-events" || strings.HasPrefix(arg, "-auth-events=") {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 type options struct {
@@ -183,6 +197,7 @@ func runWithResourcePackCacheFactory(
 	}
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
+	var account *authcache.Account
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
 	}
@@ -200,7 +215,10 @@ func runWithResourcePackCacheFactory(
 			}
 			return fmt.Errorf("initialize Microsoft authentication: %w", err)
 		}
-		tokenSource = authcache.PersistentSource(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr)
+		if account = authcache.NewAccount(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
+			tokenSource = account
+			defer func() { _ = account.Close() }()
+		}
 		if statusStore != nil {
 			statusStore.SetAuth(control.AuthV1{State: control.AuthSignedIn})
 		}
@@ -210,10 +228,10 @@ func runWithResourcePackCacheFactory(
 		if opts.resourcePackCacheDir != "" {
 			return errors.New("catalog mode cannot be combined with resource-pack cache options")
 		}
-		if tokenSource == nil {
+		if account == nil {
 			return errors.New("catalog mode requires -auth-cache")
 		}
-		if err := catalog.Write(ctx, opts.catalogFile, tokenSource); err != nil {
+		if err := catalog.Write(ctx, opts.catalogFile, account); err != nil {
 			return fmt.Errorf("write launcher catalog: %w", err)
 		}
 		logger.Info("launcher catalog written", "path", opts.catalogFile)
@@ -264,7 +282,7 @@ func runWithResourcePackCacheFactory(
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
 		}
 		service := launcher.New(launcher.Config{
-			TokenSource: tokenSource, AuthCache: opts.authCache,
+			Account: account, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 			StoreImageDir: authSibling(opts.authCache, "store-images"),
@@ -272,7 +290,7 @@ func runWithResourcePackCacheFactory(
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace(nil))
-		if tokenSource != nil {
+		if account != nil {
 			go service.PublishSignedIn(ctx)
 			service.Prefetch()
 		}
@@ -329,15 +347,6 @@ func runWithResourcePackCacheFactory(
 
 func newLifecycleLogger(writer io.Writer) *slog.Logger {
 	return slog.New(slog.NewTextHandler(writer, nil))
-}
-
-func contextWithStdinEOF(parent context.Context, stdin io.Reader) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(parent)
-	go func() {
-		_, _ = io.Copy(io.Discard, stdin)
-		cancel()
-	}()
-	return ctx, cancel
 }
 
 // authSibling is the persistent per-install directory called name beside the auth cache; empty without one.

@@ -51,6 +51,8 @@ impl Server {
             "validate" => Ok(self.validate(arguments)),
             "layout" => self.layout(arguments),
             "render_png" => return self.render_png(arguments),
+            "edit_file" => self.edit_file(arguments),
+            "export_pack" => self.export_pack(arguments),
             _ => Err(format!("unknown tool `{name}`")),
         };
         match outcome {
@@ -292,6 +294,118 @@ impl Server {
     }
 }
 
+impl Server {
+    fn edit_file(&mut self, arguments: &Value) -> Result<Value, String> {
+        let path = arguments
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("`path` is required")?;
+        let text = arguments
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or("`text` is required")?;
+        let (layer, path) = match arguments.get("layer").and_then(Value::as_u64) {
+            _ if arguments.get("scratch").and_then(Value::as_bool) == Some(true) => {
+                self.session.workspace.new_scratch_file(text)
+            }
+            Some(layer) if (layer as usize) < self.session.workspace.layers().len() => {
+                self.session.workspace.edit(layer as usize, path, text);
+                (layer as usize, path.to_owned())
+            }
+            Some(layer) => return Err(format!("no layer {layer}")),
+            None => {
+                let layers = self.session.workspace.layers();
+                let holder = (0..layers.len())
+                    .rev()
+                    .find(|l| layers[*l].file(path).is_some());
+                let layer =
+                    holder.ok_or("no layer has that file; pass `layer` or `scratch: true`")?;
+                self.session.workspace.edit(layer, path, text);
+                (layer, path.to_owned())
+            }
+        };
+        let syntax = jsonui_editor::outline::parse(text).err().map(|e| e.message);
+        Ok(json!({ "layer": layer, "path": path, "syntax_error": syntax }))
+    }
+
+    fn export_pack(&mut self, arguments: &Value) -> Result<Value, String> {
+        use jsonui_editor::export::{self, Format, Mode, PackInfo};
+        let out = PathBuf::from(
+            arguments
+                .get("out")
+                .and_then(Value::as_str)
+                .ok_or("`out` is required")?,
+        );
+        let mode: Mode =
+            serde_json::from_value(arguments.get("mode").cloned().unwrap_or(json!("overlay")))
+                .map_err(|_| "`mode` is overlay, changed or full")?;
+        let format: Format = match arguments.get("format") {
+            Some(format) => serde_json::from_value(format.clone())
+                .map_err(|_| "`format` is mcpack, zip or mcaddon")?,
+            None => match out.extension().and_then(|e| e.to_str()) {
+                Some("zip") => Format::Zip,
+                Some("mcaddon") => Format::Mcaddon,
+                _ => Format::Mcpack,
+            },
+        };
+        // Re-exporting over an earlier export keeps its UUIDs and bumps its version.
+        let previous = std::fs::read(&out)
+            .ok()
+            .and_then(|bytes| export::read_pack_info(&bytes));
+        let fresh = || {
+            [
+                uuid::Uuid::new_v4().to_string(),
+                uuid::Uuid::new_v4().to_string(),
+            ]
+        };
+        let name = arguments.get("name").and_then(Value::as_str);
+        let mut pack = match &previous {
+            Some(previous) => previous.bumped(),
+            None => PackInfo::new(name.unwrap_or("JSON-UI pack"), fresh()),
+        };
+        if let Some(name) = name {
+            pack.name = name.to_owned();
+        }
+        if let Some(description) = arguments.get("description").and_then(Value::as_str) {
+            pack.description = description.to_owned();
+        }
+        for (key, field) in [
+            ("version", &mut pack.version),
+            ("min_engine_version", &mut pack.min_engine_version),
+        ] {
+            if let Some(value) = arguments.get(key) {
+                *field = serde_json::from_value(value.clone())
+                    .map_err(|_| format!("`{key}` is [major, minor, patch]"))?;
+            }
+        }
+        let icon = match arguments.get("icon").and_then(Value::as_str) {
+            Some(path) => Some(std::fs::read(path).map_err(|e| format!("{path}: {e}"))?),
+            None => None,
+        };
+        let layer = arguments
+            .get("layer")
+            .and_then(Value::as_u64)
+            .map(|l| l as usize);
+        let own = arguments.get("own_layer").and_then(Value::as_bool) == Some(true);
+        let plan = export::plan(&mut self.session.workspace, mode, layer, own);
+        let warnings = api::export_warnings(&mut self.session);
+        let mut notes = plan.notes.clone();
+        if let Some(icon) = &icon {
+            notes.extend(export::check_icon(icon)?);
+        }
+        let bytes = export::package(&plan, &pack, icon.as_deref(), format)?;
+        std::fs::write(&out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
+        Ok(json!({
+            "path": out.display().to_string(),
+            "pack": pack,
+            "files": plan.files.keys().collect::<Vec<_>>(),
+            "skipped": plan.skipped.len(),
+            "notes": notes,
+            "warnings": warnings,
+        }))
+    }
+}
+
 /// A context object, or a preset name from [`jsonui_editor::context_presets`].
 fn context_argument(
     value: Option<&Value>,
@@ -475,6 +589,28 @@ pub fn definitions() -> Value {
                 "out": { "type": "string", "description": "Output path (default: a temp file)" },
                 "inline": { "type": "boolean", "description": "Also return the PNG as image content (default true)" }
             }, "required": ["reference"] }
+        },
+        {
+            "name": "edit_file",
+            "description": "Replace a ui/*.json file's text in memory (the topmost layer holding it, `layer`, or a new scratch-layer file with `scratch: true`); later previews and exports see the edit.",
+            "inputSchema": { "type": "object", "properties": {
+                "path": { "type": "string" }, "text": { "type": "string" },
+                "layer": { "type": "integer" }, "scratch": { "type": "boolean" }
+            }, "required": ["path", "text"] }
+        },
+        {
+            "name": "export_pack",
+            "description": "Export the edits as a resource pack: `overlay` (only changed controls, layered over the unedited packs), `changed` (edited files in full) or `full` (one layer; unedited files only with own_layer). Re-exporting to the same path keeps the pack's UUIDs and bumps its version.",
+            "inputSchema": { "type": "object", "properties": {
+                "out": { "type": "string", "description": "Output path (.mcpack, .zip or .mcaddon)" },
+                "mode": { "type": "string", "enum": ["overlay", "changed", "full"] },
+                "format": { "type": "string", "enum": ["mcpack", "zip", "mcaddon"] },
+                "name": { "type": "string" }, "description": { "type": "string" },
+                "version": { "type": "array", "items": { "type": "integer" } },
+                "min_engine_version": { "type": "array", "items": { "type": "integer" } },
+                "icon": { "type": "string", "description": "pack_icon.png path" },
+                "layer": { "type": "integer" }, "own_layer": { "type": "boolean" }
+            }, "required": ["out"] }
         }
     ])
 }

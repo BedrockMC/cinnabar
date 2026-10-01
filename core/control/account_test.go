@@ -22,7 +22,7 @@ type stubServices struct {
 
 func (s *stubServices) Realms(context.Context) ([]catalog.Realm, error)   { return s.realms, s.err }
 func (s *stubServices) Friends(context.Context) ([]catalog.Friend, error) { return s.friends, s.err }
-func (s *stubServices) Connect(kind, value string) error {
+func (s *stubServices) Connect(_ context.Context, kind, value string) error {
 	s.kind, s.value = kind, value
 	return s.err
 }
@@ -122,6 +122,9 @@ func TestConnectValidatesAndForwardsTarget(t *testing.T) {
 	dir := startServices(t, NewStore(), stub)
 	if reply := rpc(t, dir, methodConnect, `{"kind":"realm","value":"42"}`); reply.Error != nil || stub.kind != "realm" || stub.value != "42" {
 		t.Fatalf("connect = %+v kind=%q value=%q", reply.Error, stub.kind, stub.value)
+	}
+	if reply := rpc(t, dir, methodConnect, `{"kind":"gathering","value":"5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"}`); reply.Error != nil || stub.kind != TargetGathering {
+		t.Fatalf("gathering connect = %+v kind=%q", reply.Error, stub.kind)
 	}
 	for _, params := range []string{
 		`{"kind":"bogus","value":"x"}`, `{"kind":"raknet","value":""}`,

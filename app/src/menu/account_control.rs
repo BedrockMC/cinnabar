@@ -112,9 +112,9 @@ impl MenuRuntime {
         }
         let targets = if self.visible && !self.connecting {
             let mut seen = std::collections::HashSet::new();
+            // Gatherings have no server until joined, so only featured and saved servers are pinged.
             self.featured
                 .iter()
-                .chain(self.gatherings.iter())
                 .map(|server| server.address.clone())
                 .chain(self.servers.iter().map(|server| server.address.clone()))
                 .filter(|address| !address.is_empty() && seen.insert(address.clone()))
@@ -123,8 +123,9 @@ impl MenuRuntime {
             Vec::new()
         };
         control.set_ping_targets(targets);
+        // A round updates the rows it covered; others keep their last pong.
         if let Some(pings) = control.pings() {
-            self.feeds.pings = pings.into_iter().collect();
+            self.feeds.pings.extend(pings);
         }
         control.set_joining(self.connecting);
         if self.connecting {

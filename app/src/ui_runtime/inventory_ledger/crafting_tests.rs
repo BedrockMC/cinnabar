@@ -511,3 +511,29 @@ fn closing_a_crafting_screen_clears_the_grid() {
     assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
     assert_eq!(workbench.crafting_grid(), CraftingGrid::Personal);
 }
+
+// The recipe book's filter shows recipes the inventory holds some ingredient of.
+#[test]
+fn a_held_ingredient_marks_uncraftable_recipes_as_partly_held() {
+    let catalog = catalog();
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
+    slots[9] = stack(LOG, 101, 1);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: Arc::from(slots),
+        storage_item: NetworkItemStack::default(),
+    }));
+    let by_id = |id: u32| {
+        catalog
+            .crafting_handles()
+            .into_iter()
+            .find(|recipe| recipe.network_id() == id)
+            .unwrap()
+    };
+    let (planks, ring, log_and_cobble) = (by_id(1), by_id(2), by_id(3));
+    assert!(ledger.can_auto_craft(&planks));
+    assert!(!ledger.can_auto_craft(&log_and_cobble));
+    assert!(ledger.holds_any_ingredient(&log_and_cobble));
+    assert!(!ledger.holds_any_ingredient(&ring));
+}

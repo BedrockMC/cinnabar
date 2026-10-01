@@ -105,20 +105,31 @@ impl PlayerInventoryLedger {
     pub fn crafting_grid_cells(&self) -> Option<Vec<Option<CraftGridCell>>> {
         self.crafting_grid()
             .slots()
-            .map(|slot| match self.view().get(Cell::Craft(slot)) {
-                None => Some(None),
-                Some(held) => {
-                    let entry = self.negotiated_item_entry(held.stack.network_id)?;
-                    Some(Some(CraftGridCell {
-                        identifier: Arc::clone(&entry.identifier),
-                        metadata: held.stack.metadata,
-                        count: held.stack.count,
-                        plain: plain_stack(&held.stack),
-                        tags: Arc::clone(&entry.item_tags),
-                    }))
-                }
-            })
+            .map(|slot| self.grid_cell(Cell::Craft(slot)))
             .collect()
+    }
+
+    /// The open crafter's nine slots as a 3x3 grid, or `None` while an
+    /// occupant's identity is unknown.
+    #[must_use]
+    pub fn crafter_grid_cells(&self) -> Option<Vec<Option<CraftGridCell>>> {
+        (0..9)
+            .map(|slot| self.grid_cell(Cell::Storage(slot)))
+            .collect()
+    }
+
+    fn grid_cell(&self, cell: Cell) -> Option<Option<CraftGridCell>> {
+        let Some(held) = self.view().get(cell) else {
+            return Some(None);
+        };
+        let entry = self.negotiated_item_entry(held.stack.network_id)?;
+        Some(Some(CraftGridCell {
+            identifier: Arc::clone(&entry.identifier),
+            metadata: held.stack.metadata,
+            count: held.stack.count,
+            plain: plain_stack(&held.stack),
+            tags: Arc::clone(&entry.item_tags),
+        }))
     }
 
     /// Crafts `recipe` `crafts` times into an empty cursor as one request.

@@ -39,9 +39,10 @@ const (
 
 // Connect target kinds accepted by connect.v1.
 const (
-	TargetRakNet = "raknet"
-	TargetRealm  = "realm"
-	TargetFriend = "friend"
+	TargetRakNet    = "raknet"
+	TargetRealm     = "realm"
+	TargetFriend    = "friend"
+	TargetGathering = "gathering" // an experience ID, joined when the connect is selected
 )
 
 var (
@@ -56,7 +57,7 @@ type Services interface {
 	Realms(ctx context.Context) ([]catalog.Realm, error)
 	Friends(ctx context.Context) ([]catalog.Friend, error)
 	// Connect selects the upstream for the next client connection.
-	Connect(kind, value string) error
+	Connect(ctx context.Context, kind, value string) error
 	// SignOut deletes the cached Microsoft tokens.
 	SignOut() error
 }
@@ -233,11 +234,11 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return fail(codeInvalidTarget, "Invalid target")
 		}
 		switch *params.Kind {
-		case TargetRakNet, TargetRealm, TargetFriend:
+		case TargetRakNet, TargetRealm, TargetFriend, TargetGathering:
 		default:
 			return fail(codeInvalidTarget, "Invalid target")
 		}
-		if err := services.Connect(*params.Kind, *params.Value); err != nil {
+		if err := services.Connect(ctx, *params.Kind, *params.Value); err != nil {
 			return failService(err)
 		}
 		return ok(emptyResultV1{SchemaVersion: 1})

@@ -29,7 +29,12 @@ pub(super) fn draw(
     let [menu_left, menu_right] = grid.span(menu_span.0, menu_span.1);
     side_menu(canvas, [menu_left, body[1], menu_right, body[3]])?;
     let pad = canvas.r(1.6);
-    let mut y = body[1] + space(canvas, 2);
+    let list = canvas.begin_scroll(
+        "servers.side_menu",
+        [menu_left, body[1], menu_right, body[3]],
+    )?;
+    let top = body[1] - list.offset;
+    let mut y = top + space(canvas, 2);
     let add_height = canvas.r(4.4);
     button(
         canvas,
@@ -51,9 +56,6 @@ pub(super) fn draw(
     let item_height = canvas.r(4.8);
     let selection = selection(view, featured.len());
     for (index, server) in featured.iter().enumerate() {
-        if y + item_height > body[3] {
-            break;
-        }
         let selected = selection == Some(Selection::Featured(index));
         let bounds = [
             menu_left + canvas.r(0.2),
@@ -97,9 +99,6 @@ pub(super) fn draw(
         y,
     )?;
     for (index, server) in view.servers.iter().enumerate() {
-        if y + item_height > body[3] {
-            break;
-        }
         let bounds = [
             menu_left + canvas.r(0.2),
             y,
@@ -123,6 +122,7 @@ pub(super) fn draw(
         )?;
         y += item_height;
     }
+    canvas.end_scroll(list, y + space(canvas, 2) - top)?;
 
     let [left, right] = grid.span(details_span.0, details_span.1);
     let panel = [left, body[1], right, body[3]];
@@ -268,14 +268,32 @@ fn details(
     canvas.fill(b, NEUTRAL80.fill)?;
     canvas.frame(b, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
     let inner = [b[0] + edge, b[1] + edge, b[2] - edge, b[3]];
+    let scroll = canvas.begin_scroll(&format!("servers.details.{index}"), inner)?;
+    let top = inner[1] - scroll.offset;
+    let bottom = details_content(
+        canvas,
+        view,
+        server,
+        index,
+        [inner[0], top, inner[2]],
+        images,
+    )?;
+    canvas.end_scroll(scroll, bottom - top)
+}
+
+/// The details from `top` down; returns the bottom edge.
+fn details_content(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    server: &MenuServerCard,
+    index: usize,
+    [left, top, right]: [f32; 3],
+    images: &HashMap<String, IconRef>,
+) -> Result<f32, UiPresentationError> {
+    let inner = [left, top, right];
     let details = view.feeds.details.get(&server.address);
     // Banner: the first screenshot, else the logo.
-    let banner = [
-        inner[0],
-        inner[1],
-        inner[2],
-        inner[1] + (inner[2] - inner[0]) * 0.3,
-    ];
+    let banner = [left, top, right, top + (right - left) * 0.3];
     let art = details
         .and_then(|details| details.screenshots.first())
         .and_then(|path| images.get(path))
@@ -313,14 +331,19 @@ fn details(
     )?;
     y += play_height + space(canvas, 3);
     let Some(details) = details else {
-        return Ok(());
+        return Ok(y);
     };
     let text_width = inner[2] - inner[0] - pad * 2.0;
+    let news = if details.news_title.is_empty() {
+        "News"
+    } else {
+        details.news_title.as_str()
+    };
     for (title, text) in [
         ("Description", details.description.as_str()),
-        ("News", details.news.as_str()),
+        (news, details.news.as_str()),
     ] {
-        if text.is_empty() || y > b[3] {
+        if text.is_empty() {
             continue;
         }
         divider(canvas, inner[0], inner[2], y)?;
@@ -342,7 +365,7 @@ fn details(
             false,
         )? + space(canvas, 3);
     }
-    if !details.games.is_empty() && y < b[3] {
+    if !details.games.is_empty() {
         divider(canvas, inner[0], inner[2], y)?;
         y += space(canvas, 3);
         y += canvas.text(
@@ -355,9 +378,6 @@ fn details(
         )? + space(canvas, 2);
         let image = canvas.r(15.2).min(text_width * 0.3);
         for game in &details.games {
-            if y + image > b[3] {
-                break;
-            }
             let frame = [inner[0] + pad, y, inner[0] + pad + image, y + image];
             match images.get(&game.image_path) {
                 Some(icon) => canvas.icon_ref(*icon, frame)?,
@@ -386,15 +406,17 @@ fn details(
             y += image + space(canvas, 3);
         }
     }
-    Ok(())
+    Ok(y)
 }
 
+/// Vanilla's ping tiers: under 80 ms good, under 160 medium, else high; no
+/// pong is offline.
 fn ping_label(ping: Option<&PingInfo>) -> &'static str {
     match ping {
         None => "Loading ping",
         Some(ping) if !ping.online => "Offline",
-        Some(ping) if ping.ping_ms < 150 => "Low ping",
-        Some(ping) if ping.ping_ms < 300 => "Medium ping",
+        Some(ping) if ping.ping_ms < 80 => "Low ping",
+        Some(ping) if ping.ping_ms < 160 => "Medium ping",
         Some(_) => "High ping",
     }
 }
@@ -431,7 +453,7 @@ mod tests {
         assert_eq!(ping_label(None), "Loading ping");
         assert_eq!(ping_label(Some(&PingInfo::default())), "Offline");
         assert_eq!(ping_label(Some(&pong(20))), "Low ping");
-        assert_eq!(ping_label(Some(&pong(200))), "Medium ping");
+        assert_eq!(ping_label(Some(&pong(120))), "Medium ping");
         assert_eq!(ping_label(Some(&pong(500))), "High ping");
     }
 }

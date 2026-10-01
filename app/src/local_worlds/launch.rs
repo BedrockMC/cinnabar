@@ -1,17 +1,21 @@
 use std::{
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
 };
 
 use anyhow::{Context, Result};
 
-use crate::{install_layout::InstallLayout, menu::core_process::clear_stale_bridge_endpoint};
+use crate::{
+    install_layout::InstallLayout,
+    lifecycle::children::{self, Spawned},
+    menu::core_process::clear_stale_bridge_endpoint,
+};
 
 /// Spawns a core that serves the world-control methods and routes the game socket to local worlds.
 pub(crate) fn spawn_core_for_local_worlds(
     layout: &InstallLayout,
     socket_dir: &Path,
-) -> Result<Child> {
+) -> Result<Spawned> {
     let executable = &layout.core_executable;
     if !executable.is_file() {
         anyhow::bail!(
@@ -20,8 +24,7 @@ pub(crate) fn spawn_core_for_local_worlds(
         );
     }
     clear_stale_bridge_endpoint(socket_dir)?;
-    local_worlds_command(layout, socket_dir)
-        .spawn()
+    children::spawn(&mut local_worlds_command(layout, socket_dir))
         .with_context(|| format!("spawn {} for local worlds", executable.display()))
 }
 

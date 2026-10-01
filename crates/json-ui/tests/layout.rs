@@ -285,6 +285,57 @@ fn horizontal_stack_packs_along_x() {
     assert_eq!(child_named(&placed, "b").rect.w, 30.0);
 }
 
+// A width reading its own height (`["100%y", "100%"]`) resolves after the height,
+// in a panel, a vertical stack, and a parent's `%c`; it never collapses to zero.
+#[test]
+fn width_from_own_height_resolves_after_the_height() {
+    let icon = || item("icon", json!(["100%y", "100%"]));
+    let panel = ctrl(
+        "root",
+        Some("panel"),
+        json!({ "size": [80, 32], "anchor_from": "top_left", "anchor_to": "top_left" }),
+        vec![icon()],
+    );
+    let placed = layout(&panel, [200.0, 100.0], &zero_env());
+    let rect = child_named(&placed, "icon").rect;
+    assert_eq!([rect.x, rect.w, rect.h], [24.0, 32.0, 32.0]);
+
+    let stack = stack_root(
+        "vertical",
+        json!([80, "100%c"]),
+        vec![item("icon", json!(["50%y", 20]))],
+    );
+    let placed = layout(&stack, [200.0, 100.0], &zero_env());
+    let rect = child_named(&placed, "icon").rect;
+    assert_eq!([rect.w, rect.h], [10.0, 20.0]);
+
+    let wrapper = ctrl(
+        "wrapper",
+        Some("panel"),
+        json!({ "size": ["100%c", 16], "anchor_from": "top_left", "anchor_to": "top_left" }),
+        vec![item("logo", json!(["200%y", "100%"]))],
+    );
+    let placed = layout(&wrapper, [200.0, 100.0], &zero_env());
+    assert_eq!(placed.rect.w, 32.0);
+
+    // A header logo: a `%c`-wide wrapper in a horizontal stack sizes to it.
+    let logo_wrapper = ctrl(
+        "wrapper",
+        Some("panel"),
+        json!({ "size": ["100%c", "100% - 8px"] }),
+        vec![item("logo", json!(["230%y", "120%"]))],
+    );
+    let header = stack_root("horizontal", json!([200, 26]), vec![logo_wrapper]);
+    let placed = layout(&header, [200.0, 100.0], &zero_env());
+    let wrapper = child_named(&placed, "wrapper");
+    assert!(
+        (wrapper.rect.w - 2.3 * 1.2 * 18.0).abs() < 1e-9,
+        "{:?}",
+        wrapper.rect
+    );
+    assert!((child_named(wrapper, "logo").rect.w - wrapper.rect.w).abs() < 1e-9);
+}
+
 #[test]
 fn fill_child_absorbs_leftover_main_axis() {
     let root = stack_root(
@@ -577,6 +628,50 @@ fn stack_children_inherit_the_largest_sibling_cross_size() {
     assert_eq!((anchor.rect.y, anchor.rect.h), (laid.rect.y, 166.0));
 }
 
+// A button laid out once emits both its default and hover looks, gated: the
+// hover state picks one by filtering, with no second layout.
+#[test]
+fn gated_emission_filters_state_children_by_interaction() {
+    let look = |name: &str, color: &str| {
+        ctrl(
+            name,
+            Some("image"),
+            json!({ "size": [10, 10], "color": color, "texture": "textures/ui/x" }),
+            vec![],
+        )
+    };
+    let button = ctrl(
+        "button",
+        Some("button"),
+        json!({
+            "size": [10, 10],
+            "default_control": "default",
+            "hover_control": "hover",
+            "pressed_control": "hover",
+        }),
+        vec![look("default", "red"), look("hover", "blue")],
+    );
+    let env = LayoutEnv {
+        text: &ZeroText,
+        textures: &NoTextures,
+    };
+    let laid = layout(&button, [10.0, 10.0], &env);
+    let nodes = json_ui::emit_gated(&laid, &env);
+    let shown = |state: &json_ui::ViewState| -> Vec<String> {
+        nodes
+            .iter()
+            .filter(|node| node.shown(state))
+            .map(|node| node.name.clone())
+            .collect()
+    };
+    assert_eq!(shown(&json_ui::ViewState::default()), ["default"]);
+    let hovered = json_ui::ViewState {
+        hovered: Some(laid.key.clone()),
+        ..json_ui::ViewState::default()
+    };
+    assert_eq!(shown(&hovered), ["hover"]);
+}
+
 // --- end to end -------------------------------------------------------------
 
 fn pack_root() -> Option<PathBuf> {
@@ -699,4 +794,53 @@ fn a_variable_child_key_instances_the_control_it_names() {
         root.children[0].properties.get("size"),
         Some(&json!([10, 10]))
     );
+}
+
+// An `offset` anim chain sweeps a clipped child at paint time: it starts at
+// `from`, measures `%x` against its own width, waits, loops, and its clip stays put.
+#[test]
+fn an_offset_animation_moves_the_draw_inside_a_still_clip() {
+    let screen = br#"{
+        "namespace": "s",
+        "sweep": { "anim_type": "offset", "easing": "linear", "from": ["-50%", "-25%x"],
+            "to": ["50%", "25%x"], "duration": 2.0, "next": "@s.hold" },
+        "hold": { "anim_type": "wait", "duration": 1.0, "next": "@s.sweep" },
+        "card": { "type": "panel", "size": [40, 40], "clips_children": true,
+            "anchor_from": "top_left", "anchor_to": "top_left", "controls": [
+            { "shine": { "type": "image", "texture": "textures/ui/shine",
+                "size": ["200%", "200%"], "anims": ["@s.sweep"] } } ] }
+    }"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/s.json"]}"#.as_slice(),
+        ),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let card = resolve(&catalog, "s.card", &Context::desktop())
+        .control
+        .unwrap();
+    let env = zero_env();
+    let draws = emit(&layout(&card, [100.0, 100.0], &env), &env);
+    let shine = draws.iter().find(|node| node.name == "shine").unwrap();
+    // Laid out centred on the 40px card: 80px wide at -20.
+    assert_eq!(
+        (shine.dest.x, shine.dest.y, shine.dest.w),
+        (-20.0, -20.0, 80.0)
+    );
+    let at = |now: f64| {
+        let (dest, clip) = shine.animated_rects(now, None);
+        ([dest.x, dest.y], [clip.x, clip.y, clip.w, clip.h])
+    };
+    assert_eq!(
+        at(0.0).0,
+        [-40.0, -40.0],
+        "starts at from: -50% of 40, -25% of 80"
+    );
+    assert_eq!(at(1.0).0, [-20.0, -20.0]);
+    assert_eq!(at(2.5).0, [0.0, 0.0], "holds `to` through the wait");
+    assert_eq!(at(3.0).0, [-40.0, -40.0], "and loops");
+    assert_eq!(at(1.0).1, [0.0, 0.0, 40.0, 40.0], "the clip never moves");
 }
