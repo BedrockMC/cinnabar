@@ -3404,33 +3404,19 @@ recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/co
 dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
 install, mid-session core restart wiring, and any crash upload (removed until a reporting project exists).
 
-**Final Go relay/batching polish:** adopt the batch-boundary API from
-[`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)
-after it lands on the pinned `lunar` line. The integration commit must retain the pinned
-`Conn.Abort` work as well as the PR's batch API. Enable `Dialer.EnableBatchReading` and
-`ListenConfig.EnableBatchReading` on the two core legs, replace the relay's single-packet
-`ReadPacket` pumps with `ReadBatch`, and forward each returned slice as exactly one downstream
-batch using `WritePacketImmediate(batch...)` (or a tested `WritePacket` + single `Flush`
-equivalent that preserves buffered ordering). Never mix `ReadBatch` with
-`ReadPacket`/`ReadBytes`/`Read` on a batch-reading connection. Port the PR's
-ordering, slow-reader, mid-batch decode-error, deferred-login-boundary, and pre-disconnect flush
-regressions into `core/internal/relay`; retain bounded lossless backpressure and verify that the
-change improves batching without regressing join latency, memory, or shutdown behavior.
-The PR #80 API is now carried on the published `cinnabar` fork branch, and the core is
-pinned to its exact commit `48765b0f2652229b0fa8d58909bb07a2795cc117`; Cinnabar enables batch reading on both legs,
-preserves source batch boundaries, and retains the exact 1,600-packet split ceiling. Core
-now forwards each bounded slice with `WritePacketImmediate`, pre-flushes existing buffered
-output, tests boundaries in both directions, and prevents the initial loading-screen filter
-from merging adjacent source wire batches. A live 1.26.33.1 BDS regression then proved that
-Rust's duplicate no-ID loading-screen Start/End may occupy two adjacent local batches; the
-bounded filter now holds at most one Start through the next read, drops only the exact initial
-pair, and flushes a mismatch or EOF in its original batch before current traffic. Full core
-tests, independent review, and a successful native BDS join are green through `a6c1ffc`.
-The slow-reader, mid-batch decode-close, deferred-loading-boundary, and pre-disconnect
-batch-boundary regressions are written in `core/proxy/relay_backpressure_test.go` and the
-comparison benchmarks in `core/proxy/relay_compare_test.go` (both uncompiled until reconcile);
-running the benchmarks against a live server for the join-latency/memory record remains open,
-so this final polish item is not yet complete.
+**Core joins phase 2 review corrections:** the core uses the fork pinned in `core/go.mod`,
+including the listener shutdown fix. It preserves batch boundaries, retains friend-world Xbox
+services until the joined session leaves, and checks required acquisition separately from the
+selected pack stack. Offline fixtures cover all required-bit combinations and selected subsets.
+The comparison benchmark now accounts for every packet and measures the first nonempty flush;
+manual ticks and barriers cover idle delivery, coalescing, and failure attribution.
+
+Rust forwards startup Transfer as a typed reconnect event. The startup contract is
+radius → loading-start → local presentation readiness → loading-end → initialized, with
+an actual Rust-through-core order fixture. See [the reconstruction evidence](docs/core-join-startup.md).
+**Incomplete parity:** the existing terrain presentation thresholds, consent UI, dimension
+transitions, and matched retail/live visual and timing evidence remain open. This packet-order
+correction does not close those broader gates. No live server was used for these corrections.
 
 ---
 

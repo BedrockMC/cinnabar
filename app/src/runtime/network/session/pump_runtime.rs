@@ -183,6 +183,24 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
         {
             NetworkPumpWork::Shutdown => break,
             NetworkPumpWork::Command(command) => match command {
+                Some(NetworkCommand::FinishLoading) => {
+                    if let Some(Err(error)) =
+                        wait_for_send_or_cancel(session.finish_loading(), &mut shutdown_rx).await
+                    {
+                        let _ = send_control_event_or_cancel(
+                            &control_event_tx,
+                            &mut shutdown_rx,
+                            NetworkControlEvent::Failed {
+                                message: error.to_string(),
+                                decode_error_count: session.decode_error_count(),
+                                server_disconnect: session.take_server_disconnect(),
+                                origin: NetworkFailureOrigin::Send,
+                            },
+                        )
+                        .await;
+                        return;
+                    }
+                }
                 Some(NetworkCommand::Send {
                     packet,
                     sub_chunk,

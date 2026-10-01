@@ -35,7 +35,7 @@ const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 pub struct LoginSequence;
 
 impl LoginSequence {
-    /// Connects to the Go core and completes the encrypted Bedrock spawn sequence.
+    /// Connects to the core; the owner calls `finish_loading` after presenting the world.
     pub async fn connect(
         socket_dir: &Path,
         display_name: &str,
@@ -60,23 +60,29 @@ impl LoginSequence {
         Self::connect_transport_inner(transport, display_name, Some(cache), skin).await
     }
 
-    /// Generic transport seam used by deterministic protocol state tests.
+    /// Headless test seam that treats the received spawn prerequisites as presentation readiness.
     #[doc(hidden)]
     pub async fn connect_transport<T: Transport>(
         transport: T,
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
-        Self::connect_transport_inner(transport, display_name, None, None).await
+        let (mut session, data) =
+            Self::connect_transport_inner(transport, display_name, None, None).await?;
+        session.finish_loading().await?;
+        Ok((session, data))
     }
 
-    /// Deterministic enabled negotiation seam used by protocol tests and live integration.
+    /// Headless cache test seam that completes loading immediately after negotiation.
     #[doc(hidden)]
     pub async fn connect_transport_with_blob_cache<T: Transport>(
         transport: T,
         display_name: &str,
         cache: ClientBlobCache,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
-        Self::connect_transport_inner(transport, display_name, Some(cache), None).await
+        let (mut session, data) =
+            Self::connect_transport_inner(transport, display_name, Some(cache), None).await?;
+        session.finish_loading().await?;
+        Ok((session, data))
     }
 
     async fn connect_transport_inner<T: Transport>(
@@ -138,6 +144,14 @@ impl WorldIngress {
 }
 
 impl<T: Transport> PlaySession<T> {
+    /// Sends loading-end and initialization once the client can present the world.
+    pub async fn finish_loading(&mut self) -> Result<(), ProtocolError> {
+        self.stream
+            .finish_loading()
+            .await
+            .map_err(ProtocolError::from)
+    }
+
     fn new(stream: BedrockStream<Play, Client, T>, cache: Option<ClientBlobCache>) -> Self {
         Self {
             stream,

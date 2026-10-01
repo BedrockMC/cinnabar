@@ -9,6 +9,7 @@ pub mod gamedata;
 pub mod listener;
 pub mod raw;
 pub mod stream;
+pub mod transfer;
 pub mod valentine;
 #[cfg(feature = "server")]
 pub mod world;
