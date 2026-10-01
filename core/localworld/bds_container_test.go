@@ -2,6 +2,7 @@ package localworld
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,20 +16,29 @@ func fakeDockerEnv(t *testing.T, extra ...string) (env []string, logPath string)
 	return append([]string{helperEnv + "=docker", dockerLogEnv + "=" + logPath}, extra...), logPath
 }
 
+const testImage = "itzg/minecraft-bedrock-server:2026.9.2@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+// macProvisioner is a container-runtime provisioner with the Linux build already downloaded.
 func macProvisioner(t *testing.T) *Provisioner {
 	t.Helper()
 	p := &Provisioner{Root: filepath.Join(t.TempDir(), "bds"), goos: "darwin", goarch: "arm64", Version: "1.26.52.3"}
 	p.SetRuntime(RuntimeInfo{Kind: RuntimeContainer, Reason: "container"})
+	dir := filepath.Join(p.Root, "1.26.52.3")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), []byte("{}"), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "bedrock_server"), []byte("elf"), 0o700)
 	return p
 }
 
 func TestContainerRunnerLifecycleAndArguments(t *testing.T) {
 	env, logPath := fakeDockerEnv(t)
 	p := macProvisioner(t)
-	if st := p.Status(); st.State != SetupEULARequired || st.Runtime != RuntimeContainer {
+	if st := p.Status(); st.State != SetupReady || st.Runtime != RuntimeContainer {
 		t.Fatalf("status = %+v", st)
 	}
-	runner := BDSRunner{Provisioner: p, Docker: os.Args[0], Env: env, StartTimeout: 20 * time.Second}
+	runner := BDSRunner{Provisioner: p, Docker: os.Args[0], Env: env, StartTimeout: 20 * time.Second, Image: testImage}
 	spec := testSpec()
 	spec.Dir = t.TempDir()
 	if _, err := runner.Start(context.Background(), spec); err != ErrEULARequired {
@@ -56,18 +66,24 @@ func TestContainerRunnerLifecycleAndArguments(t *testing.T) {
 	log := string(raw)
 	name := "cinnabar-bds-" + spec.World.ID
 	for _, want := range []string{
-		"image inspect " + DefaultBDSImage,
-		"pull --platform linux/amd64 " + DefaultBDSImage,
+		"info\n",
+		"image inspect " + testImage,
+		"pull --platform linux/amd64 " + testImage,
 		"rm -f " + name,
 		"run --rm --name " + name + " --platform linux/amd64 -p 127.0.0.1:",
 		":19132/udp",
+		"-v " + filepath.Join(p.Root, "1.26.52.3") + ":/data ",
 		"-v " + filepath.Join(spec.Dir, "db") + ":/data/worlds/" + spec.World.ID,
 		"-e EULA=TRUE", "-e VERSION=1.26.52.3", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7",
+		"-e DIRECT_DOWNLOAD_URL=https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.26.52.3.zip",
 		"stop -t 25 " + name,
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("docker log missing %q:\n%s", want, log)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(p.Root, "1.26.52.3", "bedrock_server-1.26.52.3")); err != nil {
+		t.Fatalf("versioned binary missing, so the image would download its own: %v", err)
 	}
 	if strings.Count(log, "rm -f "+name) < 2 {
 		t.Fatalf("container not removed after stop:\n%s", log)
@@ -83,7 +99,7 @@ func TestContainerRunnerSkipsPullWhenImagePresent(t *testing.T) {
 	_ = os.WriteFile(logPath+".pulled", nil, 0o600)
 	p := macProvisioner(t)
 	_ = p.AcceptEULA()
-	runner := BDSRunner{Provisioner: p, Docker: os.Args[0], Env: env, StartTimeout: 20 * time.Second}
+	runner := BDSRunner{Provisioner: p, Docker: os.Args[0], Env: env, StartTimeout: 20 * time.Second, Image: testImage}
 	spec := testSpec()
 	spec.Dir = t.TempDir()
 	inst, err := runner.Start(context.Background(), spec)
@@ -184,5 +200,56 @@ func TestPrefsPersistAndDefaultOff(t *testing.T) {
 	}
 	if worlds, _ := reopened.List(); len(worlds) != 0 {
 		t.Fatalf("prefs file listed as a world: %v", worlds)
+	}
+}
+
+// An image without a digest drifts with upstream releases, so the runner refuses it before touching Docker.
+func TestContainerRunnerRefusesUnpinnedImage(t *testing.T) {
+	env, logPath := fakeDockerEnv(t)
+	p := macProvisioner(t)
+	_ = p.AcceptEULA()
+	for _, image := range []string{"", "itzg/minecraft-bedrock-server:latest", "itzg/minecraft-bedrock-server:2026.9.2"} {
+		runner := BDSRunner{Provisioner: p, Docker: os.Args[0], Env: env, Image: image}
+		if _, err := runner.Start(context.Background(), testSpec()); !errors.Is(err, ErrImageNotPinned) {
+			t.Fatalf("%q: %v", image, err)
+		}
+	}
+	if raw, _ := os.ReadFile(logPath); len(raw) != 0 {
+		t.Fatalf("docker ran for an unpinned image:\n%s", raw)
+	}
+}
+
+// A daemon stopped since startup fails the open with a reason the client turns into the Retry prompt.
+func TestContainerRunnerReportsStoppedDocker(t *testing.T) {
+	env, _ := fakeDockerEnv(t, "LOCALWORLD_TEST_DOCKER_DOWN=1")
+	p := macProvisioner(t)
+	_ = p.AcceptEULA()
+	runner := BDSRunner{Provisioner: p, Docker: os.Args[0], Env: env, Image: testImage}
+	_, err := runner.Start(context.Background(), testSpec())
+	if !errors.Is(err, ErrDockerNotRunning) || failureText(err) != ErrDockerNotRunning.Error() {
+		t.Fatalf("err = %v", err)
+	}
+	if st := p.Status(); st.UnavailableReason != "docker_not_running" || st.State != SetupUnsupported {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestPullProgressCountsLayers(t *testing.T) {
+	pp := pullProgress{layers: map[string]bool{}}
+	var done, total int
+	for _, line := range []string{
+		"2026.9.2: Pulling from itzg/minecraft-bedrock-server",
+		"aaaaaaaaaaaa: Already exists",
+		"bbbbbbbbbbbb: Pulling fs layer",
+		"cccccccccccc: Pulling fs layer",
+		"bbbbbbbbbbbb: Download complete",
+		"bbbbbbbbbbbb: Pull complete",
+		"bbbbbbbbbbbb: Pull complete",
+		"Digest: sha256:0000",
+	} {
+		done, total = pp.line(line)
+	}
+	if done != 2 || total != 3 {
+		t.Fatalf("progress = %d/%d", done, total)
 	}
 }
