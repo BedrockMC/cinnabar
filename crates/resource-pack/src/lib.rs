@@ -11,6 +11,7 @@ use protocol::ResourcePackHandoff;
 use thiserror::Error;
 
 mod crypto;
+mod dependencies;
 mod import;
 mod jsonc;
 mod library;
@@ -20,6 +21,7 @@ mod pack;
 mod parser;
 mod view;
 
+pub use dependencies::{PackDependencies, PackDependency};
 pub use import::is_pack_import_path;
 pub use jsonc::normalize_jsonc;
 pub use library::{

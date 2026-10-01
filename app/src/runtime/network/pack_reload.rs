@@ -170,10 +170,22 @@ impl PackReload {
                         inputs,
                         previous.as_ref(),
                     );
+                    if let Some(environment) = &environment {
+                        application
+                            .dependencies
+                            .extend(environment.dependencies.clone());
+                    }
                     application.item_components = items;
                     if changes.blocks {
                         let mut biome_overlay = assets::BlockOverlay::default();
-                        apply_biome_overlay(&view, &base, &mut biome_overlay);
+                        let biome_view =
+                            resource_pack::LayeredPackView::tracked(view.shared_stack());
+                        apply_biome_overlay(&biome_view, &base, &mut biome_overlay);
+                        application
+                            .dependencies
+                            .entry(super::pack_reload_diff::Subscriber::Blocks)
+                            .or_default()
+                            .extend(biome_view.dependencies().expect("tracked view").snapshot());
                         if biome_overlay.biomes.is_some() {
                             let overlay = application.block_overlay.get_or_insert_with(|| {
                                 Arc::new(super::block_overlay::CompiledBlockOverlay {
