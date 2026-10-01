@@ -5,10 +5,11 @@ use std::collections::HashMap;
 
 use ui::{TextLayoutCache, TextShadow, UiNode, UiNodeId, UiRect, UiScale, UiVisual};
 
+use super::super::super::menu_scroll::ScrollArea;
 use super::super::super::{
     FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect,
 };
-use super::theme::{EDGE, Rgba, TEXT_SHADOW, Type};
+use super::theme::{EDGE, Rgba, TEXT_DIMMEST, TEXT_SHADOW, Type};
 use crate::menu::MenuAction;
 
 /// A logical-pixel rect `[left, top, right, bottom]`.
@@ -33,6 +34,19 @@ pub(super) struct Canvas<'a> {
     pub(super) hits: Vec<(MenuAction, UiRect)>,
     /// Opacity multiplier for everything drawn, for fading screens in.
     pub(super) alpha: f32,
+    /// Scroll offsets by view key, as the last input left them.
+    pub(super) offsets: HashMap<String, f32>,
+    pub(super) scrolls: Vec<ScrollArea>,
+    /// The clipping node drawing attaches to, and its bounds.
+    clip: Option<(UiNodeId, Bounds)>,
+}
+
+/// A scroll view being drawn: restore `outer` when it ends.
+pub(super) struct Scroll {
+    key: String,
+    viewport: Bounds,
+    outer: Option<(UiNodeId, Bounds)>,
+    pub(super) offset: f32,
 }
 
 impl<'a> Canvas<'a> {
@@ -57,6 +71,9 @@ impl<'a> Canvas<'a> {
             rem: gui_pixel * 5.0,
             hits: Vec::new(),
             alpha: 1.0,
+            offsets: HashMap::new(),
+            scrolls: Vec::new(),
+            clip: None,
         }
     }
 
@@ -70,7 +87,7 @@ impl<'a> Canvas<'a> {
         bounds: Bounds,
         mut visual: UiVisual,
     ) -> Result<UiRect, UiPresentationError> {
-        let area = rect(bounds[0], bounds[1], bounds[2], bounds[3])?;
+        let area = self.local(bounds)?;
         if self.alpha < 1.0 {
             let scale = |color: &mut Rgba| {
                 color[3] = (f32::from(color[3]) * self.alpha.max(0.0)).round() as u8;
@@ -82,10 +99,17 @@ impl<'a> Canvas<'a> {
                 _ => {}
             }
         }
+        let parent = self.clip.map(|(id, _)| id);
         self.nodes
-            .push(UiNode::new(UiNodeId::new(*self.next), None, area).with_visual(visual));
+            .push(UiNode::new(UiNodeId::new(*self.next), parent, area).with_visual(visual));
         *self.next = self.next.saturating_add(1);
         Ok(area)
+    }
+
+    /// `b` relative to the clipping node it attaches to, as the UI tree lays out.
+    fn local(&self, b: Bounds) -> Result<UiRect, UiPresentationError> {
+        let [x, y] = self.clip.map_or([0.0; 2], |(_, c)| [c[0], c[1]]);
+        rect(b[0] - x, b[1] - y, b[2] - x, b[3] - y)
     }
 
     pub(super) fn fill(&mut self, bounds: Bounds, color: Rgba) -> Result<(), UiPresentationError> {
@@ -294,8 +318,80 @@ impl<'a> Canvas<'a> {
     }
 
     pub(super) fn hit(&mut self, action: MenuAction, b: Bounds) -> Result<(), UiPresentationError> {
+        let b = match self.clip {
+            Some((_, c)) => [
+                b[0].max(c[0]),
+                b[1].max(c[1]),
+                b[2].min(c[2]),
+                b[3].min(c[3]),
+            ],
+            None => b,
+        };
+        if b[2] <= b[0] || b[3] <= b[1] {
+            return Ok(());
+        }
         let area = rect(b[0], b[1], b[2], b[3])?;
         self.hits.push((action, area));
+        Ok(())
+    }
+
+    /// Starts clipping to `viewport` for the scroll view `key`; draw its
+    /// content shifted up by the returned offset, then call [`Self::end_scroll`].
+    pub(super) fn begin_scroll(
+        &mut self,
+        key: &str,
+        viewport: Bounds,
+    ) -> Result<Scroll, UiPresentationError> {
+        let area = self.local(viewport)?;
+        let id = UiNodeId::new(*self.next);
+        let parent = self.clip.map(|(id, _)| id);
+        self.nodes
+            .push(UiNode::new(id, parent, area).with_clip_children(true));
+        *self.next = self.next.saturating_add(1);
+        let outer = self.clip.replace((id, viewport));
+        Ok(Scroll {
+            key: key.to_owned(),
+            viewport,
+            outer,
+            offset: self.offsets.get(key).copied().unwrap_or(0.0),
+        })
+    }
+
+    /// Ends `scroll` with `content` logical px drawn: a thumb shows when it
+    /// overflows, and the view takes wheel and drag input next frame.
+    pub(super) fn end_scroll(
+        &mut self,
+        scroll: Scroll,
+        content: f32,
+    ) -> Result<(), UiPresentationError> {
+        self.clip = scroll.outer;
+        let v = scroll.viewport;
+        let height = v[3] - v[1];
+        let max = (content - height).max(0.0);
+        let offset = scroll.offset.min(max);
+        let (mut track, mut thumb) = (None, None);
+        if max > 0.0 {
+            let width = self.r(0.6);
+            let side = (height * height / content).max(self.r(2.0));
+            let top = v[1] + offset / max * (height - side);
+            let bar = [v[2] - width, top, v[2], top + side];
+            self.fill(
+                bar,
+                [TEXT_DIMMEST[0], TEXT_DIMMEST[1], TEXT_DIMMEST[2], 160],
+            )?;
+            track = Some(rect(v[2] - width, v[1], v[2], v[3])?);
+            thumb = Some(rect(bar[0], bar[1], bar[2], bar[3])?);
+        }
+        self.scrolls.push(ScrollArea {
+            key: scroll.key,
+            viewport: rect(v[0], v[1], v[2], v[3])?,
+            scale: 1.0,
+            offset,
+            max,
+            speed: self.r(6.0),
+            track,
+            thumb,
+        });
         Ok(())
     }
 }

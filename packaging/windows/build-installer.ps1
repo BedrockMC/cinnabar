@@ -1,5 +1,5 @@
-# Builds the unsigned Windows payload and MSI. Requires: WiX v4 (`dotnet tool install --global wix`) and ImageMagick.
-# Usage: build-installer.ps1 [-Out <dir>]. Env: CINNABAR_UPDATE_URL, CINNABAR_SENTRY_DSN (optional).
+# Builds the unsigned Windows payload and MSI. Requires: WiX v5 (`dotnet tool install --global wix --version 5.0.2`) and ImageMagick.
+# Usage: build-installer.ps1 [-Out <dir>]. Env: CINNABAR_UPDATE_URL (optional).
 param([string]$Out = ".local/dist/windows-release")
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "../..")
@@ -13,17 +13,20 @@ $payload = Join-Path $Out "payload"
 Remove-Item -Recurse -Force $payload -ErrorAction SilentlyContinue
 $resources = Join-Path $payload "resources"
 $kit = Join-Path $resources "prep-kit"
-New-Item -ItemType Directory -Force (Join-Path $resources "assets"), (Join-Path $resources "licenses"), (Join-Path $kit "bin"), (Join-Path $kit "scripts"), (Join-Path $kit "assets"), (Join-Path $kit "data") | Out-Null
+New-Item -ItemType Directory -Force (Join-Path $resources "assets"), (Join-Path $resources "licenses"), (Join-Path $resources "fonts"), (Join-Path $kit "bin"), (Join-Path $kit "scripts"), (Join-Path $kit "assets"), (Join-Path $kit "data") | Out-Null
 Copy-Item (Join-Path $release "bedrock-client.exe"), (Join-Path $release "bedrock-core.exe"), (Join-Path $release "bedrock-local-server.exe") $payload
 Copy-Item (Join-Path $release "assetc.exe") (Join-Path $kit "bin")
 Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2193.bin") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "assets/licenses/*") (Join-Path $resources "licenses")
+$fontSource = Get-Content -Raw (Join-Path $root "assets/ui-font-source.json") | ConvertFrom-Json
+$font = Join-Path $root ".local/assets/ui-font/$($fontSource.commit)/$($fontSource.font_file)"
+if (-not (Test-Path $font)) { throw "missing $font; run scripts/fetch-ui-font.ps1" }
+Copy-Item $font (Join-Path $resources "fonts")
 foreach ($name in "fetch-vanilla-assets.ps1", "fetch-ui-font.ps1") { Copy-Item (Join-Path $root "scripts/$name") (Join-Path $kit "scripts") }
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
 foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }
-if ($env:CINNABAR_UPDATE_URL) { Set-Content -NoNewline (Join-Path $resources "update-url") $env:CINNABAR_UPDATE_URL }
-if ($env:CINNABAR_SENTRY_DSN) { Set-Content -NoNewline (Join-Path $resources "sentry-dsn") $env:CINNABAR_SENTRY_DSN }
+if ($env:CINNABAR_UPDATE_URL) { [System.IO.File]::WriteAllText((Join-Path $resources "update-url"), $env:CINNABAR_UPDATE_URL) }
 
 $icon = Join-Path $Out "cinnabar.ico"
 magick -background none -density 384 (Join-Path $PSScriptRoot "../icons/cinnabar.svg") -define icon:auto-resize=256,128,64,48,32,16 $icon

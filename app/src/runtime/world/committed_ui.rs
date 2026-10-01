@@ -135,9 +135,6 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event,
                 local_millis,
             ),
-            CommittedUiEvent::LocalArmor { sequence, event } => {
-                ui_runtime.apply_local_armor(clock.session_generation(), sequence, &event)
-            }
             CommittedUiEvent::LocalMount {
                 sequence,
                 ridden_unique_id,

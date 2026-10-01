@@ -4,8 +4,9 @@
 //! `and`/`or` (one precedence level), `=`/`<`/`>`, `+`/`-`, and `*`/`/`, all
 //! left-associative. On strings `+` concatenates, `-` removes every occurrence,
 //! `/` counts occurrences, and a string result that reads as a number or bool
-//! becomes one. Anything outside the grammar (an unbound variable or binding)
-//! yields `None`, and the caller decides the lenient default.
+//! becomes one. An unbound `$var` reads as JSON null (false, `''`, 0), as
+//! `UIEval::evalVariable` returns; an unbound `#binding` or anything outside the
+//! grammar yields `None`, and the caller decides the lenient default.
 
 use serde_json::Value;
 
@@ -64,12 +65,16 @@ pub fn eval(expression: &str, env: &Env) -> Option<bool> {
 
 /// Evaluate a predicate to a boolean against `bindings`, or `None` when undecidable.
 pub fn eval_bool(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<bool> {
-    eval_scalar(expression, env, bindings)?.as_bool()
+    eval_operand(expression, env, bindings)?.as_bool()
 }
 
 /// Evaluate a `view` expression to its scalar result (a bool for `#visible`, text
 /// for a concatenated `#texture`), or `None` when undecidable.
 pub fn eval_scalar(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Scalar> {
+    eval_operand(expression, env, bindings).map(Operand::into_scalar)
+}
+
+fn eval_operand(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Operand> {
     if expression.len() > MAX_BYTES {
         return None;
     }
@@ -82,10 +87,7 @@ pub fn eval_scalar(expression: &str, env: &Env, bindings: &dyn Bindings) -> Opti
         bindings,
     };
     let value = parser.parse_or()?;
-    if parser.pos != parser.tokens.len() {
-        return None;
-    }
-    Some(value.into_scalar())
+    (parser.pos == parser.tokens.len()).then_some(value)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -113,6 +115,8 @@ enum Operand {
     Bool(bool),
     Str(String),
     Num(f64),
+    /// An unbound `$var`: takes the other operand's empty value.
+    Null,
 }
 
 impl Operand {
@@ -125,6 +129,17 @@ impl Operand {
                 _ => None,
             },
             Operand::Num(number) => Some(*number != 0.0),
+            Operand::Null => Some(false),
+        }
+    }
+
+    /// Null as `like`'s empty value, so it compares and combines as jsoncpp's null.
+    fn settle(self, like: &Operand) -> Operand {
+        match (self, like) {
+            (Operand::Null, Operand::Str(_)) => Operand::Str(String::new()),
+            (Operand::Null, Operand::Num(_)) => Operand::Num(0.0),
+            (Operand::Null, _) => Operand::Bool(false),
+            (operand, _) => operand,
         }
     }
 
@@ -133,6 +148,7 @@ impl Operand {
             Operand::Bool(value) => value.to_string(),
             Operand::Str(text) => text.clone(),
             Operand::Num(number) => format_number(*number),
+            Operand::Null => String::new(),
         }
     }
 
@@ -149,6 +165,7 @@ impl Operand {
             Operand::Bool(value) => Scalar::Bool(value),
             Operand::Str(text) => Scalar::Text(text),
             Operand::Num(number) => Scalar::Num(number),
+            Operand::Null => Scalar::Bool(false),
         }
     }
 }
@@ -281,7 +298,7 @@ fn truncation(format: &str) -> Option<usize> {
 
 /// `=`, `<`, `>` (and the `<=`/`>=` spellings) with the vanilla type rules.
 fn compare(operator: &Token, left: &Operand, right: &Operand) -> Option<bool> {
-    use Operand::{Bool, Num, Str};
+    use Operand::{Bool, Null, Num, Str};
     Some(match operator {
         Token::Eq => match (left, right) {
             (Str(a), Str(b)) => a == b,
@@ -298,6 +315,8 @@ fn compare(operator: &Token, left: &Operand, right: &Operand) -> Option<bool> {
                 Num(parsed) => parsed == *number,
                 _ => !truthy(left) && !truthy(right),
             },
+            // Unreachable after `settle`; null equals only an empty value.
+            (Null, _) | (_, Null) => truthy(left) == truthy(right),
         },
         _ => {
             let ordering = match (left, right) {
@@ -323,11 +342,19 @@ fn compare(operator: &Token, left: &Operand, right: &Operand) -> Option<bool> {
     })
 }
 
+/// A binary operator's operands with any null settled against the other side.
+fn settle(left: Operand, right: Operand) -> (Operand, Operand) {
+    let left = left.settle(&right);
+    let right = right.settle(&left);
+    (left, right)
+}
+
 /// Truthiness for mixed comparisons: nonzero numbers and nonempty strings.
 fn truthy(operand: &Operand) -> bool {
     match operand {
         Operand::Bool(value) => *value,
         Operand::Num(number) => *number != 0.0,
+        Operand::Null => false,
         Operand::Str(text) => text.as_str() == "true" || (!text.is_empty() && text != "false"),
     }
 }
@@ -421,8 +448,8 @@ impl Parser<'_> {
             .cloned()
         {
             self.pos += 1;
-            let right = self.parse_additive()?;
-            left = Operand::Bool(compare(&operator, &left, &right)?);
+            let (settled, right) = settle(left, self.parse_additive()?);
+            left = Operand::Bool(compare(&operator, &settled, &right)?);
         }
         Some(left)
     }
@@ -435,7 +462,8 @@ impl Parser<'_> {
             .cloned()
         {
             self.pos += 1;
-            let right = self.parse_multiplicative()?;
+            let right;
+            (left, right) = settle(left, self.parse_multiplicative()?);
             left = match (operator, &left, &right) {
                 (Token::Plus, Operand::Num(a), Operand::Num(b)) => Operand::Num(a + b),
                 (Token::Plus, Operand::Str(_), _) | (Token::Plus, _, Operand::Str(_)) => {
@@ -460,7 +488,8 @@ impl Parser<'_> {
             .cloned()
         {
             self.pos += 1;
-            let right = self.parse_atom()?;
+            let right;
+            (left, right) = settle(left, self.parse_atom()?);
             left = match (operator, &left, &right) {
                 (Token::Times, Operand::Num(a), Operand::Num(b)) => Operand::Num(a * b),
                 // A string times anything yields the right side as text (a
@@ -523,7 +552,11 @@ impl Parser<'_> {
         }
         if let Some(name) = word.strip_prefix('$') {
             let name = name.split_once('|').map_or(name, |(name, _)| name);
-            return match self.env.get(name)? {
+            let Some(value) = self.env.get(name) else {
+                return Some(Operand::Null);
+            };
+            return match value {
+                Value::Null => Some(Operand::Null),
                 Value::Bool(value) => Some(Operand::Bool(*value)),
                 // A variable holding a parenthesised expression evaluates it, as
                 // `$include_world_section: "($a and $b)"` does in vanilla.
@@ -624,8 +657,17 @@ mod tests {
     }
 
     #[test]
-    fn unknown_variable_and_binding_are_undecidable() {
-        assert_eq!(eval("$never_set", &env()), None);
+    // An unbound `$var` is null as in `UIEval::evalVariable`: the settings
+    // screen's `((not $debug_settings) or $creator_build)` decides false.
+    fn unbound_variable_is_null_and_binding_undecidable() {
+        assert_eq!(eval("$never_set", &env()), Some(false));
+        assert_eq!(eval("(not $never_set)", &env()), Some(true));
+        assert_eq!(
+            eval("($desktop_screen and $never_set)", &env()),
+            Some(false)
+        );
+        assert_eq!(eval("($never_set = '')", &env()), Some(true));
+        assert_eq!(eval("($never_set = 0)", &env()), Some(true));
         assert_eq!(eval("(not #visible)", &env()), None);
     }
 

@@ -5,7 +5,6 @@ use serde::Serialize;
 pub enum FallbackReason {
     UnsupportedOptionalExpression,
     UnreferencedDefinition,
-    UnsupportedGeometryBinding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

@@ -418,6 +418,31 @@ fn loop_counts_run_their_ceiling_up_to_the_bound_and_skip_when_not_positive() {
     assert_eq!(loop_iterations(f32::NAN), None);
 }
 
+// Camera-facing holograms initialise from these; without them the whole script was dropped.
+#[test]
+fn camera_relative_queries_aim_at_the_fed_camera_position() {
+    let input = ActorTickInput {
+        position: [0.0, 64.0, 0.0],
+        ..ActorTickInput::default()
+    };
+    let context = ActorTickContext {
+        camera_position: [3.0, 68.0, 0.0],
+        ..ActorTickContext::default()
+    };
+    let actor = actor_with_metadata(HashMap::new());
+    let number = |name: &str, arguments: &[MolangValue]| {
+        read_with(&actor, &input, &context, 0, name, arguments).number()
+    };
+    assert!((number("query.distance_from_camera", &[]) - 5.0).abs() < 1e-5);
+    let pitch = number("query.rotation_to_camera", &[MolangValue::Number(0.0)]);
+    assert!(
+        (pitch + 4.0_f32.atan2(3.0).to_degrees()).abs() < 1e-3,
+        "{pitch}"
+    );
+    let yaw = number("query.rotation_to_camera", &[MolangValue::Number(1.0)]);
+    assert!((yaw + 90.0).abs() < 1e-3, "{yaw}");
+}
+
 #[test]
 fn camera_rotation_reads_the_fed_view_and_xp_orb_frames_follow_value() {
     let input = ActorTickInput::default();

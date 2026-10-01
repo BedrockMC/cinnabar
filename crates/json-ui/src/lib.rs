@@ -39,14 +39,18 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-pub use anim::{Chain, Fade, FlipBook, Step, StepKind, fade_factor, fade_factor_at};
+pub use anim::{
+    Chain, Fade, FlipBook, Motion, Motions, Step, StepKind, fade_factor, fade_factor_at,
+    motion_offset,
+};
 pub use bind::{
     CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_reporting,
     bind_shared, scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, color_value, emit, nine_slice,
+    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, color_value, emit,
+    emit_gated, nine_slice,
 };
 pub use env::Env;
 pub use expr::{
@@ -56,7 +60,7 @@ pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
     form_context, form_data_source, form_factory_id, form_screen_cancel, form_template,
-    render_bound, render_form, render_form_with,
+    render_bound, render_bound_gated, render_form, render_form_with,
 };
 pub use hud::{
     BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
@@ -66,7 +70,9 @@ pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
     scroll_target,
 };
-pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_with};
+pub use layout::{
+    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
+};
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
@@ -99,21 +105,59 @@ impl Context {
             .with_flag("touch", false)
     }
 
-    /// The desktop context plus the globals a retail, full-game, non-edu client
-    /// computes in code (`VanillaSceneFactory::createGlobalVars`).
+    /// The desktop context plus the globals a retail, full-game, non-edu desktop
+    /// client computes in code (1.26.50 `VanillaSceneFactory::createGlobalVars`,
+    /// RVA 0x076bf510). Unset variables read false, so every true one is listed.
     pub fn retail(macos: bool) -> Self {
-        Self::desktop()
-            .with_flag("win10_edition", !macos)
-            .with_flag("osx_edition", macos)
-            .with_flag("pocket_edition", false)
-            .with_flag("console_edition", false)
-            .with_flag("trial", false)
-            .with_flag("education_edition", false)
-            .with_flag("store_disabled", false)
-            .with_flag("is_ios", false)
-            .with_flag("nx_os", false)
-            .with_flag("is_ps4", false)
-            .with_flag("is_publish", true)
+        let platform: &[(&str, bool)] = &[
+            ("win10_edition", !macos),
+            ("microsoft_os", !macos),
+            ("ms_platform", !macos),
+            ("osx_edition", macos),
+            ("apple_os", macos),
+        ];
+        let constant: &[(&str, bool)] = &[
+            ("is_desktop", true),
+            ("mouse", true),
+            ("is_publish", true),
+            ("test_infrastructure_disabled", true),
+            ("new_video_settings", true),
+            ("is_improve_input_response_platform_supported", true),
+            ("is_xboxlive_enabled", true),
+            ("is_realms_enabled", true),
+            ("is_seeds_enabled", true),
+            ("is_creative_enabled", true),
+            ("is_multiplayer_enabled", true),
+            ("is_packs_enabled", true),
+            ("is_server_enabled", true),
+            ("is_store_enabled", true),
+            ("file_picking_supported", true),
+            ("supports_clipboard_set", true),
+            ("supports_add_friend", true),
+            ("supports_xbl_achievements", true),
+            // Channel flags: this is the release app, not Preview.
+            ("pre_release", false),
+            ("beta_build", false),
+            ("is_preview_app", false),
+            ("trial", false),
+            ("education_edition", false),
+            ("store_disabled", false),
+            ("creator_build", false),
+            ("pocket_edition", false),
+            ("console_edition", false),
+            ("is_console", false),
+            ("game_pad", false),
+            ("can_splitscreen", false),
+            ("is_secondary_client", false),
+            ("requires_xbl_signin_to_play", false),
+            ("is_editor_mode_enabled", false),
+        ];
+        platform
+            .iter()
+            .chain(constant)
+            .fold(Self::desktop(), |context, (name, value)| {
+                context.with_flag(name, *value)
+            })
     }
 
     /// The variables set so far, keyed without `$`.

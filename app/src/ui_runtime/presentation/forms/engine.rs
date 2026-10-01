@@ -19,6 +19,7 @@ use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
 };
 
+use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 pub(crate) mod hud_renderers;
@@ -30,8 +31,7 @@ use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
-/// Tooltip placement relative to the pointer and its padding, in virtual px
-/// (needs native measurement).
+/// Tooltip offset from the pointer and padding, virtual px (needs native measurement).
 const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
 const TOOLTIP_PAD: f32 = 2.0;
 const TOOLTIP_BACKGROUND: [u8; 4] = [16, 0, 16, 224];
@@ -417,27 +417,28 @@ fn render_with<R: Borrow<FormRender>>(
     let layouts = cache.into_inner();
     let mut atlas = textures.set.lock();
     // Only what this screen draws needs to be resident.
+    // Many nodes share a texture; each path resolves once.
+    let paths: std::collections::HashSet<&str> = render
+        .nodes
+        .iter()
+        .chain(out.overlay)
+        .filter_map(|node| match &node.draw {
+            Draw::Sprite { texture, .. } => Some(texture.as_str()),
+            _ => None,
+        })
+        .chain(
+            art.hud
+                .into_iter()
+                .flat_map(hud_renderers::HudPaint::textures),
+        )
+        .collect();
     let drawn = Textures {
         assets: textures.assets,
         set: textures.set,
         atlas: &atlas,
         images: art.images,
     }
-    .atlas_keys(
-        render
-            .nodes
-            .iter()
-            .chain(out.overlay)
-            .filter_map(|node| match &node.draw {
-                Draw::Sprite { texture, .. } => Some(texture.as_str()),
-                _ => None,
-            })
-            .chain(
-                art.hud
-                    .into_iter()
-                    .flat_map(hud_renderers::HudPaint::textures),
-            ),
-    );
+    .atlas_keys(paths.into_iter());
     atlas.require(drawn.iter().map(String::as_str));
     let mut painter = Painter {
         textures: Textures {
@@ -458,8 +459,11 @@ fn render_with<R: Borrow<FormRender>>(
         next: out.next,
         clip: None,
     };
+    let view = art.view;
     for node in render.nodes.iter().chain(out.overlay) {
-        painter.paint(node)?;
+        if view.is_none_or(|view| node.shown(view)) {
+            painter.paint(node)?;
+        }
     }
     Ok(Some(EngineFrame {
         identity,
@@ -474,16 +478,19 @@ fn render_with<R: Borrow<FormRender>>(
     }))
 }
 
-/// Caller art the custom renderers draw: the icon table `#item_renderer_data`
-/// indexes, the player preview, the pointer (virtual px) tooltips follow, the
-/// animation clock (seconds) fades evaluate at, and the HUD's native state.
-/// `images` backs image controls bound to a downloaded artwork's local path;
-/// `portrait` is the signed-in gamerpic.
+/// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
+/// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
     /// Icons an `#item_id_aux` renderer names, by that value.
     pub(super) id_aux: &'a [(i64, IconRef)],
+    /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
+    pub(super) view: Option<&'a ViewState>,
+    /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
+    pub(super) tooltip: Option<&'a str>,
+    /// Where a drawn player renderer records how it wants the model posed.
+    pub(super) preview_view: Option<&'a std::cell::Cell<Option<PreviewView>>>,
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -495,16 +502,14 @@ pub(super) struct ScreenArt<'a> {
     pub(super) splash: Option<&'a str>,
 }
 
-/// Where a render writes its retained nodes, plus caller draw nodes painted on
-/// top (e.g. the held stack under the pointer).
+/// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
 pub(super) struct EngineOutput<'a> {
     pub(super) nodes: &'a mut Vec<UiNode>,
     pub(super) next: &'a mut u32,
     pub(super) overlay: &'a [DrawNode],
 }
 
-/// A label's text after the vanilla localization rules. Empty lines drop, as
-/// the vanilla label splits on newlines and discards empty ones.
+/// A label's text after vanilla localization; empty lines drop as the vanilla label drops them.
 fn localized<'a>(text: &'a str, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Cow<'a, str> {
     let text = json_ui::localize_text(text, translate);
     if text.contains("\n\n") || text.starts_with('\n') || text.ends_with('\n') {
@@ -570,8 +575,7 @@ impl TextMeasure for Measure<'_, '_> {
     }
 }
 
-/// Turns engine draw nodes into retained UI nodes, opening a clip group whenever
-/// the clip rect changes so draw order is preserved.
+/// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep order.
 struct Painter<'a> {
     textures: Textures<'a>,
     solid_page: u16,
@@ -699,7 +703,7 @@ impl Painter<'_> {
                 ))
             }
             "live_player_renderer" | "paper_doll_renderer" => {
-                self.player_preview(renderer == "paper_doll_renderer", dest, &alpha)
+                self.player_preview(renderer, data, dest, &alpha)
             }
             "splash_text_renderer" => {
                 self.splash(dest, &alpha);
@@ -707,9 +711,10 @@ impl Painter<'_> {
             }
             "name_tag_renderer" => self.name_tag(data, dest, &alpha),
             "hover_text_renderer" => {
-                let text = data
-                    .get("#hover_text")?
-                    .as_str()
+                let text = self
+                    .art
+                    .tooltip
+                    .or_else(|| data.get("#hover_text")?.as_str())
                     .filter(|text| !text.is_empty())?;
                 self.tooltip(text, dest).ok().flatten()
             }
@@ -875,8 +880,9 @@ impl Painter<'_> {
     }
 
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
-        let clip = self.logical(&node.clip);
-        let dest = self.logical(&node.dest);
+        let (dest, clip) = node.animated_rects(self.art.now, self.art.clocks);
+        let clip = self.logical(&clip);
+        let dest = self.logical(&dest);
         if clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]

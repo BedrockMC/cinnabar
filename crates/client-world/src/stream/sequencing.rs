@@ -738,15 +738,17 @@ impl WorldStream {
                     });
                 }
             }
-            WorldEvent::ArmorEquipment(event) => {
+            // The local player's armor is its armor container (window 120);
+            // vanilla ignores MobArmorEquipment addressed to itself.
+            WorldEvent::ArmorEquipment(event)
+                if event.actor_runtime_id != self.local_player_runtime_id =>
+            {
                 let sequence = sequence.expect("sequenced armor events commit through submit");
                 let _ = self
                     .actors
                     .apply_armor(self.actor_session_id, sequence, &event);
-                if event.actor_runtime_id == self.local_player_runtime_id {
-                    self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
-                }
             }
+            WorldEvent::ArmorEquipment(_) => {}
             WorldEvent::ActorPropertySync(event) => {
                 let _ = self.actors.apply_property_sync(&event);
             }

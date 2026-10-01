@@ -1,5 +1,5 @@
 use protocol::world_control::{
-    Backend, Prefs, Setup, UnavailableReason, World, WorldState, WorldStatus,
+    Backend, Generator, Prefs, Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus,
 };
 
 use super::form::{CreateForm, validate_name};
@@ -204,6 +204,13 @@ impl WorldsMenu {
         }
     }
 
+    /// False once the core reports the dedicated server cannot run here.
+    fn bds_can_run(&self) -> bool {
+        self.setup
+            .as_ref()
+            .is_none_or(|setup| setup.state != SetupState::Unsupported)
+    }
+
     /// The Docker modal to show, if the current screen is [`Screen::BackendPrompt`].
     pub(crate) fn prompt(&self) -> Option<PromptKind> {
         (self.screen == Screen::BackendPrompt)
@@ -249,6 +256,10 @@ impl WorldsMenu {
         match pending {
             Pending::Create => {
                 self.create = CreateForm::default();
+                if !self.bds_can_run() {
+                    // Default terrain is BDS-only; superflat is all the basic server hosts.
+                    self.create.generator = Generator::Flat;
+                }
                 self.form_error = None;
                 self.screen = Screen::Create;
                 Vec::new()

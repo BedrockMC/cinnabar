@@ -38,13 +38,17 @@ struct PendingRig {
     initialize: Option<u32>,
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
+    scale_expressions: Option<[u32; 4]>,
 }
+
+/// `(alias, target, weight, authored order)` of one root binding.
+type PendingBinding<T> = (Box<str>, T, Option<u32>, u16);
 
 struct PendingRigGeometry {
     geometry: u32,
     condition: Option<u32>,
-    animations: Vec<(Box<str>, u32, Option<u32>)>,
-    controllers: Vec<(Box<str>, Box<str>, Option<u32>)>,
+    animations: Vec<PendingBinding<u32>>,
+    controllers: Vec<PendingBinding<Box<str>>>,
 }
 
 pub(super) struct FinalRigPayload {
@@ -69,21 +73,23 @@ impl PendingRigPayload {
             let first_geometry = geometries.len() as u32;
             for candidate in rig.geometries {
                 let first_animation = animations.len() as u32;
-                for (name, clip, weight) in candidate.animations {
+                for (name, clip, weight, order) in candidate.animations {
                     animations.push(EntityRigAnimationBinding {
                         name: name_index(&name)?,
                         clip,
                         weight,
+                        order,
                     });
                 }
                 let first_controller = controllers.len() as u32;
-                for (name, controller, weight) in candidate.controllers {
+                for (name, controller, weight, order) in candidate.controllers {
                     controllers.push(EntityRigControllerBinding {
                         name: name_index(&name)?,
                         controller: *controller_indices
                             .get(&(controller, rig.entity_symbol, candidate.geometry))
                             .ok_or_else(|| invalid("rig controller is absent"))?,
                         weight,
+                        order,
                     });
                 }
                 geometries.push(EntityRigGeometryBinding {
@@ -104,6 +110,7 @@ impl PendingRigPayload {
                 initialize: rig.initialize,
                 pre_animation: rig.pre_animation,
                 scale: rig.scale,
+                scale_expressions: rig.scale_expressions,
             });
         }
         Ok(FinalRigPayload {
@@ -235,6 +242,13 @@ pub(super) fn compile_rigs(
                 .as_ref()
                 .is_none_or(|roots| roots.iter().any(|root| root.alias == name))
         };
+        // Roots play in their authored order, clips and controllers interleaved.
+        let root_order = |name: &str| {
+            roots
+                .as_ref()
+                .and_then(|roots| roots.iter().position(|root| root.alias == name))
+                .map_or(0, |position| u16::try_from(position).unwrap_or(u16::MAX))
+        };
         let mut pending_geometries = Vec::new();
         for (candidate_geometry, condition) in geometry_candidates {
             let mut animation_bindings = Vec::new();
@@ -279,19 +293,24 @@ pub(super) fn compile_rigs(
                         candidate_geometry,
                     ))
                 {
-                    controller_bindings.push((name.clone(), target.clone(), weight));
+                    controller_bindings.push((
+                        name.clone(),
+                        target.clone(),
+                        weight,
+                        root_order(name),
+                    ));
                 } else if let Some(&clip) = (!is_controller)
                     .then(|| clip_indices.get(&(target.clone(), candidate_geometry)))
                     .flatten()
                 {
-                    animation_bindings.push((name.clone(), clip, weight));
+                    animation_bindings.push((name.clone(), clip, weight, root_order(name)));
                 } else {
                     // A reference the pack never defines leaves the rig static.
                     static_fallback = true;
                 }
             }
-            animation_bindings.sort_by(|left, right| left.0.cmp(&right.0));
-            controller_bindings.sort_by(|left, right| left.0.cmp(&right.0));
+            animation_bindings.sort_by(|left, right| (left.3, &left.0).cmp(&(right.3, &right.0)));
+            controller_bindings.sort_by(|left, right| (left.3, &left.0).cmp(&(right.3, &right.0)));
             controller_bindings.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
             pending_geometries.push(PendingRigGeometry {
                 geometry: candidate_geometry,
@@ -342,6 +361,7 @@ pub(super) fn compile_rigs(
             initialize: scripts.initialize,
             pre_animation: scripts.pre_animation,
             scale: scripts.scale,
+            scale_expressions: scripts.scale_expressions,
         });
         outcomes.push(CompileReferenceOutcome::Resolved(rig_index));
     }
@@ -352,6 +372,7 @@ struct RigScripts {
     initialize: Option<u32>,
     pre_animation: Option<u32>,
     scale: EntityGeometryScalar,
+    scale_expressions: Option<[u32; 4]>,
     dropped: usize,
 }
 
@@ -370,17 +391,48 @@ impl RigScripts {
         };
         let initialize = script("initialize")?;
         let pre_animation = script("pre_animation")?;
-        // Only an authored constant scale is carried; an expression keeps unit scale.
-        let scale = match scripts.and_then(|scripts| scripts.get("scale")) {
+        let field = |name: &str| scripts.and_then(|scripts| scripts.get(name));
+        let constant = match field("scale") {
             None => Some(1.0),
             Some(Value::Number(number)) => number.as_f64().map(|value| value as f32),
             Some(Value::String(text)) => text.trim().parse::<f32>().ok(),
             Some(_) => None,
         };
-        if scale.is_none() {
-            dropped += 1;
+        // A Molang scale (cow's `query.is_baby ? 2.0 : 1.0`) or any axis scale is evaluated
+        // per tick; only a lone constant stays a constant.
+        let mut scale_expressions = None;
+        if constant.is_none()
+            || ["scaleX", "scaleY", "scaleZ"]
+                .iter()
+                .any(|name| field(name).is_some())
+        {
+            let mut compiled = [0; 4];
+            let mut complete = true;
+            for (slot, name) in ["scale", "scaleX", "scaleY", "scaleZ"].iter().enumerate() {
+                let text = match field(name) {
+                    None => "1.0".to_owned(),
+                    Some(Value::Number(number)) => number.to_string(),
+                    Some(Value::String(text)) => text.clone(),
+                    Some(_) => {
+                        complete = false;
+                        break;
+                    }
+                };
+                match molang.compile(&text) {
+                    Ok(index) => compiled[slot] = index,
+                    Err(_) => {
+                        complete = false;
+                        break;
+                    }
+                }
+            }
+            if complete {
+                scale_expressions = Some(compiled);
+            } else {
+                dropped += 1;
+            }
         }
-        let scale = scale
+        let scale = constant
             .filter(|scale| *scale > 0.0)
             .and_then(EntityGeometryScalar::new)
             .or_else(|| EntityGeometryScalar::new(1.0))
@@ -389,6 +441,7 @@ impl RigScripts {
             initialize,
             pre_animation,
             scale,
+            scale_expressions,
             dropped,
         })
     }
