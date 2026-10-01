@@ -805,7 +805,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(local_player_skin.clone())
     .insert_resource(MenuRuntime::new_with_layout(
         !connection_requested,
-        args.gui_scale.unwrap_or(args::DEFAULT_GUI_SCALE),
+        args.gui_scale,
         args.display_name.clone(),
         layout,
         local_player_skin,

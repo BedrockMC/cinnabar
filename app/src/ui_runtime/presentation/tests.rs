@@ -21,6 +21,7 @@ mod container_screen_tests;
 mod debug_overlay_tests;
 pub(crate) mod engine_hud_tests;
 mod forms_tests;
+mod gui_scale_settings_tests;
 mod hud_matrix_tests;
 mod hud_server_pack_tests;
 mod inventory_count_tests;
