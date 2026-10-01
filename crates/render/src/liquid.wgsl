@@ -65,7 +65,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) @interpolate(flat) next_texture: u32,
     @location(3) @interpolate(flat) frame_blend: f32,
-    @location(4) @interpolate(flat) water_tint: vec3<f32>,
+    @location(4) @interpolate(flat) water_tint: vec4<f32>,
     @location(5) lighting: vec3<f32>,
     @location(8) @interpolate(flat) depth_write_route: u32,
     @location(9) world_position: vec3<f32>,
@@ -214,6 +214,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         0u,
         u32(chunk_origin.value.w),
         vec3<f32>(block_coordinate),
+        vec3<f32>(chunk_origin.value.xyz),
     );
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
     out.depth_write_route = packed_material >> 31u;
@@ -252,12 +253,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     let colour = lit_colour(
-        sampled.rgb * in.water_tint,
+        sampled.rgb * in.water_tint.rgb,
         in.lighting,
     );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
-    return vec4(apply_distance_fog(colour, in.world_position), sampled.a);
+    return vec4(apply_distance_fog(colour, in.world_position), sampled.a * in.water_tint.a);
 }
 
 @fragment

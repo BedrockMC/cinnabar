@@ -3546,3 +3546,38 @@ remaining questions are in `docs/biome-blending.md`. This does not close
 P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
+
+
+### World-lighting follow-up (incomplete parity)
+
+The shared RGB lightmap implements the recovered composition and effect formulas.
+Current dimension ramps/dispatch, ambient flags, sky-darken input and effect envelopes
+remain unverified. AO uses channel maxima and the default shade curve, but registry
+shade/solid-render properties, component exponents and special dimension/unshaded
+routes remain incomplete. Inset sampling does not implement the separate box-average
+route. These corrections do not close RM-01–04 or AO-02–04 in full.
+
+State emission now uses the current trial-spawner, vault, anchor and sensor accessors.
+The light registry and target bindings are rebuilt; complete dynamic-emitter parity
+still needs copper-bulb constructor constants, cauldron identity and sensor vtable binding.
+Default shaded grass uses the reference packed-byte transform. Water surface opacity
+is retained as a vertex byte through the biome carrier and GPU blending. Its final
+texture-alpha multiplication and special neighboring-material side factor remain
+provisional until the material route is resolved. Swamp grass retains row 255 and
+uses the current seed-2345 float simplex sampler at absolute world positions; native
+color/blending comparison remains open. None of these changes closes a native gate.
+
+The star field now draws seed-10842 candidate quads with the reference radius,
+size, alpha and draw consumption. It remains incomplete: float trigonometry is
+used in place of the runtime sine table, and current sky rotation/material blend
+state still need verification. This does not close RM-05's numeric/native gate.
+
+Top-boundary sky seeds now reach known occupied cells and use the solver's destination
+filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
+bounds and initialization before the upper-neighbor readiness gate are still missing.
+
+RM-06 and GEO-01–04 remain open: fog layers/transitions, weighted texture alternatives,
+isotropic face rotation, complete repeater/comparator geometry and per-species offsets
+are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
+RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
+captures are local evidence; they do not close native visual or shader-performance gates.

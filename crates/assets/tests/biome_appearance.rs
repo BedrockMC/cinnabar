@@ -49,3 +49,52 @@ fn shaded_flag_does_not_change_custom_grass_override() {
         .unwrap();
     assert_eq!(bytes(resolved.records[1].grass), [100, 200, 40]);
 }
+
+#[test]
+fn swamp_palette_keeps_its_bottom_row_and_spatial_marker() {
+    let mut assets = fixture(TintSource::map(TintMapId::SwampGrass));
+    let row = (TintMapId::SwampGrass as usize * assets::TINT_MAP_SIZE as usize
+        + assets::TINT_MAP_SIZE as usize
+        - 1)
+        * assets::TINT_MAP_SIZE as usize
+        * 3;
+    assets.tint_maps_rgb8[row..row + 3].copy_from_slice(&[1, 2, 3]);
+    let resolved = assets.resolve_live(&[]).unwrap();
+    assert_eq!(
+        resolved.swamp_grass_palette.len(),
+        assets::TINT_MAP_SIZE as usize
+    );
+    assert_eq!(bytes(resolved.swamp_grass_palette[0]), [1, 2, 3]);
+    assert_ne!(
+        resolved.records[1].flags & assets::BIOME_TINT_FLAG_SWAMP_GRASS,
+        0
+    );
+}
+
+#[test]
+fn water_opacity_rejects_invalid_values_and_preserves_shading() {
+    let mut assets = fixture(TintSource::map(TintMapId::Grass));
+    for invalid in [-0.01, 1.01, f32::NAN, f32::INFINITY] {
+        assert!(assets.rules[0].set_water_opacity(invalid).is_err());
+    }
+    assets.rules[0].set_water_opacity(0.65).unwrap();
+    let resolved = assets.resolve_live(&[]).unwrap();
+    assert_eq!(resolved.records[1].water[3], 165.0 / 255.0);
+    assert_eq!(bytes(resolved.records[1].grass), [70, 126, 25]);
+}
+
+#[test]
+fn grass_noise_seed_and_offset_draws_match_current_reference_vectors() {
+    let mut random = assets::ClientRandom::new(2345);
+    assert_eq!(
+        std::array::from_fn::<_, 8, _>(|_| random.next_u32()),
+        [
+            2837445712, 859401479, 1776401248, 3494520208, 2869478636, 1731913201, 987599469,
+            2954181634
+        ]
+    );
+    assert_eq!(
+        &assets::grass_noise_permutation()[..8],
+        &[144, 102, 233, 57, 254, 23, 182, 116]
+    );
+}

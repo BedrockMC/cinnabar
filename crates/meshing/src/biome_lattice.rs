@@ -182,5 +182,13 @@ pub fn shader_source(source: &str) -> String {
         ));
     }
     constants.push_str(");\n");
+    constants.push_str(&format!(
+        "const BIOME_TINT_MAP_SIZE: u32 = {}u;\nconst BIOME_SWAMP_GRASS: u32 = {}u;\nconst GRASS_PERMUTATION = array<u32, 256>({});\n",
+        assets::TINT_MAP_SIZE,
+        assets::BIOME_TINT_FLAG_SWAMP_GRASS,
+        assets::grass_noise_permutation()
+            .map(|value| format!("{value}u"))
+            .join(",")
+    ));
     source.replace("// BIOME_CONSTANTS", &constants)
 }
