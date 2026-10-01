@@ -54,8 +54,8 @@ pub(crate) enum FormValue {
 pub(crate) enum FormDrag {
     /// A slider at this element index.
     Slider(usize),
-    /// A scrollbar box: the scroll view key and the pointer's offset into the box.
-    ScrollBox { view: String, grab: f64 },
+    /// A scrollbar box: the scroll view key and the pointer's last position along its axis.
+    ScrollBox { view: String, last: f64 },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

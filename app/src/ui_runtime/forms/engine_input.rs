@@ -5,7 +5,7 @@
 //! decide what happens. Buttons fire on release over the pressed control.
 
 use bevy::input::{ButtonInput, keyboard::KeyCode, mouse::MouseScrollUnit};
-use json_ui::{HitKind, HitRegion, focus_order, hit_test, scroll_target};
+use json_ui::{HitKind, HitRegion, focus_order, hit_test, wheel_target};
 use protocol::{CustomFormElement, MenuElement, ServerFormModel};
 use ui::{ChatClipboard, UiPoint};
 
@@ -42,6 +42,12 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
     };
     let identity = entry.identity;
     let model = entry.model.clone();
+    // `jump_to_bottom_on_update` compares each view's maximum with last frame's.
+    runtime
+        .server_forms_mut()
+        .engine_mut()
+        .view
+        .remember(&frame.report);
     let point = input.cursor.map(|cursor| frame.to_virtual(cursor));
     let hovered = point.and_then(|point| hit_test(&frame.hits, point));
     let control = input.keys.pressed(KeyCode::ControlLeft)
@@ -77,20 +83,15 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
     }
     for (notches, unit) in &input.wheel {
         if let Some(point) = point
-            && let Some(view) = scroll_target(&frame.hits, point)
+            && let Some(view) = wheel_target(&frame.hits, &frame.report, point)
+            && let Some(metrics) = frame.report.scrolls.get(&view.key)
         {
-            let delta = match unit {
-                MouseScrollUnit::Line => {
-                    f64::from(-notches)
-                        * frame
-                            .report
-                            .scrolls
-                            .get(&view.key)
-                            .map_or(15.0, |m| m.speed)
-                }
-                MouseScrollUnit::Pixel => f64::from(-notches / frame.scale),
+            let offset = match unit {
+                MouseScrollUnit::Line => metrics.wheel_target(f64::from(*notches)),
+                MouseScrollUnit::Pixel => (metrics.offset - f64::from(notches / frame.scale))
+                    .clamp(0.0, metrics.max_offset()),
             };
-            scroll_by(runtime, frame, &view.key, delta);
+            set_scroll(runtime, &view.key, offset);
         }
     }
     for (key, text) in input.typed {
@@ -120,15 +121,13 @@ fn drag(
                 set_slider(runtime, model, index, region.fraction_at(point[0]));
             }
         }
-        Some(FormDrag::ScrollBox { view, grab }) => {
+        Some(FormDrag::ScrollBox { view, last }) => {
             if let Some(metrics) = frame.report.scrolls.get(&view) {
-                let offset = metrics.offset_for_thumb(point[1] - grab);
-                runtime
-                    .server_forms_mut()
-                    .engine_mut()
-                    .view
-                    .scroll
-                    .insert(view, offset);
+                let along = point[usize::from(!metrics.horizontal)];
+                let offset = metrics.thumb_drag_target(along - last);
+                let engine = runtime.server_forms_mut().engine_mut();
+                engine.view.scroll.insert(view.clone(), offset);
+                engine.drag = Some(FormDrag::ScrollBox { view, last: along });
             }
         }
         None => {}
@@ -161,25 +160,22 @@ fn press(
     match region.kind {
         HitKind::ScrollBox => {
             if let Some(view) = owning_view(frame, region)
-                && let Some(thumb) = frame.report.scrolls.get(&view.key).and_then(|m| m.thumb)
+                && let Some(metrics) = frame.report.scrolls.get(&view.key)
             {
                 engine.drag = Some(FormDrag::ScrollBox {
                     view: view.key.clone(),
-                    grab: point[1] - thumb[1],
+                    last: point[usize::from(!metrics.horizontal)],
                 });
             }
         }
+        // A track press jumps only when it routes to the view's track button.
         HitKind::ScrollTrack => {
             if let Some(view) = owning_view(frame, region)
                 && let Some(metrics) = frame.report.scrolls.get(&view.key)
+                && metrics.track_clicks
             {
-                let page = if metrics.thumb.is_some_and(|thumb| point[1] < thumb[1]) {
-                    -metrics.viewport
-                } else {
-                    metrics.viewport
-                };
                 let key = view.key.clone();
-                scroll_by(runtime, frame, &key, page);
+                set_scroll(runtime, &key, metrics.track_target(point));
             }
         }
         HitKind::Slider => {
@@ -416,11 +412,7 @@ fn owning_view<'a>(frame: &'a EngineFrame, region: &HitRegion) -> Option<&'a Hit
         .max_by_key(|view| view.key.len())
 }
 
-fn scroll_by(runtime: &mut UiRuntime, frame: &EngineFrame, key: &str, delta: f64) {
-    let Some(metrics) = frame.report.scrolls.get(key) else {
-        return;
-    };
-    let offset = (metrics.offset + delta).clamp(0.0, metrics.max_offset());
+fn set_scroll(runtime: &mut UiRuntime, key: &str, offset: f64) {
     runtime
         .server_forms_mut()
         .engine_mut()

@@ -208,7 +208,7 @@ fn kind_of(node: &LaidOut) -> Option<HitKind> {
 }
 
 /// The `to_button_id` of the `button.menu_select` → `pressed` mapping.
-fn pressed_target(control: &crate::tree::ResolvedControl) -> Option<String> {
+pub(crate) fn pressed_target(control: &crate::tree::ResolvedControl) -> Option<String> {
     mappings(control)
         .find(|(from, _, kind)| *from == Some("button.menu_select") && *kind == "pressed")
         .map(|(_, to, _)| to.to_owned())
@@ -269,6 +269,36 @@ pub fn scroll_target(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegio
         }
     }
     None
+}
+
+/// The scroll view a wheel at `point` scrolls: the innermost whose viewport or
+/// track holds the point, else one that `always_handle_scrolling`.
+pub fn wheel_target<'a>(
+    regions: &'a [HitRegion],
+    report: &crate::state::LayoutReport,
+    point: [f64; 2],
+) -> Option<&'a HitRegion> {
+    let within = |rect: Option<[f64; 4]>| {
+        rect.is_some_and(|[x, y, w, h]| {
+            point[0] >= x && point[0] < x + w && point[1] >= y && point[1] < y + h
+        })
+    };
+    let views = || {
+        regions
+            .iter()
+            .rev()
+            .filter(|region| region.kind == HitKind::ScrollView)
+            .filter_map(|region| Some((region, report.scrolls.get(&region.key)?)))
+    };
+    if let Some(top) = regions.iter().rev().find(|region| region.contains(point))
+        && top.kind == HitKind::Modal
+    {
+        return None;
+    }
+    views()
+        .find(|(_, metrics)| within(metrics.port) || within(metrics.track))
+        .or_else(|| views().find(|(_, metrics)| metrics.always_handle))
+        .map(|(region, _)| region)
 }
 
 /// Focusable, enabled regions in document order (the Tab/arrow sequence).

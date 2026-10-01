@@ -168,12 +168,16 @@ impl UiPresentationRuntime {
         let Some((_, metrics)) = chat.scroll else {
             return;
         };
-        let step = if pixels {
-            f64::from(delta / chat.scale.max(f32::EPSILON))
+        let max = metrics.max_offset();
+        chat.from_bottom = if pixels {
+            (chat.from_bottom + f64::from(delta / chat.scale.max(f32::EPSILON))).clamp(0.0, max)
         } else {
-            f64::from(delta) * metrics.speed
+            let at = ScrollMetrics {
+                offset: (max - chat.from_bottom).clamp(0.0, max),
+                ..metrics
+            };
+            max - at.wheel_target(f64::from(delta))
         };
-        chat.from_bottom = (chat.from_bottom + step).clamp(0.0, metrics.max_offset());
     }
 }
 
@@ -200,14 +204,13 @@ impl ChatScreen {
             focused: self.edit_box.clone(),
             ..ViewState::default()
         };
-        // Unscrolled, the view's `jump_to_bottom_on_update` keeps it on the newest line.
-        if let Some((key, metrics)) = &self.scroll
-            && self.from_bottom > 0.0
-        {
-            view.scroll.insert(
-                key.clone(),
-                (metrics.max_offset() - self.from_bottom).max(0.0),
-            );
+        // The view's `jump_to_bottom_on_update` jumps to the newest line whenever
+        // its maximum changes; otherwise it keeps `from_bottom`.
+        if let Some((key, metrics)) = &self.scroll {
+            let max = metrics.max_offset();
+            view.scroll
+                .insert(key.clone(), (max - self.from_bottom).max(0.0));
+            view.scroll_max.insert(key.clone(), max);
         }
         view
     }

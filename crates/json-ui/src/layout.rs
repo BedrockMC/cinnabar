@@ -18,11 +18,12 @@ use crate::anim::{Fade, Inherited, Motions};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
-use crate::widgets::{self, ScrollFrame};
+use crate::widgets;
 
 mod grid;
 mod measure;
 mod place;
+mod scroll;
 mod size;
 mod stack;
 
@@ -31,6 +32,7 @@ pub use measure::MeasureCache;
 pub(crate) use size::{font_scale, localizes};
 
 use place::{motion, place_by_anchor};
+use scroll::{Adjusted, ScrollFrame};
 
 /// A virtual-pixel rectangle, top-left origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -255,7 +257,14 @@ fn place_subtree<'a>(
         own: motions.own.clone(),
     };
     let absolute_layer = parent_layer.saturating_add(layer(control));
-    let scroll = ScrollFrame::open(control, &key, ctx.state);
+    let mut scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    // A bar panel hidden or shown again frees or takes back its space: solve again.
+    if let Some(frame) = &scroll
+        && let Some(panel) = frame.panel_address()
+        && measure::suppress(panel, frame.panel_hidden)
+    {
+        scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    }
     let opened_scroll = scroll.is_some();
     if let Some(frame) = scroll {
         ctx.scrolls.push(frame);
@@ -278,7 +287,7 @@ fn place_subtree<'a>(
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
     for (child, mut child_rect) in placed {
-        let mut child_shown = !hidden.contains(&child.name)
+        let child_shown = !hidden.contains(&child.name)
             && !priority
                 .get(measure::child_index(control, child))
                 .copied()
@@ -295,16 +304,10 @@ fn place_subtree<'a>(
             child_rect = place_by_anchor(child, *area_rect, size, [0.0; 2], ctx.env);
             clip_for_child = *area_clip;
         }
-        if let Some(frame) = ctx.scrolls.last_mut() {
-            if frame.metrics.is_none() && child.name == frame.content {
-                child_rect = frame.place_content(rect, child_rect);
-            } else if child.name == frame.bar_box
-                && child.control_type.as_deref() == Some("scrollbar_box")
-            {
-                match frame.place_box(rect, child_rect) {
-                    Some(placed) => child_rect = placed,
-                    None => child_shown = false,
-                }
+        for frame in ctx.scrolls.iter().rev() {
+            if let Adjusted::Moved(moved) = frame.adjust(child, child_rect) {
+                child_rect = moved;
+                break;
             }
         }
         if opened_slider
@@ -447,8 +450,9 @@ pub(crate) fn own_visible(control: &ResolvedControl) -> bool {
     }
 }
 
+/// Own visibility, less a scroll bar panel hidden while its content fits.
 fn visible(control: &ResolvedControl) -> bool {
-    own_visible(control)
+    own_visible(control) && !measure::suppressed(control)
 }
 
 // --- axis helpers -----------------------------------------------------------
