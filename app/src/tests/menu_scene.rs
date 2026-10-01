@@ -135,7 +135,13 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
     world
         .resource_mut::<crate::ui_runtime::presentation::UiPresentationRuntime>()
         .set_server_ui_pack(&ServerUiPack {
-            ui_layers: vec![vec![("ui/pause_screen.json".into(), opaque_pause.to_vec())]],
+            ui_layers: vec![vec![
+                (
+                    "ui/_ui_defs.json".into(),
+                    br#"{"ui_defs":["ui/pause_screen.json"]}"#.to_vec(),
+                ),
+                ("ui/pause_screen.json".into(), opaque_pause.to_vec()),
+            ]],
             ..Default::default()
         });
     world.run_system_cached(prepare_actor_render_frame).unwrap();
