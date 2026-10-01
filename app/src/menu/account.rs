@@ -274,7 +274,7 @@ mod tests {
             command
         } else {
             let mut command = Command::new("sh");
-            command.args(["-c", "sleep 30"]);
+            command.args(["-c", "exec sleep 30"]);
             command
         };
         let child = command.stdout(Stdio::piped()).spawn().unwrap();
