@@ -62,7 +62,7 @@ fn control(name: &str, body: Value) -> ResolvedControl {
         control_type,
         base: None,
         unresolved_base: None,
-        properties: map.into_iter().collect::<BTreeMap<_, _>>(),
+        properties: map.into_iter().collect::<BTreeMap<_, _>>().into(),
         children,
         factory: None,
     }
