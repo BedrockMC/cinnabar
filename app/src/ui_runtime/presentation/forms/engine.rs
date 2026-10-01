@@ -637,8 +637,8 @@ impl Painter<'_> {
             pixel(x, w, uv.u1),
             pixel(y, h, uv.v1),
         ];
-        let style = u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE
-            | u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR;
+        let style = (u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE)
+            | (u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR);
         Some(if style == 0 {
             UiVisual::Sprite {
                 texture_page: page,
