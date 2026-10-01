@@ -1,3 +1,6 @@
+#ifdef ENHANCED_SHADOW
+#import cinnabar::enhanced_caster::caster_clip
+#endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
@@ -201,6 +204,9 @@ fn vertex(
     var out: VertexOutput;
     let world = vec3<f32>(origin.value.xyz) + local_position;
     out.clip_position = view.clip_from_world * vec4(world, 1.0);
+#ifdef ENHANCED_SHADOW
+    out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
+#endif
     out.uv = vec2<f32>(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
@@ -352,3 +358,17 @@ fn fragment_blend(
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 #endif
 }
+#ifdef ENHANCED_SHADOW
+
+// Alpha-tested terrain depth; opaque texels cast independently of baked light.
+@fragment
+fn fragment_shadow(in: VertexOutput) {
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    if (in.frame_blend > 0.0) {
+        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+    }
+    if (sampled.a < 0.5 || in.visible == 0u) { discard; }
+}
+#endif

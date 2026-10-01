@@ -10,6 +10,11 @@ mod frame;
 mod gpu;
 mod materials;
 mod post;
+mod shadows;
+#[cfg(test)]
+mod validation;
+pub(crate) use frame::CascadeBounds;
+use shadows::{EnhancedShadowLabel, EnhancedShadowNode, EnhancedShadowPipelines};
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -56,7 +61,7 @@ pub const MAX_SHADOW_CASCADES: u32 = 3;
 impl Default for EnhancedRendering {
     fn default() -> Self {
         Self {
-            shadows: false,
+            shadows: true,
             shadow_resolution: 1024,
             shadow_cascades: 2,
             shadow_distance: 96.0,
@@ -115,13 +120,15 @@ impl Plugin for EnhancedRenderPlugin {
         };
         render_app
             .init_resource::<EnhancedGpu>()
-            .init_resource::<EnhancedPostPipelines>();
+            .init_resource::<EnhancedPostPipelines>()
+            .init_resource::<EnhancedShadowPipelines>();
         install_graph(render_app.world_mut());
     }
 }
 
 /// Orders the world grade before the hand and UI.
 fn install_graph(world: &mut World) {
+    let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
     let post = ViewNodeRunner::<EnhancedPostNode>::new(EnhancedPostNode, world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
@@ -129,6 +136,8 @@ fn install_graph(world: &mut World) {
     let Some(graph) = graphs.get_sub_graph_mut(Core3d) else {
         return;
     };
+    graph.add_node(EnhancedShadowLabel, shadow);
+    graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
     graph.add_node(EnhancedPostLabel, post);
     if graph.get_node_state(Node3d::Bloom).is_ok() {
         // Bevy normally blooms after UI; move its world-only pass earlier.
