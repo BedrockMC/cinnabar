@@ -1,4 +1,4 @@
-//! The open chat through vanilla `chat.chat_screen`: the history as the screen
+//! The open chat through the active pack's `chat.chat_screen`: history as the screen
 //! controller's `messages_factory`, the edit box, command suggestions and usage
 //! lines as the `auto_complete` collection, and the send and back buttons.
 //! Editing, completion and sending stay with `UiRuntime`.

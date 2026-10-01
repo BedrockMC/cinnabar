@@ -1,6 +1,8 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
 //! gitignored, so each test skips (not fails) when it is absent.
 
+#[path = "support/java_pack.rs"]
+mod java_pack;
 mod support;
 
 use std::path::PathBuf;
@@ -128,20 +130,6 @@ fn model() -> HudModel {
     }
 }
 
-/// The built-in Java HUD pack's files, as the client layers them.
-fn java_pack() -> Vec<(String, Vec<u8>)> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/java-hud");
-    ["ui/hud_screen.json", "ui/scoreboards.json"]
-        .into_iter()
-        .map(|path| {
-            (
-                path.to_owned(),
-                std::fs::read(dir.join(path)).expect("pack file"),
-            )
-        })
-        .collect()
-}
-
 fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
     render_with(model, false)
 }
@@ -154,7 +142,7 @@ fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
     let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
     if java {
-        let files = java_pack();
+        let files = java_pack::files();
         let before = catalog.diagnostics().len();
         catalog.apply_pack(
             files
@@ -417,7 +405,7 @@ fn hud_phase_timing() {
         return;
     };
     let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
-    let files = java_pack();
+    let files = java_pack::files();
     catalog.apply_pack(
         files
             .iter()

@@ -5,6 +5,10 @@
 {
   "namespace": "hud",
 
+  "hud_screen": {
+    "render_only_when_topmost": false
+  },
+
   "centered_gui_elements_at_bottom_middle": {
     "type": "panel",
     "anchor_from": "bottom_middle",
@@ -302,10 +306,11 @@
       {
         "java_chat": {
           "type": "panel",
-          "size": [ 330, 90 ],
+          "size": [ "$cinnabar_chat_width", 90 ],
+          "max_size": [ "100%", "100%" ],
           "anchor_from": "bottom_left",
           "anchor_to": "bottom_left",
-          "offset": [ 0, -40 ],
+          "offset": [ 0, "$cinnabar_chat_history_bottom" ],
           "controls": [
             { "chat_panel@hud.chat_panel": {} }
           ]
