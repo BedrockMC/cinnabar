@@ -537,7 +537,7 @@ fn default_layout_rejects_arbitrary_touch_binding_and_frame_ids() {
 }
 
 #[test]
-fn keyboard_carriers_preserve_the_unnormalized_digital_device_sample() {
+fn keyboard_carriers_keep_digital_buttons_separate_from_analogue_axes() {
     let mut router = SemanticInputRouter::default();
     router
         .route(DeviceFrame {
@@ -553,7 +553,7 @@ fn keyboard_carriers_preserve_the_unnormalized_digital_device_sample() {
 
     assert_eq!(snapshot.input_mode, semantic_input::InputMode::KeyboardMouse);
     assert_eq!(snapshot.raw_movement, [1.0, 1.0]);
-    assert_eq!(snapshot.analogue_movement, [1.0, 1.0]);
+    assert_eq!(snapshot.analogue_movement, [0.0, 0.0]);
     assert!((snapshot.movement[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.000_001);
     assert!((snapshot.movement[1] - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.000_001);
 }

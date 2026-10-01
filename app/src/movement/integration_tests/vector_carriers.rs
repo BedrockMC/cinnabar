@@ -134,7 +134,7 @@ fn tick_snapshots_map_each_device_carrier_to_its_wire_field() {
     let keyboard_style = PhysicsMovementSample {
         move_vector: [1.0, 1.0],
         raw_move_vector: [1.0, 1.0],
-        analogue_move_vector: [1.0, 1.0],
+        analogue_move_vector: [0.0, 0.0],
         ..completed_sample(41, [1.0, 64.0, 2.0])
     };
     let gamepad_style = PhysicsMovementSample {
