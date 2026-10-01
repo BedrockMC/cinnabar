@@ -35,6 +35,7 @@ pub(super) async fn send_startup_failure(
     control_events: &mpsc::Sender<NetworkControlEvent>,
     shutdown: &mut watch::Receiver<bool>,
     error: impl std::fmt::Display,
+    server_disconnect: Option<protocol::ServerDisconnectEvent>,
 ) {
     let _ = send_control_event_or_cancel(
         control_events,
@@ -42,7 +43,7 @@ pub(super) async fn send_startup_failure(
         NetworkControlEvent::Failed {
             message: error.to_string(),
             decode_error_count: 0,
-            server_disconnect: None,
+            server_disconnect,
             origin: NetworkFailureOrigin::Startup,
         },
     )

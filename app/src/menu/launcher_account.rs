@@ -16,19 +16,21 @@ use std::{
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
-    self, Account, AuthState as CoreAuth, FeaturedServer, Friend, Gathering, Home, Message,
-    MessageEvent, Profile, Realm, ServerPing,
+    self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
+    Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
 use super::view::{
-    ButtonArt, InboxItem, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
+    ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
     ServerDetails,
 };
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
+/// How often events refresh while a join is under way, so its progress bar moves smoothly.
+const JOIN_EVENT_INTERVAL: Duration = Duration::from_millis(250);
 /// How often the catalog lists refresh (they can take tens of seconds).
 const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
 /// How often the screen feeds are read; the core answers from its catalog cache
@@ -53,7 +55,9 @@ struct Snapshot {
     home: Option<Home>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
-    pack_download: Option<launcher_control::PackDownload>,
+    connect: Option<ConnectProgress>,
+    /// The menu is connecting, so the events worker polls faster.
+    joining: bool,
 }
 
 /// The menu's link to a running core's launcher control endpoint.
@@ -129,7 +133,16 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     let mut ping_due = Instant::now();
     let mut pinged: Vec<String> = Vec::new();
     loop {
-        match requests.recv_timeout(EVENT_INTERVAL) {
+        let joining = shared
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .joining;
+        let interval = if joining {
+            JOIN_EVENT_INTERVAL
+        } else {
+            EVENT_INTERVAL
+        };
+        match requests.recv_timeout(interval) {
             Ok(()) => {
                 let _ = runtime.block_on(launcher_control::sign_out(socket_dir));
             }
@@ -150,7 +163,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                     snapshot.last_disconnect = Some(disconnect.sequence);
                 }
                 snapshot.last_disconnect.get_or_insert(0);
-                snapshot.pack_download = events.pack_download;
+                snapshot.connect = events.connect;
                 snapshot.account = Some(events.auth);
             });
         }
@@ -364,6 +377,19 @@ fn auth_state(account: &Account) -> Option<AuthState> {
     })
 }
 
+fn join_stage(progress: &ConnectProgress) -> JoinStage {
+    match progress.stage {
+        ConnectStage::Realm => JoinStage::Realm,
+        ConnectStage::Connecting => JoinStage::Connecting,
+        ConnectStage::Packs => JoinStage::Packs {
+            done: progress.packs_done,
+            total: progress.packs_total,
+            received_bytes: progress.received_bytes,
+            total_bytes: progress.total_bytes,
+        },
+    }
+}
+
 fn friend_card(friend: &Friend) -> MenuFriendCard {
     let members = if friend.max_members > 0 {
         format!("{}/{} players", friend.members, friend.max_members)
@@ -383,12 +409,12 @@ impl AccountControl for LauncherAccount {
         self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
     }
 
-    fn pack_download(&mut self) -> Option<(u64, u64)> {
-        self.with(|snapshot| {
-            snapshot
-                .pack_download
-                .map(|download| (download.received_bytes, download.total_bytes))
-        })
+    fn join_stage(&mut self) -> Option<JoinStage> {
+        self.with(|snapshot| snapshot.connect.as_ref().map(join_stage))
+    }
+
+    fn set_joining(&mut self, joining: bool) {
+        self.with(|snapshot| snapshot.joining = joining);
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
@@ -631,6 +657,31 @@ mod tests {
         assert_eq!(card.address, "a.test:19132");
         assert_eq!(details.news, "Update");
         assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
+    }
+
+    #[test]
+    fn core_connect_stages_map_to_join_stages() {
+        let progress = |stage| ConnectProgress {
+            stage,
+            packs_done: 1,
+            packs_total: 2,
+            received_bytes: 3,
+            total_bytes: 4,
+        };
+        assert_eq!(join_stage(&progress(ConnectStage::Realm)), JoinStage::Realm);
+        assert_eq!(
+            join_stage(&progress(ConnectStage::Connecting)),
+            JoinStage::Connecting
+        );
+        assert_eq!(
+            join_stage(&progress(ConnectStage::Packs)),
+            JoinStage::Packs {
+                done: 1,
+                total: 2,
+                received_bytes: 3,
+                total_bytes: 4
+            }
+        );
     }
 
     #[test]

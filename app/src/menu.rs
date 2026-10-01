@@ -35,12 +35,13 @@ pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 pub(crate) use view::{
-    ButtonArt, InboxItem, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard,
-    MenuView, PingInfo, SavedServer,
+    ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
+    MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
 };
 use view::{CatalogFile, MenuFeeds};
 #[cfg(test)]
 pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
+pub(crate) use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
 use std::{
     fs,
@@ -111,6 +112,9 @@ pub(crate) enum MenuDialog {
 pub(crate) enum MenuField {
     Name,
     Address,
+    /// The local-world create or edit screen's name field.
+    WorldName,
+    WorldSeed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -147,6 +151,8 @@ pub(crate) enum MenuAction {
     SettingsSection(u8),
     Respawn,
     PlayLocalWorld(usize),
+    /// A press on a local-world screen (create, edit, templates) or its modals.
+    LocalWorld(LocalWorldAction),
     SignOut,
     /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
     SettingsVolume(u8, u8),
@@ -215,6 +221,7 @@ pub(crate) struct MenuRuntime {
     respawn_requested: bool,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
+    local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
     sign_out_requested: bool,
@@ -318,6 +325,7 @@ impl MenuRuntime {
             respawn_requested: false,
             local_worlds: Vec::new(),
             local_world_requested: None,
+            local_ui: Default::default(),
             control_auth: None,
             sign_out_requested: false,
             store_actions: Vec::new(),
@@ -408,6 +416,7 @@ impl MenuRuntime {
             disconnect_message: self.disconnect_message.clone(),
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
+            local: self.local_view(),
             volumes: self.volumes,
             feeds: self.feeds.clone(),
             store: self.store_snapshot.clone(),
@@ -585,10 +594,9 @@ impl MenuRuntime {
         {
             self.focused = index;
         }
-        match action {
-            MenuAction::AddName => self.focus_field(MenuField::Name),
-            MenuAction::AddAddress => self.focus_field(MenuField::Address),
-            _ => {
+        match action.text_field() {
+            Some(field) => self.focus_field(field),
+            None => {
                 self.field = None;
                 self.text_selected = false;
             }
@@ -755,6 +763,7 @@ impl MenuRuntime {
                     self.local_world_requested = Some(index);
                 }
             }
+            MenuAction::LocalWorld(action) => self.queue_local_action(action),
         }
     }
 
@@ -774,6 +783,15 @@ impl MenuRuntime {
 
     fn go_back(&mut self) {
         if self.dialog.take().is_some() {
+            return;
+        }
+        if self.local_screen_open() {
+            self.queue_local_action(LocalWorldAction::Back);
+            return;
+        }
+        // Back on the join progress screen is its cancel button, where vanilla offers one.
+        if self.connecting {
+            self.disconnect_requested |= self.feeds.join.cancellable();
             return;
         }
         match self.screen {

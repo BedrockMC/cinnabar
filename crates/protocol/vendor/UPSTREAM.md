@@ -35,6 +35,12 @@ shared-codec and Jolyne transport hardening.
 gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that
 conditional. The normalization input fingerprints include this patch.
 
+Jolyne's client ends a join-time Disconnect with `ProtocolError::ServerDisconnect`,
+keeping the server's reason and message texts for the disconnect screen.
+
+The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
+lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.
+
 Generated protocol reservations are normalized locally after generation by
 `tools/protocol-normalize/normalize.py` and its pinned neutral-only manifest.
 Numeric packet selectors, enum values, union discriminators and field ordinals

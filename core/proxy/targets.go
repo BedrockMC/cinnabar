@@ -2,14 +2,13 @@ package proxy
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -19,11 +18,17 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"github.com/sandertv/gophertunnel/minecraft/service/signaling"
-	"github.com/sandertv/gophertunnel/minecraft/service/signaling/messaging"
 	"golang.org/x/oauth2"
+)
+
+// A raw NetherNet target names its signaling and ID: NetherNetTargetPrefix + signaling + "/" + id.
+const (
+	NetherNetTargetPrefix       = "nethernet/"
+	NetherNetSignalingJSONRPC   = "jsonrpc"
+	NetherNetSignalingWebSocket = "websocket"
 )
 
 const (
@@ -55,17 +60,18 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 type resolvedUpstreamTarget struct {
 	address    string
 	network    minecraft.Network
-	clientData loginClientData
+	clientData func(*login.ClientData) // applies a joined session's login fields
 	xbl        *xsapi.Client
 	playFab    *playfab.Client
 	friend     interface{ Close() error }
+	realm      bool // vanilla words a failed Realm join as its own
 }
 
-// loginClientData contains only the field that must survive a P2P join. It is
-// applied to the normal downstream-derived Dialer after target resolution.
-type loginClientData struct {
-	nonce string
-}
+// realmJoinError marks a failure while joining a Realm.
+type realmJoinError struct{ err error }
+
+func (e *realmJoinError) Error() string { return e.err.Error() }
+func (e *realmJoinError) Unwrap() error { return e.err }
 
 func (target *resolvedUpstreamTarget) close() error {
 	if target == nil {
@@ -104,14 +110,26 @@ func resolveUpstreamTarget(ctx context.Context, address string, src oauth2.Token
 	case strings.HasPrefix(strings.ToLower(address), realmTargetPrefix),
 		strings.HasPrefix(strings.ToLower(address), realmCodePrefix):
 		return resolveRealmTarget(resolveContext, address, src, logger)
-	case isRawNetherNetAddress(address):
+	case strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix):
 		return resolveRawNetherNetTarget(resolveContext, address, src, logger)
+	case isRawNetherNetAddress(address):
+		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
 		return &resolvedUpstreamTarget{address: address, network: minecraft.RakNet{}}, nil
 	}
 }
 
 func resolveRealmTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+	reportConnectStage(ctx, ConnectStageRealm)
+	target, err := lookupRealmTarget(ctx, address, src, logger)
+	if err != nil {
+		return nil, &realmJoinError{err: err}
+	}
+	target.realm = true
+	return target, nil
+}
+
+func lookupRealmTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	client := realms.NewClient(src, nil)
 	var realmAddress realms.RealmAddress
 	var err error
@@ -144,7 +162,7 @@ func resolveRealmTarget(ctx context.Context, address string, src oauth2.TokenSou
 	if !ok {
 		return nil, fmt.Errorf("realm %q uses unsupported network protocol %q", address, realmAddress.NetworkProtocol)
 	}
-	return newNetherNetTarget(ctx, realmAddress.Address, connectionType, "", src, nil, logger)
+	return newNetherNetTarget(ctx, realmAddress.Address, connectionType, src, nil, logger)
 }
 
 func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
@@ -177,23 +195,18 @@ func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSo
 	if err != nil {
 		return nil, fmt.Errorf("join friend world %q: %w", xuid, err)
 	}
-	connection := session.Connection()
-	if err := connection.Validate(); err != nil {
-		_ = session.Close()
-		return nil, fmt.Errorf("validate friend world connection: %w", err)
-	}
-	connectionType := connection.Type
-	networkID := ""
-	if connectionType == p2p.ConnectionTypeSignalingOverJSONRPC {
-		networkID = string(connection.NetherNetID)
-	}
-	target, err := newNetherNetTarget(ctx, connection.Address(), connectionType, networkID, src, xbl, logger)
+	joined, err := p2p.ClientTargetFromSession(session)
 	if err != nil {
 		_ = session.Close()
+		return nil, fmt.Errorf("join friend world %q: %w", xuid, err)
+	}
+	target, err := newNetherNetTarget(ctx, joined.DialAddress(), joined.ConnectionType(), src, xbl, logger)
+	if err != nil {
+		_ = joined.Close()
 		return nil, err
 	}
-	target.clientData.nonce = session.Nonce()
-	target.friend = session
+	target.clientData = joined.ApplyClientData
+	target.friend = joined
 	closeXBLOnError = false
 	return target, nil
 }
@@ -220,10 +233,27 @@ func selectFriendWorld(worlds []p2p.World, ownerXUID string) *p2p.World {
 }
 
 func resolveRawNetherNetTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	return newNetherNetTarget(ctx, address, p2p.ConnectionTypeSignalingOverJSONRPC, "", src, nil, logger)
+	id, connectionType, err := parseNetherNetTarget(address)
+	if err != nil {
+		return nil, err
+	}
+	return newNetherNetTarget(ctx, id, connectionType, src, nil, logger)
 }
 
-func newNetherNetTarget(ctx context.Context, address string, connectionType int, networkID string, src oauth2.TokenSource, xbl *xsapi.Client, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+// parseNetherNetTarget splits nethernet/<signaling>/<id>; the signaling is never inferred from the ID.
+func parseNetherNetTarget(address string) (string, int, error) {
+	signaling, id, _ := strings.Cut(address[len(NetherNetTargetPrefix):], "/")
+	connectionType, ok := map[string]int{
+		NetherNetSignalingJSONRPC:   p2p.ConnectionTypeSignalingOverJSONRPC,
+		NetherNetSignalingWebSocket: p2p.ConnectionTypeSignalingOverWebSocket,
+	}[strings.ToLower(signaling)]
+	if !ok || !isRawNetherNetAddress(id) {
+		return "", 0, fmt.Errorf("invalid NetherNet target %q: want %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
+	}
+	return id, connectionType, nil
+}
+
+func newNetherNetTarget(ctx context.Context, address string, connectionType int, src oauth2.TokenSource, xbl *xsapi.Client, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	if xbl == nil {
 		var err error
 		xbl, err = newXSAPIClient(ctx, src)
@@ -236,12 +266,7 @@ func newNetherNetTarget(ctx context.Context, address string, connectionType int,
 		_ = xbl.Close()
 		return nil, err
 	}
-	network := scopedNetherNetNetwork{
-		serviceSource:  serviceSource,
-		connectionType: connectionType,
-		networkID:      networkID,
-		logger:         logger,
-	}
+	network := newScopedNetherNetNetwork(serviceSource, connectionType, logger)
 	return &resolvedUpstreamTarget{
 		address: address,
 		network: network,
@@ -304,39 +329,47 @@ func isRawNetherNetAddress(address string) bool {
 	return uuid.Validate(address) == nil
 }
 
+// scopedNetherNetNetwork dials through gophertunnel's NetherNet so authenticated dials present
+// the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
 type scopedNetherNetNetwork struct {
-	serviceSource  service.TokenSource
-	connectionType int
-	networkID      string
-	logger         *slog.Logger
+	signal minecraft.DialSignalingFunc // fresh signaling per dial; the transport owns and closes it
+	logger *slog.Logger
+}
+
+func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType int, logger *slog.Logger) scopedNetherNetNetwork {
+	signal := func(ctx context.Context, _ string) (minecraft.SignalingConn, error) {
+		conn, err := p2p.DialClientSignaling(ctx, connectionType, serviceSource, p2p.ClientSignalingOptions{Log: logger})
+		if err != nil {
+			return nil, fmt.Errorf("establish NetherNet signaling: %w", err)
+		}
+		return conn, nil
+	}
+	return scopedNetherNetNetwork{signal: signal, logger: logger}
+}
+
+// transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
+// go-nethernet still verifies a server identity that is present.
+func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
+	return minecraft.NetherNet{
+		DialSignaling: network.signal,
+		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true},
+	}
 }
 
 func (network scopedNetherNetNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
-	var (
-		signalingConn nethernetSignalingConn
-		err           error
-	)
-	switch network.connectionType {
-	case p2p.ConnectionTypeSignalingOverJSONRPC:
-		signalingConn, err = messaging.Dialer{
-			NetworkID:                  network.networkID,
-			IgnoreDeliveryNotification: true,
-			Log:                        network.logger,
-		}.DialContext(ctx, network.serviceSource)
-	case p2p.ConnectionTypeSignalingOverWebSocket:
-		signalingConn, err = signaling.Dialer{Log: network.logger}.DialContext(ctx, network.serviceSource)
-	default:
-		return nil, fmt.Errorf("unsupported NetherNet connection type %d", network.connectionType)
-	}
+	return wrapNetherNetDial(network.transport().DialContext(ctx, address))
+}
+
+// DialContextIdentityProvider is used by minecraft.Dialer for authenticated dials.
+func (network scopedNetherNetNetwork) DialContextIdentityProvider(ctx context.Context, address, token string, key *ecdsa.PrivateKey, identityProvider string) (net.Conn, error) {
+	return wrapNetherNetDial(network.transport().DialContextIdentityProvider(ctx, address, token, key, identityProvider))
+}
+
+func wrapNetherNetDial(conn net.Conn, err error) (net.Conn, error) {
 	if err != nil {
-		return nil, fmt.Errorf("establish NetherNet signaling: %w", err)
-	}
-	conn, err := (nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true}).DialContext(ctx, address, signalingConn)
-	if err != nil {
-		_ = signalingConn.Close()
 		return nil, fmt.Errorf("dial NetherNet: %w", err)
 	}
-	return attachSignalingLifetime(conn, signalingConn), nil
+	return conn, nil
 }
 
 func (scopedNetherNetNetwork) PingContext(context.Context, string) ([]byte, error) {
@@ -345,33 +378,4 @@ func (scopedNetherNetNetwork) PingContext(context.Context, string) ([]byte, erro
 
 func (scopedNetherNetNetwork) Listen(string) (minecraft.NetworkListener, error) {
 	return nil, errors.New("NetherNet listen is unsupported")
-}
-
-type nethernetSignalingConn interface {
-	nethernet.Signaling
-	io.Closer
-}
-
-type signalingBackedConn struct {
-	net.Conn
-	signaling nethernetSignalingConn
-	once      sync.Once
-}
-
-func attachSignalingLifetime(conn net.Conn, signalingConn nethernetSignalingConn) net.Conn {
-	if transport, ok := conn.(*nethernet.Conn); ok {
-		go func() {
-			<-transport.Context().Done()
-			_ = signalingConn.Close()
-		}()
-		return transport
-	}
-	return &signalingBackedConn{Conn: conn, signaling: signalingConn}
-}
-
-func (conn *signalingBackedConn) Close() error {
-	var connErr, signalingErr error
-	conn.once.Do(func() { signalingErr = conn.signaling.Close() })
-	connErr = conn.Conn.Close()
-	return errors.Join(connErr, signalingErr)
 }

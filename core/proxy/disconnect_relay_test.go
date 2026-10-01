@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -169,12 +170,21 @@ func TestRelayPreLoginDisconnectForwardsServerReason(t *testing.T) {
 	}
 }
 
-func TestRelayPreLoginDisconnectIgnoresOtherErrors(t *testing.T) {
+// A failed join reads as vanilla's lang key; a cancelled one gets no packet.
+func TestRelayPreLoginDisconnectWordsJoinFailuresAsVanilla(t *testing.T) {
 	var rec recordingDisconnecter
-	relayPreLoginDisconnect(&rec, errors.New("i/o timeout"))
+	relayPreLoginDisconnect(&rec, errors.New("dial raknet: i/o timeout"))
+	relayPreLoginDisconnect(&rec, &realmJoinError{err: errors.New("remote peer notified connection failure (code: 37)")})
+	relayPreLoginDisconnect(&rec, fmt.Errorf("dial: %w", errResourcePackTransferTooLarge))
+	relayPreLoginDisconnect(&rec, &preparationCancellationError{cause: context.Canceled})
 	relayPreLoginDisconnect(&rec, nil)
-	if len(rec.got) != 0 {
-		t.Fatalf("forwarded %#v for a non-disconnect error", rec.got)
+	var got []string
+	for _, pk := range rec.got {
+		got = append(got, pk.Message)
+	}
+	want := []string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("messages = %q, want %q", got, want)
 	}
 }
 
