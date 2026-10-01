@@ -3,6 +3,8 @@ use super::*;
 use render::UiRenderInput;
 use ui::DpiScale;
 
+const SAMPLE_COMPONENT_ENV: &str = "CINNABAR_MOD_SNAPSHOT_COMPONENT";
+
 /// A real engine over a small HUD fixture, independent of local carrier files.
 fn presentation() -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
@@ -144,7 +146,7 @@ fn mod_spike_snapshot_with_real_carrier() {
     };
     let before = frame(&mut presentation);
     snapshot::write(&before, "mod-spike-before");
-    let mut guest = std::env::var_os("CINNABAR_MOD_SNAPSHOT_COMPONENT")
+    let mut guest = std::env::var_os(SAMPLE_COMPONENT_ENV)
         .map(|path| mod_host::ModHost::load(std::path::Path::new(&path)).unwrap());
     let text = guest
         .as_ref()
@@ -171,8 +173,8 @@ fn mod_spike_snapshot_with_real_carrier() {
 #[test]
 #[ignore = "requires the real carrier and a compiled sample; prints offline CPU timings"]
 fn mod_spike_offline_frame_overhead() {
-    let path = std::env::var_os("CINNABAR_MOD_SNAPSHOT_COMPONENT")
-        .expect("set CINNABAR_MOD_SNAPSHOT_COMPONENT to the compiled sample");
+    let path = std::env::var_os(SAMPLE_COMPONENT_ENV)
+        .unwrap_or_else(|| panic!("set {SAMPLE_COMPONENT_ENV} to the compiled sample"));
     let mut host = mod_host::ModHost::load(std::path::Path::new(&path)).unwrap();
     let mut vanilla = pack_harness::engine_presentation().expect("real UI carrier required");
     let mut modded = pack_harness::engine_presentation().expect("real UI carrier required");
