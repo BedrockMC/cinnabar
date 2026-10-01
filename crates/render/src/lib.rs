@@ -15,6 +15,8 @@ mod hand_rig_render;
 mod item_geometry;
 mod lightning;
 mod lightning_render;
+mod nametag;
+mod nametag_render;
 mod panorama;
 mod panorama_render;
 mod particles;
@@ -148,6 +150,10 @@ pub use lightning::{
     BoltRecord, BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, LightningScene,
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
+};
+pub use nametag::{
+    MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
+    NAMETAG_TEXT_LIFT_BLOCKS, NametagRecord, NametagScene,
 };
 pub use panorama::{
     MAX_PANORAMA_FACE_SIDE, PANORAMA_WGSL, PanoramaFaces, PanoramaScene, PanoramaView,

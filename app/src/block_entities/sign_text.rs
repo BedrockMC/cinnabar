@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 
 use assets::CompiledFontCatalog;
 use render::TEXT_CELL;
-use ui::{BedrockColor, TextLayoutCache, TextLayoutRequest, TextStyle, UiScale};
+use ui::{TextLayoutCache, TextLayoutRequest, TextStyle, UiScale};
 
 const LINES: usize = 4;
 const LINE_PITCH_PIXELS: i32 = 10;
@@ -61,39 +61,6 @@ impl SignTextSpec {
             [red, green, blue].map(|channel| (u16::from(channel) * 2 / 5) as u8)
         }
     }
-}
-
-fn style_rgb(color: BedrockColor) -> Option<[u8; 3]> {
-    Some(match color {
-        BedrockColor::White => return None,
-        BedrockColor::Black => [0, 0, 0],
-        BedrockColor::DarkBlue => [0, 0, 170],
-        BedrockColor::DarkGreen => [0, 170, 0],
-        BedrockColor::DarkAqua => [0, 170, 170],
-        BedrockColor::DarkRed => [170, 0, 0],
-        BedrockColor::DarkPurple => [170, 0, 170],
-        BedrockColor::Gold => [255, 170, 0],
-        BedrockColor::Gray => [170, 170, 170],
-        BedrockColor::DarkGray => [85, 85, 85],
-        BedrockColor::Blue => [85, 85, 255],
-        BedrockColor::Green => [85, 255, 85],
-        BedrockColor::Aqua => [85, 255, 255],
-        BedrockColor::Red => [255, 85, 85],
-        BedrockColor::LightPurple => [255, 85, 255],
-        BedrockColor::Yellow => [255, 255, 85],
-        BedrockColor::MinecoinGold => [221, 214, 5],
-        BedrockColor::MaterialQuartz => [227, 212, 209],
-        BedrockColor::MaterialIron => [206, 202, 202],
-        BedrockColor::MaterialNetherite => [68, 58, 59],
-        BedrockColor::MaterialRedstone => [151, 22, 7],
-        BedrockColor::MaterialCopper => [180, 104, 77],
-        BedrockColor::MaterialGold => [222, 177, 45],
-        BedrockColor::MaterialEmerald => [17, 160, 54],
-        BedrockColor::MaterialDiamond => [44, 186, 168],
-        BedrockColor::MaterialLapis => [35, 98, 180],
-        BedrockColor::MaterialAmethyst => [154, 92, 198],
-        BedrockColor::MaterialResin => [237, 105, 52],
-    })
 }
 
 /// Width of `text` in design pixels as one unwrapped line, or `None` if the font cannot lay it out.
@@ -161,7 +128,7 @@ pub(super) fn rasterize(
                 ],
                 source: glyph.uv,
                 page: usize::from(glyph.page),
-                rgb: style_rgb(glyph.style.color).unwrap_or_else(|| spec.base_rgb()),
+                rgb: glyph.style.color.rgb().unwrap_or_else(|| spec.base_rgb()),
             });
         }
     }
