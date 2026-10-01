@@ -90,6 +90,21 @@ fn screen(children: Vec<ResolvedControl>) -> ResolvedControl {
 }
 
 #[test]
+fn decorative_modal_parent_keeps_its_child_input_scope() {
+    let root = screen(vec![ctrl(
+        "decoration",
+        "panel",
+        json!({"size": [100, 50], "modal": true}),
+        vec![button()],
+    )]);
+    let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), &ViewState::default());
+    let hits = hit_regions(&laid);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].modal_root.as_deref(), Some("/root/decoration"));
+    assert_eq!(hits[0].pressed.as_deref(), Some("button.go"));
+}
+
+#[test]
 fn button_shows_exactly_the_state_child_for_its_interaction() {
     let root = screen(vec![button()]);
     let shown = |state: &ViewState| {

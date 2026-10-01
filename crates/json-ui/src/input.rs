@@ -249,13 +249,14 @@ fn collect(
         Some((name, at)) => (Some(at as usize), Some(name)),
         None => (index, collection),
     };
-    let input = InputComponent::read(control);
-    let modal_root = if input.modal {
+    let modal = widgets::bound_bool(control, "modal").unwrap_or(false);
+    let modal_root = if modal {
         Some(node.key.as_str())
     } else {
         modal_root
     };
-    if let Some(kind) = kind_of(node, &input) {
+    if let Some(kind) = kind_of(node, modal) {
+        let input = InputComponent::read(control);
         let text = |key: &str| {
             control
                 .properties
@@ -339,7 +340,7 @@ fn collect(
     chain.truncate(entered);
 }
 
-fn kind_of(node: &LaidOut, input: &InputComponent) -> Option<HitKind> {
+fn kind_of(node: &LaidOut, modal: bool) -> Option<HitKind> {
     let control = node.control;
     if control.control_type.as_deref() != Some("scrollbar_box")
         && crate::layout::draggable_axes(control) != [false; 2]
@@ -355,7 +356,7 @@ fn kind_of(node: &LaidOut, input: &InputComponent) -> Option<HitKind> {
         "scroll_view" => HitKind::ScrollView,
         "scrollbar_box" => HitKind::ScrollBox,
         "scroll_track" => HitKind::ScrollTrack,
-        "input_panel" if input.modal => HitKind::Modal,
+        "input_panel" if modal => HitKind::Modal,
         "input_panel" => HitKind::Panel,
         "custom" if control.properties.contains_key("collection_index") => HitKind::Custom,
         _ => return None,
