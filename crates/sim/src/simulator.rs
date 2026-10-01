@@ -312,7 +312,7 @@ impl Simulator {
                     }
                 }
                 crate::SurfaceResponse::Bed if bounces => {
-                    (-0.66 * pre_collision_velocity.y).min(1.0)
+                    -0.75 * pre_collision_velocity.y
                 }
                 _ => 0.0,
             };
