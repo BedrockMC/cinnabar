@@ -24,7 +24,7 @@ use serde_json::Value;
 
 use crate::env::Env;
 use crate::predicate::{self, Bindings, Scalar};
-use crate::tree::{ControlRef, Factory, ResolvedControl};
+use crate::tree::{ControlRef, ResolvedControl};
 
 mod data;
 mod feed;
@@ -33,6 +33,7 @@ mod source;
 
 pub use data::{CollectionItem, DataSource, scoped_key};
 pub use feed::FactoryItem;
+use feed::{collection_name, is_collection_factory};
 use grid::{grid_capacity, grid_cell_index, grid_template, static_grid_columns};
 use source::Src;
 
@@ -186,11 +187,17 @@ impl<'a> Binder<'a> {
         };
         let control = src.get();
         let mut scope = scope.clone();
-        if let (Some(panel), Some(index)) = (
-            scope.panel.clone(),
-            src.prop("collection_index").and_then(Value::as_u64),
-        ) {
-            scope.indices.insert(panel, index as usize);
+        // Only a direct child of a collection panel is an item, unless it opts
+        // out; `-1` names no index.
+        if let Some(panel) = scope.panel.take()
+            && src.prop("ignoreCollectionItem") != Some(&Value::Bool(true))
+            && let Some(index) = src
+                .prop("collection_index")
+                .and_then(Value::as_i64)
+                .filter(|index| *index != -1)
+        {
+            let index = usize::try_from(index).unwrap_or(usize::MAX);
+            scope.indices.insert(panel, index);
         }
         let mut own = self.gather_own(control, &scope);
         if control.control_type.as_deref() == Some("grid")
@@ -198,13 +205,7 @@ impl<'a> Binder<'a> {
         {
             own.insert("#grid_number_size".to_owned(), Scalar::Num(capacity as f64));
         }
-        if let Some(name) = control
-            .properties
-            .get("collection_name")
-            .and_then(Value::as_str)
-        {
-            scope.panel = Some(name.to_owned());
-        }
+        scope.panel = collection_name(control).map(str::to_owned);
         // A hidden control's subtree builds only once views show it, so a
         // pack's many title-selected layouts cost only the one on screen.
         if hidden(control, &own) {
@@ -245,28 +246,59 @@ impl<'a> Binder<'a> {
                 &seeded
             }
         };
-        if is_collection_factory(control) {
-            self.expand_factory(control, own, scope)
+        let created = if is_collection_factory(control) {
+            Some(self.expand_factory(control, own, scope))
         } else if let Some(reference) = self.screen_factory(control) {
-            self.resolve(&reference)
-                .map(|resolved| vec![self.build(Src::root(resolved), scope)])
-                .unwrap_or_default()
-        } else if let Some(items) = self.feed(control) {
-            self.expand_feed(control, items, scope)
-        } else if let Some(template) = grid_template(control) {
-            self.expand_grid(src, own, &template, scope)
+            Some(
+                self.resolve(&reference)
+                    .map(|resolved| vec![self.build(Src::root(resolved), scope)])
+                    .unwrap_or_default(),
+            )
         } else {
-            let columns = static_grid_columns(control);
-            (0..control.children.len())
-                .map(|index| {
-                    let child = src.child(index);
-                    match columns.and_then(|columns| grid_cell_index(child.get(), columns)) {
-                        Some(at) => self.build(with_index(child, at), scope),
-                        None => self.build(child, scope),
-                    }
-                })
-                .collect()
+            self.feed(control)
+                .map(|items| self.expand_feed(control, items, scope))
+        };
+        if let Some(factory) = &control.factory {
+            // A `control_name` template clears the declaration-time children.
+            let template = factory.control_name.is_some();
+            if let Some(created) = created {
+                let literals = if template {
+                    Vec::new()
+                } else {
+                    self.literal_children(src, scope)
+                };
+                return factory.place(literals, created);
+            }
+            if template {
+                return Vec::new();
+            }
         }
+        if let Some(template) = grid_template(control) {
+            return self.expand_grid(src, own, &template, scope);
+        }
+        self.literal_children(src, scope)
+    }
+
+    /// The authored children; a `type: "factory"` child's creations join its
+    /// parent after the siblings.
+    fn literal_children(&mut self, src: &Src, scope: &Scope) -> Vec<Node> {
+        let control = src.get();
+        let columns = static_grid_columns(control);
+        let mut nodes = Vec::with_capacity(control.children.len());
+        let mut created = Vec::new();
+        for index in 0..control.children.len() {
+            let child = src.child(index);
+            let mut node = match columns.and_then(|columns| grid_cell_index(child.get(), columns)) {
+                Some(at) => self.build(with_index(child, at), scope),
+                None => self.build(child, scope),
+            };
+            if node.src.get().control_type.as_deref() == Some("factory") {
+                created.append(&mut node.children);
+            }
+            nodes.push(node);
+        }
+        nodes.extend(created);
+        nodes
     }
 
     fn resolve(&mut self, reference: &ControlRef) -> Option<Arc<ResolvedControl>> {
@@ -313,6 +345,14 @@ impl<'a> Binder<'a> {
             let Some(binding) = binding.as_object() else {
                 continue;
             };
+            // A constant expression the resolver already folded is the bound value.
+            if let (Some(value), Some(target)) = (
+                binding.get("binding_name").and_then(constant),
+                binding.get("binding_name_override").and_then(Value::as_str),
+            ) {
+                own.insert(target.to_owned(), value);
+                continue;
+            }
             match binding.get("binding_type").and_then(Value::as_str) {
                 Some("collection") => {
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
@@ -402,10 +442,16 @@ impl<'a> Binder<'a> {
                         Some(value) => {
                             own.insert(target_name(binding, source), value);
                         }
-                        // A controller answers a visibility flag it does not know
-                        // with `false`; text and other values stay unbound.
-                        None if self.data.strict && target_name(binding, source) == "#visible" => {
-                            own.insert("#visible".to_owned(), Scalar::Bool(false));
+                        // A controller answers a visibility or toggle flag it does
+                        // not know (a closed dropdown) with `false`; text and other
+                        // values stay unbound.
+                        None if self.data.strict
+                            && matches!(
+                                target_name(binding, source).as_str(),
+                                "#visible" | "#toggle_state"
+                            ) =>
+                        {
+                            own.insert(target_name(binding, source), Scalar::Bool(false));
                         }
                         None => {}
                     }
@@ -444,51 +490,6 @@ impl<'a> Binder<'a> {
         if let Some(Scalar::Num(selected)) = self.data.globals.get(&format!("#radio:{name}")) {
             own.insert("#toggle_state".to_owned(), Scalar::Bool(*selected == index));
         }
-    }
-
-    fn expand_factory(
-        &mut self,
-        control: &ResolvedControl,
-        own: &BTreeMap<String, Scalar>,
-        scope: &Scope,
-    ) -> Vec<Node> {
-        let Some(factory) = &control.factory else {
-            return Vec::new();
-        };
-        let Some(collection) = control
-            .properties
-            .get("collection_name")
-            .and_then(Value::as_str)
-        else {
-            return Vec::new();
-        };
-        let key = self.collection_key(collection, scope);
-        let roles: Vec<Option<String>> = match self.data.collections.get(&key) {
-            Some(items) => items.iter().map(|item| item.role.clone()).collect(),
-            None => unsupplied_roles(control, factory, own),
-        };
-        let mut nodes = Vec::with_capacity(roles.len());
-        for (index, role) in roles.iter().enumerate() {
-            let role = role.as_deref();
-            let Some(reference) = select_control(factory, role) else {
-                self.diagnostics.push(format!(
-                    "{}: factory has no control for role {role:?}",
-                    control.name
-                ));
-                continue;
-            };
-            let reference = reference.clone();
-            let Some(resolved) = self.resolve_scoped(&reference, control, &BTreeMap::new()) else {
-                self.diagnostics.push(format!(
-                    "{}: factory control {reference} unresolved",
-                    control.name
-                ));
-                continue;
-            };
-            let child_scope = scope.enter(collection, key.clone(), index);
-            nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope));
-        }
-        nodes
     }
 
     /// The data key for `name` in `scope`: a list registered for the innermost enclosing item wins
@@ -674,37 +675,6 @@ fn breadth_first<'a>(root: &'a Node, name: &str) -> Option<&'a BTreeMap<String, 
 
 /// Rounds of `view` evaluation; each lets values flow one more control hop.
 const VIEW_PASSES: usize = 4;
-/// Most instances a factory makes for a collection the screen does not supply.
-const MAX_UNSUPPLIED_ITEMS: usize = 64;
-
-/// Roles for a collection the screen does not supply, from `#collection_length`:
-/// an array of control ids makes one instance per id; a number makes that many
-/// only for a `control_name` template, since an id-mapped factory needs ids.
-fn unsupplied_roles(
-    control: &ResolvedControl,
-    factory: &Factory,
-    own: &BTreeMap<String, Scalar>,
-) -> Vec<Option<String>> {
-    let ids = control
-        .properties
-        .get("property_bag")
-        .and_then(|bag| bag.get("#collection_length"))
-        .and_then(Value::as_array);
-    if let Some(ids) = ids {
-        return ids
-            .iter()
-            .take(MAX_UNSUPPLIED_ITEMS)
-            .map(|id| id.as_str().map(str::to_owned))
-            .collect();
-    }
-    match own.get("#collection_length") {
-        Some(Scalar::Num(length)) if *length > 0.0 && factory.control_name.is_some() => {
-            vec![None; (*length as usize).min(MAX_UNSUPPLIED_ITEMS)]
-        }
-        _ => Vec::new(),
-    }
-}
-
 /// Read a control's `bindings` array; a non-array (or absent) yields nothing.
 fn bindings_of(control: &ResolvedControl) -> &[Value] {
     match control.properties.get("bindings") {
@@ -719,22 +689,6 @@ fn target_name(binding: &serde_json::Map<String, Value>, source: &str) -> String
         .and_then(Value::as_str)
         .unwrap_or(source)
         .to_owned()
-}
-
-fn is_collection_factory(control: &ResolvedControl) -> bool {
-    control.factory.is_some() && control.properties.contains_key("collection_name")
-}
-
-fn select_control<'a>(factory: &'a Factory, role: Option<&str>) -> Option<&'a ControlRef> {
-    if let Some(role) = role
-        && let Some(reference) = factory.control_ids.get(role)
-    {
-        return Some(reference);
-    }
-    factory
-        .control_name
-        .as_ref()
-        .or_else(|| factory.control_ids.values().next())
 }
 
 /// Replace `#`-referencing property values and binding-target properties with their
@@ -882,6 +836,14 @@ fn with_index(src: Src, index: usize) -> Src {
 fn nonempty_text(scalar: Option<&Scalar>) -> Option<String> {
     match scalar {
         Some(Scalar::Text(text)) if !text.is_empty() => Some(text.clone()),
+        _ => None,
+    }
+}
+
+fn constant(value: &Value) -> Option<Scalar> {
+    match value {
+        Value::Bool(flag) => Some(Scalar::Bool(*flag)),
+        Value::Number(number) => number.as_f64().map(Scalar::Num),
         _ => None,
     }
 }

@@ -31,11 +31,11 @@ pub(super) const TITLE_PANEL_OVERLAY: &[u8] = br#"{
 /// Drops the "©Mojang AB" footer from the start and play screens; Cinnabar is not a Mojang product.
 pub(super) const NO_COPYRIGHT_OVERLAYS: [(&str, &[u8]); 2] = [
     (
-        "ui/cinnabar_start.json",
+        "ui/start_screen.json",
         br#"{ "namespace": "start", "copyright": { "ignored": true } }"#,
     ),
     (
-        "ui/cinnabar_play.json",
+        "ui/play_screen.json",
         br#"{ "namespace": "play", "copyright": { "ignored": true } }"#,
     ),
 ];
