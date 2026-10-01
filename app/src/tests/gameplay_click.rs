@@ -82,6 +82,8 @@ fn gameplay_app(menu_visible: bool) -> App {
         .init_resource::<crate::semantic_controls::SemanticTouchTargets>()
         .init_resource::<RuntimeSettings>()
         .init_resource::<ClientWorld>()
+        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
