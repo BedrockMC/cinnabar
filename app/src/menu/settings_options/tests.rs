@@ -409,3 +409,42 @@ fn glint_renderer_factors_follow_each_persisted_percent() {
     assert_eq!(menu.ui_glint_settings().strength, 0.0);
     assert_eq!(menu.ui_glint_settings().speed, 0.75);
 }
+
+#[test]
+fn settings_handoff_preserves_native_window_and_viewport_preferences() {
+    use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
+    use bevy::prelude::{App, ResMut, Update};
+
+    /// Applies the runtime handoff without flushing host configuration.
+    fn sync(mut menu: ResMut<MenuRuntime>, settings: ResMut<RuntimeSettings>) {
+        menu.settings_dirty = false;
+        menu.sync_user_settings(Some(settings));
+    }
+    let mut menu = MenuRuntime::new(true, 3, "Settings test".into());
+    menu.sync_fullscreen(true);
+    menu.set_option(index("gamma") as u16, 80);
+    let mut runtime = RuntimeSettings::default();
+    let mut user = ui::UserSettings::default();
+    user.video.ui_scale = 3.0;
+    runtime.replace_user_settings(user);
+    let mut app = App::new();
+    app.insert_resource(menu)
+        .insert_resource(runtime)
+        .add_systems(Update, sync);
+    app.update();
+    let settings = app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1;
+    assert!(settings.video.fullscreen);
+    assert_eq!(settings.video.ui_scale, 3.0);
+    assert_eq!(settings.video.brightness, 0.8);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().gui_scale_preference(),
+        Some(3)
+    );
+    let saved = SettingsOptions::decode(br#"{"values":{"gui_scale":4,"full_screen":0}}"#).unwrap();
+    assert!(!saved.values.contains_key("gui_scale"));
+    assert!(!saved.values.contains_key("full_screen"));
+}

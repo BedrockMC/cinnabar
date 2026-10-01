@@ -574,6 +574,12 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
 
 const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";
 
+/// Supplies the production settings context for offline layout checks.
+#[cfg(test)]
+pub(super) fn settings_target() -> (&'static str, Context) {
+    (SETTINGS_SCREEN, settings_context(base_context()))
+}
+
 /// Every launcher screen's context before its own vars.
 fn base_context() -> Context {
     retail_context().with_flag("can_quit", true).with_var(

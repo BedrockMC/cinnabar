@@ -133,10 +133,7 @@ impl MenuRuntime {
             StorageAction::RequestClear
             | StorageAction::RequestDelete
             | StorageAction::RequestScreenshots => {
-                if self.settings_return_to_pause
-                    || self.connecting
-                    || self.session_directory.is_some()
-                {
+                if self.over_world() || self.connecting || self.session_directory.is_some() {
                     Arc::make_mut(&mut self.storage).error =
                         Some("Leave the world before clearing downloaded packs.".into());
                     self.dialog = Some(MenuDialog::StorageError);
@@ -158,10 +155,7 @@ impl MenuRuntime {
                     return;
                 }
                 self.dialog = None;
-                if self.settings_return_to_pause
-                    || self.connecting
-                    || self.session_directory.is_some()
-                {
+                if self.over_world() || self.connecting || self.session_directory.is_some() {
                     return;
                 }
                 let selected = self.storage.selected;
