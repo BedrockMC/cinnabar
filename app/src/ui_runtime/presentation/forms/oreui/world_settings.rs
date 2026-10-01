@@ -267,7 +267,7 @@ fn game_modes(
         canvas,
         game_mode_description(current),
         area,
-        y + canvas.r(5.2) + space(canvas, 1),
+        y + canvas.r(5.2) + space(canvas, 2),
     )
 }
 
@@ -304,7 +304,7 @@ fn difficulties(
         canvas,
         difficulty_description(current),
         area,
-        y + canvas.r(5.2) + space(canvas, 1),
+        y + canvas.r(5.2) + space(canvas, 2),
     )
 }
 

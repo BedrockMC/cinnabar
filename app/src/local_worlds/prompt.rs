@@ -40,7 +40,7 @@ pub(crate) struct Prompt {
 impl Prompt {
     pub(crate) fn title(self) -> &'static str {
         match self.kind {
-            PromptKind::DockerMissing => "Docker is needed for default worlds",
+            PromptKind::DockerMissing => "Docker is needed",
             PromptKind::DockerNotRunning => "Docker is not running",
         }
     }

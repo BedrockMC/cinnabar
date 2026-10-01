@@ -69,9 +69,6 @@ const GUI_SCALE_STEPS: f64 = 4.0;
 /// The modal progress screen joining a server shows (bare `progress_screen` has no content).
 const JOIN_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
 
-/// The dirt-backed loading screen vanilla shows while a local world starts.
-const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.overworld_loading_progress_screen";
-
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
@@ -135,7 +132,9 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
     let mut context = base_context();
     let reference = if let Some(progress) = &view.local.progress {
         local_world_progress(&mut data, translate, progress);
-        LOCAL_WORLD_PROGRESS_SCREEN
+        // The world-modal progress panel the overworld loading screen also wraps; its dirt
+        // backdrop needs block textures the menu engine does not carry.
+        JOIN_PROGRESS_SCREEN
     } else if let Some((received, total)) = view.feeds.pack_download.filter(|_| view.connecting) {
         pack_download(&mut data, translate, received, total);
         JOIN_PROGRESS_SCREEN
@@ -831,7 +830,7 @@ mod tests {
         let mut opening = view(MenuScreen::Play);
         opening.connecting = true;
         opening.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
-        assert_eq!(reference(&opening), Some(LOCAL_WORLD_PROGRESS_SCREEN));
+        assert_eq!(reference(&opening), Some(JOIN_PROGRESS_SCREEN));
         let cancel = action_for(&opening, &region(HitKind::Button, Some("button.menu_exit")));
         assert_eq!(
             cancel,
