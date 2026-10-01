@@ -193,6 +193,7 @@ impl UiPresentationRuntime {
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
                 splash: renderer.splash(&translate),
                 now: self.menu_seconds,
+                clocks: Some(&self.scene_clock),
                 ..engine::ScreenArt::default()
             };
             match renderer.render_screen(
@@ -220,6 +221,7 @@ impl UiPresentationRuntime {
         };
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        let mut sounds = Vec::new();
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
         for region in frame.hits.iter().filter(|region| region.enabled) {
@@ -235,8 +237,10 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, frame.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
+                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
+        self.form_presentation.menu_sounds = sounds;
         // A launcher dialog opens the vanilla popup and takes over the input.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
@@ -300,6 +304,7 @@ impl UiPresentationRuntime {
         let origin = [self.safe_area.left(), self.safe_area.top()];
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
             let action = match region.pressed.as_deref() {
                 Some("popup_dialog.left_button") => confirm,
@@ -311,8 +316,10 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
+                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
+        self.form_presentation.menu_sounds = sounds;
         Some((hits, keys))
     }
 }

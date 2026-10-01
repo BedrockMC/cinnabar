@@ -13,6 +13,8 @@ use json_ui::{Catalog, Context, DataSource, FormRender, ResolvedControl, ViewSta
 
 /// Screens kept at once: a menu, its overlay and a dialog popup.
 const SLOTS: usize = 4;
+/// Resolved trees of `cache_screen` screens kept beyond [`SLOTS`].
+const CACHED_SLOTS: usize = 8;
 
 /// Everything a screen's layout depends on besides the catalog's contents.
 pub(super) struct ScreenKey<'a> {
@@ -59,6 +61,18 @@ struct Resolved {
     catalog: Arc<Catalog>,
     context: Context,
     root: Arc<ResolvedControl>,
+    /// The screen asks to stay cached once closed (`cache_screen`).
+    cached: bool,
+}
+
+/// Makes room for one more tree: the oldest whose screen does not ask to stay
+/// cached leaves first, as vanilla retains `cache_screen` visual trees.
+fn make_room(entries: &mut Vec<Resolved>) {
+    let uncached = entries.iter().filter(|entry| !entry.cached).count();
+    if uncached >= SLOTS || entries.len() >= SLOTS + CACHED_SLOTS {
+        let index = entries.iter().position(|entry| !entry.cached).unwrap_or(0);
+        entries.remove(index);
+    }
 }
 
 #[derive(Default)]
@@ -248,13 +262,12 @@ fn resolved_in(
     let root = Arc::new(resolve()?);
     let mut entries = lock(list);
     if !entries.iter().any(same) {
-        if entries.len() >= SLOTS {
-            entries.remove(0);
-        }
+        make_room(&mut entries);
         entries.push(Resolved {
             reference: reference.to_owned(),
             catalog: Arc::clone(catalog),
             context: context.clone(),
+            cached: json_ui::ScreenSettings::from_properties(&root.properties).cache_screen,
             root: Arc::clone(&root),
         });
     }
@@ -401,5 +414,29 @@ mod tests {
             })
             .unwrap();
         assert!(Arc::ptr_eq(&once, &again));
+    }
+
+    // A `cache_screen` tree survives the ordinary trees resolved after it.
+    #[test]
+    fn cache_screen_trees_outlive_ordinary_slots() {
+        let cache = ScreenCache::default();
+        let catalog = Arc::new(Catalog::default());
+        let context = Context::desktop();
+        let tree = |cached: bool| {
+            let mut root = render().unwrap().bound;
+            root.properties
+                .insert("cache_screen".to_owned(), serde_json::Value::Bool(cached));
+            Some(root)
+        };
+        cache.resolved("pause.pause_screen", &catalog, &context, || tree(true));
+        for index in 0..SLOTS + 1 {
+            let reference = format!("screen.{index}");
+            cache.resolved(&reference, &catalog, &context, || tree(false));
+        }
+        cache
+            .resolved("pause.pause_screen", &catalog, &context, || {
+                panic!("evicted")
+            })
+            .unwrap();
     }
 }

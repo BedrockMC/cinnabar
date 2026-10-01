@@ -290,7 +290,9 @@ fn emit_own(
 fn draws_for(node: &LaidOut, env: &LayoutEnv) -> Vec<(Rect, Draw)> {
     let (control, rect) = (node.control, node.rect);
     match control.control_type.as_deref() {
-        Some("image") => match texture_path(control) {
+        Some("image") => match control.properties.get("texture").and_then(Value::as_str) {
+            // An empty texture (an unset binding) draws nothing, as in vanilla.
+            Some("") => Vec::new(),
             Some(path) => sprite_draws(control, rect, path, node.clip_ratio, env),
             None => solid_or_empty(control, rect),
         },
@@ -311,15 +313,6 @@ fn draws_for(node: &LaidOut, env: &LayoutEnv) -> Vec<(Rect, Draw)> {
     }
 }
 
-/// An `image`'s texture; empty (an unset binding) draws nothing, as in vanilla.
-fn texture_path(control: &ResolvedControl) -> Option<&str> {
-    control
-        .properties
-        .get("texture")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-}
-
 fn sprite_draws(
     control: &ResolvedControl,
     rect: Rect,
@@ -333,6 +326,13 @@ fn sprite_draws(
         grayscale: crate::widgets::bound_bool(control, "grayscale") == Some(true),
     };
     let meta = env.textures.texture(path);
+    // Without `allow_debug_missing_texture` an unresolved image draws nothing
+    // rather than the host's missing-texture image.
+    if meta.is_none()
+        && control.properties.get("allow_debug_missing_texture") == Some(&Value::Bool(false))
+    {
+        return Vec::new();
+    }
     crate::sprite::quads(control, rect, meta.as_ref(), clip_ratio)
         .into_iter()
         .map(|(dest, uv)| {
@@ -403,12 +403,18 @@ const STRUCTURAL: [&str; 11] = [
 
 fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
     let renderer = control.properties.get("renderer")?.as_str()?.to_owned();
-    let data = control
+    let mut data: BTreeMap<String, Value> = control
         .properties
         .iter()
         .filter(|(key, _)| !STRUCTURAL.contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+    // The renderer also reads its `property_bag` options (`is_durability`, …).
+    if let Some(Value::Object(bag)) = control.properties.get("property_bag") {
+        for (key, value) in bag.iter().filter(|(key, _)| !key.starts_with('#')) {
+            data.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
     Some(Draw::Custom { renderer, data })
 }
 

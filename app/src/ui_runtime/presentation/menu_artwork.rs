@@ -20,7 +20,8 @@ use image::{ImageReader, Limits, imageops::FilterType};
 use super::IconRef;
 
 const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_SOURCE_SIDE: u32 = 4_096;
+/// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
+const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
@@ -43,7 +44,7 @@ pub(super) struct MenuArtworkAtlas {
     pub(super) refs: HashMap<String, IconRef>,
 }
 
-/// Decoded artwork: straight-alpha RGBA8 and its size.
+/// Decoded artwork: straight-alpha RGBA8, which the UI shader premultiplies, and its size.
 struct Artwork {
     width: u32,
     height: u32,

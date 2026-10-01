@@ -67,17 +67,25 @@ impl UiPresentationRuntime {
             overlay: &[],
         };
         let screen = &mut self.form_presentation.hud.toast;
-        renderer.draw(ScreenArt::default(), inputs, out, |env, root| {
-            screen.render_with(
-                TOAST_SCREEN,
-                &catalog,
-                &context,
-                data,
-                (root, px),
-                env,
-                &json_ui::ViewState::default(),
-            )
-        })?;
+        renderer.draw(
+            ScreenArt {
+                now: self.menu_seconds,
+                ..ScreenArt::default()
+            },
+            inputs,
+            out,
+            |env, root| {
+                screen.render_with(
+                    TOAST_SCREEN,
+                    &catalog,
+                    &context,
+                    data,
+                    (root, px),
+                    env,
+                    &json_ui::ViewState::default(),
+                )
+            },
+        )?;
         Ok(())
     }
 }

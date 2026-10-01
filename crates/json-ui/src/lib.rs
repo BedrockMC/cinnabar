@@ -30,6 +30,7 @@ mod merge;
 mod pack;
 mod predicate;
 mod resolve;
+mod scene;
 mod screens;
 mod sidecar;
 mod sprite;
@@ -67,8 +68,8 @@ pub use hud::{
     hud_context, hud_data_source,
 };
 pub use input::{
-    HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
-    scroll_target, wheel_target,
+    ControlSound, HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test,
+    region_rect, scroll_target, wheel_target,
 };
 pub use label::{LabelShape, TextOptions};
 pub use layout::{
@@ -77,8 +78,10 @@ pub use layout::{
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
+pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};
 pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
+    screen_settings,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
 pub use sprite::nine_slice;
@@ -154,12 +157,21 @@ impl Context {
             ("requires_xbl_signin_to_play", false),
             ("is_editor_mode_enabled", false),
         ];
-        platform
+        let context = platform
             .iter()
             .chain(constant)
             .fold(Self::desktop(), |context, (name, value)| {
                 context.with_flag(name, *value)
-            })
+            });
+        // `SceneFactory::_createSafeZoneSizeVar` at the desktop defaults (safe
+        // zone 1, screen position 0) sizes every buffer zero along its axis.
+        let vertical = || serde_json::json!(["100%", 0]);
+        let horizontal = || serde_json::json!([0, "100%"]);
+        context
+            .with_var("top_vertical_safezone_size", vertical())
+            .with_var("bottom_vertical_safezone_size", vertical())
+            .with_var("left_horizontal_safezone_size", horizontal())
+            .with_var("right_horizontal_safezone_size", horizontal())
     }
 
     /// The variables set so far, keyed without `$`.
