@@ -42,7 +42,7 @@ below is opt-in and off unless you, or the server you join, turn it on.
 
 | | What it is | Status |
 | --- | --- | --- |
-| **Cinnabar Experiences** | A Roblox-style engine. Servers ship their own sandboxed client code, with custom UI, rendering, input and game logic, so a server can build something that doesn't play like Minecraft at all. Vanilla players still get normal Bedrock. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
+| **Cinnabar Experiences** | A Roblox-style engine. Servers ship sandboxed client code that can replace the UI, rendering, input and game logic, turning a server into an entirely different game. Vanilla players still get normal Bedrock. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
 | **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
 | **Mods** | Client mods as WebAssembly components with versioned, capability-scoped APIs. Each mod runs sandboxed with no file, network or account access, and hot-reloads. A crashing mod is disabled instead of taking down the client. | Developer preview: [docs/modding-spike.md](docs/modding-spike.md) |
 | **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
