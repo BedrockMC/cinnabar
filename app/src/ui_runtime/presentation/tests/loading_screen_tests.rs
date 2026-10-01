@@ -112,6 +112,9 @@ fn loading_screen_pack_snapshot() {
     else {
         return;
     };
+    if let Ok(layout) = crate::install_layout::InstallLayout::discover() {
+        presentation.set_vanilla_texture_root(layout.vanilla_pack_dir());
+    }
     presentation.set_server_ui_pack(&pack);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let input = presentation
