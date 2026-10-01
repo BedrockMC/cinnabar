@@ -162,9 +162,13 @@ fn home_to_play_from_a_fresh_launch() {
     });
     bench.view.pressed = None;
     let after: Vec<_> = (0..5).map(|_| bench.frame()).collect();
-    // Settings after the start screen idled long enough to prepare it.
+    // Settings after the start screen idled (still drawing frames) long enough to prepare it.
     bench.after(to(MenuScreen::Home));
-    std::thread::sleep(Duration::from_secs(3));
+    let idled = Instant::now();
+    while idled.elapsed() < Duration::from_secs(3) {
+        bench.frame();
+        std::thread::sleep(Duration::from_millis(16));
+    }
     let settings = bench.after(to(MenuScreen::Settings));
     if std::env::var_os("CINNABAR_MENU_LATENCY").is_some() {
         let list = |frames: &[Duration]| frames.iter().map(ms).collect::<Vec<_>>().join(" ");
@@ -179,6 +183,10 @@ fn home_to_play_from_a_fresh_launch() {
     assert!(
         *worst < idle * 4 + Duration::from_millis(16),
         "{worst:?} vs {idle:?}"
+    );
+    assert!(
+        settings < Duration::from_millis(16),
+        "prepared settings: {settings:?}"
     );
 }
 
@@ -284,6 +292,11 @@ fn menu_input_frames_cost_about_an_idle_frame() {
         eprintln!("skipping: UI carrier absent");
         return;
     };
+    // Opened on the frame after the first start screen frame, mid-preparation.
+    let early_settings = Bench::new().map_or(Duration::ZERO, |mut early| {
+        early.frame();
+        early.after(to(MenuScreen::Settings))
+    });
     let cold_settings = bench.after(to(MenuScreen::Settings));
     let idle_settings = bench.idle(10);
     let hovers: Vec<_> = bench
@@ -344,6 +357,7 @@ fn menu_input_frames_cost_about_an_idle_frame() {
     let idle_saved = bench.idle(10);
     report(&[
         ("settings open (cold)", cold_settings),
+        ("settings open (1 home frame)", early_settings),
         ("settings open (warm)", settings_open),
         ("settings hover sweep", sweep),
         ("home to play", home_to_play),

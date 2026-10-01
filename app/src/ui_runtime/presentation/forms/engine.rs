@@ -24,7 +24,7 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 
 pub(crate) mod hud_renderers;
 mod menu_renderers;
-mod screen_cache;
+pub(super) mod screen_cache;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
@@ -101,6 +101,7 @@ impl FormEngine {
             textures: TextureSet::new(&assets, first_page),
             assets,
             catalog: Arc::clone(&base),
+            screens: screen_cache::ScreenCache::resolving_settings(&base),
             vanilla,
             base,
             context: super::menu_screens::retail_context(),
@@ -109,7 +110,6 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
-            screens: screen_cache::ScreenCache::default(),
         }
     }
 
@@ -295,9 +295,9 @@ impl FormEngine {
         &self.assets
     }
 
-    /// Resolve `reference` under `context` in the background ahead of its first open.
-    pub(super) fn prewarm(&self, reference: &'static str, context: Context) {
-        self.screens.prewarm(reference, &self.catalog, context);
+    /// Lay `screen` out in the background ahead of its first open.
+    pub(super) fn prepare(&self, screen: screen_cache::Prepared) {
+        self.screens.prepare(screen, self);
     }
 
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
