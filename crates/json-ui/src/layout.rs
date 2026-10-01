@@ -15,7 +15,7 @@
 
 use serde_json::Value;
 
-use crate::anim::{Fade, Inherited, Motions};
+use crate::anim::{Inherited, NodeAnim};
 use crate::expr::{self, AxisContext, Length, Resolved};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
@@ -30,7 +30,7 @@ mod scroll;
 pub use measure::MeasureCache;
 
 use grid::{fitted_columns, grid_children, grid_columns};
-use place::{anchor_frac, anchor_from, anchor_to, motion, offset, place_by_anchor};
+use place::{anchor_frac, anchor_from, anchor_to, control_anims, offset, place_by_anchor};
 
 /// A virtual-pixel rectangle, top-left origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,6 +79,11 @@ pub trait TextMeasure {
 /// atlas is bound later; only the metadata is needed to size and slice a sprite.
 pub trait TextureSource {
     fn texture(&self, path: &str) -> Option<TextureMeta>;
+
+    /// An aseprite sheet's frames, for `aseprite_flip_book`.
+    fn aseprite_frames(&self, _path: &str) -> Option<Vec<crate::sidecar::AsepriteFrame>> {
+        None
+    }
 }
 
 /// The measurement backends layout and emit share.
@@ -99,10 +104,8 @@ pub struct LaidOut<'a> {
     /// Absolute draw layer (the parent's plus this control's own).
     pub layer: i32,
     pub alpha: f32,
-    /// Animations scaling `alpha` at paint time, own and propagated.
-    pub fades: Vec<Fade>,
-    /// Offset animations displacing this control and its clip at paint time.
-    pub motions: Motions,
+    /// Animations reaching this control's draws, evaluated at paint time.
+    pub anim: Option<std::sync::Arc<NodeAnim>>,
     pub visible: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
@@ -235,7 +238,6 @@ fn place_subtree<'a>(
         .find(|(target, _, _)| std::ptr::eq(*target, control))
         .map(|(_, shown, mask)| (*shown, *mask));
     let own_visible = forced.map_or(visible(control), |(shown, _)| shown);
-    let (own_alpha, fades, mut inherit) = inherited.apply(control, alpha(control));
     let clips = clip_children(control);
     let child_clip = if clips {
         parent_clip.intersect(rect)
@@ -246,18 +248,11 @@ fn place_subtree<'a>(
         .ancestors
         .last()
         .map_or(parent_clip, |(_, parent, _)| *parent);
-    let mut motions = inherited.motions.clone();
-    motions
-        .own
-        .extend(motion(control, parent_rect, [rect.w, rect.h], &inherit));
-    inherit.motions = Motions {
-        clip: if clips {
-            motions.own.clone()
-        } else {
-            motions.clip.clone()
-        },
-        own: motions.own.clone(),
-    };
+    let own_anims = control_anims(control, &key, rect, parent_rect, inherited);
+    let (own_alpha, anim, inherit) =
+        inherited.apply(control, alpha(control), own_anims, clips, |node| {
+            place::sprite_rest(control, node)
+        });
     let absolute_layer = parent_layer.saturating_add(layer(control));
     let scroll = ScrollFrame::open(control, &key, ctx.state);
     let opened_scroll = scroll.is_some();
@@ -365,8 +360,7 @@ fn place_subtree<'a>(
         clip: parent_clip,
         layer: absolute_layer,
         alpha: own_alpha,
-        fades,
-        motions,
+        anim,
         visible: shown && own_visible,
         children,
     }

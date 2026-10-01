@@ -310,6 +310,7 @@ pub(crate) fn publish_ui_runtime(
             presentation.hud_frame.held_item_icon,
         );
     }
+    presentation.end_animation_frame();
     if let Err(error) = scene.publish(input, &stats) {
         hand.clear();
         record_fatal_error(

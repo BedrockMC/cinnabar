@@ -35,6 +35,30 @@ pub fn parse_texture_meta(value: &Value) -> Option<TextureMeta> {
     })
 }
 
+/// One aseprite frame: its sheet position and duration in milliseconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AsepriteFrame {
+    pub x: i64,
+    pub y: i64,
+    pub duration_ms: i64,
+}
+
+/// The `frames` of an aseprite sheet sidecar, in order.
+pub fn parse_aseprite_frames(value: &Value) -> Option<Vec<AsepriteFrame>> {
+    let frames = value.get("frames")?.as_array()?;
+    frames
+        .iter()
+        .map(|frame| {
+            let rect = frame.get("frame")?;
+            Some(AsepriteFrame {
+                x: rect.get("x")?.as_i64()?,
+                y: rect.get("y")?.as_i64()?,
+                duration_ms: frame.get("duration")?.as_i64()?,
+            })
+        })
+        .collect()
+}
+
 fn parse_nineslice(value: &Value) -> Option<NineSlice> {
     match value {
         Value::Number(number) => {

@@ -760,12 +760,12 @@ fn a_flip_book_uv_resolves_to_its_first_frame() {
     let icon = resolve(&catalog, "s.icon", &Context::desktop())
         .control
         .unwrap();
-    assert_eq!(icon.properties.get("uv"), Some(&json!([0.0, 0.0])));
-    let book = icon
+    assert_eq!(icon.properties.get("uv"), Some(&json!([0, 0])));
+    let graph = icon
         .properties
-        .get("anim_flip_book")
+        .get("anim_graph")
         .expect("the flip-book rides along");
-    assert_eq!(book["frame_count"], json!(28));
+    assert_eq!(graph["nodes"][0]["frame_count"], json!(28));
 }
 
 // `{ "$layout": {} }` with `$layout: "@s.panel"` instances that panel by name.
@@ -830,17 +830,22 @@ fn an_offset_animation_moves_the_draw_inside_a_still_clip() {
         (shine.dest.x, shine.dest.y, shine.dest.w),
         (-20.0, -20.0, 80.0)
     );
-    let at = |now: f64| {
-        let (dest, clip) = shine.animated_rects(now, None);
-        ([dest.x, dest.y], [clip.x, clip.y, clip.w, clip.h])
+    let mut animator = json_ui::Animator::new();
+    let mut at = |now: f64| {
+        let drawn = shine.animate(&mut animator, now, None, None);
+        (
+            [drawn.dest.x, drawn.dest.y],
+            [drawn.clip.x, drawn.clip.y, drawn.clip.w, drawn.clip.h],
+        )
     };
     assert_eq!(
         at(0.0).0,
         [-40.0, -40.0],
         "starts at from: -50% of 40, -25% of 80"
     );
-    assert_eq!(at(1.0).0, [-20.0, -20.0]);
+    let (dest, clip) = at(1.0);
+    assert_eq!(dest, [-20.0, -20.0]);
+    assert_eq!(clip, [0.0, 0.0, 40.0, 40.0], "the clip never moves");
     assert_eq!(at(2.5).0, [0.0, 0.0], "holds `to` through the wait");
     assert_eq!(at(3.0).0, [-40.0, -40.0], "and loops");
-    assert_eq!(at(1.0).1, [0.0, 0.0, 40.0, 40.0], "the clip never moves");
 }

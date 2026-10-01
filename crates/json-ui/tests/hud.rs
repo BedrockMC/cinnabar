@@ -242,7 +242,7 @@ fn dump(nodes: &[DrawNode]) {
                 node.dest.w,
                 node.dest.h,
                 node.alpha,
-                node.fades.len(),
+                node.anim.is_some(),
                 match &node.draw {
                     Draw::Text { text, .. } => format!("text {text:?}"),
                     Draw::Sprite { texture, .. } => texture.clone(),
@@ -304,11 +304,11 @@ fn vanilla_hud_draws_its_bound_surfaces() {
     let selected = named(&nodes, "hotbar_slot_selected_image");
     assert_eq!(selected.len(), 1);
     // Title and chat carry their fades.
-    assert!(
-        named(&nodes, "title")
-            .iter()
-            .all(|node| !node.fades.is_empty())
-    );
+    assert!(named(&nodes, "title").iter().all(|node| {
+        node.anim
+            .as_ref()
+            .is_some_and(|anim| !anim.alpha.is_empty())
+    }));
 }
 
 fn text_node<'a>(nodes: &'a [DrawNode], text: &str) -> &'a DrawNode {
