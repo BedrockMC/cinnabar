@@ -6,6 +6,7 @@ members = [
     "crates/bridge",
     "crates/client-world",
     "crates/experience-sdk",
+    "crates/experience-runtime",
     "examples/experiences/probe",
     "crates/input",
     "crates/json-ui",

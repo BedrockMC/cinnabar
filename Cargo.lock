@@ -2581,6 +2581,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "experience-sdk"
 version = "0.1.0"
 dependencies = [
