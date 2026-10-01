@@ -2,24 +2,17 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 const (
-	maxKnownPages     = 256
 	maxInventoryIDs   = 20000
 	maxEntitlementWin = 800
 )
-
-// SessionConfig is the store's per-session configuration; unknown members are ignored.
-type SessionConfig struct {
-	KnownPages     map[string]string
-	TextureVersion string
-}
 
 type inventoryCache struct {
 	ids     []string
@@ -28,159 +21,41 @@ type inventoryCache struct {
 	at      time.Time
 }
 
-var pagePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
-
-// flexInt decodes a JSON number or numeric string.
-type flexInt int64
-
-func (f *flexInt) UnmarshalJSON(b []byte) error {
-	var n json.Number
-	if len(b) > 0 && b[0] == '"' {
-		var s string
-		if err := json.Unmarshal(b, &s); err != nil {
-			return err
-		}
-		n = json.Number(strings.TrimSpace(s))
-	} else if err := json.Unmarshal(b, &n); err != nil {
-		return err
-	}
-	if v, err := n.Int64(); err == nil {
-		*f = flexInt(v)
-		return nil
-	}
-	v, err := n.Float64()
-	if err != nil {
-		return err
-	}
-	*f = flexInt(v)
-	return nil
-}
-
-func parseSessionConfig(result json.RawMessage) SessionConfig {
-	var raw struct {
-		KnownPages     map[string]string `json:"knownPages"`
-		TextureVersion string            `json:"latestTextureVersion"`
-	}
-	// A malformed member leaves its zero value; the rest of the config stays usable.
-	_ = json.Unmarshal(result, &raw)
-	cfg := SessionConfig{TextureVersion: raw.TextureVersion, KnownPages: map[string]string{}}
-	for name, path := range raw.KnownPages {
-		if len(cfg.KnownPages) >= maxKnownPages {
-			break
-		}
-		cfg.KnownPages[name] = path
-	}
-	return cfg
-}
-
-// SessionConfig returns the store session configuration, cached briefly.
-func (c *Client) SessionConfig(ctx context.Context) (SessionConfig, error) {
+// sessionConfig returns the store session configuration, cached briefly.
+func (c *Client) sessionConfig(ctx context.Context) (*marketplace.SessionConfig, error) {
 	c.mu.Lock()
 	if c.config != nil && c.cfg.Now().Sub(c.configAt) < configTTL {
-		cfg := *c.config
+		cfg := c.config
 		c.mu.Unlock()
 		return cfg, nil
 	}
 	c.mu.Unlock()
-	resp, err := c.do(ctx, "GET", pathConfig, nil)
+	cfg, err := c.cfg.Market.SessionConfig(ctx)
 	if err != nil {
-		return SessionConfig{}, err
+		return nil, err
 	}
-	result, err := resp.result()
-	if err != nil {
-		return SessionConfig{}, err
-	}
-	cfg := parseSessionConfig(result)
 	c.mu.Lock()
-	c.config, c.configAt = &cfg, c.cfg.Now()
+	c.config, c.configAt = cfg, c.cfg.Now()
+	if cfg.UserListsVersion != "" && c.lists == "" {
+		c.lists = cfg.UserListsVersion
+	}
 	c.mu.Unlock()
 	return cfg, nil
 }
 
-func parseBalances(result json.RawMessage) []Balance {
-	var raw struct {
-		Balances []struct {
-			Type   string  `json:"type"`
-			Amount flexInt `json:"amount"`
-		} `json:"virtualCurrencyBalances"`
-	}
-	_ = json.Unmarshal(result, &raw)
-	out := make([]Balance, 0, len(raw.Balances))
-	for _, b := range raw.Balances {
-		if b.Type != "" {
-			out = append(out, Balance{Currency: b.Type, Amount: int64(b.Amount)})
-		}
-	}
-	return out
-}
-
 // Balances returns the account's virtual currency balances (Minecoins among them).
 func (c *Client) Balances(ctx context.Context) ([]Balance, error) {
-	resp, err := c.do(ctx, "GET", pathBalances, nil)
+	balances, err := c.cfg.Market.Balances(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.remember(resp.header)
-	result, err := resp.result()
-	if err != nil {
-		return nil, err
-	}
-	return parseBalances(result), nil
-}
-
-var inventoryListKeys = map[string]struct{}{"entitlements": {}, "items": {}, "inventory": {}, "owned": {}}
-
-// parseInventoryIDs collects owned content ids from the inventory result; an entry is an id string or
-// an object carrying one of the known id members.
-func parseInventoryIDs(result json.RawMessage) []string {
-	var top any
-	if json.Unmarshal(result, &top) != nil {
-		return nil
-	}
-	var list []any
-	switch v := top.(type) {
-	case []any:
-		list = v
-	case map[string]any:
-		for key, member := range v {
-			if _, ok := inventoryListKeys[strings.ToLower(key)]; ok {
-				if arr, ok := member.([]any); ok {
-					list = append(list, arr...)
-				}
-			}
+	out := make([]Balance, 0, len(balances))
+	for _, b := range balances {
+		if b.Type != "" {
+			out = append(out, Balance{Currency: b.Type, Amount: b.Amount})
 		}
 	}
-	seen := map[string]struct{}{}
-	ids := make([]string, 0, len(list))
-	for _, entry := range list {
-		id := entryID(entry)
-		if id == "" || !ValidOfferID(id) {
-			continue
-		}
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, strings.ToLower(id))
-		if len(ids) >= maxInventoryIDs {
-			break
-		}
-	}
-	return ids
-}
-
-func entryID(entry any) string {
-	switch v := entry.(type) {
-	case string:
-		return v
-	case map[string]any:
-		for _, key := range []string{"id", "itemId", "offerId", "productId", "entitlementId"} {
-			if s, ok := v[key].(string); ok && s != "" {
-				return s
-			}
-		}
-	}
-	return ""
+	return out, nil
 }
 
 func (c *Client) loadInventory(ctx context.Context, force bool) (*inventoryCache, error) {
@@ -190,21 +65,29 @@ func (c *Client) loadInventory(ctx context.Context, force bool) (*inventoryCache
 		return cached, nil
 	}
 	c.mu.Unlock()
-	resp, err := c.do(ctx, "GET", pathInventory, nil)
+	inventory, err := c.cfg.Market.Inventory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.remember(resp.header)
-	result, err := resp.result()
-	if err != nil {
-		return nil, err
-	}
-	ids := parseInventoryIDs(result)
-	fresh := &inventoryCache{ids: ids, set: make(map[string]struct{}, len(ids)), at: c.cfg.Now()}
-	for _, id := range ids {
+	fresh := &inventoryCache{set: map[string]struct{}{}, at: c.cfg.Now()}
+	for _, entitlement := range inventory.Entitlements {
+		id := strings.ToLower(entitlement.ID)
+		if !ValidOfferID(id) {
+			continue
+		}
+		if _, dup := fresh.set[id]; dup {
+			continue
+		}
 		fresh.set[id] = struct{}{}
+		fresh.ids = append(fresh.ids, id)
+		if len(fresh.ids) >= maxInventoryIDs {
+			break
+		}
 	}
 	c.mu.Lock()
+	if inventory.ETag != "" {
+		c.etag = inventory.ETag
+	}
 	fresh.version = c.etag
 	c.inventory = fresh
 	c.mu.Unlock()
@@ -241,18 +124,20 @@ func (c *Client) Entitlements(ctx context.Context, offset, limit int, refresh bo
 	return out, nil
 }
 
-// RefreshInventory asks the service to refresh the account's inventory version. It is best effort:
-// a failure leaves the next inventory read to return whatever the service has.
+// RefreshInventory asks the service to rebuild the account's inventory. It is best effort: a failure
+// leaves the next inventory read to return whatever the service has.
 func (c *Client) RefreshInventory(ctx context.Context) {
-	resp, err := c.do(ctx, "POST", pathRefresh, struct{}{})
+	version, err := c.cfg.Market.RefreshInventory(ctx)
 	if err != nil {
 		return
 	}
-	c.remember(resp.header)
-	c.invalidateInventory()
+	c.mu.Lock()
+	c.etag = version
+	c.inventory = nil
+	c.mu.Unlock()
 }
 
-// MoreOffers loads the next slice of a row from a continuation token the page handed out.
+// MoreOffers loads the next items of a row from its continuation token.
 func (c *Client) MoreOffers(ctx context.Context, token string) (RowMore, error) {
 	if !ValidContinuation(token) {
 		return RowMore{}, ErrInvalidRequest
@@ -263,18 +148,19 @@ func (c *Client) MoreOffers(ctx context.Context, token string) (RowMore, error) 
 	c.mu.Lock()
 	version := c.etag
 	c.mu.Unlock()
-	resp, err := c.do(ctx, "POST", pathRowItems, layoutMoreBody{ContinuationToken: token, InventoryVersion: version})
+	items, next, err := c.cfg.Market.ContinueRow(ctx, token, version)
 	if err != nil {
 		return RowMore{}, err
 	}
-	c.remember(resp.header)
-	result, err := resp.result()
-	if err != nil {
-		return RowMore{}, err
+	more := RowMore{Offers: []Offer{}}
+	if ValidContinuation(next) {
+		more.Continuation = next
 	}
-	more := parseRowMore(result)
-	for i := range more.Offers {
-		more.Offers[i].Owned = c.owned(more.Offers[i].ID)
+	for i := range items {
+		if offer, ok := offerFromMarketItem(&items[i]); ok && len(more.Offers) < maxRowOffers {
+			offer.Owned = c.owned(offer.ID)
+			more.Offers = append(more.Offers, offer)
+		}
 	}
 	return more, nil
 }
@@ -298,60 +184,6 @@ func (c *Client) markOwned(ctx context.Context, offers []Offer) {
 	for i := range offers {
 		offers[i].Owned = c.owned(offers[i].ID)
 	}
-}
-
-// layoutBody is the request body of a layout page call.
-type layoutBody struct {
-	Entitlements     []string `json:"entitlements"`
-	InventoryVersion string   `json:"inventoryVersion"`
-	ListVersion      string   `json:"listVersion"`
-}
-
-// layoutMoreBody is the request body of a row continuation call.
-type layoutMoreBody struct {
-	ContinuationToken string `json:"continuationToken"`
-	InventoryVersion  string `json:"inventoryVersion"`
-}
-
-// Home loads a known store page by its session-config name and reduces it to rows of offers.
-func (c *Client) Home(ctx context.Context, page string) (Page, error) {
-	if !pagePattern.MatchString(page) {
-		return Page{}, ErrInvalidRequest
-	}
-	cfg, err := c.SessionConfig(ctx)
-	if err != nil {
-		return Page{}, err
-	}
-	path, ok := cfg.KnownPages[page]
-	if !ok || path == "" {
-		return Page{}, ErrUnknownPage
-	}
-	inv, err := c.loadInventory(ctx, false)
-	if err != nil {
-		return Page{}, err
-	}
-	c.mu.Lock()
-	body := layoutBody{Entitlements: inv.ids, InventoryVersion: c.etag, ListVersion: c.lists}
-	c.mu.Unlock()
-	resp, err := c.do(ctx, "POST", path, body)
-	if err != nil {
-		return Page{}, err
-	}
-	c.remember(resp.header)
-	result, err := resp.result()
-	if err != nil {
-		return Page{}, err
-	}
-	out := parsePage(page, result)
-	c.mu.Lock()
-	out.InventoryVersion = c.etag
-	c.mu.Unlock()
-	for i := range out.Rows {
-		for j := range out.Rows[i].Offers {
-			out.Rows[i].Offers[j].Owned = c.owned(out.Rows[i].Offers[j].ID)
-		}
-	}
-	return out, nil
 }
 
 var errNoOffer = errors.New("store: offer not found")

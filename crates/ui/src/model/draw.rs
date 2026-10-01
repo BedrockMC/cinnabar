@@ -592,36 +592,8 @@ fn shadow_color(color: [u8; 4]) -> [u8; 4] {
 }
 
 fn style_color(style: BedrockColor, base: [u8; 4]) -> [u8; 4] {
-    let rgb = match style {
-        BedrockColor::Base => return base,
-        BedrockColor::White => [255, 255, 255],
-        BedrockColor::Black => [0, 0, 0],
-        BedrockColor::DarkBlue => [0, 0, 170],
-        BedrockColor::DarkGreen => [0, 170, 0],
-        BedrockColor::DarkAqua => [0, 170, 170],
-        BedrockColor::DarkRed => [170, 0, 0],
-        BedrockColor::DarkPurple => [170, 0, 170],
-        BedrockColor::Gold => [255, 170, 0],
-        BedrockColor::Gray => [170, 170, 170],
-        BedrockColor::DarkGray => [85, 85, 85],
-        BedrockColor::Blue => [85, 85, 255],
-        BedrockColor::Green => [85, 255, 85],
-        BedrockColor::Aqua => [85, 255, 255],
-        BedrockColor::Red => [255, 85, 85],
-        BedrockColor::LightPurple => [255, 85, 255],
-        BedrockColor::Yellow => [255, 255, 85],
-        BedrockColor::MinecoinGold => [221, 214, 5],
-        BedrockColor::MaterialQuartz => [227, 212, 209],
-        BedrockColor::MaterialIron => [206, 202, 202],
-        BedrockColor::MaterialNetherite => [68, 58, 59],
-        BedrockColor::MaterialRedstone => [151, 22, 7],
-        BedrockColor::MaterialCopper => [180, 104, 77],
-        BedrockColor::MaterialGold => [222, 177, 45],
-        BedrockColor::MaterialEmerald => [17, 160, 54],
-        BedrockColor::MaterialDiamond => [44, 186, 168],
-        BedrockColor::MaterialLapis => [35, 98, 180],
-        BedrockColor::MaterialAmethyst => [154, 92, 198],
-        BedrockColor::MaterialResin => [237, 105, 52],
+    let Some(rgb) = style.rgb() else {
+        return base;
     };
     [rgb[0], rgb[1], rgb[2], base[3]]
 }

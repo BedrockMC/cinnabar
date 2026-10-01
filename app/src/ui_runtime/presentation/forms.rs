@@ -8,7 +8,10 @@ mod containers;
 mod engine;
 mod fallback;
 mod hud;
+mod join_progress;
 mod loading_screen;
+#[cfg(test)]
+mod menu_latency;
 mod menu_screens;
 mod menus;
 mod model;
@@ -144,7 +147,8 @@ impl UiPresentationRuntime {
     /// Points the engine's oversized server textures at their art-page copies.
     pub(super) fn refresh_full_res_art(&mut self) {
         let full_res = self
-            .menu_artwork_oversized
+            .menu_artwork_set
+            .oversized
             .iter()
             .filter_map(|(key, _)| {
                 let art = format!("{}{key}", super::menu_artwork::SERVER_ART_PREFIX);
@@ -165,17 +169,15 @@ impl UiPresentationRuntime {
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
         // Server textures too big for a server page draw from full-resolution art.
-        let oversized = self.oversized_ui_textures();
-        let same = oversized.len() == self.menu_artwork_oversized.len()
-            && oversized
-                .iter()
-                .zip(&self.menu_artwork_oversized)
-                .all(|(a, b)| a.0 == b.0);
-        if !same {
-            self.menu_artwork_oversized = oversized;
-            self.menu_artwork_dirty = true;
-            changed = true;
+        let set = super::menu_artwork::ArtworkSet {
+            paths: self.menu_artwork_set.paths.clone(),
+            oversized: self.oversized_ui_textures(),
+        };
+        if !set.same(&self.menu_artwork_set) {
+            self.menu_artwork_set = set.clone();
+            self.menu_artwork_loader.request(set);
         }
+        changed |= self.menu_artwork_loader.poll();
         if changed {
             self.rebuild_dynamic_textures();
         }

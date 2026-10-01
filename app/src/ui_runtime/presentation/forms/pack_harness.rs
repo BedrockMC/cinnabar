@@ -418,6 +418,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
         ))],
     );
     render(&mut presentation, &runtime, [1280, 720], 1.0);
+    presentation.finish_menu_artwork();
     let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
     let widths: Vec<u16> = nodes
         .iter()

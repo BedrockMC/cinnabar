@@ -23,7 +23,11 @@ impl WorldStream {
             return 0;
         }
 
-        let camera_cell = scheduler_camera_cell(camera_position);
+        let view = SchedulerView {
+            position: camera_position,
+            forward: self.view_forward,
+        };
+        let camera_cell = view.cell();
         if self.light_scheduler_camera_cell != Some(camera_cell) {
             let mut deferred = std::mem::take(&mut self.pending_light_deferred)
                 .into_iter()
@@ -46,12 +50,8 @@ impl WorldStream {
                 if waiting.contains(&key) {
                     continue;
                 }
-                let candidate = PendingSchedulerCandidate::new(
-                    key,
-                    pending.revision,
-                    camera_position,
-                    pending.urgent,
-                );
+                let candidate =
+                    PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent);
                 if pending.urgent
                     || self.light_priority_wakeups.get(&key) == Some(&pending.revision)
                 {
@@ -93,12 +93,8 @@ impl WorldStream {
                 else {
                     continue;
                 };
-                let candidate = PendingSchedulerCandidate::new(
-                    key,
-                    queued_revision,
-                    camera_position,
-                    pending.urgent,
-                );
+                let candidate =
+                    PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
                 if pending.urgent || self.light_priority_wakeups.get(&key) == Some(&queued_revision)
                 {
                     self.pending_light_ready.push(candidate);
@@ -132,7 +128,7 @@ impl WorldStream {
                 candidate = PendingSchedulerCandidate::new(
                     highest_key,
                     highest_pending.revision,
-                    camera_position,
+                    view,
                     highest_pending.urgent,
                 );
             }

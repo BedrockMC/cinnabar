@@ -28,8 +28,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.player_preview_pixels = None;
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
-    runtime.menu_artwork_paths.clear();
-    runtime.menu_artwork_oversized.clear();
+    runtime.menu_artwork_set = Default::default();
     runtime.menu_artwork_dirty = true;
     runtime.preview_dirty = true;
     rebuild(runtime);
@@ -184,14 +183,15 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         runtime.textures.pages()[first_dynamic].clone()
     };
     let mut dynamic = vec![preview];
-    let menu_changed = runtime.menu_artwork_dirty;
     let art_start = first_dynamic + render::MAX_UI_DYNAMIC_PAGES;
-    if runtime.menu_artwork_dirty {
-        runtime.menu_artwork = menu_artwork::load(
-            &runtime.menu_artwork_paths,
-            &runtime.menu_artwork_oversized,
-            art_start as u16,
-        );
+    let fresh = runtime.menu_artwork_loader.take();
+    let menu_changed = fresh.is_some();
+    if let Some(packed) = fresh {
+        runtime.menu_artwork.pages = packed.pages;
+    }
+    if menu_changed || runtime.menu_artwork_dirty {
+        runtime.menu_artwork.refs =
+            menu_artwork::rebase(&runtime.menu_artwork_loader.relative, art_start as u16);
         runtime.menu_artwork_dirty = false;
         runtime.refresh_full_res_art();
     }

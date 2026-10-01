@@ -7,7 +7,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
@@ -25,6 +25,8 @@ use crate::{
 /// watchdog envelope (2 s), so a wedged core cannot turn orderly teardown
 /// into a watchdog `process::exit` that skips the stop.
 const CORE_GRACEFUL_STOP_DEADLINE: Duration = children::EXIT_GRACE;
+/// How long a freshly spawned core has to publish its bridge endpoint.
+pub(crate) const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoreStopOutcome {
@@ -71,6 +73,40 @@ impl CoreProcessGuard {
     #[cfg(test)]
     pub(crate) fn id(&self) -> Option<u32> {
         self.child.as_ref().map(Spawned::id)
+    }
+
+    /// Whether the child has already exited on its own.
+    pub(crate) fn exited(&mut self) -> bool {
+        self.child
+            .as_ref()
+            .is_some_and(|child| matches!(child.try_wait(), Ok(Some(_))))
+    }
+
+    /// [`Self::stop`] on a reaper thread, running `then` once the core is gone,
+    /// so the frame never waits out the graceful deadline. The child stays
+    /// tracked, so the exit sweep still ends it if the process exits first.
+    pub(crate) fn stop_detached(&mut self, then: impl FnOnce() + Send + 'static) {
+        let Some(child) = self.child.take() else {
+            then();
+            return;
+        };
+        type Job = (Spawned, Box<dyn FnOnce() + Send>);
+        let (job, next) = crossbeam_channel::bounded::<Job>(1);
+        let spawned = std::thread::Builder::new()
+            .name("bedrock-core-reaper".to_owned())
+            .spawn(move || {
+                if let Ok((child, then)) = next.recv() {
+                    child.stop(CORE_GRACEFUL_STOP_DEADLINE);
+                    then();
+                }
+            });
+        if let Err(error) = spawned {
+            bevy::log::warn!("core reaper unavailable, stopping inline: {error}");
+            child.stop(CORE_GRACEFUL_STOP_DEADLINE);
+            then();
+            return;
+        }
+        let _ = job.send((child, Box::new(then)));
     }
 }
 
@@ -166,8 +202,10 @@ pub(crate) fn clear_stale_bridge_endpoint(socket_dir: &Path) -> Result<()> {
     }
 }
 
+/// Blocks until the core publishes its endpoint; only for paths off the frame.
 pub(crate) fn wait_for_core(socket_dir: &Path) -> Result<()> {
-    for _ in 0..100 {
+    let deadline = Instant::now() + CORE_START_TIMEOUT;
+    while Instant::now() < deadline {
         if bridge_endpoint_exists(socket_dir) {
             return Ok(());
         }

@@ -6,11 +6,14 @@
 //! retained UI texture array's full-resolution art pages.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, VecDeque},
     fs::File,
     io::{Cursor, Read},
     path::Path,
+    sync::Arc,
 };
+
+use crossbeam_channel::{Receiver, Sender};
 
 use image::{ImageReader, Limits, imageops::FilterType};
 
@@ -42,54 +45,309 @@ pub(super) struct MenuArtworkAtlas {
 
 /// Decoded artwork: straight-alpha RGBA8 and its size.
 struct Artwork {
-    path: String,
     width: u32,
     height: u32,
     pixels: Vec<u8>,
 }
 
-/// Shelf-packs the artwork at `paths` into the full-resolution art pages that
-/// start at texture page `first_page`; what does not fit is left out.
-pub(super) fn load(
-    paths: &[(String, u32)],
-    oversized: &[(String, std::sync::Arc<[u8]>)],
-    first_page: u16,
-) -> MenuArtworkAtlas {
-    let side = render::UI_ART_PAGE_SIDE;
+/// What an atlas is packed from: the service art at its sides plus the
+/// engine's oversized textures by key.
+#[derive(Clone, Default)]
+pub(super) struct ArtworkSet {
+    pub(super) paths: Vec<(String, u32)>,
+    pub(super) oversized: Vec<(String, Arc<[u8]>)>,
+}
+
+impl ArtworkSet {
+    /// Equality without comparing texture bytes: engine textures by key and payload.
+    pub(super) fn same(&self, other: &Self) -> bool {
+        self.paths == other.paths
+            && self.oversized.len() == other.oversized.len()
+            && self
+                .oversized
+                .iter()
+                .zip(&other.oversized)
+                .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+    }
+}
+
+struct Request {
+    id: u64,
+    set: ArtworkSet,
+}
+
+/// A packed atlas whose refs name pages from 0, rebased when installed.
+pub(super) struct Packed {
+    id: u64,
+    /// Every decodable source is in; a partial atlas precedes it.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only tests wait for the final atlas")
+    )]
+    complete: bool,
+    pub(super) pages: Vec<render::UiTexturePage>,
+    pub(super) refs: HashMap<String, IconRef>,
+}
+
+/// Decodes and packs launcher art on a worker so a changed art set never
+/// stalls a frame; until an atlas arrives the previous one keeps drawing.
+pub(super) struct ArtworkLoader {
+    requests: Sender<Request>,
+    results: Receiver<Packed>,
+    requested: u64,
+    ready: Option<Packed>,
+    /// The installed atlas's refs, page-relative, for rebasing.
+    pub(super) relative: HashMap<String, IconRef>,
+}
+
+impl Default for ArtworkLoader {
+    fn default() -> Self {
+        let (requests, jobs) = crossbeam_channel::unbounded();
+        let (done, results) = crossbeam_channel::unbounded();
+        let spawned = std::thread::Builder::new()
+            .name("menu-artwork".to_owned())
+            .spawn(move || serve(&jobs, &done));
+        if let Err(error) = spawned {
+            bevy::log::warn!("menu artwork worker unavailable: {error}");
+        }
+        // The title is packed before the first frame so the pack's own never flashes.
+        let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
+        Self {
+            requests,
+            results,
+            requested: 0,
+            relative: HashMap::new(),
+            ready: Some(title),
+        }
+    }
+}
+
+impl ArtworkLoader {
+    /// Asks the worker for `set`'s atlas, superseding any pending request.
+    pub(super) fn request(&mut self, set: ArtworkSet) {
+        self.requested += 1;
+        let _ = self.requests.send(Request {
+            id: self.requested,
+            set,
+        });
+    }
+
+    /// Whether an atlas for the latest request (or a partial one) is ready to install.
+    pub(super) fn poll(&mut self) -> bool {
+        while let Ok(packed) = self.results.try_recv() {
+            if packed.id == self.requested {
+                self.ready = Some(packed);
+            }
+        }
+        self.ready.is_some()
+    }
+
+    /// The ready atlas, which becomes the installed one.
+    pub(super) fn take(&mut self) -> Option<Packed> {
+        let packed = self.ready.take()?;
+        self.relative.clone_from(&packed.refs);
+        Some(packed)
+    }
+
+    /// Blocks until the latest request's complete atlas is ready.
+    #[cfg(test)]
+    pub(super) fn wait(&mut self) {
+        let done = |ready: &Option<Packed>, requested| {
+            ready
+                .as_ref()
+                .is_some_and(|packed| packed.complete && packed.id == requested)
+        };
+        while !done(&self.ready, self.requested) {
+            let Ok(packed) = self
+                .results
+                .recv_timeout(std::time::Duration::from_secs(30))
+            else {
+                return;
+            };
+            if packed.id == self.requested {
+                self.ready = Some(packed);
+            }
+        }
+    }
+}
+
+/// `refs` moved onto pages starting at `first_page`.
+pub(super) fn rebase(refs: &HashMap<String, IconRef>, first_page: u16) -> HashMap<String, IconRef> {
+    refs.iter()
+        .map(|(path, icon)| {
+            let mut icon = *icon;
+            icon.page = icon.page.saturating_add(first_page);
+            (path.clone(), icon)
+        })
+        .collect()
+}
+
+/// Decoded art by source and side, plus sources that failed (both bounded).
+#[derive(Default)]
+struct DecodeCache {
+    decoded: HashMap<(String, u32), Arc<Artwork>>,
+    failed: VecDeque<(String, u32)>,
+}
+
+const MAX_DECODED: usize = 160;
+const MAX_FAILED: usize = 256;
+/// Art decoded before the first partial atlas goes out, so visible rows fill early.
+const FIRST_BATCH: usize = 8;
+
+fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
+    let mut cache = DecodeCache::default();
+    while let Ok(mut request) = jobs.recv() {
+        'request: loop {
+            // Only the newest request matters; older ones are obsolete.
+            while let Ok(newer) = jobs.try_recv() {
+                request = newer;
+            }
+            let missing = cache.missing(&request.set);
+            let mut decoded = 0;
+            for batch in missing.chunks(FIRST_BATCH) {
+                cache.decode(batch);
+                decoded += batch.len();
+                if !jobs.is_empty() {
+                    continue 'request;
+                }
+                if decoded == FIRST_BATCH && missing.len() > FIRST_BATCH {
+                    let _ = done.send(pack(&request.set, &cache, request.id, false));
+                }
+            }
+            let _ = done.send(pack(&request.set, &cache, request.id, true));
+            cache.trim(&request.set);
+            break;
+        }
+    }
+}
+
+/// A source to decode: a file path, or an engine texture's bytes, at a side.
+#[derive(Clone)]
+enum Source {
+    File(String, u32),
+    Bytes(String, Arc<[u8]>),
+}
+
+impl Source {
+    fn key(&self) -> (String, u32) {
+        match self {
+            Self::File(path, side) => (path.clone(), *side),
+            Self::Bytes(key, _) => (key.clone(), WHOLE_PAGE),
+        }
+    }
+}
+
+const WHOLE_PAGE: u32 = render::UI_ART_PAGE_SIDE - GUTTER * 2;
+
+impl DecodeCache {
+    fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
+        sources(set)
+            .into_iter()
+            .filter(|source| {
+                let key = source.key();
+                !self.decoded.contains_key(&key) && !self.failed.contains(&key)
+            })
+            .collect()
+    }
+
+    fn decode(&mut self, batch: &[Source]) {
+        use rayon::prelude::*;
+        let results: Vec<_> = batch
+            .par_iter()
+            .map(|source| {
+                let art = match source {
+                    Source::File(path, side) => decode(Path::new(path), *side),
+                    Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_PAGE),
+                };
+                (source.key(), art)
+            })
+            .collect();
+        for (key, art) in results {
+            match art {
+                Some((pixels, width, height)) => {
+                    let art = Artwork {
+                        width,
+                        height,
+                        pixels,
+                    };
+                    self.decoded.insert(key, Arc::new(art));
+                }
+                None => {
+                    if self.failed.len() >= MAX_FAILED {
+                        self.failed.pop_front();
+                    }
+                    self.failed.push_back(key);
+                }
+            }
+        }
+    }
+
+    /// Drops decoded art `set` no longer names once the cache outgrows its bound.
+    fn trim(&mut self, set: &ArtworkSet) {
+        if self.decoded.len() <= MAX_DECODED {
+            return;
+        }
+        let wanted: BTreeSet<_> = sources(set).iter().map(Source::key).collect();
+        self.decoded.retain(|key, _| wanted.contains(key));
+    }
+}
+
+/// `set`'s distinct sources in draw priority, capped like the atlas.
+fn sources(set: &ArtworkSet) -> Vec<Source> {
     let mut unique = BTreeSet::new();
-    // Big textures keep up to a whole page of detail; service art stays smaller.
-    let whole_page = side - GUTTER * 2;
-    let artwork = |path: &str, (pixels, width, height): (Vec<u8>, u32, u32)| Artwork {
-        path: path.to_owned(),
-        width,
-        height,
-        pixels,
-    };
-    let title = decode_bytes(BUILT_IN_TITLE, whole_page).map(|art| artwork(TITLE_KEY, art));
-    let mut rest = paths
+    let files = set
+        .paths
         .iter()
         .take(MAX_ARTWORKS)
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
-        .filter_map(|(path, side)| Some(artwork(path, decode(Path::new(path), *side)?)))
-        .collect::<Vec<_>>();
-    rest.extend(
-        oversized
-            .iter()
-            .map(|(key, bytes)| (format!("{SERVER_ART_PREFIX}{key}"), bytes))
-            .filter(|(key, _)| unique.insert(key.clone()))
-            .filter_map(|(key, bytes)| Some(artwork(&key, decode_bytes(bytes, whole_page)?))),
-    );
-    rest.sort_by(|a, b| b.height.cmp(&a.height).then(a.path.cmp(&b.path)));
+        .map(|(path, side)| Source::File(path.clone(), (*side).min(MAX_ARTWORK_SIDE)));
+    let engine = set
+        .oversized
+        .iter()
+        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
+    let mut all: Vec<_> = files.collect();
+    all.extend(engine.filter(|source| unique.insert(source.key().0)));
+    all
+}
+
+/// The built-in title, decoded once per process.
+fn title() -> Option<&'static Artwork> {
+    static TITLE: std::sync::OnceLock<Option<Artwork>> = std::sync::OnceLock::new();
+    TITLE
+        .get_or_init(|| {
+            decode_bytes(BUILT_IN_TITLE, WHOLE_PAGE).map(|(pixels, width, height)| Artwork {
+                width,
+                height,
+                pixels,
+            })
+        })
+        .as_ref()
+}
+
+/// Shelf-packs `set`'s decoded art into art pages numbered from 0; what is
+/// not decoded yet or does not fit is left out.
+fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
+    let side = render::UI_ART_PAGE_SIDE;
+    let mut rest: Vec<(String, &Artwork)> = sources(set)
+        .iter()
+        .filter_map(|source| {
+            let key = source.key();
+            let art = cache.decoded.get(&key)?;
+            Some((key.0, art.as_ref()))
+        })
+        .collect();
+    rest.sort_by(|a, b| b.1.height.cmp(&a.1.height).then(a.0.cmp(&b.0)));
     // The title packs first so later art can never crowd it out.
-    let decoded: Vec<Artwork> = title.into_iter().chain(rest).collect();
-    if decoded.is_empty() {
-        return MenuArtworkAtlas::default();
-    }
+    let decoded: Vec<(String, &Artwork)> = title()
+        .map(|art| (TITLE_KEY.to_owned(), art))
+        .into_iter()
+        .chain(rest)
+        .collect();
     let page_bytes = side as usize * side as usize * 4;
     let mut buffers: Vec<Vec<u8>> = Vec::new();
     let mut refs = HashMap::with_capacity(decoded.len());
     let (mut page, mut x, mut y, mut shelf) = (0usize, GUTTER, GUTTER, 0u32);
-    for art in decoded {
+    for (path, art) in decoded {
         if x + art.width + GUTTER > side {
             x = GUTTER;
             y += shelf + GUTTER;
@@ -113,14 +371,11 @@ pub(super) fn load(
             buffers[page][target..target + row_bytes]
                 .copy_from_slice(&art.pixels[row * row_bytes..(row + 1) * row_bytes]);
         }
-        let Ok(texture_page) = u16::try_from(usize::from(first_page) + page) else {
-            break;
-        };
         let (left, top) = (x as u16, y as u16);
         refs.insert(
-            art.path,
+            path,
             IconRef {
-                page: texture_page,
+                page: page as u16,
                 uv: [left, top, left + art.width as u16, top + art.height as u16],
                 glint: false,
             },
@@ -131,11 +386,16 @@ pub(super) fn load(
     let pages = buffers
         .into_iter()
         .map(|pixels| {
-            render::UiTexturePage::owned([side, side], std::sync::Arc::from(pixels))
+            render::UiTexturePage::owned([side, side], Arc::from(pixels))
                 .expect("art pages have exact checked dimensions")
         })
         .collect();
-    MenuArtworkAtlas { pages, refs }
+    Packed {
+        id,
+        complete,
+        pages,
+        refs,
+    }
 }
 
 fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
@@ -284,7 +544,13 @@ mod tests {
     #[test]
     fn oversized_server_textures_keep_full_resolution() {
         let bytes: std::sync::Arc<[u8]> = png(1992, 669, [200, 30, 40, 255]).into();
-        let atlas = load(&[], &[(TITLE_KEY.to_owned(), bytes)], 5);
+        let set = ArtworkSet {
+            paths: Vec::new(),
+            oversized: vec![(TITLE_KEY.to_owned(), bytes)],
+        };
+        let mut cache = DecodeCache::default();
+        cache.decode(&cache.missing(&set));
+        let atlas = pack(&set, &cache, 0, true);
         let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
         let [u0, v0, u1, v1] = art.uv;
         assert_eq!([u1 - u0, v1 - v0], [1022, 343]);

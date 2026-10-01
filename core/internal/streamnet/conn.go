@@ -33,7 +33,29 @@ type FramedConn struct {
 	closeOnce sync.Once
 	closeErr  error
 	onClose   func()
+
+	aheadMu  sync.Mutex
+	ahead    chan framedRead // the read-ahead frame ReadPacket must return next
+	peerDone chan struct{}
 }
+
+type framedRead struct {
+	payload []byte
+	err     error
+}
+
+// PeerWatcher is implemented by the remote address of a listener connection, so a holder of
+// only the gophertunnel Conn can notice its peer leaving while nothing reads.
+type PeerWatcher interface {
+	PeerDone() <-chan struct{}
+}
+
+type peerAddr struct {
+	net.Addr
+	conn *FramedConn
+}
+
+func (addr peerAddr) PeerDone() <-chan struct{} { return addr.conn.PeerDone() }
 
 // NewFramedConn wraps conn in the local bridge framing contract.
 func NewFramedConn(conn net.Conn) *FramedConn {
@@ -42,6 +64,35 @@ func NewFramedConn(conn net.Conn) *FramedConn {
 
 func newTrackedFramedConn(conn net.Conn, onClose func()) *FramedConn {
 	return &FramedConn{Conn: conn, onClose: onClose}
+}
+
+// RemoteAddr carries PeerWatcher for tracked listener connections.
+func (c *FramedConn) RemoteAddr() net.Addr {
+	if c.onClose == nil {
+		return c.Conn.RemoteAddr()
+	}
+	return peerAddr{Addr: c.Conn.RemoteAddr(), conn: c}
+}
+
+// PeerDone reads the next frame ahead and returns a channel closed if that read ends the
+// connection; ReadPacket still returns the frame or error in order. Call it only while no
+// ReadPacket is in flight.
+func (c *FramedConn) PeerDone() <-chan struct{} {
+	c.aheadMu.Lock()
+	defer c.aheadMu.Unlock()
+	if c.peerDone != nil {
+		return c.peerDone
+	}
+	done, ahead := make(chan struct{}), make(chan framedRead, 1)
+	c.peerDone, c.ahead = done, ahead
+	go func() {
+		payload, err := c.readFrame()
+		if err != nil {
+			close(done)
+		}
+		ahead <- framedRead{payload: payload, err: err}
+	}()
+	return done
 }
 
 // Close closes the underlying transport once and unregisters tracked server connections.
@@ -58,6 +109,18 @@ func (c *FramedConn) Close() error {
 // ReadPacket reads exactly one framed payload. A clean EOF is only returned
 // when it occurs between frames.
 func (c *FramedConn) ReadPacket() ([]byte, error) {
+	c.aheadMu.Lock()
+	ahead := c.ahead
+	c.ahead, c.peerDone = nil, nil
+	c.aheadMu.Unlock()
+	if ahead != nil {
+		read := <-ahead
+		return read.payload, read.err
+	}
+	return c.readFrame()
+}
+
+func (c *FramedConn) readFrame() ([]byte, error) {
 	var header [4]byte
 	if _, err := io.ReadFull(c.Conn, header[:]); err != nil {
 		return nil, fmt.Errorf("streamnet: read frame header: %w", classifyTerminalError(err))
