@@ -70,7 +70,10 @@ pub fn physics_movement_input(
     item_use_movement_modifier: Option<f64>,
 ) -> MovementInput {
     if !active {
-        return MovementInput::default();
+        return MovementInput {
+            yaw_degrees: f64::from(yaw_degrees),
+            ..MovementInput::default()
+        };
     }
     let sprinting = sprint_request && right_forward[1] > 0.0;
     MovementInput {
@@ -210,6 +213,7 @@ pub struct LocalPhysicsController {
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    fly_toggle_pending: bool,
     /// Open processed-jump-arc fold state carried across ticks. Reset with the
     /// rest of prediction state; rebuilt across correction replays.
     processed_jump_arc_active: bool,
@@ -244,6 +248,7 @@ impl Default for LocalPhysicsController {
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            fly_toggle_pending: false,
             processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
@@ -288,6 +293,7 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
@@ -335,6 +341,7 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
@@ -409,6 +416,7 @@ impl LocalPhysicsController {
         }
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
+        self.fly_toggle_pending ^= context.mode_intent.fly_toggle;
 
         if self.discard_next_elapsed {
             self.discard_next_elapsed = false;
@@ -430,7 +438,6 @@ impl LocalPhysicsController {
 
         let sprint_request = input.sprinting;
         let sneak_request = input.sneaking;
-        let mut fly_toggle = context.mode_intent.fly_toggle;
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
@@ -473,9 +480,10 @@ impl LocalPhysicsController {
             input.sprinting = sprint_request;
             let mut forced_sneak = false;
             let mut mode_error = None;
+            let previous_modes = self.modes;
             match self.modes.select(
                 context.mode_intent,
-                std::mem::take(&mut fly_toggle),
+                self.fly_toggle_pending,
                 ModeObservation {
                     feet: state.position,
                     on_ground: state.on_ground,
@@ -631,9 +639,11 @@ impl LocalPhysicsController {
                             .clone(),
                     );
                     self.jump_edge_pending = false;
+                    self.fly_toggle_pending = false;
                     input.jump_pressed = false;
                 }
                 Err(error) => {
+                    self.modes = previous_modes;
                     let transient_collision_blocked = matches!(
                         &error,
                         sim::PredictionError::Simulation(error)
