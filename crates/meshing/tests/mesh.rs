@@ -11,6 +11,7 @@ include!("mesh/cactus.rs");
 include!("mesh/cake.rs");
 include!("mesh/farmland.rs");
 include!("mesh/connectivity_models.rs");
+include!("mesh/invisible_blocks.rs");
 include!("mesh/stairs.rs");
 include!("mesh/support.rs");
 include!("mesh/core.rs");
