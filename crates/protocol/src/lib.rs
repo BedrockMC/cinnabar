@@ -78,8 +78,8 @@ pub use inventory::recipes::{
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, StackItemDescriptor, container_window,
-    is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
+    container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,

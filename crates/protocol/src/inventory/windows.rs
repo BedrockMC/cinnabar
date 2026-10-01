@@ -7,6 +7,8 @@
 use super::container_policy::CONTAINER_NAME_CREATED_OUTPUT;
 use super::request::StackRequestContainer;
 
+/// Unspecified type used by client closes and acknowledgements for absent windows.
+pub const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const WINDOW_TYPE_CONTAINER: i8 = 0;
 pub const WINDOW_TYPE_WORKBENCH: i8 = 1;
 pub const WINDOW_TYPE_FURNACE: i8 = 2;

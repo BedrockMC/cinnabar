@@ -132,7 +132,7 @@ pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, Inventory
     };
     Ok(ContainerClosePacket {
         container_id,
-        container_type: (-9_i8).to_ne_bytes()[0],
+        container_type: super::NO_CONTAINER_WINDOW_TYPE.to_ne_bytes()[0],
         server_initiated_close: false,
     }
     .into())
