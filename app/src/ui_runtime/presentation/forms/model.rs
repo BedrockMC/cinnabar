@@ -13,9 +13,6 @@ use protocol::{CustomFormElement, FormButtonImage, MenuElement, ServerFormModel}
 use super::remote_images::RemoteState;
 use crate::ui_runtime::forms::{FormEngineState, FormValue};
 
-/// Shown while an input element is receiving typed text.
-const CARET: char = '|';
-
 /// `None` for a form the engine cannot draw (unsupported controls).
 pub(super) fn engine_model(
     model: &ServerFormModel,
@@ -188,13 +185,10 @@ fn custom_element(
             default,
             tooltip: tip,
         } => {
-            let mut current = match value {
+            let current = match value {
                 Some(FormValue::Text(current)) => current.clone(),
                 _ => default.to_string(),
             };
-            if state.editing == Some(index) {
-                current.push(CARET);
-            }
             CustomElement::Input {
                 text: text.to_string(),
                 value: current,

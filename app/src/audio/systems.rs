@@ -49,6 +49,17 @@ pub(crate) fn ui_click() {
     });
 }
 
+/// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
+static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Requests an interface sound a UI sound component names, at its volume and pitch.
+pub(crate) fn ui_sound(name: &str, volume: f32, pitch: f32) {
+    if let Ok(mut pending) = PENDING_UI_SOUNDS.lock() {
+        pending.push((name.to_owned(), volume, pitch));
+    }
+}
+
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
 /// calling [`ui_click`].
 #[derive(Debug, Clone, PartialEq, Message)]
@@ -205,6 +216,13 @@ pub(super) fn ingest_audio_events(
     }
     if PENDING_UI_CLICKS.swap(0, Ordering::Relaxed) > 0 {
         engine.enqueue(SoundRequest::new(UI_CLICK));
+    }
+    let sounds = PENDING_UI_SOUNDS
+        .lock()
+        .map(|mut pending| std::mem::take(&mut *pending))
+        .unwrap_or_default();
+    for (name, volume, pitch) in sounds {
+        engine.enqueue(SoundRequest::new(name).scaled(volume, pitch));
     }
     let Some(stream) = world.stream.as_ref() else {
         messages.clear();
