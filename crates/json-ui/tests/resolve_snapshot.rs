@@ -7,6 +7,32 @@ use std::fmt::Write as _;
 
 use json_ui::{Catalog, Context, DataSource, ENGINE_SCREENS, ResolvedControl, bind_screen};
 
+/// `(screen, resolved control count, controls it must contain)` in the retail context.
+const SNAPSHOT: &[(&str, usize, &[&str])] = &[
+    (
+        "start.start_screen",
+        735,
+        &["achievements_button", "buy_game_button"],
+    ),
+    ("play.play_screen", 2110, &["add_server_button"]),
+    (
+        "settings.screen_controls_and_settings",
+        1968,
+        &["available_pack_grid"],
+    ),
+    ("pause.pause_screen", 106, &["root_screen_panel"]),
+    ("hud.hud_screen", 732, &["boss_health_grid", "chat_panel"]),
+    ("crafting.inventory_screen", 1351, &["armor_grid"]),
+    ("chest.small_chest_screen", 222, &["chest_label"]),
+    ("server_form.long_form", 41, &["inside_header_panel"]),
+    ("server_form.custom_form", 57, &["common_panel"]),
+    (
+        "popup_dialog.modal_dialog_popup",
+        38,
+        &["background_with_buttons"],
+    ),
+];
+
 fn catalog() -> Option<Catalog> {
     let dir = support::vanilla_pack().join("ui");
     dir.is_dir()
@@ -71,4 +97,38 @@ fn dump_engine_screens() {
         }
     }
     std::fs::write(path, out).unwrap();
+}
+
+fn count(control: &ResolvedControl) -> usize {
+    1 + control.children.iter().map(count).sum::<usize>()
+}
+
+fn has(control: &ResolvedControl, name: &str) -> bool {
+    control.find(&|node| node.name == name).is_some()
+}
+
+/// Resolved control counts of key vanilla screens in the retail context; a
+/// resolution change that adds or drops controls shows here first.
+#[test]
+fn key_screens_resolve_to_their_known_shape() {
+    let Some(catalog) = catalog() else {
+        return;
+    };
+    let context = Context::retail(true);
+    let expected: &[(&str, usize, &[&str])] = SNAPSHOT;
+    let mut actual = Vec::new();
+    for (reference, _, names) in expected {
+        let root = json_ui::resolve(&catalog, reference, &context)
+            .control
+            .unwrap_or_else(|| panic!("{reference} resolves"));
+        for name in *names {
+            assert!(has(&root, name), "{reference} lacks {name}");
+        }
+        actual.push((*reference, count(&root)));
+    }
+    let wanted: Vec<_> = expected
+        .iter()
+        .map(|(reference, count, _)| (*reference, *count))
+        .collect();
+    assert_eq!(actual, wanted);
 }
