@@ -2010,18 +2010,14 @@ func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 	if entries := stack.offer.TexturePacks(); len(entries) != 1 || entries[0].Info().UUID != pack.UUID() || entries[0].Info().Size != uint64(pack.Size()) {
 		t.Fatalf("projected offer entries = %+v", entries)
 	}
-	// An excluded pack is gone from both the offer and the stack, so configuring them cannot restore it.
-	excluded, err := captureSelectedResourcePackStack(result.conn, func(*resource.Pack) bool { return true })
-	if err != nil {
-		t.Fatalf("capture excluded stack: %v", err)
+	forwarded := new(offerTestDownstream)
+	if err := configureResourcePackOffer(forwarded, stack); err != nil || !forwarded.required {
+		t.Fatalf("forwarded required = %t (%v), want the server's required bit", forwarded.required, err)
 	}
-	for _, entry := range excluded.snapshot.Entries() {
-		if entry.UUID() == pack.UUID().String() {
-			t.Fatal("the excluded pack stayed in the stack")
-		}
-	}
-	if len(excluded.packs) != 0 || len(excluded.offer.TexturePacks()) != 0 {
-		t.Fatalf("excluded capture kept %d packs", len(excluded.packs))
+	// A required pack that admission drops refuses the join, as vanilla cannot join without it.
+	var admission *PackAdmissionError
+	if _, err := captureSelectedResourcePackStack(result.conn, func(*resource.Pack) bool { return true }); !errors.As(err, &admission) {
+		t.Fatalf("capture without a required pack = %v, want PackAdmissionError", err)
 	}
 	telemetry := newResourcePackAdmissionTelemetry(1, nil)
 	telemetry.observeOffer(result.conn)

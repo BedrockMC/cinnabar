@@ -811,9 +811,10 @@ handoff remains bounded and validated.
 Optional stack entries that are unavailable, malformed, duplicated, or select an unsupported
 sub-pack are retained for exact Go replay and ignored by the Rust application handoff instead of
 terminating the session. Required selections remain strict.
-The private core-to-client hop marks even an upstream-required selection optional so incomplete
-pack application does not make otherwise joinable servers unavailable; the upstream negotiation
-has already completed. Per-download byte/count/time bounds, HTTP opt-in policy, and digest-bound
+The private core-to-client hop forwards the upstream offer and stack, projected onto the admitted
+packs, with the server's own required bits; a required offer the core could not fully acquire is
+refused with `disconnectionScreen.resourcePack`, and the client refuses a required pack it cannot
+apply. Per-download byte/count/time bounds, HTTP opt-in policy, and digest-bound
 cache identities from the retired `cinnabar` fork are deliberately not carried onto Lunar's
 resource-pack branch yet. Archives are not extracted or applied, application remains unavailable,
 and this is not live gameplay, native visual, or performance evidence.
@@ -2894,11 +2895,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   processed `PlayerAuthInput` vectors; independently measured mouse sensitivity/window
   behavior; post-login `Transfer`; bounded entity-link endpoint/pending/cycle handling;
   `SetHud` and the broader JSON-UI controller surface; resource-pack activation; crafting;
-  combat; and world ticking remain open where already scoped by their phases. During the
-  current bring-up period, required server packs are deliberately handed to the incomplete
-  downstream application path as optional so developers can still join and test servers.
-  That owner-approved compatibility behavior is a provisional testing deviation, not vanilla
-  pack-admission parity and not acceptance evidence.
+  combat; and world ticking remain open where already scoped by their phases. Required server
+  packs are forwarded as required, as vanilla receives them: a join whose required packs cannot
+  all be acquired or applied is refused with vanilla's resource-pack message rather than
+  downgraded to optional.
 
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does

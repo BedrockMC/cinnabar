@@ -280,7 +280,7 @@ func (*preparationCancellationError) Error() string {
 func (err *preparationCancellationError) Unwrap() error { return err.cause }
 
 func (err *PackAdmissionError) Error() string {
-	return fmt.Sprintf("proxy: upstream requires %d resource pack(s), but pack application is unavailable", err.PackCount)
+	return fmt.Sprintf("proxy: upstream requires %d resource pack(s), but not all of them could be acquired", err.PackCount)
 }
 
 type resourcePackOfferConnection interface {
@@ -290,15 +290,15 @@ type resourcePackOfferConnection interface {
 }
 
 // configureResourcePackOffer hands off the upstream offer and stack projected onto the admitted
-// packs, always optional so an unavailable pack never blocks login.
+// packs with the server's own required bits, as vanilla would receive them.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable
 	}
-	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, false); err != nil {
+	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, stack.offer.TexturePackRequired()); err != nil {
 		return err
 	}
-	return downstream.ConfigureResourcePackStack(stack.snapshot, false)
+	return downstream.ConfigureResourcePackStack(stack.snapshot, stack.snapshot.Required())
 }
 
 var (
@@ -323,7 +323,8 @@ type selectedResourcePackStack struct {
 }
 
 // captureSelectedResourcePackStack admits the stack's downloaded packs within the bounds, less
-// those excluded, and projects the upstream offer and stack onto them.
+// those excluded, and projects the upstream offer and stack onto them. A server that requires its
+// packs gets all of them or the join is refused, as vanilla cannot join without them.
 func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
 	source, ok := upstream.(resourcePackStackSource)
 	if !ok {
@@ -341,10 +342,14 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 	for _, pack := range admitResourcePacks(snapshot.Packs(), excluded, resourcePackSize) {
 		admitted[packIdentity(pack)] = true
 	}
+	offered, required := len(offer.TexturePacks()), offer.TexturePackRequired() || snapshot.Required()
 	offer, snapshot = minecraft.ProjectResourcePacks(offer, snapshot, func(pack *resource.Pack) bool {
 		return admitted[packIdentity(pack)]
 	})
-	return &selectedResourcePackStack{packs: offer.Packs(), required: snapshot.Required(), offer: offer, snapshot: snapshot}, nil
+	if required && len(offer.TexturePacks()) != offered {
+		return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+	}
+	return &selectedResourcePackStack{packs: offer.Packs(), required: required, offer: offer, snapshot: snapshot}, nil
 }
 
 func packIdentity(pack *resource.Pack) string {
@@ -681,6 +686,10 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	}
 	packStack, err = connections.captureResourcePackStack(upstream, budget.excludes)
 	if err != nil {
+		var admission *PackAdmissionError
+		if errors.As(err, &admission) {
+			packAdmission.observeRejectedRequired()
+		}
 		return nil, err
 	}
 	packAdmission.observeOffer(upstream)
