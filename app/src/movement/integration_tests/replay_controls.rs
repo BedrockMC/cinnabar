@@ -216,3 +216,23 @@ fn correction_replays_controller_modes_against_historical_palettes() {
     let plan = physics.apply_correction(super::PhysicsAnchor { network_position: original[0].position, tick: 101, on_ground: true, velocity: Some(original[0].velocity) }, PhysicsCorrectionMode::ReplayIfRetained, None, &sim::PaletteWorld::new(&store, &registry, 0)).unwrap();
     assert_eq!(plan.replayed_samples, original[1..]);
 }
+
+/// Mounting ends the player's jump arc in both live prediction and repeated replay.
+#[test]
+fn replayed_mount_closes_the_airborne_jump_arc() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0], 100, true);
+    let jump = physics.advance_with_context(Duration::from_millis(50), MovementInput { jumping: true, ..Default::default() }, PhysicsSampleContext::default(), &VersionedFloor(1)).samples.remove(0);
+    assert!(jump.processed.jump_arc_active);
+    let ride = PhysicsSampleContext {
+        mode_intent: super::ModeIntent { ride: Some(super::RideKind::Boat), ride_seat: Some([0.0, 3.0, 0.0]), ..Default::default() },
+        ..Default::default()
+    };
+    let mounted = physics.advance_with_context(Duration::from_millis(50), MovementInput::default(), ride, &VersionedFloor(1)).samples.remove(0);
+    assert!(!mounted.processed.jump_arc_active);
+    let anchor = super::PhysicsAnchor { network_position: jump.position, tick: jump.tick, on_ground: false, velocity: Some(jump.velocity) };
+    for _ in 0..2 {
+        let replay = physics.apply_correction(anchor, PhysicsCorrectionMode::ReplayIfRetained, None, &VersionedFloor(1)).unwrap();
+        assert_eq!(replay.replayed_samples, [mounted.clone()]);
+    }
+}
