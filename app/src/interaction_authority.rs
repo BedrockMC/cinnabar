@@ -91,6 +91,20 @@ impl FrozenBlockObservation {
     }
 }
 
+/// Whether a frozen ray still belongs to the live session and stream.
+///
+/// Events committed after the freeze (actor movement, chat) do not stale it: the ray is cast
+/// against the current world, whose inspected revisions the observation records.
+pub(crate) fn ray_is_current(
+    ray: &crate::local_player::FrozenInteractionOrigin,
+    ui_session: u64,
+    stream: &client_world::WorldStream,
+) -> bool {
+    ray.session_generation() == ui_session
+        && ray.session_generation() == stream.actor_session_id()
+        && ray.fifo_sequence() <= stream.committed_sequence()
+}
+
 /// The ray or world evidence behind a block observation is stale or unreadable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BlockRayUnavailable;
@@ -125,10 +139,7 @@ pub(crate) fn observe_block_ray(
     ) = input;
     let ray = origin.outbound_ray().ok_or(BlockRayUnavailable)?;
     let stream = client_world.stream.as_ref().ok_or(BlockRayUnavailable)?;
-    if ray.session_generation() != ui.session_id()
-        || ray.session_generation() != stream.actor_session_id()
-        || stream.committed_sequence() != ray.fifo_sequence()
-    {
+    if !ray_is_current(ray, ui.session_id(), stream) {
         return Err(BlockRayUnavailable);
     }
     let vector = |value: bevy::prelude::Vec3| {
@@ -181,6 +192,62 @@ pub(crate) fn observe_block_ray(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stream() -> client_world::WorldStream {
+        client_world::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 42,
+            local_player_unique_id: 1,
+            player_position: [0.0, 70.0, 0.0],
+            world_spawn_position: [0, 70, 0],
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        })
+    }
+
+    fn ray(session: u64, fifo_sequence: u64) -> crate::local_player::FrozenInteractionOrigin {
+        let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
+        let identity = sim::CollisionQuery::synthetic(()).identity;
+        carrier
+            .publish(crate::local_player::LocalPlayerFrameSample {
+                session_generation: session,
+                fifo_sequence,
+                physics_tick: 100,
+                perspective: semantic_input::PerspectiveMode::FirstPerson,
+                world_collision_identity: identity,
+                pose: bevy::prelude::Transform::default(),
+                eye: bevy::prelude::Vec3::new(0.0, 71.62, 0.0),
+                rotation: bevy::prelude::Quat::IDENTITY,
+            })
+            .unwrap();
+        let mut origin = InteractionOriginSnapshot::default();
+        origin.publish_from_local_player_frame(&carrier);
+        origin.outbound_ray().unwrap().clone()
+    }
+
+    /// World events committed between the ray freeze and the interaction producers (every
+    /// frame on a busy server) must not stale the ray; another session does.
+    #[test]
+    fn a_ray_survives_later_commits_but_not_a_session_change() {
+        let mut stream = stream();
+        let session = stream.actor_session_id();
+        let frozen = ray(session, stream.committed_sequence());
+        stream
+            .submit(
+                stream.committed_sequence() + 1,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(
+                    protocol::ActorRemoveEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                    },
+                )),
+            )
+            .unwrap();
+        assert!(stream.committed_sequence() > frozen.fifo_sequence());
+        assert!(ray_is_current(&frozen, session, &stream));
+        assert!(!ray_is_current(&frozen, session + 1, &stream));
+        assert!(!ray_is_current(&ray(session + 1, 0), session + 1, &stream));
+    }
 
     fn at(position: [i32; 3], input_mode: PlayerInputMode, reach: f64) -> FrozenBlockObservation {
         let stack = protocol::NetworkItemStack::empty();

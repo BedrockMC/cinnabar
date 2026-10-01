@@ -135,6 +135,28 @@ impl InstallLayout {
         })
     }
 
+    /// A fresh layout rooted under the temp dir, for tests that spawn or log.
+    #[cfg(test)]
+    pub(crate) fn scratch(label: &str) -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        let root = std::env::temp_dir().join(format!(
+            "cinnabar-layout-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        Self {
+            resource_root: root.join("resources"),
+            compiled_assets: root.join("resources/assets"),
+            physics_registry: root.join("resources/assets/block-physics-v2193.bin"),
+            core_executable: root.join("bin").join(core_filename(current_platform())),
+            user_config_root: root.join("config"),
+            user_data_root: root.join("data"),
+            runtime_root: root.join("run"),
+            transient_runtime_root: root.join("run"),
+        }
+    }
+
     pub fn discover() -> Result<Self, LayoutError> {
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);

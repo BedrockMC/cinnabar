@@ -1,14 +1,18 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
 
@@ -106,23 +110,49 @@ func TestFeaturedImagesPointIntoTheServers(t *testing.T) {
 	}
 }
 
-// A gathering keeps one join address across refreshes until it goes stale.
-func TestJoinMemoKeepsAnAddress(t *testing.T) {
-	memo := &joinMemo{entries: map[string]joinEntry{}}
-	joins := 0
-	join := func() string {
-		joins++
-		return fmt.Sprintf("10.0.0.%d:19132", joins)
+type recordingTransport struct{ hosts []string }
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.hosts = append(r.hosts, req.URL.Host)
+	return nil, errors.New("offline test")
+}
+
+type fixedTokens struct{}
+
+func (fixedTokens) ServiceToken(context.Context) (*service.Token, error) {
+	return &service.Token{AuthorizationHeader: "MCToken synthetic", ValidUntil: time.Now().Add(time.Hour)}, nil
+}
+
+// The gatherings client talks to the discovered endpoint and never falls back to a hardcoded host.
+func TestGatheringsClientUsesTheDiscoveredEndpoint(t *testing.T) {
+	if _, err := gatheringsClient(&service.Discovery{}, fixedTokens{}); err == nil {
+		t.Fatal("undiscovered gatherings service built a client")
 	}
-	first := memo.lookup("exp", join)
-	if again := memo.lookup("exp", join); again != first || joins != 1 {
-		t.Fatalf("rejoined: %q then %q after %d joins", first, again, joins)
+	recorder := new(recordingTransport)
+	previous := http.DefaultClient.Transport
+	http.DefaultClient.Transport = recorder
+	t.Cleanup(func() { http.DefaultClient.Transport = previous })
+	client, err := gatheringsClient(&service.Discovery{ServiceEnvironments: map[string]map[string]json.RawMessage{
+		"gatherings": {"prod": json.RawMessage(`{"serviceUri":"https://gatherings.discovered.example"}`)},
+	}}, fixedTokens{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	memo.entries["exp"] = joinEntry{address: first, at: time.Now().Add(-2 * joinTTL)}
-	if fresh := memo.lookup("exp", join); fresh == first {
-		t.Fatalf("stale address %q kept", fresh)
+	_, _ = client.FeaturedServers(context.Background())
+	if len(recorder.hosts) == 0 || recorder.hosts[0] != "gatherings.discovered.example" {
+		t.Fatalf("requested hosts = %v", recorder.hosts)
 	}
-	if empty := memo.lookup("down", func() string { return "" }); empty != "" {
-		t.Fatalf("failed join gave %q", empty)
+}
+
+// A failed count is omitted from the wire rather than sent as zero.
+func TestProfileOmitsUnavailableCounts(t *testing.T) {
+	zero := 0
+	raw, err := json.Marshal(Profile{Gamertag: "Steve", Friends: &zero})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"friends":0`) || strings.Contains(got, "followers") || strings.Contains(got, "gamerscore") {
+		t.Fatalf("profile = %s", got)
 	}
 }

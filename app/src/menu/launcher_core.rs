@@ -142,14 +142,13 @@ impl LauncherCore {
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
-        let child = launcher_command(
+        let child = crate::lifecycle::children::spawn(&mut launcher_command(
             layout,
             &executable,
             &socket_dir,
             auth_cache,
             upstream_client_cache,
-        )
-        .spawn()
+        ))
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
         guard.replace(child);
@@ -227,10 +226,16 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Marks a menu address as a gathering's experience ID, joined when selected.
+pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
+
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
 /// prefixes, else a server that gets the default port when it names none).
 fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
+    if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
+        return ConnectTarget::Gathering(id.to_owned());
+    }
     if let Some(id) = address.strip_prefix("realm_id/") {
         return ConnectTarget::Realm(id.to_owned());
     }
@@ -274,6 +279,10 @@ mod tests {
     fn menu_addresses_map_to_connect_targets() {
         assert_eq!(target_for("realm_id/42"), ConnectTarget::Realm("42".into()));
         assert_eq!(
+            target_for("gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"),
+            ConnectTarget::Gathering("5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f".into())
+        );
+        assert_eq!(
             target_for("friend_xuid/2535"),
             ConnectTarget::Friend("2535".into())
         );
@@ -297,7 +306,7 @@ mod tests {
 
     #[test]
     fn the_launcher_core_serves_control_and_signs_in_only_when_validated() {
-        let layout = InstallLayout::discover().expect("development layout");
+        let layout = InstallLayout::scratch("launcher-args");
         let args = |auth: Option<&Path>| -> Vec<String> {
             launcher_command(
                 &layout,
