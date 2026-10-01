@@ -1,11 +1,20 @@
 //! A joined server's resource-pack UI textures: any `textures/**` image in the
 //! pack stack shadows the vanilla carrier's of the same path, and its `*.json`
 //! sidecar shadows the carrier's independently. Each image is read, decoded and
-//! shelf-packed into the reserved 256x256 dynamic pages only when a rendered
-//! screen draws it; one larger than a page packs downscaled. Undecodable images
-//! are skipped.
+//! shelf-packs into the reserved 256x256 dynamic pages only when a rendered
+//! screen draws it; one larger than a page packs downscaled. A frame decodes
+//! inline only within a small budget and hands the rest to workers; decoded
+//! pixels are kept (bounded) so an evicted texture repacks without decoding
+//! again. Undecodable images are skipped and remembered.
 
-use std::{cell::RefCell, collections::BTreeMap, io::Cursor, path::PathBuf};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    io::Cursor,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
@@ -187,6 +196,97 @@ pub(super) struct ServerAtlas {
     dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
     oversized: BTreeMap<String, std::sync::Arc<[u8]>>,
+    decodes: Decodes,
+}
+
+/// Decode time a frame spends inline before spilling misses to workers.
+const INLINE_DECODE_BUDGET: Duration = Duration::from_millis(2);
+/// Decoded pixels kept for repacking evicted textures.
+const MAX_DECODED_BYTES: usize = 32 * 1024 * 1024;
+/// Remembered undecodable keys and settled fallback lookups.
+const MAX_FAILED: usize = 256;
+const MAX_EXTRA: usize = 512;
+
+/// Decoded pixels by key (at their packed size), failures, and worker decodes.
+struct Decodes {
+    pixels: BTreeMap<String, Arc<Vec<u8>>>,
+    order: VecDeque<String>,
+    bytes: usize,
+    failed: VecDeque<String>,
+    pending: BTreeSet<String>,
+    sender: crossbeam_channel::Sender<(String, Option<Vec<u8>>)>,
+    receiver: crossbeam_channel::Receiver<(String, Option<Vec<u8>>)>,
+}
+
+impl Default for Decodes {
+    fn default() -> Self {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        Self {
+            pixels: BTreeMap::new(),
+            order: VecDeque::new(),
+            bytes: 0,
+            failed: VecDeque::new(),
+            pending: BTreeSet::new(),
+            sender,
+            receiver,
+        }
+    }
+}
+
+impl Decodes {
+    /// Files finished worker decodes.
+    fn collect(&mut self) {
+        while let Ok((key, pixels)) = self.receiver.try_recv() {
+            self.pending.remove(&key);
+            self.store(key, pixels);
+        }
+    }
+
+    fn store(&mut self, key: String, pixels: Option<Vec<u8>>) {
+        let Some(pixels) = pixels else {
+            if self.failed.len() >= MAX_FAILED {
+                self.failed.pop_front();
+            }
+            self.failed.push_back(key);
+            return;
+        };
+        self.bytes += pixels.len();
+        self.pixels.insert(key.clone(), Arc::new(pixels));
+        self.order.push_back(key);
+        while self.bytes > MAX_DECODED_BYTES
+            && let Some(oldest) = self.order.pop_front()
+        {
+            if let Some(evicted) = self.pixels.remove(&oldest) {
+                self.bytes -= evicted.len();
+            }
+        }
+    }
+
+    /// `key`'s pixels at `size`: cached, decoded inline while `inline`, else
+    /// queued on a worker (`None` until a later frame).
+    fn get(&mut self, key: &str, source: &Source, inline: bool) -> Option<Arc<Vec<u8>>> {
+        if let Some(pixels) = self.pixels.get(key) {
+            return Some(Arc::clone(pixels));
+        }
+        if self.failed.iter().any(|failed| failed == key) || self.pending.contains(key) {
+            return None;
+        }
+        if inline {
+            self.store(key.to_owned(), decode(&source.bytes, source.packed));
+            return self.pixels.get(key).cloned();
+        }
+        self.pending.insert(key.to_owned());
+        let (key, bytes, size, done) = (
+            key.to_owned(),
+            Arc::clone(&source.bytes),
+            source.packed,
+            self.sender.clone(),
+        );
+        rayon::spawn(move || {
+            let _ = done.send((key, decode(&bytes, size)));
+        });
+        None
+    }
 }
 
 impl ServerAtlas {
@@ -310,9 +410,11 @@ impl ServerAtlas {
             (found.flatten(), true)
         };
         if settled {
-            self.extra
-                .borrow_mut()
-                .insert(key.to_owned(), found.clone());
+            let mut extra = self.extra.borrow_mut();
+            if extra.len() >= MAX_EXTRA {
+                extra.pop_first();
+            }
+            extra.insert(key.to_owned(), found.clone());
         }
         found
     }
@@ -349,6 +451,8 @@ impl ServerAtlas {
     /// that fits nowhere without evicting one drawn this frame is left out.
     pub(super) fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
+        self.decodes.collect();
+        let inline_until = Instant::now() + INLINE_DECODE_BUDGET;
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.
         let mut missing = Vec::new();
@@ -361,7 +465,7 @@ impl ServerAtlas {
         let mut changed = Vec::new();
         for key in missing {
             if !self.resident.contains_key(key)
-                && let Some(page) = self.place(key)
+                && let Some(page) = self.place(key, Instant::now() < inline_until)
             {
                 changed.push(page);
             }
@@ -386,8 +490,9 @@ impl ServerAtlas {
         }
     }
 
-    /// Decode and pack `key`, returning the page it landed on.
-    fn place(&mut self, key: &str) -> Option<usize> {
+    /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
+    /// while its decode is still on a worker.
+    fn place(&mut self, key: &str, inline: bool) -> Option<usize> {
         let source = match self.image(key) {
             Some(source) => source,
             None => self.fallback(key)?,
@@ -397,8 +502,8 @@ impl ServerAtlas {
                 .insert(key.to_owned(), std::sync::Arc::clone(&source.bytes));
         }
         let size = source.packed;
+        let rgba = self.decodes.get(key, &source, inline)?;
         let (index, origin) = self.slot(size)?;
-        let rgba = decode(&source.bytes, size)?;
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;
         let width = size[0] as usize * 4;
@@ -606,6 +711,47 @@ mod tests {
         );
         assert!(atlas.has_image("textures/ui/frame"));
         assert!(atlas.sidecar("textures/ui/frame").is_none());
+    }
+
+    // A burst of misses decodes partly inline and the rest on workers, each
+    // resident on a later frame; an evicted texture repacks from its pixels.
+    #[test]
+    fn a_burst_of_misses_spills_to_workers() {
+        // Noise, so each decode costs real time.
+        let noise = |seed: u32| {
+            let mut bytes = Vec::new();
+            image::RgbaImage::from_fn(256, 256, |x, y| {
+                let v = (x * 7919 + y * 104_729 + seed * 31).wrapping_mul(2_654_435_761);
+                image::Rgba(v.to_le_bytes())
+            })
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+            bytes
+        };
+        let files: Vec<_> = (0..40)
+            .map(|index| (format!("textures/ui/b{index}.png"), noise(index)))
+            .collect();
+        let keys: Vec<_> = (0..40)
+            .map(|index| format!("textures/ui/b{index}"))
+            .collect();
+        let mut atlas = ServerAtlas::new(&files, None, 64);
+        let resident = |atlas: &ServerAtlas| {
+            keys.iter()
+                .filter(|key| atlas.placement(key).is_some())
+                .count()
+        };
+        atlas.require(keys.iter().map(String::as_str));
+        assert!(
+            resident(&atlas) < keys.len(),
+            "not all decoded on one frame"
+        );
+        let started = Instant::now();
+        while resident(&atlas) < keys.len() {
+            assert!(started.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(5));
+            atlas.require(keys.iter().map(String::as_str));
+        }
+        assert_eq!(atlas.decodes.pixels.len(), keys.len());
     }
 
     // A full atlas evicts the page drawn least recently, never one drawn this frame.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -78,15 +79,23 @@ func TestListOrdersByLastPlayedAndSkipsJunk(t *testing.T) {
 	}
 }
 
-func TestRenameTouchDelete(t *testing.T) {
+func TestUpdateTouchDelete(t *testing.T) {
 	store := newTestStore(t)
 	world, _ := store.Create(Spec{Name: "a"})
-	renamed, err := store.Rename(world.ID, " b ")
-	if err != nil || renamed.Name != "b" {
-		t.Fatalf("rename = %+v, %v", renamed, err)
+	name, mode, hard := " b ", "creative", "hard"
+	updated, err := store.Update(world.ID, Update{Name: &name, GameMode: &mode, Difficulty: &hard})
+	if err != nil || updated.Name != "b" || updated.GameMode != GameModeCreative || updated.Difficulty != DifficultyHard {
+		t.Fatalf("update = %+v, %v", updated, err)
 	}
-	if _, err := store.Rename(world.ID, ""); !errors.Is(err, ErrInvalid) {
+	empty, bogus := "", "spectator"
+	if _, err := store.Update(world.ID, Update{Name: &empty}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("empty rename: %v", err)
+	}
+	if _, err := store.Update(world.ID, Update{GameMode: &bogus}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown game mode: %v", err)
+	}
+	if got, _ := store.Get(world.ID); got.Name != "b" || got.GameMode != GameModeCreative {
+		t.Fatalf("rejected update changed the world: %+v", got)
 	}
 	store.now = func() time.Time { return time.Unix(5000, 0) }
 	if err := store.Touch(world.ID); err != nil {
@@ -115,5 +124,25 @@ func TestMalformedIDsNeverReachTheFilesystem(t *testing.T) {
 		if err := store.Delete(id); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("delete id %q: %v", id, err)
 		}
+	}
+}
+
+// List reports each world's size on disk without persisting it.
+func TestListReportsWorldSize(t *testing.T) {
+	store := newTestStore(t)
+	world, _ := store.Create(Spec{Name: "sized"})
+	dir, _ := store.Dir(world.ID)
+	_ = os.MkdirAll(filepath.Join(dir, "db"), 0o700)
+	if err := os.WriteFile(filepath.Join(dir, "db", "000001.ldb"), make([]byte, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	worlds, _ := store.List()
+	if len(worlds) != 1 || worlds[0].SizeBytes < 4096 {
+		t.Fatalf("size = %+v", worlds)
+	}
+	_ = store.Touch(world.ID)
+	raw, _ := os.ReadFile(filepath.Join(dir, metaFile))
+	if strings.Contains(string(raw), "size_bytes") {
+		t.Fatalf("size persisted: %s", raw)
 	}
 }

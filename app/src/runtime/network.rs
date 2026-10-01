@@ -976,6 +976,8 @@ pub(crate) use actor_publication::{
 };
 
 #[cfg(test)]
+pub(crate) use actor_publication::HAND_FOV_DEGREES;
+#[cfg(test)]
 pub(crate) use drain::drain_network_ingress;
 pub(crate) use drain::{
     acceptance_surface_anchor, drain_network_controls, drain_world_ingress_until_barrier,

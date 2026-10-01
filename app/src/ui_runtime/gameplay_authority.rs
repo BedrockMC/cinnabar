@@ -668,16 +668,21 @@ impl UiRuntime {
     }
 
     pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
-        self.server_lang
-            .as_ref()
-            .and_then(|overlay| overlay.lookup(key))
-            .map(Arc::from)
-            .or_else(|| {
-                self.active_lang
-                    .as_ref()
-                    .and_then(|active| active.lookup(key))
-            })
-            .or_else(|| self.lang_catalog.as_ref().and_then(|base| base.lookup(key)))
+        translate(
+            self.server_lang.as_deref(),
+            self.active_lang.as_deref(),
+            self.lang_catalog.as_deref(),
+            key,
+        )
+    }
+
+    /// The language tables [`Self::translation`] reads, detached for another thread.
+    pub(crate) fn translator(&self) -> Translator {
+        Translator {
+            server: self.server_lang.clone(),
+            active: self.active_lang.clone(),
+            base: self.lang_catalog.clone(),
+        }
     }
 
     /// The localized display name for a vanilla item identifier: the pinned
@@ -703,4 +708,37 @@ impl UiRuntime {
         }
         super::item_facts::mechanical_display_name(identifier)
     }
+}
+
+/// A snapshot of the language tables translations read.
+#[derive(Clone, Default)]
+pub(crate) struct Translator {
+    server: Option<Arc<assets::ServerLangOverlay>>,
+    active: Option<Arc<assets::RuntimeLangCatalog>>,
+    base: Option<Arc<assets::RuntimeLangCatalog>>,
+}
+
+impl Translator {
+    pub(crate) fn lookup(&self, key: &str) -> Option<Arc<str>> {
+        translate(
+            self.server.as_deref(),
+            self.active.as_deref(),
+            self.base.as_deref(),
+            key,
+        )
+    }
+}
+
+/// `key` from the server's overlay, else the active language, else the base catalog.
+fn translate(
+    server: Option<&assets::ServerLangOverlay>,
+    active: Option<&assets::RuntimeLangCatalog>,
+    base: Option<&assets::RuntimeLangCatalog>,
+    key: &str,
+) -> Option<Arc<str>> {
+    server
+        .and_then(|overlay| overlay.lookup(key))
+        .map(Arc::from)
+        .or_else(|| active.and_then(|active| active.lookup(key)))
+        .or_else(|| base.and_then(|base| base.lookup(key)))
 }

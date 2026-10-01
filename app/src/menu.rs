@@ -32,15 +32,16 @@ pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
-use servers::{load_servers, save_servers};
+use servers::{ServerWriter, load_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 pub(crate) use view::{
-    ButtonArt, InboxItem, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard,
-    MenuView, PingInfo, SavedServer,
+    ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
+    MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
 };
 use view::{CatalogFile, MenuFeeds};
 #[cfg(test)]
 pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
+pub(crate) use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
 use std::{
     fs,
@@ -111,6 +112,9 @@ pub(crate) enum MenuDialog {
 pub(crate) enum MenuField {
     Name,
     Address,
+    /// The local-world create or edit screen's name field.
+    WorldName,
+    WorldSeed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -147,6 +151,8 @@ pub(crate) enum MenuAction {
     SettingsSection(u8),
     Respawn,
     PlayLocalWorld(usize),
+    /// A press on a local-world screen (create, edit, templates) or its modals.
+    LocalWorld(LocalWorldAction),
     SignOut,
     /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
     SettingsVolume(u8, u8),
@@ -187,6 +193,7 @@ pub(crate) struct MenuRuntime {
     launcher: bool,
     servers: Vec<SavedServer>,
     config_path: PathBuf,
+    saves: ServerWriter,
     pending_connect: Option<PendingConnect>,
     connecting: bool,
     disconnect_requested: bool,
@@ -216,6 +223,7 @@ pub(crate) struct MenuRuntime {
     respawn_requested: bool,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
+    local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
     sign_out_requested: bool,
@@ -233,6 +241,8 @@ pub(crate) struct MenuRuntime {
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
     session_directory: Option<SessionDirectoryGuard>,
+    /// The join provisioning behind the connecting screen.
+    join: Option<connection::JoinAttempt>,
 }
 
 #[derive(Debug)]
@@ -292,6 +302,7 @@ impl MenuRuntime {
             gui_scale_changed: false,
             display_name,
             servers: loaded.servers,
+            saves: ServerWriter::new(config_path.clone()),
             config_path,
             pending_connect: None,
             connecting: false,
@@ -313,6 +324,7 @@ impl MenuRuntime {
             layout,
             player_skin,
             session_directory: None,
+            join: None,
             editing: None,
             settings_section: 0,
             disconnect_message: None,
@@ -320,6 +332,7 @@ impl MenuRuntime {
             respawn_requested: false,
             local_worlds: Vec::new(),
             local_world_requested: None,
+            local_ui: Default::default(),
             control_auth: None,
             sign_out_requested: false,
             store_actions: Vec::new(),
@@ -431,6 +444,7 @@ impl MenuRuntime {
             disconnect_message: self.disconnect_message.clone(),
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
+            local: self.local_view(),
             volumes: self.volumes,
             feeds: self.feeds.clone(),
             store: self.store_snapshot.clone(),
@@ -599,6 +613,7 @@ impl MenuRuntime {
 
     /// Releases the session runtime directory now (after the core has been
     /// stopped); a no-op when nothing is bound.
+    #[cfg(test)]
     pub(crate) fn release_session_directory(&mut self) {
         self.session_directory = None;
     }
@@ -611,10 +626,9 @@ impl MenuRuntime {
         {
             self.focused = index;
         }
-        match action {
-            MenuAction::AddName => self.focus_field(MenuField::Name),
-            MenuAction::AddAddress => self.focus_field(MenuField::Address),
-            _ => {
+        match action.text_field() {
+            Some(field) => self.focus_field(field),
+            None => {
                 self.field = None;
                 self.text_selected = false;
             }
@@ -657,7 +671,7 @@ impl MenuRuntime {
                 if index < self.servers.len() {
                     self.servers[index].last_joined_unix = now_unix();
                     let address = self.servers[index].address.clone();
-                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.save_servers();
                     self.request_connect(address);
                 }
             }
@@ -696,7 +710,7 @@ impl MenuRuntime {
                     } else {
                         format!("{} removed from Favorites.", server.name)
                     });
-                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.save_servers();
                 }
             }
             MenuAction::RemoveSavedDialog(index) => {
@@ -709,7 +723,7 @@ impl MenuRuntime {
                 if index < self.servers.len() {
                     let removed = self.servers.remove(index);
                     self.feeds.selected_saved = None;
-                    let _ = save_servers(&self.config_path, &self.servers);
+                    self.save_servers();
                     self.message = Some(format!("Removed {}.", removed.name));
                 }
                 self.dialog = None;
@@ -785,6 +799,7 @@ impl MenuRuntime {
                     self.local_world_requested = Some(index);
                 }
             }
+            MenuAction::LocalWorld(action) => self.queue_local_action(action),
         }
     }
 
@@ -832,6 +847,15 @@ impl MenuRuntime {
     /// Returns to the screen below; an in-game root closes the menu.
     fn go_back(&mut self) {
         if self.dialog.take().is_some() {
+            return;
+        }
+        if self.local_screen_open() {
+            self.queue_local_action(LocalWorldAction::Back);
+            return;
+        }
+        // Back on the join progress screen is its cancel button, where vanilla offers one.
+        if self.connecting {
+            self.disconnect_requested |= self.feeds.join.cancellable();
             return;
         }
         match self.screen {
@@ -882,11 +906,25 @@ impl MenuRuntime {
         } else {
             self.servers.push(server);
         }
-        if let Err(error) = save_servers(&self.config_path, &self.servers) {
+        if let Err(error) = self.saves.save(&self.servers) {
             self.message = Some(format!("Could not save server: {error}"));
             return false;
         }
         true
+    }
+
+    /// Queues the list for writing; a schema refusal leaves only the log.
+    fn save_servers(&mut self) {
+        if let Err(error) = self.saves.save(&self.servers) {
+            bevy::log::warn!("saved servers not written: {error:#}");
+        }
+    }
+
+    /// Surfaces a saved-server write that failed on the worker.
+    pub(crate) fn poll_saves(&mut self) {
+        if let Some(error) = self.saves.take_error() {
+            self.message = Some(format!("Could not save servers: {error}"));
+        }
     }
 
     /// Joins the live event's venue, or opens the Servers tab when it routes there.

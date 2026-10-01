@@ -367,16 +367,38 @@ pub struct Events {
     pub disconnect: Option<ServerDisconnect>,
     #[serde(default)]
     pub transfer: Option<TransferPending>,
-    /// Live while the core downloads the server's resource packs.
+    /// Live while the core prepares a join; gone once it hands the session to the client.
     #[serde(default)]
-    pub pack_download: Option<PackDownload>,
+    pub connect: Option<ConnectProgress>,
 }
 
-/// Pack chunk bytes received against the admitted offer's total.
+/// The core's stage of preparing a join, and its pack download counts.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub struct PackDownload {
+pub struct ConnectProgress {
+    pub stage: ConnectStage,
+    /// Packs being downloaded (cache hits excluded) and those finished.
+    #[serde(default)]
+    pub packs_done: u32,
+    #[serde(default)]
+    pub packs_total: u32,
+    /// Across all packs; the total grows as each pack's download begins.
+    #[serde(default)]
     pub received_bytes: u64,
+    #[serde(default)]
     pub total_bytes: u64,
+}
+
+/// Vanilla's join progress handlers the core's stages stand for.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectStage {
+    /// The Realm lookup.
+    Realm,
+    /// Resource pack acquisition.
+    Packs,
+    /// Transport connect and login; also any stage this client does not know.
+    #[serde(other)]
+    Connecting,
 }
 
 #[derive(Serialize)]
@@ -640,6 +662,47 @@ mod tests {
         let quiet: Events = parse_response(quiet).expect("quiet");
         assert_eq!(quiet.auth.state, AuthState::Offline);
         assert!(quiet.disconnect.is_none() && quiet.transfer.is_none());
+        assert!(quiet.connect.is_none());
+    }
+
+    // Omitted counts read as zero and an unknown stage reads as connecting.
+    #[test]
+    fn parses_connect_progress() {
+        let events = |connect: &str| {
+            let reply = format!(
+                r#"{{"jsonrpc":"2.0","id":1,"result":{{"schema_version":1,
+                "auth":{{"state":"signed_in"}},"connect":{connect}}}}}"#
+            );
+            parse_response::<Events>(reply.as_bytes())
+                .expect("events")
+                .connect
+                .expect("connect")
+        };
+        let stage = |connect: &str| events(connect).stage;
+        assert_eq!(stage(r#"{"stage":"realm"}"#), ConnectStage::Realm);
+        assert_eq!(stage(r#"{"stage":"connecting"}"#), ConnectStage::Connecting);
+        assert_eq!(
+            stage(r#"{"stage":"handshaking"}"#),
+            ConnectStage::Connecting
+        );
+        assert_eq!(
+            events(r#"{"stage":"packs"}"#),
+            ConnectProgress {
+                stage: ConnectStage::Packs,
+                packs_done: 0,
+                packs_total: 0,
+                received_bytes: 0,
+                total_bytes: 0,
+            }
+        );
+        let downloading = events(
+            r#"{"stage":"packs","packs_done":1,"packs_total":3,
+            "received_bytes":5242880,"total_bytes":20971520}"#,
+        );
+        assert_eq!(downloading.packs_done, 1);
+        assert_eq!(downloading.packs_total, 3);
+        assert_eq!(downloading.received_bytes, 5_242_880);
+        assert_eq!(downloading.total_bytes, 20_971_520);
     }
 
     #[test]

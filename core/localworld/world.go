@@ -20,6 +20,7 @@ var (
 	ErrEULARequired       = errors.New("the Minecraft EULA must be accepted before the server is downloaded")
 	ErrBackendUnavailable = errors.New("world backend is not available on this platform")
 	ErrVanillaNeedsBDS    = errors.New("default worlds need Bedrock Dedicated Server; create a superflat world instead")
+	ErrDockerNotRunning   = errors.New("Docker is not running")
 )
 
 const (
@@ -52,6 +53,14 @@ type World struct {
 	Seed           int64  `json:"seed"`
 	CreatedUnix    int64  `json:"created_unix"`
 	LastPlayedUnix int64  `json:"last_played_unix"`
+	SizeBytes      int64  `json:"size_bytes,omitempty"` // on disk; filled by List, never persisted
+}
+
+// Update changes a saved world's settings; nil fields are left alone.
+type Update struct {
+	Name       *string `json:"name,omitempty"`
+	GameMode   *string `json:"game_mode,omitempty"`
+	Difficulty *string `json:"difficulty,omitempty"`
 }
 
 // Spec is the user-chosen settings of a new world; empty fields take defaults and a nil Seed is random.

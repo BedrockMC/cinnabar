@@ -50,11 +50,10 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
     presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(
-        texts(&presentation)
-            .iter()
-            .any(|text| text == "Building terrain")
-    );
+    let shown = texts(&presentation);
+    for wanted in ["Generating World", "Building terrain"] {
+        assert!(shown.iter().any(|text| text == wanted), "{shown:?}");
+    }
     assert!(has_sprite(&presentation, "textures/blocks/netherrack"));
 }
 

@@ -34,11 +34,11 @@ use crate::stream::{
 };
 use crate::valentine::BorrowedMcpePacketData;
 use crate::valentine::{
-    ActorRuntimeId, ClientCacheStatusPacket, ClientToServerHandshakePacket, ItemRegistryPacket,
-    LoginPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket, RequestNetworkSettingsPacket,
-    ResourcePackChunkRequestPacket, ResourcePackClientResponseDownloadingFinishedjson,
-    ResourcePackClientResponseDownloadingjson, ResourcePackClientResponsePacket,
-    ResourcePackClientResponsePacketResponse,
+    ActorRuntimeId, ClientCacheStatusPacket, ClientToServerHandshakePacket, DisconnectPacket,
+    ItemRegistryPacket, LoginPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
+    RequestNetworkSettingsPacket, ResourcePackChunkRequestPacket,
+    ResourcePackClientResponseDownloadingFinishedjson, ResourcePackClientResponseDownloadingjson,
+    ResourcePackClientResponsePacket, ResourcePackClientResponsePacketResponse,
     ResourcePackClientResponseResourcePackStackFinishedjson, ServerboundLoadingScreenPacket,
     ServerboundLoadingScreenPacketLoadingScreenPacketType, SetLocalPlayerAsInitializedPacket,
     StartGamePacket,
@@ -267,6 +267,13 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         self.transport.send_raw(McpePacket::from(req)).await?;
 
         let settings_raw = self.transport.recv_packet_raw().await?;
+        if settings_raw.id == McpePacketName::DisconnectPacket {
+            let packet = settings_raw.decode(&self.transport.session)?;
+            let McpePacketData::DisconnectPacket(disconnect) = packet.data else {
+                unreachable!("packet ID and decoded variant must agree")
+            };
+            return Err(server_disconnect("network settings", &disconnect));
+        }
         if settings_raw.id != McpePacketName::NetworkSettingsPacket {
             return Err(ProtocolError::UnexpectedHandshake(format!(
                 "Expected NetworkSettings, got {:?}",
@@ -452,6 +459,17 @@ struct ServerHandshakeClaims {
     salt: String,
 }
 
+/// The error a join-time Disconnect ends with, keeping the server's texts.
+fn server_disconnect(stage: &'static str, disconnect: &DisconnectPacket) -> JolyneError {
+    ProtocolError::ServerDisconnect {
+        stage,
+        reason: format!("{:?}", disconnect.reason),
+        message: disconnect.messages.message.clone(),
+        filtered_message: disconnect.messages.filtered_message.clone(),
+    }
+    .into()
+}
+
 fn observe_login_success_packet(
     packet: McpePacket,
     early_resource_packs_info: &mut Option<McpePacket>,
@@ -467,11 +485,7 @@ fn observe_login_success_packet(
         return Ok(true);
     }
     if let McpePacketData::DisconnectPacket(disconnect) = &packet.data {
-        return Err(ProtocolError::UnexpectedHandshake(format!(
-            "Server disconnected during login: {:?}",
-            disconnect.reason
-        ))
-        .into());
+        return Err(server_disconnect("login", disconnect));
     }
     if matches!(&packet.data, McpePacketData::ResourcePacksInfoPacket(_)) {
         *early_resource_packs_info = Some(packet);
@@ -706,11 +720,7 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
                     .await?;
             }
             McpePacketData::DisconnectPacket(disconnect) => {
-                return Err(ProtocolError::UnexpectedHandshake(format!(
-                    "Server disconnected during login: {:?}",
-                    disconnect.reason
-                ))
-                .into());
+                return Err(server_disconnect("login", &disconnect));
             }
             _ => {
                 return Err(ProtocolError::UnexpectedHandshake(
@@ -1156,13 +1166,17 @@ mod tests {
     #[test]
     fn disconnect_while_waiting_for_login_success_is_an_error() {
         let mut early = None;
-        let error = observe_login_success_packet(
-            McpePacket::from(crate::valentine::DisconnectPacket::default()),
-            &mut early,
-        )
-        .expect_err("Disconnect must stop login");
+        let mut disconnect = crate::valentine::DisconnectPacket::default();
+        disconnect.messages.message = "disconnectionScreen.cantConnect".to_owned();
+        let error = observe_login_success_packet(McpePacket::from(disconnect), &mut early)
+            .expect_err("Disconnect must stop login");
 
         assert!(error.to_string().contains("disconnected during login"));
+        assert!(matches!(
+            error,
+            JolyneError::Protocol(ProtocolError::ServerDisconnect { ref message, .. })
+                if message == "disconnectionScreen.cantConnect"
+        ));
         assert!(early.is_none());
     }
 
@@ -1627,11 +1641,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                     let McpePacketData::DisconnectPacket(disconnect) = packet.data else {
                         unreachable!("packet ID and decoded variant must agree")
                     };
-                    return Err(ProtocolError::UnexpectedHandshake(format!(
-                        "Server disconnected during resource packs: {:?}",
-                        disconnect.reason
-                    ))
-                    .into());
+                    return Err(server_disconnect("resource packs", &disconnect));
                 }
                 other => {
                     return Err(ProtocolError::UnexpectedHandshake(format!(
@@ -1700,11 +1710,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 let McpePacketData::DisconnectPacket(disconnect) = packet.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
-                return Err(ProtocolError::UnexpectedHandshake(format!(
-                    "Server disconnected during resource packs: {:?}",
-                    disconnect.reason
-                ))
-                .into());
+                return Err(server_disconnect("resource packs", &disconnect));
             }
             other => {
                 return Err(ProtocolError::UnexpectedHandshake(format!(
@@ -2067,11 +2073,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         unreachable!("packet ID and decoded variant must agree")
                     };
                     tracing::warn!("Server disconnected: {:?}", dc.reason);
-                    return Err(ProtocolError::UnexpectedHandshake(format!(
-                        "Server disconnected during StartGame: {:?}",
-                        dc.reason
-                    ))
-                    .into());
+                    return Err(server_disconnect("StartGame", &dc));
                 }
                 packet_id => {
                     tracing::debug!("StartGame: deferring packet {:?}", packet_id);

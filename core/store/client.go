@@ -1,17 +1,12 @@
-// Package store talks to Mojang's Marketplace services as the signed-in account: the store session,
-// layout pages, catalog search, balance, inventory and Minecoin purchases.
+// Package store serves the launcher's Marketplace screens as the signed-in account: layout pages,
+// catalog search, balance, inventory and confirmed Minecoin purchases. The store service protocol
+// lives in gophertunnel's service/marketplace; this package keeps confirmation, purchase
+// deduplication, caching and the bridge DTOs.
 package store
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,21 +15,12 @@ import (
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/service"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 const (
-	pathConfig      = "/api/v1.0/session/config"
-	pathBalances    = "/api/v1.0/currencies/virtual/balances"
-	pathInventory   = "/api/v1.0/player/inventory?includeReceipt=true"
-	pathRefresh     = "/api/v1.0/inventory/refresh"
-	pathRowItems    = "/api/v2.0/layout/items"
-	pathTransaction = "/api/v1.0/transaction/virtual"
-
-	maxResponseBytes = 8 << 20
-	requestTimeout   = 40 * time.Second
-	configTTL        = 10 * time.Minute
-	inventoryTTL     = time.Minute
-	userAgent        = "libhttpclient/1.0.0.0"
+	configTTL    = 10 * time.Minute
+	inventoryTTL = time.Minute
 )
 
 // Catalog is the PlayFab catalog surface the store uses; *playfabcatalog.Client implements it.
@@ -55,36 +41,30 @@ type Identity struct {
 
 // Config wires a Client.
 type Config struct {
-	BaseURL  *url.URL
-	Tokens   service.TokenSource
+	Market   *marketplace.Client
 	Catalog  Catalog
-	HTTP     *http.Client
 	Identity Identity
 	Now      func() time.Time
 }
 
-// Client is the store service client; it is safe for concurrent use.
+// Client is the store backend; it is safe for concurrent use.
 type Client struct {
-	cfg       Config
-	sessionID string
-	seq       atomic.Uint32
-	guard     *purchaseGuard
+	cfg   Config
+	seq   atomic.Uint32
+	guard *purchaseGuard
 
 	mu        sync.Mutex
-	config    *SessionConfig
+	config    *marketplace.SessionConfig
 	configAt  time.Time
 	inventory *inventoryCache
-	etag      string // newest InventoryETag seen
-	lists     string // newest X-UserLists-Version seen
+	etag      string // newest inventory version seen
+	lists     string // newest user-lists version seen
 }
 
-// NewClient returns a Client; BaseURL, Tokens and Catalog are required.
+// NewClient returns a Client; Market and Catalog are required.
 func NewClient(cfg Config) (*Client, error) {
-	if cfg.BaseURL == nil || !cfg.BaseURL.IsAbs() || cfg.BaseURL.Host == "" || cfg.Tokens == nil || cfg.Catalog == nil {
+	if cfg.Market == nil || cfg.Catalog == nil {
 		return nil, errors.New("store: incomplete client configuration")
-	}
-	if cfg.HTTP == nil {
-		cfg.HTTP = &http.Client{Timeout: requestTimeout}
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -102,136 +82,5 @@ func NewClient(cfg Config) (*Client, error) {
 	if id.EditionType == "" {
 		id.EditionType = "Bedrock"
 	}
-	c := &Client{cfg: cfg, sessionID: uuid.NewString()}
-	c.guard = newPurchaseGuard(cfg.Now)
-	httpClient := *cfg.HTTP
-	next := httpClient.CheckRedirect
-	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if !c.sameOrigin(req.URL) {
-			return ErrInvalidRequest
-		}
-		if next != nil {
-			return next(req, via)
-		}
-		if len(via) >= 10 {
-			return errors.New("store: stopped after 10 redirects")
-		}
-		return nil
-	}
-	c.cfg.HTTP = &httpClient
-	return c, nil
-}
-
-// ServiceError is a non-2xx answer from the store service; Body is bounded and never logged.
-type ServiceError struct {
-	Status int
-	Body   []byte
-}
-
-func (e *ServiceError) Error() string {
-	return fmt.Sprintf("store: service returned HTTP %d", e.Status)
-}
-
-// response is the decoded outcome of one service call.
-type response struct {
-	status int
-	header http.Header
-	body   []byte
-}
-
-// resolve joins a service-relative path (query allowed) or an absolute URL onto the base URL; the
-// result must stay on the base origin, since the request carries the service token.
-func (c *Client) resolve(path string) (string, error) {
-	if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "https://") {
-		path = "/" + path
-	}
-	ref, err := url.Parse(path)
-	if err != nil {
-		return "", ErrInvalidRequest
-	}
-	u := c.cfg.BaseURL.ResolveReference(ref)
-	if !c.sameOrigin(u) {
-		return "", ErrInvalidRequest
-	}
-	return u.String(), nil
-}
-
-// sameOrigin reports whether u has the base URL's scheme and authority and no userinfo.
-func (c *Client) sameOrigin(u *url.URL) bool {
-	base := c.cfg.BaseURL
-	return u.User == nil && strings.EqualFold(u.Scheme, base.Scheme) && strings.EqualFold(u.Host, base.Host)
-}
-
-// do sends one authenticated request; it never retries, so a POST is sent at most once.
-func (c *Client) do(ctx context.Context, method, path string, body any) (*response, error) {
-	target, err := c.resolve(path)
-	if err != nil {
-		return nil, err
-	}
-	var reader io.Reader
-	if body != nil {
-		encoded, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("store: encode request: %w", err)
-		}
-		reader = bytes.NewReader(encoded)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, target, reader)
-	if err != nil {
-		return nil, fmt.Errorf("store: make request: %w", err)
-	}
-	token, err := c.cfg.Tokens.ServiceToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("store: service token: %w", err)
-	}
-	token.SetAuthHeader(req)
-	req.Header.Set("Session-Id", c.sessionID)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", userAgent)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.cfg.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxResponseBytes {
-		return nil, errors.New("store: response too large")
-	}
-	out := &response{status: resp.StatusCode, header: resp.Header, body: data}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return out, &ServiceError{Status: resp.StatusCode, Body: data}
-	}
-	return out, nil
-}
-
-// result returns the envelope's "result" member.
-func (r *response) result() (json.RawMessage, error) {
-	var envelope struct {
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(r.body, &envelope); err != nil {
-		return nil, fmt.Errorf("store: decode response: %w", err)
-	}
-	if len(envelope.Result) == 0 {
-		return nil, errors.New("store: response has no result")
-	}
-	return envelope.Result, nil
-}
-
-// remember records the version headers the service attaches to inventory-aware answers.
-func (c *Client) remember(h http.Header) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if v := h.Get("InventoryETag"); v != "" {
-		c.etag = v
-	}
-	if v := h.Get("X-UserLists-Version"); v != "" {
-		c.lists = v
-	}
+	return &Client{cfg: cfg, guard: newPurchaseGuard(cfg.Now)}, nil
 }

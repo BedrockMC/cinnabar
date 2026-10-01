@@ -297,6 +297,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         interaction.invalidate();
         return;
     };
+    stream.set_view_forward((view.rotation() * Vec3::NEG_Z).to_array());
     frame_poll.report = stream.poll(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
