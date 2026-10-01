@@ -122,6 +122,9 @@ func containerArgs(spec StartSpec, image, version, installDir string, hostPort, 
 		{"LEVEL_NAME", w.ID}, {"LEVEL_SEED", strconv.FormatInt(w.Seed, 10)}, {"LEVEL_TYPE", levelType},
 		{"VIEW_DISTANCE", strconv.Itoa(view)}, {"TICK_DISTANCE", strconv.Itoa(clampInt(view, 4, 12))},
 		{"PLAYER_IDLE_TIMEOUT", "0"},
+		// 1.26.5x defaults to NetherNet; the core dials RakNet. LAN visibility would also bind 19132.
+		{"TRANSPORT", "raknet"}, {"ENABLE_LAN_VISIBILITY", "false"},
+		{"ENABLE_BDS_V6BIND_FIX", "TRUE"}, // the image's shim for IPv6 binds Docker cannot serve
 	} {
 		args = append(args, "-e", kv[0]+"="+kv[1])
 	}

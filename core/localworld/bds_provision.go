@@ -25,8 +25,10 @@ import (
 const (
 	linksAPI        = "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links"
 	directURLFormat = "https://www.minecraft.net/bedrockdedicatedserver/bin-%s/bedrock-server-%s.zip"
-	maxZipBytes     = 1 << 30
-	maxUnpackBytes  = 4 << 30
+	// userAgent names the downloader; minecraft.net resets requests carrying Go's default agent.
+	userAgent      = "Cinnabar-local-worlds"
+	maxZipBytes    = 1 << 30
+	maxUnpackBytes = 4 << 30
 )
 
 var zipVersion = regexp.MustCompile(`bedrock-server-(\d+(?:\.\d+)+)\.zip$`)
@@ -380,6 +382,7 @@ func (p *Provisioner) get(ctx context.Context, rawURL string) (*http.Response, e
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := p.client().Do(req)
 	if err != nil {
 		return nil, err

@@ -74,7 +74,7 @@ func TestContainerRunnerLifecycleAndArguments(t *testing.T) {
 		":19132/udp",
 		"-v " + filepath.Join(p.Root, "1.26.52.3") + ":/data ",
 		"-v " + filepath.Join(spec.Dir, "db") + ":/data/worlds/" + spec.World.ID,
-		"-e EULA=TRUE", "-e VERSION=1.26.52.3", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7",
+		"-e EULA=TRUE", "-e VERSION=1.26.52.3", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7", "-e ENABLE_BDS_V6BIND_FIX=TRUE", "-e TRANSPORT=raknet", "-e ENABLE_LAN_VISIBILITY=false",
 		"-e DIRECT_DOWNLOAD_URL=https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.26.52.3.zip",
 		"stop -t 25 " + name,
 	} {

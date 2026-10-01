@@ -163,6 +163,9 @@ func serverProperties(spec StartSpec, port, portV6, maxPlayers int) []byte {
 		{"view-distance", strconv.Itoa(view)},
 		{"tick-distance", strconv.Itoa(clampInt(view, 4, 12))},
 		{"player-idle-timeout", "0"},
+		// 1.26.5x defaults to NetherNet; the core dials RakNet. LAN visibility would bind 19132/19133 too.
+		{"transport", "raknet"},
+		{"enable-lan-visibility", "false"},
 		{"texturepack-required", "false"},
 		{"content-log-file-enabled", "false"},
 	} {
