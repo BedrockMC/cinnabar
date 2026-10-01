@@ -29,7 +29,6 @@ mod stack;
 
 pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
 pub use measure::MeasureCache;
-pub(crate) use size::{font_scale, localizes};
 
 pub(crate) use place::draggable_axes;
 use place::{motion, place_by_anchor};
@@ -75,6 +74,21 @@ pub trait TextMeasure {
     /// table measure it as written.
     fn localize<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
         std::borrow::Cow::Borrowed(text)
+    }
+
+    /// A label's extent in `shape`, wrapped at `max_width` when known; the
+    /// default scales the unscaled measure and ignores line padding.
+    fn label(
+        &self,
+        text: &str,
+        max_width: Option<f64>,
+        shape: crate::label::LabelShape,
+    ) -> [f64; 2] {
+        let [w, h] = match max_width {
+            Some(width) if width > 0.0 => self.wrapped(text, width / shape.scale),
+            _ => self.extent(text),
+        };
+        [w * shape.scale, h * shape.scale]
     }
 }
 
@@ -176,6 +190,7 @@ fn lay_out<'a>(
         sliders: Vec::new(),
         ancestors: Vec::new(),
         disabled: 0,
+        hidden_names: Vec::new(),
         screen,
     };
     let key = child_key("", root);
@@ -205,6 +220,8 @@ struct PlaceCtx<'e, 'x> {
     ancestors: Vec<(String, Rect, Rect)>,
     /// Enclosing disabled controls; their descendants are locked.
     disabled: usize,
+    /// Descendant names an enclosing edit box hides (its placeholder).
+    hidden_names: Vec<String>,
     /// What a control that opts out of clipping draws within.
     screen: Rect,
 }
@@ -298,6 +315,10 @@ fn place_subtree<'a>(
         ctx.sliders.push(entry);
     }
     let hidden = widgets::hidden_state_children(control, &key, ctx.state, !enabled);
+    let placeholder = widgets::hidden_placeholder(control);
+    if let Some(name) = placeholder {
+        ctx.hidden_names.push(name.to_owned());
+    }
     let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
@@ -311,6 +332,7 @@ fn place_subtree<'a>(
     let mut children = Vec::with_capacity(placed.len());
     for (child, mut child_rect) in placed {
         let child_shown = !hidden.contains(&child.name)
+            && !ctx.hidden_names.contains(&child.name)
             && !priority
                 .get(measure::child_index(control, child))
                 .copied()
@@ -373,6 +395,9 @@ fn place_subtree<'a>(
         ));
     }
     ctx.ancestors.pop();
+    if placeholder.is_some() {
+        ctx.hidden_names.pop();
+    }
     if !enabled {
         ctx.disabled -= 1;
     }

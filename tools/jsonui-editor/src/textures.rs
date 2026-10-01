@@ -129,10 +129,11 @@ impl<'a> Textures<'a> {
             .sidecar(key)
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .and_then(|value| json_ui::parse_texture_meta(&value))
-            .unwrap_or(TextureMeta {
-                base_size: size,
-                nineslice: None,
-            });
+            .map(|meta| TextureMeta {
+                pixels: size,
+                ..meta
+            })
+            .unwrap_or(TextureMeta::plain(size));
         let mut cache = self.cache.borrow_mut();
         cache.pages.push(page);
         Entry::Ready {

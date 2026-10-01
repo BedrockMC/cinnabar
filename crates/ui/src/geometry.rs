@@ -16,14 +16,17 @@ impl UiScale {
     pub const MAX: f32 = 4.0;
     /// Upper bound for magnified display text (titles), beyond the user-selectable range.
     pub const DISPLAY_MAX: f32 = 16.0;
+    /// Lower bound for shrunken label text (`font_size: small` at the smallest GUI scale).
+    pub const DISPLAY_MIN: f32 = 0.125;
 
     pub fn new(value: f32) -> Result<Self, GeometryError> {
         finite_in_range(value, Self::MIN, Self::MAX).map(Self)
     }
 
-    /// Like [`Self::new`] but admits magnified display text up to [`Self::DISPLAY_MAX`].
+    /// Like [`Self::new`] but admits display text from [`Self::DISPLAY_MIN`] to
+    /// [`Self::DISPLAY_MAX`].
     pub fn new_display(value: f32) -> Result<Self, GeometryError> {
-        finite_in_range(value, Self::MIN, Self::DISPLAY_MAX).map(Self)
+        finite_in_range(value, Self::DISPLAY_MIN, Self::DISPLAY_MAX).map(Self)
     }
 
     pub const fn get(self) -> f32 {

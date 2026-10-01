@@ -17,13 +17,14 @@ impl TextMeasure for MonoText {
     }
 }
 
-/// Every texture is 40x20.
+/// Every texture is 40x20 texels; ratio sizing ignores the sidecar `base_size`.
 struct Textures;
 impl TextureSource for Textures {
     fn texture(&self, _path: &str) -> Option<TextureMeta> {
         Some(TextureMeta {
-            base_size: [40.0, 20.0],
+            base_size: [8.0, 8.0],
             nineslice: None,
+            pixels: [40.0, 20.0],
         })
     }
 }

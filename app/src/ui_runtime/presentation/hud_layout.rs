@@ -198,6 +198,7 @@ impl<'a> HudLayout<'a> {
                 baseline_64: super::TEXT_BASELINE_64,
                 scale: UiScale::default(),
                 font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         let text_line_logical = (probe.size_64()[1] as f32 / 64.0).max(1.0);
@@ -281,6 +282,7 @@ impl<'a> HudLayout<'a> {
                     baseline_64: super::TEXT_BASELINE_64,
                     scale,
                     font: self.font,
+                    wrap: Default::default(),
                 })
                 .map_err(UiPresentationError::Text)?;
             let size = [

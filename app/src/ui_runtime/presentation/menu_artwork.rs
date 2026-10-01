@@ -31,6 +31,9 @@ const MAX_ARTWORKS: usize = 64;
 pub(crate) const THUMBNAIL_SIDE: u32 = 128;
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub(super) const TITLE_KEY: &str = "textures/ui/title";
+/// Prefix of a server-pack texture's full-resolution copy on the art pages, so
+/// a pack's `textures/ui/title` never collides with Cinnabar's logo.
+pub(super) const SERVER_ART_PREFIX: &str = "server-pack:";
 /// Cinnabar's logo; the pack's title draws only if this fails to decode.
 pub(crate) const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../assets/branding/title.png");
 
@@ -40,7 +43,7 @@ pub(super) struct MenuArtworkAtlas {
     pub(super) refs: HashMap<String, IconRef>,
 }
 
-/// Decoded artwork: premultiplied RGBA8 and its size.
+/// Decoded artwork: straight-alpha RGBA8 and its size.
 struct Artwork {
     width: u32,
     height: u32,
@@ -301,8 +304,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     let engine = set
         .oversized
         .iter()
-        .filter(|(key, _)| key != TITLE_KEY)
-        .map(|(key, bytes)| Source::Bytes(key.clone(), Arc::clone(bytes)));
+        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
     let mut all: Vec<_> = files.collect();
     all.extend(engine.filter(|source| unique.insert(source.key().0)));
     all
@@ -408,7 +410,9 @@ fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     decode_bytes(&bytes, max_side.min(MAX_ARTWORK_SIDE))
 }
 
-/// Premultiplied RGBA8 of an image no larger than `max_side` on either axis.
+/// Straight-alpha RGBA8 (what the UI shader samples) of an image no larger
+/// than `max_side` on either axis; a downscale filters premultiplied so
+/// transparent texels never bleed into edges.
 fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     if bytes.is_empty() {
         return None;
@@ -430,22 +434,36 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     limits.max_image_height = Some(MAX_SOURCE_SIDE);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
-    let image = reader.decode().ok()?;
-    let image = if image.width() > max_side || image.height() > max_side {
-        image.resize(max_side, max_side, FilterType::Lanczos3)
-    } else {
-        image
-    };
-    let image = image.into_rgba8();
-    let (width, height) = image.dimensions();
-    let mut pixels = image.into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
-        let alpha = u16::from(pixel[3]);
-        pixel[0] = ((u16::from(pixel[0]) * alpha + 127) / 255) as u8;
-        pixel[1] = ((u16::from(pixel[1]) * alpha + 127) / 255) as u8;
-        pixel[2] = ((u16::from(pixel[2]) * alpha + 127) / 255) as u8;
+    let image = reader.decode().ok()?.into_rgba32f();
+    if image.width() <= max_side && image.height() <= max_side {
+        let image = image::DynamicImage::ImageRgba32F(image).into_rgba8();
+        let (width, height) = image.dimensions();
+        return Some((image.into_raw(), width, height));
     }
-    Some((pixels, width, height))
+    let mut premultiplied = image;
+    for pixel in premultiplied.pixels_mut() {
+        let alpha = pixel[3];
+        pixel[0] *= alpha;
+        pixel[1] *= alpha;
+        pixel[2] *= alpha;
+    }
+    let scale = f64::from(max_side) / f64::from(premultiplied.width().max(premultiplied.height()));
+    let size = |side: u32| ((f64::from(side) * scale).round() as u32).clamp(1, max_side);
+    let (width, height) = (size(premultiplied.width()), size(premultiplied.height()));
+    let mut resized = image::imageops::resize(&premultiplied, width, height, FilterType::Lanczos3);
+    for pixel in resized.pixels_mut() {
+        let alpha = pixel[3].clamp(0.0, 1.0);
+        for channel in 0..3 {
+            pixel[channel] = if alpha > 0.0 {
+                (pixel[channel] / alpha).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+        }
+        pixel[3] = alpha;
+    }
+    let image = image::DynamicImage::ImageRgba32F(resized).into_rgba8();
+    Some((image.into_raw(), width, height))
 }
 
 /// Every downloaded artwork path the menu view can draw.
@@ -507,4 +525,51 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
         paths.push(event.badge_path.clone());
     }
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(width, height, image::Rgba(pixel))
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    // A large server texture (Zeqa's 1992x669 title) keeps a whole art page of
+    // detail under its own key, not the 256px server-page downscale.
+    #[test]
+    fn oversized_server_textures_keep_full_resolution() {
+        let bytes: std::sync::Arc<[u8]> = png(1992, 669, [200, 30, 40, 255]).into();
+        let set = ArtworkSet {
+            paths: Vec::new(),
+            oversized: vec![(TITLE_KEY.to_owned(), bytes)],
+        };
+        let mut cache = DecodeCache::default();
+        cache.decode(&cache.missing(&set));
+        let atlas = pack(&set, &cache, 0, true);
+        let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
+        let [u0, v0, u1, v1] = art.uv;
+        assert_eq!([u1 - u0, v1 - v0], [1022, 343]);
+        // Cinnabar's logo keeps the plain title key.
+        assert_ne!(atlas.refs[TITLE_KEY].uv, art.uv);
+    }
+
+    // Artwork stays straight alpha, as the UI shader samples it.
+    #[test]
+    fn artwork_is_straight_alpha() {
+        let (pixels, _, _) = decode_bytes(&png(4, 4, [200, 100, 50, 128]), 64).unwrap();
+        assert_eq!(&pixels[..4], &[200, 100, 50, 128]);
+        let (scaled, width, _) = decode_bytes(&png(128, 128, [200, 100, 50, 128]), 64).unwrap();
+        assert_eq!(width, 64);
+        assert!(
+            scaled[..3]
+                .iter()
+                .zip([200, 100, 50])
+                .all(|(a, b)| a.abs_diff(b) <= 1)
+        );
+    }
 }

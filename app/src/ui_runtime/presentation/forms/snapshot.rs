@@ -43,7 +43,14 @@ pub(crate) fn rasterize(input: &UiRenderInput) -> RgbaImage {
                         (v.floor() as u32).min(page_height - 1),
                     );
                     let at = ((v * page_width + u) * 4) as usize;
-                    let texel = &pixels[at..at + 4];
+                    let mut texel: [u8; 4] = pixels[at..at + 4].try_into().unwrap();
+                    if u32::from(ui::UI_STYLE_GRAYSCALE) & corners[0].style_flags != 0 {
+                        let luma = (0.299 * f32::from(texel[0])
+                            + 0.587 * f32::from(texel[1])
+                            + 0.114 * f32::from(texel[2]))
+                        .round() as u8;
+                        texel = [luma, luma, luma, texel[3]];
+                    }
                     Some(std::array::from_fn(|channel| {
                         (u16::from(texel[channel]) * u16::from(color[channel]) / 255) as u8
                     }))

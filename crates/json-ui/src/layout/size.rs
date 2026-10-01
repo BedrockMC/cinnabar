@@ -365,7 +365,9 @@ fn natural(
     env: &LayoutEnv,
 ) -> Option<f64> {
     match control.control_type.as_deref() {
-        Some("label") => label_extent(control, width, env).map(|extent| extent[axis_index(axis)]),
+        _ if crate::label::is_label(control) => {
+            Some(label_extent(control, width, env)[axis_index(axis)])
+        }
         Some("image") if scales_to_ratio(control) => {
             let [tw, th] = texture_size(control, env)?;
             let ratio = |numerator: f64, denominator: f64| {
@@ -397,64 +399,14 @@ fn scales_to_ratio(control: &ResolvedControl) -> bool {
 fn texture_size(control: &ResolvedControl, env: &LayoutEnv) -> Option<[f64; 2]> {
     measure::natural(control, None, || {
         let path = control.properties.get("texture")?.as_str()?;
-        env.textures.texture(path).map(|meta| meta.base_size)
+        env.textures.texture(path).map(|meta| meta.pixels)
     })
 }
 
-/// A label's text extent, wrapped at `width` when known, scaled by its font.
-pub(super) fn label_extent(
-    control: &ResolvedControl,
-    width: Option<f64>,
-    env: &LayoutEnv,
-) -> Option<[f64; 2]> {
-    if control.control_type.as_deref() != Some("label") {
-        return None;
-    }
+/// A label's text extent, wrapped at `width` when known.
+fn label_extent(control: &ResolvedControl, width: Option<f64>, env: &LayoutEnv) -> [f64; 2] {
     measure::natural(control, width, || {
-        let scale = font_scale(control);
-        let text = label_text(control);
-        let text = if localizes(control) {
-            env.text.localize(&text)
-        } else {
-            std::borrow::Cow::Borrowed(text.as_str())
-        };
-        let [w, h] = match width {
-            Some(width) if width > 0.0 => env.text.wrapped(&text, width / scale),
-            _ => env.text.extent(&text),
-        };
-        Some([w * scale, h * scale])
+        Some(crate::label::natural(control, env, width))
     })
-}
-
-/// A label's glyph scale: `font_scale_factor` (1 when absent or non-positive)
-/// times its `font_size` step.
-pub(crate) fn font_scale(control: &ResolvedControl) -> f64 {
-    let factor = widgets::bound_number(control, "font_scale_factor")
-        .filter(|scale| *scale > 0.0)
-        .unwrap_or(1.0);
-    factor * font_size_scale(control)
-}
-
-/// Glyph scale of a `font_size` (small/normal/large/extra_large); needs native
-/// measurement of the client's font-size table.
-fn font_size_scale(control: &ResolvedControl) -> f64 {
-    match control.properties.get("font_size").and_then(Value::as_str) {
-        Some("small") => 0.75,
-        Some("large") => 1.5,
-        Some("extra_large") => 2.0,
-        _ => 1.0,
-    }
-}
-
-/// A label localizes its text unless `localize` is `false`.
-pub(crate) fn localizes(control: &ResolvedControl) -> bool {
-    control.properties.get("localize") != Some(&Value::Bool(false))
-}
-
-fn label_text(control: &ResolvedControl) -> String {
-    match control.properties.get("text").and_then(Value::as_str) {
-        // An unbound `#binding` has no literal extent.
-        Some(text) if !text.starts_with('#') => text.to_owned(),
-        _ => String::new(),
-    }
+    .unwrap_or_default()
 }
