@@ -858,3 +858,6 @@ fn world_budget_starvation_rotates_so_the_same_actors_do_not_always_freeze() {
         );
     }
 }
+
+#[path = "entity_runtime/frame_advance.rs"]
+mod frame_advance;

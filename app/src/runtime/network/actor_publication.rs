@@ -300,7 +300,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         {
             super::actor_sampling::sample_actor_world_state(stream, collisions);
         }
-        stream.advance_actor_interpolation_ticks(step.ticks);
+        stream.advance_actor_interpolation_frame(step.ticks);
     }
     let authoritative_subject_eye = authoritative_local_actor_eye(
         local_physics.render_eye_position(),

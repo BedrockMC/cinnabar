@@ -3,6 +3,8 @@ use super::{query::FLAG_BABY, *};
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ActorTickContext {
+    /// Full elapsed visual interval; absent for an explicit single-tick evaluation.
+    pub(crate) animation_elapsed_ticks: Option<u32>,
     pub(crate) is_riding: bool,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
@@ -59,8 +61,9 @@ pub(super) fn advance_motion(
     state: &mut ActorRigState,
     actor: &ActorSnapshot,
     context: &ActorTickContext,
+    reset_history: bool,
 ) {
-    if state.reset_pending {
+    if reset_history && state.reset_pending {
         state.history.clear();
     }
     let previous_position = state
@@ -484,7 +487,8 @@ fn state_animations(
 impl ControllerWalk<'_, '_, '_, '_> {
     /// Whether every and any clip of a state has played through once since it was entered.
     fn finished(&self, state: usize, entered_tick: u64) -> Result<(bool, bool), EvalError> {
-        let elapsed = self.evaluator.anim_tick.saturating_sub(entered_tick) as f32 * 0.05;
+        let elapsed = self.evaluator.anim_tick.saturating_sub(entered_tick) as f32
+            * ACTOR_TICK_DURATION.as_secs_f32();
         let mut all = true;
         let mut any = false;
         for animation in state_animations(self.evaluator.assets, state)? {
