@@ -1566,3 +1566,69 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 		t.Fatalf("upstream saw radii=%v loading=%d initialised=%d, want only the client's single sequence", radii, loading, initialised)
 	}
 }
+
+// The private listener negotiates no compression, so local batches are neither compressed nor decompressed.
+func TestLocalListenerNegotiatesNoCompression(t *testing.T) {
+	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
+	config := localListenConfig(nil)
+	config.ErrorLog = slog.New(slog.DiscardHandler)
+	listener, err := config.ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1})
+		}
+	}()
+	settings := make(chan uint16, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Local"},
+		PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
+			if header.PacketID == packet.IDNetworkSettings {
+				var pk packet.NetworkSettings
+				pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+				settings <- pk.CompressionAlgorithm
+			}
+		},
+	}.DialContextNetwork(ctx, network, "")
+	if err != nil {
+		t.Fatalf("dial local listener: %v", err)
+	}
+	_ = conn.Close()
+	if got := <-settings; got != packet.CompressionAlgorithmNone {
+		t.Fatalf("local NetworkSettings compression = %#x, want none (%#x)", got, packet.CompressionAlgorithmNone)
+	}
+}
+
+// BenchmarkLocalLegCompression measures the per-MB encode and decode work each side of the local leg does.
+func BenchmarkLocalLegCompression(b *testing.B) {
+	payload := make([]byte, 1<<20)
+	for index := range payload {
+		payload[index] = byte(index*31) ^ byte(index>>9) // skin- and chunk-like: structured, partly compressible
+	}
+	for _, test := range []struct {
+		name        string
+		compression packet.Compression
+	}{{"deflate", packet.FlateCompression}, {"none", packet.NopCompression}} {
+		b.Run(test.name, func(b *testing.B) {
+			var wire bytes.Buffer
+			encoder, decoder := packet.NewEncoder(&wire), packet.NewDecoder(&wire)
+			encoder.EnableCompression(test.compression, 256)
+			decoder.EnableCompression(test.compression, math.MaxInt)
+			b.SetBytes(int64(len(payload)))
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := encoder.Encode([][]byte{payload}); err != nil {
+					b.Fatal(err)
+				}
+				if _, err := decoder.Decode(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
