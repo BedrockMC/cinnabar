@@ -224,6 +224,7 @@ impl UiPresentationRuntime {
             if let Some(actions) = menu_screens::slider_actions(region) {
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
+                    keys.push((actions[step], region.key.clone()));
                 }
                 continue;
             }
@@ -360,7 +361,7 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
 }
 
 /// A slider split into `steps` equal hit rects, one per value.
-fn segments(
+pub(super) fn segments(
     region: &HitRegion,
     steps: usize,
     scale: f32,

@@ -10,11 +10,9 @@ use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
 use super::play_screen;
-use crate::menu::{
-    MenuAction, MenuDialog, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
-};
+use crate::menu::{MenuAction, MenuDialog, MenuScreen, MenuView, auth::AuthState};
 
-const SETTINGS_SECTIONS: &[(&str, u8)] = &[
+pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("server_forced_index", 1),
     ("accessibility_forced_index", 2),
     ("how_to_play_index", 3),
@@ -61,8 +59,6 @@ const SETTINGS_SECTIONS: &[(&str, u8)] = &[
 ];
 /// The section the settings screen opens on before one is picked.
 const VIDEO_SECTION: &str = "video_forced_index";
-/// GUI scale choices the settings slider steps through (1..=4).
-const GUI_SCALE_STEPS: f64 = 4.0;
 
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
@@ -192,8 +188,17 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 "add_external_server.add_external_server_screen_new"
             }
             MenuScreen::Settings => {
-                settings_screen(view, &mut data);
+                settings_screen(view, &mut data, translate);
                 super::settings_defaults::bind(&mut data, &|key: &str| {
+                    translated(translate, key, key)
+                });
+                super::settings_controls::bind(view, &mut data, &|key: &str| {
+                    translated(translate, key, key)
+                });
+                super::settings_language::bind(view, &mut data);
+                super::settings_account::bind(view, &mut data);
+                super::settings_resources::bind(&mut data);
+                super::settings_keys::bind(view, &mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
                 return Some(MenuScreenData {
@@ -447,29 +452,35 @@ fn split_address(address: &str) -> (String, String) {
     }
 }
 
-fn settings_screen(view: &MenuView, data: &mut DataSource) {
+/// Select the section and the titles supplied by its vanilla toggle property bag.
+fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     let section = match view.settings_section {
         0 => section_index(VIDEO_SECTION),
         picked => picked,
     };
     data.select_radio("navigation_tab", usize::from(section));
-    let scale = f64::from(view.gui_scale.clamp(1, 4));
-    data.set_global("#gui_scale", Scalar::Num(scale - 1.0));
-    data.set_global("#gui_scale_steps", Scalar::Num(GUI_SCALE_STEPS));
+    let variable = SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*index == section).then_some(*name));
+    let title = match variable {
+        Some("accessibility_forced_index") => "options.accessibility.title",
+        Some("keyboard_and_mouse_forced_index") => "options.keyboardAndMouseSettings",
+        Some("controller_and_switch_forced_index") => "options.controllerSettings",
+        Some("general_forced_index") => "options.generalTitle",
+        Some("account_forced_index") => "options.accountTitle",
+        Some("creator_forced_index") => "options.creatorTitle",
+        Some("sound_forced_index") => "options.sounds.title",
+        Some("global_texture_pack_forced_index") => "menu.globalpacks",
+        Some("storage_management_forced_index") => "menu.storageManagement",
+        Some("language_forced_index") => "options.language",
+        Some("view_subscriptions_forced_index") => "options.viewSubscriptions",
+        _ => "options.videoTitle",
+    };
+    data.set_global("#section_title", text(translated(translate, title, title)));
     data.set_global(
-        "#gui_scale_slider_label",
-        text(format!("GUI Scale: {scale}")),
+        "#dialog_title",
+        text(translated(translate, "menu.settings", "menu.settings")),
     );
-    flags(data, &["#gui_scale_visible", "#gui_scale_enabled"]);
-    for ((slider, _), percent) in VOLUME_SLIDERS.iter().zip(view.volumes) {
-        let shown = percent.unwrap_or(100);
-        data.set_global(format!("#{slider}"), Scalar::Num(f64::from(shown) / 100.0));
-        data.set_global(format!("#{slider}_slider_label"), text(format!("{shown}%")));
-        data.set_global(
-            format!("#{slider}_enabled"),
-            Scalar::Bool(percent.is_some()),
-        );
-    }
 }
 
 const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";
@@ -530,7 +541,8 @@ fn settings_context(context: Context) -> Context {
         ("show_preview_app2_button", false),
         ("debug_settings", false),
         ("party_settings_enabled", false),
-        ("settings_spatial_pattern_fix_enabled", true),
+        // Select vanilla's compact treatment; the live retail flight remains unverified.
+        ("settings_spatial_pattern_fix_enabled", false),
         ("display_copyright_info", false),
         ("is_pregame", true),
         ("is_editor_mode_enabled", false),
@@ -554,6 +566,14 @@ fn section_index(name: &str) -> u8 {
 
 /// The menu action a pressed region means on `view`'s screen.
 pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if view.screen == MenuScreen::Settings
+        && let Some(action) = super::settings_language::action(region)
+            .or_else(|| super::settings_account::action(region))
+            .or_else(|| super::settings_keys::action(region))
+            .or_else(|| super::settings_controls::action(view, region))
+    {
+        return Some(action);
+    }
     if view.screen == MenuScreen::Store {
         return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
     }
@@ -655,26 +675,7 @@ fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
 /// A settings slider's action per pointer segment, left to right: the slider
 /// is split into one hit rect per value it snaps to.
 pub(super) fn slider_actions(region: &HitRegion) -> Option<Vec<MenuAction>> {
-    if region.kind != HitKind::Slider {
-        return None;
-    }
-    let name = region.control_name.as_deref()?;
-    if name == "gui_scale" {
-        return Some(
-            (1..=GUI_SCALE_STEPS as u8)
-                .map(MenuAction::SettingsScale)
-                .collect(),
-        );
-    }
-    let slot = VOLUME_SLIDERS
-        .iter()
-        .position(|(slider, _)| *slider == name)?;
-    let last = u16::from(VOLUME_STEPS - 1);
-    Some(
-        (0..=last)
-            .map(|step| MenuAction::SettingsVolume(slot as u8, (step * 100 / last) as u8))
-            .collect(),
-    )
+    super::settings_controls::slider_actions(region)
 }
 
 impl MenuView {
@@ -870,17 +871,28 @@ mod tests {
 
     #[test]
     fn sliders_split_into_their_settings_values() {
-        let mut slider = region(HitKind::Slider, None);
-        slider.control_name = Some("gui_scale".to_owned());
-        let scale = slider_actions(&slider).unwrap();
-        assert_eq!(scale.last(), Some(&MenuAction::SettingsScale(4)));
-        slider.control_name = Some("music_volume".to_owned());
-        let music = slider_actions(&slider).unwrap();
-        assert_eq!(music.len(), usize::from(VOLUME_STEPS));
-        assert_eq!(music[0], MenuAction::SettingsVolume(1, 0));
-        assert_eq!(music.last(), Some(&MenuAction::SettingsVolume(1, 100)));
-        slider.control_name = Some("fov".to_owned());
-        assert!(slider_actions(&slider).is_none());
+        for (index, option) in crate::menu::settings_options::SETTINGS_OPTIONS
+            .iter()
+            .enumerate()
+        {
+            if !matches!(
+                option.kind,
+                crate::menu::settings_options::SettingKind::Slider
+            ) {
+                continue;
+            }
+            let mut slider = region(HitKind::Slider, None);
+            slider.control_name = Some(option.name.to_owned());
+            let actions = slider_actions(&slider).unwrap();
+            assert_eq!(
+                actions.first(),
+                Some(&MenuAction::SettingsOption(index as u16, option.min))
+            );
+            assert_eq!(
+                actions.last(),
+                Some(&MenuAction::SettingsOption(index as u16, option.max))
+            );
+        }
     }
 
     #[test]

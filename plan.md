@@ -8,7 +8,38 @@ This preserves the full scope below; historical snapshots are not current runtim
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
 Provisional, labeled incomplete: the OreUI scroll thumb's look and shrinking a
 long side-menu label to fit are approximations (no OreUI stylesheet on hand), and
-unbacked settings show fixed vanilla defaults.
+unbacked settings originally showed fixed host values; their vanilla defaults were
+not established by the pack binding names. See the settings audit below.
+
+2026-10-01 settings audit — incomplete (`P5.8-SETTINGS` remains open):
+
+- The legacy desktop host includes migrated JSON tabs. Selector controls use the
+  pack's 30px height, without its optional 25px spatial-pattern spacer. The current
+  controller derives this flag from realm state and `mc-disable-settings-spatial-pattern-fix`;
+  the retail flight assignment is unverified. Compact spacing is provisional.
+- Persisted controller-name options now feed camera/input, ten mixer categories,
+  GUI scale, fullscreen/FPS pacing, language and live chunk-radius requests. Keyboard
+  capture covers the existing semantic gameplay actions; raw inventory/chat/drop
+  keys and controller rebinding are incomplete. Duplicate-key rejection and key
+  display strings are not established vanilla behavior.
+- UI only, system missing: gamma, smooth lighting, leaves, clouds, fancy skies,
+  particle toggles, most advanced graphics, HUD/hand/paperdoll toggles, screen
+  animation and panorama speed, auto-jump, spyglass dampening, controller cursor
+  options, narration/subtitles, glint/darkness settings, Creator diagnostics and
+  script options, tutorial/profile preferences and several chat presentation options.
+  These values persist but do not close runtime parity gates.
+- Global Resources provides empty pack collections as a clean integration hook;
+  the pack-list controller belongs to the resource-pack work. Storage actions,
+  world-edit/Experiments, Party, several account/help submenus, reset flows and
+  hardware/flight-dependent controls remain incomplete.
+- Numeric defaults/ranges are provisional unless a source explicitly states them.
+  The pack confirms chat notification 10s and toast notification 3s defaults. The
+  reconstructed current OptionRegistry registration body could not be read from
+  Lens. FOV, gamma, sensitivities, FPS limits and added boolean defaults therefore
+  require further current-client evidence; they must not be described as vanilla.
+- Offline carrier gallery, geometry and option-family tests provide local evidence,
+  not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
+  runtime option effects and flight/platform visibility still need full acceptance.
 
 2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
 (pipelined in-order requests, prediction groups, vanilla container addressing),
@@ -3514,3 +3545,7 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 `ChunkRadiusUpdated` + `SubChunk` request flow. Custom block-entity renderers remain
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
+
+
+### Settings chat popup follow-up (incomplete)
+

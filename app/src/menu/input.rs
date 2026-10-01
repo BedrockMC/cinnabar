@@ -294,6 +294,35 @@ pub(crate) fn drive_menu_input(
         return;
     }
 
+    if menu.key_remap.is_some() {
+        for input in keyboard_messages.read() {
+            if input.state != ButtonState::Pressed {
+                continue;
+            }
+            if input.key_code == KeyCode::Escape {
+                menu.key_remap = None;
+                break;
+            }
+            if let Some(code) = crate::semantic_controls::keyboard_usage(input.key_code) {
+                menu.capture_key(semantic_input::PhysicalControl::KeyboardUsage(code));
+                break;
+            }
+        }
+        for (button, code) in [
+            (MouseButton::Left, 1),
+            (MouseButton::Right, 2),
+            (MouseButton::Middle, 3),
+        ] {
+            if mouse_buttons.just_pressed(button) {
+                menu.capture_key(semantic_input::PhysicalControl::MouseButton(code));
+                break;
+            }
+        }
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        return;
+    }
+
     modifiers.capture_pressed(&keys);
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
@@ -316,6 +345,29 @@ pub(crate) fn drive_menu_input(
             && pointer.is_some_and(|point| presentation.press_menu_scrollbar(point)));
     if on_scrollbar {
         menu.hovered = None;
+    }
+    if !pointer_pressed {
+        menu.settings_slider_drag = None;
+    }
+    if pointer_just_pressed {
+        menu.settings_slider_drag = match menu.hovered {
+            Some(super::MenuAction::SettingsOption(index, _))
+                if matches!(
+                    super::settings_options::SETTINGS_OPTIONS[usize::from(index)].kind,
+                    super::settings_options::SettingKind::Slider
+                ) =>
+            {
+                Some(index)
+            }
+            _ => None,
+        };
+    }
+    if pointer_pressed
+        && !pointer_just_pressed
+        && let Some(super::MenuAction::SettingsOption(index, value)) = menu.hovered
+        && menu.settings_slider_drag == Some(index)
+    {
+        menu.set_option(index, value);
     }
     if pointer_just_pressed
         && !on_scrollbar
