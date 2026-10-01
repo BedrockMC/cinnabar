@@ -65,8 +65,8 @@ pub use hud::{
     hud_context, hud_data_source,
 };
 pub use input::{
-    HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
-    scroll_target,
+    ControlSound, HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test,
+    region_rect, scroll_target,
 };
 pub use layout::{
     LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
