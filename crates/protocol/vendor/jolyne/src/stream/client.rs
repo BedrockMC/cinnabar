@@ -1339,7 +1339,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pack_handoff_rejects_required_duplicate_and_malformed_inputs_secret_safely() {
+    async fn pack_handoff_accepts_required_and_rejects_duplicate_and_malformed_inputs_secret_safely()
+     {
         let id = Uuid::new_v4();
         let required = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
             resource_pack_required: true,
@@ -1362,12 +1363,13 @@ mod tests {
                 ..Default::default()
             },
         )]));
-        let error = resource_pack_stream(required_inbound)
+        let start = resource_pack_stream(required_inbound)
             .handle_packs()
             .await
-            .err()
-            .expect("required offer must fail");
-        assert!(error.to_string().contains("required resource-pack handoff"));
+            .expect("a required offer is handed off");
+        let handoff = start.state.resource_pack_handoff.unwrap();
+        assert!(handoff.required());
+        assert_eq!(handoff.len(), 1);
 
         let duplicate = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
             resource_packs: vec![
@@ -1484,7 +1486,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optional_offer_with_required_stack_is_rejected() {
+    async fn optional_offer_with_required_stack_hands_off_required() {
         let id = Uuid::new_v4();
         let data = b"archive";
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
@@ -1508,12 +1510,43 @@ mod tests {
                 ..Default::default()
             },
         )]));
-        let error = resource_pack_stream(inbound)
+        let start = resource_pack_stream(inbound)
             .handle_packs()
             .await
-            .err()
-            .expect("required stack must fail");
-        assert!(error.to_string().contains("required resource-pack handoff"));
+            .expect("a required stack is handed off");
+        let handoff = start.state.resource_pack_handoff.unwrap();
+        assert!(handoff.required());
+        assert_eq!(handoff.len(), 1);
+    }
+
+    // A required offer makes a selected pack it never advertised fatal, as a required stack does.
+    #[tokio::test]
+    async fn required_offer_missing_a_selected_pack_is_rejected() {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_pack_required: true,
+            ..Default::default()
+        });
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            texture_pack_list: vec![crate::valentine::PackInstanceId {
+                pack_id: Uuid::new_v4().to_string(),
+                version: "1.0.0".into(),
+                sub_pack_name: String::new(),
+            }],
+            ..Default::default()
+        });
+        let error = resource_pack_stream(vec![
+            uncompressed_frame(&[info]),
+            uncompressed_frame(&[stack]),
+        ])
+        .handle_packs()
+        .await
+        .err()
+        .expect("a required selection must be available");
+        assert!(
+            error
+                .to_string()
+                .contains("unadvertised or missing selected pack")
+        );
     }
 
     #[tokio::test]
@@ -1727,16 +1760,10 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 stack.base_game_version,
                 stack.texture_pack_list.len()
             );
-            handoff = select_resource_pack_stack(
-                handoff,
-                &stack.texture_pack_list,
-                stack.texture_pack_required,
-            )?;
-            if (offer_required || stack.texture_pack_required) && !handoff.is_empty() {
-                return Err(pack_handoff_error(
-                    "required resource-pack handoff is unavailable",
-                ));
-            }
+            // Either required bit makes the selection strict and travels with the handoff.
+            let required = offer_required || stack.texture_pack_required;
+            handoff = select_resource_pack_stack(handoff, &stack.texture_pack_list, required)?
+                .with_required(required);
         } else {
             return Err(ProtocolError::UnexpectedHandshake(format!(
                 "Expected ResourcePackStack, got {:?}",

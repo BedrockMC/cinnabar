@@ -38,6 +38,10 @@ conditional. The normalization input fingerprints include this patch.
 Jolyne's client ends a join-time Disconnect with `ProtocolError::ServerDisconnect`,
 keeping the server's reason and message texts for the disconnect screen.
 
+Jolyne hands off required resource packs instead of refusing them: either
+required bit makes stack selection strict and is carried as
+`ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
+
 Generated protocol reservations are normalized locally after generation by
 `tools/protocol-normalize/normalize.py` and its pinned neutral-only manifest.
 Numeric packet selectors, enum values, union discriminators and field ordinals

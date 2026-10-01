@@ -639,10 +639,17 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 };
                 // The login handoff is one-shot. Take and validate it before
                 // publishing any StartGame state; optional semantic rejection
-                // remains a live base-assets session.
+                // remains a live base-assets session, a required one ends it.
                 let handoff = session.take_resource_pack_handoff();
                 let (custom_blocks, packs) =
-                    super::resource_packs::prepare_session_packs(handoff, &game_data);
+                    match super::resource_packs::prepare_session_packs(handoff, &game_data) {
+                        Ok(prepared) => prepared,
+                        Err(error) => {
+                            send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None)
+                                .await;
+                            return;
+                        }
+                    };
                 let packs_applied = matches!(
                     &packs.admission,
                     resource_pack::PackAdmission::Validated(stack) if !stack.packs().is_empty()
