@@ -48,10 +48,6 @@ below is opt-in and off unless you, or the server you join, turn it on.
 | **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
 | **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | In progress |
 
-Experiences and mods use one sandbox. Server code is scoped to its own server and ends when you
-leave. Anything that could act as a cheat, such as automating movement or combat, reading the
-world beyond what you can see, or sending raw packets, stays unavailable unless the server allows it.
-
 ## How it fits together
 
 ```text
