@@ -28,6 +28,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
+        Option<ResMut<'w, render::NametagScene>>,
     ),
 );
 
@@ -54,7 +55,7 @@ pub(crate) fn publish_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather),
+        (actor_partial, local_frame, clock, weather, nametag_scene),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -272,12 +273,14 @@ pub(crate) fn publish_ui_runtime(
                 &transform,
                 [logical_width, logical_height],
                 presentation.safe_area,
-                collisions.as_deref(),
                 actor_partial.0,
             )
         })
         .unwrap_or_default();
     presentation.set_nametag_anchors(nametags);
+    if let Some(mut nametag_scene) = nametag_scene {
+        *nametag_scene = presentation.nametag_scene();
+    }
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));
