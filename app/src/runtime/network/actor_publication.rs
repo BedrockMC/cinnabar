@@ -274,6 +274,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
+        let _animation = profiler
+            .as_deref()
+            .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
         // Fluid and bed state is tick state; a frame without a tick would resample the same.
         if step.ticks > 0
             && let Some(collisions) = collisions.as_deref()
@@ -310,6 +313,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         .ok()
         .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
         .map(|_| HAND_FOV_DEGREES.to_radians());
+    let preparation = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
@@ -545,8 +551,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if let Some(equipment) = equipment.as_deref_mut() {
         new_geometries.extend(equipment.take_pending_geometries());
     }
+    drop(preparation);
+    let rig_build = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
     register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch, &mut skin_pack).clone();
+    drop(rig_build);
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
         local_visible,

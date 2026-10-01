@@ -265,6 +265,7 @@ fn binding_teleport_completion(
 }
 
 mod actor_rest_presentation;
+pub(crate) mod alloc_count;
 mod audio;
 mod audio_camera;
 mod camera;
