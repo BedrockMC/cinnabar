@@ -4,7 +4,7 @@
 //! snapped to 1/8 px, the box takes `clamp(viewport / content, 0.1, 1)` of the
 //! track, and the bar panel hides while the content fits.
 
-use std::{cell::RefCell, collections::HashMap};
+use std::cell::RefCell;
 
 use serde_json::Value;
 
@@ -30,10 +30,10 @@ const PANEL: usize = 4;
 type Roles = [Option<Vec<usize>>; 5];
 
 /// Role paths by view address, kept with a tree's other measurements.
-pub(super) type RoleMemo = HashMap<usize, Roles>;
+pub(super) type RoleMemo = measure::Memo<usize, Roles>;
 
 thread_local! {
-    static ROLES: RefCell<RoleMemo> = RefCell::new(RoleMemo::new());
+    static ROLES: RefCell<RoleMemo> = RefCell::new(RoleMemo::default());
 }
 
 pub(super) fn swap(memo: &mut RoleMemo) {

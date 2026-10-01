@@ -483,11 +483,11 @@ fn layout_children<'a>(
     parent
         .children
         .iter()
-        .zip(sizes)
+        .zip(sizes.iter())
         .map(|(child, own)| {
             (
                 child,
-                place_by_anchor(child, parent_rect, own, siblings, env),
+                place_by_anchor(child, parent_rect, *own, siblings, env),
             )
         })
         .collect()

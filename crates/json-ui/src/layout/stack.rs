@@ -113,7 +113,7 @@ pub(super) fn stack_children<'a>(
     let extent = [stack.w, stack.h];
     let mut previous: Option<([f64; 2], [f64; 2], bool)> = None;
     let mut placed = Vec::with_capacity(parent.children.len());
-    for ((child, size), priority_hidden) in parent.children.iter().zip(&sizes).zip(&hidden) {
+    for ((child, size), priority_hidden) in parent.children.iter().zip(sizes.iter()).zip(&hidden) {
         let from = place::anchor_from(child);
         let to = place::anchor_to(child);
         let mut at = [0.0; 2];

@@ -88,7 +88,12 @@ pub(crate) fn hidden_state_children(
 /// State children hidden at rest (no hover, press or focus): the client hides
 /// them, so they add nothing to their parent's `%c`/`%cm`.
 pub(crate) fn rest_hidden_children(control: &ResolvedControl) -> Vec<String> {
-    hidden_under(control, false, false, false, false)
+    match control.control_type.as_deref() {
+        Some("button" | "edit_box" | "slider_box" | "slider" | "toggle" | "dropdown") => {
+            hidden_under(control, false, false, false, false)
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// Per state child of a stateful control, the interaction states it shows under,
