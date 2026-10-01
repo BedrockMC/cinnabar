@@ -33,7 +33,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) normal: vec3<f32>,
     @location(3) @interpolate(flat) material_flags: u32,
-    @location(4) local_position: vec3<f32>,
+    @location(4) @interpolate(flat) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
@@ -202,7 +202,7 @@ fn vertex(
     out.current_texture = frame.current;
     out.normal = vec3(0.0, 1.0, 0.0);
     out.material_flags = material.flags;
-    out.local_position = local_position;
+    out.local_position = block_position;
     out.biome_record = u32(origin.value.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;

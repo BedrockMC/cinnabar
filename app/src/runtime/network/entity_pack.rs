@@ -216,3 +216,6 @@ mod lobby_bench;
 
 #[cfg(test)]
 mod scene_report;
+
+#[cfg(test)]
+mod projectile_report;
