@@ -62,6 +62,17 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     assert!(source.contains("textureSample"));
     assert!(source.contains("sample.rgb * sample.a"));
     assert!(source.contains("viewport_size"));
+    let (_, viewport) = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("UiViewport"))
+        .unwrap();
+    let naga::TypeInner::Struct { members, span } = &viewport.inner else {
+        panic!("UI viewport must remain a uniform struct");
+    };
+    assert_eq!(*span, 16);
+    assert_eq!(members[3].name.as_deref(), Some("glint_strength"));
+    assert_eq!(members[3].offset, 12);
 }
 
 #[test]

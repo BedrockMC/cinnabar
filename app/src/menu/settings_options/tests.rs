@@ -407,3 +407,20 @@ fn spyglass_damping_uses_the_selected_desktop_input_mode() {
         0.75
     );
 }
+
+#[test]
+fn glint_renderer_factors_follow_each_persisted_percent() {
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Glint".to_owned());
+    menu.set_option(index("glint_strength") as u16, 25);
+    menu.set_option(index("glint_speed") as u16, 75);
+    assert_eq!(
+        menu.ui_glint_settings(),
+        render::UiGlintSettings {
+            strength: 0.25,
+            speed: 0.75,
+        }
+    );
+    menu.set_option(index("glint_strength") as u16, 0);
+    assert_eq!(menu.ui_glint_settings().strength, 0.0);
+    assert_eq!(menu.ui_glint_settings().speed, 0.75);
+}

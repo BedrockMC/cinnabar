@@ -3615,5 +3615,13 @@ R:v/VanillaClientInputMappingFactory.cpp:6217–6235;
 R:k/KeyboardRemappingLayout.cpp:85–87; R:c/ClientInputCallbacks.cpp:1528,1880.
 The current Lens coordinate-copy toast is artifact 6 RVA 0x566ac10; its body
 read timed out. Full Keyboard's alternate layout and smooth rotation rate,
-Safe Zone, glint factors, world Experiments and several unsupported subsystem
+Safe Zone, glint defaults, world Experiments and several unsupported subsystem
 controls remain open. JSON-UI engine changes remain on the separate branch.
+
+Glint accessibility factors now reach the existing UI item renderer: strength scales
+its additive RGB, and speed scales elapsed time before the procedural phases.
+Sources: current Lens artifact 6 RVA 0x213ce90/0x213e670;
+R:a/ActorShaderManager.cpp:1315–1338,1496–1517. The procedural glint appearance
+and phase periods remain provisional; this adapter does not establish texture,
+world-item, or entity-glint parity. Current OptionRegistry RVA 0x239ba00 explicitly
+returned "function source is unavailable"; registered defaults/ranges remain open.
