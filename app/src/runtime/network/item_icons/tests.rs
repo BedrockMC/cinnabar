@@ -68,11 +68,15 @@ fn icon_keys_resolve_to_bounded_sprites() {
         sizes,
         [
             ("lifeboat:gem", 16, 16),
-            ("lifeboat:strip", 16, 16),
-            ("lifeboat:huge", 64, 32)
+            ("lifeboat:huge", 64, 32),
+            ("lifeboat:strip", 16, 16)
         ]
     );
-    let strip = &icons.icons[1];
+    let strip = icons
+        .icons
+        .iter()
+        .find(|icon| icon.identifier.as_ref() == "lifeboat:strip")
+        .unwrap();
     assert_eq!(strip.rgba8[(15 * 16) * 4], 15, "first frame rows only");
 }
 
