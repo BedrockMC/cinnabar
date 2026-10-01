@@ -3368,7 +3368,7 @@ LevelDB world persistence via dragonfly; pause/resume semantics on window focus;
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
-Status: provisional implementation landed (see `docs/local-worlds.md`): BDS (native, or container on macOS) for vanilla worldgen and mobs, dragonfly as the superflat-only fallback; uncompiled and unmeasured, so no acceptance gate is closed.
+Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the manifest-pinned container on macOS) for default worlds, dragonfly for Flat worlds; menu create/edit/delete/templates and staged loading are built. Live-verified on macOS through the core's control channel (create, staged open, spawn, server-side teleport and client fall, pause, close with no orphan); the menu click-through and on-screen input were not exercised (locked screen), and the create screen lacks vanilla's Multiplayer, Cheats and pack tabs, so no acceptance gate is closed.
 
 ## Phase 8 — Audio, polish, packaging
 
