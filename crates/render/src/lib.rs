@@ -109,7 +109,7 @@ pub use celestial::{
 pub use chunk::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet,
     ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue, ChunkRenderQueueLimits,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureUploadStats,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, ChunkTextureUploadStats,
     ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
     MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180,

@@ -36,6 +36,8 @@ pub struct BlockOverlay {
     /// Network hashes parallel to `visuals` for a hashed-id session; empty otherwise.
     pub hashes: Vec<u32>,
     pub material_overrides: Vec<MaterialOverride>,
+    /// Optional pack-defined tint maps and biome appearance rules.
+    pub biomes: Option<crate::CompiledBiomeAssets>,
 }
 
 impl RuntimeAssets {
@@ -47,6 +49,9 @@ impl RuntimeAssets {
         first_id: u32,
         overlay: &BlockOverlay,
     ) -> Result<Self, AssetError> {
+        if let Some(biomes) = &overlay.biomes {
+            crate::biome::validate_biome_assets(biomes)?;
+        }
         if self.visuals.len() != first_id as usize {
             return Err(invalid("overlay ids do not start after the base visuals"));
         }
@@ -235,7 +240,10 @@ impl RuntimeAssets {
             animations: animations.into_boxed_slice(),
             animation_frames: animation_frames.into_boxed_slice(),
             texture_pages: texture_pages.into_boxed_slice(),
-            biomes: self.biomes.clone(),
+            biomes: overlay
+                .biomes
+                .clone()
+                .unwrap_or_else(|| self.biomes.clone()),
             provenance: self.provenance,
             missing: AtomicU64::new(0),
         })

@@ -13,9 +13,10 @@ use super::{
 use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
 /// Everything the session applies from its server pack stack.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PackApplication {
     pub(crate) admission: PackAdmission,
+    pub(super) inputs: Arc<super::pack_reload::PackInputs>,
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
@@ -23,6 +24,7 @@ pub struct PackApplication {
     pub(crate) item_components: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
+    pub(super) entity_artwork: Option<Arc<render::ActorArtworkPages>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
@@ -33,12 +35,14 @@ impl Default for PackApplication {
     fn default() -> Self {
         Self {
             admission: PackAdmission::None,
+            inputs: Arc::default(),
             server_lang: None,
             block_overlay: None,
             item_icons: None,
             item_components: None,
             glyph_sheets: None,
             entities: None,
+            entity_artwork: None,
             property_defaults: Vec::new(),
             server_ui: None,
             server_sounds: None,
@@ -70,11 +74,41 @@ pub(super) fn prepare_pack_application(
     block_items: &[(Arc<str>, Arc<str>)],
     hashed_block_ids: bool,
 ) -> PackApplication {
-    if handoff.is_empty() {
-        super::item_diagnostics::session_icons(icon_keys.len(), None);
-        return PackApplication::default();
-    }
     let stack = resource_pack::validate_handoff(handoff);
+    let inputs = Arc::new(super::pack_reload::PackInputs {
+        blocks: custom_blocks.clone(),
+        icons: icon_keys.to_vec(),
+        block_items: block_items.to_vec(),
+        hashed: hashed_block_ids,
+    });
+    if stack.packs().is_empty() && stack.rejections().is_empty() {
+        return PackApplication {
+            inputs,
+            ..Default::default()
+        };
+    }
+    prepare_validated_application(stack, inputs)
+}
+
+/// Compiles an already admitted optional stack for a menu or an existing world.
+pub(super) fn prepare_validated_application(
+    stack: Arc<resource_pack::ValidatedPackStack>,
+    inputs: Arc<super::pack_reload::PackInputs>,
+) -> PackApplication {
+    prepare_changed_application(stack, inputs, None)
+}
+
+/// Reuses each compiled subscriber whose contributing files have not changed.
+pub(super) fn prepare_changed_application(
+    stack: Arc<resource_pack::ValidatedPackStack>,
+    inputs: Arc<super::pack_reload::PackInputs>,
+    previous: Option<&PackApplication>,
+) -> PackApplication {
+    let changes = super::pack_reload_diff::Changes::between(&stack, previous);
+    let custom_blocks = &inputs.blocks;
+    let icon_keys = &inputs.icons;
+    let block_items = &inputs.block_items;
+    let hashed_block_ids = inputs.hashed;
     for rejection in stack.rejections() {
         bevy::log::warn!(
             stack_index = rejection.stack_index,
@@ -83,15 +117,19 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
-        compile_block_overlay(
-            &view,
-            custom_blocks,
-            hashed_block_ids,
-            BASE_MATERIAL_KEYS.get(),
-        )
-        .map(Arc::new)
-    });
+    let block_overlay = if !changes.blocks {
+        previous.and_then(|old| old.block_overlay.clone())
+    } else {
+        cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
+            compile_block_overlay(
+                &view,
+                custom_blocks,
+                hashed_block_ids,
+                BASE_MATERIAL_KEYS.get(),
+            )
+            .map(Arc::new)
+        })
+    };
     if let Some(compiled) = &block_overlay
         && compiled.gaps != Default::default()
     {
@@ -107,17 +145,47 @@ pub(super) fn prepare_pack_application(
                 block_items,
             )
         });
-    let item_icons = compile_session_icons(&view, icon_keys, block_icons);
+    let item_icons = if changes.icons {
+        compile_session_icons(&view, icon_keys, block_icons)
+    } else {
+        previous.and_then(|old| old.item_icons.clone())
+    };
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     PackApplication {
-        server_lang: merged_server_lang(&view),
+        inputs,
+        server_lang: if changes.language {
+            merged_server_lang(&view)
+        } else {
+            previous.and_then(|old| old.server_lang.clone())
+        },
         item_icons,
         item_components: None,
-        glyph_sheets: compile_session_glyphs(&view),
-        entities: super::entity_pack::compile_session_entities(&stack, &view),
+        glyph_sheets: if changes.glyphs {
+            compile_session_glyphs(&view)
+        } else {
+            previous.and_then(|old| old.glyph_sheets.clone())
+        },
+        entities: if changes.entities {
+            super::entity_pack::compile_session_entities(&stack, &view)
+        } else {
+            previous.and_then(|old| old.entities.clone())
+        },
+        entity_artwork: if changes.entities {
+            super::entity_texture_reload::prepare(&view)
+        } else {
+            previous.and_then(|old| old.entity_artwork.clone())
+        },
         property_defaults: super::entity_pack::pack_property_defaults(&view),
-        server_ui: collect_server_ui(&view),
-        server_sounds: crate::audio::ServerSoundPack::from_view(&view).map(Arc::new),
+        server_ui: if changes.ui {
+            collect_server_ui(&view)
+        } else {
+            previous.and_then(|old| old.server_ui.clone())
+        },
+        server_sounds: if changes.sounds {
+            crate::audio::ServerSoundPack::from_view(&view).map(Arc::new)
+        } else {
+            previous.and_then(|old| old.server_sounds.clone())
+        },
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }
@@ -150,9 +218,6 @@ fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
         }
         pack.ui_layers.push(files);
     }
-    if pack.is_empty() {
-        return None;
-    }
     let dirs = ServerUiPack::referenced_texture_dirs(&pack.ui_layers);
     for path in view.list("textures/") {
         if pack.textures.len() >= MAX_SERVER_UI_TEXTURES || total > MAX_SERVER_UI_BYTES {
@@ -166,7 +231,7 @@ fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
             pack.textures.push((path.to_owned(), bytes.into_vec()));
         }
     }
-    Some(Arc::new(pack))
+    (!pack.is_empty()).then(|| Arc::new(pack))
 }
 
 pub(super) fn install_server_ui(
@@ -260,9 +325,11 @@ pub(super) fn session_runtime_assets(
     custom_ids: Option<&std::ops::Range<u32>>,
     compiled: Option<&CompiledBlockOverlay>,
 ) -> Arc<assets::RuntimeAssets> {
-    let (Some(ids), Some(compiled)) = (custom_ids, compiled) else {
+    let Some(compiled) = compiled else {
         return Arc::clone(base);
     };
+    let empty_ids = base.visual_count() as u32..base.visual_count() as u32;
+    let ids = custom_ids.unwrap_or(&empty_ids);
     if compiled.overlay.visuals.len() != ids.len() {
         bevy::log::warn!("server block visuals do not match the custom block ids");
         return Arc::clone(base);
@@ -307,21 +374,41 @@ pub(super) struct DecodedTexture {
 pub(super) fn texture_key_paths(view: &LayeredPackView, catalog: &str) -> HashMap<String, String> {
     let mut paths = HashMap::new();
     for layer in view.read_layers(catalog) {
-        let Some(Value::Object(data)) =
-            parse_pack_json(&layer).map(|mut root| root["texture_data"].take())
-        else {
-            continue;
-        };
-        for (key, entry) in data {
-            if paths.len() >= MAX_CATALOG_ENTRIES && !paths.contains_key(&key) {
-                break;
-            }
-            if let Some(path) = first_texture_path(&entry["textures"]) {
-                paths.insert(key, path);
-            }
-        }
+        merge_texture_catalog(&mut paths, &layer);
     }
     paths
+}
+
+static BASE_TERRAIN_CATALOG: std::sync::OnceLock<HashMap<String, String>> =
+    std::sync::OnceLock::new();
+
+/// Supplies the base texture aliases so a pack can replace rasters without repeating the catalog.
+pub(crate) fn set_base_terrain_catalog(bytes: &[u8]) {
+    let mut paths = HashMap::new();
+    merge_texture_catalog(&mut paths, bytes);
+    let _ = BASE_TERRAIN_CATALOG.set(paths);
+}
+
+/// Immutable aliases from the installed vanilla pack, below all optional catalog layers.
+pub(super) fn base_terrain_catalog() -> HashMap<String, String> {
+    BASE_TERRAIN_CATALOG.get().cloned().unwrap_or_default()
+}
+
+/// Reads valid entries independently, preserving lower aliases for malformed entries.
+fn merge_texture_catalog(paths: &mut HashMap<String, String>, bytes: &[u8]) {
+    let Some(Value::Object(data)) =
+        parse_pack_json(bytes).map(|mut root| root["texture_data"].take())
+    else {
+        return;
+    };
+    for (key, entry) in data {
+        if paths.len() >= MAX_CATALOG_ENTRIES && !paths.contains_key(&key) {
+            break;
+        }
+        if let Some(path) = first_texture_path(&entry["textures"]) {
+            paths.insert(key, path);
+        }
+    }
 }
 
 const IMAGE_EXTENSIONS: [(&str, ImageFormat); 4] = [

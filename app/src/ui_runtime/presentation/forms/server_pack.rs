@@ -34,15 +34,26 @@ const GUTTER: u32 = 1;
 /// A session's server resource-pack UI: each pack's `ui/**/*.json`, lowest
 /// precedence first (each layer merges over the ones below), and the winning
 /// `textures/**` images and sidecars the pack ui references.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ServerUiPack {
     pub(crate) ui_layers: Vec<Vec<(String, Vec<u8>)>>,
     pub(crate) textures: Vec<(String, Vec<u8>)>,
+    pub(crate) catalog: Option<Arc<json_ui::Catalog>>,
 }
 
 impl ServerUiPack {
+    /// Resolves pack definitions on the reload worker against the immutable carrier catalog.
+    pub(crate) fn prepare_catalog(&self, base: &json_ui::Catalog) -> Arc<Self> {
+        let mut prepared = self.clone();
+        prepared.catalog = Some(Arc::new(super::engine::layer_pack_catalog(
+            base,
+            &self.ui_layers,
+        )));
+        Arc::new(prepared)
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
-        self.ui_layers.iter().all(Vec::is_empty)
+        self.ui_layers.iter().all(Vec::is_empty) && self.textures.is_empty()
     }
 
     /// Whether a pack texture file is worth packing: a png or sidecar in a

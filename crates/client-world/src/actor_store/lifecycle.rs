@@ -811,6 +811,11 @@ impl ActorStore {
         assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
     ) {
         self.animation.set_pack(assets);
+        // Cinnabar live reload also rebinds actors already present in the world.
+        for actor in self.actors.values() {
+            self.animation
+                .insert(self.session_id, self.dimension, actor);
+        }
     }
 
     pub(crate) fn set_item_use_durations(

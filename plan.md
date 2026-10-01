@@ -3,6 +3,17 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 resource packs (in progress, not parity-accepted): Global Resources imports
+optional packs above the pinned base and below world/server packs. Applying resource
+changes in a live world is an intentional Cinnabar extension; vanilla forbids it.
+Worker preparation and revision-stamped publication preserve the connection.
+Native visual/performance acceptance and GPU-wide atomic publication remain
+incomplete: resident geometry remeshes over later frames and non-block GPU uploads
+retain their existing paths. Texture fingerprints conservatively invalidate whole
+subscriber families. Extended bitmap-font remapping, vanilla item metadata variants,
+pack icons, and automatic hardware memory-tier selection are not parity-complete.
+See [resource-pack references](docs/resource-pack-references.md).
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.

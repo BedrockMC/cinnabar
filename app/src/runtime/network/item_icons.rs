@@ -3,6 +3,9 @@
 
 use std::{collections::HashSet, sync::Arc};
 
+mod vanilla;
+pub(crate) use vanilla::set_vanilla_item_paths;
+
 use resource_pack::LayeredPackView;
 
 use super::resource_packs::{DecodedTexture, decode_pack_texture, texture_key_paths};
@@ -19,9 +22,6 @@ pub(super) fn compile_session_icons(
     icon_keys: &[(Arc<str>, Arc<str>)],
     block_icons: BlockIcons,
 ) -> Option<Arc<SessionIcons>> {
-    if icon_keys.is_empty() && block_icons.icons.is_empty() && block_icons.misses.is_empty() {
-        return None;
-    }
     let block_rendered = block_icons
         .icons
         .iter()
@@ -77,6 +77,7 @@ pub(super) fn compile_session_icons(
         }
     }
     icons.extend(block_icons.take(MAX_SESSION_ICONS.saturating_sub(icons.len())));
+    vanilla::append(view, &mut icons);
     (!icons.is_empty() || !misses.is_empty()).then(|| Arc::new(SessionIcons { icons, misses }))
 }
 

@@ -221,7 +221,9 @@ impl UiPresentationRuntime {
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
         for region in frame.hits.iter().filter(|region| region.enabled) {
-            if let Some(actions) = menu_screens::slider_actions(region) {
+            if let Some(actions) = super::global_resources::slider_actions(view, region)
+                .or_else(|| menu_screens::slider_actions(region))
+            {
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
                 }

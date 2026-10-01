@@ -1,5 +1,5 @@
 //! Server glyph sheets (`font/glyph_XX.png`), packed into the trailing dynamic pages and
-//! layered over the base font so private-use code points draw the pack's art.
+//! layered over the base font for every overridden code point.
 
 use std::sync::Arc;
 
@@ -16,6 +16,40 @@ const FIRST_GLYPH_PAGE: usize = 10;
 #[derive(Debug, Default)]
 pub(crate) struct SessionGlyphSheets {
     pub(crate) cells: Vec<CellGlyph>,
+    pub(crate) prepared: std::sync::OnceLock<PreparedGlyphs>,
+}
+
+#[derive(Debug)]
+pub(crate) struct PreparedGlyphs {
+    pages: Vec<UiTexturePage>,
+    glyphs: Vec<assets::SheetGlyph>,
+}
+
+impl SessionGlyphSheets {
+    /// Packs optional glyphs on the compilation worker before publication.
+    pub(crate) fn new(cells: Vec<CellGlyph>) -> Self {
+        let sheets = Self {
+            cells,
+            prepared: Default::default(),
+        };
+        let _ = sheets.prepared();
+        sheets
+    }
+
+    /// Keeps relative atlas pages reusable independently of the carrier page offset.
+    fn prepared(&self) -> &PreparedGlyphs {
+        self.prepared.get_or_init(|| {
+            let atlas = pack_cells(&self.cells, 0, PAGE_SIDE, dynamic_textures::GLYPH_PAGES);
+            PreparedGlyphs {
+                glyphs: atlas.glyphs,
+                pages: atlas
+                    .pages
+                    .into_iter()
+                    .filter_map(|pixels| UiTexturePage::owned([PAGE_SIDE; 2], pixels.into()).ok())
+                    .collect(),
+            }
+        })
+    }
 }
 
 /// The packed pages for the sheets last seen on the UI runtime.
@@ -39,27 +73,25 @@ pub(super) fn observe(
         return;
     }
     let first_page = runtime.textures.dynamic_start() + FIRST_GLYPH_PAGE;
-    let atlas = sheets.map(|sheets| {
-        pack_cells(
-            &sheets.cells,
-            first_page as u16,
-            PAGE_SIDE,
-            dynamic_textures::GLYPH_PAGES,
-        )
-    });
-    runtime.font = match &atlas {
-        Some(atlas) if !atlas.glyphs.is_empty() => Arc::new(
-            runtime
-                .base_font
-                .with_glyphs(&atlas.glyphs, |c| ('\u{e000}'..='\u{f8ff}').contains(&c)),
-        ),
+    let prepared = sheets.map(|sheets| sheets.prepared());
+    runtime.font = match prepared {
+        Some(atlas) if !atlas.glyphs.is_empty() => {
+            let glyphs = atlas
+                .glyphs
+                .iter()
+                .map(|glyph| {
+                    let mut glyph = *glyph;
+                    glyph.metrics.page += first_page as u16;
+                    glyph
+                })
+                .collect::<Vec<_>>();
+            Arc::new(runtime.base_font.with_glyphs(&glyphs, |_| true))
+        }
         _ => Arc::clone(&runtime.base_font),
     };
-    let pages = atlas
-        .into_iter()
-        .flat_map(|atlas| atlas.pages)
-        .filter_map(|rgba8| UiTexturePage::owned([PAGE_SIDE, PAGE_SIDE], rgba8.into()).ok())
-        .collect();
+    let pages = prepared
+        .map(|atlas| atlas.pages.clone())
+        .unwrap_or_default();
     runtime.session_glyphs = SessionGlyphPages {
         source: sheets.cloned(),
         pages,

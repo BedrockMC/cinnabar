@@ -8,11 +8,12 @@ pub const DEFAULT_GUI_SCALE: u8 = 2;
 pub const HELP: &str = "\
 bedrock-client — Rust Minecraft Bedrock phase-zero renderer
 
-Usage: bedrock-client [OPTIONS]
+Usage: bedrock-client [OPTIONS] [PACK.mcpack|PACK.mcaddon|PACK.zip]...
 
 Options:
   --address <HOST:PORT>       Directly launch the Go core and join a server
   --socket-dir <PATH>          Override the platform runtime socket directory
+  --import-pack <PATH>        Import an optional global resource pack
   --assets <PATH>              Compiled vanilla asset blob
   --display-name <NAME>        Offline display name (default: RustMCBE)
   --acceptance-seconds <N>     Exit after N seconds and write metrics
@@ -83,6 +84,8 @@ pub struct ClientArgs {
     pub socket_dir: PathBuf,
     pub socket_dir_explicit: bool,
     pub assets: Option<PathBuf>,
+    /// Files opened by the user, imported after the window starts.
+    pub import_packs: Vec<PathBuf>,
     pub display_name: String,
     pub acceptance_seconds: Option<u64>,
     pub metrics_out: Option<PathBuf>,
@@ -116,6 +119,7 @@ impl Default for ClientArgs {
             socket_dir: PathBuf::from(".local/run"),
             socket_dir_explicit: false,
             assets: None,
+            import_packs: Vec::new(),
             display_name: "RustMCBE".to_owned(),
             acceptance_seconds: None,
             metrics_out: None,
@@ -234,6 +238,11 @@ impl ClientArgs {
                     parsed.socket_dir_explicit = true;
                     parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
                 }
+                Some("--import-pack") => {
+                    parsed
+                        .import_packs
+                        .push(PathBuf::from(next_value(&mut arguments, "--import-pack")?));
+                }
                 Some("--assets") => {
                     parsed.assets = Some(PathBuf::from(next_value(&mut arguments, "--assets")?));
                 }
@@ -351,6 +360,9 @@ impl ClientArgs {
                         )
                     };
                 }
+                _ if resource_pack::is_pack_import_path(std::path::Path::new(&argument)) => {
+                    parsed.import_packs.push(PathBuf::from(argument));
+                }
                 _ => return Err(ArgsError::Unknown(argument)),
             }
         }
@@ -388,6 +400,26 @@ where
 mod tests {
     use super::{ArgsError, ClientArgs, HELP, ParseOutcome};
     use std::path::PathBuf;
+
+    #[test]
+    fn accepts_file_open_arguments_and_explicit_imports() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from([
+            "client",
+            "a.mcpack",
+            "b.MCADDON",
+            "c.zip",
+            "--import-pack",
+            "d.mcpack",
+        ])
+        .unwrap() else {
+            panic!("run");
+        };
+        assert_eq!(
+            args.import_packs,
+            ["a.mcpack", "b.MCADDON", "c.zip", "d.mcpack"].map(PathBuf::from)
+        );
+        assert!(!args.connection_requested());
+    }
 
     #[test]
     fn defaults_are_stable() {

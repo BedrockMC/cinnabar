@@ -68,6 +68,7 @@ impl Plugin for ChunkRenderPlugin {
             return;
         }
 
+        app.init_resource::<ChunkTextureReload>();
         install_chunk_extraction(app);
 
         load_internal_asset!(
