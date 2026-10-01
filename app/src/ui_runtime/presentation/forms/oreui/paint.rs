@@ -192,7 +192,7 @@ impl<'a> Canvas<'a> {
     ) -> Result<std::sync::Arc<ui::TextLayout>, UiPresentationError> {
         let mut request = self.metrics.request(value, width_64, self.font);
         // The open font's default line is the 1.6rem body size.
-        if let Ok(scale) = UiScale::new(self.metrics.scale.get() * style.size / 1.6) {
+        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * style.size / 1.6) {
             request.scale = scale;
         }
         self.layouts
@@ -293,7 +293,7 @@ impl<'a> Canvas<'a> {
         let mut request = self
             .metrics
             .request(value, (width.max(1.0) * 64.0) as u32, self.font);
-        if let Ok(scale) = UiScale::new(self.metrics.scale.get() * style.size / 1.6) {
+        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * style.size / 1.6) {
             request.scale = scale;
         }
         let layout = self

@@ -485,6 +485,80 @@ fn retail_settings_hide_debug_and_automation_sections() {
     }
 }
 
+// Exercise the actual pinned templates: the desktop selector rows are adjacent,
+// and hidden advanced video options leave only the panel's normal bottom inset.
+#[test]
+fn retail_settings_keep_navigation_and_video_options_compact() {
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let catalog = json_ui::Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .unwrap();
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.screen = crate::menu::MenuScreen::Settings;
+    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
+        .control
+        .unwrap();
+    let bound = json_ui::bind(
+        &resolved,
+        &screen.data,
+        &json_ui::CatalogLibrary {
+            catalog: &catalog,
+            context: &screen.context,
+        },
+    );
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    fn rect(node: &json_ui::LaidOut<'_>, name: &str) -> Option<json_ui::Rect> {
+        if !node.visible {
+            return None;
+        }
+        if node.control.name == name {
+            return Some(node.rect);
+        }
+        node.children.iter().find_map(|child| rect(child, name))
+    }
+    for size in [[480.0, 270.0], [3840.0 / 7.0, 2560.0 / 7.0]] {
+        let layout = json_ui::layout(&bound, size, &env);
+        for (above, below) in [
+            ("keyboard_and_mouse_button", "controller_button"),
+            ("general_button", "video_button"),
+            ("video_button", "sound_button"),
+            ("sound_button", "account_button"),
+        ] {
+            let upper = rect(&layout, above).expect(above);
+            let lower = rect(&layout, below).expect(below);
+            let gap = lower.y - upper.y - upper.h;
+            assert!((0.0..=2.0).contains(&gap), "{above} to {below}: {gap}");
+        }
+        let video = layout_section(&layout, "video_section").unwrap();
+        let graphics = rect(video, "graphics_mode").unwrap();
+        let brightness = rect(video, "brightness_slider").unwrap();
+        let gap = brightness.y - graphics.y - graphics.h;
+        assert!((0.0..=8.0).contains(&gap), "graphics to brightness: {gap}");
+    }
+}
+
+fn layout_section<'a, 'b>(
+    node: &'b json_ui::LaidOut<'a>,
+    name: &str,
+) -> Option<&'b json_ui::LaidOut<'a>> {
+    if node.control.name == name {
+        return Some(node);
+    }
+    node.children
+        .iter()
+        .find_map(|child| layout_section(child, name))
+}
+
 // The Servers tab builds only the saved rows its list shows, however long the list.
 #[test]
 fn the_server_list_builds_only_visible_rows() {
