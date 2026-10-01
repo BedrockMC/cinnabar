@@ -165,7 +165,12 @@ fn context(
         own[0].filter(|_| parent[0].is_some()),
         own[1].filter(|_| parent[1].is_some()),
     ];
-    let children = measure::children(control, env, known);
+    let flags = flags(control);
+    let children = if flags.children[index] {
+        measure::children(control, env, known)
+    } else {
+        measure::Children::default()
+    };
     AxisContext {
         parent: parent[index].unwrap_or(0.0),
         own_width: own[0],
@@ -173,7 +178,9 @@ fn context(
         children: Some(children.content[index]),
         children_max: Some(children.maximum[index]),
         sibling_max: Some(siblings[index]),
-        natural: natural(control, axis, own, known[0], env),
+        natural: flags.natural[index]
+            .then(|| natural(control, axis, own, known[0], env))
+            .flatten(),
     }
 }
 
@@ -184,6 +191,8 @@ pub(super) struct Flags {
     pub(super) reads_sibling_max: bool,
     /// `inherit_max_sibling_width`, `inherit_max_sibling_height`.
     pub(super) inherits: [bool; 2],
+    children: [bool; 2],
+    natural: [bool; 2],
 }
 
 pub(super) fn flags(control: &ResolvedControl) -> Flags {
@@ -193,6 +202,18 @@ pub(super) fn flags(control: &ResolvedControl) -> Flags {
     }
     let flags = Flags {
         height_first: solves_height_first(control),
+        children: [Axis::X, Axis::Y].map(|axis| {
+            reads(
+                control,
+                axis,
+                &[Unit::PercentChildren, Unit::PercentChildrenMax],
+            )
+        }),
+        natural: [Axis::X, Axis::Y].map(|axis| {
+            with_size(control, axis, |length| {
+                matches!(length, Some(Length::Default))
+            })
+        }),
         reads_sibling_max: [Axis::X, Axis::Y]
             .into_iter()
             .any(|axis| reads(control, axis, &[Unit::PercentSiblingMax])),

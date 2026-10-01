@@ -2,6 +2,9 @@
 //! in creative, the craftable recipes otherwise, filed under the vanilla tabs.
 //! Tab and layout toggles press the existing screen widgets.
 
+mod cache;
+pub(super) use cache::BookCache;
+
 use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
@@ -95,6 +98,7 @@ pub(super) fn book_data(
     frame: &HudFrame,
     icons: &mut Vec<IconRef>,
     shown: bool,
+    cache: &mut Option<BookCache>,
 ) {
     let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     let state = runtime.screen_state();
@@ -143,9 +147,13 @@ pub(super) fn book_data(
     if !shown {
         return;
     }
+    if BookCache::reuse(cache, runtime, frame, icons, data) {
+        return;
+    }
+    let first_icon = icons.len();
     let entries = recipe_book_entries(runtime);
     let total = entries.len() as f64;
-    let items = entries
+    let items: Vec<_> = entries
         .iter()
         .enumerate()
         .map(|(index, entry)| {
@@ -179,7 +187,9 @@ pub(super) fn book_data(
             .with("#container_item_modifier", Scalar::Int(modifier(entry)))
         })
         .collect();
-    data.set_collection("recipe_book", items);
+    let items = std::sync::Arc::from(items);
+    *cache = BookCache::capture(runtime, frame, first_icon, icons, &items);
+    data.set_shared_collection("recipe_book", items);
 }
 
 /// `#container_item_modifier`: a folded group head shows the expand icon (2),

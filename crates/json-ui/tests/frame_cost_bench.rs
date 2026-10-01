@@ -7,7 +7,8 @@ use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
 use json_ui::{
     BindState, BossBar, CachedLibrary, Catalog, CatalogLibrary, Context, HUD_SCREEN, HudModel,
     LayoutEnv, ResolveCache, Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState,
-    bind_shared, bind_stateful, hud_context, hud_data_source, render_bound, resolve,
+    bind_shared, bind_stateful, hud_context, hud_data_source, render_bound, render_bound_cached,
+    resolve,
 };
 
 /// Stable font metrics keep this benchmark independent of the rasterizer and GPU.
@@ -149,8 +150,14 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     let mut state = BindState::new();
     let mut stateful_time = std::time::Duration::ZERO;
     let mut layout_time = std::time::Duration::ZERO;
-    const FRAMES: u32 = 200;
-    for frame in 0..=FRAMES {
+    let mut incremental_time = std::time::Duration::ZERO;
+    let mut measures = json_ui::MeasureCache::default();
+    let mut previous: Option<json_ui::FormRender> = None;
+    let frames: u32 = std::env::var("CINNABAR_BENCH_FRAMES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(200);
+    for frame in 0..=frames {
         model.boss_bars[0].progress = f64::from(frame % 100) / 100.0;
         model.actionbar = Some(Timed {
             text: format!("Online: {} | Ping: {}ms", 200 + frame % 7, 40 + frame % 13),
@@ -161,7 +168,7 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
         let bound = bind_shared(&tree, &data, &library);
         let bind_elapsed = started.elapsed();
         let started = Instant::now();
-        black_box(bind_stateful(&tree, &data, &library, &mut state));
+        let (mut updated, _) = black_box(bind_stateful(&tree, &data, &library, &mut state));
         let stateful_elapsed = started.elapsed();
         let started = Instant::now();
         black_box(render_bound(
@@ -170,18 +177,35 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
             &env,
             &ViewState::default(),
         ));
+        let layout_elapsed = started.elapsed();
+        let started = Instant::now();
+        if let Some(old) = previous.take() {
+            let mut retained = old.bound;
+            measures.update_tree(&mut retained, updated);
+            updated = retained;
+        }
+        previous = Some(black_box(render_bound_cached(
+            updated,
+            [480.0, 270.0],
+            &env,
+            &ViewState::default(),
+            &mut measures,
+        )));
         if frame > 0 {
+            incremental_time += started.elapsed();
             bind_time += bind_elapsed;
             stateful_time += stateful_elapsed;
-            layout_time += started.elapsed();
+            layout_time += layout_elapsed;
         }
     }
     eprintln!(
-        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms stateful_bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
+        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms stateful_bind={:.3}ms layout_emit={:.3}ms total={:.3}ms incremental_layout={:.3}ms incremental_total={:.3}ms",
         cold_resolve.as_secs_f64() * 1e3,
-        (bind_time / FRAMES).as_secs_f64() * 1e3,
-        (stateful_time / FRAMES).as_secs_f64() * 1e3,
-        (layout_time / FRAMES).as_secs_f64() * 1e3,
-        ((bind_time + layout_time) / FRAMES).as_secs_f64() * 1e3
+        (bind_time / frames).as_secs_f64() * 1e3,
+        (stateful_time / frames).as_secs_f64() * 1e3,
+        (layout_time / frames).as_secs_f64() * 1e3,
+        ((bind_time + layout_time) / frames).as_secs_f64() * 1e3,
+        (incremental_time / frames).as_secs_f64() * 1e3,
+        ((stateful_time + incremental_time) / frames).as_secs_f64() * 1e3
     );
 }

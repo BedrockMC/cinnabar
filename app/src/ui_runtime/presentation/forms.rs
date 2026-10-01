@@ -83,6 +83,10 @@ pub(super) struct FormPresentation {
     hud: hud::HudScreens,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
+    /// Immutable creative rows reused across hover and scroll frames.
+    book_cache: Option<recipe_book::BookCache>,
+    /// Last shown menu retained while Settings prepares in the background.
+    ready_menu: Option<crate::menu::MenuView>,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
     /// The bed screen's hits and pointer; carried across the per-frame reset.
@@ -373,6 +377,8 @@ impl UiPresentationRuntime {
             logged: state.logged,
             hud: state.hud,
             container_cache: state.container_cache,
+            book_cache: state.book_cache,
+            ready_menu: state.ready_menu,
             chat: state.chat,
             bed: state.bed,
             sign: state.sign,

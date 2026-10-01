@@ -159,16 +159,20 @@ impl Binder<'_> {
             .collect();
         let names = first_by_name(root, &wanted);
         drop(wanted);
-        for pass in 0..VIEW_PASSES {
-            let mut changed = false;
-            for (path, index) in &list {
+        let sources: Vec<_> = list
+            .iter()
+            .map(|(path, index)| {
                 let source = self.source_of(root, &names, path, *index);
-                if pass == 0
-                    && let Err(name) = &source
-                {
+                if let Err(name) = &source {
                     missed.push(name.clone());
                 }
-                changed |= self.notify(root, path, *index, source.ok().as_deref());
+                source.ok()
+            })
+            .collect();
+        for _ in 0..VIEW_PASSES {
+            let mut changed = false;
+            for ((path, index), source) in list.iter().zip(&sources) {
+                changed |= self.notify(root, path, *index, source.as_deref());
             }
             if !changed {
                 break;
@@ -241,23 +245,20 @@ impl Binder<'_> {
         let Kind::View { target, .. } = &node.bindings[index].kind else {
             return false;
         };
-        let target = target.clone();
         let first = node.memory.once.insert(index);
         let registered = node.memory.views.contains_key(&index);
         let mut wrote = false;
         if source.is_some() {
-            let previous = node.memory.views.insert(index, observed.clone());
-            let fire = match (&observed, registered) {
-                (Some(_), false) => true,
-                (Some(value), true) => previous.flatten().as_ref() != Some(value),
-                (None, _) => false,
-            };
+            let fire = observed.is_some() && node.memory.views.get(&index) != Some(&observed);
+            if !registered || node.memory.views.get(&index) != Some(&observed) {
+                node.memory.views.insert(index, observed.clone());
+            }
             if let (true, Some(value)) = (fire, observed) {
-                wrote = node.own.get(&target) != Some(&value);
+                wrote = node.own.get(target) != Some(&value);
                 let applied = value.to_json();
                 node.own.insert(target.clone(), value);
                 native::apply(
-                    &target,
+                    target,
                     &applied,
                     node.src.get(),
                     &node.own,
@@ -266,9 +267,9 @@ impl Binder<'_> {
             }
         }
         if first {
-            let applied = node.own.get(&target).map_or(Value::Null, Scalar::to_json);
+            let applied = node.own.get(target).map_or(Value::Null, Scalar::to_json);
             native::apply(
-                &target,
+                target,
                 &applied,
                 node.src.get(),
                 &node.own,

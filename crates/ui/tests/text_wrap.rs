@@ -128,6 +128,22 @@ fn line_limit_ends_in_an_ellipsis() {
     assert!(!whole.ellipsized());
 }
 
+/// A saved vanilla line ends in a newline; ellipsis must not remove a fitting glyph.
+#[test]
+fn ellipsis_keeps_the_last_visible_glyph_when_it_fits() {
+    let cut = layout(
+        "abcd\nab",
+        20,
+        TextWrap {
+            max_lines: Some(1),
+            ..label(WordChop::Hyphen)
+        },
+    )
+    .unwrap();
+    assert_eq!(lines(&cut), ["abcd..."]);
+    assert!(cut.ellipsized());
+}
+
 // `§f` is white, not the label's own colour; `§` then a newline is one token.
 #[test]
 fn explicit_white_and_formatting_newlines() {

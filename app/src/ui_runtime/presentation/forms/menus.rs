@@ -31,20 +31,31 @@ impl UiPresentationRuntime {
         let Some(view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
+        let previous = self.form_presentation.ready_menu.take();
+        let pending = view.screen == MenuScreen::Settings
+            && previous
+                .as_ref()
+                .is_some_and(|view| matches!(view.screen, MenuScreen::Home | MenuScreen::Pause))
+            && !self.prepare_settings(runtime, &view, metrics, [width, height]);
+        let shown = if pending {
+            previous.as_ref().unwrap()
+        } else {
+            &view
+        };
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{}",
-            view.screen, view.server_tab, view.settings_section
+            shown.screen, shown.server_tab, shown.settings_section
         ));
         self.menu_scrolls.set_areas(Vec::new());
-        let drawn = if view.visible {
-            self.append_engine_menu(runtime, &view, nodes, next, metrics, width, height)
+        let drawn = if shown.visible {
+            self.append_engine_menu(runtime, shown, nodes, next, metrics, width, height)
         } else {
             Ok(Some(Vec::new()))
         };
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
             Ok(None) | Err(_) => menu::append_menu_nodes(
-                &view,
+                shown,
                 nodes,
                 next,
                 &mut self.layouts,
@@ -56,8 +67,54 @@ impl UiPresentationRuntime {
                 self.safe_area,
             ),
         };
+        self.form_presentation.ready_menu = if pending
+            || previous
+                .as_ref()
+                .is_some_and(|previous| previous.screen == view.screen)
+        {
+            previous
+        } else {
+            Some(view.clone())
+        };
         self.menu_view = Some(view);
-        result
+        if pending {
+            self.form_presentation.menu_keys.clear();
+            self.menu_scrolls.set_areas(Vec::new());
+            result.map(|_| Vec::new())
+        } else {
+            result
+        }
+    }
+
+    /// Prepare Settings without blocking its opening frame; readiness includes all layout inputs.
+    fn prepare_settings(
+        &self,
+        runtime: &UiRuntime,
+        view: &MenuView,
+        metrics: TextMetrics,
+        [width, height]: [f32; 2],
+    ) -> bool {
+        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+            return true;
+        };
+        let mut settings = view.clone();
+        settings.screen = MenuScreen::Settings;
+        let translate = |key: &str| runtime.translation(key);
+        let Some(prepared) = menu_screens::screen_data(&settings, &translate) else {
+            return true;
+        };
+        let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+        renderer.prepare(engine::screen_cache::Prepared {
+            reference: prepared.reference,
+            context: prepared.context,
+            data: prepared.data,
+            root: [f64::from(width / px), f64::from(height / px)],
+            px,
+            language: runtime.text_generation(),
+            font: std::sync::Arc::clone(&self.font),
+            metrics,
+            translator: runtime.translator(),
+        })
     }
 
     /// `Ok(None)` when the engine has no screen for this state.
@@ -106,24 +163,8 @@ impl UiPresentationRuntime {
         let Some(screen) = menu_screens::screen_data(view, &translate) else {
             return Ok(None);
         };
-        // Settings lays out for tens of milliseconds; do it while a screen that opens it idles.
         if matches!(view.screen, MenuScreen::Home | MenuScreen::Pause) {
-            let mut settings = view.clone();
-            settings.screen = MenuScreen::Settings;
-            if let Some(prepared) = menu_screens::screen_data(&settings, &translate) {
-                let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
-                renderer.prepare(engine::screen_cache::Prepared {
-                    reference: prepared.reference,
-                    context: prepared.context,
-                    data: prepared.data,
-                    root: [f64::from(width / px), f64::from(height / px)],
-                    px,
-                    language: runtime.text_generation(),
-                    font: std::sync::Arc::clone(&self.font),
-                    metrics,
-                    translator: runtime.translator(),
-                });
-            }
+            self.prepare_settings(runtime, view, metrics, [width, height]);
         }
         // Last frame's region keys carry the launcher's hover/press/focus.
         let key_of = |action: Option<MenuAction>| {

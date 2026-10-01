@@ -69,6 +69,12 @@ pub(crate) fn state_targets(
     bits: u8,
     ancestor_locked: bool,
 ) -> Vec<StateTarget<'_>> {
+    if !matches!(
+        control.control_type.as_deref(),
+        Some("button" | "edit_box" | "toggle" | "dropdown" | "slider")
+    ) {
+        return Vec::new();
+    }
     let mut targets: Vec<StateTarget<'_>> = Vec::new();
     for index in 0..8u8 {
         for (target, shown) in writes(control, index, ancestor_locked) {

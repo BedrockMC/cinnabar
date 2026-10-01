@@ -132,8 +132,18 @@ impl UiPresentationRuntime {
             ScreenLayout::Book => context = super::book_screen::context(context),
             _ => context = super::recipe_book::context(context),
         }
+        let profile = std::env::var_os("CINNABAR_CONTAINER_PROFILE").is_some();
+        let started = std::time::Instant::now();
         let mut icons = Vec::new();
-        let data = screen_data(runtime, &self.hud_frame, layout, &title, &mut icons);
+        let data = screen_data(
+            runtime,
+            &self.hud_frame,
+            layout,
+            &title,
+            &mut icons,
+            &mut self.form_presentation.book_cache,
+        );
+        let data_cost = started.elapsed();
         let pointer = runtime.inventory_pointer_gui();
         let view = ViewState {
             hovered: previous
@@ -206,9 +216,23 @@ impl UiPresentationRuntime {
         };
         let cache = &mut self.form_presentation.container_cache;
         let catalog = renderer.catalog();
+        let drawing = std::time::Instant::now();
+        let layout_cost = std::cell::Cell::new(std::time::Duration::ZERO);
         let drawn = renderer.draw(art, inputs, out, |env, root| {
-            ScreenCache::render(cache, catalog, reference, &context, &data, &view, root, env)
+            let started = std::time::Instant::now();
+            let render =
+                ScreenCache::render(cache, catalog, reference, &context, &data, &view, root, env);
+            layout_cost.set(started.elapsed());
+            render
         });
+        if profile {
+            eprintln!(
+                "CONTAINER_HOST data={:.3} draw={:.3} paint={:.3}",
+                data_cost.as_secs_f64() * 1e3,
+                drawing.elapsed().as_secs_f64() * 1e3,
+                (drawing.elapsed() - layout_cost.get()).as_secs_f64() * 1e3
+            );
+        }
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view.quantized();
         }
@@ -339,7 +363,11 @@ impl ScreenCache {
             });
         }
         let cached = cache.as_mut()?;
-        if cached.data.as_ref() != Some(data) {
+        let profile = std::env::var_os("CINNABAR_CONTAINER_PROFILE").is_some();
+        let started = std::time::Instant::now();
+        let changed = cached.data.as_ref() != Some(data);
+        let compare_cost = started.elapsed();
+        if changed {
             cached.tree = Some(json_ui::bind_screen(
                 &cached.resolved,
                 catalog,
@@ -351,6 +379,8 @@ impl ScreenCache {
             cached.measures = json_ui::MeasureCache::default();
             cached.laid = None;
         }
+        let bind_cost = started.elapsed() - compare_cost;
+        let layout_started = std::time::Instant::now();
         // Hover, press and focus only filter the gated nodes; scroll lays out again.
         let fresh = |(laid_view, laid_root, _): &(ViewState, [f64; 2], _)| {
             laid_view.scroll == view.scroll && *laid_root == root
@@ -373,11 +403,20 @@ impl ScreenCache {
             };
             let render = json_ui::render_bound_gated(tree, root, env, view, &mut cached.measures);
             // Scroll views publish their end state; views reading it rebind next frame.
-            if cached.binding.publish_scrolls(&render.report) {
+            if cached.binding.publish_scrolls(&render.report) && cached.binding.observes_scroll() {
                 cached.data = None;
             }
             cached.layouts += 1;
             cached.laid = Some((view.clone(), root, Arc::new(render)));
+        }
+        if profile {
+            eprintln!(
+                "CONTAINER_SCREEN changed={changed} scroll_dependency={} compare={:.3} bind={:.3} layout={:.3}",
+                cached.binding.observes_scroll(),
+                compare_cost.as_secs_f64() * 1e3,
+                bind_cost.as_secs_f64() * 1e3,
+                layout_started.elapsed().as_secs_f64() * 1e3
+            );
         }
         cached
             .laid
@@ -464,6 +503,7 @@ fn screen_data(
     layout: ScreenLayout,
     title: &str,
     icons: &mut Vec<IconRef>,
+    book_cache: &mut Option<super::recipe_book::BookCache>,
 ) -> DataSource {
     let ledger = runtime.inventory_ledger();
     let mut data = DataSource::new();
@@ -494,7 +534,7 @@ fn screen_data(
     survival_globals(&mut data, title);
     match layout {
         ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
-            super::recipe_book::book_data(&mut data, runtime, frame, cells.icons, book);
+            super::recipe_book::book_data(&mut data, runtime, frame, cells.icons, book, book_cache);
             let width = if matches!(layout, ScreenLayout::Workbench { .. }) {
                 3
             } else {

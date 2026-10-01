@@ -50,6 +50,8 @@ pub struct BindState {
     pub(super) published: KeyMap<BTreeMap<String, Scalar>>,
     /// The refresh count, which marks the controls each refresh built.
     pub(super) generation: u64,
+    /// Whether any built control reads the layout’s scroll feedback.
+    pub(super) scroll_observed: bool,
 }
 
 /// One control's memory.
@@ -115,6 +117,11 @@ impl BindState {
             }
         }
         changed
+    }
+
+    /// Whether scroll feedback can affect a bound property or view.
+    pub fn observes_scroll(&self) -> bool {
+        self.scroll_observed
     }
 
     /// Whether a bind has run over this state yet.

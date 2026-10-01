@@ -305,7 +305,7 @@ impl Lines<'_> {
         Ok(true)
     }
 
-    /// Vanilla drops the line's last character, then more until `...` fits.
+    /// Vanilla removes the saved newline, then visible glyphs only until `...` fits.
     fn ellipsize(&mut self) -> Result<(), TextError> {
         self.ellipsized = true;
         let width_64 = u64::from(self.request.width_64);
@@ -314,9 +314,6 @@ impl Lines<'_> {
             .last()
             .map(|glyph| glyph.style)
             .unwrap_or_default();
-        if self.glyphs.len() > self.line_start {
-            self.truncate(self.glyphs.len() - 1);
-        }
         loop {
             let kept = self.glyphs.len();
             let mut fits = true;
