@@ -62,11 +62,22 @@ cargo test -p bedrock-client --lib modding --locked
 cargo test -p bedrock-client --lib mod_hud --locked
 ```
 
+To capture the real compiled sample through the existing offline renderer:
+
+```sh
+CINNABAR_FORM_SNAPSHOT_DIR=/tmp/cinnabar-mod-frames \
+CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
+  cargo test -p bedrock-client --lib mod_spike_snapshot_with_real_carrier --locked -- --nocapture
+```
+
+This writes before, initial-label and keybind PNGs without starting a network
+session. The test requires the real carrier when a snapshot directory is set.
+
 The host tests execute actual components, including traps, endless loops,
 memory growth, missing authority and failed/successful reloads. The Rust sample
-is independently built to WASM and exercised with `probe`; native workspace tests
+is independently built to WASM and exercised with `probe` and the snapshot test; native workspace tests
 alone do not prove guest code generation. `bench` reports warmed batch per-frame
-crossing costs with fuel checks, excluding compile, disk polling, JSON-UI and GPU
+idle and action crossing costs with fuel checks, excluding compile, disk polling, JSON-UI and GPU
 costs. Its development-profile figures are spike evidence, not a release frame
 budget or vanilla performance acceptance.
 

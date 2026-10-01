@@ -45,21 +45,8 @@ fn benchmark(path: &Path) -> Result<()> {
     let start = Instant::now();
     let mut host = ModHost::load(path)?;
     let load = start.elapsed();
-    for _ in 0..10_000 {
-        host.frame(black_box(false))?;
-    }
-    let mut samples = Vec::new();
-    for _ in 0..100 {
-        let start = Instant::now();
-        for _ in 0..1_000 {
-            host.frame(black_box(false))?;
-            black_box(host.label());
-        }
-        samples.push(start.elapsed().as_nanos() as f64 / 1_000.0);
-    }
-    samples.sort_by(f64::total_cmp);
     println!(
-        "profile={} arch={} os={} load_ms={:.3} batches=100 frames_per_batch=1000 frame_ns_p50={:.1} frame_ns_p95={:.1} frame_ns_max={:.1}",
+        "profile={} arch={} os={} load_ms={:.3}",
         if cfg!(debug_assertions) {
             "dev"
         } else {
@@ -68,9 +55,29 @@ fn benchmark(path: &Path) -> Result<()> {
         std::env::consts::ARCH,
         std::env::consts::OS,
         load.as_secs_f64() * 1000.0,
-        samples[50],
-        samples[95],
-        samples[99]
+    );
+    measure_frames(&mut host, false)?;
+    measure_frames(&mut host, true)
+}
+
+/// Reports separate idle and action costs so retained UI does not hide updates.
+fn measure_frames(host: &mut ModHost, pressed: bool) -> Result<()> {
+    for _ in 0..10_000 {
+        host.frame(black_box(pressed))?;
+    }
+    let mut samples = Vec::new();
+    for _ in 0..100 {
+        let start = Instant::now();
+        for _ in 0..1_000 {
+            host.frame(black_box(pressed))?;
+            black_box(host.label());
+        }
+        samples.push(start.elapsed().as_nanos() as f64 / 1_000.0);
+    }
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "pressed={pressed} batches=100 frames_per_batch=1000 frame_ns_p50={:.1} frame_ns_p95={:.1} frame_ns_max={:.1}",
+        samples[50], samples[95], samples[99]
     );
     Ok(())
 }

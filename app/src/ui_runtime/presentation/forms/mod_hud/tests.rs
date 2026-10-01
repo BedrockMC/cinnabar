@@ -144,12 +144,23 @@ fn mod_spike_snapshot_with_real_carrier() {
     };
     let before = frame(&mut presentation);
     snapshot::write(&before, "mod-spike-before");
-    presentation
-        .set_mod_label(Some("Cinnabar extension: Hello (Press F8)"))
-        .unwrap();
+    let mut guest = std::env::var_os("CINNABAR_MOD_SNAPSHOT_COMPONENT")
+        .map(|path| mod_host::ModHost::load(std::path::Path::new(&path)).unwrap());
+    let text = guest
+        .as_ref()
+        .map(|host| host.label().expect("sample must publish a label"))
+        .unwrap_or("Cinnabar extension: Hello (Press demo key)");
+    presentation.set_mod_label(Some(text)).unwrap();
     let after = frame(&mut presentation);
     snapshot::write(&after, "mod-spike-after");
     assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));
+    if let Some(host) = guest.as_mut() {
+        host.frame(true).unwrap();
+        presentation.set_mod_label(host.label()).unwrap();
+        let pressed = frame(&mut presentation);
+        snapshot::write(&pressed, "mod-spike-keybind");
+        assert_ne!(snapshot::rasterize(&after), snapshot::rasterize(&pressed));
+    }
     presentation.set_mod_label(None).unwrap();
     assert_eq!(
         snapshot::rasterize(&before),
