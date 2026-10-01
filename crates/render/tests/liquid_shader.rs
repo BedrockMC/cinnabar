@@ -21,7 +21,7 @@ fn shader_for_naga() -> String {
             1,
         )
         .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}",
             &lighting,
             1,
         )

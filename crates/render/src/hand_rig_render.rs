@@ -146,6 +146,7 @@ impl HandRigScene {
 
 fn install(app: &mut App) {
     app.init_resource::<HandRigScene>();
+    crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -658,7 +659,7 @@ fn specialized_pipeline(
 fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("first-person animated rig".into()),
-        layout: vec![layout],
+        layout: vec![layout, crate::lighting::layout()],
         vertex: VertexState {
             shader: HAND_RIG_SHADER,
             entry_point: Some("hand_vertex".into()),

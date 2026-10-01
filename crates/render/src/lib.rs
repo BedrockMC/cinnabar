@@ -1,4 +1,8 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+mod lighting;
+mod lightmap;
+pub use lighting::WorldLighting;
+pub use lightmap::{LightmapInputs, darkness_pulse};
 
 mod actor;
 mod actor_render;

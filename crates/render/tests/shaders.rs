@@ -15,12 +15,12 @@ fn standalone(source: &str) -> String {
     source
         .replacen("#import bevy_render::view::View", VIEW, 1)
         .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}",
             &lighting,
             1,
         )
         .replacen(
-            "#import cinnabar::lighting::{lit_colour, light_brightness}",
+            "#import cinnabar::lighting::{lit_colour, light_colour}",
             &lighting,
             1,
         )

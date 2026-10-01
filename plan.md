@@ -3,6 +3,14 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 world lighting (incomplete): the classic RGB table now has the current
+Lens composition, gamma, night-vision normalization and darkness subtraction,
+shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
+the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
+and material color-space conversion remain unverified. The existing sky-darken
+and effect-envelope inputs remain provisional. Offline GPU evidence is not a
+native visual parity gate. The full audit work is in progress on fix/world-lighting.
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.

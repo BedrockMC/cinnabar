@@ -94,7 +94,7 @@ fn standalone_world_shader(source: &str) -> String {
             1,
         )
         .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}",
             &lighting,
             1,
         )

@@ -6,10 +6,6 @@ mod publication_removals;
 use arena_writes::ArenaWrites;
 pub(in crate::chunk) use lighting::packed_lighting_records;
 #[cfg(test)]
-pub(in crate::chunk) use lighting::{
-    PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR, PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR, packed_light_factor,
-};
-#[cfg(test)]
 pub(in crate::chunk) use model_draw_bases::absolutize_model_draw_refs;
 pub(in crate::chunk) use model_draw_bases::absolutize_partitioned_model_draw_refs;
 use publication_removals::prepare_publication_removals;
