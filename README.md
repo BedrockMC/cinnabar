@@ -35,6 +35,22 @@ make client
 `make help` lists every target. On Debian/Ubuntu, install `libwayland-dev` first; Linux picks
 Wayland or X11 automatically.
 
+## Beyond vanilla
+
+Vanilla parity is the default. On top of it, Cinnabar is growing into a platform. Everything
+below is opt-in and off unless you, or the server you join, turn it on.
+
+| | What it is | Status |
+| --- | --- | --- |
+| **Cinnabar Experiences** | A Roblox-style game API for servers. A server ships a signed bundle of assets and sandboxed WebAssembly code, and Cinnabar runs it after you consent: custom UI, in-world objects and effects, input handling and game modes. Built-in video plays streamed WebM with synced audio on in-world screens and UI. Vanilla players on the same server see a normal Bedrock game. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
+| **Mods** | Client mods as WebAssembly components with versioned, capability-scoped APIs. Each mod runs sandboxed with no file, network or account access, and hot-reloads. A crashing mod is disabled instead of taking down the client. | Developer preview: [docs/modding-spike.md](docs/modding-spike.md) |
+| **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
+| **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | In progress |
+
+Experiences and mods use one sandbox. Server code is scoped to its own server and ends when you
+leave. Anything that could act as a cheat, such as automating movement or combat, reading the
+world beyond what you can see, or sending raw packets, stays unavailable unless the server allows it.
+
 ## How it fits together
 
 ```text
