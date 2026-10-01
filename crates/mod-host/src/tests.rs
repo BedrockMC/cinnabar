@@ -132,18 +132,20 @@ fn initialization_and_core_start_share_the_fuel_limit() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("loop.wat");
     for source in [
-        fixture("", "Hello").replace(
+        fixture("", "Hello").replacen(
             "(export \"init\")",
             "(export \"init\") (loop $forever br $forever)",
+            1,
         ),
-        fixture("", "Hello").replace(
+        fixture("", "Hello").replacen(
             "(func (export \"frame\")",
             "(func $start (loop $forever br $forever)) (start $start) (func (export \"frame\")",
+            1,
         ),
     ] {
         std::fs::write(&path, source).unwrap();
         let error = ModHost::load(&path).err().expect("startup must be bounded");
-        assert!(format!("{error:#}").contains("fuel"));
+        assert!(format!("{error:#}").contains("fuel"), "{error:#}");
     }
 }
 
@@ -151,9 +153,10 @@ fn initialization_and_core_start_share_the_fuel_limit() {
 fn trapping_reload_initialization_retains_previous_output_and_instance() {
     let (directory, mut host) = load_fixture("");
     let candidate =
-        fixture("", "Candidate").replace("(export \"init\")", "(export \"init\") unreachable");
+        fixture("", "Candidate").replacen("(export \"init\")", "(export \"init\") unreachable", 1);
     std::fs::write(directory.path().join("mod.wat"), candidate).unwrap();
-    assert!(host.reload_if_changed().is_err());
+    let error = host.reload_if_changed().unwrap_err();
+    assert!(format!("{error:#}").contains("unreachable"), "{error:#}");
     host.frame(false).unwrap();
     assert!(host.is_active());
     assert_eq!(host.label(), Some("Hello"));
