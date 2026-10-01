@@ -114,7 +114,7 @@ impl InputComponent {
     /// The component `control` carries; the factory reads the same keys for every type.
     pub(crate) fn read(control: &ResolvedControl) -> Self {
         let flag = |key: &str, fallback: bool| bound_bool(control, key).unwrap_or(fallback);
-        let mut component = Self {
+        Self {
             modal: flag("modal", false),
             inline_modal: flag("inline_modal", false),
             gamepad_deflection_mode: flag("gamepad_deflection_mode", false),
@@ -124,8 +124,13 @@ impl InputComponent {
             hover_enabled: flag("hover_enabled", true),
             consume_hover_events: flag("consume_hover_events", true),
             prevent_touch_input: flag("prevent_touch_input", false),
-            ..Self::default()
-        };
+            ..Self::read_mappings(control)
+        }
+    }
+
+    /// Read routing declarations without the unrelated pointer and modal flags.
+    pub(crate) fn read_mappings(control: &ResolvedControl) -> Self {
+        let mut component = Self::default();
         let items: &[Value] = match control.properties.get("button_mappings") {
             Some(Value::Array(items)) => items,
             _ => &[],
