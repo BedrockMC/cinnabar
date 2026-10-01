@@ -157,14 +157,14 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
         .save(pack.path().join("textures/entity/example.png"))
         .unwrap();
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.bindings, 0);
-    assert!(
-        compiled
-            .report
-            .fallbacks
-            .iter()
-            .any(|entry| entry.reason.as_ref() == "missing_or_ambiguous_texture")
-    );
+    assert_eq!(compiled.report.bindings, 1);
+    let entities =
+        encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entities).unwrap();
+    let texture = &catalog.textures()[0];
+    assert_eq!((texture.width, texture.height), (32, 16));
+    assert_eq!(texture.rgba8.len(), 32 * 16 * 4);
+    assert_eq!(&texture.rgba8[texture.rgba8.len() - 4..], &[1, 2, 3, 255]);
 }
 
 #[test]
