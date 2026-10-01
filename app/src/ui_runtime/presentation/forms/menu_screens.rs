@@ -740,7 +740,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
 }
 
 fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    match region.control_name.as_deref()? {
+    match region.control_name.as_deref()?.trim_start_matches('#') {
         "full_screen" if view.screen == MenuScreen::Settings => {
             Some(MenuAction::SettingsFullscreen(!view.fullscreen))
         }
