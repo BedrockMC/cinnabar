@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn page_budget_reserves_player_capacity_and_checks_exact_boundaries() {
         assert_eq!(MAX_RENDERED_PLAYERS, 128);
-        assert_eq!(MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES, 2 * 1024 * 1024);
+        assert!(player_page_bytes() < MAX_ACTOR_GPU_PIXEL_BYTES);
         assert_eq!(assets::MAX_ACTOR_TEXTURES, 2048);
         assert!(within_page_budget(
             MAX_ACTOR_TEXTURE_PAGES - 1,

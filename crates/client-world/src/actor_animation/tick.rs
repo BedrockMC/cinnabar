@@ -3,6 +3,8 @@ use super::{query::FLAG_BABY, *};
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ActorTickContext {
+    /// Full elapsed visual interval; absent for an explicit single-tick evaluation.
+    pub(crate) animation_elapsed_ticks: Option<u32>,
     pub(crate) is_riding: bool,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
@@ -59,8 +61,9 @@ pub(super) fn advance_motion(
     state: &mut ActorRigState,
     actor: &ActorSnapshot,
     context: &ActorTickContext,
+    reset_history: bool,
 ) {
-    if state.reset_pending {
+    if reset_history && state.reset_pending {
         state.history.clear();
     }
     let previous_position = state
@@ -210,6 +213,7 @@ pub(super) fn evaluate_state(
         }
     }
     apply_engine_variables(engine, &mut variables, actor, context, &observed, &motion);
+    super::skin_layers::seed(state, &evaluator, &mut variables);
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
     if let Some(script) = rig.pre_animation {
@@ -237,6 +241,14 @@ pub(super) fn evaluate_state(
         variables.set(engine.first_person_item_rotation_factor, factor);
     }
     let mut controllers = state.controllers.clone();
+    let blink_controller = super::skin_layers::blink_controller(assets, state);
+    if let Some(controller) = blink_controller
+        && !controllers
+            .iter()
+            .any(|runtime| runtime.controller == controller)
+    {
+        collect_controllers(assets, controller, 0, &mut controllers).ok_or(EvalError::Invalid)?;
+    }
     if reset {
         for runtime in &mut controllers {
             runtime.state = assets
@@ -303,6 +315,20 @@ pub(super) fn evaluate_state(
             }
         }
     }
+    if let Some(controller) = blink_controller
+        && !bound
+            .iter()
+            .any(|binding| binding.controller as usize == controller)
+    {
+        ControllerWalk {
+            evaluator: &evaluator,
+            variables: &mut variables,
+            controllers: &mut controllers,
+            clips: &mut weighted_clips,
+            budget,
+        }
+        .evaluate(controller, 1.0, 0)?;
+    }
     let local = sample_clips(
         &evaluator,
         &mut variables,
@@ -335,8 +361,11 @@ pub(super) fn evaluate_state(
         );
         layers
     });
+    let skin_layers =
+        super::skin_layers::evaluate(state, &evaluator, &variables, &local, render.as_deref());
     Ok(EvaluatedState {
         pose,
+        skin_layers,
         render,
         scale,
         controllers,
@@ -484,7 +513,8 @@ fn state_animations(
 impl ControllerWalk<'_, '_, '_, '_> {
     /// Whether every and any clip of a state has played through once since it was entered.
     fn finished(&self, state: usize, entered_tick: u64) -> Result<(bool, bool), EvalError> {
-        let elapsed = self.evaluator.anim_tick.saturating_sub(entered_tick) as f32 * 0.05;
+        let elapsed = self.evaluator.anim_tick.saturating_sub(entered_tick) as f32
+            * ACTOR_TICK_DURATION.as_secs_f32();
         let mut all = true;
         let mut any = false;
         for animation in state_animations(self.evaluator.assets, state)? {

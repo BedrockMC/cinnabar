@@ -1,6 +1,13 @@
 //! Per-frame HUD observation and publication.
 use super::*;
 use bevy::prelude::Transform;
+
+mod commit;
+#[cfg(test)]
+pub(crate) use commit::refresh_hud_frame;
+use commit::{PendingUiPublication, PreviewCapture};
+pub(crate) use commit::{PreparedUiPublication, publish_ui_runtime};
+
 pub(crate) fn observe_mount_jump_input(
     input: Res<crate::semantic_controls::SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntime>,
@@ -25,17 +32,16 @@ type PublishExtras<'w> = (
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
-        Option<ResMut<'w, render::NametagScene>>,
         Res<'w, crate::runtime::network::NetworkHandle>,
     ),
 );
 
+/// Observes UI authority and captures inventory before outbound actions mutate it.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn publish_ui_runtime(
+pub(crate) fn prepare_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
-    mut scene: ResMut<UiRenderScene>,
-    stats: Res<UiRenderStats>,
+    mut prepared: ResMut<PreparedUiPublication>,
     visibility: Res<CaveVisibilityCache>,
     mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
     visibility_diagnostics: Res<VisibilityDiagnostics>,
@@ -53,13 +59,14 @@ pub(crate) fn publish_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather, nametag_scene, network),
+        (actor_partial, local_frame, clock, weather, network),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
+    prepared.0 = None;
     let Ok(window) = windows.single() else {
         hand.clear();
         return;
@@ -197,20 +204,19 @@ pub(crate) fn publish_ui_runtime(
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    presentation.sync_player_preview(
-        skin.as_deref(),
+    let preview = PreviewCapture {
+        skin,
         pose,
-        runtime.inventory_open() || menu_runtime.is_visible(),
-        first_person && !hand_rig.is_active(),
-        now_millis as f64 / 1000.0,
-    );
+        shown: runtime.inventory_open() || menu_runtime.is_visible(),
+        hands: first_person && !hand_rig.is_active(),
+    };
     super::forms::observe_station_block(
         &mut runtime,
         client_world.stream.as_ref(),
         collisions.as_deref(),
         now_millis,
     );
-    refresh_hud_frame(
+    let item_icons = capture_hud_frame(
         &mut runtime,
         &mut presentation,
         client_world.stream.as_ref(),
@@ -290,9 +296,6 @@ pub(crate) fn publish_ui_runtime(
         })
         .unwrap_or_default();
     presentation.set_nametag_anchors(nametags);
-    if let Some(mut nametag_scene) = nametag_scene {
-        *nametag_scene = presentation.nametag_scene();
-    }
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));
@@ -310,28 +313,14 @@ pub(crate) fn publish_ui_runtime(
     presentation.set_menu_view(menu_view);
     presentation
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
-    let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
-        Ok(input) => input,
-        Err(error) => {
-            hand.clear();
-            record_fatal_error(&mut client_world.fatal_error, error.to_string());
-            return;
-        }
-    };
-    if !hand_rig.is_active() {
-        hand.bind_cpu_fallback(
-            &input,
-            presentation.cpu_empty_hand_fallback(),
-            presentation.hud_frame.held_item_icon,
-        );
-    }
-    if let Err(error) = scene.publish(input, &stats) {
-        hand.clear();
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            UiPresentationError::Render(error).to_string(),
-        );
-    }
+    prepared.0 = Some(PendingUiPublication {
+        inventory: runtime.capture_presentation_inventory(),
+        preview,
+        item_icons,
+        now_millis,
+        physical_size,
+        dpi_scale,
+    });
 }
 
 /// `stack`'s icon, glinting as `Item::isGlint` decides.
@@ -345,13 +334,14 @@ fn stack_icon(
     Some(icon.with_glint(runtime.item_glint(stack, identifier)))
 }
 
-pub(crate) fn refresh_hud_frame(
+/// Captures HUD display values and applies its required local authority observations.
+fn capture_hud_frame(
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
     stream: Option<&client_world::WorldStream>,
     camera_settings: &CameraSettingsAuthority,
     now_millis: u64,
-) {
+) -> (Option<IconRef>, Option<IconRef>) {
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
     };
@@ -855,8 +845,6 @@ pub(crate) fn refresh_hud_frame(
             .as_deref()
             .and_then(|id| stack_icon(runtime, presentation, stack, id))
     });
-    presentation.set_item_viewmodels(held_item_icon, offhand_icon);
-    let (held_viewmodel_icon, offhand_viewmodel_icon) = presentation.item_viewmodel_icons();
     let selected_item_name = runtime.selected_stack_custom_name().or_else(|| {
         selected_stack.and_then(|stack| {
             let id = resolve_identifier(stack)?;
@@ -907,8 +895,8 @@ pub(crate) fn refresh_hud_frame(
     frame.cursor_icon = cursor_icon;
     frame.armor_icons = armor_icons;
     frame.offhand_icon = offhand_icon;
-    frame.offhand_viewmodel_icon = offhand_viewmodel_icon;
-    frame.held_item_icon = held_viewmodel_icon;
+    frame.offhand_viewmodel_icon = None;
+    frame.held_item_icon = None;
     frame.player_preview = player_preview_icon;
     frame.left_hand = left_hand_icon;
     frame.right_hand = right_hand_icon;
@@ -936,6 +924,7 @@ pub(crate) fn refresh_hud_frame(
         );
         presentation.last_hud_diagnostics = diagnostics;
     }
+    (held_item_icon, offhand_icon)
 }
 
 fn project_below_name_anchors(

@@ -195,6 +195,7 @@ fn forced_remesh_inherits_queued_publication_urgency() {
     let mut stream = lit_stream(0);
     let key = SubChunkKey::new(0, 0, 0, 0);
     stream.mesh_changes.push_back(WorldMeshChange::Upsert {
+        output_permit: None,
         key,
         mesh: ChunkMesh::default(),
         biome: PackedBiomeRecord::fallback(),

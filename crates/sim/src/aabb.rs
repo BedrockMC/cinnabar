@@ -4,8 +4,6 @@ use crate::Vec3;
 
 pub const PLAYER_WIDTH: f64 = 0.6;
 pub const PLAYER_HEIGHT: f64 = 1.8;
-/// bedsim shrinks each horizontal half-extent by this amount.
-pub const PLAYER_HORIZONTAL_EPSILON: f64 = 1.0e-4;
 
 /// Axis-aligned collision box with inclusive contact faces.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -28,7 +26,8 @@ impl Aabb {
     /// Player box with a pose-dependent height (sneaking, swimming, crawling).
     #[must_use]
     pub fn player_with_height_at(feet: Vec3, height: f64) -> Self {
-        let half_width = PLAYER_WIDTH * 0.5 - PLAYER_HORIZONTAL_EPSILON;
+        // 1.26.50.26: 0x04b047e0 builds full-width faces; 0x09000dc0 keeps them.
+        let half_width = PLAYER_WIDTH * 0.5;
         Self::new(
             Vec3::new(feet.x - half_width, feet.y, feet.z - half_width),
             Vec3::new(feet.x + half_width, feet.y + height, feet.z + half_width),
