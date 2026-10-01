@@ -106,6 +106,7 @@ impl ChunkBiomeTints {
         Self { entries, identity }
     }
 
+    /// Returns GPU records; resolved tables append the swamp palette after dense biome entries.
     #[must_use]
     pub fn entries(&self) -> &[BiomeTint] {
         &self.entries
