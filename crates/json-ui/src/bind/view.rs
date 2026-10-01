@@ -215,12 +215,31 @@ impl Binder<'_> {
         let observed = source.and_then(|source| {
             let node = node_at(root, path);
             let Kind::View {
-                source: expression, ..
+                source: expression,
+                scope,
+                ..
             } = &node.bindings[index].kind
             else {
                 return None;
             };
-            observe(expression, &node_at(root, source).own, &self.env)
+            let bag = &node_at(root, source).own;
+            observe(expression, bag, &self.env).or_else(|| {
+                // A view on its own control reads a property its bag lacks from the
+                // screen controller, as server packs that pick layouts by
+                // `#title_text` rely on.
+                if *scope != ViewScope::Own {
+                    return None;
+                }
+                let mut answered = bag.clone();
+                for name in expression.properties() {
+                    if !answered.contains_key(name)
+                        && let Some(value) = self.data.globals.get(name)
+                    {
+                        answered.insert(name.to_owned(), value.clone());
+                    }
+                }
+                observe(expression, &answered, &self.env)
+            })
         });
         let node = node_at_mut(root, path);
         let Kind::View { target, .. } = &node.bindings[index].kind else {
