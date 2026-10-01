@@ -505,7 +505,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
 
 #[test]
 fn player_list_retains_bounded_standard_and_persona_baked_skins() {
-    let rgba = vec![0x7f; 64 * 64 * 4];
+    let rgba = [0x7f, 0x7f, 0x7f, 255].repeat(protocol::CLASSIC_SKIN_SIDE.pow(2));
     let classic = PlayerListPacketPayloadAddEntry {
         player_name: "Classic".to_owned(),
         serialized_skin: SerializedSkinRef {
@@ -561,7 +561,9 @@ fn player_list_retains_bounded_standard_and_persona_baked_skins() {
             cape: None,
             width: 64,
             height: 64,
-            rgba8: vec![0x7f; 64 * 64 * 4].into(),
+            rgba8: [0x7f, 0x7f, 0x7f, 255]
+                .repeat(protocol::CLASSIC_SKIN_SIDE.pow(2))
+                .into(),
         })
     );
     let PlayerListEntry::Add {

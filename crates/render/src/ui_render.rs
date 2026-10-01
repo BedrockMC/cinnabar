@@ -226,12 +226,6 @@ pub(crate) fn prepare_ui_resources(
         glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
     render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
-    if let Err(reason) = input.validate() {
-        gpu.accepted_revision = None;
-        gpu.batches = Arc::from([]);
-        record_render_rejection(&stats, input.revision, reason);
-        return;
-    }
     if let Some(previous) = gpu.last_admitted_revision {
         let reason = if input.revision < previous {
             Some(UiRenderRejectReason::StaleRevision {
@@ -267,6 +261,12 @@ pub(crate) fn prepare_ui_resources(
                 UiRenderRejectReason::InvalidTextureExtent,
             );
         }
+        return;
+    }
+    if let Err(reason) = input.validate() {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        record_render_rejection(&stats, input.revision, reason);
         return;
     }
     if let Err(reason) = gpu
@@ -620,7 +620,7 @@ fn resolved_batches<'a>(
 mod ordered_command_tests {
     use super::*;
 
-    fn binding_world() -> World {
+    pub(super) fn binding_world() -> World {
         use bevy::ecs::system::RunSystemOnce;
         use bevy::render::renderer::{RenderAdapter, WgpuWrapper};
         use std::{
@@ -978,3 +978,7 @@ impl Default for UiRenderHarness {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "ui_render/retained_tests.rs"]
+mod retained_tests;

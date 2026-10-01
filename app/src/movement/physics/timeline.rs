@@ -45,8 +45,9 @@ impl LocalPhysicsController {
     /// Records one server velocity replacement (`SetActorMotion`) and returns
     /// the tick to rewind from when it lands inside retained history.
     ///
-    /// The motion replaces velocity before the tick after its stamp. Live
-    /// ticks replace velocity now; stale ticks clamp to the oldest retained
+    /// Zero-stamped motion only replaces live velocity; it is not replay input.
+    /// Stamped motion replaces velocity before the tick after its stamp.
+    /// Live ticks replace velocity now; stale ticks clamp to the oldest retained
     /// frame as `ReplayStateComponent::applyFrameCorrection` does. Non-finite
     /// motion is ignored; when inactive there is no timeline to enter.
     pub fn queue_server_motion(&mut self, motion: [f32; 3], tick: u64) -> Option<u64> {
@@ -65,6 +66,10 @@ impl LocalPhysicsController {
             f64::from(motion[1]),
             f64::from(motion[2]),
         );
+        if tick == 0 {
+            self.state.as_mut()?.velocity = velocity;
+            return None;
+        }
         let rewind = match self.timeline_slot(tick) {
             TimelineSlot::Live => None,
             TimelineSlot::Rewind(tick) => Some(tick),

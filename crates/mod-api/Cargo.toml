@@ -1,0 +1,9 @@
+[package]
+name = "mod-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+wit-bindgen = "=0.57.1"

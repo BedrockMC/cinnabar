@@ -7,16 +7,21 @@ mod item;
 mod server_position;
 mod stream;
 
+pub use culling::CaveVisibilityScratch;
+pub use protocol::{
+    CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE, expand_legacy_skin_rgba8,
+};
+
 pub use action::{
     ActorEventIdentity, ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, MAX_ACTIONS_PER_ACTOR,
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
 };
 pub use actor_animation::{
-    ACTOR_SWING_TICKS, ActorAnimationStats, ActorAnimationView, ActorLifetimeId, ActorRigSnapshot,
-    BoneTransform, EntityRigId, HandPhase, MAX_ACTOR_ACTION_HISTORY,
-    MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
+    ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStats, ActorAnimationView,
+    ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
+    MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
-    RenderTextureLayer,
+    RenderTextureLayer, SkinRenderLayer,
 };
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityKind,

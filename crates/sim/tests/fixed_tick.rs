@@ -123,7 +123,7 @@ fn collision_resolves_y_then_x_then_z_and_reports_each_clipped_axis() {
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
 
-    assert_close(result.movement.x, 0.2001);
+    assert_close(result.movement.x, 0.2);
     assert_close(result.movement.y, 0.0);
     assert_close(result.movement.z, 0.25);
     assert!(result.collisions.x);

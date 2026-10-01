@@ -28,13 +28,14 @@ use super::{
     asset_geometry::{geometry_from_geometry_index, geometry_from_runtime_assets},
 };
 
-pub const MAX_RENDER_BONES_PER_ACTOR: usize = 96;
+pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
-/// Bodies plus their equipment layers; `MAX_RENDERED_PLAYERS` still bounds the bodies.
-pub const MAX_ACTOR_RENDER_INSTANCES: usize = 512;
+/// Existing body/equipment allowance plus every animated skin layer per selected player.
+pub const MAX_ACTOR_RENDER_INSTANCES: usize =
+    MAX_RENDERED_PLAYERS * (4 + client_world::MAX_SKIN_ANIMATION_LAYERS);
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
     MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
-pub const MAX_ACTOR_RIG_VERTICES: usize = 1_048_576;
+pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
@@ -137,6 +138,8 @@ pub enum ActorRigRoute {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActorRigSubmission {
+    /// Model-space visibility box shared with animation and cave admission.
+    pub culling_bounds: assets::SkinGeometryBounds,
     pub input: ActorRigRenderInput,
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
@@ -768,20 +771,28 @@ pub fn actor_rig_submission_is_visible(
     view: Option<ActorCullView>,
 ) -> bool {
     // The culling box grows with the instance's scale so scaled models are not cut early.
-    let scale = Vec3::new(
-        submission.world_from_actor[0][1],
-        submission.world_from_actor[1][1],
-        submission.world_from_actor[2][1],
-    )
-    .length();
+    let scale = (0..3)
+        .map(|axis| {
+            Vec3::new(
+                submission.world_from_actor[0][axis],
+                submission.world_from_actor[1][axis],
+                submission.world_from_actor[2][axis],
+            )
+            .length()
+        })
+        .fold(1.0_f32, f32::max);
     let feet = submission.world_from_actor.map(|row| row[3]);
-    actor_bounds_are_visible(feet, scale, view)
+    actor_bounds_are_visible(feet, scale, submission.culling_bounds, view)
 }
 
-/// Whether the culling box of an actor standing at `feet` with model scale `scale` is within
-/// `view`'s distance and frustum; always true without a usable view.
+/// Tests an authored model visibility box against the same distance and frustum as default actors.
 #[must_use]
-pub fn actor_bounds_are_visible(feet: [f32; 3], scale: f32, view: Option<ActorCullView>) -> bool {
+pub fn actor_bounds_are_visible(
+    feet: [f32; 3],
+    scale: f32,
+    bounds: assets::SkinGeometryBounds,
+    view: Option<ActorCullView>,
+) -> bool {
     let Some(view) = view.filter(|view| {
         view.clip_from_world.is_finite()
             && view.camera_position.is_finite()
@@ -796,19 +807,17 @@ pub fn actor_bounds_are_visible(feet: [f32; 3], scale: f32, view: Option<ActorCu
     {
         return false;
     }
-    let scale = scale.max(1.0);
-    let (half_width, height) = (0.5 * scale, 2.0 * scale);
-    let corners = [
-        Vec3::new(-half_width, 0.0, -half_width),
-        Vec3::new(half_width, 0.0, -half_width),
-        Vec3::new(-half_width, height, -half_width),
-        Vec3::new(half_width, height, -half_width),
-        Vec3::new(-half_width, 0.0, half_width),
-        Vec3::new(half_width, 0.0, half_width),
-        Vec3::new(-half_width, height, half_width),
-        Vec3::new(half_width, height, half_width),
-    ]
-    .map(|offset| view.clip_from_world * (feet + offset).extend(1.0));
+    let (low, high) = bounds.at(feet.to_array(), scale);
+    let corners: [Vec4; 8] = std::array::from_fn(|index| {
+        let point = Vec3::from_array(std::array::from_fn(|axis| {
+            if index & (1 << axis) == 0 {
+                low[axis]
+            } else {
+                high[axis]
+            }
+        }));
+        view.clip_from_world * point.extend(1.0)
+    });
     !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
         && !outside_clip_plane(&corners, |clip| clip.x > clip.w)
         && !outside_clip_plane(&corners, |clip| clip.y < -clip.w)

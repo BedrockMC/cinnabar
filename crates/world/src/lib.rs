@@ -47,3 +47,11 @@ pub use store::{
     PreparedSubChunkMutation, decode_column_tail,
 };
 pub use sub_chunk::{BlockIds, MAX_PALETTE_ENTRIES, MAX_STORAGE_COUNT, RawBlockIds, SubChunk};
+
+/// Bedrock simulation ticks per second.
+pub const TICKS_PER_SECOND: u32 = 20;
+
+/// Duration of one simulation tick.
+pub const TICK_DURATION: std::time::Duration = std::time::Duration::from_nanos(
+    std::time::Duration::from_secs(1).as_nanos() as u64 / TICKS_PER_SECOND as u64,
+);

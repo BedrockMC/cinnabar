@@ -72,6 +72,8 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/input` | Device-independent input actions. |
 | `crates/json-ui` | Parser, resolver and layout engine for vanilla JSON-UI. |
 | `crates/meshing` | CPU geometry for chunks, liquids, biomes and clouds. |
+| `crates/mod-api` | Experimental guest SDK generated from the extension WIT contract. |
+| `crates/mod-host` | Opt-in WASM component spike with bounded HUD and input imports. |
 | `crates/protocol` | Bedrock packet definitions and codec. |
 | `crates/render` | Chunk and entity rendering on Bevy/wgpu. |
 | `crates/resource-pack` | Admission and decryption of server resource packs. |
@@ -84,6 +86,9 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
+
+The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension.
+Its sample lives in `examples/mods/hello`; it does not change the Bedrock wire protocol.
 
 | Go package (`core/`) | What it does |
 | --- | --- |

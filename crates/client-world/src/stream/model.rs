@@ -294,6 +294,7 @@ pub(super) enum RetrySchedule {
 #[derive(Debug)]
 pub enum WorldMeshChange {
     Upsert {
+        output_permit: Option<super::meshing::memory::MeshMemoryPermit>,
         key: SubChunkKey,
         mesh: ChunkMesh,
         biome: PackedBiomeRecord,
@@ -335,6 +336,11 @@ pub enum ForcedRemeshManifestState {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommittedControlEvent {
+    /// An ordered server probe ready to echo after earlier controls are applied.
+    NetworkStackLatency {
+        sequence: u64,
+        creation_time: u64,
+    },
     /// A MobEffect change for the local movement simulator. Its packet tick is
     /// retained as correlation metadata, not used as a local expiry clock.
     /// The same event is also retained in [`CommittedUiEvent::LocalEffect`].
@@ -769,7 +775,7 @@ pub(super) enum PreparedWorldEvent {
         duration: Duration,
     },
     BlockUpdates {
-        result: Result<Vec<PreparedSubChunkMutation>, MutationError>,
+        result: Result<PreparedBlockMutations, MutationError>,
         duration: Duration,
     },
     BlockEntityUpdate {
@@ -780,6 +786,13 @@ pub(super) enum PreparedWorldEvent {
     Immediate(WorldEvent),
     CommitOnly,
     NormalizationFailure,
+}
+
+/// Packed replacements and their worker-computed light invalidation summary.
+#[derive(Debug)]
+pub(super) struct PreparedBlockMutations {
+    pub(super) mutations: Vec<PreparedSubChunkMutation>,
+    pub(super) relight: BTreeSet<SubChunkKey>,
 }
 
 #[derive(Debug)]
@@ -858,6 +871,8 @@ pub(super) struct PendingMesh {
 
 #[derive(Debug)]
 pub(super) struct MeshCompletion {
+    pub(super) output_permit: Option<super::meshing::memory::MeshMemoryPermit>,
+    pub(super) _job_permit: Option<super::meshing::admission::MeshJobPermit>,
     pub(super) key: SubChunkKey,
     pub(super) revision: u64,
     pub(super) source: Arc<SubChunk>,
