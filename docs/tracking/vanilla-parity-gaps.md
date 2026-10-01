@@ -114,11 +114,14 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   pack's first-person attack rotation reads `variable.first_person_item_rotation_factor`, which
   neither the pack nor the 26.30 client assigns; it provisionally takes the pack's
   `first_person_rotation_factor`. Haste and fatigue do not yet change the rig's 6-tick swing.
-- **Held item placement:** main-hand sprites, hand-equipped tools/weapons and block cubes follow
-  the 26.30 reference's held-item and default item transforms on the `rightItem` bone, in both
-  perspectives. Provisional: the hand-equipped item list mirrors vanilla by identifier, the block
-  mesh origin is assumed centred, and the narrow-aspect first-person offset is not applied.
-  `query.get_default_bone_pivot` now reads the rig's rest pivots.
+- **Held item placement:** third person seats sprites, hand-equipped tools/weapons and block
+  cubes on the `rightItem` bone by the 26.30 reference's held-item and default item transforms.
+  First person draws the item in camera space by `renderFirstPerson`'s own transforms (swing,
+  equip dip, eat/drink raise, 0.4 hand scale), as vanilla skips held items in the first-person
+  actor pass. Sprites use vanilla's held tessellation layout. Provisional: the hand-equipped and
+  mirrored-art lists mirror vanilla by identifier; first-person bow, crossbow, spyglass, spear and
+  map use poses, the narrow-aspect offset, the eat-raise aspect term and data-driven block display
+  transforms are not applied; a block with no plain cube sheet shows its icon sprite.
 - **Block items:** plain opaque cubes in hand (third and first person) and on the head
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;

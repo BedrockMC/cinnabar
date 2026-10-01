@@ -3,16 +3,17 @@ use std::sync::Arc;
 use bytes::Bytes;
 use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
-    BlockUseRequest, HeldItemRequest, InventoryPacketError, ItemReleaseKind, ItemUseTrigger,
-    NetworkItemStack, SwingSource, VerifiedNetworkItemStack, click_air_packet, click_block_packet,
-    click_block_transaction_packet, decode_batch, destroy_block_packet, encode,
+    BlockUseRequest, HeldItemRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack,
+    PredictedSlotChange, SwingSource, VerifiedNetworkItemStack, click_air_packet,
+    click_block_packet, click_block_transaction_packet, decode_batch, destroy_block_packet, encode,
     release_item_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
     use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_51::{
-    ContainerClosePacket, EnumsAnimatePacketPayloadAction,
-    EnumsItemReleaseInventoryTransactionActionType, EnumsItemUseInventoryTransactionActionType,
+    ContainerClosePacket, EnumsAnimatePacketPayloadAction, EnumsContainerEnumName,
+    EnumsInventorySourceType, EnumsItemReleaseInventoryTransactionActionType,
+    EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType, EnumsPlayerActionType,
@@ -567,6 +568,7 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         (SwingSource::Attack, "Attack"),
         (SwingSource::Mine, "Mine"),
         (SwingSource::Build, "Build"),
+        (SwingSource::ThrowItem, "ThrowItem"),
     ] {
         let packet = swing_arm_packet(0x1_0000_0001, source);
         let bytes = encode(&packet, &session()).unwrap();
@@ -698,7 +700,7 @@ fn held_request() -> HeldItemRequest {
 #[test]
 fn click_air_carries_vanilla_base_use_item_fields() {
     let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =
-        decoded_transaction(click_air_packet(held_request()).unwrap())
+        decoded_transaction(click_air_packet(held_request(), None).unwrap())
     else {
         panic!("item use");
     };
@@ -724,26 +726,143 @@ fn click_air_carries_vanilla_base_use_item_fields() {
     );
 }
 
-/// Button-up releases with action 0; a depleted use duration completes with action 1.
+/// Button-up releases with action 0.
 #[test]
-fn release_item_distinguishes_release_from_completion() {
-    for (kind, expected) in [
-        (
-            ItemReleaseKind::Release,
-            EnumsItemReleaseInventoryTransactionActionType::Release,
-        ),
-        (
-            ItemReleaseKind::Complete,
-            EnumsItemReleaseInventoryTransactionActionType::Use,
-        ),
-    ] {
-        let InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(built) =
-            decoded_transaction(release_item_packet(held_request(), kind).unwrap())
-        else {
-            panic!("item release");
-        };
-        assert_eq!(built.action_type, expected);
-        assert_eq!(built.slot, 3);
-        assert_eq!(built.from_position.z, -40.25);
-    }
+fn release_item_carries_the_release_action() {
+    let InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(built) =
+        decoded_transaction(release_item_packet(held_request()).unwrap())
+    else {
+        panic!("item release");
+    };
+    assert_eq!(
+        built.action_type,
+        EnumsItemReleaseInventoryTransactionActionType::Release
+    );
+    assert_eq!(built.slot, 3);
+    assert_eq!(built.from_position.z, -40.25);
+}
+
+fn snowballs(count: u16) -> VerifiedNetworkItemStack {
+    let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
+    let digest: [u8; 32] = Sha256::digest(&extra_data).into();
+    VerifiedNetworkItemStack::try_new(
+        NetworkItemStack {
+            network_id: 388,
+            metadata: 0,
+            stack_network_id: 57,
+            count,
+            nbt_digest: digest,
+            block_runtime_id: 0,
+            extra_data,
+        },
+        digest,
+    )
+    .unwrap()
+}
+
+fn decoded_inventory_packet(
+    packet: protocol::Packet,
+) -> valentine::bedrock::version::v1_26_51::InventoryTransactionPacket {
+    let bytes = encode(&packet, &session()).unwrap();
+    let McpePacketData::InventoryTransactionPacket(built) =
+        decode_batch(bytes, &session()).unwrap().remove(0).data
+    else {
+        panic!("inventory transaction");
+    };
+    *built
+}
+
+/// A throw reports the decrement as a container action and a legacy set-slot request.
+#[test]
+fn click_air_with_a_throw_carries_the_inventory_action_and_legacy_request() {
+    let from = snowballs(16);
+    let to = from.less_one(-6);
+    let mut request = held_request();
+    request.selected_item = from.clone();
+    let packet = click_air_packet(
+        request,
+        Some(PredictedSlotChange {
+            legacy_request_id: -6,
+            from,
+            to,
+        }),
+    )
+    .unwrap();
+    let built = decoded_inventory_packet(packet);
+    assert_eq!(built.legacy_request_id.id, -6);
+    let slots = built.legacy_set_item_slots.expect("legacy set slots");
+    assert_eq!(slots.len(), 1);
+    assert_eq!(
+        slots[0].container_enum,
+        EnumsContainerEnumName::Inventorycontainer
+    );
+    assert_eq!(slots[0].slots, vec![3]);
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+        built.transaction
+    else {
+        panic!("item use");
+    };
+    let [action] = &transaction.actions.actions[..] else {
+        panic!("one action");
+    };
+    assert_eq!(
+        action.source.source_type,
+        EnumsInventorySourceType::Containerinventory
+    );
+    assert_eq!(action.source.container_id, Some(0));
+    assert_eq!(action.source.bit_flags, None);
+    assert_eq!(action.slot, 3);
+    assert_eq!(
+        (action.from_item.stacksize, action.from_item.net_id_variant),
+        (16, Some(57))
+    );
+    assert_eq!(
+        (action.to_item.stacksize, action.to_item.net_id_variant),
+        (15, Some(-6))
+    );
+    assert_eq!(transaction.item.stacksize, 16);
+}
+
+/// Throwing the last item records the action but no legacy request, as vanilla skips null stacks.
+#[test]
+fn click_air_emptying_the_slot_sends_no_legacy_request() {
+    let from = snowballs(1);
+    let to = from.less_one(-8);
+    assert!(to.is_empty());
+    let mut request = held_request();
+    request.selected_item = from.clone();
+    let built = decoded_inventory_packet(
+        click_air_packet(
+            request,
+            Some(PredictedSlotChange {
+                legacy_request_id: -8,
+                from,
+                to,
+            }),
+        )
+        .unwrap(),
+    );
+    assert_eq!(built.legacy_request_id.id, 0);
+    assert_eq!(built.legacy_set_item_slots, None);
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+        built.transaction
+    else {
+        panic!("item use");
+    };
+    assert_eq!(transaction.actions.actions.len(), 1);
+    assert_eq!(transaction.actions.actions[0].to_item.id, 0);
+}
+
+/// A plain air use (a custom menu item) carries no actions and a zero legacy request.
+#[test]
+fn plain_click_air_has_no_actions_or_legacy_request() {
+    let built = decoded_inventory_packet(click_air_packet(held_request(), None).unwrap());
+    assert_eq!(built.legacy_request_id.id, 0);
+    assert_eq!(built.legacy_set_item_slots, None);
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+        built.transaction
+    else {
+        panic!("item use");
+    };
+    assert!(transaction.actions.actions.is_empty());
 }
