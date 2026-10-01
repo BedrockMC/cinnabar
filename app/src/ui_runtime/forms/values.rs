@@ -56,6 +56,8 @@ pub(crate) enum FormDrag {
     Slider(usize),
     /// A scrollbar box: the scroll view key and the pointer's last position along its axis.
     ScrollBox { view: String, last: f64 },
+    /// A `draggable` control: its key and the pointer's last position.
+    Control { key: String, last: [f64; 2] },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

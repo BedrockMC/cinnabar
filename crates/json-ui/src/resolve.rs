@@ -157,6 +157,19 @@ impl<'a> Resolver<'a> {
             chains.extend(anim::resolve_chain(self.catalog, reference, env));
             properties.remove("alpha");
         }
+        if let Some(Value::String(reference)) = properties.get("size").cloned()
+            && reference.starts_with('@')
+        {
+            if let Some(resize) = anim::resolve_resize(self.catalog, &reference, env)
+                .and_then(|resize| serde_json::to_value(resize).ok())
+            {
+                properties.insert(anim::RESIZE_KEY.to_owned(), resize);
+            }
+            match anim::resting_size(self.catalog, &reference, env) {
+                Some(rest) => properties.insert("size".to_owned(), rest),
+                None => properties.remove("size"),
+            };
+        }
         let mut slide = None;
         if let Some(Value::String(reference)) = properties.get("offset")
             && reference.starts_with('@')

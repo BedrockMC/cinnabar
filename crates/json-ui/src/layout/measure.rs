@@ -36,6 +36,29 @@ thread_local! {
     static PLACED: RefCell<PlaceMemo> = RefCell::new(PlaceMemo::new());
     /// Scroll bar panels hidden while their content fits, by address.
     static SUPPRESSED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+    /// This layout's clock (seconds), for `size` animations.
+    static CLOCK: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+    /// Whether a `size` animation was mid-flight this layout.
+    static ANIMATING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Start a layout at `clock`; returns nothing until [`animating`] is read.
+pub(super) fn start_clock(clock: Option<f64>) {
+    CLOCK.with(|cell| cell.set(clock));
+    ANIMATING.with(|cell| cell.set(false));
+}
+
+pub(super) fn clock() -> Option<f64> {
+    CLOCK.with(std::cell::Cell::get)
+}
+
+pub(super) fn note_animating() {
+    ANIMATING.with(|cell| cell.set(true));
+}
+
+/// Whether a `size` animation ran this layout.
+pub(super) fn animating() -> bool {
+    ANIMATING.with(std::cell::Cell::get)
 }
 
 /// Discard measurements before borrowing a new tree or measurement environment.

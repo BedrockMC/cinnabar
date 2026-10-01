@@ -31,6 +31,7 @@ pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
 pub use measure::MeasureCache;
 pub(crate) use size::{font_scale, localizes};
 
+pub(crate) use place::draggable_axes;
 use place::{motion, place_by_anchor};
 use scroll::{Adjusted, ScrollFrame};
 
@@ -106,6 +107,8 @@ pub struct LaidOut<'a> {
     /// Offset animations displacing this control and its clip at paint time.
     pub motions: Motions,
     pub visible: bool,
+    /// False when this control or an ancestor is disabled (locked styling, no input).
+    pub enabled: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
     pub children: Vec<LaidOut<'a>>,
@@ -160,6 +163,7 @@ fn lay_out<'a>(
     if !cull {
         measure::reset();
     }
+    measure::start_clock(state.now);
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = size::resolve_size(root, [Some(screen.w), Some(screen.h)], [0.0; 2], env);
     let rect = place_by_anchor(root, screen, own, [0.0; 2], env);
@@ -171,6 +175,8 @@ fn lay_out<'a>(
         scrolls: Vec::new(),
         sliders: Vec::new(),
         ancestors: Vec::new(),
+        disabled: 0,
+        screen,
     };
     let key = child_key("", root);
     let laid = place_subtree(
@@ -178,10 +184,11 @@ fn lay_out<'a>(
         key,
         rect,
         screen,
-        (0, true, false),
+        (0, true, false, true),
         &Inherited::default(),
         &mut ctx,
     );
+    ctx.report.animating = measure::animating();
     (laid, ctx.report)
 }
 
@@ -196,6 +203,10 @@ struct PlaceCtx<'e, 'x> {
     sliders: Vec<(f64, [Option<String>; 3])>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
     ancestors: Vec<(String, Rect, Rect)>,
+    /// Enclosing disabled controls; their descendants are locked.
+    disabled: usize,
+    /// What a control that opts out of clipping draws within.
+    screen: Rect,
 }
 
 /// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
@@ -222,17 +233,29 @@ fn place_subtree<'a>(
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    (parent_layer, shown, packed): (i32, bool, bool),
+    (parent_layer, shown, packed, parent_allows): (i32, bool, bool, bool),
     inherited: &Inherited,
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
     let (own_alpha, fades, mut inherit) = inherited.apply(control, alpha(control));
     let clips = clip_children(control);
     let child_clip = if clips {
-        parent_clip.intersect(rect)
+        inset_clip(rect, clip_offset(control), parent_clip)
     } else {
         parent_clip
     };
+    // `allow_clipping` defaults to the parent's; opting out frees only the
+    // control's own drawing, not its children's.
+    let allows = widgets::bound_bool(control, "allow_clipping").unwrap_or(parent_allows);
+    let own_clip = match (allows, clips) {
+        (false, _) => ctx.screen,
+        (true, true) => child_clip,
+        (true, false) => parent_clip,
+    };
+    let enabled = ctx.disabled == 0 && widgets::enabled(control);
+    if !enabled {
+        ctx.disabled += 1;
+    }
     let parent_rect = ctx
         .ancestors
         .last()
@@ -274,7 +297,7 @@ fn place_subtree<'a>(
     if let Some(entry) = slider {
         ctx.sliders.push(entry);
     }
-    let hidden = widgets::hidden_state_children(control, &key, ctx.state);
+    let hidden = widgets::hidden_state_children(control, &key, ctx.state, !enabled);
     let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
@@ -310,6 +333,19 @@ fn place_subtree<'a>(
                 break;
             }
         }
+        let next_key = child_key(&key, child);
+        // Stack items and grid cells have no offset delta term.
+        if !packs {
+            if place::follows_pointer(child) {
+                ctx.report.tracks_pointer = true;
+            }
+            let dragged = ctx.state.drags.get(&next_key).copied();
+            if let Some(moved) =
+                place::offset_delta(child, child_rect, rect, ctx.state.pointer, dragged)
+            {
+                child_rect = moved;
+            }
+        }
         if opened_slider
             && let Some((fraction, names)) = ctx.sliders.last()
             && names[0].as_deref() == Some(child.name.as_str())
@@ -326,18 +362,20 @@ fn place_subtree<'a>(
         {
             continue;
         }
-        let next_key = child_key(&key, child);
         children.push(place_subtree(
             child,
             next_key,
             child_rect,
             clip_for_child,
-            (absolute_layer, child_shown, packs),
+            (absolute_layer, child_shown, packs, allows),
             &inherit,
             ctx,
         ));
     }
     ctx.ancestors.pop();
+    if !enabled {
+        ctx.disabled -= 1;
+    }
     if opened_slider {
         ctx.sliders.pop();
     }
@@ -347,19 +385,65 @@ fn place_subtree<'a>(
     {
         ctx.report.scrolls.insert(frame.key, metrics);
     }
+    if let Some(event) = control
+        .properties
+        .get("clip_state_change_event")
+        .and_then(Value::as_str)
+        .filter(|_| allows)
+    {
+        ctx.report
+            .clip_states
+            .insert(key.clone(), (event.to_owned(), clipped_out(rect, own_clip)));
+    }
     LaidOut {
         control,
         clip_ratio: progress_clip(control, &ctx.sliders),
         key,
         rect,
-        clip: parent_clip,
+        clip: own_clip,
         layer: absolute_layer,
         alpha: own_alpha,
         fades,
         motions,
         visible: shown && visible(control),
+        enabled,
         children,
     }
+}
+
+/// The clip a `clips_children` control gives its children: its rect inset by
+/// `clip_offset` on every side, within `parent`, never inverted.
+fn inset_clip(rect: Rect, offset: [f64; 2], parent: Rect) -> Rect {
+    let x0 = (rect.x + offset[0]).max(parent.x);
+    let y0 = (rect.y + offset[1]).max(parent.y);
+    let x1 = (rect.x + rect.w - offset[0])
+        .min(parent.x + parent.w)
+        .max(x0);
+    let y1 = (rect.y + rect.h - offset[1])
+        .min(parent.y + parent.h)
+        .max(y0);
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// `clip_offset`, `[0, 0]` unless a numeric pair.
+fn clip_offset(control: &ResolvedControl) -> [f64; 2] {
+    let Some(Value::Array(pair)) = control.properties.get("clip_offset") else {
+        return [0.0; 2];
+    };
+    let number = |index: usize| pair.get(index).and_then(Value::as_f64).unwrap_or(0.0);
+    [number(0), number(1)]
+}
+
+/// Whether `rect` lies wholly outside `clip`, compared in whole pixels; touching
+/// edges and a zero-area clip count as visible.
+fn clipped_out(rect: Rect, clip: Rect) -> bool {
+    let (w, h) = (clip.w.round(), clip.h.round());
+    w != 0.0
+        && h != 0.0
+        && (rect.w.round() + rect.x.round() < clip.x.round()
+            || rect.h.round() + rect.y.round() < clip.y.round()
+            || w + clip.x.round() < rect.x.round()
+            || h + clip.y.round() < rect.y.round())
 }
 
 /// True when `rect` and `clip` share no area.

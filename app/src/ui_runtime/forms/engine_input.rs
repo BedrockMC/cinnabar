@@ -130,6 +130,21 @@ fn drag(
                 engine.drag = Some(FormDrag::ScrollBox { view, last: along });
             }
         }
+        Some(FormDrag::Control { key, last }) => {
+            let axes = frame
+                .hits
+                .iter()
+                .find(|region| region.key == key)
+                .map_or([false; 2], |region| region.drag_axes);
+            let engine = runtime.server_forms_mut().engine_mut();
+            let moved = engine.view.drags.entry(key.clone()).or_insert([0.0; 2]);
+            for axis in 0..2 {
+                if axes[axis] {
+                    moved[axis] += point[axis] - last[axis];
+                }
+            }
+            engine.drag = Some(FormDrag::Control { key, last: point });
+        }
         None => {}
     }
 }
@@ -177,6 +192,12 @@ fn press(
                 let key = view.key.clone();
                 set_scroll(runtime, &key, metrics.track_target(point));
             }
+        }
+        HitKind::Draggable => {
+            engine.drag = Some(FormDrag::Control {
+                key: region.key.clone(),
+                last: point,
+            });
         }
         HitKind::Slider => {
             if let Some(index) = region.collection_index {

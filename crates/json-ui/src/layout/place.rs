@@ -17,14 +17,20 @@ pub(super) fn place_by_anchor(
     env: &LayoutEnv,
 ) -> Rect {
     let from = anchor_from(control);
-    let to = anchor_to(control);
+    // An anchored offset pins `anchor_to` to `anchor_from`.
+    let to = if anchored_offset(control).is_some() {
+        from
+    } else {
+        anchor_to(control)
+    };
     let off = offset(control, parent_rect, size, siblings, env);
     let x = parent_rect.x + parent_rect.w * from[0] - size[0] * to[0] + off[0];
     let y = parent_rect.y + parent_rect.h * from[1] - size[1] * to[1] + off[1];
     Rect::new(x, y, size[0], size[1])
 }
 
-/// The static `offset` in pixels.
+/// The static `offset` in pixels. An anchored offset replaces an edge-anchored
+/// axis with that fraction of the parent, measured in from the anchored edge.
 fn offset(
     control: &ResolvedControl,
     parent_rect: Rect,
@@ -32,10 +38,117 @@ fn offset(
     siblings: [f64; 2],
     env: &LayoutEnv,
 ) -> [f64; 2] {
-    control.properties.get("offset").map_or([0.0; 2], |pair| {
+    let mut offset = control.properties.get("offset").map_or([0.0; 2], |pair| {
         offset_pixels(control, pair, parent_rect, size, siblings, env)
-    })
+    });
+    if let Some(value) = anchored_offset(control) {
+        let from = anchor_from(control);
+        let parent = [parent_rect.w, parent_rect.h];
+        for axis in 0..2 {
+            if from[axis] == 0.0 {
+                offset[axis] = value[axis] * parent[axis];
+            } else if from[axis] == 1.0 {
+                offset[axis] = -value[axis] * parent[axis];
+            }
+        }
+    }
+    offset
 }
+
+/// `use_anchored_offset`'s `#anchored_offset_value_x`/`_y` once either leaves
+/// zero; a centred control has none.
+fn anchored_offset(control: &ResolvedControl) -> Option<[f64; 2]> {
+    if control.properties.get("use_anchored_offset") != Some(&Value::Bool(true))
+        || anchor_from(control) == [0.5, 0.5]
+    {
+        return None;
+    }
+    let bag = control.properties.get("property_bag");
+    let value = |key: &str| {
+        control
+            .properties
+            .get(key)
+            .or_else(|| bag.and_then(|bag| bag.get(key)))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    };
+    let pair = [
+        value("#anchored_offset_value_x"),
+        value("#anchored_offset_value_y"),
+    ];
+    (pair != [0.0; 2]).then_some(pair)
+}
+
+/// A control's offset delta from `follows_cursor`, `follows_cursor_inside_parent`
+/// or a drag, applied to its laid-out `rect` within `parent`.
+pub(super) fn offset_delta(
+    control: &ResolvedControl,
+    rect: Rect,
+    parent: Rect,
+    pointer: Option<[f64; 2]>,
+    dragged: Option<[f64; 2]>,
+) -> Option<Rect> {
+    let flag = |key: &str| control.properties.get(key) == Some(&Value::Bool(true));
+    let moved = |x: f64, y: f64| Some(Rect::new(x, y, rect.w, rect.h));
+    if let Some(delta) = dragged {
+        let axes = draggable_axes(control);
+        let mut delta = [
+            if axes[0] { delta[0] } else { 0.0 },
+            if axes[1] { delta[1] } else { 0.0 },
+        ];
+        if flag("contained") {
+            let (parent_size, own) = ([parent.w, parent.h], [rect.w, rect.h]);
+            for axis in 0..2 {
+                delta[axis] = if parent_size[axis] < own[axis] {
+                    -(own[axis] - parent_size[axis]) / 2.0
+                } else {
+                    delta[axis].max(0.0).min(parent_size[axis] - own[axis])
+                };
+            }
+        }
+        return moved(rect.x + delta[0], rect.y + delta[1]);
+    }
+    let pointer = pointer?;
+    if flag("follows_cursor") {
+        return moved(pointer[0] - rect.w / 2.0, pointer[1] - rect.h / 2.0);
+    }
+    if flag("follows_cursor_inside_parent") {
+        if rect.w == 0.0 || rect.h == 0.0 {
+            return moved(rect.x + 30000.0, rect.y + 30000.0);
+        }
+        let gap = 10.0;
+        let x = if pointer[0] + rect.w + gap <= parent.x + parent.w {
+            pointer[0] + gap
+        } else {
+            pointer[0] - rect.w - gap
+        };
+        let y = if pointer[1] + rect.h + gap <= parent.y + parent.h {
+            pointer[1] + gap
+        } else {
+            pointer[1] - rect.h - gap
+        };
+        return moved(x, y);
+    }
+    None
+}
+
+/// Whether a control follows the pointer.
+pub(super) fn follows_pointer(control: &ResolvedControl) -> bool {
+    ["follows_cursor", "follows_cursor_inside_parent"]
+        .iter()
+        .any(|key| control.properties.get(*key) == Some(&Value::Bool(true)))
+}
+
+/// The axes `draggable` moves: `horizontal`, `vertical`, `both`.
+pub(crate) fn draggable_axes(control: &ResolvedControl) -> [bool; 2] {
+    match control.properties.get("draggable").and_then(Value::as_str) {
+        Some("horizontal") => [true, false],
+        Some("vertical") => [false, true],
+        Some("both") => [true, true],
+        _ => [false, false],
+    }
+}
+
 /// An `[x, y]` offset pair in pixels, its units read like size units (`%` of the
 /// parent, `%x`/`%y` own size, `%c`/`%cm` children, `%sm` siblings). An axis
 /// that is not an expression (`default`, `fill`) adds no offset.
