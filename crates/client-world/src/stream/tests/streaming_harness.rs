@@ -47,6 +47,9 @@ struct Report {
     millis_to_100: Option<u128>,
     /// Time until every in-view sub-chunk within `NEAR_CHUNKS` presents its converged mesh.
     millis_to_near: Option<u128>,
+    poll_p95_us: u128,
+    poll_p99_us: u128,
+    poll_max_us: u128,
     artifact_frames: u64,
     dark_meshes: u64,
     geometry_meshes: u64,
@@ -75,6 +78,7 @@ struct Harness {
     /// Columns whose sub-chunk replies are held until removed from this set.
     withheld: BTreeSet<ChunkKey>,
     held: Vec<(ChunkKey, WorldEvent)>,
+    poll_times: Vec<Duration>,
 }
 
 impl Harness {
@@ -103,6 +107,7 @@ impl Harness {
             frame_sleep: FRAME,
             withheld: BTreeSet::new(),
             held: Vec::new(),
+            poll_times: Vec::new(),
         }
     }
 
@@ -317,7 +322,9 @@ impl Harness {
     fn step(&mut self) {
         self.deliver();
         self.stream.set_view_forward([0.0, 0.0, 1.0]);
+        let poll_started = Instant::now();
         let _ = self.stream.poll(self.camera, MESH_JOBS_PER_FRAME);
+        self.poll_times.push(poll_started.elapsed());
         let _ = self.stream.take_committed_controls();
         self.answer_requests();
         self.present();
@@ -346,6 +353,7 @@ impl Harness {
         let start_frame = self.frame;
         let started = Instant::now();
         let log_start = self.log.len();
+        self.poll_times.clear();
         let initial = self.presented.clone();
         let mut frame_times = Vec::new();
         let mut presented_per_frame = Vec::new();
@@ -362,7 +370,11 @@ impl Harness {
             .filter(|(key, mesh)| !mesh.cube_quads().is_empty() && in_frustum(**key, self.camera))
             .map(|(key, _)| *key)
             .collect::<BTreeSet<_>>();
+        self.poll_times.sort_unstable();
         let mut report = Report {
+            poll_p95_us: self.poll_times[self.poll_times.len() * 95 / 100].as_micros(),
+            poll_p99_us: self.poll_times[self.poll_times.len() * 99 / 100].as_micros(),
+            poll_max_us: self.poll_times.last().unwrap().as_micros(),
             in_view: in_view.len(),
             min_presented_in_view: usize::MAX,
             ..Report::default()
@@ -613,4 +625,84 @@ fn scheduler_serves_sub_chunks_in_view_before_nearer_ones_behind() {
     ]);
 
     assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
+}
+
+/// Measures the destination's visible ring, including admission and mesh convergence.
+#[test]
+#[ignore = "release teleport timing; run with --ignored --nocapture"]
+fn teleport_visible_ring_timing() {
+    let mut harness = Harness::new(8, 1);
+    harness.send_view(ChunkKey::new(0, 0, 0), false);
+    harness.run();
+    harness.send_view(ChunkKey::new(0, 125, 137), true);
+    let report = harness.run();
+    println!("teleport_visible_ring {report:?}");
+    assert!(report.in_view > 0);
+    assert!(report.millis_to_near.is_some());
+    assert!(report.millis_to_100.is_some());
+    assert_eq!(report.dark_meshes, 0);
+    assert_eq!(report.geometry_meshes, 0);
+    assert!(report.poll_p95_us <= report.poll_p99_us);
+    assert!(report.poll_p99_us <= report.poll_max_us);
+}
+
+/// Measures logical removal of a full retained disk without network or GPU work.
+#[test]
+#[ignore = "release eviction timing; run with --ignored --nocapture"]
+fn teleport_eviction_timing() {
+    let mut times = Vec::new();
+    for _ in 0..5 {
+        let mut harness = Harness::new(8, 1);
+        for column in spiral(ChunkKey::new(0, 0, 0), 16) {
+            harness.stream.loaded_columns.insert(column);
+            for y in -4..20 {
+                harness
+                    .stream
+                    .record_known_air(SubChunkKey::from_chunk(column, y));
+            }
+        }
+        let before = Instant::now();
+        harness.stream.evict_all_resident();
+        times.push(before.elapsed().as_micros());
+        assert!(harness.stream.resident.is_empty());
+        assert!(harness.stream.connectivity.is_empty());
+    }
+    println!("teleport_eviction_us {times:?}");
+}
+
+/// Batch retirement preserves overlap and snapshots while invalidating removed authority.
+#[test]
+fn batch_eviction_preserves_overlap_and_snapshot() {
+    let mut harness = Harness::for_tests();
+    let removed = SubChunkKey::new(0, 0, 4, 0);
+    let retained = SubChunkKey::new(0, 1, 4, 0);
+    for key in [removed, retained] {
+        harness
+            .stream
+            .store
+            .commit_sub_chunk(key, uniform_sub_chunk(STONE))
+            .unwrap();
+        harness.stream.sync_resident(key);
+    }
+    let snapshot = harness.stream.store.sub_chunk(removed).unwrap();
+    let revision = harness.stream.store.collision_revision(retained.chunk());
+    harness
+        .stream
+        .evict_columns(BTreeSet::from([removed.chunk()]));
+    assert!(harness.stream.store.sub_chunk(removed).is_none());
+    assert!(
+        harness
+            .stream
+            .store
+            .collision_revision(removed.chunk())
+            .is_none()
+    );
+    assert_eq!(
+        harness.stream.store.collision_revision(retained.chunk()),
+        revision
+    );
+    assert!(harness.stream.resident.contains(&retained));
+    assert!(harness.stream.pending_mesh.contains_key(&removed));
+    assert!(harness.stream.pending_mesh.contains_key(&retained));
+    assert_eq!(snapshot.runtime_id(0, 0, 0, 0), Some(STONE));
 }

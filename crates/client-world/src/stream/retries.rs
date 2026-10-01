@@ -338,29 +338,36 @@ impl WorldStream {
         }
     }
     pub(super) fn purge_sub_chunk_column_state(&mut self, chunk: ChunkKey) {
-        if let Some(pending) = self.requested_sub_chunks.remove(&chunk) {
-            for (y, pending) in pending {
-                if let Some(deadline) = pending.response_deadline {
-                    self.sub_chunk_deadlines
-                        .remove(&(deadline, SubChunkKey::from_chunk(chunk, y)));
+        self.purge_sub_chunk_columns_state(&BTreeSet::from([chunk]));
+    }
+
+    /// Removes request bookkeeping with one scan per shared queue or index.
+    pub(super) fn purge_sub_chunk_columns_state(&mut self, chunks: &BTreeSet<ChunkKey>) {
+        for &chunk in chunks {
+            if let Some(pending) = self.requested_sub_chunks.remove(&chunk) {
+                for (y, pending) in pending {
+                    if let Some(deadline) = pending.response_deadline {
+                        self.sub_chunk_deadlines
+                            .remove(&(deadline, SubChunkKey::from_chunk(chunk, y)));
+                    }
                 }
             }
         }
         self.requests.retain(|slot| match slot {
             OutboundRequestSlot::Reserved(_) => true,
-            OutboundRequestSlot::Ready(request) => request.chunk != chunk,
+            OutboundRequestSlot::Ready(request) => !chunks.contains(&request.chunk),
         });
-        self.requests.forget_column(chunk);
+        self.requests.forget_columns(chunks);
         self.deferred_retries
-            .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+            .retain(|key| !chunks.contains(&key.chunk()));
         self.deferred_retry_set
-            .retain(|sub_chunk| sub_chunk.chunk() != chunk);
+            .retain(|key| !chunks.contains(&key.chunk()));
         self.deferred_recovery_requests
-            .retain(|request| request.chunk != chunk);
+            .retain(|request| !chunks.contains(&request.chunk));
         self.correlated_sub_chunk_attempts
-            .retain(|sub_chunk, _| sub_chunk.chunk() != chunk);
+            .retain(|key, _| !chunks.contains(&key.chunk()));
         self.admitted_sub_chunk_replies
-            .retain(|sub_chunk, _| sub_chunk.chunk() != chunk);
+            .retain(|key, _| !chunks.contains(&key.chunk()));
     }
     pub(super) fn queued_retry_request_count(&self) -> usize {
         let outbound = self

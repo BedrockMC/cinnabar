@@ -337,10 +337,12 @@ impl RequestQueue {
         });
     }
 
-    pub(super) fn forget_column(&mut self, chunk: ChunkKey) {
+    /// Forgets retired request identities in one pass.
+    pub(super) fn forget_columns(&mut self, chunks: &BTreeSet<ChunkKey>) {
         self.priorities
-            .retain(|identity, _| identity.chunk != chunk);
-        self.popped.retain(|identity, _| identity.chunk != chunk);
+            .retain(|identity, _| !chunks.contains(&identity.chunk));
+        self.popped
+            .retain(|identity, _| !chunks.contains(&identity.chunk));
     }
 
     fn allocate_sequence(&mut self) -> u64 {
