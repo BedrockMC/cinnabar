@@ -3600,3 +3600,20 @@ R:h/HudScreenController.cpp:16487. The current Lens source search for hide_hud f
 artifact 6 RVA 0xccdb30, but its function_read failed with Transport closed.
 OptionRegistry numeric defaults remain provisional pending a readable registration
 body. Cloud and hand preferences do not modify the JSON-UI engine.
+
+Desktop continuation also wires section reset confirmations (Video, Accessibility and
+Audio), each using the existing option registry; spyglass turn scaling, secondary
+Enter for Chat until that binding is remapped, notification duration and the Creator
+chat coordinate copy/paste header. These changes remain incomplete parity until the
+full gates and rendered evidence pass. Registered provisional defaults remain
+provisional after a reset; a working consumer does not establish a vanilla default.
+
+Sources: P:ui/settings_sections/general_section.json:3000–4058,4738–5506;
+P:ui/chat_screen.json:740–904; R:l/LocalPlayer.cpp:5165–5187;
+R:s/SpyglassItem.cpp:161–168 (Lens data 0x10d972240 = 0.05);
+R:v/VanillaClientInputMappingFactory.cpp:6217–6235;
+R:k/KeyboardRemappingLayout.cpp:85–87; R:c/ClientInputCallbacks.cpp:1528,1880.
+The current Lens coordinate-copy toast is artifact 6 RVA 0x566ac10; its body
+read timed out. Full Keyboard's alternate layout and smooth rotation rate,
+Safe Zone, glint factors, world Experiments and several unsupported subsystem
+controls remain open. JSON-UI engine changes remain on the separate branch.

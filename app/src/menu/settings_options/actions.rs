@@ -31,6 +31,10 @@ impl MenuRuntime {
             MenuAction::SettingsDropdown(index) => {
                 self.settings_dropdown = (self.settings_dropdown != Some(index)).then_some(index);
             }
+            MenuAction::SettingsResetGroup(group) => {
+                self.dialog = Some(crate::menu::MenuDialog::SettingsResetGroup(group))
+            }
+            MenuAction::SettingsConfirmResetGroup(group) => self.confirm_settings_reset(group),
             MenuAction::SettingsResetBindings(gamepad) => {
                 self.dialog = Some(crate::menu::MenuDialog::SettingsResetBindings(gamepad));
             }

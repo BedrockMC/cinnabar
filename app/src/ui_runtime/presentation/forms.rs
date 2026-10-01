@@ -1,6 +1,7 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
 mod book_screen;
+mod chat_coordinates;
 mod chat_screen;
 mod container_data;
 mod container_kinds;
@@ -34,6 +35,7 @@ mod settings_controls;
 mod settings_defaults;
 mod settings_keys;
 mod settings_language;
+mod settings_reset;
 mod settings_resources;
 #[cfg(test)]
 mod settings_snapshots;

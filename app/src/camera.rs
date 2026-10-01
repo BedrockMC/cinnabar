@@ -772,6 +772,10 @@ pub(crate) fn update_cursor_capture(
 }
 
 fn update_look(
+    spyglass: (
+        Option<Res<crate::menu::MenuRuntime>>,
+        Option<Res<fov::CameraFovInputs>>,
+    ),
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
     settings: Res<CameraSettingsAuthority>,
@@ -800,6 +804,13 @@ fn update_look(
     }
 
     let (yaw, pitch, roll) = view.rotation().to_euler(EulerRot::YXZ);
+    let (menu, facts) = spyglass;
+    let look_delta = look::spyglass_turn_delta(
+        look_delta,
+        facts.as_ref().is_some_and(|facts| facts.spyglass_scoping),
+        menu.as_ref()
+            .map_or(0.0, |menu| menu.spyglass_damping(mode)),
+    );
     let delta = perspective_look_delta(look_delta, settings.perspective());
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let (yaw, pitch) = look_angles(yaw, pitch, delta, Vec2::splat(scale));

@@ -113,6 +113,7 @@ pub(crate) enum MenuDialog {
     StorageError,
     SettingsSupport(settings_support::SupportDialog),
     SettingsResetBindings(bool),
+    SettingsResetGroup(settings_options::SettingsGroup),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -157,7 +158,9 @@ pub(crate) enum MenuAction {
     SettingsKey(u16),
     SettingsResetKey(u16),
     SettingsResetBindings(bool),
+    SettingsResetGroup(settings_options::SettingsGroup),
     SettingsConfirmResetBindings(bool),
+    SettingsConfirmResetGroup(settings_options::SettingsGroup),
     SettingsResetChat,
     SettingsAdvancedGraphics,
     PauseResume,
@@ -692,6 +695,8 @@ impl MenuRuntime {
             | MenuAction::SettingsLanguage(_)
             | MenuAction::SettingsDropdown(_)
             | MenuAction::SettingsResetBindings(_)
+            | MenuAction::SettingsResetGroup(_)
+            | MenuAction::SettingsConfirmResetGroup(_)
             | MenuAction::SettingsConfirmResetBindings(_)
             | MenuAction::SettingsKey(_)
             | MenuAction::SettingsResetKey(_)

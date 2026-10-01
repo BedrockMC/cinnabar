@@ -43,6 +43,16 @@ impl SettingsOptions {
 }
 
 impl MenuRuntime {
+    /// Reads the desktop scoping option for the device that produced this frame's turn.
+    pub(crate) fn spyglass_damping(&self, mode: semantic_input::InputMode) -> f32 {
+        let name = match mode {
+            semantic_input::InputMode::KeyboardMouse => "spyglass_mouse_dampening",
+            semantic_input::InputMode::GamePad => "spyglass_gamepad_dampening",
+            semantic_input::InputMode::Touch => return 0.0,
+        };
+        self.settings_options.value(name) as f32 / 100.0
+    }
+
     /// Applies a validated setting edit and marks its persistence and runtime handoff dirty.
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
         if Arc::make_mut(&mut self.settings_options).set(usize::from(index), value) {
