@@ -15,6 +15,8 @@ pub(crate) struct CaveVisibilityCache {
     pub(crate) camera: Option<SubChunkKey>,
     pub(crate) graph_generation: Option<u64>,
     pub(crate) visible: HashSet<SubChunkKey>,
+    next_visible: HashSet<SubChunkKey>,
+    scratch: client_world::CaveVisibilityScratch,
     pub(crate) rendered: HashSet<SubChunkKey>,
     pub(crate) visible_rendered: usize,
     pub(crate) initialized: bool,
@@ -88,13 +90,14 @@ pub(crate) fn refresh_cave_visibility(
         return;
     }
 
-    let visible = stream.cave_visible_sub_chunks(camera_key);
+    let cache = &mut *cache;
+    stream.cave_visible_sub_chunks_into(camera_key, &mut cache.scratch, &mut cache.next_visible);
     cache.camera = Some(camera_key);
     cache.graph_generation = Some(generation);
-    if cache.initialized && cache.visible == visible {
+    if cache.initialized && cache.visible == cache.next_visible {
         return;
     }
-    cache.visible = visible;
+    std::mem::swap(&mut cache.visible, &mut cache.next_visible);
     cache.initialized = true;
     cache.visible_rendered = 0;
     for (instance, mut visibility) in &mut chunks {

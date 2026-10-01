@@ -12,6 +12,9 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use crate::actor_store::ActorSnapshot;
 
+/// Simulation tick duration used by actor clocks and Molang time queries.
+pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
+
 pub const MAX_RUNTIME_BONES_PER_RIG: usize = 96;
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
@@ -367,12 +370,14 @@ impl ActorAnimationStore {
         }
     }
 
-    /// Advances every rig one tick; rigs outside `view` (other than `exempt`) hold their pose.
+    /// Advances tick state; only the frame's final tick evaluates visual controllers and poses.
     pub(crate) fn advance_tick(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
         view: Option<&ActorAnimationView>,
         exempt: Option<u64>,
+        evaluate: bool,
+        reset_motion_history: bool,
         context: impl Fn(&ActorSnapshot) -> ActorTickContext,
     ) {
         self.completed_tick = self.completed_tick.saturating_add(1);
@@ -382,7 +387,7 @@ impl ActorAnimationStore {
         let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
         let mut stack = Vec::new();
         // Start where the world budget ran out last tick so no actor starves every tick.
-        let lifetimes = match self.first_starved.take() {
+        let lifetimes = match evaluate.then(|| self.first_starved.take()).flatten() {
             Some(start) => self
                 .rigs
                 .range(start..)
@@ -424,11 +429,14 @@ impl ActorAnimationStore {
                 state.rest_completed_tick = 0;
             }
             let context = context(actor);
-            if skin::sync_skin(state, context.skin_geometry.as_ref()) {
+            if reset_motion_history && skin::sync_skin(state, context.skin_geometry.as_ref()) {
                 self.stats.invalid_skin_geometries =
                     self.stats.invalid_skin_geometries.saturating_add(1);
             }
-            advance_motion(state, actor, &context);
+            advance_motion(state, actor, &context, reset_motion_history);
+            if !evaluate {
+                continue;
+            }
             if state.fallback == EntityRigFallback::GeometryOnly {
                 state.previous.clone_from(&state.current);
                 if state.reset_pending {
@@ -555,7 +563,9 @@ impl ActorAnimationStore {
                 }
             }
         }
-        self.first_starved = starved;
+        if evaluate {
+            self.first_starved = starved;
+        }
     }
 
     pub(crate) fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {

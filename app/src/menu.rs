@@ -20,7 +20,6 @@ pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) mod servers;
 mod settings_values;
-mod video_settings;
 mod view;
 mod worlds_tab;
 
@@ -35,7 +34,6 @@ pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
-pub(crate) use video_settings::persist_video_settings;
 pub(crate) use view::{
     ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
     MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
@@ -143,8 +141,7 @@ pub(crate) enum MenuAction {
     AddSave,
     AddSaveConnect,
     AddBack,
-    SettingsScale(i8),
-    SettingsFullscreen(bool),
+    SettingsScale(u8),
     PauseResume,
     PauseDisconnect,
     PauseSettings,
@@ -189,14 +186,7 @@ pub(crate) struct MenuRuntime {
     name: String,
     address: String,
     message: Option<String>,
-    gui_scale_preference: Option<u8>,
-    gui_scale_offset: i8,
-    gui_scale_display_offset: i8,
-    gui_scale_choices: Vec<i8>,
-    fullscreen: bool,
-    fullscreen_change: Option<bool>,
-    last_saved_video_settings: video_settings::SavedVideoSettings,
-    failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
+    gui_scale: u8,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -267,7 +257,7 @@ impl MenuRuntime {
         let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
         Self::new_with_layout(
             visible,
-            Some(gui_scale),
+            gui_scale,
             display_name,
             InstallLayout::discover().expect("test executable must have a development layout"),
             player_skin,
@@ -276,23 +266,13 @@ impl MenuRuntime {
 
     pub(crate) fn new_with_layout(
         visible: bool,
-        gui_scale: Option<u8>,
+        gui_scale: u8,
         display_name: String,
         layout: InstallLayout,
         player_skin: crate::player_skin::LocalPlayerSkin,
     ) -> Self {
         let config_path = layout.server_file();
         let loaded = load_servers(&config_path);
-        let mut message = loaded.recovery_message;
-        let saved_video_settings =
-            video_settings::load(&layout.user_config_root).unwrap_or_else(|error| {
-                let warning = format!("Video settings could not be read: {error:#}");
-                message = Some(message.take().map_or_else(
-                    || warning.clone(),
-                    |previous| format!("{previous}\n{warning}"),
-                ));
-                video_settings::SavedVideoSettings::default()
-            });
         Self {
             // The launcher owns the session lifecycle only when the client
             // started on the menu. `--address` keeps the historical behaviour
@@ -311,17 +291,8 @@ impl MenuRuntime {
             settings_return_to_pause: false,
             name: String::new(),
             address: String::new(),
-            message,
-            gui_scale_preference: gui_scale
-                .filter(|scale| *scale > 0)
-                .map(|scale| scale.clamp(1, 4)),
-            gui_scale_offset: saved_video_settings.gui_scale_offset,
-            gui_scale_display_offset: saved_video_settings.gui_scale_offset,
-            gui_scale_choices: vec![0],
-            fullscreen: saved_video_settings.fullscreen,
-            fullscreen_change: saved_video_settings.fullscreen.then_some(true),
-            last_saved_video_settings: saved_video_settings,
-            failed_video_settings_save: None,
+            message: loaded.recovery_message,
+            gui_scale: gui_scale.clamp(1, 4),
             display_name,
             servers: loaded.servers,
             saves: ServerWriter::new(config_path.clone()),
@@ -424,9 +395,7 @@ impl MenuRuntime {
             name: self.name.clone(),
             address: self.address.clone(),
             message: self.message.clone(),
-            gui_scale_offset: self.gui_scale_display_offset,
-            gui_scale_choices: self.gui_scale_choices.clone(),
-            fullscreen: self.fullscreen,
+            gui_scale: self.gui_scale,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
@@ -750,11 +719,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
-            MenuAction::SettingsScale(offset) => self.set_gui_scale_offset(offset),
-            MenuAction::SettingsFullscreen(fullscreen) => {
-                self.fullscreen = fullscreen;
-                self.fullscreen_change = Some(fullscreen);
-            }
+            MenuAction::SettingsScale(scale) => self.gui_scale = scale.clamp(1, 4),
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => self.enter(MenuScreen::Death),
             MenuAction::PauseResume => self.set_visible(false),

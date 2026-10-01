@@ -61,6 +61,8 @@ const SETTINGS_SECTIONS: &[(&str, u8)] = &[
 ];
 /// The section the settings screen opens on before one is picked.
 const VIDEO_SECTION: &str = "video_forced_index";
+/// GUI scale choices the settings slider steps through (1..=4).
+const GUI_SCALE_STEPS: f64 = 4.0;
 
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
@@ -190,7 +192,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 "add_external_server.add_external_server_screen_new"
             }
             MenuScreen::Settings => {
-                settings_screen(view, &mut data, translate);
+                settings_screen(view, &mut data);
                 super::settings_defaults::bind(&mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
@@ -445,57 +447,20 @@ fn split_address(address: &str) -> (String, String) {
     }
 }
 
-fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
+fn settings_screen(view: &MenuView, data: &mut DataSource) {
     let section = match view.settings_section {
         0 => section_index(VIDEO_SECTION),
         picked => picked,
     };
     data.select_radio("navigation_tab", usize::from(section));
-    let step = view
-        .gui_scale_choices
-        .iter()
-        .position(|offset| *offset == view.gui_scale_offset)
-        .unwrap_or(0);
-    data.set_global("#gui_scale", Scalar::Num(step as f64));
-    data.set_global(
-        "#gui_scale_steps",
-        Scalar::Num(view.gui_scale_choices.len() as f64),
-    );
+    let scale = f64::from(view.gui_scale.clamp(1, 4));
+    data.set_global("#gui_scale", Scalar::Num(scale - 1.0));
+    data.set_global("#gui_scale_steps", Scalar::Num(GUI_SCALE_STEPS));
     data.set_global(
         "#gui_scale_slider_label",
-        text(format!(
-            "{}: {}",
-            translated(
-                translate,
-                "options.guiScale.optionName",
-                "GUI Scale Modifier"
-            ),
-            view.gui_scale_offset
-        )),
+        text(format!("GUI Scale: {scale}")),
     );
-    data.set_global(
-        "#gui_scale_text_value",
-        text(view.gui_scale_offset.to_string()),
-    );
-    data.set_global(
-        "#gui_scale_enabled",
-        Scalar::Bool(view.gui_scale_choices.len() > 1),
-    );
-    data.set_global(
-        "#gui_scale_disabled_option_visible",
-        Scalar::Bool(view.gui_scale_choices.len() <= 1),
-    );
-    data.set_global(
-        "#gui_scale_disabled_option_tooltip_text",
-        text(translated(
-            translate,
-            "options.guiScale.disabled",
-            "GUI scale cannot be adjusted at this resolution.",
-        )),
-    );
-    flags(data, &["#gui_scale_visible"]);
-    data.set_global("#full_screen", Scalar::Bool(view.fullscreen));
-    flags(data, &["#full_screen_enabled"]);
+    flags(data, &["#gui_scale_visible", "#gui_scale_enabled"]);
     for ((slider, _), percent) in VOLUME_SLIDERS.iter().zip(view.volumes) {
         let shown = percent.unwrap_or(100);
         data.set_global(format!("#{slider}"), Scalar::Num(f64::from(shown) / 100.0));
@@ -665,9 +630,6 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
 
 fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
     match region.control_name.as_deref()? {
-        "full_screen" if view.screen == MenuScreen::Settings => {
-            Some(MenuAction::SettingsFullscreen(!view.fullscreen))
-        }
         "navigation_tab" if view.screen == MenuScreen::Settings => Some(
             MenuAction::SettingsSection(u8::try_from(region.group_index?).ok()?),
         ),
@@ -692,16 +654,14 @@ fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
 
 /// A settings slider's action per pointer segment, left to right: the slider
 /// is split into one hit rect per value it snaps to.
-pub(super) fn slider_actions(view: &MenuView, region: &HitRegion) -> Option<Vec<MenuAction>> {
+pub(super) fn slider_actions(region: &HitRegion) -> Option<Vec<MenuAction>> {
     if region.kind != HitKind::Slider {
         return None;
     }
     let name = region.control_name.as_deref()?;
     if name == "gui_scale" {
         return Some(
-            view.gui_scale_choices
-                .iter()
-                .copied()
+            (1..=GUI_SCALE_STEPS as u8)
                 .map(MenuAction::SettingsScale)
                 .collect(),
         );
@@ -909,70 +869,18 @@ mod tests {
     }
 
     #[test]
-    fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
-        let mut view = view(MenuScreen::Settings);
-        view.fullscreen = false;
-        let mut toggle = region(HitKind::Toggle, None);
-        toggle.control_name = Some("full_screen".into());
-        assert_eq!(
-            action_for(&view, &toggle),
-            Some(MenuAction::SettingsFullscreen(true))
-        );
-        view.fullscreen = true;
-        assert_eq!(
-            action_for(&view, &toggle),
-            Some(MenuAction::SettingsFullscreen(false))
-        );
-        let data = screen_data(&view, &|_| None).unwrap().data;
-        let toggle = json_ui::ResolvedControl {
-            name: "full_screen".into(),
-            control_type: Some("toggle".into()),
-            base: None,
-            unresolved_base: None,
-            properties: serde_json::json!({"bindings": [
-                {"binding_name": "#full_screen", "binding_name_override": "#toggle_state"},
-                {"binding_name": "#full_screen_enabled", "binding_name_override": "#enabled"}
-            ]})
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-            children: Vec::new(),
-            factory: None,
-        };
-        let bound = json_ui::bind(&toggle, &data, &json_ui::EmptyLibrary);
-        assert_eq!(
-            bound.properties.get("#toggle_state"),
-            Some(&Value::Bool(true))
-        );
-        assert_eq!(bound.properties.get("#enabled"), Some(&Value::Bool(true)));
-    }
-
-    #[test]
     fn sliders_split_into_their_settings_values() {
-        let mut view = MenuRuntime::new(true, 2, "Player".to_owned()).view();
-        view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
-            .offsets()
-            .collect();
         let mut slider = region(HitKind::Slider, None);
         slider.control_name = Some("gui_scale".to_owned());
-        let scale = slider_actions(&view, &slider).unwrap();
-        assert_eq!(
-            scale,
-            vec![
-                MenuAction::SettingsScale(-2),
-                MenuAction::SettingsScale(-1),
-                MenuAction::SettingsScale(0)
-            ]
-        );
+        let scale = slider_actions(&slider).unwrap();
+        assert_eq!(scale.last(), Some(&MenuAction::SettingsScale(4)));
         slider.control_name = Some("music_volume".to_owned());
-        let music = slider_actions(&view, &slider).unwrap();
+        let music = slider_actions(&slider).unwrap();
         assert_eq!(music.len(), usize::from(VOLUME_STEPS));
         assert_eq!(music[0], MenuAction::SettingsVolume(1, 0));
         assert_eq!(music.last(), Some(&MenuAction::SettingsVolume(1, 100)));
         slider.control_name = Some("fov".to_owned());
-        assert!(slider_actions(&view, &slider).is_none());
+        assert!(slider_actions(&slider).is_none());
     }
 
     #[test]
