@@ -123,6 +123,7 @@ impl WorldStream {
                 .get(&key)
                 .is_some_and(|pending| pending.urgent)
             || self.urgent_mesh_in_flight.contains(&key);
+        self.cancel_mesh_job(key);
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
         if urgent {
@@ -202,6 +203,7 @@ impl WorldStream {
                     } if *changed_key == key
                 )
             });
+        self.cancel_mesh_job(key);
         let revision = self.revisions.force_dirty_since(key, now);
         if urgent {
             self.pending_mesh_scan.push_front((key, revision));

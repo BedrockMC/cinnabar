@@ -503,6 +503,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     let tint_identity = stream.biome_tint_identity();
 
     stream.accept_mesh_completion(MeshCompletion {
+        _job_permit: None,
         key,
         revision: old_revision,
         source: Arc::clone(&source),

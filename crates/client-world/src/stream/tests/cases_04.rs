@@ -442,6 +442,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
     let tint_identity = stream.biome_tint_identity();
 
     stream.accept_mesh_completion(MeshCompletion {
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -512,6 +513,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
     );
     let tint_identity = stream.biome_tint_identity();
     stream.accept_mesh_completion(MeshCompletion {
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -582,6 +584,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         DecodedBiomeColumn::decode(-4, 1, &[1, 88], &RAW_BIOMES),
     );
     stream.accept_mesh_completion(MeshCompletion {
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -646,6 +649,7 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
     );
     let tint_identity = stream.biome_tint_identity();
     stream.accept_mesh_completion(MeshCompletion {
+        _job_permit: None,
         key,
         revision: generation,
         source,

@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::{
         Arc,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -344,6 +344,8 @@ pub struct WorldStream {
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
+    admitted_mesh_jobs: Arc<AtomicUsize>,
+    mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,

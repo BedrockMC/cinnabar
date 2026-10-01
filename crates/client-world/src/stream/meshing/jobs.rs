@@ -113,7 +113,10 @@ impl WorldStream {
             );
         }
 
-        let worker_budget = budget.min(WORK_RESULT_CAPACITY.saturating_sub(self.in_flight.len()));
+        let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
+        let worker_budget = budget.min(
+            super::admission::mesh_job_cap(rayon::current_num_threads()).saturating_sub(occupied),
+        );
         let mut resident_candidates = Vec::new();
         let mut removal_candidates = Vec::new();
         for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
@@ -204,6 +207,9 @@ impl WorldStream {
             if pending.urgent {
                 self.urgent_mesh_in_flight.insert(key);
             }
+            let job_permit = super::admission::MeshJobPermit::new(&self.admitted_mesh_jobs);
+            let cancelled = Arc::new(AtomicBool::new(false));
+            self.mesh_cancellations.insert(key, Arc::clone(&cancelled));
             let tx = self.mesh_tx.clone();
             let classifier = self.classifier;
             let network_id_mode = self.network_id_mode;
@@ -217,10 +223,18 @@ impl WorldStream {
                 let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
                 let biome = pack_biome_record(&biome_sources, &resolved_biome_tints);
-                let mesh = snapshot.mesh(classifier, &runtime_assets, network_id_mode);
-                let dependency_mask =
-                    snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode);
+                let mesh = if cancelled.load(Ordering::Acquire) {
+                    ChunkMesh::default()
+                } else {
+                    snapshot.mesh(classifier, &runtime_assets, network_id_mode)
+                };
+                let dependency_mask = if cancelled.load(Ordering::Acquire) {
+                    MeshDependencyMask::default()
+                } else {
+                    snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode)
+                };
                 let _ = tx.send(MeshCompletion {
+                    _job_permit: Some(job_permit),
                     key,
                     revision: pending.revision,
                     source,
@@ -417,7 +431,8 @@ impl WorldStream {
             }
         }
     }
-    pub(in crate::stream) fn accept_mesh_completion(&mut self, completion: MeshCompletion) {
+    pub(in crate::stream) fn accept_mesh_completion(&mut self, mut completion: MeshCompletion) {
+        completion._job_permit.take();
         self.stats.phase2_stages.mesh_jobs_completed = self
             .stats
             .phase2_stages
@@ -426,6 +441,7 @@ impl WorldStream {
         self.stats.observe_mesh_queue_wait(completion.queue_wait);
         if self.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.in_flight.remove(&completion.key);
+            self.mesh_cancellations.remove(&completion.key);
             self.urgent_mesh_in_flight.remove(&completion.key);
         }
         if let Some(denied) = self.publish_mesh_completion(completion) {

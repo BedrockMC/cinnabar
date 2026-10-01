@@ -858,6 +858,7 @@ pub(super) struct PendingMesh {
 
 #[derive(Debug)]
 pub(super) struct MeshCompletion {
+    pub(super) _job_permit: Option<super::meshing::admission::MeshJobPermit>,
     pub(super) key: SubChunkKey,
     pub(super) revision: u64,
     pub(super) source: Arc<SubChunk>,
