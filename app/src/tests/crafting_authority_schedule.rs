@@ -1,4 +1,7 @@
 //! Actual inventory ingress, world reconcile and committed authority drain witnesses.
+#[path = "latency_fences.rs"]
+mod latency_fences;
+
 use crate::{
     acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource},
     camera::CameraSettingsAuthority,

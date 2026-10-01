@@ -28,6 +28,7 @@ client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
+mod-host = { path = "../crates/mod-host" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
 rayon.workspace = true

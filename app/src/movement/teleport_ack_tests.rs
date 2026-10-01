@@ -1,12 +1,8 @@
-//! Regression coverage for the opt-in bounded HandledTeleport acknowledgement.
+//! HandledTeleport coverage for MovePlayer teleports and provisional routes.
 //!
-//! The whole feature is gated behind `RUST_MCBE_TELEPORT_ACK=1` (evaluated
-//! once per ticker construction); these witnesses drive both opt-in states
-//! through a forced construction flag that initializes the exact field the
-//! startup environment read populates, so the gated behavior stays
-//! deterministic under parallel test execution. Every constant and policy
-//! here is explicitly provisional pending version-matched native Bedrock
-//! measurement; none of this closes a vanilla parity gate.
+//! MovePlayer acknowledgements are unconditional. Correction-snap and respawn
+//! routes use the opt-in construction flag without mutating the environment.
+//! The expiry budget remains provisional.
 
 use std::time::Duration;
 
@@ -117,7 +113,7 @@ fn env_gate_requires_exactly_the_digit_one() {
     for disabled in ["", "0", "true", "yes", "01", "1 ", " 1", "one"] {
         assert!(
             !enabled_for_env_value(Some(&OsString::from(disabled))),
-            "value {disabled:?} must disable the acknowledgement"
+            "value {disabled:?} must disable the provisional routes"
         );
     }
 }
@@ -273,9 +269,9 @@ fn every_queue_clearing_boundary_clears_the_armed_assertion() {
 }
 
 #[test]
-fn exactly_the_first_transmitted_sample_carries_the_flag() {
-    let mut ticker = armed_session_ticker(true);
-    ticker.note_server_teleport(ServerTeleportKind::CorrectionSnap);
+fn move_player_without_opt_in_flags_exactly_the_first_transmitted_sample() {
+    let mut ticker = armed_session_ticker(false);
+    ticker.note_server_teleport(ServerTeleportKind::MovePlayer);
     for tick in 101..104 {
         ticker
             .enqueue_completed_physics(completed_sample(tick, [1.0, 2.0, 3.0]))
@@ -292,9 +288,9 @@ fn exactly_the_first_transmitted_sample_carries_the_flag() {
 }
 
 #[test]
-fn transport_failure_restores_and_resends_the_flagged_sample() {
-    let mut ticker = armed_session_ticker(true);
-    ticker.note_server_teleport(ServerTeleportKind::CorrectionSnap);
+fn move_player_without_opt_in_restores_and_resends_the_flagged_sample() {
+    let mut ticker = armed_session_ticker(false);
+    ticker.note_server_teleport(ServerTeleportKind::MovePlayer);
     ticker
         .enqueue_completed_physics(completed_sample(101, [1.0, 2.0, 3.0]))
         .unwrap();
@@ -341,7 +337,7 @@ fn the_provisional_budget_expires_on_admission_forty_one_not_forty() {
     // transmission is deferred (transport backpressure) and no packet ever
     // rides. Exercise the exact boundary through the admission observer, which
     // production calls on every admitted tick.
-    let mut ticker = physics_ticker(true);
+    let mut ticker = physics_ticker(false);
     ticker.reset(7, 10, [0.0, 70.0, 0.0]);
     ticker.set_source(MovementSource::Physics);
     ticker.note_server_teleport(ServerTeleportKind::MovePlayer);
@@ -472,15 +468,13 @@ fn the_assertion_rides_the_first_transmitted_packet() {
 }
 
 #[test]
-fn disabled_state_machine_stays_inert_and_byte_identical() {
+fn disabled_provisional_routes_stay_inert_and_byte_identical() {
     let kinds = [
         ServerTeleportKind::CorrectionSnap,
-        ServerTeleportKind::MovePlayer,
         ServerTeleportKind::Respawn,
     ];
 
-    // With the feature off, every observation is a complete no-op: no state,
-    // no counters, and no flag bit ever reaches the wire.
+    // Unproven routes stay silent unless explicitly enabled.
     let mut disabled = armed_session_ticker(false);
     for kind in kinds {
         disabled.note_server_teleport(kind);
@@ -500,7 +494,7 @@ fn disabled_state_machine_stays_inert_and_byte_identical() {
     assert_eq!(disabled_packets.len(), 3);
     assert!(
         !disabled_packets.iter().any(carries_handled_teleport),
-        "default-off must never project the flag"
+        "disabled provisional routes must never project the flag"
     );
 
     // An enabled session that observed no qualifying teleport produces

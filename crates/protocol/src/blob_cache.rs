@@ -48,6 +48,9 @@ pub const MAX_CLIENT_BLOB_PENDING_TRANSACTIONS: usize = 2_048;
 /// charges decoded packet containers and inline payload capacities retained while cache misses are
 /// unresolved, even when reconstruction size is unknown and no cached payload is staged.
 pub const MAX_CLIENT_BLOB_PENDING_BYTES: usize = 64 * 1024 * 1024;
+/// Shared payload is charged once across all pins, independently of transaction metadata.
+/// This is Cinnabar's safety ceiling, not a vanilla cache-size rule.
+const MAX_CLIENT_BLOB_PINNED_BYTES: usize = MAX_CLIENT_BLOB_PENDING_BYTES;
 /// Cinnabar's maximum queued chunk-resync events awaiting emission and conservatively reserved
 /// by retained cached transactions. This matches the transaction ceiling so a legitimate
 /// version-matched BDS burst does not become recovery pressure before it becomes transaction
@@ -106,6 +109,11 @@ pub struct BlobCacheStats {
     pub evictions: u64,
     pub pending_transactions: usize,
     pub pending_bytes: usize,
+    pub cache_pinned_bytes: usize,
+    pub cache_payload_bytes: usize,
+    /// Hash-table element capacity, excluding allocator and control-byte overhead.
+    pub cache_metadata_capacity_bytes: usize,
+    pub miss_response_peak_bytes: usize,
     pub retained_cached_transactions: usize,
     pub ordinary_ready_events: usize,
     pub ordinary_ready_bytes: usize,
@@ -155,6 +163,8 @@ pub enum BlobCacheError {
     ConflictingDuplicate(u64),
     #[error("cached transaction references a missing blob after resolution: {0:#018x}")]
     MissingResolvedBlob(u64),
+    #[error("cached pinned payload exceeds the aggregate safety ceiling")]
+    PinnedPayloadPressure,
     #[error("cached payload byte accounting overflowed")]
     ByteCountOverflow,
     #[error(
@@ -179,6 +189,8 @@ struct CacheStore {
     entries: HashMap<u64, CacheEntry>,
     pins: HashMap<u64, usize>,
     total_bytes: usize,
+    pinned_bytes: usize,
+    trim_pending: bool,
     clock: u64,
 }
 
@@ -211,9 +223,7 @@ impl ClientBlobCache {
     pub fn insert(&self, payload: &[u8]) -> Result<u64, BlobCacheError> {
         let hash = client_blob_hash(payload);
         let mut store = self.lock();
-        let mut candidate = store.clone();
-        insert_verified(&mut candidate, self.limits, hash, payload)?;
-        *store = candidate;
+        insert_verified(&mut store, self.limits, hash, payload)?;
         Ok(hash)
     }
 
@@ -263,12 +273,21 @@ impl ClientBlobCache {
                 missing.push(hash);
             }
             if pin {
+                if !store.pins.contains_key(&hash) {
+                    store.pinned_bytes = store.pinned_bytes.saturating_add(
+                        store
+                            .entries
+                            .get(&hash)
+                            .map_or(0, |entry| entry.payload.len()),
+                    );
+                }
                 *store.pins.entry(hash).or_default() += 1;
             }
         }
         (have, missing, staged_bytes)
     }
 
+    /// Releases pins and trims only released entries when a pinned burst exceeded the trigger.
     fn unpin_all(&self, hashes: &[u64]) {
         let mut store = self.lock();
         for &hash in hashes {
@@ -280,6 +299,20 @@ impl ClientBlobCache {
             };
             if remove {
                 store.pins.remove(&hash);
+                let payload_len = store
+                    .entries
+                    .get(&hash)
+                    .map_or(0, |entry| entry.payload.len());
+                store.pinned_bytes = store.pinned_bytes.saturating_sub(payload_len);
+                if store.trim_pending {
+                    store.entries.remove(&hash);
+                    store.total_bytes = store.total_bytes.saturating_sub(payload_len);
+                    let floor = self
+                        .limits
+                        .trim_floor_bytes
+                        .min(self.limits.trim_trigger_bytes);
+                    store.trim_pending = store.total_bytes > floor;
+                }
             }
         }
     }
@@ -484,6 +517,7 @@ fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCache
     }
 }
 
+/// Validates one insertion before changing cache metadata.
 fn insert_verified(
     store: &mut CacheStore,
     limits: BlobCacheLimits,
@@ -496,11 +530,22 @@ fn insert_verified(
         }
         return Ok(());
     }
-    store.clock = store.clock.saturating_add(1);
-    store.total_bytes = store
+    let total_bytes = store
         .total_bytes
         .checked_add(payload.len())
         .ok_or(BlobCacheError::ByteCountOverflow)?;
+    let pinned_bytes = if store.pins.contains_key(&hash) {
+        let projected = store.pinned_bytes.saturating_add(payload.len());
+        if projected > MAX_CLIENT_BLOB_PINNED_BYTES {
+            return Err(BlobCacheError::PinnedPayloadPressure);
+        }
+        projected
+    } else {
+        store.pinned_bytes
+    };
+    store.clock = store.clock.saturating_add(1);
+    store.total_bytes = total_bytes;
+    store.pinned_bytes = pinned_bytes;
     store.entries.insert(
         hash,
         CacheEntry {
@@ -536,8 +581,15 @@ fn trim_if_needed(store: &mut CacheStore, limits: BlobCacheLimits, inserted_hash
         let removed = store.entries.remove(&evict).expect("selected cache entry");
         store.total_bytes = store.total_bytes.saturating_sub(removed.payload.len());
     }
+    store.trim_pending = store.total_bytes > limits.trim_trigger_bytes;
     examined
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod perf_tests;
+
+#[cfg(test)]
+mod pressure_tests;

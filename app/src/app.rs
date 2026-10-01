@@ -65,8 +65,8 @@ use crate::{
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, publish_actor_render_frame,
-            receive_network_events, spawn_network,
+            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
+            publish_actor_render_frame, receive_network_events, spawn_network,
         },
         phase3_evidence::{
             Phase3EvidenceEmitter, Phase3EvidenceIdentitySource, emit_phase3_evidence,
@@ -103,7 +103,7 @@ use crate::{
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{
             UiPresentationRuntime, drive_menu_panorama, observe_mount_jump_input,
-            publish_ui_runtime,
+            prepare_ui_runtime, publish_ui_runtime,
         },
     },
 };
@@ -148,9 +148,11 @@ pub(crate) enum ClientFrameSet {
     Camera,
     Interaction,
     WorldPublication,
+    ActorPreparation,
+    UiPreparation,
+    NetworkSend,
     ActorPublication,
     UiPublication,
-    NetworkSend,
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
@@ -234,21 +236,27 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
+            prepare_actor_render_frame.in_set(ClientFrameSet::ActorPreparation),
+        )
+        .add_systems(
+            Update,
             publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
         )
         .add_systems(
             Update,
             crate::hotbar::select_hotbar_slot
                 .after(ClientFrameSet::SemanticFinalize)
-                .before(ClientFrameSet::UiPublication),
+                .before(ClientFrameSet::UiPreparation),
         )
         .add_systems(
             Update,
-            (
-                observe_mount_jump_input,
-                publish_ui_runtime,
-                drive_menu_panorama,
-            )
+            (observe_mount_jump_input, prepare_ui_runtime)
+                .chain()
+                .in_set(ClientFrameSet::UiPreparation),
+        )
+        .add_systems(
+            Update,
+            (publish_ui_runtime, drive_menu_panorama)
                 .chain()
                 .in_set(ClientFrameSet::UiPublication),
         )
@@ -274,6 +282,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
         Update,
         finish_acceptance_run
             .after(ClientFrameSet::NetworkSend)
+            .after(ClientFrameSet::UiPublication)
             .after(record_metrics_and_title),
     )
     // The launcher gets first refusal on a fatal session error, so a failed
@@ -287,6 +296,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
             .chain()
             .after(receive_network_events)
             .after(ClientFrameSet::NetworkSend)
+            .after(ClientFrameSet::UiPublication)
             .before(exit_on_fatal_runtime_error)
             .before(finish_acceptance_run),
     );
@@ -316,7 +326,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             Update,
             (
                 exit_on_window_close_requested,
-                flush_chat_network,
+                flush_chat_network.before(ClientFrameSet::UiPreparation),
                 flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
@@ -906,6 +916,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
+    crate::modding::configure_from_environment(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();

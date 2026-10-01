@@ -14,6 +14,7 @@ mod loading_screen;
 mod menu_latency;
 mod menu_screens;
 mod menus;
+mod mod_hud;
 mod model;
 mod npc;
 mod oreui;
@@ -81,6 +82,7 @@ pub(super) struct FormPresentation {
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
+    mod_hud: Option<mod_hud::ModHud>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -376,6 +378,7 @@ impl UiPresentationRuntime {
             menu_sounds: state.menu_sounds,
             logged: state.logged,
             hud: state.hud,
+            mod_hud: state.mod_hud,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             ready_menu: state.ready_menu,

@@ -5,6 +5,7 @@ mod book_screen;
 mod chat_completion;
 mod chat_send;
 mod crafting_authority;
+mod presentation_snapshot;
 pub use crafting_authority::CraftingPreview;
 mod event_apply;
 mod forms;

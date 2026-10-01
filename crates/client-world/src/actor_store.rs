@@ -621,7 +621,10 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) | ActorEvent::Status(_) | ActorEvent::TakeItem(_) => None,
+        ActorEvent::PlayerList(_)
+        | ActorEvent::Skin { .. }
+        | ActorEvent::Status(_)
+        | ActorEvent::TakeItem(_) => None,
     }
 }
 
@@ -629,6 +632,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
 mod local_tests;
 #[cfg(test)]
 mod riding_tests;
+mod skin_update;
 #[cfg(test)]
 mod tests;
 

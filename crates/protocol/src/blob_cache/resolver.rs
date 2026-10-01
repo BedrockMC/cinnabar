@@ -2,6 +2,7 @@ use super::*;
 
 mod accounting;
 mod helpers;
+mod miss_response;
 mod ordering;
 mod pressure;
 mod reconstruction;
@@ -56,8 +57,16 @@ impl BlobCacheResolver {
     }
 
     #[must_use]
-    pub const fn stats(&self) -> BlobCacheStats {
-        self.stats
+    pub fn stats(&self) -> BlobCacheStats {
+        let store = self.cache.lock();
+        BlobCacheStats {
+            cache_pinned_bytes: store.pinned_bytes,
+            cache_payload_bytes: store.total_bytes,
+            cache_metadata_capacity_bytes: store.entries.capacity()
+                * size_of::<(u64, CacheEntry)>()
+                + store.pins.capacity() * size_of::<(u64, usize)>(),
+            ..self.stats
+        }
     }
 
     /// Arms one bounded, one-shot fast-transfer rotation. No transaction is
@@ -343,7 +352,9 @@ impl BlobCacheResolver {
         }
         let mut status = self.classify_status(&packet, pressure_recovery, true);
         let staged_bytes = status.staged_bytes();
-        if staged_bytes > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION {
+        if staged_bytes > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION
+            || self.cache.lock().pinned_bytes > MAX_CLIENT_BLOB_PINNED_BYTES
+        {
             self.cache.unpin_all(&unique_hashes);
             self.record_staged_skip();
             self.stats.abandoned_cached_transactions =
@@ -419,6 +430,13 @@ impl BlobCacheResolver {
             self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
             return Ok(());
         }
+        let response_bytes = response.missing_blobs.iter().fold(
+            response.missing_blobs.capacity()
+                * size_of::<valentine::bedrock::version::v1_26_51::MissingBlobData>(),
+            |bytes, blob| bytes.saturating_add(blob.blob_data.capacity()),
+        );
+        self.stats.miss_response_peak_bytes =
+            self.stats.miss_response_peak_bytes.max(response_bytes);
         let response_hashes = response
             .missing_blobs
             .iter()
@@ -440,107 +458,17 @@ impl BlobCacheResolver {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.recover_skipped_miss_response(&response_hashes)
             }
+            Err(BlobCacheError::PinnedPayloadPressure) => {
+                self.stats.miss_response_cache_pressure =
+                    self.stats.miss_response_cache_pressure.saturating_add(1);
+                self.recover_skipped_miss_response(&response_hashes)
+            }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.reset_pending();
                 Err(error)
             }
         }
-    }
-
-    fn accept_miss_response_inner(
-        &mut self,
-        response: ClientCacheMissResponsePacket,
-    ) -> Result<(), BlobCacheError> {
-        let mut unique = Vec::<(u64, Vec<u8>)>::new();
-        let mut positions = HashMap::<u64, usize>::new();
-        for blob in response.missing_blobs {
-            if !self.pending_by_hash.contains_key(&blob.blob_id) {
-                return Err(BlobCacheError::UnsolicitedBlob(blob.blob_id));
-            }
-            if let Some(&index) = positions.get(&blob.blob_id) {
-                if unique[index].1 != blob.blob_data {
-                    return Err(BlobCacheError::ConflictingDuplicate(blob.blob_id));
-                }
-                continue;
-            }
-            // Deliberate security divergence from current vanilla: the public cache-poisoning
-            // disclosure at https://gist.github.com/JustTalDevelops/1abfdae7ab7618af2ec82f709ffa93bb
-            // reports that vanilla stopped validating this hash. Cinnabar keeps validation.
-            let actual = client_blob_hash(&blob.blob_data);
-            if actual != blob.blob_id {
-                return Err(BlobCacheError::HashMismatch {
-                    claimed: blob.blob_id,
-                    actual,
-                });
-            }
-            positions.insert(blob.blob_id, unique.len());
-            unique.push((blob.blob_id, blob.blob_data));
-        }
-
-        let mut staged_additions = HashMap::<u64, usize>::new();
-        for (hash, payload) in &unique {
-            let Some(transactions) = self.pending_by_hash.get(hash) else {
-                continue;
-            };
-            for sequence in transactions {
-                let addition = staged_additions.entry(*sequence).or_default();
-                *addition = addition.saturating_add(payload.len());
-            }
-        }
-        let staged_excess = staged_additions
-            .iter()
-            .filter_map(|(sequence, addition)| {
-                self.pending
-                    .get(sequence)
-                    .filter(|transaction| {
-                        transaction.staged_bytes.saturating_add(*addition)
-                            > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION
-                    })
-                    .map(|_| *sequence)
-            })
-            .collect::<Vec<_>>();
-        for sequence in staged_excess {
-            self.record_staged_skip();
-            self.abandon_pending_transaction(sequence)?;
-        }
-        for (sequence, addition) in staged_additions {
-            if let Some(transaction) = self.pending.get_mut(&sequence) {
-                transaction.staged_bytes = transaction.staged_bytes.saturating_add(addition);
-                debug_assert!(
-                    transaction.staged_bytes <= MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION
-                );
-            }
-        }
-
-        let evictions = {
-            let mut store = self.cache.lock();
-            let mut candidate = store.clone();
-            let before = candidate.entries.len();
-            let newly_admitted = unique
-                .iter()
-                .filter(|(hash, _)| !candidate.entries.contains_key(hash))
-                .count();
-            for (hash, payload) in &unique {
-                insert_verified(&mut candidate, self.cache.limits, *hash, payload)?;
-            }
-            let expected_without_eviction = before.saturating_add(newly_admitted);
-            let evictions = expected_without_eviction.saturating_sub(candidate.entries.len());
-            *store = candidate;
-            evictions
-        };
-        self.stats.admitted_blobs = self
-            .stats
-            .admitted_blobs
-            .saturating_add(u64::try_from(unique.len()).unwrap_or(u64::MAX));
-        self.stats.evictions = self
-            .stats
-            .evictions
-            .saturating_add(u64::try_from(evictions).unwrap_or(u64::MAX));
-        for (hash, _) in &unique {
-            self.resolve_hash(*hash)?;
-        }
-        self.refresh_pending_accounting()
     }
 
     pub fn pop_ready(&mut self) -> Option<BlobCacheReady> {
