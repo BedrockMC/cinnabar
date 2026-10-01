@@ -1,18 +1,21 @@
 //! The play route (`/play/:tab`), OreUI by default in 26.30: the header, the
 //! Worlds / Realms / Servers tab bar, and the Worlds tab (create buttons over
-//! the world list: friends' and LAN worlds first, then local worlds).
+//! one flat list: friends' and LAN worlds first, then local worlds, each local
+//! row playing on press with a trailing Edit action).
 
 use std::collections::HashMap;
 
 use super::super::super::{IconRef, UiPresentationError};
 use super::grid::{Grid, space};
+use super::icons::{self, Icon};
 use super::paint::{Bounds, Canvas};
+use super::theme::EDGE;
 use super::theme::{
     BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
 use super::widgets::{Variant, button, header, panel, row, screen_overlay, tabs, tag};
 use super::{play_realms, play_servers};
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use crate::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
 
 /// Worlds shown per page.
 const PAGE: usize = 12;
@@ -92,7 +95,7 @@ fn worlds_tab(
         ],
         Variant::Primary,
         "Create new world",
-        None,
+        Some(MenuAction::LocalWorld(LocalWorldAction::BeginCreate)),
     )?;
     button(
         canvas,
@@ -100,7 +103,7 @@ fn worlds_tab(
         [second, body[1], body[2], body[1] + button_height],
         Variant::Secondary,
         "Create from template",
-        None,
+        Some(MenuAction::LocalWorld(LocalWorldAction::OpenTemplates)),
     )?;
     let list_top = body[1] + button_height + space(canvas, 1);
     if view.friends.is_empty() && view.local_worlds.is_empty() {
@@ -146,6 +149,7 @@ fn worlds_tab(
             tag: "Friend's world",
             meta: [friend.members.clone(), String::new()],
             action: MenuAction::PlayFriend(index),
+            edit: None,
         })
         .chain(
             view.local_worlds
@@ -157,6 +161,7 @@ fn worlds_tab(
                     tag: game_mode_tag(&world.game_mode),
                     meta: [world.size.clone(), world.date.clone()],
                     action: MenuAction::PlayLocalWorld(index),
+                    edit: Some(MenuAction::LocalWorld(LocalWorldAction::Edit(index))),
                 }),
         )
         .take(PAGE);
@@ -176,6 +181,8 @@ struct WorldEntry {
     tag: &'static str,
     meta: [String; 2],
     action: MenuAction,
+    /// The trailing pencil-and-"Edit" action of an owned world.
+    edit: Option<MenuAction>,
 }
 
 fn game_mode_tag(mode: &str) -> &'static str {
@@ -205,7 +212,12 @@ fn world_row(
     canvas.fill(thumb, NEUTRAL100)?;
     canvas.frame(thumb, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
     let text_left = thumb[2] + canvas.r(0.8);
-    let meta_width = canvas.r(12.0);
+    let edit_width = if entry.edit.is_some() {
+        canvas.r(10.0)
+    } else {
+        0.0
+    };
+    let meta_width = canvas.r(12.0) + edit_width;
     let text_width = (b[2] - pad - meta_width - text_left).max(canvas.r(4.0));
     let mut y = b[1] + pad;
     y += canvas.text(&entry.title, [text_left, y], text_width, BODY, TEXT, false)?;
@@ -226,19 +238,53 @@ fn world_row(
         NEUTRAL80.fill,
         TEXT,
     )?;
+    let meta_right = b[2] - pad - edit_width;
     let mut meta_top = b[1] + pad;
     for line in entry.meta.iter().filter(|line| !line.is_empty()) {
         let width = canvas.measure(line, CAPTION)?;
         meta_top += canvas.text(
             line,
-            [b[2] - pad - canvas.r(1.0) - width, meta_top],
+            [meta_right - canvas.r(1.0) - width, meta_top],
             width + 1.0,
             CAPTION,
             TEXT_DIMMEST,
             false,
         )?;
     }
+    if let Some(edit) = entry.edit {
+        let edit_bounds = [b[2] - pad - edit_width, b[1] + pad, b[2] - pad, b[3] - pad];
+        edit_action(canvas, view, edit_bounds, edit)?;
+    }
     Ok(())
+}
+
+/// The row's trailing Edit action: a pencil over its label, lit on hover.
+fn edit_action(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    action: MenuAction,
+) -> Result<(), UiPresentationError> {
+    row(canvas, view, b, false, Some(action))?;
+    let [w, h] = Icon::Pencil.texels();
+    let texel = canvas.r(EDGE);
+    let label_height = canvas.r(BODY.line);
+    let block = h as f32 * texel + canvas.r(0.4) + label_height;
+    let top = (b[1] + b[3] - block) * 0.5;
+    icons::draw(
+        canvas,
+        Icon::Pencil,
+        [(b[0] + b[2] - w as f32 * texel) * 0.5, top],
+        TEXT,
+    )?;
+    let label_top = top + h as f32 * texel + canvas.r(0.4);
+    canvas.text_centred(
+        "Edit",
+        [b[0], label_top, b[2], label_top + label_height],
+        BODY,
+        TEXT,
+        false,
+    )
 }
 
 #[cfg(test)]
