@@ -82,6 +82,16 @@ pub(super) struct ScreenCache {
     resolved: Arc<Mutex<Vec<Resolved>>>,
     /// The screen a preparing thread is laying out; notified when it finishes.
     preparing: Arc<(Mutex<Option<&'static str>>, Condvar)>,
+    /// Each screen's live bindings across data refreshes.
+    bindings: Mutex<Vec<Bound>>,
+}
+
+/// A screen's binding state, which lives as long as its resolved tree.
+struct Bound {
+    reference: String,
+    catalog: Arc<Catalog>,
+    context: Context,
+    state: json_ui::BindState,
 }
 
 impl ScreenCache {
@@ -141,12 +151,45 @@ impl ScreenCache {
                 json_ui::resolve(catalog, reference, context).control
             })?;
             let library = json_ui::CatalogLibrary { catalog, context };
-            let bound = json_ui::bind(&tree, data, &library);
+            let bound = self.with_binding(reference, catalog, context, |state| {
+                json_ui::bind_stateful(&tree, data, &library, state).0
+            });
             let measures = &mut json_ui::MeasureCache::default();
             Some(json_ui::render_bound_gated(
                 bound, root, env, view, measures,
             ))
         })
+    }
+
+    /// Run `bind` over `reference`'s binding state, created on first use.
+    fn with_binding<T>(
+        &self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+        bind: impl FnOnce(&mut json_ui::BindState) -> T,
+    ) -> T {
+        let mut bindings = lock(&self.bindings);
+        let index = match bindings.iter().position(|bound| {
+            bound.reference == reference
+                && Arc::ptr_eq(&bound.catalog, catalog)
+                && bound.context == *context
+        }) {
+            Some(index) => index,
+            None => {
+                if bindings.len() >= SLOTS {
+                    bindings.remove(0);
+                }
+                bindings.push(Bound {
+                    reference: reference.to_owned(),
+                    catalog: Arc::clone(catalog),
+                    context: context.clone(),
+                    state: json_ui::BindState::new(),
+                });
+                bindings.len() - 1
+            }
+        };
+        bind(&mut bindings[index].state)
     }
 
     /// A cache already resolving the settings screen on a background thread,

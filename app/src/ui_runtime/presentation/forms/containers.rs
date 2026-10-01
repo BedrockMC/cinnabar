@@ -301,6 +301,8 @@ pub(super) struct ScreenCache {
     /// The tree's measurements at the laid root size, reused while scrolling.
     measures: json_ui::MeasureCache,
     laid: Option<(ViewState, [f64; 2], Arc<json_ui::FormRender>)>,
+    /// The open screen's live bindings across data refreshes.
+    binding: json_ui::BindState,
     /// Layouts run for this screen, for cache tests.
     layouts: usize,
 }
@@ -332,6 +334,7 @@ impl ScreenCache {
                 tree: None,
                 measures: json_ui::MeasureCache::default(),
                 laid: None,
+                binding: json_ui::BindState::new(),
                 layouts: 0,
             });
         }
@@ -342,6 +345,7 @@ impl ScreenCache {
                 catalog,
                 context,
                 data,
+                &mut cached.binding,
             ));
             cached.data = Some(data.clone());
             cached.measures = json_ui::MeasureCache::default();
@@ -368,6 +372,10 @@ impl ScreenCache {
                 }
             };
             let render = json_ui::render_bound_gated(tree, root, env, view, &mut cached.measures);
+            // Scroll views publish their end state; views reading it rebind next frame.
+            if cached.binding.publish_scrolls(&render.report) {
+                cached.data = None;
+            }
             cached.layouts += 1;
             cached.laid = Some((view.clone(), root, Arc::new(render)));
         }

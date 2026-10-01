@@ -122,9 +122,9 @@ pub fn evaluate(value: &Value, env: &Env) -> Value {
         if !expression.starts_with('(') {
             break;
         }
-        match crate::predicate::eval_value(expression, env) {
-            Some(result) => current = result,
-            None => break,
+        match crate::predicate::eval_scalar(expression, env, &crate::predicate::NoBindings) {
+            Some(crate::predicate::Scalar::Json(_)) | None => break,
+            Some(result) => current = result.to_json(),
         }
     }
     if current.is_null() {

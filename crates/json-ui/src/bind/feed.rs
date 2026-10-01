@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::bag::Bag;
 use super::{Binder, Node, Scope, Src, with_index};
 use crate::predicate::Scalar;
 use crate::tree::{ControlRef, Factory, ResolvedControl};
@@ -71,15 +72,6 @@ impl FactoryItem {
 }
 
 impl<'a> Binder<'a> {
-    /// The `[columns, rows]` the screen answers a grid's `grid_dimension_binding` with.
-    pub(super) fn bound_dimensions(&self, control: &ResolvedControl) -> Option<[u32; 2]> {
-        let name = control
-            .properties
-            .get("grid_dimension_binding")
-            .and_then(Value::as_str)?;
-        self.data.grid_dimensions.get(name).copied()
-    }
-
     /// The items a screen fed to this control's named factory.
     pub(super) fn feed(&self, control: &ResolvedControl) -> Option<&'a [FactoryItem]> {
         let name = control.factory.as_ref()?.name.as_deref()?;
@@ -129,7 +121,9 @@ impl<'a> Binder<'a> {
             // The item's property bag is readable throughout the created subtree.
             let mut item_scope = scope.clone();
             if let Some((collection, index)) = &item.cursor {
-                item_scope.indices.insert(collection.clone(), *index);
+                std::sync::Arc::make_mut(&mut item_scope.cursor)
+                    .indices
+                    .insert(collection.clone(), *index as i64);
             }
             let mut values = (*item_scope.values).clone();
             values.extend(
@@ -143,10 +137,12 @@ impl<'a> Binder<'a> {
         nodes
     }
 
+    /// One control per collection item: a bound `#collection_length` decides
+    /// the count, else the screen's collection, else the literal length.
     pub(super) fn expand_factory(
         &mut self,
         control: &ResolvedControl,
-        own: &BTreeMap<String, Scalar>,
+        node: &Node,
         scope: &Scope,
     ) -> Vec<Node> {
         let Some(factory) = &control.factory else {
@@ -156,15 +152,24 @@ impl<'a> Binder<'a> {
             return Vec::new();
         };
         let key = self.collection_key(collection, scope);
-        let roles: Vec<Option<String>> = match self.data.collections.get(&key) {
-            Some(items) => items.iter().map(|item| item.role.clone()).collect(),
-            None => unsupplied_roles(control, factory, own),
+        let supplied = self.data.collections.get(&key);
+        let roles: Vec<Option<String>> = match node.native.collection_length.as_ref() {
+            // A bound count takes each instance's role from its supplied item.
+            Some(length) => bound_roles(length, factory)
+                .into_iter()
+                .enumerate()
+                .map(|(index, role)| role.or_else(|| supplied?.get(index)?.role.clone()))
+                .collect(),
+            None => match supplied {
+                Some(items) => items.iter().map(|item| item.role.clone()).collect(),
+                None => unsupplied_roles(factory, &node.own),
+            },
         };
         let mut nodes = Vec::with_capacity(roles.len());
         for (index, role) in roles.iter().enumerate() {
             let role = role.as_deref();
             let Some(reference) = select_control(factory, role) else {
-                self.diagnostics.push(format!(
+                self.note(format!(
                     "{}: factory has no control for role {role:?}",
                     control.name
                 ));
@@ -176,7 +181,7 @@ impl<'a> Binder<'a> {
                 None => factory.creation_vars(&BTreeMap::new()),
             };
             let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
-                self.diagnostics.push(format!(
+                self.note(format!(
                     "{}: factory control {reference} unresolved",
                     control.name
                 ));
@@ -240,32 +245,39 @@ fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
     }
 }
 
-/// Most instances a factory makes for a collection the screen does not supply.
-const MAX_UNSUPPLIED_ITEMS: usize = 64;
+/// Most instances a factory makes from a bound or literal count.
+const MAX_FACTORY_ITEMS: usize = 4096;
 
-/// Roles for a collection the screen does not supply, from `#collection_length`:
-/// an array of control ids makes one instance per id; a number makes that many
-/// only for a `control_name` template, since an id-mapped factory needs ids.
-fn unsupplied_roles(
-    control: &ResolvedControl,
-    factory: &Factory,
-    own: &BTreeMap<String, Scalar>,
-) -> Vec<Option<String>> {
-    let ids = control
-        .properties
-        .get("property_bag")
-        .and_then(|bag| bag.get("#collection_length"))
-        .and_then(Value::as_array);
-    if let Some(ids) = ids {
-        return ids
+/// Roles for a bound `#collection_length`: one per control id, or that many
+/// of a `control_name` template.
+fn bound_roles(length: &Value, factory: &Factory) -> Vec<Option<String>> {
+    let cap = factory.max_children_size.unwrap_or(MAX_FACTORY_ITEMS);
+    match length {
+        Value::Array(ids) => ids
             .iter()
-            .take(MAX_UNSUPPLIED_ITEMS)
+            .take(cap)
             .map(|id| id.as_str().map(str::to_owned))
-            .collect();
+            .collect(),
+        other => {
+            let count = other.as_i64().unwrap_or(0).max(0) as usize;
+            vec![None; count.min(cap)]
+        }
     }
+}
+
+/// Roles for a collection the screen does not supply, from a literal
+/// `#collection_length`: an array of control ids makes one instance per id; a
+/// number makes that many only for a `control_name` template.
+fn unsupplied_roles(factory: &Factory, own: &Bag) -> Vec<Option<String>> {
     match own.get("#collection_length") {
-        Some(Scalar::Num(length)) if *length > 0.0 && factory.control_name.is_some() => {
-            vec![None; (*length as usize).min(MAX_UNSUPPLIED_ITEMS)]
+        Some(Scalar::Json(Value::Array(ids))) => ids
+            .iter()
+            .take(MAX_FACTORY_ITEMS)
+            .map(|id| id.as_str().map(str::to_owned))
+            .collect(),
+        Some(length) if factory.control_name.is_some() => {
+            let count = length.as_number().unwrap_or(0.0).max(0.0) as usize;
+            vec![None; count.min(MAX_FACTORY_ITEMS)]
         }
         _ => Vec::new(),
     }

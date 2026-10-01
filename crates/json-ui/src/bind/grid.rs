@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::feed::collection_name;
 use super::{Binder, Node, Scope, Src, with_index};
 use crate::layout::GRID_TEMPLATE_KEY;
-use crate::predicate::Scalar;
 use crate::tree::{ControlRef, ResolvedControl};
 
 impl Binder<'_> {
@@ -18,21 +18,16 @@ impl Binder<'_> {
     pub(super) fn expand_grid(
         &mut self,
         src: &Src,
-        own: &BTreeMap<String, Scalar>,
         template: &ControlRef,
         scope: &Scope,
     ) -> Vec<Node> {
         let control = src.get();
-        let collection = control
-            .properties
-            .get("collection_name")
-            .and_then(Value::as_str)
-            .filter(|name| !name.is_empty());
+        let collection = collection_name(control);
         let key = collection.map(|name| self.collection_key(name, scope));
-        let count = grid_capacity(src, own)
+        let count = grid_capacity(src)
             .unwrap_or_else(|| key.as_ref().map_or(0, |key| self.data.collection_len(key)));
         let Some(resolved) = self.resolve_scoped(template, control, &BTreeMap::new()) else {
-            self.diagnostics.push(format!(
+            self.note(format!(
                 "{}: grid template {template} unresolved",
                 control.name
             ));
@@ -73,33 +68,35 @@ fn unbound(src: Src) -> Node {
         .collect();
     Node {
         src,
+        key: 0,
         own: BTreeMap::new(),
+        native: Default::default(),
+        memory: Default::default(),
+        bindings: Arc::default(),
         children,
         deferred: None,
+        retained: false,
     }
 }
 
 /// A templated grid's cell count, or `None` when a filling grid's count waits
-/// for layout: `maximum_grid_items` (a bound `#maximum_grid_items` winning, only
-/// an integer counting) when rescaling, else columns × rows.
-pub(super) fn grid_capacity(src: &Src, own: &BTreeMap<String, Scalar>) -> Option<usize> {
+/// for layout: `maximum_grid_items` (a bound value already patched in, only an
+/// integer counting) when rescaling, else columns × rows.
+pub(super) fn grid_capacity(src: &Src) -> Option<usize> {
+    if src.get().control_type.as_deref() != Some("grid") {
+        return None;
+    }
     let direction = |key: &str| {
         src.prop(key)
             .and_then(Value::as_str)
             .is_some_and(|value| value == "horizontal" || value == "vertical")
     };
     if direction("grid_rescaling_type") {
-        let bound = own.get("#maximum_grid_items").map(|value| match value {
-            Scalar::Num(number) if number.fract() == 0.0 && *number >= 0.0 => *number as usize,
-            _ => 0,
-        });
-        let literal = || {
-            src.prop("maximum_grid_items")
-                .and_then(Value::as_f64)
-                .filter(|max| max.fract() == 0.0 && *max >= 0.0)
-                .map_or(0, |max| max as usize)
-        };
-        return Some(bound.unwrap_or_else(literal));
+        let max = src
+            .prop("maximum_grid_items")
+            .and_then(Value::as_f64)
+            .filter(|max| max.fract() == 0.0 && *max >= 0.0);
+        return Some(max.map_or(0, |max| max as usize));
     }
     if direction("grid_fill_direction") {
         return None;
@@ -113,15 +110,14 @@ pub(super) fn grid_capacity(src: &Src, own: &BTreeMap<String, Scalar>) -> Option
 }
 
 /// The column count of a collection grid that lists its cells as children.
-pub(super) fn static_grid_columns(control: &ResolvedControl) -> Option<u64> {
+pub(super) fn static_grid_columns(src: &Src) -> Option<u64> {
+    let control = src.get();
     if control.control_type.as_deref() != Some("grid")
         || !control.properties.contains_key("collection_name")
     {
         return None;
     }
-    control
-        .properties
-        .get("grid_dimensions")?
+    src.prop("grid_dimensions")?
         .as_array()?
         .first()?
         .as_u64()

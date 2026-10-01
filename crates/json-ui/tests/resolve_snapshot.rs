@@ -87,7 +87,13 @@ fn dump_engine_screens() {
         };
         dump(&root, 0, &mut out);
         let _ = writeln!(out, "== bound {reference}");
-        let bound = bind_screen(&root, &catalog, &context, &DataSource::new());
+        let bound = bind_screen(
+            &root,
+            &catalog,
+            &context,
+            &DataSource::new(),
+            &mut json_ui::BindState::new(),
+        );
         dump(&bound, 0, &mut out);
         let mut diagnostics = resolution.diagnostics;
         diagnostics.sort();
