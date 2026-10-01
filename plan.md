@@ -3595,3 +3595,15 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
+
+- Implemented client preview: admitted marker, signed session challenge, scoped trust
+  JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,
+  transactional developer helpers, and off-thread WebM/media output primitives.
+- Incomplete: restricted production helpers/compiler limits; optional-pack provenance;
+  full JSON-UI screens and input focus; scene/material adapters; live native media
+  routing, shared surface binding, device clock, applied drift correction and fast
+  seeking/looping. Production never sends readiness or starts a bundle. Developer
+  readiness grants only UI labels and typed messaging.
+- The MP4/H.264/AAC platform decoder is an unavailable trait stub. Native AV1/Opus
+  decoding is an optional developer feature, not a verified sandbox. No SDK or
+  server-side integration was written. Cargo.lock still needs coordinator resolution.

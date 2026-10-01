@@ -29,6 +29,7 @@ pub mod world_control;
 
 pub use experience::{
     EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
+    is_experience_packet,
 };
 
 pub use actor::{

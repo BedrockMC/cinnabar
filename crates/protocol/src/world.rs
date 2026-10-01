@@ -380,8 +380,11 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
-        McpePacketData::ScriptMessagePacket(packet) => {
-            return Ok(crate::experience::normalize(packet).map(WorldEvent::Experience));
+        McpePacketData::ScriptMessagePacket(message) => {
+            if packet.header.from_subclient != 0 || packet.header.to_subclient != 0 {
+                return Ok(None);
+            }
+            return Ok(crate::experience::normalize(message).map(WorldEvent::Experience));
         }
         McpePacketData::UpdateAbilitiesPacket(packet) => {
             WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))

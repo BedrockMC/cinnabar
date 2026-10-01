@@ -15,7 +15,12 @@ pub struct VerifiedBundle {
 
 impl VerifiedBundle {
     /// Accepts only indexed regular files, without extracting paths to disk.
-    pub fn read(bytes: &[u8], offer: &PackageOffer, scope: &Scope) -> Result<Self> {
+    pub fn read(
+        bytes: &[u8],
+        offer: &PackageOffer,
+        scope: &Scope,
+        remaining_expanded: u64,
+    ) -> Result<Self> {
         ensure!(bytes.len() <= MAX_BUNDLE_BYTES && bytes.len() as u64 == offer.bytes, "bundle size mismatch");
         ensure!(crypto::digest(bytes) == offer.digest, "bundle hash mismatch");
         let mut zip = ZipArchive::new(Cursor::new(bytes))?;
@@ -30,7 +35,7 @@ impl VerifiedBundle {
             ensure!(!file.encrypted(), "encrypted bundles are unsupported");
             ensure!(matches!(file.compression(), CompressionMethod::Stored | CompressionMethod::Deflated), "unsupported compression");
             total = total.checked_add(file.size()).ok_or_else(|| anyhow::anyhow!("archive size overflow"))?;
-            ensure!(total <= MAX_EXPANDED_BYTES, "expanded archive limit exceeded");
+            ensure!(total <= remaining_expanded.min(MAX_EXPANDED_BYTES), "expanded archive limit exceeded");
         }
         let signed = read_entry(&mut zip, MANIFEST_PATH, MAX_MARKER_BYTES as u64)?;
         let signed: SignedDocument = serde_json::from_slice(&signed)?;

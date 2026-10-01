@@ -76,11 +76,17 @@ impl Player {
 
     /// Services buffered output without waiting; production decoding remains unavailable.
     pub fn tick(&mut self, now_unix: u64, local_us: u64, autoplay: bool) -> Result<Correction> {
-        ensure!(now_unix < self.expires_unix, "media grant expired");
-        let Some((server_us, _)) = self.clock.server_now(local_us) else { self.buffering = true; return Ok(Correction::Hold); };
+        if now_unix >= self.expires_unix {
+            self.stop_decoder();
+            anyhow::bail!("media grant expired");
+        }
+        let Some((server_us, _)) = self.clock.server_now(local_us) else {
+            self.stop_decoder();
+            return Ok(Correction::Hold);
+        };
         self.playback.advance(server_us, self.descriptor.duration_us)?;
         let desired = self.playback.position(server_us, self.descriptor.duration_us);
-        if !autoplay || self.playback.stopped {
+        if !autoplay || self.playback.stopped || self.playback.decode_generation == 0 {
             self.stop_decoder();
             return Ok(Correction::Hold);
         }

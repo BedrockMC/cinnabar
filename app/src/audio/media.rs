@@ -18,6 +18,7 @@ pub(crate) struct MediaAudio {
     paused: AtomicBool,
     gain: AtomicU32,
     pan: AtomicU32,
+    spatial: AtomicBool,
     submitted_us: AtomicU64,
     underruns: AtomicU64,
 }
@@ -53,6 +54,7 @@ impl MediaAudio {
             (None, _) => (1.0, 0.0),
         };
         let gain = if muted { 0.0 } else { settings.effective(AudioCategory::Records) * f32::from(server_volume.min(1000)) / 1000.0 * spatial };
+        self.spatial.store(position.is_some(), Ordering::Relaxed);
         self.gain.store(gain.to_bits(), Ordering::Relaxed);
         self.pan.store(pan.to_bits(), Ordering::Relaxed);
     }
@@ -89,8 +91,14 @@ impl Iterator for MediaSource {
         self.control.submitted_us.store(frame.pts_us, Ordering::Release);
         let gain = f32::from_bits(self.control.gain.load(Ordering::Relaxed));
         let pan = f32::from_bits(self.control.pan.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
-        self.right = Some(frame.samples[1] * gain * (1.0 + pan.min(0.0)));
-        Some(frame.samples[0] * gain * (1.0 - pan.max(0.0)))
+        let samples = if self.control.spatial.load(Ordering::Relaxed) {
+            let mono = (frame.samples[0] + frame.samples[1]) * 0.5;
+            [mono, mono]
+        } else {
+            frame.samples
+        };
+        self.right = Some(samples[1] * gain * (1.0 + pan.min(0.0)));
+        Some(samples[0] * gain * (1.0 - pan.max(0.0)))
     }
 }
 
@@ -117,6 +125,7 @@ pub(crate) fn start(device: &mut crate::named_audio::AudioDevice, generation: u6
         queue: ArrayQueue::new(MAX_PCM_FRAMES), generation: AtomicU64::new(generation),
         cancelled: AtomicBool::new(false), paused: AtomicBool::new(true),
         gain: AtomicU32::new(0.0f32.to_bits()), pan: AtomicU32::new(0.0f32.to_bits()),
+        spatial: AtomicBool::new(false),
         submitted_us: AtomicU64::new(0), underruns: AtomicU64::new(0),
     });
     device.play_source(MediaSource { control: Arc::clone(&control), right: None }).then_some(control)

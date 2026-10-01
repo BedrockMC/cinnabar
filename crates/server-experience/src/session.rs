@@ -9,7 +9,13 @@ use crate::{crypto::SignedDocument, negotiation::{Grant, Hello, Pending, Verifie
 pub enum Control {
     Hello(Hello),
     Accept(SignedDocument),
-    Ready { session: String, packages: Vec<String>, generation: u64 },
+    Ready {
+        session: String,
+        packages: Vec<String>,
+        generation: u64,
+        permissions: std::collections::BTreeMap<String, std::collections::BTreeSet<crate::manifest::Permission>>,
+        world_epoch: u64,
+    },
     Disabled,
 }
 
@@ -35,7 +41,7 @@ pub struct Session {
 
 impl Session {
     /// Consumes one inert marker; declines cannot trigger repeated prompts.
-    pub fn discover(&mut self, bytes: &[u8], audience: &str, settings: &Settings, now_unix: u64, now_ms: u64) -> Result<()> {
+    pub fn discover(&mut self, bytes: &[u8], audience: &str, settings: &mut Settings, now_unix: u64, now_ms: u64) -> Result<bool> {
         ensure!(matches!(self.state, State::Inert), "offer already handled");
         let offer = VerifiedOffer::read(bytes, audience, now_unix)?;
         ensure!(!settings.pins.iter().any(|pin| pin.audience == offer.offer.audience
@@ -43,12 +49,16 @@ impl Session {
             && pin.highest_revision > offer.offer.revision), "deployment rollback denied");
         let decision = settings.decision(&offer.offer)?;
         self.key_changed = settings.key_changed(&offer.offer);
+        let remember = decision == Some(Decision::Always);
+        if remember {
+            settings.remember(&offer.offer, Decision::Always)?;
+        }
         self.state = match decision {
             Some(Decision::Never) => State::Disabled,
             _ => State::Offered(offer),
         };
-        if decision == Some(Decision::Always) { self.approve(now_ms)?; }
-        Ok(())
+        if remember { self.approve(now_ms)?; }
+        Ok(remember)
     }
 
     /// Applies only host UI actions; no remote operation can create consent.
