@@ -91,8 +91,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,
-            width: 64,
-            height: 64,
+            width: render::STANDARD_SKIN_SIDE as u32,
+            height: render::STANDARD_SKIN_SIDE as u32,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
         }),
     }
@@ -126,6 +126,7 @@ fn rig<'a>(
         render: &[],
         bone_names: &[],
         skin_geometry: None,
+        skin_layers: &[],
         hand: Default::default(),
     }
 }
@@ -133,6 +134,7 @@ fn rig<'a>(
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
                     session_id: 7,
@@ -601,4 +603,55 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
         assert!(rows[2][0].abs() < 1e-6, "{identifier}");
         assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
     }
+}
+
+#[test]
+fn authored_skin_bounds_reach_frustum_and_cave_admission() {
+    let patch = r#"{"geometry":{"default":"geometry.capture_bounds"}}"#;
+    let model = r#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.capture_bounds","texture_width":64,"texture_height":64,
+            "visible_bounds_width":3,"visible_bounds_height":4,"visible_bounds_offset":[0,2,0]},
+        "bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
+    let geometry = Arc::new(assets::parse_skin_geometry(patch, model).unwrap().unwrap());
+    let mut actor = actor(42, 41);
+    actor.position = [2.0, 64.0, 0.0];
+    actor.previous_pose.position = actor.position;
+    let bones = [model_bone([0.0; 3])];
+    let default = rig(42, &bones, &bones);
+    let authored = ActorRigSnapshot {
+        skin_geometry: Some(&geometry),
+        ..default
+    };
+    let view = ActorCullView {
+        clip_from_world: Mat4::from_translation(Vec3::new(0.0, -65.0, 0.0)),
+        camera_position: Vec3::new(0.0, 65.0, 0.0),
+        max_distance: 192.0,
+    };
+    assert!(!crate::presentation::actors::rig_may_be_visible(
+        &default,
+        &actor,
+        1.0,
+        Some(view),
+        |_, _| false,
+    ));
+    assert!(crate::presentation::actors::rig_may_be_visible(
+        &authored,
+        &actor,
+        1.0,
+        Some(view),
+        |low, high| {
+            assert_eq!(low, [0.5, 64.0, -1.5]);
+            assert_eq!(high, [3.5, 68.0, 1.5]);
+            false
+        },
+    ));
+    let body = actor_rig_presentation(&authored, &actor, Some(&profile(42, 255)), 1.0).unwrap();
+    assert!(render::actor_rig_submission_is_visible(
+        &body.submission,
+        Some(view)
+    ));
+    assert_eq!(
+        body.submission.culling_bounds,
+        geometry.visible_bounds.unwrap()
+    );
 }

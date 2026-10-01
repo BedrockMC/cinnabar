@@ -3,6 +3,7 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
@@ -2523,10 +2524,11 @@ store it only under the user's temporary directory, inspect that file, and never
     formatting, and CI are green.
   - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
     mesh waits while any of its 26 neighbours is owed (requested, or unsent in
-    the announced Euclidean disk while the server delivered data within 1 s).
-    Vanilla instead builds against absent chunks at the default brightness and
-    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
-    no native reference. `streaming_harness` measures it.
+    the announced Euclidean disk while its cohort made new progress within 1 s).
+    Current Lens 1.26.50.26 evidence instead requires eligible horizontal columns
+    before rebuilding; the historical missing-column claim is superseded. The
+    1 s quiet fallback remains provisional, with no native reference.
+    `streaming_harness` checks slow delivery for transient geometry and dark seams.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate
@@ -3045,6 +3047,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   legacy 64x32 skins, outer skin layers, limb animation/Molang, name tags, equipment, mobs/items,
   first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
   visual evidence remain open Phase 4 work.
+  The invisible-player capture fixes retain PlayerSkin updates, polygon bodies, inflated planes,
+  named classic models and native skin texels, and apply vanilla classic alpha validation.
+  Persona face/body atlases now retain their own geometry and texture and follow the pack
+  animation rate and blink controller. Player appearance parity remains incomplete: local
+  piece/tint assembly, repository trust/fallback decisions, geometry version upgrades and persona
+  atlases above the admitted size still need validation. Authored skin visibility bounds now reach
+  render, cave and animation culling; complete transformed-bounds parity still needs evidence.
+  Offline capture renders establish coverage; they do not close native visual parity.
   The complete absolute-movement origin correction, regression suite, independent review, and
   post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live
   ground-contact witness remains open under 4.4.
@@ -3586,3 +3596,44 @@ full gates and rendered evidence pass. Registered provisional defaults remain
 provisional after a reset; a working consumer does not establish a vanilla default.
 
 
+
+## Terrain particle texture repair (2026-10-01)
+
+Incomplete parity work on `fix/break-particles`: particle level events need the
+same wire-to-internal block palette remap as chunk data. The ordinary destruction
+texture comes from the resolved down face; biome tint is a separate block policy.
+References: Lens 1.26.50.26, artifact 6, RVAs `0x4e95ee0` and `0x4e96080`;
+R:l/LevelRendererPlayer.cpp:24894; R:b/BlockDestructionParticlesComponent.cpp:32;
+the pinned pack's `particles/block_destruct.json`.
+
+The exact particle parity gate stays open for destruction texture/count overrides,
+weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
+and native ambient lighting. Particles now consume the shared atmosphere daylight
+state rather than deriving a separate sun-angle value.
+Landing and sprint dust are not wired by the current particle adapter. Rain splash
+uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
+defines. Offline tests or previews do not close the target-platform visual gate;
+no live server connection is authorized for this work.
+
+### Zeqa correction audit (2026-10-01, incomplete)
+
+The October 1 trace contains 34 committed corrections. The audit in
+`docs/evidence/2026-10-01-zeqa-movement.md` compares each authoritative position
+with the originally transmitted input, not a prediction already changed by replay.
+Current-client Lens evidence supports these fixes: player corrections preserve look;
+PosDelta carries end-of-tick velocity; zero-stamped SetActorMotion changes live
+velocity without a replay overlay; Jumping follows held processed input and
+StartJumping follows actual initiation; keyboard raw diagonal movement is normalized and analogue axes stay zero;
+MovePlayer teleports acknowledge without an opt-in; teleport snaps preserve raw
+button history and jump cooldown; player collision boxes retain their full width.
+Latency replies preserve native flags and timestamp conversion and follow committed
+motion through the outbound FIFO. Tagged motion remains on the replay timeline.
+
+This does not close movement parity. The capture omits collision volumes/revisions,
+most inbound correction velocity/ground fields, and some motion events. The first
+burst's floor-contact discrepancy and the last burst's exact replay failure need a
+fresh capture. Future/missing correction-frame behavior remains unverified; existing fallback snaps, collision identity policy and teleport
+expiry remain provisional. The simulator still uses its existing f64 arithmetic.
+No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound PAI
+and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
+no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.

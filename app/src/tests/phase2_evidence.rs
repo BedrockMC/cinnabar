@@ -154,6 +154,10 @@ fn combined_snapshot() -> CombinedPhase2Snapshot {
             misses: 4,
             redundant_missing_requests: 24,
             admitted_blobs: 4,
+            cache_pinned_bytes: 25,
+            cache_payload_bytes: 26,
+            cache_metadata_capacity_bytes: 27,
+            miss_response_peak_bytes: 28,
             retained_cached_transactions: 16,
             ordinary_ready_events: 17,
             ordinary_ready_bytes: 18,
@@ -272,6 +276,10 @@ fn phase2_publication_exposes_every_blob_cache_pressure_counter() {
         .and_then(serde_json::Value::as_object)
         .expect("client blob-cache evidence object");
     let expected = [
+        ("cache_pinned_bytes", 25),
+        ("cache_retained_bytes", 26),
+        ("cache_metadata_capacity_bytes", 27),
+        ("miss_response_peak_bytes", 28),
         ("retained_cached_transactions", 16),
         ("redundant_missing_requests", 24),
         ("ordinary_ready_events", 17),
