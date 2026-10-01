@@ -3622,3 +3622,13 @@ replays. Lens `0x38db020` and `R:r/RewindSimulation.cpp:84` establish history-ba
 component replay; these tests verify our implementation, not complete native parity.
 Anchor depenetration remains provisional (INT-10), and full component coverage and the
 memory/performance cost of retained world metadata still need validation.
+
+### Liquid contact continuation (2026-10-02, incomplete D08–D11)
+
+Liquid contact now uses the current native water/lava shrink vectors, including low-pose
+center clamping and material-cell tests independent of fluid surface height (Lens
+`0xa5d5c40`, `0xa5dd330`; `R:l/LiquidPhysicsSystem.cpp:182`). Contact boundary witnesses
+and the complete simulator suite pass. Currents, complete swimming travel/drag, liquid
+attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
+from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
+with any exact difference. This comparison is not a native parity acceptance gate.
