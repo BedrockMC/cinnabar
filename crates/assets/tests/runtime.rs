@@ -1173,3 +1173,13 @@ fn programmatic_diagnostic_runtime_is_minimal_and_self_contained() {
         "diagnostic fallback must not blur sequential and hashed namespaces"
     );
 }
+
+#[test]
+fn biome_water_opacity_round_trips_without_changing_other_flags() {
+    let mut compiled = compiled_assets();
+    compiled.biomes.rules[0].set_water_opacity(0.65).unwrap();
+    let runtime = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    let tints = runtime.biome_assets().resolve_live(&[]).unwrap();
+    assert_eq!(tints.records[1].water[3], 165.0 / 255.0);
+    assert_eq!(runtime.biome_assets().rules[0].flags & 1, 1);
+}

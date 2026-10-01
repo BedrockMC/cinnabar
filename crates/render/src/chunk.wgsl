@@ -265,6 +265,7 @@ fn apply_material_tint(
     biome_record: u32,
     local_position: vec3<f32>,
     normal: vec3<f32>,
+    world_origin: vec3<f32>,
 ) -> vec4<f32> {
     let tint_kind = material_flags & 0x30u;
     if (tint_kind != 0u) {
@@ -273,7 +274,8 @@ fn apply_material_tint(
             material_flags,
             biome_record,
             local_position - normal * 0.001,
-        );
+            world_origin,
+        ).rgb;
         if ((material_flags & (1u << 6u)) != 0u) {
             // Grass-side alpha is an overlay weight, not transparency. Its
             // alpha-zero RGB contains the opaque dirt base.
@@ -328,6 +330,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.biome_record,
         in.local_position,
         in.normal,
+        in.world_position - in.local_position,
     );
     let lit = lit_colour(
         colour.rgb,

@@ -39,6 +39,7 @@ struct VertexOutput {
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visible: u32,
     @location(9) lighting: vec3<f32>,
+    @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) @interpolate(flat) two_sided: u32,
     @location(13) world_position: vec3<f32>,
 }
@@ -59,6 +60,7 @@ fn invisible_vertex() -> VertexOutput {
     invisible.visible = 0u;
     invisible.lighting = vec3(0.0);
     invisible.two_sided = 0u;
+    invisible.world_origin = vec3(0.0);
     invisible.world_position = vec3(0.0);
     return invisible;
 }
@@ -204,13 +206,14 @@ fn vertex(
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
+    out.world_origin = vec3<f32>(origin.value.xyz);
     return out;
 }
 
-fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>) -> vec4<f32> {
+fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, world_origin: vec3<f32>) -> vec4<f32> {
     let tint_kind = flags & 0x30u;
     if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
-    return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position), sampled.a);
+    return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);
 }
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
@@ -246,7 +249,7 @@ fn fragment(
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
-    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     let lit = lit_colour(
         colour.rgb,
         in.lighting,
@@ -267,7 +270,7 @@ fn fragment_blend(
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
-    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
     let lit = lit_colour(

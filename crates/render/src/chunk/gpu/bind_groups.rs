@@ -50,7 +50,7 @@ pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) dry_foliage: u32,
     pub(in crate::chunk) water: u32,
     pub(in crate::chunk) flags: u32,
-    pub(in crate::chunk) _padding: u32,
+    pub(in crate::chunk) water_opacity: f32,
 }
 
 pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<BiomeTintGpu>() == 32);
@@ -77,7 +77,7 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
             dry_foliage: pack_linear_rgb10(entry.dry_foliage),
             water: pack_linear_rgb10(entry.water),
             flags: entry.flags,
-            _padding: 0,
+            water_opacity: entry.water_opacity,
         })
         .collect()
 }
