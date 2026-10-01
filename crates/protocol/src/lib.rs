@@ -140,7 +140,7 @@ pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
-pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
+pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession, network_stack_latency_reply};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,

@@ -35,6 +35,54 @@ fn local_actor_motion_commits_as_a_control_event_and_foreign_motion_is_dropped()
 }
 
 #[test]
+fn latency_fences_retain_motion_order_and_restored_controls_keep_admission_bounded() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::ActorMotion(ActorMotionEvent {
+                actor_runtime_id: 1,
+                motion: [0.0, 0.4, 0.0],
+                tick: 0,
+            }),
+        )
+        .unwrap();
+    stream
+        .submit(2, WorldEvent::NetworkStackLatency(777))
+        .unwrap();
+    stream
+        .submit(3, WorldEvent::NetworkStackLatency(888))
+        .unwrap();
+    let capacity = stream.remaining_admission_capacity();
+    let controls = stream.take_committed_controls();
+    assert!(matches!(
+        controls.as_slice(),
+        [
+            CommittedControlEvent::LocalActorMotion { sequence: 1, .. },
+            CommittedControlEvent::NetworkStackLatency {
+                sequence: 2,
+                creation_time: 777
+            },
+            CommittedControlEvent::NetworkStackLatency {
+                sequence: 3,
+                creation_time: 888
+            },
+        ]
+    ));
+    stream.restore_committed_controls(controls.clone().into_iter());
+    assert_eq!(stream.remaining_admission_capacity(), capacity);
+    assert_eq!(stream.take_committed_controls(), controls);
+}
+
+#[test]
 fn player_list_only_updates_commit_a_tab_cache_refresh_marker() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,

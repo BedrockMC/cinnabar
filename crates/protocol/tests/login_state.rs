@@ -986,6 +986,30 @@ async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
 }
 
 #[tokio::test]
+async fn mapped_world_ingress_exposes_latency_before_following_world_events() {
+    let transport = ScriptTransport::new(CompressionMode::None, SpawnOrder::RadiusThenSpawn, false);
+    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
+        .await
+        .unwrap();
+    for _ in 0..4 {
+        session.recv_world_event(0).await.unwrap();
+    }
+    let probe = session
+        .recv_world_event_mapped(0, Some, |_, _| None)
+        .await
+        .unwrap();
+    assert_eq!(probe, Some(WorldEvent::NetworkStackLatency(777)));
+    session
+        .send(protocol::network_stack_latency_reply(777))
+        .await
+        .unwrap();
+    assert_eq!(
+        session.recv_world_event(0).await.unwrap(),
+        WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
+    );
+}
+
+#[tokio::test]
 async fn deflate_login_waits_for_radius_then_spawn_and_enters_play() {
     assert_success(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn).await;
 }

@@ -1,30 +1,21 @@
-//! Outbound server latency-probe echo transform.
-//!
-//! One shared scaling helper backs every play-phase probe answer site so the
-//! plain and blob-cache ingress paths cannot drift apart.
+//! Native server latency-probe timestamp conversion.
 
-/// Scales one from-server latency-probe creation time into the outbound echo
-/// value using saturating arithmetic, so an extreme probe stays finite instead
-/// of wrapping.
-///
-/// PROVISIONAL transform pending authoritative retail-client measurement:
-///
-/// - The previous exact echo matched gophertunnel-family relays and local BDS,
-///   which accept any echoed creation time (BDS reads this packet only for its
-///   ping display and has shown no validation of the value).
-/// - One third-party anti-cheat implementation divides each echoed id by 1,000
-///   twice for non-PlayStation devices before matching, so exact echoes never
-///   resolve there; its PAI-ticked watchdog then tears the session down after
-///   spawn streaming completes.
-/// - Multiplying the received timestamp by 10^6 (`1_000_000`) is the documented
-///   inverse of that normalization. What an authoritative vanilla client
-///   actually sends remains unmeasured; an earlier retail-binary inspection
-///   was inconclusive.
-/// - Local BDS acceptance of this scaled value must be re-verified live before
-///   any acceptance gate may cite it.
+/// Converts the wire milliseconds into vanilla's fixed-width nanosecond value.
+/// The native packet reader multiplies by one million; its writer emits that
+/// value unchanged (1.26.50.26: 0x043b62a0, 0x042efda0).
 #[must_use]
 pub const fn scaled_creation_time(creation_time: u64) -> u64 {
-    creation_time.saturating_mul(1_000_000)
+    creation_time.wrapping_mul(1_000_000)
+}
+
+/// Builds the echo after preceding world controls have been applied.
+#[must_use]
+pub fn network_stack_latency_reply(creation_time: u64) -> crate::Packet {
+    valentine::bedrock::version::v1_26_51::NetworkStackLatencyPacket {
+        creation_time: scaled_creation_time(creation_time),
+        is_from_server: true,
+    }
+    .into()
 }
 
 #[cfg(test)]

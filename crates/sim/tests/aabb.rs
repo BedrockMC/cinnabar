@@ -54,10 +54,7 @@ fn boxes_separated_on_two_axes_do_not_clip() {
 fn logged_coordinate_keeps_support_at_a_synthetic_block_edge() {
     // The X coordinate is logged; this block is a synthetic contact witness.
     let player = Aabb::player_at(Vec3::new(1974.700_073_242_187_5, 101.0, 0.5));
-    let support = Aabb::new(
-        Vec3::new(1975.0, 100.0, 0.0),
-        Vec3::new(1976.0, 101.0, 1.0),
-    );
+    let support = Aabb::new(Vec3::new(1975.0, 100.0, 0.0), Vec3::new(1976.0, 101.0, 1.0));
     let falling = Vec3::new(0.0, -0.0784, 0.0);
 
     assert!(player.max.x > support.min.x);

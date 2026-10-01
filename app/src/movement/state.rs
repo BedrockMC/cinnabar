@@ -1,27 +1,18 @@
 //! Processed movement state derived by fixed-tick prediction.
 //!
-//! Vanilla Bedrock separates the raw button state it receives from the
-//! movement states its simulation actually acts on, and the outbound
-//! `PlayerAuthInput` flag families mirror that split (raw button carriers
-//! versus processed state carriers; VPA-011). Flag identity and wire order are
-//! pinned by Mojang's published protocol documentation and the vendored
-//! protocol-2168 packet definitions. The exact vanilla lifecycle of each flag
-//! has not been measured against a version-matched native client, so every
-//! rule below is Cinnabar's explicit provisional contract — recorded here so a
-//! future native measurement can replace it deliberately instead of silently.
+//! Jump initiation and arc tracking are local simulation facts. The wire's
+//! Jumping bit follows held processed input; StartJumping follows initiation.
+//! Other provisional state rules remain subject to native comparison.
 
-/// One completed tick's processed movement states.
-///
-/// Produced by the physics layer alongside each [`super::PhysicsMovementSample`]
-/// and consumed by the outbound encoder, so wire flags always describe what
-/// the simulator acted on rather than merely which buttons are held.
+/// Movement facts produced by one completed simulation tick.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProcessedMovementState {
     /// The simulator consumed a jump request from the ground this tick. The
     /// simulator can only act on a jump request while grounded, so an input
     /// edge pressed in mid-air or against a wall never initiates anything.
     pub jump_initiated: bool,
-    /// A simulated jump arc is in progress: initiated this tick, or still
+    /// Local jump-arc evidence, independent of the wire Jumping flag:
+    /// initiated this tick, or still
     /// carried from an earlier initiation because the simulator has not yet
     /// reported ground contact again. Session/correction resets clear it;
     /// correction replay recomputes both fields from the replayed timeline's
@@ -131,6 +122,12 @@ impl ReplayJumpArcFold {
         input: &sim::MovementInput,
         grounded_after_tick: bool,
     ) -> (bool, bool) {
+        if input.mode == sim::MovementMode::Riding {
+            self.grounded = grounded_after_tick;
+            self.jump_delay = 0;
+            self.arc_active = false;
+            return (false, false);
+        }
         // The simulator clears a retained post-jump cooldown whenever the
         // button is not held, then consumes requests only from pre-tick
         // ground contact with the cleared delay expired, then decrements the

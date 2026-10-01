@@ -8,7 +8,8 @@ use bytes::{Buf, BufMut, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, McpePacketName, PlayerInputTick, SetActorMotionPacket, Vec3 as WireVec3,
+    ActorRuntimeId, McpePacketName, NetworkStackLatencyPacket, PlayerInputTick,
+    SetActorMotionPacket, Vec3 as WireVec3,
 };
 
 use super::*;
