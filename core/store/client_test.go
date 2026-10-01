@@ -467,3 +467,54 @@ func TestEntitlementsRefreshAsksTheServiceFirst(t *testing.T) {
 		t.Fatalf("a cached read refreshed: %d err=%v", refreshes.Load(), err)
 	}
 }
+
+// A path or redirect that changes the origin must never carry the service token off-host.
+func TestTokenNeverLeavesTheServiceOrigin(t *testing.T) {
+	var leaked atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked.Add(1)
+	}))
+	t.Cleanup(other.Close)
+	otherURL, _ := url.Parse(other.URL)
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
+	}, nil)
+	for _, path := range []string{"//" + otherURL.Host + "/steal", "https://" + otherURL.Host + "/steal", "http://" + otherURL.Host + "/steal", "//user@" + otherURL.Host} {
+		if _, err := client.do(context.Background(), http.MethodGet, path, nil); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("%q err = %v", path, err)
+		}
+	}
+	if _, err := client.do(context.Background(), http.MethodGet, pathBalances, nil); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("cross-origin redirect err = %v", err)
+	}
+	if leaked.Load() != 0 {
+		t.Fatalf("other origin received %d requests", leaked.Load())
+	}
+}
+
+// Price options the purchase flow cannot express are refused, never flattened into separate prices.
+func TestOffersKeepOnlyWholeSingleCurrencyPrices(t *testing.T) {
+	item := func(options ...playfabcatalog.Price) *playfabcatalog.Item {
+		return &playfabcatalog.Item{ID: "offer-1", Title: map[string]string{"NEUTRAL": "Pack"}, PriceOptions: options}
+	}
+	mc := func(value int) playfabcatalog.PriceAmount {
+		return playfabcatalog.PriceAmount{Value: value, ItemID: "mc"}
+	}
+	combined := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100), {Value: 5, ItemID: "tokens"}}}
+	timed := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100)}, UnitDurationInSeconds: 86400}
+	bulk := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100)}, UnitAmount: 5}
+	single := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(320)}}
+
+	offer, ok := offerFromItem(item(combined, single, timed))
+	if !ok || len(offer.Prices) != 1 || offer.Prices[0] != (Price{Currency: "mc", Amount: 320}) {
+		t.Fatalf("offer = %+v ok = %v", offer, ok)
+	}
+	for name, option := range map[string]playfabcatalog.Price{"combined": combined, "timed": timed, "bulk": bulk} {
+		if _, ok := offerFromItem(item(option)); ok {
+			t.Fatalf("%s-only offer was listed", name)
+		}
+	}
+	if offer, ok := offerFromItem(item()); !ok || len(offer.Prices) != 0 {
+		t.Fatalf("an unpriced offer = %+v ok = %v", offer, ok)
+	}
+}

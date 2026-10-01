@@ -42,6 +42,7 @@ mod item_viewmodel;
 mod menu;
 mod menu_artwork;
 mod menu_scroll;
+pub(crate) use menu_artwork::BUILT_IN_TITLE;
 pub(crate) mod nametag_atlas;
 pub(crate) mod nametags;
 mod player_preview;
