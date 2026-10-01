@@ -67,6 +67,11 @@ pub trait TextMeasure {
         self.extent(text)
     }
 
+    /// Measures a named font; backends without font variants retain their default metrics.
+    fn font_extent(&self, text: &str, _font: &str, width: Option<f64>) -> [f64; 2] {
+        width.map_or_else(|| self.extent(text), |width| self.wrapped(text, width))
+    }
+
     /// A localizing label's text as it will draw; measurers without a language
     /// table measure it as written.
     fn localize<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
@@ -753,10 +758,18 @@ fn natural_uncached(
             } else {
                 std::borrow::Cow::Borrowed(text.as_str())
             };
-            let [w, h] = match width {
-                Some(width) if width > 0.0 => env.text.wrapped(&text, width / scale),
-                _ => env.text.extent(&text),
-            };
+            let font = control
+                .properties
+                .get("font_type")
+                .and_then(Value::as_str)
+                .unwrap_or("default");
+            let [w, h] = env.text.font_extent(
+                &text,
+                font,
+                width
+                    .filter(|width| *width > 0.0)
+                    .map(|width| width / scale),
+            );
             Some([w * scale, h * scale])
         }
         _ => None,

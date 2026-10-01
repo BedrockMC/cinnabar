@@ -566,6 +566,7 @@ fn session_items(
                     .into_iter()
                     .map(|identifier| SessionIcon {
                         identifier: identifier.into(),
+                        metadata: 0,
                         width: 16,
                         height: 16,
                         rgba8: vec![255; 16 * 16 * 4].into(),

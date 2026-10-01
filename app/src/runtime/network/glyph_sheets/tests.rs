@@ -48,6 +48,19 @@ fn a_stack_without_glyph_sheets_yields_none() {
     assert!(compile_session_glyphs(&view(vec![archive(1, &[])])).is_none());
 }
 
+#[test]
+fn empty_stack_records_missing_sheets_for_later_activation() {
+    let view = LayeredPackView::tracked(view(vec![]).shared_stack());
+    assert!(compile_session_glyphs(&view).is_none());
+    let inputs = view.dependencies().unwrap().snapshot();
+    for path in ["font/default8.png", "font/ascii_sga.png", "font/glyph_E0.png"] {
+        assert!(inputs.contains(&resource_pack::PackDependency::File {
+            path: path.into(),
+            limit: super::MAX_SHEET_SOURCE_BYTES,
+        }));
+    }
+}
+
 // The last-applied pack replaces a sheet wholesale; sheets it lacks still come from lower packs.
 #[test]
 fn the_last_applied_pack_wins_per_sheet() {
@@ -119,8 +132,8 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
     assert_eq!(glyph('B').size, [16, 16]);
     assert_eq!(
         glyph('é').size,
-        [8, 8],
-        "extended mapping stays on the Unicode sheet"
+        [0, 0],
+        "extended characters use default8 when its mapping includes them"
     );
     assert_eq!(
         applied
@@ -135,7 +148,7 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
         (assets::texel_size_64(0, 1) / 2) as i16
     );
     let restored = compile_session_glyphs(&view(vec![lower()])).unwrap();
-    assert_eq!(restored.cells.len(), usize::from(b'~' - b' ' + 1));
+    assert_eq!(restored.cells.len(), 256);
     assert_eq!(
         restored
             .cells
@@ -177,4 +190,41 @@ fn default8_keeps_leading_padding_in_advance_and_falls_through_bad_images() {
             .chunks_exact(4)
             .all(|pixel| pixel == [240, 120, 60, 255])
     );
+}
+
+#[test]
+fn extended_mapping_named_bitmap_and_locale_overrides_are_kept_separate() {
+    let metadata = br#"{"version":1,"fonts":[{"font_format":"bitmap","font_name":"custom","ascii_font_file":"font/custom"}],"font_aliases":[{"alias":"rune","fonts":[{"font_reference":"custom","font_ranges":[{"first":65,"last":65}],"font_language_code":"en_US"}]}]}"#;
+    let sheets = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[
+            ("font/default8.png", sheet_png(8, 130)),
+            ("font/custom.png", sheet_png(8, 65)),
+            ("font/font_metadata.json", metadata.to_vec()),
+            ("texts/en_US/font/glyph_E0.png", sheet_png(16, 1)),
+            ("font/glyph_E0.png", sheet_png(8, 1)),
+        ],
+    )]))
+    .unwrap();
+    assert_eq!(
+        sheets
+            .cells
+            .iter()
+            .find(|cell| cell.codepoint == 'é')
+            .unwrap()
+            .size,
+        [8, 8]
+    );
+    assert_eq!(
+        sheets
+            .cells
+            .iter()
+            .find(|cell| cell.codepoint == '\u{e001}')
+            .unwrap()
+            .size,
+        [16, 16]
+    );
+    assert_eq!(sheets.named["rune"].len(), 1);
+    assert_eq!(sheets.named["rune"][0].codepoint, 'A');
+    assert_eq!(sheets.named["rune"][0].size, [8, 8]);
 }
