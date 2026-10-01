@@ -3604,3 +3604,20 @@ expiry remain provisional. The simulator still uses its existing f64 arithmetic.
 No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound PAI
 and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
 no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.
+
+### Movement audit continuation (2026-10-01, incomplete)
+
+`fix/zeqa-corrections` merged `origin/dev-sonnet` at `473cec0e`. Ordinary steering
+now follows current-client f32 sin/cos products (Lens 1.26.50.26 RVA `0x99cc8b0`;
+`R:d/DefaultMoveSystems.cpp:32`). Historical Go fixtures remain comparison data,
+not a bit-exact vanilla oracle. Position, collision and other travel arithmetic
+still retain f64; the D01 parity gate remains open. Prediction-sync payload
+sources, historical-world replay, custom dimensions, fluid currents, special
+block effects and the missing gameplay/input scenarios remain incomplete.
+Grounded liquids now select liquid acceleration/ascent; soul sand uses native
+acceleration friction, with Soul Speed removing that penalty. Sneak edge clipping
+runs to supported motion or zero. Prediction sync waits 200 fresh ticks, and live
+and replay packets use actual jump initiation. Server flight-off is authoritative.
+Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9
+(Lens `0x4f32090`; `R:l/LocalPlayer.cpp:5095`) while the ledger retains its real type.
+No live or visual acceptance gate is closed by these changes.
