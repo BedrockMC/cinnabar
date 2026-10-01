@@ -320,3 +320,28 @@ fn a_repeated_takeoff_from_a_held_jump_signals_start_jumping() {
     }
     assert!(takeoffs >= 2, "a held jump repeats");
 }
+
+#[test]
+fn rider_correction_replay_does_not_start_a_player_jump() {
+    let mut physics = grounded_controller();
+    let mut ticker = super::MovementTicker::default();
+    ticker.reset(1, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(super::MovementSource::Physics);
+    for _ in 0..3 {
+        let sample = step(
+            &mut physics,
+            MovementInput { jumping: true, ..MovementInput::default() },
+            ModeIntent { ride: Some(RideKind::Boat), ..ModeIntent::default() },
+            &VersionedFloor(1),
+        );
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    super::reconcile_candidate_physics_correction(
+        &mut ticker, &mut physics, [0.1, 2.620_01, 0.0], 101, true,
+        super::PhysicsCorrectionMode::ReplayIfRetained, &VersionedFloor(1),
+    ).unwrap();
+    for snapshot in ticker.pending_snapshots() {
+        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits(), 0);
+        assert_ne!(snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(), 0);
+    }
+}
