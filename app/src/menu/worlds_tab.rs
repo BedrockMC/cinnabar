@@ -8,6 +8,7 @@ use protocol::world_control::{Difficulty, GameMode, World};
 use super::{LocalWorldCard, MenuAction, MenuField, MenuRuntime, MenuScreen, PendingConnect};
 use crate::local_worlds::{
     Input, LocalWorlds, Progress, PromptButton, Screen, Tab, WorldsView, game_mode_label,
+    world_type_label,
 };
 
 /// A press on a local-world screen or modal; the menu forwards it to the module.
@@ -242,10 +243,8 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
-                    A::Flat(!matches!(
-                        view.create.generator,
-                        protocol::world_control::Generator::Flat
-                    )),
+                    A::Flat(false),
+                    A::Flat(true),
                 ]),
             },
             Screen::Edit => local(&[
@@ -289,6 +288,7 @@ fn world_card(world: &World) -> LocalWorldCard {
     LocalWorldCard {
         name: world.name.clone(),
         game_mode: game_mode_label(world.game_mode).to_owned(),
+        world_type: world_type_label(world.generator).to_owned(),
         date: civil_date(world.last_played_unix.max(world.created_unix)),
         size: file_size(world.size_bytes),
     }

@@ -24,6 +24,8 @@ pub(crate) struct SavedServer {
 pub(crate) struct LocalWorldCard {
     pub(crate) name: String,
     pub(crate) game_mode: String,
+    /// The owner's world type label (Normal (BDS) or Flat (Dragonfly)).
+    pub(crate) world_type: String,
     pub(crate) date: String,
     pub(crate) size: String,
 }
