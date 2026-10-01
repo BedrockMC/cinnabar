@@ -314,7 +314,7 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages);
+            gpu.spans = draw_spans(&frame.instance_pages, &rig.instances, &rig.geometry_spans);
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
@@ -845,26 +845,27 @@ impl<P: PhaseItem> RenderCommand<P> for DrawActors {
         let gpu = gpu.into_inner();
         let tracker = tracker.into_inner();
         let mut executed_instances = 0;
+        let mut bound_page = None;
         for span in &gpu.spans {
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
-            let bind_group = if span.page == 0 {
-                gpu.bind_group.as_ref()
-            } else {
-                gpu.artwork
-                    .pages
-                    .get(usize::from(span.page) - 1)
-                    .and_then(|page| page.bind_group.as_ref())
-            };
-            let Some(bind_group) = bind_group else {
-                continue;
-            };
-            pass.set_bind_group(0, bind_group, &[view.1.offset]);
-            pass.draw(
-                0..gpu.maximum_vertex_count,
-                span.first..span.first + span.count,
-            );
+            if bound_page != Some(span.page) {
+                let bind_group = if span.page == 0 {
+                    gpu.bind_group.as_ref()
+                } else {
+                    gpu.artwork
+                        .pages
+                        .get(usize::from(span.page) - 1)
+                        .and_then(|page| page.bind_group.as_ref())
+                };
+                let Some(bind_group) = bind_group else {
+                    continue;
+                };
+                pass.set_bind_group(0, bind_group, &[view.1.offset]);
+                bound_page = Some(span.page);
+            }
+            pass.draw(0..span.vertex_count, span.first..span.first + span.count);
             tracker.record_draw(view.0.to_bits(), *span);
             executed_instances += span.count;
         }

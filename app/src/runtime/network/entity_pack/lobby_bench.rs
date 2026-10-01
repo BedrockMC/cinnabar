@@ -319,6 +319,25 @@ fn build_world(capture: &Capture, pack_path: &Path) -> (World, Vec<(u32, Vec<u8>
     (world, rest, replay)
 }
 
+/// Draws and vertex shader invocations as the actor pass issues them: one draw per run of
+/// instances sharing a page and geometry, each with that geometry's vertex count.
+fn gpu_draws(frame: &ActorRenderFrame) -> (usize, u64) {
+    let rig = &frame.rig;
+    let (mut draws, mut invocations, mut last) = (0, 0, None);
+    for (page, instance) in frame.instance_pages().iter().zip(rig.instances.iter()) {
+        let vertex_count = rig
+            .geometry_spans
+            .get(instance.geometry_id as usize)
+            .map_or(0, |span| span.vertex_count);
+        if last != Some((*page, instance.geometry_id)) {
+            draws += 1;
+            last = Some((*page, instance.geometry_id));
+        }
+        invocations += u64::from(vertex_count);
+    }
+    (draws, invocations)
+}
+
 #[repr(C)]
 struct Timespec {
     seconds: i64,
@@ -417,8 +436,12 @@ fn lobby_frame_bench() {
         RuntimeStage::ActorPreparation,
         RuntimeStage::ActorRigBuild,
     ];
-    let (mut instances, mut vertices, mut vertex_invocations) =
-        (Series::default(), Series::default(), Series::default());
+    let (mut instances, mut vertices, mut vertex_invocations, mut draw_calls) = (
+        Series::default(),
+        Series::default(),
+        Series::default(),
+        Series::default(),
+    );
     let mut next_packet = 0usize;
     for frame in 0..frames {
         let due = rest.len() * (frame + 1) / frames;
@@ -469,12 +492,13 @@ fn lobby_frame_bench() {
                 .0
                 .push(snapshot.samples[stage as usize].total.as_secs_f64() * 1e3);
         }
-        let rig = &world.resource::<ActorRenderFrame>().rig;
+        let frame = world.resource::<ActorRenderFrame>();
+        let rig = &frame.rig;
         instances.0.push(rig.instances.len() as f64);
         vertices.0.push(f64::from(rig.maximum_vertex_count));
-        vertex_invocations
-            .0
-            .push(rig.instances.len() as f64 * f64::from(rig.maximum_vertex_count));
+        let (draws, invocations) = gpu_draws(frame);
+        draw_calls.0.push(draws as f64);
+        vertex_invocations.0.push(invocations as f64);
     }
     let stream = world
         .resource::<crate::runtime::world::ClientWorld>()
@@ -501,6 +525,7 @@ fn lobby_frame_bench() {
     eprintln!("LOBBY_BENCH allocations {}", allocations.summary());
     eprintln!("LOBBY_BENCH instances {}", instances.summary());
     eprintln!("LOBBY_BENCH max_vertices {}", vertices.summary());
+    eprintln!("LOBBY_BENCH draw_calls {}", draw_calls.summary());
     eprintln!(
         "LOBBY_BENCH gpu_vertex_invocations {}",
         vertex_invocations.summary()

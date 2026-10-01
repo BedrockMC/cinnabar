@@ -131,6 +131,15 @@ pub struct ActorRenderFrame {
     pub(crate) instance_pages: Arc<[u8]>,
 }
 
+#[cfg(feature = "publication-test-support")]
+impl ActorRenderFrame {
+    /// The artwork page each rig instance samples; 0 is the player-skin array.
+    #[must_use]
+    pub fn instance_pages(&self) -> &[u8] {
+        &self.instance_pages
+    }
+}
+
 impl Default for ActorRenderFrame {
     fn default() -> Self {
         Self {
@@ -441,7 +450,13 @@ impl ActorRenderScene {
         skins_rgba8: Arc<[u8]>,
         assignments: &std::collections::BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
     ) -> &ActorRenderFrame {
-        let rig = self.rig_builder.build(partial_tick, view, submissions);
+        let rig = self
+            .rig_builder
+            .build_paged(partial_tick, view, submissions, |identity| {
+                assignments
+                    .get(identity)
+                    .map_or(0, |location| location.page)
+            });
         let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
         let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
         let instance_pages: Vec<_> = rig
