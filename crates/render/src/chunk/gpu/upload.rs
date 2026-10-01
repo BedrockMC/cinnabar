@@ -177,6 +177,12 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             bevy::log::error!("sub-chunk liquid-lighting stream exceeds the u32 instance range");
             continue;
         };
+        if liquid_required != liquid_lighting_required {
+            bevy::log::error!(
+                "sub-chunk liquid-lighting count must exactly match the liquid-quad count"
+            );
+            continue;
+        }
         let biome_words = if biome_record_is_fallback(&instance.biome) {
             Vec::new()
         } else {
