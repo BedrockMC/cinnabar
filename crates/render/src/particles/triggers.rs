@@ -11,10 +11,12 @@ use super::{
 /// Level events at or above this bit carry a legacy particle type in the low bits.
 pub const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 
-/// Break pieces per block; needs independent measurement against the native client.
-pub const BLOCK_BREAK_PARTICLES: f32 = 32.0;
-/// Pieces emitted per crack tick while mining; needs independent measurement.
-pub const BLOCK_CRACK_PARTICLES: f32 = 3.0;
+/// Default destruction count from vanilla BlockDestructionParticlesComponent.
+pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
+/// One piece per vanilla hit-particle event.
+pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;
+/// Vanilla keeps hits this far from the edge and outside the selected face.
+const CRACK_FACE_INSET: f32 = 0.1;
 
 /// Effect identifier for a legacy particle type (`LevelEventParticleLegacyEvent | type`).
 #[must_use]
@@ -309,6 +311,25 @@ pub fn block_break_request(
     }
 }
 
+/// One legacy terrain fragment at the block centre, with no emitter radius.
+#[must_use]
+pub fn terrain_request(
+    effect: &str,
+    block: [i32; 3],
+    tile: TileRequest,
+    tint: [f32; 4],
+) -> SpawnRequest {
+    let mut request = block_break_request(effect, block, tile, tint);
+    for (name, value) in &mut request.variables {
+        match name.as_str() {
+            "emitter_particles_count" => *value = 1.0,
+            "emitter_radius" => *value = 0.0,
+            _ => {}
+        }
+    }
+    request
+}
+
 /// Item-icon pieces at `position` (item break, eating crumbs, snowball and egg impacts).
 #[must_use]
 pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> SpawnRequest {
@@ -345,13 +366,20 @@ pub fn block_crack_request(
     };
     let mut request = block_break_request(effect, block, tile, tint);
     for (component, direction) in request.position.iter_mut().zip(normal) {
-        *component += direction * 0.55;
+        *component += direction * (0.5 + CRACK_FACE_INSET);
     }
+    request.position_spread = normal.map(|component| {
+        if component == 0.0 {
+            0.5 - CRACK_FACE_INSET
+        } else {
+            0.0
+        }
+    });
     for (name, value) in &mut request.variables {
         match name.as_str() {
             "emitter_particles_count" => *value = BLOCK_CRACK_PARTICLES,
-            "emitter_radius" => *value = 0.4,
-            "velocity_scalar" => *value = 0.4,
+            "emitter_radius" => *value = 0.0,
+            "velocity_scalar" => *value = 0.7,
             _ => {}
         }
     }

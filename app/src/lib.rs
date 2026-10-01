@@ -22,6 +22,7 @@ mod melee;
 mod menu;
 pub mod metrics;
 mod mining;
+mod modding;
 pub mod movement;
 mod named_audio;
 mod native_dialog;

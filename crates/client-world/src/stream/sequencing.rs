@@ -571,6 +571,13 @@ impl WorldStream {
                     resolved,
                 });
             }
+            WorldEvent::NetworkStackLatency(creation_time) => {
+                let sequence = sequence.expect("latency probes commit through submit");
+                self.push_committed_control(CommittedControlEvent::NetworkStackLatency {
+                    sequence,
+                    creation_time,
+                });
+            }
             WorldEvent::ActorMotion(motion) => {
                 let sequence = sequence.expect("sequenced actor motion commits through submit");
                 if motion.actor_runtime_id != self.local_player_runtime_id {
@@ -615,7 +622,8 @@ impl WorldStream {
                     event,
                 });
             }
-            WorldEvent::Particle(event) => {
+            WorldEvent::Particle(mut event) => {
+                self.remap_particle_block_ids(&mut event);
                 let sequence = sequence.expect("sequenced particle events commit through submit");
                 self.push_committed_particle(CommittedParticleEvent {
                     sequence,

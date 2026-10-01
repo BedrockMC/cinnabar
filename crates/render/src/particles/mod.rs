@@ -21,5 +21,9 @@ pub use system::{MAX_LIVE_PARTICLES, ParticleSystem};
 pub use triggers::{
     LevelParticle, block_break_request, block_crack_request, classify_level_event,
     is_particle_level_event, item_icon_request, named_request, parse_molang_variables,
+    terrain_request,
 };
 pub use world::{EmptyWorld, Fluid, ParticleWorld};
+
+#[cfg(test)]
+mod terrain_tests;

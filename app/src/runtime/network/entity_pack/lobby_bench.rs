@@ -22,6 +22,8 @@ use crate::runtime::network::{
     HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
 };
 
+mod player_report;
+
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const COMPILED: &str = "../.local/assets/compiled";
 

@@ -141,6 +141,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
+    skin_layers: Local<'s, crate::presentation::skin_layers::SkinLayerCache>,
     poses: Local<'s, crate::presentation::actors::PoseConversions>,
     layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
@@ -173,6 +174,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         mut session_artwork,
         mut cape_state,
         mut skin_rigs,
+        mut skin_layers,
         mut poses,
         mut layer_poses,
         mut hand_builder,
@@ -208,6 +210,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
     if *published_session != session_id {
         scene.reset();
         actor_clock.reset();
+        *skin_layers = Default::default();
         *published_session = session_id;
         if let Some(stream) = client_world.stream.as_mut() {
             stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
@@ -590,12 +593,24 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
             &mut layer_poses,
         );
     }
-    // Layers were built above from the visible body, so hiding the body keeps armor and held items.
+    if let Some(stream) = client_world.stream.as_ref()
+        && let Some(pages) = skin_layers.apply(
+            &mut batch,
+            artwork,
+            |runtime_id| stream.actor_rig(runtime_id),
+            &mut skin_rigs,
+            |geometry| new_geometries.push(geometry),
+        )
+    {
+        scene.configure_artwork(pages);
+    }
+    // Hiding skin layers keeps armor and held items visible.
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
             if (identity.layer == render::ACTOR_LAYER_BODY
                 || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+                || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
                     .actor(identity.runtime_id)
@@ -903,10 +918,14 @@ mod tests {
             for z in (-60..=60).step_by(3) {
                 for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
                     let feet = [x as f32, y, z as f32];
-                    if render::actor_bounds_are_visible(feet, scale, Some(cull)) {
+                    if render::actor_bounds_are_visible(feet, scale, Default::default(), Some(cull))
+                    {
                         drawn += 1;
-                        assert!(view.admits(feet, scale, false), "{feet:?} x{scale}");
-                    } else if !view.admits(feet, scale, false) {
+                        assert!(
+                            view.admits(feet, scale, false, Default::default()),
+                            "{feet:?} x{scale}"
+                        );
+                    } else if !view.admits(feet, scale, false, Default::default()) {
                         held += 1;
                     }
                 }

@@ -878,6 +878,7 @@ mod cases_08;
 mod cases_09;
 mod cases_10;
 mod cases_11;
+mod cases_12;
 mod forced_remesh;
 mod inline_cohort;
 mod inventory_commit_fence;

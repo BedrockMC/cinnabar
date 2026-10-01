@@ -916,6 +916,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
+    crate::modding::configure_from_environment(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();

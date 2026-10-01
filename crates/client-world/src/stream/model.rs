@@ -336,6 +336,11 @@ pub enum ForcedRemeshManifestState {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommittedControlEvent {
+    /// An ordered server probe ready to echo after earlier controls are applied.
+    NetworkStackLatency {
+        sequence: u64,
+        creation_time: u64,
+    },
     /// A MobEffect change for the local movement simulator. Its packet tick is
     /// retained as correlation metadata, not used as a local expiry clock.
     /// The same event is also retained in [`CommittedUiEvent::LocalEffect`].
