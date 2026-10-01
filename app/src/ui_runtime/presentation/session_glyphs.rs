@@ -66,3 +66,21 @@ pub(super) fn observe(
     };
     dynamic_textures::rebuild(runtime);
 }
+
+impl SessionGlyphPages {
+    /// Texels of UI page `page` when it is one of these glyph pages.
+    pub(super) fn page(
+        &self,
+        runtime_dynamic_start: usize,
+        page: usize,
+    ) -> Option<super::nametag_atlas::GlyphPage<'_>> {
+        let page = self
+            .pages
+            .get(page.checked_sub(runtime_dynamic_start + FIRST_GLYPH_PAGE)?)?;
+        Some(super::nametag_atlas::GlyphPage {
+            width: PAGE_SIDE,
+            height: PAGE_SIDE,
+            rgba8: page.pixels(),
+        })
+    }
+}

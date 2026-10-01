@@ -571,8 +571,9 @@ mod tests {
             command.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
             command
         } else {
+            // `exec` so killing the helper ends `sleep` too: dash would leave it holding stdout.
             let mut command = Command::new("sh");
-            command.args(["-c", "sleep 30"]);
+            command.args(["-c", "exec sleep 30"]);
             command
         };
         let child = command.stdout(Stdio::piped()).spawn().unwrap();

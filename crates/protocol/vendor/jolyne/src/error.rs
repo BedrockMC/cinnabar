@@ -69,6 +69,14 @@ pub enum ProtocolError {
     MissingLoginPacket,
     #[error("Empty packet during initial handshake")]
     EmptyHandshakePacket,
+    /// A Disconnect ended the join; the texts are the server's own, unbounded.
+    #[error("Server disconnected during {stage}: {reason}")]
+    ServerDisconnect {
+        stage: &'static str,
+        reason: String,
+        message: String,
+        filtered_message: String,
+    },
 }
 
 #[derive(Debug, Error)]

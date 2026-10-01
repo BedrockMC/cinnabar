@@ -83,6 +83,7 @@ type options struct {
 	localBackend              string
 	bdsDir                    string
 	bdsVersion                string
+	bdsImage                  string
 	docker                    string
 }
 
@@ -103,7 +104,8 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.localServerBin, "local-server-bin", "", "local world server binary (default: bedrock-local-server beside the core)")
 	flags.StringVar(&opts.localBackend, "local-backend", "auto", "default backend for new local worlds: auto (BDS where available, else dragonfly), bds or dragonfly")
 	flags.StringVar(&opts.bdsDir, "bds-dir", "", "directory for downloaded Bedrock Dedicated Server builds (default: bds beside the worlds directory)")
-	flags.StringVar(&opts.bdsVersion, "bds-version", "", "exact Bedrock Dedicated Server build to download (default: the current build matching the client version)")
+	flags.StringVar(&opts.bdsVersion, "bds-version", "", "exact Bedrock Dedicated Server build to download (the client passes its target manifest's server_version)")
+	flags.StringVar(&opts.bdsImage, "bds-image", "", "digest-pinned container image that runs the Linux Bedrock Dedicated Server where no native build exists")
 	flags.StringVar(&opts.docker, "docker", "docker", "Docker-compatible CLI used to run the Linux Bedrock Dedicated Server where no native build exists")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -264,7 +266,7 @@ func runWithResourcePackCacheFactory(
 		localTarget = localWorlds.Target
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
-	var resourcePackDownload func(proxy.ResourcePackDownload)
+	var connectProgress func(proxy.ConnectProgress)
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
@@ -296,7 +298,7 @@ func runWithResourcePackCacheFactory(
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
 		resourcePackAdmissionUpdate = statusStore.Observe
-		resourcePackDownload = statusStore.ObservePackDownload
+		connectProgress = statusStore.ObserveConnectProgress
 		transfers.OnTransfer = statusStore.ObserveTransfer
 		onDisconnect = statusStore.ObserveDisconnect
 	}
@@ -328,7 +330,7 @@ func runWithResourcePackCacheFactory(
 			)
 		},
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
-		ResourcePackDownload:        resourcePackDownload,
+		ConnectProgress:             connectProgress,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

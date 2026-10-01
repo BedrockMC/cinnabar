@@ -29,12 +29,29 @@ type packetDisconnecter interface {
 	DisconnectPacket(packet.Disconnect) error
 }
 
-// relayPreLoginDisconnect forwards a server's disconnect packet, found anywhere in err,
-// to a downstream that has not spawned yet so the player sees the real reason.
+// relayPreLoginDisconnect tells a downstream that has not spawned yet why its join failed: a
+// server's own disconnect packet found anywhere in err, else vanilla's lang key for the failure.
 func relayPreLoginDisconnect(downstream packetDisconnecter, err error) {
 	var disconnect *minecraft.DisconnectPacketError
-	if !errors.As(err, &disconnect) || disconnect == nil {
+	if errors.As(err, &disconnect) && disconnect != nil {
+		_ = callWithoutPanic(func() error { return downstream.DisconnectPacket(*disconnect.Packet()) })
 		return
 	}
-	_ = callWithoutPanic(func() error { return downstream.DisconnectPacket(*disconnect.Packet()) })
+	var cancelled *preparationCancellationError
+	if err == nil || errors.As(err, &cancelled) {
+		return
+	}
+	_ = callWithoutPanic(func() error { return downstream.DisconnectPacket(packet.Disconnect{Message: joinFailureKey(err)}) })
+}
+
+func joinFailureKey(err error) string {
+	var realm *realmJoinError
+	switch {
+	case errors.Is(err, errResourcePackTransferTooLarge):
+		return "disconnectionScreen.resourcePack"
+	case errors.As(err, &realm):
+		return "disconnectionScreen.cantConnectToRealm"
+	default:
+		return "disconnectionScreen.cantConnect"
+	}
 }
