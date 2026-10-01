@@ -43,7 +43,7 @@ below is opt-in and off unless you, or the server you join, turn it on.
 | | What it is | Status |
 | --- | --- | --- |
 | **Cinnabar Experiences** | A Roblox-style game API for servers. A server ships a signed bundle of assets and sandboxed WebAssembly code, and Cinnabar runs it after you consent: custom UI, in-world objects and effects, input handling and game modes. Vanilla players on the same server see a normal Bedrock game. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
-| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. It's built into the client, so no server code is needed. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
+| **Video streaming** | Servers can stream video with its own synced audio onto in-world screens, blocks, entities and UI. Video loads over HTTPS from any static host or CDN, not through the game connection. It's built into the client, so no server code is needed. | In progress: [#34](https://github.com/bedrock-mc/cinnabar/pull/34) |
 | **Mods** | Client mods as WebAssembly components with versioned, capability-scoped APIs. Each mod runs sandboxed with no file, network or account access, and hot-reloads. A crashing mod is disabled instead of taking down the client. | Developer preview: [docs/modding-spike.md](docs/modding-spike.md) |
 | **Mod marketplace** | Browse, install and update mods from inside Cinnabar. | Coming soon |
 | **Live resource packs** | Add, remove or reorder resource packs without leaving the world. | In progress |
