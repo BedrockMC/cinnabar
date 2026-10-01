@@ -132,14 +132,49 @@ impl UiPresentationRuntime {
         self.sync_server_ui_pages();
     }
 
+    /// Draws oversized server textures from their server-page downscale again.
+    #[cfg(test)]
+    pub(crate) fn drop_full_res_art(&mut self) {
+        if let Some(engine) = self.form_presentation.engine.as_mut() {
+            engine.textures.set_full_res(Default::default());
+        }
+    }
+
+    /// Points the engine's oversized server textures at their art-page copies.
+    pub(super) fn refresh_full_res_art(&mut self) {
+        let full_res = self
+            .menu_artwork_oversized
+            .iter()
+            .filter_map(|(key, _)| {
+                let art = format!("{}{key}", super::menu_artwork::SERVER_ART_PREFIX);
+                Some((key.clone(), *self.menu_artwork.refs.get(&art)?))
+            })
+            .collect();
+        if let Some(engine) = self.form_presentation.engine.as_mut() {
+            engine.textures.set_full_res(full_res);
+        }
+    }
+
     /// Hands changed server atlas pages to the dynamic texture pages; runs
     /// after the frame's screens drew, before the frame publishes.
     pub(super) fn sync_server_ui_pages(&mut self) {
-        let changed = self
+        let mut changed = self
             .form_presentation
             .engine
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
+        // Server textures too big for a server page draw from full-resolution art.
+        let oversized = self.oversized_ui_textures();
+        let same = oversized.len() == self.menu_artwork_oversized.len()
+            && oversized
+                .iter()
+                .zip(&self.menu_artwork_oversized)
+                .all(|(a, b)| a.0 == b.0);
+        if !same {
+            self.menu_artwork_oversized = oversized;
+            self.menu_artwork_dirty = true;
+            changed = true;
+        }
         if changed {
             self.rebuild_dynamic_textures();
         }
