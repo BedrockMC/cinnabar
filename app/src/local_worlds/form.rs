@@ -1,7 +1,10 @@
-use protocol::world_control::{Difficulty, GameMode, Generator, NewWorld};
+use protocol::world_control::{Backend, Difficulty, GameMode, Generator, NewWorld, World};
 
-const MAX_WORLD_NAME_CHARS: usize = 64;
-const DEFAULT_WORLD_NAME: &str = "New World";
+/// Vanilla's world name field limit (`CreateNewWorld.general`, 30 characters); the core allows 64.
+pub(crate) const MAX_WORLD_NAME_CHARS: usize = 30;
+/// Vanilla's seed field limit.
+pub(crate) const MAX_SEED_CHARS: usize = 32;
+const DEFAULT_WORLD_NAME: &str = "My World";
 
 /// Editable settings of the create-world screen.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,6 +78,26 @@ pub(crate) fn seed_from_text(text: &str) -> Option<i64> {
     Some(i64::from_ne_bytes(hash.to_ne_bytes()))
 }
 
+/// Editable settings of a saved world.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EditForm {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) game_mode: GameMode,
+    pub(crate) difficulty: Difficulty,
+}
+
+impl EditForm {
+    pub(crate) fn of(world: &World) -> Self {
+        Self {
+            id: world.id.clone(),
+            name: world.name.clone(),
+            game_mode: world.game_mode,
+            difficulty: world.difficulty,
+        }
+    }
+}
+
 impl CreateForm {
     pub(crate) fn build(&self) -> Result<NewWorld, FormError> {
         Ok(NewWorld {
@@ -82,33 +105,10 @@ impl CreateForm {
             game_mode: self.game_mode,
             generator: self.generator,
             difficulty: self.difficulty,
-            backend: None,
+            // Flat worlds run on the built-in server, which can pause; default worlds need BDS.
+            backend: (self.generator == Generator::Flat).then_some(Backend::Dragonfly),
             seed: seed_from_text(&self.seed_text),
         })
-    }
-
-    pub(crate) fn cycle_game_mode(&mut self) {
-        self.game_mode = match self.game_mode {
-            GameMode::Survival => GameMode::Creative,
-            GameMode::Creative => GameMode::Adventure,
-            GameMode::Adventure => GameMode::Survival,
-        };
-    }
-
-    pub(crate) fn cycle_generator(&mut self) {
-        self.generator = match self.generator {
-            Generator::Normal => Generator::Flat,
-            Generator::Flat => Generator::Normal,
-        };
-    }
-
-    pub(crate) fn cycle_difficulty(&mut self) {
-        self.difficulty = match self.difficulty {
-            Difficulty::Peaceful => Difficulty::Easy,
-            Difficulty::Easy => Difficulty::Normal,
-            Difficulty::Normal => Difficulty::Hard,
-            Difficulty::Hard => Difficulty::Peaceful,
-        };
     }
 }
 
@@ -120,10 +120,41 @@ pub(crate) fn game_mode_label(mode: GameMode) -> &'static str {
     }
 }
 
-pub(crate) fn generator_label(generator: Generator) -> &'static str {
-    match generator {
-        Generator::Normal => "Default",
-        Generator::Flat => "Superflat",
+/// Vanilla's per-mode description under the game mode control.
+pub(crate) fn game_mode_description(mode: GameMode) -> &'static str {
+    match mode {
+        GameMode::Survival => {
+            "Explore a mysterious world where you build, collect, craft, and fight monsters."
+        }
+        GameMode::Creative => {
+            "Create, build, and explore without limits. You can fly, have endless materials, and \
+             can't be hurt by monsters."
+        }
+        GameMode::Adventure => {
+            "You get to set your own rules through in-game commands on how you and other can \
+             interact with the game."
+        }
+    }
+}
+
+/// Vanilla's per-difficulty description under the difficulty control.
+pub(crate) fn difficulty_description(difficulty: Difficulty) -> &'static str {
+    match difficulty {
+        Difficulty::Peaceful => {
+            "No hostile mobs and only some neutral mobs spawn. Hunger bar doesn't deplete and \
+             health replenishes over time."
+        }
+        Difficulty::Easy => {
+            "Hostile mobs spawn but deal less damage. Hunger bar depletes and drains health down \
+             to 5 hearts."
+        }
+        Difficulty::Normal => {
+            "Hostile mobs spawn and deal standard damage. Hunger bar depletes and drains health \
+             down to half a heart."
+        }
+        Difficulty::Hard => {
+            "Hostile mobs spawn and deal more damage. Hunger bar depletes and drains all health."
+        }
     }
 }
 
@@ -143,17 +174,26 @@ mod tests {
     #[test]
     fn defaults_build_a_random_seed_survival_world() {
         let world = CreateForm::default().build().expect("valid defaults");
-        assert_eq!(world.name, "New World");
+        assert_eq!(world.name, "My World");
         assert_eq!(world.game_mode, GameMode::Survival);
         assert_eq!(world.seed, None);
+        assert_eq!(world.backend, None, "the core puts default worlds on BDS");
+        let flat = CreateForm {
+            generator: Generator::Flat,
+            ..CreateForm::default()
+        };
+        assert_eq!(
+            flat.build().map(|w| w.backend),
+            Ok(Some(Backend::Dragonfly))
+        );
     }
 
     #[test]
     fn name_is_trimmed_and_validated() {
         assert_eq!(validate_name("  Home  "), Ok("Home".to_owned()));
         assert_eq!(validate_name("   "), Err(FormError::EmptyName));
-        assert_eq!(validate_name(&"x".repeat(65)), Err(FormError::NameTooLong));
-        assert_eq!(validate_name(&"x".repeat(64)).map(|n| n.len()), Ok(64));
+        assert_eq!(validate_name(&"x".repeat(31)), Err(FormError::NameTooLong));
+        assert_eq!(validate_name(&"x".repeat(30)).map(|n| n.len()), Ok(30));
         assert_eq!(validate_name("a\nb"), Err(FormError::ControlCharacters));
     }
 
@@ -167,33 +207,5 @@ mod tests {
         assert!(hashed.is_some());
         assert_eq!(hashed, seed_from_text("glacier"));
         assert_ne!(hashed, seed_from_text("glacier2"));
-    }
-
-    #[test]
-    fn cycles_visit_every_value_and_wrap() {
-        let mut form = CreateForm::default();
-        let modes: Vec<_> = (0..3)
-            .map(|_| {
-                form.cycle_game_mode();
-                form.game_mode
-            })
-            .collect();
-        assert_eq!(
-            modes,
-            [GameMode::Creative, GameMode::Adventure, GameMode::Survival]
-        );
-        form.cycle_generator();
-        assert_eq!(form.generator, Generator::Flat);
-        form.cycle_generator();
-        assert_eq!(form.generator, Generator::Normal);
-        let mut seen = vec![form.difficulty];
-        for _ in 0..3 {
-            form.cycle_difficulty();
-            seen.push(form.difficulty);
-        }
-        seen.dedup();
-        assert_eq!(seen.len(), 4);
-        form.cycle_difficulty();
-        assert_eq!(form.difficulty, Difficulty::Normal);
     }
 }

@@ -1,242 +1,188 @@
 package store
 
 import (
-	"encoding/json"
+	"context"
+	"regexp"
 	"strings"
+	"sync"
+
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
+	"golang.org/x/text/language"
 )
 
 const (
 	maxPageRows      = 60
-	maxPageOffers    = 120
 	maxRowOffers     = 40
 	maxStringLen     = 256
-	maxWalkDepth     = 8
 	maxTagsPerOffer  = 8
 	maxPricesPerItem = 4
+	rowSearchWorkers = 6
 )
 
-// Members tried, in order, for each offer field of a layout page; the page schema is server-defined so
-// unknown shapes are skipped rather than failing the page.
-var (
-	rowListKeys   = []string{"rows", "sections", "components", "children"}
-	offerListKeys = []string{"offers", "items", "content", "products"}
-	idKeys        = []string{"id", "offerId", "itemId", "productId"}
-	titleKeys     = []string{"title", "name", "displayName", "header", "text"}
-	creatorKeys   = []string{"creator", "creatorName", "publisher"}
-	imageKeys     = []string{"thumbnail", "thumbnailUrl", "image", "imageUrl", "icon"}
-	priceKeys     = []string{"price", "prices", "minecoinPrice", "cost"}
-)
+var pagePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 
-// parsePage reduces a layout result to titled rows of offers, bounded so it fits a control frame.
-func parsePage(id string, result json.RawMessage) Page {
-	page := Page{ID: id, Rows: []Row{}}
-	var top any
-	if json.Unmarshal(result, &top) != nil {
-		return page
+// Home loads a known store page by its session-config name. Layout rows carry catalog queries, not
+// offers; each row is filled by running its first query the catalog search can express.
+func (c *Client) Home(ctx context.Context, name string) (Page, error) {
+	if !pagePattern.MatchString(name) {
+		return Page{}, ErrInvalidRequest
 	}
-	if obj, ok := top.(map[string]any); ok {
-		if inner, ok := obj["page"]; ok {
-			top = inner
-		}
+	cfg, err := c.sessionConfig(ctx)
+	if err != nil {
+		return Page{}, err
 	}
-	total := 0
-	var walk func(node any, depth int)
-	walk = func(node any, depth int) {
-		if depth > maxWalkDepth || page.Truncated {
-			return
-		}
-		obj, ok := node.(map[string]any)
-		if !ok {
-			if arr, ok := node.([]any); ok {
-				for _, child := range arr {
-					walk(child, depth+1)
-				}
-			}
-			return
-		}
-		if offers := offersOf(obj); len(offers) > 0 {
-			if len(page.Rows) >= maxPageRows || total+len(offers) > maxPageOffers {
+	inv, err := c.loadInventory(ctx, false)
+	if err != nil {
+		return Page{}, err
+	}
+	c.mu.Lock()
+	state := marketplace.PageRequest{Entitlements: inv.ids, InventoryVersion: c.etag, ListVersion: c.lists}
+	c.mu.Unlock()
+	if state.Entitlements == nil {
+		state.Entitlements = []string{}
+	}
+	layout, err := c.cfg.Market.Page(ctx, marketplace.PageByID, cfg.PageID(name), state)
+	if err != nil {
+		return Page{}, err
+	}
+	c.mu.Lock()
+	if layout.HeaderInventoryETag != "" {
+		c.etag = layout.HeaderInventoryETag
+	}
+	if layout.HeaderListsVersion != "" {
+		c.lists = layout.HeaderListsVersion
+	}
+	version := c.etag
+	c.mu.Unlock()
+
+	page := Page{ID: name, Rows: []Row{}, InventoryVersion: version}
+	var pending []pendingRow
+	for _, section := range layout.Layout {
+		for _, row := range section.Rows {
+			if len(pending) >= maxPageRows {
 				page.Truncated = true
-				return
+				break
 			}
-			total += len(offers)
-			page.Rows = append(page.Rows, Row{
-				ID: firstString(obj, "id", "rowId", "name"), Title: firstText(obj, titleKeys...),
-				Kind: firstString(obj, "type", "kind", "layout"), Offers: offers,
-				Continuation: continuationOf(obj),
-			})
-			return
-		}
-		for _, key := range rowListKeys {
-			if arr, ok := obj[key].([]any); ok {
-				for _, child := range arr {
-					walk(child, depth+1)
-				}
+			if query, ok := rowQuery(row); ok {
+				pending = append(pending, pendingRow{section: section.Name, row: row, query: query})
 			}
 		}
 	}
-	walk(top, 0)
-	return page
-}
-
-// offersOf returns the offers listed directly under a row object.
-func offersOf(row map[string]any) []Offer {
-	for _, key := range offerListKeys {
-		arr, ok := row[key].([]any)
-		if !ok {
-			continue
-		}
-		var offers []Offer
-		for _, entry := range arr {
-			obj, ok := entry.(map[string]any)
-			if !ok {
-				continue
-			}
-			if offer, ok := offerFromLayout(obj, firstString(row, "storeId")); ok {
-				offers = append(offers, offer)
-				if len(offers) >= maxRowOffers {
-					break
-				}
-			}
-		}
-		if len(offers) > 0 {
-			return offers
+	rows, err := c.fillRows(ctx, pending)
+	if err != nil {
+		return Page{}, err
+	}
+	for _, row := range rows {
+		if len(row.Offers) > 0 {
+			page.Rows = append(page.Rows, row)
 		}
 	}
-	return nil
+	return page, nil
 }
 
-func offerFromLayout(obj map[string]any, rowStore string) (Offer, bool) {
-	// Offer ids are GUIDs; the inventory keys them lowercase.
-	id := strings.ToLower(firstString(obj, idKeys...))
-	title := firstText(obj, titleKeys...)
-	if id == "" || !ValidOfferID(id) || title == "" {
+type pendingRow struct {
+	section string
+	row     marketplace.Row
+	query   marketplace.Query
+}
+
+// rowQuery returns the first of the row's queries the catalog search can express.
+func rowQuery(row marketplace.Row) (marketplace.Query, bool) {
+	for _, query := range row.Queries {
+		if _, ok := query.SearchFilter(); ok {
+			return query, true
+		}
+	}
+	return marketplace.Query{}, false
+}
+
+// fillRows runs each row's query; a failed search drops its row, and the page fails only when every
+// search failed.
+func (c *Client) fillRows(ctx context.Context, pending []pendingRow) ([]Row, error) {
+	rows := make([]Row, len(pending))
+	errs := make([]error, len(pending))
+	jobs := make(chan int)
+	var wait sync.WaitGroup
+	for range min(rowSearchWorkers, len(pending)) {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				rows[index], errs[index] = c.fillRow(ctx, pending[index])
+			}
+		}()
+	}
+	for index := range pending {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
+	var firstErr error
+	failed := 0
+	for _, err := range errs {
+		if err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	if failed > 0 && failed == len(pending) {
+		return nil, firstErr
+	}
+	return rows, nil
+}
+
+func (c *Client) fillRow(ctx context.Context, p pendingRow) (Row, error) {
+	filter, _ := p.query.SearchFilter()
+	filter.Language = language.AmericanEnglish
+	result, err := c.cfg.Catalog.SearchItems(ctx, filter)
+	if err != nil {
+		return Row{}, err
+	}
+	row := Row{ID: clip(p.row.TelemetryID), Title: clip(p.section), Offers: []Offer{}}
+	if len(p.row.Components) > 0 {
+		row.Kind = clip(p.row.Components[0].Type)
+	}
+	for i := range result.Items {
+		if offer, ok := offerFromItem(&result.Items[i]); ok && len(row.Offers) < maxRowOffers {
+			offer.Owned = c.owned(offer.ID)
+			row.Offers = append(row.Offers, offer)
+		}
+	}
+	return row, nil
+}
+
+// offerFromMarketItem maps a store-service catalog item; an item without an id or title is skipped.
+func offerFromMarketItem(item *marketplace.Item) (Offer, bool) {
+	id := strings.ToLower(item.ID)
+	title := clip(item.Title.Neutral())
+	if !ValidOfferID(id) || title == "" {
 		return Offer{}, false
 	}
 	offer := Offer{
-		ID: id, Title: title, Creator: firstText(obj, creatorKeys...),
-		ContentType: firstString(obj, "contentType", "type"),
-		StoreID:     firstString(obj, "storeId"),
+		ID: id, Title: title, Creator: clip(item.CreatorName),
+		ContentType: clip(item.ContentType), StoreID: clip(item.StoreID),
 	}
-	if offer.StoreID == "" {
-		offer.StoreID = rowStore
-	}
-	for _, key := range imageKeys {
-		if url := imageURL(obj[key]); url != "" {
-			offer.ThumbnailURL = url
+	for _, image := range item.Images {
+		if strings.EqualFold(image.Type, "Thumbnail") && strings.HasPrefix(image.URL, "https://") && len(image.URL) <= 1024 {
+			offer.ThumbnailURL = image.URL
 			break
 		}
 	}
-	for _, key := range priceKeys {
-		if prices := pricesOf(obj[key]); len(prices) > 0 {
-			offer.Prices = prices
-			break
+	if price := item.Price; price != nil {
+		amount := int64(price.ListPrice)
+		if price.Sale != nil && price.Sale.SalePrice > 0 {
+			amount = price.Sale.SalePrice
 		}
+		offer.Prices = []Price{{Currency: price.CurrencyID, Amount: amount}}
 	}
-	if tags, ok := obj["tags"].([]any); ok {
-		for _, tag := range tags {
-			if s, ok := tag.(string); ok && s != "" && len(offer.Tags) < maxTagsPerOffer {
-				offer.Tags = append(offer.Tags, clip(s))
-			}
+	for _, tag := range item.Tags {
+		if len(offer.Tags) < maxTagsPerOffer {
+			offer.Tags = append(offer.Tags, clip(tag))
 		}
 	}
 	return offer, true
-}
-
-// pricesOf reads a price given as a number, an {currency, amount} object or a list of either.
-func pricesOf(v any) []Price {
-	var out []Price
-	add := func(currency string, amount any) {
-		var n flexInt
-		raw, err := json.Marshal(amount)
-		if err != nil || n.UnmarshalJSON(raw) != nil || n < 0 || len(out) >= maxPricesPerItem {
-			return
-		}
-		out = append(out, Price{Currency: currency, Amount: int64(n)})
-	}
-	switch p := v.(type) {
-	case float64, string:
-		add("", p)
-	case map[string]any:
-		add(firstString(p, "currency", "type", "currencyId", "itemId"), firstAny(p, "amount", "value", "price"))
-	case []any:
-		for _, e := range p {
-			out = append(out, pricesOf(e)...)
-		}
-		if len(out) > maxPricesPerItem {
-			out = out[:maxPricesPerItem]
-		}
-	}
-	return out
-}
-
-func firstAny(obj map[string]any, keys ...string) any {
-	for _, key := range keys {
-		if v, ok := obj[key]; ok {
-			return v
-		}
-	}
-	return nil
-}
-
-// imageURL accepts an https URL string, an {url} object or a list whose first entry is one.
-func imageURL(v any) string {
-	switch i := v.(type) {
-	case string:
-		if strings.HasPrefix(i, "https://") && len(i) <= 1024 {
-			return i
-		}
-	case map[string]any:
-		return imageURL(firstAny(i, "url", "Url", "href"))
-	case []any:
-		if len(i) > 0 {
-			return imageURL(i[0])
-		}
-	}
-	return ""
-}
-
-func firstString(obj map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if s, ok := obj[key].(string); ok && s != "" {
-			return clip(s)
-		}
-	}
-	return ""
-}
-
-// firstText reads a string member, or the neutral/first value of a localized object.
-func firstText(obj map[string]any, keys ...string) string {
-	for _, key := range keys {
-		switch t := obj[key].(type) {
-		case string:
-			if t != "" {
-				return clip(t)
-			}
-		case map[string]any:
-			if s := localized(t); s != "" {
-				return s
-			}
-		}
-	}
-	return ""
-}
-
-func localized(m map[string]any) string {
-	var fallback, fallbackKey string
-	for key, v := range m {
-		s, ok := v.(string)
-		if !ok || s == "" {
-			continue
-		}
-		if strings.EqualFold(key, "neutral") || strings.EqualFold(key, "en-us") {
-			return clip(s)
-		}
-		if fallbackKey == "" || key < fallbackKey {
-			fallback, fallbackKey = clip(s), key
-		}
-	}
-	return fallback
 }
 
 func clip(s string) string {
@@ -248,40 +194,4 @@ func clip(s string) string {
 		cut--
 	}
 	return s[:cut]
-}
-
-// continuationOf reads a row's continuation token, dropping one too long to send back.
-func continuationOf(obj map[string]any) string {
-	token := firstString(obj, "continuationToken", "continuation")
-	if !ValidContinuation(token) {
-		return ""
-	}
-	return token
-}
-
-// parseRowMore reduces a row-continuation result to its offers and next token; the offers may sit
-// under any row-shaped member of the result.
-func parseRowMore(result json.RawMessage) RowMore {
-	more := RowMore{Offers: []Offer{}}
-	var top any
-	if json.Unmarshal(result, &top) != nil {
-		return more
-	}
-	obj, ok := top.(map[string]any)
-	if !ok {
-		return more
-	}
-	more.Continuation = continuationOf(obj)
-	page := parsePage("", result)
-	for _, row := range page.Rows {
-		for _, offer := range row.Offers {
-			if len(more.Offers) < maxRowOffers {
-				more.Offers = append(more.Offers, offer)
-			}
-		}
-		if more.Continuation == "" {
-			more.Continuation = row.Continuation
-		}
-	}
-	return more
 }

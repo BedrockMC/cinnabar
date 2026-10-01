@@ -234,3 +234,26 @@ pub(in super::super) fn durability_color(fraction: f64) -> [u8; 4] {
     let (r, g) = if hue < 1.0 { (1.0, x) } else { (x, 1.0) };
     [(r * 255.0) as u8, (g * 255.0) as u8, 0, 255]
 }
+
+/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
+/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
+pub(super) fn with_java_hud(
+    vanilla: &json_ui::Catalog,
+    withdrawn: &std::collections::BTreeSet<String>,
+) -> json_ui::Catalog {
+    let mut catalog = vanilla.clone();
+    let kept = super::super::hud::JAVA_HUD_PACK
+        .iter()
+        .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
+        .map(|(path, _, bytes)| (*path, *bytes));
+    catalog.apply_pack(kept);
+    catalog.apply_pack(
+        [(
+            "ui/cinnabar_title.json",
+            super::menu_renderers::TITLE_PANEL_OVERLAY,
+        )]
+        .into_iter()
+        .chain(super::menu_renderers::NO_COPYRIGHT_OVERLAYS),
+    );
+    catalog
+}
