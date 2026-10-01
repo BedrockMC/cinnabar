@@ -135,24 +135,32 @@ pub fn neutral_actor_geometry_uvs_are_supported(
             }
             let valid = match &cube.uv {
                 EntityGeometryUv::Box(origin) => {
-                    rectangle(origin.map(|value| value.get()), [2.0 * x + 2.0 * z, y + z])
+                    // Camera-facing item planes only expose the north rectangle.
+                    let envelope = if z == 0.0 {
+                        [x, y]
+                    } else {
+                        [2.0 * x + 2.0 * z, y + z]
+                    };
+                    rectangle(origin.map(|value| value.get()), envelope)
                 }
                 EntityGeometryUv::Faces(faces) => [
                     &faces.north,
                     &faces.south,
-                    &faces.west,
                     &faces.east,
+                    &faces.west,
                     &faces.up,
                     &faces.down,
                 ]
                 .into_iter()
-                .flatten()
-                .all(|face| {
-                    rectangle(
-                        face.uv.map(|value| value.get()),
-                        face.uv_size
-                            .map_or([1.0, 1.0], |size| size.map(|value| value.get())),
-                    )
+                .zip(cube.face_uv_dimensions())
+                .all(|(face, dimensions)| {
+                    face.as_ref().is_none_or(|face| {
+                        rectangle(
+                            face.uv.map(|value| value.get()),
+                            face.uv_size
+                                .map_or(dimensions, |size| size.map(|value| value.get())),
+                        )
+                    })
                 }),
             };
             if !valid {

@@ -22,7 +22,7 @@ pub(super) const PACKED_LIQUID_QUAD_BYTES: u64 = 16;
 pub(super) const GEOMETRY_STREAM_WORD_BYTES: u64 = 4;
 pub(super) const CHUNK_ORIGIN_BYTES: u64 = 32;
 pub(super) const BIOME_WORD_BYTES: u64 = 4;
-pub(super) const FALLBACK_BIOME_WORDS: usize = 13;
+pub(super) const FALLBACK_BIOME_WORDS: usize = meshing::biome::FALLBACK_BIOME_WORDS.len();
 pub(super) const FALLBACK_BIOME_RECORD: [u32; FALLBACK_BIOME_WORDS] =
-    [0x4249_4f31, 0, 0, 0, 0, 0, 11, 0, 0, 0, 0, 1 << 8, 0];
+    meshing::biome::FALLBACK_BIOME_WORDS;
 pub(super) const INDEXED_INDIRECT_BYTES: u64 = 20;

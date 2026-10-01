@@ -22,8 +22,8 @@ use crate::{
     },
 };
 
-const WIDTH: u32 = 1280;
-const HEIGHT: u32 = 752;
+pub(super) const WIDTH: u32 = 1280;
+pub(super) const HEIGHT: u32 = 752;
 const HORIZONTAL_FOV_DEGREES: f32 = 90.0;
 
 /// `CINNABAR_RENDER_SCENE` is a capture TSV (`E|P, identifier|username, variant, scale, x, y, z,
@@ -218,8 +218,8 @@ fn spawn_event(row: &str, runtime_id: u64) -> Option<WorldEvent> {
     })))
 }
 
-struct Frame {
-    image: image::RgbaImage,
+pub(super) struct Frame {
+    pub(super) image: image::RgbaImage,
     depth: Vec<f32>,
     clip_from_world: Mat4,
 }
@@ -234,7 +234,7 @@ struct Projected {
 }
 
 impl Frame {
-    fn new(clip_from_world: Mat4) -> Self {
+    pub(super) fn new(clip_from_world: Mat4) -> Self {
         Self {
             image: image::RgbaImage::from_pixel(WIDTH, HEIGHT, image::Rgba([138, 178, 232, 255])),
             depth: vec![f32::INFINITY; (WIDTH * HEIGHT) as usize],
@@ -256,7 +256,7 @@ impl Frame {
     }
 
     /// Fills a triangle; `shade` returns straight-alpha RGBA for perspective-correct `uv`.
-    fn triangle(
+    pub(super) fn triangle(
         &mut self,
         corners: [(Vec3, [f32; 2]); 3],
         depth_test: bool,
@@ -316,7 +316,7 @@ impl Frame {
     }
 }
 
-fn draw_actors(
+pub(super) fn draw_actors(
     frame: &mut Frame,
     world: &client_world::WorldStream,
     runtime_ids: &[u64],
@@ -386,7 +386,24 @@ fn draw_actors(
                     vertex.uv,
                 )
             });
-            frame.triangle(placed, true, true, &shade);
+            let points = placed.map(|(point, _)| frame.project(point));
+            let [Some(a), Some(b), Some(c)] = points else {
+                continue;
+            };
+            let area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if area >= 0.0 {
+                if corners[0].back_uv[0] < -1.0e8 {
+                    continue;
+                }
+                frame.triangle(
+                    std::array::from_fn(|i| (placed[i].0, corners[i].back_uv)),
+                    true,
+                    true,
+                    &shade,
+                );
+            } else {
+                frame.triangle(placed, true, true, &shade);
+            }
         }
     }
 }
