@@ -17,7 +17,9 @@ use crate::local_player::{
 use crate::melee::produce_melee;
 use crate::menu::recover_menu_session_failure;
 use crate::movement::advance_local_physics;
-use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
+use crate::runtime::network::{
+    prepare_actor_render_frame, publish_actor_render_frame, receive_network_events,
+};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
     PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
@@ -32,11 +34,11 @@ use crate::semantic_controls::{
     synchronize_semantic_input_authority,
 };
 use crate::survival_mining::produce_survival_mining;
-use crate::ui_runtime::presentation::publish_ui_runtime;
+use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
 use client_world::{PublicationServiceConfig, WorldMeshChange};
 
 #[test]
-fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
+fn production_client_systems_are_members_of_the_behavioral_sets() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
@@ -55,9 +57,11 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
         ClientFrameSet::Camera,
         ClientFrameSet::Interaction,
         ClientFrameSet::WorldPublication,
+        ClientFrameSet::ActorPreparation,
+        ClientFrameSet::UiPreparation,
+        ClientFrameSet::NetworkSend,
         ClientFrameSet::ActorPublication,
         ClientFrameSet::UiPublication,
-        ClientFrameSet::NetworkSend,
     ];
 
     for adjacent in stages.windows(2) {
@@ -125,6 +129,18 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
         drive_world_stream,
         "drive_world_stream",
         ClientFrameSet::WorldPublication,
+    );
+    assert_system_in_stage(
+        graph,
+        prepare_actor_render_frame,
+        "prepare_actor_render_frame",
+        ClientFrameSet::ActorPreparation,
+    );
+    assert_system_in_stage(
+        graph,
+        prepare_ui_runtime,
+        "prepare_ui_runtime",
+        ClientFrameSet::UiPreparation,
     );
     assert_system_in_stage(
         graph,
