@@ -136,6 +136,7 @@ impl UiPresentationRuntime {
                     crate::menu::MenuField::Address => MenuAction::AddAddress,
                 }))
             }),
+            ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
@@ -336,6 +337,7 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
                 speed: metrics.speed as f32,
                 track: metrics.track.and_then(window),
                 thumb: metrics.thumb.and_then(window),
+                engine: Some((*metrics, origin)),
             })
         })
         .collect()

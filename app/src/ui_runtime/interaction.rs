@@ -510,7 +510,7 @@ fn scroll_container(
     notches: &[(f32, MouseScrollUnit)],
 ) {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
-    let Some(view) = json_ui::scroll_target(&frame.hits, point) else {
+    let Some(view) = json_ui::wheel_target(&frame.hits, &frame.report, point) else {
         return;
     };
     let Some(metrics) = frame.report.scrolls.get(&view.key) else {
@@ -523,12 +523,14 @@ fn scroll_container(
         .copied()
         .unwrap_or(metrics.offset);
     for (notch, unit) in notches {
-        offset -= match unit {
-            MouseScrollUnit::Line => f64::from(*notch) * metrics.speed,
-            MouseScrollUnit::Pixel => f64::from(*notch / frame.scale),
+        let at = json_ui::ScrollMetrics { offset, ..*metrics };
+        offset = match unit {
+            MouseScrollUnit::Line => at.wheel_target(f64::from(*notch)),
+            MouseScrollUnit::Pixel => {
+                (offset - f64::from(*notch / frame.scale)).clamp(0.0, metrics.max_offset())
+            }
         };
     }
-    let offset = offset.clamp(0.0, metrics.max_offset());
     if !notches.is_empty() {
         runtime
             .screen_state_mut()

@@ -591,6 +591,284 @@ fn d10_grid_number_size() {
     );
 }
 
+/// A vanilla-shaped scroll view: a `fill` viewport beside an 8-wide bar panel
+/// holding the track and a vertical box. `content` is the content's body.
+fn scroll_view(extra: Value, content: Value, bar_first: bool) -> ResolvedControl {
+    let viewport = json!({ "area": {
+        "type": "panel", "size": ["fill", "100%"],
+        "controls": [{ "port": top_left(json!({
+            "type": "panel", "size": ["100%", "100%"], "clips_children": true,
+            "controls": [{ "content": top_left(content) }],
+        })) }],
+    } });
+    let bar = json!({ "bar": {
+        "type": "panel", "size": [8, "100%"],
+        "controls": [{ "track": {
+            "type": "scroll_track", "size": [4, "100%"],
+            "controls": [{ "box": top_left(json!({
+                "type": "scrollbar_box", "size": ["100%", "100%"], "draggable": "vertical",
+            })) }],
+        } }],
+    } });
+    let items = if bar_first {
+        json!([bar, viewport])
+    } else {
+        json!([viewport, bar])
+    };
+    let mut body = top_left(json!({
+        "type": "scroll_view", "size": [100, 100],
+        "scroll_view_port": "port", "scroll_content": "content", "scrollbar_track": "track",
+        "scrollbar_box": "box", "scroll_box_and_track_panel": "bar", "scroll_speed": 15,
+        "controls": [{ "stack": top_left(json!({
+            "type": "stack_panel", "orientation": "horizontal", "size": ["100%", "100%"],
+            "controls": items,
+        })) }],
+    }));
+    for (key, value) in extra.as_object().unwrap() {
+        body[key] = value.clone();
+    }
+    screen(json!([{ "view": body }]))
+}
+
+fn scrolled(
+    root: &ResolvedControl,
+    state: &json_ui::ViewState,
+) -> (json_ui::ScrollMetrics, Vec<(String, [f64; 4], bool)>) {
+    let (laid, report) = json_ui::layout_with(root, [100.0, 100.0], &env(), state);
+    let mut nodes = Vec::new();
+    fn walk(node: &LaidOut, out: &mut Vec<(String, [f64; 4], bool)>) {
+        out.push((
+            node.control.name.clone(),
+            [node.rect.x, node.rect.y, node.rect.w, node.rect.h],
+            node.visible,
+        ));
+        for child in &node.children {
+            walk(child, out);
+        }
+    }
+    walk(&laid, &mut nodes);
+    (report.scrolls["/root/view"], nodes)
+}
+
+fn node<'a>(nodes: &'a [(String, [f64; 4], bool)], name: &str) -> &'a (String, [f64; 4], bool) {
+    nodes
+        .iter()
+        .find(|(named, _, _)| named == name)
+        .unwrap_or_else(|| panic!("no {name}"))
+}
+
+fn at_offset(offset: f64) -> json_ui::ViewState {
+    json_ui::ViewState {
+        scroll: [("/root/view".to_owned(), offset)].into_iter().collect(),
+        ..json_ui::ViewState::default()
+    }
+}
+
+// V02/V21: the named viewport sets the range; the thumb sizes before or after the content.
+#[test]
+fn v02_v21_named_roles_in_any_order() {
+    for bar_first in [false, true] {
+        let root = scroll_view(
+            json!({}),
+            json!({ "type": "panel", "size": ["100%", 250] }),
+            bar_first,
+        );
+        let (metrics, nodes) = scrolled(&root, &at_offset(1000.0));
+        assert_eq!(metrics.max_offset(), 150.0);
+        assert_eq!(node(&nodes, "content").1[1], -150.0);
+        assert_eq!(metrics.thumb.map(|thumb| thumb[3]), Some(40.0));
+    }
+}
+
+// V07: the thumb is at least a tenth of the track.
+#[test]
+fn v07_thumb_minimum_is_a_tenth_of_the_track() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": ["100%", 10000] }),
+        false,
+    );
+    let (metrics, _) = scrolled(&root, &at_offset(0.0));
+    assert_eq!(metrics.thumb.map(|thumb| thumb[3]), Some(10.0));
+}
+
+// V11: a track click jumps to the clicked fraction less half a viewport.
+#[test]
+fn v11_track_click_targets_the_clicked_fraction() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": ["100%", 1000] }),
+        false,
+    );
+    let (metrics, _) = scrolled(&root, &at_offset(0.0));
+    assert_eq!(metrics.track_target([94.0, 75.0]), 700.0);
+}
+
+// V06/V17: content that fits hides the bar panel and the `fill` viewport takes its space.
+#[test]
+fn v06_v17_fitting_content_hides_the_bar_panel() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": ["100%", 50] }),
+        false,
+    );
+    let (metrics, nodes) = scrolled(&root, &at_offset(0.0));
+    assert!(!node(&nodes, "bar").2);
+    assert!(!metrics.bar_visible);
+    assert_eq!(node(&nodes, "content").1[2], 100.0);
+    let always = scroll_view(
+        json!({ "scrollbar_always_visible": true }),
+        json!({ "type": "panel", "size": ["100%", 50] }),
+        false,
+    );
+    let (_, nodes) = scrolled(&always, &at_offset(0.0));
+    assert!(node(&nodes, "bar").2);
+    assert_eq!(node(&nodes, "content").1[2], 92.0);
+}
+
+// V08: horizontal content scrolls along x.
+#[test]
+fn v08_horizontal_scrolling() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": [200, 20], "draggable": "horizontal" }),
+        false,
+    );
+    let (metrics, nodes) = scrolled(&root, &at_offset(60.0));
+    assert!(metrics.horizontal);
+    assert_eq!(metrics.max_offset(), 108.0);
+    assert_eq!(node(&nodes, "content").1[..2], [-60.0, 0.0]);
+}
+
+// V18: `jump_to_bottom_on_update` jumps whenever the maximum changes.
+#[test]
+fn v18_jump_to_bottom_when_the_maximum_changes() {
+    let root = scroll_view(
+        json!({ "jump_to_bottom_on_update": true }),
+        json!({ "type": "panel", "size": ["100%", 300] }),
+        false,
+    );
+    let mut state = at_offset(20.0);
+    state.scroll_max.insert("/root/view".to_owned(), 100.0);
+    assert_eq!(scrolled(&root, &state).0.offset, 200.0);
+    state.scroll_max.insert("/root/view".to_owned(), 200.0);
+    assert_eq!(scrolled(&root, &state).0.offset, 20.0);
+}
+
+// V19: a true `#force_scroll_to_end` holds the view at its end.
+#[test]
+fn v19_force_scroll_to_end() {
+    let root = scroll_view(
+        json!({ "#force_scroll_to_end": true }),
+        json!({ "type": "panel", "size": ["100%", 300] }),
+        false,
+    );
+    assert_eq!(scrolled(&root, &at_offset(0.0)).0.offset, 200.0);
+}
+
+// V20: the view reports its end, bottom and bar states.
+#[test]
+fn v20_scroll_feedback() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": ["100%", 300] }),
+        false,
+    );
+    let (middle, _) = scrolled(&root, &at_offset(100.0));
+    assert!(!middle.scrolled_to_end && !middle.hit_bottom && middle.bar_visible);
+    let (end, _) = scrolled(&root, &at_offset(200.0));
+    assert!(end.scrolled_to_end && end.hit_bottom);
+}
+
+// V09/V13: wheel steps move by the speed with the client's byte scaling.
+#[test]
+fn v09_wheel_steps_scale_by_speed() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": ["100%", 1000] }),
+        false,
+    );
+    let (metrics, _) = scrolled(&root, &at_offset(100.0));
+    assert!((metrics.wheel_target(-1.0) - (100.0 + 15.0 * 120.0 / 128.0)).abs() < 1e-9);
+    assert!((metrics.wheel_target(1.0) - (100.0 - 15.0 * 120.0 / 127.0)).abs() < 1e-9);
+}
+
+// V12: the track's press routes by the configured `scrollbar_track_button`.
+#[test]
+fn v12_configured_button_names_route_presses() {
+    let root = scroll_view(
+        json!({}),
+        json!({ "type": "panel", "size": ["100%", 300] }),
+        false,
+    );
+    let (metrics, _) = scrolled(&root, &at_offset(0.0));
+    assert!(!metrics.track_clicks, "the track maps no press");
+    let mut body = root.clone();
+    let view = &mut body.children[0];
+    view.properties
+        .insert("scrollbar_track_button".into(), json!("button.skip"));
+    let track = &mut view.children[0].children[1].children[0];
+    track.properties.insert(
+        "button_mappings".into(),
+        json!([{ "from_button_id": "button.menu_select", "to_button_id": "button.skip",
+                 "mapping_type": "pressed" }]),
+    );
+    let (metrics, _) = scrolled(&body, &at_offset(0.0));
+    assert!(metrics.track_clicks);
+}
+
+// V13: a released fling decays and settles back inside the range.
+#[test]
+fn v13_touch_dynamics_fling_and_settle() {
+    let mut dynamics = json_ui::ScrollDynamics::default();
+    dynamics.press(100.0);
+    for _ in 0..10 {
+        dynamics.drag(-20.0);
+        dynamics.tick(1.0 / 60.0, 500.0, 100.0);
+    }
+    assert!(dynamics.position > 100.0);
+    assert!(!dynamics.release(), "a long drag is not a tap");
+    for _ in 0..600 {
+        dynamics.tick(1.0 / 60.0, 500.0, 100.0);
+    }
+    assert!(!dynamics.active());
+    assert!(
+        (-0.01..=500.01).contains(&dynamics.position),
+        "{}",
+        dynamics.position
+    );
+}
+
+// V15: a view that always handles scrolling takes the wheel outside its viewport.
+#[test]
+fn v15_always_handle_scrolling_routes_the_wheel() {
+    let root = scroll_view(
+        json!({ "always_handle_scrolling": true, "size": [50, 50] }),
+        json!({ "type": "panel", "size": ["100%", 300] }),
+        false,
+    );
+    let (laid, report) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &Default::default());
+    let regions = json_ui::hit_regions(&laid);
+    assert!(json_ui::wheel_target(&regions, &report, [90.0, 90.0]).is_some());
+}
+
+// V16/V14: gestures drag the content only when enabled, fitting content allowed by default.
+#[test]
+fn v14_v16_gesture_drags_follow_their_flags() {
+    let mut metrics = json_ui::ScrollMetrics {
+        content: 50.0,
+        viewport: 100.0,
+        touch_drags: true,
+        scroll_when_fits: true,
+        ..Default::default()
+    };
+    assert!(!metrics.drags_content(), "gestures off");
+    metrics.gesture_control = true;
+    assert!(metrics.drags_content());
+    metrics.scroll_when_fits = false;
+    assert!(!metrics.drags_content());
+}
+
 // G05: a button's `%c` counts only the state child it shows at rest.
 #[test]
 fn g05_state_children_hidden_at_rest_add_nothing() {

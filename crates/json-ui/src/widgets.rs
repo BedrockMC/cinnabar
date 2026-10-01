@@ -1,14 +1,13 @@
 //! Engine-driven control behaviour that the templates only name: which state
 //! child of a button/toggle/edit box/slider shows, where a slider's box sits and
-//! how much of its progress bar is revealed, and how a scroll view offsets its
-//! content and sizes its scrollbar box. The templates supply the child names
-//! (`default_control`, `checked_hover_control`, `scroll_content`, …); the state
-//! comes from the bound `#` values and the caller's [`ViewState`].
+//! how much of its progress bar is revealed. The templates supply the child
+//! names (`default_control`, `checked_hover_control`, …); the state comes from
+//! the bound `#` values and the caller's [`ViewState`].
 
 use serde_json::Value;
 
 use crate::layout::Rect;
-use crate::state::{ScrollMetrics, ViewState};
+use crate::state::ViewState;
 use crate::tree::ResolvedControl;
 
 /// Property names that name a state child, per control type.
@@ -225,84 +224,4 @@ pub(crate) fn dropdown_area(control: &ResolvedControl) -> Option<(String, String
         let content = prop_str(child, "dropdown_content_control").unwrap_or("dropdown_content");
         Some((area.to_owned(), content.to_owned()))
     })
-}
-
-/// The live scroll view being laid out: which descendants are its content and box.
-pub(crate) struct ScrollFrame {
-    pub key: String,
-    pub content: String,
-    pub bar_box: String,
-    pub requested: f64,
-    pub always_visible: bool,
-    pub speed: f64,
-    pub metrics: Option<ScrollMetrics>,
-}
-
-impl ScrollFrame {
-    pub fn open(control: &ResolvedControl, key: &str, state: &ViewState) -> Option<Self> {
-        if control.control_type.as_deref() != Some("scroll_view") {
-            return None;
-        }
-        Some(Self {
-            key: key.to_owned(),
-            content: prop_str(control, "scroll_content")?.to_owned(),
-            bar_box: prop_str(control, "scrollbar_box")
-                .unwrap_or("box")
-                .to_owned(),
-            // A view that jumps to its end on update opens at the end until the caller scrolls it.
-            requested: state.scroll.get(key).copied().unwrap_or(
-                if bound_bool(control, "jump_to_bottom_on_update").unwrap_or(false) {
-                    f64::INFINITY
-                } else {
-                    0.0
-                },
-            ),
-            always_visible: bound_bool(control, "scrollbar_always_visible").unwrap_or(false),
-            speed: bound_number(control, "scroll_speed").unwrap_or(15.0),
-            metrics: None,
-        })
-    }
-
-    /// Shift the content child up by the clamped offset, recording the extents.
-    pub fn place_content(&mut self, viewport: Rect, content: Rect) -> Rect {
-        let max = (content.h - viewport.h).max(0.0);
-        let offset = self.requested.clamp(0.0, max);
-        self.metrics = Some(ScrollMetrics {
-            offset,
-            content: content.h,
-            viewport: viewport.h,
-            viewport_top: viewport.y,
-            track: None,
-            thumb: None,
-            speed: self.speed,
-        });
-        // Overflowing content scrolls from the viewport's top whatever its anchor.
-        let top = if max > 0.0 {
-            viewport.y - offset
-        } else {
-            content.y
-        };
-        Rect::new(content.x, top, content.w, content.h)
-    }
-
-    /// Size and position the scrollbar box inside `track`; `None` hides it.
-    pub fn place_box(&mut self, track: Rect, box_rect: Rect) -> Option<Rect> {
-        let metrics = self.metrics.as_mut()?;
-        metrics.track = Some([track.x, track.y, track.w, track.h]);
-        let max = metrics.max_offset();
-        if max <= 0.0 && !self.always_visible {
-            return None;
-        }
-        let ratio = if metrics.content > 0.0 {
-            (metrics.viewport / metrics.content).clamp(0.0, 1.0)
-        } else {
-            1.0
-        };
-        let height = (track.h * ratio).max(box_rect.w.min(track.h));
-        let travel = (track.h - height).max(0.0);
-        let fraction = if max > 0.0 { metrics.offset / max } else { 0.0 };
-        let placed = Rect::new(box_rect.x, track.y + travel * fraction, box_rect.w, height);
-        metrics.thumb = Some([placed.x, placed.y, placed.w, placed.h]);
-        Some(placed)
-    }
 }

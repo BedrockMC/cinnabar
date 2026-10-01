@@ -66,7 +66,7 @@ pub use hud::{
 };
 pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
-    scroll_target,
+    scroll_target, wheel_target,
 };
 pub use layout::{
     LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
@@ -78,7 +78,7 @@ pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
-pub use state::{LayoutReport, ScrollMetrics, ViewState};
+pub use state::{LayoutReport, ScrollDynamics, ScrollMetrics, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any

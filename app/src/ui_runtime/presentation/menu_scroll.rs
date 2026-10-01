@@ -18,9 +18,26 @@ pub(crate) struct ScrollArea {
     pub(crate) speed: f32,
     pub(crate) track: Option<UiRect>,
     pub(crate) thumb: Option<UiRect>,
+    /// A JSON-UI view's metrics and the window point of its virtual origin: its
+    /// input follows the client's scroll rules.
+    pub(crate) engine: Option<(json_ui::ScrollMetrics, [f32; 2])>,
 }
 
 impl ScrollArea {
+    /// The engine metrics at the current offset, and `point` in virtual pixels.
+    fn engine_at(&self, point: UiPoint) -> Option<(json_ui::ScrollMetrics, [f64; 2])> {
+        let (metrics, origin) = self.engine?;
+        let metrics = json_ui::ScrollMetrics {
+            offset: f64::from(self.offset),
+            ..metrics
+        };
+        let virtual_at = |value: f32, axis: usize| f64::from((value - origin[axis]) / self.scale);
+        Some((
+            metrics,
+            [virtual_at(point.x(), 0), virtual_at(point.y(), 1)],
+        ))
+    }
+
     /// The offset that puts the thumb's top at window `y`.
     fn offset_for_thumb(&self, y: f32) -> f32 {
         let (Some(track), Some(thumb)) = (self.track, self.thumb) else {
@@ -38,7 +55,8 @@ impl ScrollArea {
 pub(crate) struct MenuScrolls {
     offsets: HashMap<String, f32>,
     areas: Vec<ScrollArea>,
-    /// The dragged view and the grab point's distance below its thumb's top.
+    /// The dragged view and the grab point's distance below its thumb's top
+    /// (an engine view: the pointer's last virtual position along its axis).
     drag: Option<(String, f32)>,
     screen: Option<String>,
 }
@@ -80,12 +98,12 @@ impl MenuScrolls {
         let Some(area) = self.at(point) else {
             return false;
         };
-        let delta = if pixels {
-            -notches / area.scale
-        } else {
-            -notches * area.speed
+        let offset = match area.engine_at(point) {
+            Some((metrics, _)) if !pixels => metrics.wheel_target(f64::from(notches)) as f32,
+            _ if pixels => area.offset - notches / area.scale,
+            _ => area.offset - notches * area.speed,
         };
-        let (key, offset) = (area.key.clone(), area.offset + delta);
+        let key = area.key.clone();
         self.set(&key, offset);
         true
     }
@@ -102,6 +120,18 @@ impl MenuScrolls {
             return false;
         };
         let key = area.key.clone();
+        if let Some((metrics, at)) = area.engine_at(point) {
+            let along = at[usize::from(!metrics.horizontal)] as f32;
+            match area.thumb {
+                Some(thumb) if thumb.contains(point) => self.drag = Some((key, along)),
+                // A track press jumps only when it routes to the view's track button.
+                _ if metrics.track_clicks => {
+                    self.set(&key, metrics.track_target(at) as f32);
+                }
+                _ => {}
+            }
+            return true;
+        }
         match area.thumb {
             Some(thumb) if thumb.contains(point) => {
                 self.drag = Some((key, point.y() - thumb.min().y()));
@@ -128,6 +158,13 @@ impl MenuScrolls {
         let Some(area) = self.areas.iter().find(|area| area.key == key) else {
             return;
         };
+        if let Some((metrics, at)) = area.engine_at(point) {
+            let along = at[usize::from(!metrics.horizontal)];
+            let offset = metrics.thumb_drag_target(along - f64::from(grab)) as f32;
+            self.set(&key, offset);
+            self.drag = Some((key, along as f32));
+            return;
+        }
         let offset = area.offset_for_thumb(point.y() - grab);
         self.set(&key, offset);
     }
@@ -170,6 +207,7 @@ mod tests {
             speed: 10.0,
             track: Some(rect(95.0, 0.0, 100.0, 100.0)),
             thumb: Some(rect(95.0, 0.0, 100.0, 25.0)),
+            engine: None,
         }
     }
 

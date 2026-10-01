@@ -1,7 +1,10 @@
 //! Measurements shared by the size and placement passes of one layout, or kept
 //! across one tree's layouts by a [`MeasureCache`].
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+};
 
 use super::{Axis, LayoutEnv, Rect, ResolvedControl, axis_index, grid, size, stack};
 use crate::expr::{Length, Unit};
@@ -31,6 +34,8 @@ thread_local! {
     /// [`placed_children`]: child indices and rects relative to the parent's
     /// origin, by parent address and size.
     static PLACED: RefCell<PlaceMemo> = RefCell::new(PlaceMemo::new());
+    /// Scroll bar panels hidden while their content fits, by address.
+    static SUPPRESSED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
 }
 
 /// Discard measurements before borrowing a new tree or measurement environment.
@@ -40,6 +45,35 @@ pub(super) fn reset() {
     SIZES.with(|memo| memo.borrow_mut().clear());
     LENGTHS.with(|memo| memo.borrow_mut().clear());
     PLACED.with(|memo| memo.borrow_mut().clear());
+    SUPPRESSED.with(|set| set.borrow_mut().clear());
+    super::scroll::reset();
+}
+
+/// Whether a scroll view hides `control`, its bar panel.
+pub(super) fn suppressed(control: &ResolvedControl) -> bool {
+    SUPPRESSED.with(|set| {
+        let set = set.borrow();
+        !set.is_empty() && set.contains(&std::ptr::from_ref(control).addr())
+    })
+}
+
+/// Hide or show a scroll view's bar panel; when that changes, the measurements
+/// that saw the old visibility are dropped. Returns whether it changed.
+pub(super) fn suppress(panel: usize, hidden: bool) -> bool {
+    let changed = SUPPRESSED.with(|set| {
+        let mut set = set.borrow_mut();
+        if hidden {
+            set.insert(panel)
+        } else {
+            set.remove(&panel)
+        }
+    });
+    if changed {
+        CHILDREN.with(|memo| memo.borrow_mut().clear());
+        SIZES.with(|memo| memo.borrow_mut().clear());
+        PLACED.with(|memo| memo.borrow_mut().clear());
+    }
+    changed
 }
 
 /// Measurements of one bound tree, reused by its later layouts. Start a new one
@@ -51,6 +85,8 @@ pub struct MeasureCache {
     sizes: HashMap<Key, Vec<[f64; 2]>>,
     lengths: HashMap<(usize, u8), Option<Length>>,
     placed: PlaceMemo,
+    suppressed: HashSet<usize>,
+    roles: super::scroll::RoleMemo,
     /// The root's address last layout; a moved root's entries go stale.
     root: usize,
 }
@@ -62,6 +98,8 @@ impl MeasureCache {
         SIZES.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.sizes));
         LENGTHS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.lengths));
         PLACED.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.placed));
+        SUPPRESSED.with(|set| std::mem::swap(&mut *set.borrow_mut(), &mut self.suppressed));
+        super::scroll::swap(&mut self.roles);
     }
 
     /// Make these the live memos for a layout of `root`.
@@ -75,6 +113,8 @@ impl MeasureCache {
             SIZES.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             LENGTHS.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             PLACED.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
+            SUPPRESSED.with(|set| set.borrow_mut().clear());
+            super::scroll::reset();
             self.root = address;
         }
     }

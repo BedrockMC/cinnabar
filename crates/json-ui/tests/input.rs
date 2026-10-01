@@ -164,7 +164,8 @@ fn scroll_view(content_height: f64) -> ResolvedControl {
         vec![ctrl(
             "box",
             "scrollbar_box",
-            json!({ "size": [5, "100%"] }),
+            json!({ "size": [5, "100%"], "anchor_from": "top_left", "anchor_to": "top_left",
+                    "draggable": "vertical" }),
             vec![],
         )],
     );
@@ -173,7 +174,9 @@ fn scroll_view(content_height: f64) -> ResolvedControl {
         "scroll_view",
         json!({
             "size": [100, 50], "anchor_from": "top_left", "anchor_to": "top_left",
-            "scroll_content": "scrolling_content", "scrollbar_box": "box", "scroll_speed": 15
+            "scroll_view_port": "scrolling_view_port", "scroll_content": "scrolling_content",
+            "scrollbar_track": "bar", "scrollbar_box": "box",
+            "scroll_box_and_track_panel": "bar", "scroll_speed": 15
         }),
         vec![viewport, bar],
     )
@@ -192,20 +195,20 @@ fn scroll_view_offsets_content_and_sizes_its_box() {
     assert_eq!(find(&laid, "scrolling_content").rect.y, -150.0);
     let thumb = metrics.thumb.expect("overflow shows the box");
     assert_eq!(
-        thumb[3], 12.5,
-        "box height is the visible fraction of the track"
+        thumb[3], 13.0,
+        "box height is the visible fraction of the track, rounded up"
     );
-    assert_eq!(thumb[1], 37.5, "fully scrolled puts the box at the bottom");
-    assert_eq!(metrics.offset_for_thumb(0.0), 0.0);
+    assert_eq!(thumb[1], 37.0, "fully scrolled puts the box at the bottom");
+    assert_eq!(metrics.thumb_drag_target(-50.0), 0.0);
     // A control above the viewport scrolls back up to it.
     assert_eq!(metrics.offset_revealing(-40.0, -20.0), 110.0);
 
     let fits = screen(vec![scroll_view(20.0)]);
     let (laid, report) = layout_with(&fits, [200.0, 100.0], &env(), &ViewState::default());
-    assert!(report.scrolls["/root/scroll"].thumb.is_none());
+    assert!(!report.scrolls["/root/scroll"].bar_visible);
     assert!(
-        !find(&laid, "box").visible,
-        "content that fits hides the box"
+        !find(&laid, "bar").visible,
+        "content that fits hides the bar panel"
     );
     let regions = hit_regions(&laid);
     assert!(scroll_target(&regions, [10.0, 10.0]).is_some());
