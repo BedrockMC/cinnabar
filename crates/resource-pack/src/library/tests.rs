@@ -395,6 +395,7 @@ fn catalog_limit_rejection_does_not_publish_metadata_or_archive() {
         id: Uuid::from_u128(2),
         version: [1, 0, 0],
         name: "existing".into(),
+        revision: 0,
         description: "x".repeat(MAX_CATALOG_BYTES),
         min_engine_version: None,
         subpacks: Vec::new(),

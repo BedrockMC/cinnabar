@@ -197,6 +197,7 @@ impl Painter<'_, '_> {
                 align,
                 scale,
                 localize,
+                font_type: _,
             } => {
                 let style = TextPaint {
                     color: alpha(*color),
