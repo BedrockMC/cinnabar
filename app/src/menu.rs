@@ -454,7 +454,8 @@ impl MenuRuntime {
 
     /// Server trust lives beside the other per-user launcher settings.
     pub(crate) fn experience_settings_path(&self) -> PathBuf {
-        self.config_path.with_file_name(server_experience::trust::SETTINGS_FILE)
+        self.config_path
+            .with_file_name(server_experience::trust::SETTINGS_FILE)
     }
 
     /// The immutable bundle cache follows the installed per-user data layout.

@@ -1,9 +1,9 @@
 //! A media descriptor is an indexed file covered by the bundle publisher signature.
 
-use std::collections::BTreeSet;
+use super::*;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use super::*;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -26,21 +26,52 @@ pub struct Descriptor {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Profile { WebmAv1OpusBt709 }
+pub enum Profile {
+    WebmAv1OpusBt709,
+}
 
 impl Descriptor {
     /// Checks the complete signed chunk index and declared decoder allocation budget.
     pub fn validate(&self, origins: &BTreeSet<String>) -> Result<()> {
-        ensure!(crate::manifest::identifier(&self.id) && crate::manifest::identifier(&self.timeline), "invalid media identity");
-        ensure!(self.width > 0 && self.width <= MAX_WIDTH && self.width.is_multiple_of(2)
-            && self.height > 0 && self.height <= MAX_HEIGHT && self.height.is_multiple_of(2), "unsupported dimensions");
-        ensure!(self.fps > 0 && self.fps <= MAX_FPS && self.duration_us > 0 && self.duration_us <= MAX_DURATION_US, "unsupported media timing");
-        ensure!((1..=2).contains(&self.audio_channels), "unsupported audio layout");
-        ensure!((64 * 1024..=1024 * 1024).contains(&self.chunk_bytes), "invalid chunk size");
-        ensure!(self.bytes > 0 && self.chunk_hashes.len() <= 4096
-            && self.bytes.div_ceil(u64::from(self.chunk_bytes)) == self.chunk_hashes.len() as u64, "invalid integrity index");
+        ensure!(
+            crate::manifest::identifier(&self.id) && crate::manifest::identifier(&self.timeline),
+            "invalid media identity"
+        );
+        ensure!(
+            self.width > 0
+                && self.width <= MAX_WIDTH
+                && self.width.is_multiple_of(2)
+                && self.height > 0
+                && self.height <= MAX_HEIGHT
+                && self.height.is_multiple_of(2),
+            "unsupported dimensions"
+        );
+        ensure!(
+            self.fps > 0
+                && self.fps <= MAX_FPS
+                && self.duration_us > 0
+                && self.duration_us <= MAX_DURATION_US,
+            "unsupported media timing"
+        );
+        ensure!(
+            (1..=2).contains(&self.audio_channels),
+            "unsupported audio layout"
+        );
+        ensure!(
+            (64 * 1024..=1024 * 1024).contains(&self.chunk_bytes),
+            "invalid chunk size"
+        );
+        ensure!(
+            self.bytes > 0
+                && self.chunk_hashes.len() <= 4096
+                && self.bytes.div_ceil(u64::from(self.chunk_bytes))
+                    == self.chunk_hashes.len() as u64,
+            "invalid integrity index"
+        );
         crate::crypto::fixed_hex::<32>(&self.sha256)?;
-        for hash in &self.chunk_hashes { crate::crypto::fixed_hex::<32>(hash)?; }
+        for hash in &self.chunk_hashes {
+            crate::crypto::fixed_hex::<32>(hash)?;
+        }
         crate::fetch::approved_url(&self.url, origins)?;
         Ok(())
     }

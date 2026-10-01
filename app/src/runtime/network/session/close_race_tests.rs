@@ -59,6 +59,7 @@ fn closed_command_predicate_catches_terminal_queued_after_precheck() {
         shutdown,
         thread: None,
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+        experience_gate: Arc::default(),
     };
 
     assert!(!handle.closed_command_has_pending_control());

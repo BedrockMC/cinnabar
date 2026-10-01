@@ -1,15 +1,23 @@
 mod bundles;
+mod ingress;
 
 use super::*;
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use std::collections::BTreeSet;
 
 /// Signs canonical fixtures using an isolated deterministic test key.
-fn signed<T: serde::Serialize>(value: &T, domain: &[u8], key: &Ed25519KeyPair) -> crypto::SignedDocument {
+fn signed<T: serde::Serialize>(
+    value: &T,
+    domain: &[u8],
+    key: &Ed25519KeyPair,
+) -> crypto::SignedDocument {
     let payload = serde_json::to_vec(value).unwrap();
     let mut message = domain.to_vec();
     message.extend_from_slice(&payload);
-    crypto::SignedDocument { payload: crypto::hex(&payload), signature: crypto::hex(key.sign(&message).as_ref()) }
+    crypto::SignedDocument {
+        payload: crypto::hex(&payload),
+        signature: crypto::hex(key.sign(&message).as_ref()),
+    }
 }
 
 /// Builds a minimal valid advertisement without any network or local assets.
@@ -27,8 +35,11 @@ fn offer(key: &Ed25519KeyPair) -> manifest::Offer {
             gpu_bytes: 0,
         },
         packages: vec![manifest::PackageOffer {
-            id: "example:cinema".into(), publisher_key: crypto::hex(key.public_key().as_ref()),
-            digest: crypto::digest(b"bundle"), bytes: 6, url: "https://example.org/bundle".into(),
+            id: "example:cinema".into(),
+            publisher_key: crypto::hex(key.public_key().as_ref()),
+            digest: crypto::digest(b"bundle"),
+            bytes: 6,
+            url: "https://example.org/bundle".into(),
         }],
         fallback: "Use the normal lobby and poster".into(),
         carrier: protocol::EXPERIENCE_CHANNEL.into(),
@@ -39,25 +50,54 @@ fn offer(key: &Ed25519KeyPair) -> manifest::Offer {
 fn signed_offer_checks_audience_expiry_key_and_canonical_bytes() {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let value = offer(&key);
-    let marker = negotiation::Marker { server_key: value.server_key.clone(), offer: signed(&value, crypto::OFFER_DOMAIN, &key) };
+    let marker = negotiation::Marker {
+        server_key: value.server_key.clone(),
+        offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+    };
     let bytes = serde_json::to_vec(&marker).unwrap();
     let verified = negotiation::VerifiedOffer::read(&bytes, &value.audience, 1000).unwrap();
     assert_eq!(verified.offer, value);
     assert!(negotiation::VerifiedOffer::read(&bytes, "elsewhere:19132", 1000).is_err());
     assert!(negotiation::VerifiedOffer::read(&bytes, &value.audience, value.expires_unix).is_err());
-    assert!(marker.offer.verify::<manifest::Offer>(&crypto::hex(&[0; 32]), crypto::OFFER_DOMAIN, policy::MAX_MARKER_BYTES).is_err());
-    assert!(marker.offer.verify::<manifest::Offer>(&value.server_key, crypto::ACCEPT_DOMAIN, policy::MAX_MARKER_BYTES).is_err());
+    assert!(
+        marker
+            .offer
+            .verify::<manifest::Offer>(
+                &crypto::hex(&[0; 32]),
+                crypto::OFFER_DOMAIN,
+                policy::MAX_MARKER_BYTES
+            )
+            .is_err()
+    );
+    assert!(
+        marker
+            .offer
+            .verify::<manifest::Offer>(
+                &value.server_key,
+                crypto::ACCEPT_DOMAIN,
+                policy::MAX_MARKER_BYTES
+            )
+            .is_err()
+    );
 }
 
 #[test]
 fn accept_is_bound_to_the_fresh_connection_and_exact_offer() {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let value = offer(&key);
-    let verified = negotiation::VerifiedOffer { digest: crypto::digest(&serde_json::to_vec(&value).unwrap()), offer: value };
+    let verified = negotiation::VerifiedOffer {
+        digest: crypto::digest(&serde_json::to_vec(&value).unwrap()),
+        offer: value,
+    };
     let pending = negotiation::Pending::approve(verified.clone(), 0, 0).unwrap();
     let accept = negotiation::Accept {
-        hello: pending.hello().clone(), server_challenge: crypto::hex(&[2; 32]), session: crypto::hex(&[3; 32]),
-        audience: verified.offer.audience.clone(), offer_digest: verified.digest.clone(), revision: verified.offer.revision, expires_unix: 1500,
+        hello: pending.hello().clone(),
+        server_challenge: crypto::hex(&[2; 32]),
+        session: crypto::hex(&[3; 32]),
+        audience: verified.offer.audience.clone(),
+        offer_digest: verified.digest.clone(),
+        revision: verified.offer.revision,
+        expires_unix: 1500,
     };
     let document = signed(&accept, crypto::ACCEPT_DOMAIN, &key);
     assert!(pending.accept(&document, 1000, 1).is_ok());
@@ -67,14 +107,30 @@ fn accept_is_bound_to_the_fresh_connection_and_exact_offer() {
 
 #[test]
 fn ssrf_and_rate_limits_are_conservative() {
-    for address in ["127.0.0.1", "10.0.0.1", "169.254.169.254", "100.64.0.1", "::1", "::ffff:8.8.8.8", "2002:0808:0808::1"] {
-        assert!(!fetch::public_address(address.parse().unwrap()), "{address}");
+    for address in [
+        "127.0.0.1",
+        "10.0.0.1",
+        "169.254.169.254",
+        "100.64.0.1",
+        "::1",
+        "::ffff:8.8.8.8",
+        "2002:0808:0808::1",
+    ] {
+        assert!(
+            !fetch::public_address(address.parse().unwrap()),
+            "{address}"
+        );
     }
     let mut rate = wire::RateLimit::new(1000);
-    for _ in 0..policy::MAX_MESSAGES_PER_SECOND { rate.charge(1, 1000).unwrap(); }
+    for _ in 0..policy::MAX_MESSAGES_PER_SECOND {
+        rate.charge(1, 1000).unwrap();
+    }
     assert!(rate.charge(1, 999).is_err());
     rate.charge(1, 2000).unwrap();
-    assert!(rate.charge(policy::MAX_BYTES_PER_SECOND as usize, 2000).is_err());
+    assert!(
+        rate.charge(policy::MAX_BYTES_PER_SECOND as usize, 2000)
+            .is_err()
+    );
 }
 
 #[test]
@@ -93,8 +149,14 @@ fn cache_revalidates_corruption_and_never_uses_a_url_as_a_path() {
 #[test]
 fn aggregate_budget_and_trap_quarantine_cannot_be_multiplied() {
     let mut budget = runtime::Budget::default();
-    let owner = runtime::Principal { session: crypto::hex(&[1; 32]), bundle: "test:one".into(), generation: 1 };
-    budget.reserve(owner.clone(), policy::MAX_GUEST_MEMORY, 0).unwrap();
+    let owner = runtime::Principal {
+        session: crypto::hex(&[1; 32]),
+        bundle: "test:one".into(),
+        generation: 1,
+    };
+    budget
+        .reserve(owner.clone(), policy::MAX_GUEST_MEMORY, 0)
+        .unwrap();
     let mut other = owner.clone();
     other.bundle = "test:two".into();
     budget.reserve(other, policy::MAX_GUEST_MEMORY, 0).unwrap();
@@ -111,19 +173,48 @@ fn aggregate_budget_and_trap_quarantine_cannot_be_multiplied() {
 
 #[test]
 fn stale_and_partially_invalid_transactions_never_publish() {
-    let owner = runtime::Principal { session: crypto::hex(&[1; 32]), bundle: "test:one".into(), generation: 1 };
-    let capabilities = runtime::Capabilities {
-        scope: manifest::Scope { permissions: BTreeSet::from([manifest::Permission::Ui]), origins: BTreeSet::new(), memory_bytes: 0, gpu_bytes: 0 },
-        assets: BTreeSet::new(), channels: Vec::new(), actions: BTreeSet::new(),
+    let owner = runtime::Principal {
+        session: crypto::hex(&[1; 32]),
+        bundle: "test:one".into(),
+        generation: 1,
     };
-    let transaction = runtime::Transaction { owner: owner.clone(), epoch: 1, commands: vec![
-        runtime::Command::Widget { id: "status".into(), text: "valid".into() },
-        runtime::Command::Widget { id: "other".into(), text: "invalid\0".into() },
-    ] };
+    let capabilities = runtime::Capabilities {
+        scope: manifest::Scope {
+            permissions: BTreeSet::from([manifest::Permission::Ui]),
+            origins: BTreeSet::new(),
+            memory_bytes: 0,
+            gpu_bytes: 0,
+        },
+        assets: BTreeSet::new(),
+        channels: Vec::new(),
+        actions: BTreeSet::new(),
+    };
+    let transaction = runtime::Transaction {
+        owner: owner.clone(),
+        epoch: 1,
+        commands: vec![
+            runtime::Command::Widget {
+                id: "status".into(),
+                text: "valid".into(),
+            },
+            runtime::Command::Widget {
+                id: "other".into(),
+                text: "invalid\0".into(),
+            },
+        ],
+    };
     let mut contributions = runtime::Contributions::default();
-    assert!(contributions.apply(&transaction, &owner, 1, &capabilities).is_err());
+    assert!(
+        contributions
+            .apply(&transaction, &owner, 1, &capabilities)
+            .is_err()
+    );
     assert!(contributions.widgets.is_empty());
-    assert!(contributions.apply(&transaction, &owner, 2, &capabilities).is_err());
+    assert!(
+        contributions
+            .apply(&transaction, &owner, 2, &capabilities)
+            .is_err()
+    );
 }
 
 #[test]
@@ -139,7 +230,11 @@ fn remembered_scope_requires_reapproval_and_updates_rollback_floor() {
     };
     let bytes = serde_json::to_vec(&marker).unwrap();
     let mut session = session::Session::default();
-    assert!(session.discover(&bytes, &value.audience, &mut settings, 1000, 0).unwrap());
+    assert!(
+        session
+            .discover(&bytes, &value.audience, &mut settings, 1000, 0)
+            .unwrap()
+    );
     assert!(session.take_outbound().is_some());
     assert_eq!(settings.pins[0].highest_revision, value.revision);
     value.revision -= 1;
@@ -149,7 +244,10 @@ fn remembered_scope_requires_reapproval_and_updates_rollback_floor() {
     assert_eq!(settings.decision(&value).unwrap(), None);
     settings.remember(&value, trust::Decision::Never).unwrap();
     value.server_key = crypto::hex(&[1; 32]);
-    assert_eq!(settings.decision(&value).unwrap(), Some(trust::Decision::Never));
+    assert_eq!(
+        settings.decision(&value).unwrap(),
+        Some(trust::Decision::Never)
+    );
 }
 
 #[test]
@@ -163,16 +261,25 @@ fn canonical_signature_rejects_alternate_json_even_when_signed() {
         payload: crypto::hex(&payload),
         signature: crypto::hex(key.sign(&message).as_ref()),
     };
-    assert!(document.verify::<manifest::Offer>(
-        &value.server_key, crypto::OFFER_DOMAIN, policy::MAX_MARKER_BYTES,
-    ).is_err());
+    assert!(
+        document
+            .verify::<manifest::Offer>(
+                &value.server_key,
+                crypto::OFFER_DOMAIN,
+                policy::MAX_MARKER_BYTES,
+            )
+            .is_err()
+    );
 }
 
 #[test]
 fn typed_records_wait_for_publication_and_replay_quarantines() {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let mut value = offer(&key);
-    value.scope.permissions.insert(manifest::Permission::Messaging);
+    value
+        .scope
+        .permissions
+        .insert(manifest::Permission::Messaging);
     let grant = negotiation::Grant {
         offer: negotiation::VerifiedOffer {
             digest: crypto::digest(&serde_json::to_vec(&value).unwrap()),
@@ -203,10 +310,25 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
         payload: vec![wire::Scalar::Integer(42)],
     };
     let bytes = serde_json::to_vec(&message).unwrap();
+    let recipients = std::collections::BTreeMap::from([(
+        message.bundle.clone(),
+        runtime::Capabilities {
+            scope: grant.offer.offer.scope.clone(),
+            assets: BTreeSet::new(),
+            channels: vec![channel.clone()],
+            actions: BTreeSet::new(),
+        },
+    )]);
     let mut ingress = wire::Ingress::new(0);
-    ingress.receive(&bytes, 0, 100, &grant, std::slice::from_ref(&channel)).unwrap();
+    ingress
+        .receive(&bytes, 0, 100, &grant, |id| recipients.get(id))
+        .unwrap();
     assert!(ingress.pop(99, 7).is_none());
     assert_eq!(ingress.pop(100, 7).unwrap().payload, message.payload);
-    assert!(ingress.receive(&bytes, 0, 101, &grant, &[channel]).is_err());
+    assert!(
+        ingress
+            .receive(&bytes, 0, 101, &grant, |id| recipients.get(id))
+            .is_err()
+    );
     assert!(ingress.pop(u64::MAX, 7).is_none());
 }

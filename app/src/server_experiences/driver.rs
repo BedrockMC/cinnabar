@@ -29,6 +29,7 @@ pub(crate) fn configure(app: &mut App) {
     let menu = app.world().resource::<MenuRuntime>();
     let settings_path = menu.experience_settings_path();
     let cache_root = menu.experience_cache_dir();
+    app.init_resource::<super::input::ConsentInput>();
     app.insert_resource(ExperienceService {
         settings_path,
         cache_root,
@@ -40,7 +41,8 @@ pub(crate) fn configure(app: &mut App) {
     })
     .add_systems(
         Update,
-        drive
+        (drive, super::input::consume)
+            .chain()
             .before(ClientFrameSet::SemanticSample)
             .after(ClientFrameSet::RawInput),
     );
@@ -56,9 +58,11 @@ fn drive(
     network: Res<NetworkHandle>,
     world: Res<crate::runtime::world::ClientWorld>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut ownership: ResMut<super::input::ConsentInput>,
     time: Res<Time<Real>>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let generation = runtime.session_id();
@@ -112,41 +116,50 @@ fn drive(
         extension.session.disable();
     }
     let prompt = wants_prompt && presentation.experience_prompt_visible();
+    let wheel_delta: f64 = wheel.read().map(|event| -f64::from(event.y) * 0.15).sum();
+    if prompt {
+        let pages = if keys.just_pressed(KeyCode::PageDown) || keys.just_pressed(KeyCode::ArrowDown)
+        {
+            1.0
+        } else if keys.just_pressed(KeyCode::PageUp) || keys.just_pressed(KeyCode::ArrowUp) {
+            -1.0
+        } else {
+            0.0
+        };
+        presentation.scroll_experience(pages + wheel_delta);
+    }
+    let approval_ready = presentation.experience_approval_ready();
     let focused = windows.single().is_ok_and(|window| window.focused);
-    let choice = if focused
-        && can_disable(&extension.session.state)
-        && keys.just_pressed(KeyCode::F9)
-    {
-        Some(Choice::Disable)
-    } else if focused && prompt {
-        if keys.just_pressed(KeyCode::F6) {
-            Some(Choice::Once)
-        } else if keys.just_pressed(KeyCode::F7) {
-            Some(Choice::Always)
-        } else if keys.just_pressed(KeyCode::F8) {
-            Some(Choice::Never)
-        } else if keys.just_pressed(KeyCode::Escape) {
-            Some(Choice::Cancel)
-        } else if mouse.just_pressed(MouseButton::Left) {
-            windows
-                .single()
-                .ok()
-                .and_then(|window| window.cursor_position())
-                .and_then(|point| presentation.experience_choice(point.to_array()))
+    let choice =
+        if focused && can_disable(&extension.session.state) && keys.just_pressed(KeyCode::F9) {
+            Some(Choice::Disable)
+        } else if focused && prompt {
+            if approval_ready && keys.just_pressed(KeyCode::F6) {
+                Some(Choice::Once)
+            } else if approval_ready && keys.just_pressed(KeyCode::F7) {
+                Some(Choice::Always)
+            } else if keys.just_pressed(KeyCode::F8) {
+                Some(Choice::Never)
+            } else if keys.just_pressed(KeyCode::Escape) {
+                Some(Choice::Cancel)
+            } else if mouse.just_pressed(MouseButton::Left) {
+                windows
+                    .single()
+                    .ok()
+                    .and_then(|window| window.cursor_position())
+                    .and_then(|point| presentation.experience_choice(point.to_array()))
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
-    if prompt || choice.is_some() {
-        keys.clear();
-        mouse.clear();
-    }
+        };
+    ownership.0 = wants_prompt || choice.is_some();
     if let Some(choice) = choice {
-        let result = service.settings.as_mut().map(|settings| {
-            extension.session.choose(choice, settings, now_ms)
-        });
+        let result = service
+            .settings
+            .as_mut()
+            .map(|settings| extension.session.choose(choice, settings, now_ms));
         match result {
             Some(Ok(true)) => persist_trust(&mut service, &mut extension.session),
             Some(Err(error)) => {
@@ -191,7 +204,10 @@ fn drive(
 }
 
 /// Rolls back unsaved in-memory approval as well as revoking its pending handshake.
-fn persist_trust(service: &mut ExperienceService, session: &mut server_experience::session::Session) {
+fn persist_trust(
+    service: &mut ExperienceService,
+    session: &mut server_experience::session::Session,
+) {
     if let Some(settings) = &service.settings
         && let Err(error) = settings.save(&service.settings_path)
     {
@@ -231,11 +247,14 @@ fn advance_runtime(
             grant.clone(),
             service.cache_root.clone(),
         )?);
-        extension.session.notice = Some(
-            "Cinnabar: downloading approved experience. F9: cancel".into(),
-        );
+        extension.session.notice =
+            Some("Cinnabar: downloading approved experience. F9: cancel".into());
     }
-    if let Some(result) = service.download.as_ref().and_then(|download| download.poll()) {
+    if let Some(result) = service
+        .download
+        .as_ref()
+        .and_then(|download| download.poll())
+    {
         service.download = None;
         let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
             "mod-host.exe"
@@ -273,12 +292,18 @@ fn chrome(session: &server_experience::session::Session, in_menu: bool) -> (Opti
     let text = match &session.state {
         State::Inert | State::Disabled => return (None, false),
         State::Offered(offer) if in_menu => {
-            let packages = offer.offer.packages.iter().map(|package| {
-                format!(
-                    "{} ({} bytes)\nPublisher: {}",
-                    package.id, package.bytes, package.publisher_key,
-                )
-            }).collect::<Vec<_>>().join("\n");
+            let packages = offer
+                .offer
+                .packages
+                .iter()
+                .map(|package| {
+                    format!(
+                        "{} ({} bytes)\nPublisher: {}",
+                        package.id, package.bytes, package.publisher_key,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
             let identity = if session.key_changed {
                 "Server key changed: new approval required."
             } else {
@@ -298,7 +323,14 @@ fn chrome(session: &server_experience::session::Session, in_menu: bool) -> (Opti
                 offer.offer.scope.permissions,
                 offer.offer.scope.memory_bytes,
                 offer.offer.scope.gpu_bytes,
-                offer.offer.scope.origins.iter().cloned().collect::<Vec<_>>().join(", "),
+                offer
+                    .offer
+                    .scope
+                    .origins
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 offer.offer.fallback,
             )
         }
@@ -308,12 +340,18 @@ fn chrome(session: &server_experience::session::Session, in_menu: bool) -> (Opti
             "Cinnabar: experience approved; runtime unavailable. F9: disable".into()
         }),
     };
-    (Some(text), in_menu && matches!(session.state, State::Offered(_)))
+    (
+        Some(text),
+        in_menu && matches!(session.state, State::Offered(_)),
+    )
 }
 
 /// Leaves all ordinary input untouched when there is no offered experience.
 fn can_disable(state: &State) -> bool {
-    matches!(state, State::Offered(_) | State::Awaiting(_) | State::Granted(_))
+    matches!(
+        state,
+        State::Offered(_) | State::Awaiting(_) | State::Granted(_)
+    )
 }
 
 #[cfg(test)]

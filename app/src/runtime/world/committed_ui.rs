@@ -59,7 +59,11 @@ pub(crate) fn drain_committed_ui_before_authority(
     }
     for committed in committed_ui {
         let result = match committed {
-            CommittedUiEvent::Experience { dimension_epoch: event_epoch, event, .. } => {
+            CommittedUiEvent::Experience {
+                dimension_epoch: event_epoch,
+                event,
+                ..
+            } => {
                 if event_epoch == dimension_epoch {
                     ui_runtime.experiences.receive(&event.bytes, local_millis);
                 }

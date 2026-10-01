@@ -1,10 +1,11 @@
 //! Trusted session controller; remote data never supplies consent controls.
 
 mod driver;
+pub(crate) mod input;
 mod live;
 
-use std::sync::Arc;
 use server_experience::session::Session;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ExperienceSession {
@@ -65,7 +66,8 @@ impl ExperienceSession {
 
 /// Uses wall time only for signed expiration, never for media presentation.
 pub(crate) fn unix_seconds() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .map_or(u64::MAX, |time| time.as_secs())
 }
 

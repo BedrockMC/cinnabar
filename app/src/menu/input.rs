@@ -244,7 +244,19 @@ pub(crate) fn drive_menu_input(
     mut menu: ResMut<MenuRuntime>,
     runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
+    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
 ) {
+    if consent.is_some_and(|consent| consent.0) {
+        keyboard_messages.clear();
+        menu.pressed = None;
+        menu.hovered = None;
+        menu.pointer_down = false;
+        *modifiers = MenuModifiers::default();
+        if let Some(messages) = wheel_messages.as_deref() {
+            wheel_cursor.clear(messages);
+        }
+        return;
+    }
     let (window, mut cursor) = window.into_inner();
     let wheel: Vec<(f32, bool)> = wheel_messages
         .as_deref()

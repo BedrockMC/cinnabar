@@ -28,7 +28,8 @@ impl ExperienceGate {
         if !self.enabled() {
             return false;
         }
-        if rate.get_or_insert_with(|| RateLimit::new(now_ms))
+        if rate
+            .get_or_insert_with(|| RateLimit::new(now_ms))
             .charge(message.bytes.len(), now_ms)
             .is_err()
         {
@@ -43,13 +44,15 @@ impl NetworkHandle {
     /// Opens only after local consent; a failed channel cannot reopen this session.
     pub(crate) fn set_experience_enabled(&self, enabled: bool) {
         if enabled {
-            let _ = self.experience_gate.0.compare_exchange(
-                0, 1, Ordering::AcqRel, Ordering::Acquire,
-            );
+            let _ =
+                self.experience_gate
+                    .0
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
         } else {
-            let _ = self.experience_gate.0.compare_exchange(
-                1, 0, Ordering::AcqRel, Ordering::Acquire,
-            );
+            let _ =
+                self.experience_gate
+                    .0
+                    .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire);
         }
     }
 
@@ -110,7 +113,10 @@ mod tests {
         /// Captures the same generated encoding used by the ordinary transport.
         async fn send_packet(&mut self, packet: protocol::Packet) -> Result<(), String> {
             let session = protocol::BedrockSession { shield_item_id: 0 };
-            self.0.lock().unwrap().push(protocol::encode(&packet, &session).unwrap());
+            self.0
+                .lock()
+                .unwrap()
+                .push(protocol::encode(&packet, &session).unwrap());
             Ok(())
         }
 
@@ -131,16 +137,25 @@ mod tests {
             protocol::modal_form_cancel_response(9),
         ];
         let session = protocol::BedrockSession { shield_item_id: 0 };
-        let expected: Vec<_> = packets.iter()
-            .map(|packet| protocol::encode(packet, &session).unwrap()).collect();
+        let expected: Vec<_> = packets
+            .iter()
+            .map(|packet| protocol::encode(packet, &session).unwrap())
+            .collect();
         let (commands, receiver) = mpsc::channel(4);
-        for packet in packets.into_iter().chain([
-            protocol::experience_packet(b"must not escape".to_vec()).unwrap(),
-        ]) {
-            commands.try_send(NetworkCommand::Send {
-                packet, sub_chunk: None, chat: None, physics: None,
-                physics_reanchor: None, interaction: None,
-            }).unwrap();
+        for packet in packets
+            .into_iter()
+            .chain([protocol::experience_packet(b"must not escape".to_vec()).unwrap()])
+        {
+            commands
+                .try_send(NetworkCommand::Send {
+                    packet,
+                    sub_chunk: None,
+                    chat: None,
+                    physics: None,
+                    physics_reanchor: None,
+                    interaction: None,
+                })
+                .unwrap();
         }
         drop(commands);
         let (control, _control_rx) = mpsc::channel(4);
@@ -148,8 +163,13 @@ mod tests {
         let (_shutdown, shutdown_rx) = watch::channel(false);
         run_network_pump(
             RecordingSession(std::sync::Arc::clone(&sent)),
-            NetworkSequencer::new(1, 0, 1), receiver, control, world, shutdown_rx,
-        ).await;
+            NetworkSequencer::new(1, 0, 1),
+            receiver,
+            control,
+            world,
+            shutdown_rx,
+        )
+        .await;
         assert_eq!(*sent.lock().unwrap(), expected);
     }
 }

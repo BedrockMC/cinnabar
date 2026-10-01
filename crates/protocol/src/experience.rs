@@ -15,7 +15,9 @@ pub struct ExperienceMessage {
 pub(crate) fn normalize(packet: ScriptMessagePacket) -> Option<ExperienceMessage> {
     (packet.message_id == EXPERIENCE_CHANNEL
         && packet.message_value.len() <= MAX_EXPERIENCE_ENVELOPE_BYTES)
-        .then_some(ExperienceMessage { bytes: packet.message_value })
+        .then_some(ExperienceMessage {
+            bytes: packet.message_value,
+        })
 }
 
 /// Encodes a bounded envelope without defining a new Bedrock packet ID.
@@ -23,10 +25,13 @@ pub fn experience_packet(bytes: Vec<u8>) -> Option<crate::Packet> {
     if bytes.len() > MAX_EXPERIENCE_ENVELOPE_BYTES {
         return None;
     }
-    Some(ScriptMessagePacket {
-        message_id: EXPERIENCE_CHANNEL.to_owned(),
-        message_value: bytes,
-    }.into())
+    Some(
+        ScriptMessagePacket {
+            message_id: EXPERIENCE_CHANNEL.to_owned(),
+            message_value: bytes,
+        }
+        .into(),
+    )
 }
 
 /// Identifies only this optional carrier before an authorized socket write.
@@ -41,17 +46,23 @@ mod tests {
 
     #[test]
     fn unrelated_scripts_are_inert() {
-        assert!(normalize(ScriptMessagePacket {
-            message_id: "minecraft:unrelated".into(),
-            message_value: vec![1, 2, 3],
-        }).is_none());
+        assert!(
+            normalize(ScriptMessagePacket {
+                message_id: "minecraft:unrelated".into(),
+                message_value: vec![1, 2, 3],
+            })
+            .is_none()
+        );
     }
 
     #[test]
     fn carrier_round_trip_uses_generated_packet() {
         let bytes = b"fixture".to_vec();
         let event = crate::into_world_event(experience_packet(bytes.clone()).unwrap(), 0).unwrap();
-        assert_eq!(event, Some(crate::WorldEvent::Experience(ExperienceMessage { bytes })));
+        assert_eq!(
+            event,
+            Some(crate::WorldEvent::Experience(ExperienceMessage { bytes }))
+        );
         assert!(experience_packet(vec![0; MAX_EXPERIENCE_ENVELOPE_BYTES + 1]).is_none());
     }
 

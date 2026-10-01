@@ -978,9 +978,9 @@ use blob_cache_telemetry::{
     emit_blob_cache_telemetry, send_final_blob_cache_telemetry, try_emit_blob_cache_telemetry,
 };
 mod bootstrap;
+mod experience;
 mod forms;
 mod handle_state;
-mod experience;
 mod latency_reply;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 mod pump;
