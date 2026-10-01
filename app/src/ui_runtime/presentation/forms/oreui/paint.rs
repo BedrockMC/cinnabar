@@ -283,6 +283,26 @@ impl<'a> Canvas<'a> {
         Ok((layout.size_64()[0] as f32 / 64.0, layout))
     }
 
+    /// The height `value` wraps to within `width` in `style`.
+    pub(super) fn measure_height(
+        &mut self,
+        value: &str,
+        width: f32,
+        style: Type,
+    ) -> Result<f32, UiPresentationError> {
+        let mut request = self
+            .metrics
+            .request(value, (width.max(1.0) * 64.0) as u32, self.font);
+        if let Ok(scale) = UiScale::new(self.metrics.scale.get() * style.size / 1.6) {
+            request.scale = scale;
+        }
+        let layout = self
+            .layouts
+            .layout(request)
+            .map_err(UiPresentationError::Text)?;
+        Ok(layout.size_64()[1] as f32 / 64.0)
+    }
+
     /// `value` centred in `bounds` on one line.
     pub(super) fn text_centred(
         &mut self,

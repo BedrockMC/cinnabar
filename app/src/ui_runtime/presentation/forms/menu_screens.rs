@@ -125,7 +125,12 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
     let mut data = DataSource::new();
     data.set_strict(true);
     let mut context = base_context();
-    let reference = if view.connecting {
+    let reference = if let Some(progress) = &view.local.progress {
+        local_world_progress(&mut data, translate, progress);
+        // The world-modal progress panel the overworld loading screen also wraps; its dirt
+        // backdrop needs block textures the menu engine does not carry.
+        LOCAL_WORLD_PROGRESS_SCREEN
+    } else if view.connecting {
         super::join_progress::bind(&view.feeds.join, &mut data, translate)
     } else if let Some(error) = &view.disconnect_message {
         let words = crate::menu::disconnect::describe(error);
@@ -208,6 +213,78 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         data,
         overlay: None,
     })
+}
+
+const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
+
+/// The local-world loading screen: vanilla's "Starting World" title over the current stage,
+/// a determinate bar when the stage knows its total, and Cancel until the join starts.
+fn local_world_progress(
+    data: &mut DataSource,
+    translate: Translate<'_>,
+    progress: &crate::local_worlds::Progress,
+) {
+    use crate::local_worlds::Stage;
+    let (title, message) = match progress.stage {
+        Stage::StartingServer => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.building",
+                "Building terrain",
+            ),
+        ),
+        Stage::Connecting => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.locating",
+                "Locating server",
+            ),
+        ),
+        stage => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            stage.title().to_owned(),
+        ),
+    };
+    data.set_global("#title_text", text(title));
+    let detail = match progress.stage {
+        Stage::StartingServer | Stage::Connecting => message,
+        _ if progress.detail.is_empty() => message,
+        _ => format!("{message}\n{}", progress.detail),
+    };
+    data.set_global("#progress_text", text(detail));
+    match progress.fraction {
+        Some(fraction) => {
+            flags(data, &["#loading_bar_visible"]);
+            data.set_global("#loading_bar_percentage", Scalar::Num(f64::from(fraction)));
+            data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
+            data.set_global(
+                "#loading_bar_current_amount",
+                Scalar::Num((f64::from(fraction) * 1000.0).round()),
+            );
+        }
+        None => flags(data, &["#bar_animation_visible"]),
+    }
+    if progress.stage != Stage::Connecting {
+        flags(data, &["#cancel_visible"]);
+        data.set_global(
+            "#cancel_button_text",
+            text(translated(translate, "gui.cancel", "Cancel")),
+        );
+    }
 }
 
 /// The Marketplace screen (and popup) for the published store state.
@@ -493,6 +570,10 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         };
     }
     Some(match region.pressed.as_deref()? {
+        // The local-world loading screen's Cancel closes the world.
+        "button.menu_exit" if view.local.progress.is_some() => {
+            MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back)
+        }
         "button.menu_continue" if view.screen == MenuScreen::Pause => MenuAction::PauseResume,
         // Acknowledging a disconnect clears it (every action does).
         "button.menu_continue" | "button.menu_leave_screen" | "button.menu_select" => {
@@ -697,6 +778,20 @@ mod tests {
         assert_eq!(
             reference(&code),
             Some("xbl_console_signin.xbl_console_signin")
+        );
+    }
+
+    /// A local world's loading screen wins over the plain connecting screen and cancels the open.
+    #[test]
+    fn local_world_progress_opens_the_loading_screen_with_cancel() {
+        let mut opening = view(MenuScreen::Play);
+        opening.connecting = true;
+        opening.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
+        assert_eq!(reference(&opening), Some(LOCAL_WORLD_PROGRESS_SCREEN));
+        let cancel = action_for(&opening, &region(HitKind::Button, Some("button.menu_exit")));
+        assert_eq!(
+            cancel,
+            Some(MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back))
         );
     }
 

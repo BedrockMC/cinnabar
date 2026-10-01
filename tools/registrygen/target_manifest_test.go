@@ -238,6 +238,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		"crates/asset-compiler/src/entity/item.rs":    {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
 		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2193.mcbea"},
 		"crates/protocol/Cargo.toml":                  {target.CodecFeature},
+		"app/src/local_worlds/launch.rs":              {"bedrock-target.json", "server_version", "bds_container_image"},
 	}
 	for path, required := range consumers {
 		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
