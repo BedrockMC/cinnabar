@@ -76,6 +76,64 @@ pub(super) fn emit_visual(
                 batches,
             )
         }
+        UiVisual::Gradient {
+            texture_page,
+            colors: [from, to],
+            horizontal,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let corners = if *horizontal {
+                [*from, *to, *to, *from]
+            } else {
+                [*from, *from, *to, *to]
+            };
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
+                [[0, 0], [1, 0], [1, 1], [0, 1]],
+                *texture_page,
+                corners,
+                0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
+        UiVisual::StyledSprite {
+            texture_page,
+            uv,
+            color,
+            style,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                *color,
+                *style,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )
+        }
         UiVisual::RotatedSprite {
             texture_page,
             uv,
@@ -436,6 +494,34 @@ fn emit_positioned_quad(
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
 ) -> Result<(), UiError> {
+    emit_colored_quad(
+        positions,
+        uv,
+        texture_page,
+        [color; 4],
+        style_flags,
+        blend,
+        clip,
+        vertices,
+        indices,
+        batches,
+    )
+}
+
+/// [`emit_positioned_quad`] with a colour per corner.
+#[allow(clippy::too_many_arguments)]
+fn emit_colored_quad(
+    positions: [[f32; 2]; 4],
+    uv: [[u16; 2]; 4],
+    texture_page: u16,
+    colors: [[u8; 4]; 4],
+    style_flags: u8,
+    blend: UiBlendMode,
+    clip: UiRect,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
     let next_vertices = vertices
         .len()
         .checked_add(4)
@@ -461,7 +547,8 @@ fn emit_positioned_quad(
         positions
             .into_iter()
             .zip(uv)
-            .map(|(position, uv)| UiVertex {
+            .zip(colors)
+            .map(|((position, uv), color)| UiVertex {
                 position,
                 uv,
                 color,
@@ -506,7 +593,8 @@ fn shadow_color(color: [u8; 4]) -> [u8; 4] {
 
 fn style_color(style: BedrockColor, base: [u8; 4]) -> [u8; 4] {
     let rgb = match style {
-        BedrockColor::White => return base,
+        BedrockColor::Base => return base,
+        BedrockColor::White => [255, 255, 255],
         BedrockColor::Black => [0, 0, 0],
         BedrockColor::DarkBlue => [0, 0, 170],
         BedrockColor::DarkGreen => [0, 170, 0],

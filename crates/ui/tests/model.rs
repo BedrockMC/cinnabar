@@ -457,6 +457,7 @@ fn text_layout() -> Arc<TextLayout> {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap()
 }
