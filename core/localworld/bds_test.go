@@ -92,7 +92,7 @@ func newFakeMojang(t *testing.T, zipVer string, archive []byte) *fakeMojang {
 func testProvisioner(t *testing.T, f *fakeMojang) *Provisioner {
 	t.Helper()
 	return &Provisioner{
-		Root: filepath.Join(t.TempDir(), "bds"), goos: "linux", goarch: "amd64",
+		Root: filepath.Join(t.TempDir(), "bds"), goos: "linux", goarch: "amd64", VersionPrefix: "1.26.52",
 		linksURL:  f.server.URL + "/links",
 		allowHost: func(u *url.URL) bool { return u.Host == strings.TrimPrefix(f.server.URL, "http://") },
 	}
@@ -143,7 +143,7 @@ func TestProvisionerRefusesVersionMismatch(t *testing.T) {
 	f := newFakeMojang(t, "1.27.0.2", buildZip(t, map[string]string{"bedrock_server": "bin"}))
 	p := testProvisioner(t, f)
 	_ = p.AcceptEULA()
-	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), TargetVersionPrefix) {
+	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "1.26.52") {
 		t.Fatalf("err = %v", err)
 	}
 	if st := p.Status(); st.State != SetupFailed || strings.Contains(st.Error, "http") {
@@ -173,7 +173,7 @@ func TestProvisionerRejectsZipSlipAndMissingBinary(t *testing.T) {
 }
 
 func TestProvisionerRefusesUnofficialHostsAndUnsupportedPlatforms(t *testing.T) {
-	p := &Provisioner{Root: t.TempDir(), goos: "linux", goarch: "amd64", linksURL: "https://evil.example/links"}
+	p := &Provisioner{Root: t.TempDir(), goos: "linux", goarch: "amd64", VersionPrefix: "1.26.52", linksURL: "https://evil.example/links"}
 	_ = p.AcceptEULA()
 	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "non-official") {
 		t.Fatalf("err = %v", err)
@@ -188,16 +188,33 @@ func TestProvisionerRefusesUnofficialHostsAndUnsupportedPlatforms(t *testing.T) 
 }
 
 func TestExactVersionOverrideMustMatchClientVersion(t *testing.T) {
-	p := &Provisioner{Root: t.TempDir(), goos: "linux", goarch: "amd64", Version: "1.27.1.0"}
+	p := &Provisioner{Root: t.TempDir(), goos: "linux", goarch: "amd64", Version: "1.27.1.0", VersionPrefix: "1.26.52"}
 	_ = p.AcceptEULA()
 	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
+// Without a pinned version nothing is fetched: the current download may speak another protocol.
+func TestProvisionerNeedsAPinnedVersion(t *testing.T) {
+	f := newFakeMojang(t, "1.26.52.3", buildZip(t, map[string]string{"bedrock_server": "bin"}))
+	p := testProvisioner(t, f)
+	p.VersionPrefix = ""
+	_ = p.AcceptEULA()
+	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "pinned") {
+		t.Fatalf("err = %v", err)
+	}
+	if f.hits.Load() != 0 {
+		t.Fatal("contacted the download service without a pinned version")
+	}
+	if got := (&Provisioner{Version: "1.26.52.3"}).prefix(); got != "1.26.52" {
+		t.Fatalf("prefix from version = %q", got)
+	}
+}
+
 func installFakeBDS(t *testing.T) *Provisioner {
 	t.Helper()
-	p := &Provisioner{Root: filepath.Join(t.TempDir(), "bds"), goos: "linux", goarch: "amd64"}
+	p := &Provisioner{Root: filepath.Join(t.TempDir(), "bds"), goos: "linux", goarch: "amd64", Version: "1.26.52.3"}
 	if err := p.AcceptEULA(); err != nil {
 		t.Fatal(err)
 	}

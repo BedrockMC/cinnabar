@@ -35,7 +35,7 @@ type BDSRunner struct {
 
 	// Container runtime (macOS): the Linux build runs in Docker.
 	Docker string // default "docker"
-	Image  string // default DefaultBDSImage
+	Image  string // must name a digest (the target manifest's bds_container_image)
 }
 
 func (r BDSRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) {
