@@ -1,10 +1,15 @@
-//! Bounded physical ZIP directory validation before the ZIP library allocates its index.
+//! Bounded physical ZIP index; only validated local spans reach streaming decompression.
 
 use anyhow::{Result, ensure};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
+
+pub(super) struct Entry<'a> {
+    pub size: u64,
+    pub local: &'a [u8],
+}
 
 /// Accepts one ordinary ZIP directory and checks every physical name before lossy indexing.
-pub(super) fn validate(bytes: &[u8]) -> Result<()> {
+pub(super) fn validate(bytes: &[u8]) -> Result<BTreeMap<&str, Entry<'_>>> {
     let end = (bytes.len().saturating_sub(22 + u16::MAX as usize)..bytes.len().saturating_sub(21))
         .rev()
         .find(|&at| bytes.get(at..at + 4) == Some(b"PK\x05\x06"))
@@ -24,12 +29,13 @@ pub(super) fn validate(bytes: &[u8]) -> Result<()> {
     );
     ensure!(word(bytes, end + 8)? == count, "split ZIP directory");
     let size = dword(bytes, end + 12)?;
-    let mut at = dword(bytes, end + 16)?;
+    let start = dword(bytes, end + 16)?;
+    let mut at = start;
     ensure!(
         at.checked_add(size) == Some(end),
         "invalid ZIP directory extent"
     );
-    let mut names = BTreeSet::new();
+    let mut entries = BTreeMap::new();
     for _ in 0..count {
         ensure!(
             bytes.get(at..at + 4) == Some(b"PK\x01\x02"),
@@ -41,14 +47,80 @@ pub(super) fn validate(bytes: &[u8]) -> Result<()> {
         let name = std::str::from_utf8(&bytes[at + 46..at + 46 + name_len])?;
         ensure!(super::safe_path(name), "unsafe archive path");
         ensure!(
-            names.insert(name.to_ascii_lowercase()),
+            !entries.contains_key(name),
             "duplicate physical archive path"
         );
         ensure!(word(bytes, at + 34)? == 0, "split ZIP entry");
+        metadata(bytes, at + 8, at + 10, word(bytes, at + 30)?)?;
+        let mode = dword(bytes, at + 38)? >> 16;
+        ensure!(
+            mode & 0o170000 == 0 || mode & 0o170000 == 0o100000,
+            "nonregular archive entry"
+        );
+        let offset = dword(bytes, at + 42)?;
+        let local = local_entry(bytes, offset, start, at, name)?;
+        entries.insert(
+            name,
+            Entry {
+                size: dword(bytes, at + 24)? as u64,
+                local,
+            },
+        );
         at = next;
     }
     ensure!(at == end, "unaccounted physical archive entries");
+    Ok(entries)
+}
+
+/// Rejects features whose extra metadata or streaming sizes are outside the bundle format.
+fn metadata(bytes: &[u8], flags: usize, method: usize, extra: usize) -> Result<()> {
+    ensure!(
+        word(bytes, flags)? & !0x0806 == 0,
+        "encrypted or streaming ZIP unsupported"
+    );
+    ensure!(
+        matches!(word(bytes, method)?, 0 | 8),
+        "unsupported compression"
+    );
+    ensure!(extra == 0, "ZIP extra metadata unsupported");
     Ok(())
+}
+
+/// Checks a local entry against the one validated index before the streaming decoder allocates.
+fn local_entry<'a>(
+    bytes: &'a [u8],
+    offset: usize,
+    start: usize,
+    central: usize,
+    name: &str,
+) -> Result<&'a [u8]> {
+    ensure!(
+        offset.checked_add(30).is_some_and(|end| end <= start),
+        "invalid local entry extent"
+    );
+    ensure!(
+        bytes.get(offset..offset + 4) == Some(b"PK\x03\x04"),
+        "invalid local entry"
+    );
+    metadata(bytes, offset + 6, offset + 8, word(bytes, offset + 28)?)?;
+    let data = offset + 30 + word(bytes, offset + 26)?;
+    let end = data
+        .checked_add(dword(bytes, central + 20)?)
+        .ok_or_else(|| anyhow::anyhow!("local entry overflow"))?;
+    ensure!(end <= start, "invalid local entry extent");
+    ensure!(
+        bytes.get(offset + 30..data) == Some(name.as_bytes()),
+        "local name mismatch"
+    );
+    ensure!(
+        word(bytes, offset + 6)? == word(bytes, central + 8)?
+            && word(bytes, offset + 8)? == word(bytes, central + 10)?
+            && dword(bytes, offset + 14)? == dword(bytes, central + 16)?
+            && dword(bytes, offset + 18)? == dword(bytes, central + 20)?
+            && dword(bytes, offset + 22)? == dword(bytes, central + 24)?,
+        "entry size differs from signed size or local metadata"
+    );
+    Ok(&bytes[offset..end])
 }
 
 /// Reads a little-endian ZIP field without trusting directory offsets.

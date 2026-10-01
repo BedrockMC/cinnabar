@@ -8,9 +8,8 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::{Cursor, Read},
+    io::Read,
 };
-use zip::{CompressionMethod, ZipArchive};
 
 mod directory;
 
@@ -38,33 +37,11 @@ impl VerifiedBundle {
             crypto::digest(bytes) == offer.digest,
             "bundle hash mismatch"
         );
-        directory::validate(bytes)?;
-        let mut zip = ZipArchive::new(Cursor::new(bytes))?;
-        ensure!(zip.len() <= MAX_FILES + 1, "too many archive entries");
-        let mut names = BTreeSet::new();
+        let entries = directory::validate(bytes)?;
         let mut total = 0u64;
-        for index in 0..zip.len() {
-            let file = zip.by_index(index)?;
-            ensure!(safe_path(file.name()), "unsafe archive path");
-            ensure!(
-                names.insert(file.name().to_ascii_lowercase()),
-                "duplicate archive path"
-            );
-            ensure!(
-                file.unix_mode()
-                    .is_none_or(|mode| mode & 0o170000 == 0 || mode & 0o170000 == 0o100000),
-                "nonregular archive entry"
-            );
-            ensure!(!file.encrypted(), "encrypted bundles are unsupported");
-            ensure!(
-                matches!(
-                    file.compression(),
-                    CompressionMethod::Stored | CompressionMethod::Deflated
-                ),
-                "unsupported compression"
-            );
+        for file in entries.values() {
             total = total
-                .checked_add(file.size())
+                .checked_add(file.size)
                 .ok_or_else(|| anyhow::anyhow!("archive size overflow"))?;
             ensure!(
                 total <= remaining_expanded.min(MAX_EXPANDED_BYTES),
@@ -72,12 +49,15 @@ impl VerifiedBundle {
             );
         }
         let mut remaining = remaining_expanded.min(MAX_EXPANDED_BYTES);
-        let manifest_size = zip.by_name(MANIFEST_PATH)?.size();
+        let manifest_size = entries
+            .get(MANIFEST_PATH)
+            .ok_or_else(|| anyhow::anyhow!("manifest missing"))?
+            .size;
         ensure!(
             manifest_size <= MAX_MARKER_BYTES as u64,
             "manifest too large"
         );
-        let signed = read_entry(&mut zip, MANIFEST_PATH, manifest_size, &mut remaining)?;
+        let signed = read_entry(&entries, MANIFEST_PATH, manifest_size, &mut remaining)?;
         let signed: SignedDocument = serde_json::from_slice(&signed)?;
         let (manifest, _): (Manifest, _) = signed.verify(
             &offer.publisher_key,
@@ -106,7 +86,7 @@ impl VerifiedBundle {
                 channel.id.starts_with(&format!("{}.", manifest.id))
                     && crate::manifest::identifier(&channel.id)
                     && channels.insert((&channel.id, channel.schema))
-                    && channel.fields.len() <= 64,
+                    && channel.fields.len() <= MAX_CHANNEL_FIELDS,
                 "invalid channel declaration"
             );
         }
@@ -118,7 +98,7 @@ impl VerifiedBundle {
             "invalid action declaration"
         );
         ensure!(
-            manifest.files.len() + 1 == zip.len(),
+            manifest.files.len() + 1 == entries.len(),
             "unindexed archive entry"
         );
         let mut files = BTreeMap::new();
@@ -129,7 +109,7 @@ impl VerifiedBundle {
             );
             crypto::fixed_hex::<32>(&entry.sha256)?;
             ensure!(entry.bytes <= MAX_EXPANDED_BYTES, "file size exceeded");
-            let data = read_entry(&mut zip, &entry.path, entry.bytes, &mut remaining)?;
+            let data = read_entry(&entries, &entry.path, entry.bytes, &mut remaining)?;
             ensure!(
                 data.len() as u64 == entry.bytes && crypto::digest(&data) == entry.sha256,
                 "content hash mismatch"
@@ -191,15 +171,20 @@ fn safe_path(path: &str) -> bool {
 
 /// Checks declared size before decompression and caps reads independently.
 fn read_entry(
-    zip: &mut ZipArchive<Cursor<&[u8]>>,
+    entries: &BTreeMap<&str, directory::Entry<'_>>,
     path: &str,
     size: u64,
     remaining: &mut u64,
 ) -> Result<Vec<u8>> {
-    let mut file = zip.by_name(path)?;
-    ensure!(file.size() == size, "entry size differs from signed size");
+    let entry = entries
+        .get(path)
+        .ok_or_else(|| anyhow::anyhow!("indexed entry missing"))?;
+    ensure!(entry.size == size, "entry size differs from signed size");
     ensure!(size <= *remaining, "expanded archive limit exceeded");
     *remaining -= size;
+    let mut reader = entry.local;
+    let mut file = zip::read::read_zipfile_from_stream(&mut reader)?
+        .ok_or_else(|| anyhow::anyhow!("missing local entry"))?;
     let mut bytes = vec![0; usize::try_from(size)?];
     file.read_exact(&mut bytes)?;
     ensure!(file.read(&mut [0])? == 0, "entry expanded beyond limit");

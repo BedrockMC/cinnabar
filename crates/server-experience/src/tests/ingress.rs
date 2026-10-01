@@ -2,6 +2,27 @@ use super::*;
 use std::collections::BTreeMap;
 
 #[test]
+fn channel_field_count_uses_the_shared_contract_limit() {
+    let mut channel = wire::Channel {
+        id: "fixture.events".into(),
+        schema: policy::API_VERSION,
+        direction: wire::Direction::ToClient,
+        fields: vec![wire::Field::Bool; policy::MAX_CHANNEL_FIELDS],
+    };
+    let mut payload = vec![wire::Scalar::Bool(true); policy::MAX_CHANNEL_FIELDS];
+    channel
+        .validate(&payload, wire::Direction::ToClient)
+        .unwrap();
+    channel.fields.push(wire::Field::Bool);
+    payload.push(wire::Scalar::Bool(true));
+    assert!(
+        channel
+            .validate(&payload, wire::Direction::ToClient)
+            .is_err()
+    );
+}
+
+#[test]
 fn overlapping_package_names_do_not_share_permissions_or_channel_schemas() {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let mut offer = offer(&key);
@@ -45,7 +66,7 @@ fn overlapping_package_names_do_not_share_permissions_or_channel_schemas() {
         connection: grant.connection.clone(),
         subclient: 0,
         bundle: "a".into(),
-        generation: 1,
+        generation: policy::INITIAL_BUNDLE_GENERATION,
         channel: "a.b.events".into(),
         schema: 1,
         sequence: 1,

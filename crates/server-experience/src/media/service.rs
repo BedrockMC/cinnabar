@@ -82,7 +82,7 @@ impl Player {
             owner: Principal {
                 session: grant.session.clone(),
                 bundle: bundle.manifest.id.clone(),
-                generation: 1,
+                generation: crate::policy::INITIAL_BUNDLE_GENERATION,
             },
             epoch,
             expires_unix: grant.expires_unix,

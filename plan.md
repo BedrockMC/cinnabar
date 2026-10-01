@@ -3590,8 +3590,8 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 
 - Discovery, signed session negotiation, scoped consent, hashed bundle delivery,
   capability hosting and synchronized media are an opt-in Cinnabar extension.
-- This branch is code-only and UNCOMPILED by owner instruction. Tests are authored,
-  not run. No vanilla, visual, performance or containment gate is closed.
+- This branch is code-only. Local compilation and regression validation are now
+  authorized; no vanilla, visual, performance or containment gate is closed.
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
@@ -3605,5 +3605,31 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
   seeking/looping. Production never sends readiness or starts a bundle. Developer
   readiness grants only UI labels and typed messaging.
 - The MP4/H.264/AAC platform decoder is an unavailable trait stub. Native AV1/Opus
-  decoding is an optional developer feature, not a verified sandbox. No SDK or
-  server-side integration was written. Cargo.lock still needs coordinator resolution.
+  decoding is an optional compiled feature, but workers remain unavailable until
+  a helper enforces a process memory ceiling. No SDK or server-side integration
+  was written. The existing Cargo.lock passes the locked workspace check.
+
+### Review hardening and local validation
+
+- ZIP bundles use only the bounded final directory and validated local entries;
+  streaming decompression cannot retry earlier directories. Unsupported compression,
+  extra metadata, ZIP64 and streaming data descriptors are rejected before decoding.
+- Native media workers stay unavailable until an enforced process memory ceiling
+  exists. Sticky reader faults prevent download or integrity errors becoming EOF.
+- Host staging reserves the complete serialized transaction, including its owner,
+  epoch, wrapper and command separators. Identifier, channel-field, initial bundle
+  generation and widget text limits use shared policy constants.
+- Regression tests cover an oversized earlier ZIP64 directory behind a malformed
+  final AES entry, extra metadata, oversized EBML declarations, demuxer I/O failure
+  at an element boundary, exact transaction/IPC limits and channel field limits.
+- All Cargo validation below ran locally through the owner's `cslot` limiter.
+  No dependency or lockfile update was needed. These checks passed:
+  - `cargo check --workspace --all-targets --locked`
+  - `cargo test -p server-experience -p mod-host --locked` (31 and 13 tests)
+  - `cargo test -p server-experience -p mod-host --features server-experience/developer-media --locked`
+    (34 and 13 tests)
+  - `cargo test -p bedrock-client --locked` (unit, integration and documentation tests)
+  - `cargo clippy --workspace --all-targets --features server-experience/developer-media --locked -- -D warnings`
+  - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
+- `cargo fmt --all`, the formatting check and `git diff --check` passed. Production
+  containment, media integration and vanilla parity gates remain open.

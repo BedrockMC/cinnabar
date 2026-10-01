@@ -2,6 +2,7 @@
 
 use super::{
     descriptor::Descriptor,
+    faults::FaultReader,
     frames::{PcmBlock, VideoFrame, bt709_rgba},
     ranges::RangeReader,
     *,
@@ -39,9 +40,9 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// A cancelled worker retains the decoder slot until it has actually exited.
+    /// Remains unavailable until decoding runs in a process with an enforced memory ceiling.
     pub fn available() -> bool {
-        !DECODER_ACTIVE.load(Ordering::Acquire)
+        false
     }
 
     /// Starts fetching and decoding off-thread only under the explicit developer switch.
@@ -52,6 +53,10 @@ impl Worker {
         data_budget: Arc<AtomicU64>,
         start_us: u64,
     ) -> Result<Self> {
+        ensure!(
+            Self::available(),
+            "media decoding requires a memory-limited helper"
+        );
         ensure!(
             std::env::var(crate::policy::DEVELOPER_ENV).as_deref() == Ok("1"),
             "native media requires a restricted production helper"
@@ -120,7 +125,13 @@ fn decode<R: Read + Seek>(
     cancelled: &AtomicBool,
     mut emit: impl FnMut(Output) -> Result<()>,
 ) -> Result<()> {
+    ensure!(
+        Worker::available(),
+        "media decoding requires a memory-limited helper"
+    );
+    let (reader, faults) = FaultReader::new(reader);
     let mut file = MatroskaFile::open(reader)?;
+    faults.check()?;
     ensure!(
         file.ebml_header().doc_type() == "webm" && file.tracks().len() == 2,
         "unsupported WebM structure"
@@ -205,6 +216,7 @@ fn decode<R: Read + Seek>(
     let mut frame = Frame::default();
     let mut last_video_us = None;
     while file.next_frame(&mut frame)? {
+        faults.check()?;
         ensure!(!cancelled.load(Ordering::Acquire), "media cancelled");
         ensure!(
             frame.data.len() <= MAX_SAMPLE_BYTES,
@@ -272,6 +284,8 @@ fn decode<R: Read + Seek>(
             anyhow::bail!("unexpected track");
         }
     }
+    faults.check()?;
+    ensure!(!cancelled.load(Ordering::Acquire), "media cancelled");
     drain(&mut av1, descriptor, generation, &mut emit)?;
     emit(Output::End)
 }
@@ -346,6 +360,53 @@ fn clamp_opus(samples: &mut [f32]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Supplies a small signed-profile descriptor without contacting its origin.
+    fn descriptor() -> Descriptor {
+        Descriptor {
+            id: "fixture.media".into(),
+            timeline: "fixture.timeline".into(),
+            profile: super::super::descriptor::Profile::WebmAv1OpusBt709,
+            url: "https://example.com/media.webm".into(),
+            bytes: 64 * 1024,
+            chunk_bytes: 64 * 1024,
+            chunk_hashes: vec![crate::crypto::hex(&[0; 32])],
+            sha256: crate::crypto::hex(&[0; 32]),
+            width: 2,
+            height: 2,
+            fps: 1,
+            duration_us: 1_000_000,
+            audio_channels: 1,
+            poster: "poster.png".into(),
+        }
+    }
+
+    #[test]
+    fn oversized_ebml_declarations_cannot_start_an_uncontained_demuxer() {
+        let descriptor = descriptor();
+        for id in [vec![0x42, 0x82], vec![0x63, 0xa2], vec![0xa3]] {
+            let mut bytes = id;
+            bytes.extend_from_slice(&[0x1f, 0xff, 0xff, 0xfe]);
+            let mut reader = std::io::Cursor::new(bytes);
+            let error = decode(&mut reader, &descriptor, 1, &AtomicBool::new(false), |_| {
+                panic!("uncontained decoder emitted output")
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("memory-limited helper"));
+            assert_eq!(reader.position(), 0);
+        }
+        assert!(!Worker::available());
+        let error = Worker::start(
+            descriptor,
+            BTreeSet::new(),
+            1,
+            Arc::new(AtomicU64::new(0)),
+            0,
+        )
+        .err()
+        .expect("worker must remain unavailable");
+        assert!(error.to_string().contains("memory-limited helper"));
+    }
 
     #[test]
     fn loud_opus_with_positive_header_gain_is_bounded_after_decode() {

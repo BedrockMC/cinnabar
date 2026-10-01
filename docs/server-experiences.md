@@ -24,8 +24,9 @@ With the switch, the developer app advertises only `ui` and `messaging`. The UI
 adapter currently renders bounded labels in a separate JSON-UI area. It denies
 modal screens, input, scenes and media imports. A data-only bundle is accepted
 without a component, but its media is not automatically played. Enabling the
-optional `server-experience/developer-media` feature makes decoder primitives
-available; it does not connect those primitives to live gameplay.
+optional `server-experience/developer-media` feature compiles decoder primitives,
+but workers remain unavailable until a helper enforces a process memory ceiling.
+The developer switch does not bypass this requirement.
 
 ## Ordinary Bedrock remains the transport
 
@@ -180,6 +181,10 @@ filesystem tree. Supported compression methods are stored and deflate. Reject
 links, special files, encryption, duplicate names, directories, absolute paths,
 empty components, `.`/`..`, backslashes, excessive depth and expansion. Paths use
 lowercase ASCII letters, digits, `/`, `.`, `_`, `-`. Case aliases are not permitted.
+Only the final validated ordinary directory is used. ZIP64, streaming data
+descriptors and extra metadata are unsupported. Local headers must match that
+directory. Entry decompression uses the streaming reader, so the ZIP library
+cannot retry an earlier directory or allocate its index.
 
 `manifest.signed.json` contains a signed manifest wrapper. The manifest payload
 fields, in canonical order, are:
@@ -391,7 +396,9 @@ No production synchronization claim is made from a submission timestamp.
 
 - [`matroska-demuxer 0.8.1`](https://docs.rs/matroska-demuxer/0.8.1/matroska_demuxer/):
   Rust demuxer exposing seekable `Read + Seek`, tracks, sample bytes and timestamp
-  scale. Suitable for the constrained profile and authenticated range reader.
+  scale. Its declared-size allocations are not bounded by authenticated ranges;
+  it must only run in a memory-limited helper. Reader faults are retained separately
+  so a failed download or hash check cannot become successful end-of-stream.
 - [`dav1d 0.11.1`](https://docs.rs/dav1d/0.11.1/dav1d/): Rust wrapper around the
   native AV1 decoder, with strict compliance, thread count and frame-size controls.
   Decode is native code, not memory-safe Rust; platform dav1d provisioning and a
@@ -402,10 +409,10 @@ No production synchronization claim is made from a submission timestamp.
 
 The choice favors established decoder implementations over writing codec parsers
 or relying on an unverified pure-Rust AV1+Opus stack. The native dependencies are
-optional and decoder startup requires the developer switch. In this branch they
-are **not well-sandboxed** and must not be enabled for production server media.
-Matroska internal allocations occur before some sample checks, so post-decode
-validation is not a substitute for process memory limits or adversarial fuzzing.
+optional. Worker availability and startup both fail closed, including with the
+developer switch, until a memory-limited helper is implemented. Matroska internal
+allocations occur before some sample checks, so post-decode validation is not a
+substitute for process memory limits or adversarial fuzzing.
 MP4/H.264/AAC remains the explicitly unavailable `PlatformDecoder` trait stub.
 
 Other pinned direct dependencies reuse locked versions: reqwest 0.12.28,
@@ -433,9 +440,9 @@ Every server must retain its fallback before readiness and after any loss of
 extension state: ordinary forms for choices, pack art/posters/captions for video,
 and ordinary controls or an explicit optional mode for richer mechanics.
 
-No commands below were run. Before integration the coordinator must resolve the
-lockfile, compile default and developer-media configurations, format, run focused
-tests, clippy and the architecture gate. Add malicious archive/HTTP fixtures,
+Local validation is recorded in `plan.md`; it does not close production gates.
+Before integration, compile default and developer-media configurations, format,
+run focused tests, clippy and the architecture gate. Add hostile HTTP fixtures,
 component trap/timeout tests, helper-exit races, consent-layout tests, independent
 wire fixtures, verified media samples, reconnect/transfer tests and packet captures
 proving no-advertisement equivalence. Production additionally requires OS sandbox

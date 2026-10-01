@@ -2,6 +2,8 @@
 
 pub mod clock;
 pub mod descriptor;
+#[cfg(any(feature = "developer-media", test))]
+mod faults;
 pub mod frames;
 pub mod ranges;
 pub mod service;

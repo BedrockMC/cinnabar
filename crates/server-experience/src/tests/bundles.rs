@@ -205,3 +205,60 @@ fn physical_entry_count_is_bounded_before_library_indexing() {
             .contains("unaccounted physical")
     );
 }
+
+#[test]
+fn malformed_final_aes_directory_never_retries_an_oversized_earlier_zip64_index() {
+    let (mut bytes, mut deployment) = archive("first.bin", b"a", false);
+    let entries = central_entries(&bytes);
+    let original_end = bytes.len() - 22;
+    let mut directory = bytes[entries[0]..original_end].to_vec();
+    let footer = bytes[original_end..].to_vec();
+    bytes.resize(16 * 1024, 0);
+    let earlier_start = bytes.len() as u64;
+    bytes.extend_from_slice(&directory);
+    let zip64_offset = bytes.len() as u64;
+    bytes.extend_from_slice(b"PK\x06\x06");
+    bytes.extend_from_slice(&44u64.to_le_bytes());
+    bytes.extend_from_slice(&45u16.to_le_bytes());
+    bytes.extend_from_slice(&45u16.to_le_bytes());
+    bytes.extend_from_slice(&[0; 8]);
+    let count = (policy::MAX_FILES + 2) as u64;
+    bytes.extend_from_slice(&count.to_le_bytes());
+    bytes.extend_from_slice(&count.to_le_bytes());
+    bytes.extend_from_slice(&(directory.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(&earlier_start.to_le_bytes());
+    bytes.extend_from_slice(b"PK\x06\x07");
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&zip64_offset.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    let mut earlier_footer = footer.clone();
+    earlier_footer[8..12].fill(0xff);
+    earlier_footer[12..20].fill(0xff);
+    bytes.extend_from_slice(&earlier_footer);
+    let final_start = bytes.len();
+    directory[10..12].copy_from_slice(&99u16.to_le_bytes());
+    bytes.extend_from_slice(&directory);
+    let mut final_footer = footer;
+    final_footer[16..20].copy_from_slice(&(final_start as u32).to_le_bytes());
+    bytes.extend_from_slice(&final_footer);
+    let error = read_mutated(&bytes, &mut deployment, policy::MAX_EXPANDED_BYTES).unwrap_err();
+    assert!(
+        error.to_string().contains("unsupported compression"),
+        "{error}"
+    );
+}
+
+#[test]
+fn local_and_central_extra_metadata_are_rejected_before_streaming_decode() {
+    for central in [false, true] {
+        let (mut bytes, mut deployment) = archive("first.bin", b"a", false);
+        let offset = if central {
+            central_entries(&bytes)[0] + 30
+        } else {
+            28
+        };
+        bytes[offset..offset + 2].copy_from_slice(&1u16.to_le_bytes());
+        let error = read_mutated(&bytes, &mut deployment, policy::MAX_EXPANDED_BYTES).unwrap_err();
+        assert!(error.to_string().contains("extra metadata"), "{error}");
+    }
+}
