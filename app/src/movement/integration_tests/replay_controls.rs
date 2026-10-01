@@ -233,6 +233,6 @@ fn replayed_mount_closes_the_airborne_jump_arc() {
     let anchor = super::PhysicsAnchor { network_position: jump.position, tick: jump.tick, on_ground: false, velocity: Some(jump.velocity) };
     for _ in 0..2 {
         let replay = physics.apply_correction(anchor, PhysicsCorrectionMode::ReplayIfRetained, None, &VersionedFloor(1)).unwrap();
-        assert_eq!(replay.replayed_samples, [mounted.clone()]);
+        assert_eq!(replay.replayed_samples, std::slice::from_ref(&mounted));
     }
 }

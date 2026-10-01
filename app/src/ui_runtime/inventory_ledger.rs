@@ -458,26 +458,8 @@ impl PlayerInventoryLedger {
             .find(|pending| pending.state == InventoryPendingState::AwaitingTransport)
     }
 
-    /// Retains a single-request view for callers consuming one ledger entry.
-    #[cfg(test)]
-    pub(crate) fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
-        if let Some(control) = self.pending_control_packet()? {
-            return Ok(Some(control));
-        }
-        self.first_unsent()
-            .map(|pending| {
-                protocol::item_stack_request_packet_filtered(
-                    pending.request_id,
-                    &pending.actions,
-                    &pending.filter_strings,
-                )
-                .map_err(|_| InventoryGestureError::InvalidRequest)
-            })
-            .transpose()
-    }
-
     /// Places ready requests in one packet; window controls keep their existing queue priority.
-    pub(super) fn pending_batch(&self) -> Result<Option<(Packet, usize)>, InventoryGestureError> {
+    pub fn pending_batch(&self) -> Result<Option<(Packet, usize)>, InventoryGestureError> {
         if let Some(control) = self.pending_control_packet()? {
             return Ok(Some((control, 1)));
         }
