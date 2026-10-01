@@ -4,12 +4,15 @@ struct UiViewport {
     _padding: f32,
 };
 
-// Vertex style bit for the enchantment glint (`ui::UI_STYLE_GLINT`).
+// Vertex style bits (`ui::UI_STYLE_GLINT`, `UI_STYLE_GRAYSCALE`, `UI_STYLE_BILINEAR`).
 const STYLE_GLINT: u32 = 2u;
+const STYLE_GRAYSCALE: u32 = 4u;
+const STYLE_BILINEAR: u32 = 8u;
 
 @group(0) @binding(0) var<uniform> viewport: UiViewport;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
 @group(0) @binding(2) var ui_sampler: sampler;
+@group(0) @binding(3) var ui_linear_sampler: sampler;
 
 struct UiVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -18,14 +21,6 @@ struct UiVertexOutput {
     @location(2) @interpolate(flat) texture_page: u32,
     @location(3) @interpolate(flat) style_flags: u32,
 };
-
-// Vertex colours are authored in sRGB (JSON-UI and HUD colours alike); the
-// target stores linear values, so decode them as the texture pages are.
-fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
-    let low = srgb / 12.92;
-    let high = pow((srgb + 0.055) / 1.055, vec3<f32>(2.4));
-    return select(high, low, srgb <= vec3<f32>(0.04045));
-}
 
 @vertex
 fn ui_vertex(
@@ -42,7 +37,9 @@ fn ui_vertex(
     var output: UiVertexOutput;
     output.clip_position = vec4<f32>(ndc, 0.0, 1.0);
     output.uv = vec2<f32>(uv);
-    output.color = vec4<f32>(srgb_to_linear(color.rgb), color.a);
+    // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
+    // blends in gamma space, and the layer composites over the scene after.
+    output.color = color;
     output.texture_page = texture_page;
     output.style_flags = style_flags;
     return output;
@@ -58,12 +55,17 @@ fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
     // draw it gave the leading column one pixel, every other column two, and
     // bled a column of the neighbouring glyph in on the right.
     let normalized_uv = input.uv / dimensions;
-    let sample = textureSample(
-        ui_pages,
-        ui_sampler,
-        normalized_uv,
-        i32(input.texture_page),
-    );
+    // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
+    var sample: vec4<f32>;
+    if (input.style_flags & STYLE_BILINEAR) != 0u {
+        sample = textureSampleLevel(ui_pages, ui_linear_sampler, normalized_uv, i32(input.texture_page), 0.0);
+    } else {
+        sample = textureSampleLevel(ui_pages, ui_sampler, normalized_uv, i32(input.texture_page), 0.0);
+    }
+    if (input.style_flags & STYLE_GRAYSCALE) != 0u {
+        // Provisional luma weights (Rec. 601); the retail material is not inspected.
+        sample = vec4<f32>(vec3<f32>(dot(sample.rgb, vec3<f32>(0.299, 0.587, 0.114))), sample.a);
+    }
     let straight_color = input.color;
     let alpha = sample.a * straight_color.a;
     var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a;

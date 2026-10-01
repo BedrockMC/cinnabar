@@ -28,6 +28,7 @@ impl TextureSource for AnyTexture {
     fn texture(&self, _path: &str) -> Option<TextureMeta> {
         Some(TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: None,
         })
     }

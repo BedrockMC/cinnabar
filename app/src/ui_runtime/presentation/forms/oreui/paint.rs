@@ -442,6 +442,8 @@ impl<'a> Canvas<'a> {
             speed: self.r(6.0),
             track,
             thumb,
+            engine: None,
+            draggable: true,
         });
         Ok(())
     }

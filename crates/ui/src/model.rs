@@ -66,6 +66,20 @@ pub enum UiVisual {
         uv: [u16; 4],
         color: [u8; 4],
     },
+    /// A sprite whose vertices carry [`UI_STYLE_GRAYSCALE`]/[`UI_STYLE_BILINEAR`].
+    StyledSprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+        style: u8,
+    },
+    /// A solid rect blending `colors[0]` into `colors[1]` top to bottom (or left
+    /// to right when `horizontal`).
+    Gradient {
+        texture_page: u16,
+        colors: [[u8; 4]; 2],
+        horizontal: bool,
+    },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
         texture_page: u16,
@@ -244,6 +258,10 @@ impl UiFrame {
 
 /// Vertex style bit asking the renderer to draw the enchantment glint.
 pub const UI_STYLE_GLINT: u8 = 1 << 1;
+/// Vertex style bit for JSON-UI `grayscale` sprites.
+pub const UI_STYLE_GRAYSCALE: u8 = 1 << 2;
+/// Vertex style bit for JSON-UI `bilinear` sprites.
+pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiVertex {
@@ -681,6 +699,8 @@ impl UiTree {
                 UiVisual::Solid { .. }
                 | UiVisual::Sprite { .. }
                 | UiVisual::GlintSprite { .. }
+                | UiVisual::StyledSprite { .. }
+                | UiVisual::Gradient { .. }
                 | UiVisual::RotatedSprite { .. }
                 | UiVisual::InvertedSprite { .. } => 1,
                 UiVisual::Text { layout, shadow, .. }

@@ -348,6 +348,12 @@ pub(crate) fn drive_menu_input(
     if on_scrollbar {
         menu.hovered = None;
     }
+    let press = |menu: &mut MenuRuntime, action| {
+        if let Some(sound) = presentation.menu_sound(action) {
+            crate::audio::ui_control_sound(sound);
+        }
+        menu.activate(action);
+    };
     if pointer_just_pressed
         && !on_scrollbar
         && matches!(menu.hovered, Some(super::MenuAction::SettingsScale(_)))
@@ -371,14 +377,14 @@ pub(crate) fn drive_menu_input(
         && !gui_scale_drag.captured
         && let Some(action) = menu.hovered
     {
-        menu.activate(action);
+        press(&mut menu, action);
     }
     for touch in touches.iter_just_pressed() {
         let position = touch.position();
         if let Ok(position) = UiPoint::new(position.x, position.y)
             && let Some(action) = presentation.hit_test_menu(position)
         {
-            menu.activate(action);
+            press(&mut menu, action);
         }
     }
     for gamepad in &gamepads {

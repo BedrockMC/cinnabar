@@ -84,7 +84,7 @@ pub(crate) fn drive_sign_editor(
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
     let mut measure = measure;
-    let mut finish = false;
+    let mut finish = runtime.sign_editor_mut().take_finish_request();
     if window.focused {
         for event in keyboard
             .read()

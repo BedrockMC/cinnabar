@@ -14,6 +14,14 @@ use super::super::{
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
 
+/// The world-loading screens by dimension: overworld, nether, the end.
+pub(crate) const LOADING_SCREENS: [&str; 3] = [
+    "progress.overworld_loading_progress_screen",
+    "progress.nether_loading_progress_screen",
+    "progress.theend_loading_progress_screen",
+];
+pub(crate) const LOADING_SCREEN: &str = LOADING_SCREENS[0];
+
 /// Which part of joining the loading screen reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoadingStage {
@@ -36,9 +44,9 @@ impl UiPresentationRuntime {
             return Ok(false);
         };
         let reference = match self.hud_frame.dimension {
-            1 => "progress.nether_loading_progress_screen",
-            2 => "progress.theend_loading_progress_screen",
-            _ => "progress.overworld_loading_progress_screen",
+            1 => LOADING_SCREENS[1],
+            2 => LOADING_SCREENS[2],
+            _ => LOADING_SCREEN,
         };
         let translate = |key: &str| runtime.translation(key);
         let text = |key: &str, fallback: &str| {
@@ -84,6 +92,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content,
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = EngineOutput {
             nodes,
@@ -92,9 +101,26 @@ impl UiPresentationRuntime {
         };
         let screen = &mut self.form_presentation.hud.loading;
         let view = ViewState::default();
-        let frame = renderer.draw(ScreenArt::default(), inputs, out, |env, root| {
-            screen.render_with(reference, &catalog, &context, data, (root, px), env, &view)
-        })?;
+        let frame = renderer.draw(
+            ScreenArt {
+                now: self.menu_seconds,
+                clocks: Some(&self.scene_clock),
+                ..ScreenArt::default()
+            },
+            inputs,
+            out,
+            |env, root| {
+                screen.render_with(
+                    reference,
+                    &catalog,
+                    &context,
+                    data,
+                    (root, px, runtime.text_generation()),
+                    env,
+                    &view,
+                )
+            },
+        )?;
         Ok(frame.is_some())
     }
 }

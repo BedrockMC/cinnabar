@@ -78,6 +78,7 @@ pub(crate) fn line_width_design_pixels(
             baseline_64: ASCENT_TEXELS * 64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .ok()?;
     Some(layout.size_64()[0] as f32 / (TEXELS_PER_PIXEL * 64) as f32)
@@ -113,6 +114,7 @@ pub(super) fn rasterize(
             baseline_64: ASCENT_TEXELS * 64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         }) else {
             continue;
         };

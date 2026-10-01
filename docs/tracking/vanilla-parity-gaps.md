@@ -55,6 +55,10 @@ dropper, crafter, horse), the creative inventory (tabs, search, collapsible grou
 two-page book/lectern screen, with full item tooltips, the recipe book filter toggle,
 crafter slot toggles/preview/powered arrow, creative's wide list and per-mount equip slots.
 A hover change never lays out again; scrolling lays out only visible scroll content.
+Layout solves the client's layout-variable rules (sizes and bounds, stack, grid and scroll
+components, clipping, locks, anchored and cursor/drag offsets; `crates/json-ui/tests/layout_parity.rs`).
+Incomplete: touch scroll dynamics infer the 0.05 s velocity-window blend and no host ticks them;
+clip-state events are reported but not dispatched; `size` animations need a host clock.
 Incomplete: the enchanting book model, rune font, the live horse renderer, banner
 pattern previews, the anvil result preview and repair cost; the paper doll's held item is
 a flat quad and it draws no offhand or armor trims. Needs native measurement: the virtual UI scale (engine

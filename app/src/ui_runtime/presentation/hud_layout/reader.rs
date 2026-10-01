@@ -48,6 +48,7 @@ impl HudLayout<'_> {
                 baseline_64: super::super::TEXT_BASELINE_64,
                 scale: self.text_scale(9.0),
                 font: self.font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         self.text_gui(layout, position, color)

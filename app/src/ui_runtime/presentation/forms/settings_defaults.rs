@@ -72,7 +72,12 @@ pub(super) fn bind(data: &mut DataSource, translate: &dyn Fn(&str) -> String) {
         data.set_global(format!("#{name}"), Scalar::Num(*position));
         data.set_global(
             format!("#{name}_slider_label"),
-            Scalar::Text(format!("{}: {value}", translate(label))),
+            // The label localizes again, where `%%` keeps one `%`.
+            Scalar::Text(format!(
+                "{}: {}",
+                translate(label),
+                value.replace('%', "%%")
+            )),
         );
     }
     for toggle in TOGGLES_ON {

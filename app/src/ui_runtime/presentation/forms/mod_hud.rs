@@ -96,6 +96,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content,
             translate: &|_| None,
+            language: runtime.text_generation(),
         };
         let rollback = (nodes.len(), *next);
         let out = EngineOutput {
@@ -110,7 +111,7 @@ impl UiPresentationRuntime {
                 &hud.catalog,
                 &Context::default(),
                 data,
-                (root, px),
+                (root, px, runtime.text_generation()),
                 env,
                 &ViewState::default(),
             )

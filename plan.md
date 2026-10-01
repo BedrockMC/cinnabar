@@ -17,6 +17,25 @@ See [offline investigation](docs/reviews/mesh-stall.md) for commit attribution a
 references. Incomplete: exact native rebuild timing, release frame spikes and network
 latency acceptance. Offline drains do not close those gates.
 
+2026-10-01 JSON-UI layout: sizes, anchors, stack/grid/scroll and clipping follow
+the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
+match exactly as the client's asset index does; an unresolved one draws the
+default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
+live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+the top of their grid because the client answers no `#get_grid_size` (absent
+from the 1.26.50 binary), so whatever pads them is unidentified; `size`
+animations scale draws at paint time instead of relaying out each tick.
+
+2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
+(keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
+axes and scale, clip direction none by default with pixel-perfect snapping),
+labels follow `TextComponent` (0.5/1/2/4 font sizes, line padding, locked
+colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
+in sRGB-encoded values through an offscreen layer. Not live-accepted.
+Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
+material not inspected); placeholder hiding ignores focus; `font_type` and
+`enable_profanity_filter` reach the host but select nothing.
+
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);

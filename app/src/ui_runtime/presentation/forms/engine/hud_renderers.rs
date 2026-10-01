@@ -175,8 +175,17 @@ pub(super) fn paint(
         let color = alpha([255, 255, 255, cell.alpha]);
         let visual = cell
             .preferred
-            .and_then(|path| painter.sprite(path, json_ui::UvRect::full(), color))
-            .or_else(|| painter.sprite(cell.texture, json_ui::UvRect::full(), color));
+            .and_then(|path| {
+                painter.sprite(path, json_ui::UvRect::full(), color, Default::default())
+            })
+            .or_else(|| {
+                painter.sprite(
+                    cell.texture,
+                    json_ui::UvRect::full(),
+                    color,
+                    Default::default(),
+                )
+            });
         if let Some(visual) = visual {
             let _ = painter.push(visual, bounds);
         }
@@ -195,8 +204,12 @@ fn slot_art(
         .get("#collection_index")
         .and_then(Value::as_f64)
         .map_or(0, |index| index.clamp(0.0, 8.0) as usize);
-    if let Some(visual) = painter.sprite(SLOT_ART[index], json_ui::UvRect::full(), alpha([255; 4]))
-    {
+    if let Some(visual) = painter.sprite(
+        SLOT_ART[index],
+        json_ui::UvRect::full(),
+        alpha([255; 4]),
+        Default::default(),
+    ) {
         let _ = painter.push(visual, dest);
     }
 }
@@ -241,7 +254,7 @@ pub(super) fn with_java_hud(
     catalog.apply_pack(kept);
     catalog.apply_pack(
         [(
-            "ui/cinnabar_title.json",
+            "ui/ui_art_assets_common.json",
             super::menu_renderers::TITLE_PANEL_OVERLAY,
         )]
         .into_iter()

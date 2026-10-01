@@ -139,6 +139,13 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            drag_axes: [false; 2],
+            sound: None,
+            input: Default::default(),
+            focus: None,
+            widget: Default::default(),
+            collections: Vec::new(),
+            modal_root: None,
         }
     }
 
