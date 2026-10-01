@@ -82,6 +82,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content: [width, height],
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = EngineOutput {
             nodes,

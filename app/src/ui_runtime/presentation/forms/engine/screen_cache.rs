@@ -18,8 +18,8 @@ pub(super) struct ScreenKey<'a> {
     pub(super) view: &'a ViewState,
     pub(super) root: [f64; 2],
     pub(super) px: f32,
-    /// A translated probe string, so a language change relays out.
-    pub(super) language: Option<Arc<str>>,
+    /// The language tables text measures with.
+    pub(super) text: [usize; 3],
 }
 
 struct Entry {
@@ -30,7 +30,7 @@ struct Entry {
     view: ViewState,
     root: [f64; 2],
     px: f32,
-    language: Option<Arc<str>>,
+    text: [usize; 3],
     render: Arc<FormRender>,
 }
 
@@ -40,7 +40,7 @@ impl Entry {
             && Arc::ptr_eq(&self.catalog, key.catalog)
             && self.root == key.root
             && self.px == key.px
-            && self.language == key.language
+            && self.text == key.text
             && self.view == *key.view
             && self.context == *key.context
             && self.data == *key.data
@@ -94,7 +94,7 @@ impl ScreenCache {
             view: key.view.clone(),
             root: key.root,
             px: key.px,
-            language: key.language,
+            text: key.text,
             render: Arc::clone(&rendered),
         });
         Some(rendered)
@@ -240,7 +240,7 @@ mod tests {
             view: &view,
             root,
             px: 2.0,
-            language: None,
+            text: [0; 3],
         };
         let first = cache.get_or_render(key([400.0, 300.0]), render).unwrap();
         let again = cache
