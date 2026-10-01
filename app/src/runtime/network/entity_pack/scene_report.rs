@@ -403,6 +403,7 @@ fn apply(rows: &[[f32; 4]; 3], point: [f32; 3]) -> [f32; 3] {
 /// The shader's billboard: facing the camera position by yaw then pitch, x right and y down.
 fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
     let side = NAMETAG_ATLAS_SIDE as f32;
+    let atlas = nametag_pixels(scene);
     for (index, record) in scene.records.iter().enumerate() {
         let anchor = Vec3::from_array(record.anchor);
         let facing = (eye - anchor).normalize_or(Vec3::Z);
@@ -430,7 +431,7 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
                 let tx = ((uv[0] * side) as usize).min(NAMETAG_ATLAS_SIDE as usize - 1);
                 let ty = ((uv[1] * side) as usize).min(NAMETAG_ATLAS_SIDE as usize - 1);
                 let at = (ty * NAMETAG_ATLAS_SIDE as usize + tx) * 4;
-                let texel = &scene.atlas[at..at + 4];
+                let texel = &atlas[at..at + 4];
                 for (channel, value) in rgba.iter_mut().zip(texel) {
                     *channel *= f32::from(*value) / 255.0;
                 }
@@ -441,4 +442,20 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
         frame.triangle([quad[0], quad[1], quad[2]], depth_tested, false, &shade);
         frame.triangle([quad[0], quad[2], quad[3]], depth_tested, false, &shade);
     }
+}
+
+/// Reconstructs the atlas for this offline software-rendered frame.
+fn nametag_pixels(scene: &NametagScene) -> Vec<u8> {
+    let side = NAMETAG_ATLAS_SIDE as usize;
+    let mut pixels = vec![0; side * side * 4];
+    for rectangle in scene.atlas.iter() {
+        let [x, y, width, height] = rectangle.cell.map(|value| value as usize);
+        for row in 0..height {
+            let source = row * width * 4;
+            let target = ((y + row) * side + x) * 4;
+            pixels[target..target + width * 4]
+                .copy_from_slice(&rectangle.rgba8[source..source + width * 4]);
+        }
+    }
+    pixels
 }
