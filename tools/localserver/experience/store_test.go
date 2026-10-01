@@ -336,11 +336,11 @@ func TestStoreFlushIsAtomic(t *testing.T) {
 	if err := r.Flush(); err == nil {
 		t.Fatal("Flush succeeded although its temp file could not be created")
 	}
-	if data, _ := openTestStore(t, dir).Data("demo", k); string(data) != "old" {
-		t.Fatalf("failed flush changed the file: %q", data)
-	}
 	if err := os.Remove(stray); err != nil {
 		t.Fatal(err)
+	}
+	if data, _ := openTestStore(t, dir).Data("demo", k); string(data) != "old" {
+		t.Fatalf("failed flush changed the file: %q", data)
 	}
 	if err := r.Flush(); err != nil {
 		t.Fatal(err)
@@ -378,13 +378,51 @@ func TestStoreInstalledRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStoreLoadedInstalledIsNormalized(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "_installed.json"), []byte(`{"schema":1,"ids":["beta","alpha","beta"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := openTestStore(t, dir).Installed(), []string{"alpha", "beta"}; !slices.Equal(got, want) {
+		t.Fatalf("Installed = %v, want %v", got, want)
+	}
+}
+
+func TestStoreExperienceNamedInstalledKeepsItsData(t *testing.T) {
+	dir := t.TempDir()
+	s := openTestStore(t, dir)
+	k := Key{X: 3}
+	s.Place("installed", k)
+	if err := s.SetData("installed", k, []byte("mine"), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetInstalled([]string{"installed", "alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := openTestStore(t, dir)
+	if data, ok := r.Data("installed", k); !ok || string(data) != "mine" {
+		t.Fatalf("installed data = %q, %v; want mine, true", data, ok)
+	}
+	if got, want := r.Installed(), []string{"alpha", "installed"}; !slices.Equal(got, want) {
+		t.Fatalf("Installed = %v, want %v", got, want)
+	}
+}
+
 func TestStoreCorruptFileFailsOpenNamingFile(t *testing.T) {
+	emptyData := `{"schema":1,"next_generation":1,"entries":[]}`
 	for name, content := range map[string]string{
-		"syntax.json":    `{"schema":1,"next_generation":`,
-		"schema.json":    `{"schema":2,"next_generation":1,"entries":[]}`,
-		"hex.json":       `{"schema":1,"next_generation":2,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":"zz"}]}`,
-		"dup.json":       `{"schema":1,"next_generation":3,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":null},{"dim":0,"x":0,"y":0,"z":0,"generation":2,"revision":0,"data":null}]}`,
-		"installed.json": `{"schema":1,"ids":`,
+		"syntax.json":     `{"schema":1,"next_generation":`,
+		"schema.json":     `{"schema":2,"next_generation":1,"entries":[]}`,
+		"hex.json":        `{"schema":1,"next_generation":2,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":"zz"}]}`,
+		"dup.json":        `{"schema":1,"next_generation":3,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":null},{"dim":0,"x":0,"y":0,"z":0,"generation":2,"revision":0,"data":null}]}`,
+		"_installed.json": `{"schema":1,"ids":`,
+		"Upper.json":      emptyData,
+		"9lives.json":     emptyData,
+		"notes.txt":       emptyData,
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
