@@ -151,3 +151,218 @@ fn ignored_uses_the_typed_dispatch_and_enclosing_scope() {
     let context = Context::empty().with_flag("omit", false);
     assert!(resolve_in(r#""root":{"type":"panel","$omit":true,"ignored":"$omit"}"#, &context).is_some());
 }
+
+// `factory` may be a `$var`, and its fields evaluate in the declaring scope.
+#[test]
+fn factory_declarations_evaluate() {
+    let spec = root(r#""root":{"type":"panel","$spec":{"name":"f","control_ids":{"r":"a.r"}},"factory":"$spec"}"#);
+    let factory = spec.factory.expect("factory from a variable");
+    assert_eq!(factory.name.as_deref(), Some("f"));
+    assert_eq!(factory.control_ids["r"].name, "r");
+    let named = root(
+        r#""root":{"type":"panel","$n":"f","$m":1,"factory":{"name":"$n","max_children_size":"$m",
+            "insert_location":"front","control_ids":{"r":"instance@a.r"},"factory_variables":["$n"]}}"#,
+    );
+    let factory = named.factory.unwrap();
+    assert_eq!(factory.name.as_deref(), Some("f"));
+    assert_eq!(factory.max_children_size, Some(1));
+    assert!(factory.insert_front);
+    assert_eq!(factory.instance_names["r"], "instance");
+    assert_eq!(factory.variables["n"], json!("f"));
+    let unlimited = root(r#""root":{"type":"panel","factory":{"name":"f","max_children_size":0,"control_ids":{"r":"a.r"}}}"#);
+    assert_eq!(unlimited.factory.unwrap().max_children_size, None);
+}
+
+// `control_name` wins over `control_ids`; a `type: "factory"` control's own fields
+// win over a nested `factory` object.
+#[test]
+fn factory_declaration_precedence() {
+    let template = root(
+        r#""root":{"type":"panel","factory":{"name":"f","control_name":"a.r","control_ids":{"r":"a.s"}}}"#,
+    );
+    let factory = template.factory.unwrap();
+    assert_eq!(factory.control_name.unwrap().name, "r");
+    assert!(factory.control_ids.is_empty());
+    let own = root(
+        r#""root":{"type":"panel","controls":[{"f":{"type":"factory","control_ids":{"r":"a.r"},
+            "factory":{"name":"g","control_ids":{"r":"a.s"}}}}]}"#,
+    );
+    let factory = own.children[0].factory.clone().unwrap();
+    assert_eq!(factory.name.as_deref(), Some("f"));
+    assert_eq!(factory.control_ids["r"].name, "r");
+}
+
+mod factories {
+    use super::*;
+    use json_ui::{CatalogLibrary, CollectionItem, DataSource, FactoryItem, Scalar};
+
+    const TEMPLATES: &str = r#""r":{"type":"label","$x|default":"base","text":"$x"},
+        "s":{"type":"label","text":"s"}"#;
+
+    fn bound(host: &str, data: &DataSource) -> ResolvedControl {
+        let catalog = catalog(&format!(r#"{TEMPLATES},"root":{{"type":"panel","controls":[{{"f":{host}}}]}}"#));
+        let context = Context::empty();
+        let tree = json_ui::resolve(&catalog, "a.root", &context).control.unwrap();
+        json_ui::bind(&tree, data, &CatalogLibrary { catalog: &catalog, context: &context })
+    }
+
+    fn fed(items: Vec<FactoryItem>) -> DataSource {
+        let mut data = DataSource::new();
+        data.set_factory("f", items);
+        data
+    }
+
+    fn names(control: &ResolvedControl) -> Vec<&str> {
+        control.children.iter().map(|child| child.name.as_str()).collect()
+    }
+
+    fn texts(control: &ResolvedControl) -> Vec<Value> {
+        control.children.iter().map(text).collect()
+    }
+
+    // Captured `factory_variables` override a creation's own; nothing else of the host leaks.
+    #[test]
+    fn factory_variables_are_captured_by_whitelist() {
+        let item = || vec![FactoryItem::new("r", 0.0).var("x", json!("event"))];
+        let captured = bound(
+            r#"{"type":"panel","$x":"host","factory":{"name":"f","control_ids":{"r":"a.r"},"factory_variables":["$x"]}}"#,
+            &fed(item()),
+        );
+        assert_eq!(texts(&captured.children[0]), [json!("host")]);
+        let plain = bound(
+            r#"{"type":"panel","$x":"host","factory":{"name":"f","control_ids":{"r":"a.r"}}}"#,
+            &fed(vec![FactoryItem::new("r", 0.0)]),
+        );
+        assert_eq!(texts(&plain.children[0]), [json!("base")]);
+    }
+
+    // A `control_name` template wins over the id and resolves in the declaring scope.
+    #[test]
+    fn templates_win_and_resolve_where_declared() {
+        let host = bound(
+            r#"{"type":"panel","$x":"host","factory":{"name":"f","control_name":"a.r","control_ids":{"r":"a.s"}}}"#,
+            &fed(vec![FactoryItem::new("r", 0.0).var("x", json!("event"))]),
+        );
+        assert_eq!(texts(&host.children[0]), [json!("host")]);
+    }
+
+    // A named `control_ids` entry names its instance.
+    #[test]
+    fn named_references_keep_their_instance_name() {
+        let host = bound(
+            r#"{"type":"panel","factory":{"name":"f","control_ids":{"r":"instance@a.r"}}}"#,
+            &fed(vec![FactoryItem::new("r", 0.0)]),
+        );
+        assert_eq!(names(&host.children[0]), ["instance"]);
+    }
+
+    // Zero is unlimited; the cap counts every child and front insertion evicts from the back.
+    #[test]
+    fn max_children_and_insert_location() {
+        let two = || vec![FactoryItem::new("r", 0.0).named("one"), FactoryItem::new("r", 1.0).named("two")];
+        let unlimited = bound(
+            r#"{"type":"panel","factory":{"name":"f","max_children_size":0,"control_ids":{"r":"a.r"}}}"#,
+            &fed(two()),
+        );
+        assert_eq!(names(&unlimited.children[0]), ["one", "two"]);
+        let capped = bound(
+            r#"{"type":"panel","$m":1,"factory":{"name":"f","max_children_size":"$m","control_ids":{"r":"a.r"}}}"#,
+            &fed(two()),
+        );
+        assert_eq!(names(&capped.children[0]), ["two"]);
+        let mut three = two();
+        three.push(FactoryItem::new("r", 2.0).named("three"));
+        let front = bound(
+            r#"{"type":"panel","factory":{"name":"f","insert_location":"front","max_children_size":2,"control_ids":{"r":"a.r"}}}"#,
+            &fed(three),
+        );
+        assert_eq!(names(&front.children[0]), ["three", "two"]);
+    }
+
+    // Literal children stay beside created ones; a template clears them.
+    #[test]
+    fn literal_children_follow_the_factory_mode() {
+        let ids = bound(
+            r#"{"type":"panel","controls":[{"literal":{"type":"panel"}}],"factory":{"name":"f","control_ids":{"r":"a.r"}}}"#,
+            &fed(vec![FactoryItem::new("r", 0.0)]),
+        );
+        assert_eq!(names(&ids.children[0]), ["literal", "r"]);
+        let template = bound(
+            r#"{"type":"panel","controls":[{"literal":{"type":"panel"}}],"factory":{"name":"f","control_name":"a.r"}}"#,
+            &DataSource::new(),
+        );
+        assert!(template.children[0].children.is_empty());
+    }
+
+    // A `type: "factory"` control creates into its parent.
+    #[test]
+    fn type_factories_create_siblings() {
+        let host = bound(
+            r#"{"type":"panel","controls":[{"g":{"type":"factory","control_ids":{"r":"a.r"}}}]}"#,
+            &{
+                let mut data = DataSource::new();
+                data.set_factory("g", vec![FactoryItem::new("r", 0.0)]);
+                data
+            },
+        );
+        assert_eq!(names(&host.children[0]), ["g", "r"]);
+        assert!(host.children[0].children[0].children.is_empty());
+    }
+
+    // An empty `collection_name` is inactive, so the named feed still creates.
+    #[test]
+    fn empty_collection_names_are_inactive() {
+        let host = bound(
+            r#"{"type":"panel","collection_name":"","factory":{"name":"f","control_ids":{"r":"a.r"}}}"#,
+            &fed(vec![FactoryItem::new("r", 0.0)]),
+        );
+        assert_eq!(names(&host.children[0]), ["r"]);
+    }
+
+    // A collection item whose role the factory lacks creates nothing.
+    #[test]
+    fn unknown_collection_roles_create_nothing() {
+        let mut data = DataSource::new();
+        data.set_collection("rows", vec![CollectionItem::new("unknown"), CollectionItem::new("r")]);
+        let host = bound(
+            r#"{"type":"panel","collection_name":"rows","factory":{"name":"f","control_ids":{"r":"a.r"}}}"#,
+            &data,
+        );
+        assert_eq!(names(&host.children[0]), ["r"]);
+    }
+
+    fn row_text(host: &str) -> Vec<Value> {
+        let mut data = DataSource::new();
+        let rows = (0..3)
+            .map(|index| CollectionItem::default().with("#t", Scalar::Text(format!("row{index}"))))
+            .collect();
+        data.set_collection("rows", rows);
+        let tree = bound(host, &data);
+        let mut found = Vec::new();
+        let mut stack = vec![&tree];
+        while let Some(control) = stack.pop() {
+            if control.name == "leaf" {
+                found.push(text(control));
+            }
+            stack.extend(&control.children);
+        }
+        found
+    }
+
+    const BIND: &str = r##""bindings":[{"binding_type":"collection","binding_collection_name":"rows","binding_name":"#t","binding_name_override":"#text"}],"text":"#text""##;
+
+    // An item index counts only under the collection's own panel; `ignoreCollectionItem` opts out.
+    #[test]
+    fn collection_items_are_direct_children_of_the_panel() {
+        let nested = row_text(&format!(
+            r#"{{"type":"panel","collection_name":"rows","controls":[{{"wrap":{{"type":"panel","collection_index":1,
+                "controls":[{{"leaf":{{"type":"label","collection_index":2,{BIND}}}}}]}}}}]}}"#
+        ));
+        assert_eq!(nested, [json!("row1")]);
+        let ignored = row_text(&format!(
+            r#"{{"type":"panel","collection_name":"rows","controls":[{{"leaf":{{"type":"label","collection_index":2,
+                "ignoreCollectionItem":true,{BIND}}}}}]}}"#
+        ));
+        assert_eq!(ignored, [json!("row0")]);
+    }
+}
