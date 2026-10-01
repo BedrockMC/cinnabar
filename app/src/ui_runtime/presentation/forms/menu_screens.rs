@@ -706,6 +706,7 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            sound: None,
         }
     }
 

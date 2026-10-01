@@ -71,6 +71,8 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    /// The engine menu's press sounds by action; carried across the per-frame reset.
+    menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
@@ -217,6 +219,18 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// The sound the engine menu's control for `action` plays when pressed.
+    pub(crate) fn menu_sound(
+        &self,
+        action: crate::menu::MenuAction,
+    ) -> Option<&json_ui::ControlSound> {
+        self.form_presentation
+            .menu_sounds
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, sound)| sound)
+    }
+
     /// The live catalog's screen settings; empty without the JSON-UI engine.
     pub(crate) fn screen_settings(&self) -> Arc<ScreenSettingsTable> {
         Arc::clone(&self.form_presentation.screen_settings)
@@ -292,6 +306,7 @@ impl UiPresentationRuntime {
         self.form_presentation = FormPresentation {
             engine: state.engine,
             menu_keys: state.menu_keys,
+            menu_sounds: state.menu_sounds,
             logged: state.logged,
             hud: state.hud,
             container_cache: state.container_cache,

@@ -63,6 +63,12 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
     if input.pointer.pressed
         && let Some(point) = point
     {
+        if let Some(sound) = hovered
+            .filter(|region| region.enabled)
+            .and_then(|region| region.sound.as_ref())
+        {
+            crate::audio::ui_sound(sound);
+        }
         press(runtime, frame, &model, hovered, point);
     }
     if input.pointer.released {
