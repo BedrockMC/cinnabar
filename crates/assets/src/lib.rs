@@ -74,11 +74,11 @@ pub use audio_pcm::{
     reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
 };
 pub use biome::{
-    BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,
-    CompiledBiomeAssets, LinearBiomeTints, LiveBiomeDefinition, MAX_BIOME_NAME_BYTES,
-    MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT,
-    ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TintMapId, TintSource,
-    colormap_coordinate, read_biome_registry,
+    BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SWAMP_GRASS,
+    BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets, LinearBiomeTints, LiveBiomeDefinition,
+    MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MISSING_BIOME_DENSE_INDEX,
+    RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
+    TintMapId, TintSource, colormap_coordinate, read_biome_registry,
 };
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, encode_blob, write_blob_atomic};
 pub use block_entity::{
@@ -225,3 +225,6 @@ pub use weather_textures::{
     WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,
     decode_weather_textures, encode_weather_textures,
 };
+
+mod biome_noise;
+pub use biome_noise::{ClientRandom, grass_noise_permutation};

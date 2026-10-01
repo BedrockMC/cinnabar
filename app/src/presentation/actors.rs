@@ -486,17 +486,16 @@ pub(crate) fn select_actor_presentations_for_view(
     }
 }
 
-/// Lights each body by the solved world light at its feet; a body without solved light yet
+/// Lights each body at the reference body-height point; a body without solved light yet
 /// keeps drawing unlit rather than black.
-pub(crate) fn light_bodies(
-    batch: &mut ActorPresentationBatch,
-    stream: &client_world::WorldStream,
-    daylight: f32,
-) {
+pub(crate) fn light_bodies(batch: &mut ActorPresentationBatch, stream: &client_world::WorldStream) {
     for submission in &mut batch.submissions {
         let feet = submission.world_from_actor.map(|row| row[3]);
-        if let Some((block, sky)) = stream.solved_light_at(feet) {
-            submission.light = render::pack_actor_light(block, sky, daylight);
+        let position = stream
+            .actor(submission.input.identity.runtime_id)
+            .map_or(feet, |actor| actor.brightness_sample_position(feet));
+        if let Some((block, sky)) = stream.solved_light_at(position) {
+            submission.light = render::pack_actor_light(block, sky);
         }
     }
 }

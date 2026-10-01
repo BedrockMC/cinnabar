@@ -1,4 +1,4 @@
-#import cinnabar::lighting::{lit_colour, light_brightness}
+#import cinnabar::lighting::{lit_colour, light_colour}
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
 // (ActorGpuInstance as 20 words, ActorRigVertex as 11 words, bones as 3x vec4 rows) so the
@@ -138,8 +138,6 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
     }
-    let block_brightness = light_brightness(hand_light.block_level);
-    let sky_brightness = light_brightness(hand_light.sky_level);
-    let lit = lit_colour(color.rgb, block_brightness, sky_brightness, 1.0, hand_light.daylight);
+    let lit = lit_colour(color.rgb, light_colour(hand_light.block_level | (hand_light.sky_level << 4u)));
     return vec4(lit, color.a);
 }

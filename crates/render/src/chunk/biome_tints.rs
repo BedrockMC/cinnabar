@@ -16,6 +16,7 @@ pub struct BiomeTint {
     pub evergreen: [f32; 3],
     pub dry_foliage: [f32; 3],
     pub water: [f32; 3],
+    pub water_opacity: f32,
     pub flags: u32,
 }
 
@@ -28,6 +29,7 @@ impl Default for BiomeTint {
             evergreen: [0.191_201_69, 0.527_115_1, 0.102_241_73],
             dry_foliage: [0.191_201_69, 0.527_115_1, 0.102_241_73],
             water: [1.0; 3],
+            water_opacity: 1.0,
             flags: 0,
         }
     }
@@ -59,7 +61,7 @@ impl ChunkBiomeTints {
         resolved: &ResolvedBiomeTints,
         identity: ChunkBiomeTintIdentity,
     ) -> Self {
-        let entries = resolved
+        let mut entries = resolved
             .records
             .iter()
             .map(|record| BiomeTint {
@@ -75,9 +77,14 @@ impl ChunkBiomeTints {
                     .try_into()
                     .expect("three dry foliage channels"),
                 water: record.water[..3].try_into().expect("three water channels"),
+                water_opacity: record.water[3],
                 flags: record.flags,
             })
             .collect::<Vec<_>>();
+        entries.extend(resolved.swamp_grass_palette.iter().map(|color| BiomeTint {
+            grass: color[..3].try_into().expect("three palette channels"),
+            ..BiomeTint::default()
+        }));
         Self::with_identity(Arc::from(entries), identity)
     }
 
@@ -99,6 +106,7 @@ impl ChunkBiomeTints {
         Self { entries, identity }
     }
 
+    /// Returns GPU records; resolved tables append the swamp palette after dense biome entries.
     #[must_use]
     pub fn entries(&self) -> &[BiomeTint] {
         &self.entries

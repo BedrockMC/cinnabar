@@ -460,13 +460,13 @@ fn ignore_lighting_controllers_draw_unlit_while_others_keep_world_light() {
         let rig = world.actor_rig(42).unwrap();
         let mut body =
             actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), &artwork, 0.5).unwrap();
-        body.submission.light = render::pack_actor_light(2, 9, 1.0);
+        body.submission.light = render::pack_actor_light(2, 9);
         let mut batch = actors::select_actor_presentations(1, false, None, [body]);
         entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), &artwork);
         batch.submissions[0].light
     };
     assert_eq!(light("test:logo"), 0);
-    assert_eq!(light("test:counter"), render::pack_actor_light(2, 9, 1.0));
+    assert_eq!(light("test:counter"), render::pack_actor_light(2, 9));
 }
 
 // Authored scale expressions and axis scales size the model each tick.

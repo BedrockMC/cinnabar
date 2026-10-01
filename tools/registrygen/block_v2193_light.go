@@ -29,6 +29,18 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 			continue
 		}
 		current := properties[index]
+		emission, stateResolved, err := stateEmission(record)
+		if err != nil {
+			return 0, err
+		}
+		if stateResolved {
+			next := current&0xf0 | emission
+			if next != current {
+				properties[index] = next
+				changed++
+			}
+			continue
+		}
 		if current&0x0f != unknownBlockEmission || current>>4 != unknownBlockFilter {
 			continue
 		}

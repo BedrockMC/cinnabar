@@ -38,7 +38,6 @@ const PROVISIONAL_FLASH_SKY_PULL: f32 = 0.6;
 const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
 /// Provisional vision-effect responses; need native calibration.
 const BLINDNESS_FOG_END: f32 = 5.0;
-const DARKNESS_LIGHT_LOSS: f32 = 0.7;
 const DARKNESS_FOG_END_SCALE: f32 = 0.4;
 const NETHER_FOG_RGB8: u32 = 0x0033_0808;
 /// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
@@ -356,15 +355,13 @@ impl AtmosphereFrame {
     /// Applies blindness (fog closes to black), darkness (dimmer lightmap and fog) and night
     /// vision (lightmap toward full bright), each in `0..=1`.
     #[must_use]
-    pub fn with_vision_effects(mut self, blindness: f32, darkness: f32, night_vision: f32) -> Self {
-        let (blindness, darkness, night_vision) = (
-            bounded_level(blindness),
-            bounded_level(darkness),
-            bounded_level(night_vision),
-        );
-        let light = celestial::lerp(self.daylight(), 1.0, night_vision)
-            * (1.0 - darkness * DARKNESS_LIGHT_LOSS);
-        self.sun_direction_daylight.w = light;
+    pub fn with_vision_effects(
+        mut self,
+        blindness: f32,
+        darkness: f32,
+        _night_vision: f32,
+    ) -> Self {
+        let (blindness, darkness) = (bounded_level(blindness), bounded_level(darkness));
         let dim = (1.0 - blindness) * (1.0 - darkness * 0.5);
         for record in [
             &mut self.sky_zenith_rain,
@@ -823,9 +820,13 @@ mod tests {
         assert_eq!((blind.fog_start(), blind.fog_end()), (0.0, 5.0));
         assert_eq!(blind.fog_color(), [0.0; 3]);
         let dark = noon.with_vision_effects(0.0, 1.0, 0.0);
-        assert!(dark.daylight() < noon.daylight() && dark.fog_end() < noon.fog_end());
+        assert_eq!(dark.daylight(), noon.daylight());
+        assert!(dark.fog_end() < noon.fog_end());
         let night = AtmosphereFrame::from_bedrock_time(18_000.0, 0.0, 0.0);
-        assert!((night.with_vision_effects(0.0, 0.0, 1.0).daylight() - 1.0).abs() < 1.0e-6);
+        assert_eq!(
+            night.with_vision_effects(0.0, 0.0, 1.0).daylight(),
+            night.daylight()
+        );
     }
 
     #[test]

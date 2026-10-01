@@ -201,18 +201,51 @@ pub(in crate::chunk) fn sorted_visible_entities<T>(
     visible
 }
 
-pub(in crate::chunk) type DrawChunkCommands = (SetItemPipeline, DrawPackedChunk);
-pub(in crate::chunk) type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
-pub(in crate::chunk) type DrawModelCommands = (SetItemPipeline, DrawPackedModel);
-pub(in crate::chunk) type DrawModelIndirectCommands = (SetItemPipeline, DrawPackedModelsIndirect);
-pub(in crate::chunk) type DrawTransparentModelCommands =
-    (SetItemPipeline, DrawPackedTransparentModel);
-pub(in crate::chunk) type DrawDepthLiquidCommands = (SetItemPipeline, DrawDepthLiquid);
-pub(in crate::chunk) type DrawDepthLiquidIndirectCommands =
-    (SetItemPipeline, DrawDepthLiquidsIndirect);
-pub(in crate::chunk) type DrawTransparentLiquidCommands = (SetItemPipeline, DrawTransparentLiquid);
-pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands =
-    (SetItemPipeline, DrawTransparentLiquidIndirect);
+pub(in crate::chunk) type DrawChunkCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawPackedChunk,
+);
+pub(in crate::chunk) type DrawChunkIndirectCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawPackedChunksIndirect,
+);
+pub(in crate::chunk) type DrawModelCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawPackedModel,
+);
+pub(in crate::chunk) type DrawModelIndirectCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawPackedModelsIndirect,
+);
+pub(in crate::chunk) type DrawTransparentModelCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawPackedTransparentModel,
+);
+pub(in crate::chunk) type DrawDepthLiquidCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawDepthLiquid,
+);
+pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawDepthLiquidsIndirect,
+);
+pub(in crate::chunk) type DrawTransparentLiquidCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawTransparentLiquid,
+);
+pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawTransparentLiquidIndirect,
+);
 pub(in crate::chunk) type OpaqueChunkViewQuery = (Entity, Read<ViewUniformOffset>);
 
 pub(in crate::chunk) fn record_visibility_direct_submission(

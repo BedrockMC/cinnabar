@@ -33,6 +33,9 @@ impl ViewNode for HandRigViewNode {
         ) else {
             return Ok(());
         };
+        let Some(lightmap) = world.get_resource::<crate::lighting::LightmapGpu>() else {
+            return Ok(());
+        };
         let color = target
             .sampled_main_texture()
             .unwrap_or_else(|| target.main_texture());
@@ -69,6 +72,7 @@ impl ViewNode for HandRigViewNode {
         });
         pass.set_render_pipeline(pipeline);
         pass.set_bind_group(0, binding, &[]);
+        pass.set_bind_group(1, &lightmap.bind_group, &[]);
         pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count.max(1));
         Ok(())
     }

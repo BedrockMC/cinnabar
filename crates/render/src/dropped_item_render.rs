@@ -61,6 +61,7 @@ struct Installed;
 
 fn install(app: &mut App) {
     app.init_resource::<DroppedItemScene>();
+    crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -403,7 +404,7 @@ fn item_bind_group_layout() -> BindGroupLayoutDescriptor {
 fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("dropped item pipeline".into()),
-        layout: vec![layout],
+        layout: vec![layout, crate::lighting::layout()],
         vertex: VertexState {
             shader: ITEM_SHADER_HANDLE,
             entry_point: Some("item_vertex".into()),
@@ -625,7 +626,11 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
     }
 }
 
-type DrawItemCommands = (SetItemPipeline, DrawItems);
+type DrawItemCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawItems,
+);
 
 struct DrawItems;
 
