@@ -28,13 +28,14 @@ use super::{
     asset_geometry::{geometry_from_geometry_index, geometry_from_runtime_assets},
 };
 
-pub const MAX_RENDER_BONES_PER_ACTOR: usize = 96;
+pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
-/// Bodies plus their equipment layers; `MAX_RENDERED_PLAYERS` still bounds the bodies.
-pub const MAX_ACTOR_RENDER_INSTANCES: usize = 512;
+/// Existing body/equipment allowance plus every animated skin layer per selected player.
+pub const MAX_ACTOR_RENDER_INSTANCES: usize =
+    MAX_RENDERED_PLAYERS * (4 + client_world::MAX_SKIN_ANIMATION_LAYERS);
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
     MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
-pub const MAX_ACTOR_RIG_VERTICES: usize = 1_048_576;
+pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
