@@ -162,6 +162,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug, Resource)]
 pub struct UiRuntime {
+    pub(crate) experiences: crate::server_experiences::ExperienceSession,
     local_abilities: local_abilities::LocalAbilities,
     session_id: u64,
     last_fifo_sequence: Option<u64>,
@@ -246,6 +247,7 @@ impl UiRuntime {
         inventory_ledger.begin_session(session_id);
         Self {
             session_id,
+            experiences: Default::default(),
             local_abilities: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
@@ -602,6 +604,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.experiences.reset();
         self.clear_local_abilities();
         self.server_lang = None;
         self.session_icons = None;

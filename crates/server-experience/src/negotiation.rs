@@ -65,7 +65,7 @@ pub struct Grant {
 }
 
 /// A pending handshake belongs to exactly one live connection generation.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Pending {
     offer: VerifiedOffer,
     hello: Hello,
@@ -123,6 +123,8 @@ pub fn canonical_audience(address: &str) -> Result<String> {
     let host = url.host_str().ok_or_else(|| anyhow::anyhow!("missing host"))?;
     ensure!(!host.ends_with('.'), "use a destination without a trailing dot");
     // Bedrock's default comes from the existing protocol/core contract at the call site.
-    let port = url.port().ok_or_else(|| anyhow::anyhow!("destination requires an explicit port"))?;
+    let port: u16 = address.rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("destination requires an explicit port"))?.1.parse()?;
+    ensure!(port != 0, "invalid destination port");
     Ok(format!("{host}:{port}"))
 }

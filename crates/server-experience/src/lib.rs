@@ -7,6 +7,8 @@ pub mod fetch;
 pub mod manifest;
 pub mod negotiation;
 pub mod policy;
+pub mod session;
+pub mod trust;
 pub mod wire;
 
 #[cfg(test)]

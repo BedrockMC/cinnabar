@@ -32,6 +32,7 @@ mod player_skin;
 mod present_mode;
 pub mod semantic_controls;
 pub mod server_camera;
+mod server_experiences;
 pub mod session_audio;
 mod session_cleanup;
 pub mod settings_runtime;

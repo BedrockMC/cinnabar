@@ -107,6 +107,7 @@ fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
     let generation = session.retire(menu);
+    session.runtime.experiences.select_destination(&address);
     menu.feeds.join =
         super::view::JoinProgress::new(super::launcher_core::join_kind(&address, local_world));
     let launcher = session
