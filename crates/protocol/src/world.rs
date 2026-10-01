@@ -438,6 +438,9 @@ pub fn into_world_event(
         McpePacketData::PlayerListPacket(packet) => {
             WorldEvent::Actor(normalize_player_list(packet)?)
         }
+        McpePacketData::PlayerSkinPacket(packet) => {
+            WorldEvent::Actor(crate::actor::normalize_skin_update(*packet))
+        }
         McpePacketData::AddItemActorPacket(packet) => {
             WorldEvent::Actor(normalize_add_item_actor(*packet, current_dimension)?)
         }
@@ -801,6 +804,12 @@ pub fn into_world_event(
                 teleported: mode.is_teleport(),
                 source_tick: packet.tick.inputtick,
             })
+        }
+        McpePacketData::NetworkStackLatencyPacket(packet) => {
+            if !packet.is_from_server {
+                return Ok(None);
+            }
+            WorldEvent::NetworkStackLatency(packet.creation_time)
         }
         McpePacketData::SetActorMotionPacket(packet) => {
             let motion = [packet.motion.x, packet.motion.y, packet.motion.z];

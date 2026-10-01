@@ -9,6 +9,9 @@ use assets::{
 use client_world::WorldStream;
 use render::TileRequest;
 
+#[cfg(test)]
+mod tests;
+
 /// Marks item-icon tile keys so they never collide with block layer keys.
 const ITEM_KEY_FLAG: u64 = 1 << 63;
 
@@ -18,6 +21,7 @@ pub(super) struct BlockTile {
     pub(super) tint: [f32; 4],
 }
 
+/// Converts the world tint into the gamma-space colour expected by particle Molang.
 fn linear_to_srgb(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
     if c <= 0.003_130_8 {
@@ -27,27 +31,40 @@ fn linear_to_srgb(c: f32) -> f32 {
     }
 }
 
-/// The block's particle tile: its tinted top face when the top face is biome-tinted and the
-/// side is not (grass), otherwise the side face, with the biome colour for that tint mode.
+/// Uses the resolved down texture and the block's biome tint, as vanilla terrain effects do.
 pub(super) fn block_tile(
     stream: &WorldStream,
     mode: NetworkIdMode,
     network_id: u32,
     block: [i32; 3],
 ) -> Option<BlockTile> {
-    let assets: &RuntimeAssets = stream.runtime_assets();
+    let (tile, flags) = resolved_tile(stream.runtime_assets(), mode, network_id)?;
+    Some(BlockTile {
+        tile,
+        tint: biome_tint(stream, flags, block),
+    })
+}
+
+/// Copies the selected state texture; tint policy is independent of that texture's face.
+fn resolved_tile(
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    network_id: u32,
+) -> Option<(TileRequest, u32)> {
     if !assets.is_known(mode, network_id) {
         return None;
     }
     let resolved = assets.resolve(mode, network_id);
-    let side = assets.material(resolved.face(BlockFace::North).material_id());
-    let top = assets.material(resolved.face(BlockFace::Up).material_id());
-    let material =
-        if side.flags & MATERIAL_FLAG_TINT_MASK == 0 && top.flags & MATERIAL_FLAG_TINT_MASK != 0 {
-            top
-        } else {
-            side
-        };
+    let id = resolved.face(BlockFace::Down).material_id();
+    if id == assets::DIAGNOSTIC_MATERIAL {
+        return None;
+    }
+    let material = assets.material(id);
+    let flags = [BlockFace::Up, BlockFace::North, BlockFace::Down]
+        .into_iter()
+        .map(|face| assets.material(resolved.face(face).material_id()).flags)
+        .find(|flags| flags & MATERIAL_FLAG_TINT_MASK != 0)
+        .unwrap_or(0);
     let page = assets
         .texture_pages()
         .get(material.texture.page() as usize)?;
@@ -59,14 +76,14 @@ pub(super) fn block_tile(
     let stride = (mip.size * mip.size * 4) as usize;
     let start = layer as usize * stride;
     let pixels = mip.rgba8.get(start..start + stride)?;
-    Some(BlockTile {
-        tile: TileRequest {
+    Some((
+        TileRequest {
             key: (u64::from(material.texture.page()) << 32) | u64::from(layer),
             size: mip.size,
             pixels: Arc::from(pixels),
         },
-        tint: biome_tint(stream, material.flags, block),
-    })
+        flags,
+    ))
 }
 
 /// Gamma-space biome colour for a material's tint mode; white when untinted.

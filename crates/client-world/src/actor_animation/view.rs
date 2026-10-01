@@ -1,3 +1,15 @@
+use assets::SkinGeometryBounds;
+
+impl super::ActorRigSnapshot<'_> {
+    /// Uses the skin's declared visibility box when its own model replaces the player rig.
+    #[must_use]
+    pub fn culling_bounds(&self) -> SkinGeometryBounds {
+        self.skin_geometry
+            .and_then(|geometry| geometry.visible_bounds)
+            .unwrap_or_default()
+    }
+}
+
 /// The view animation runs for: actors outside it hold their pose, since vanilla evaluates
 /// pre-animation, animation and render controllers only for actors it renders.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -12,10 +24,15 @@ pub struct ActorAnimationView {
 }
 
 impl ActorAnimationView {
-    /// Whether the culling box of an actor at `feet` with model scale `scale` may be seen; the
-    /// box matches the renderer's so nothing drawn is left unanimated.
+    /// Keeps authored skin bounds inside the guard-banded animation frustum.
     #[must_use]
-    pub fn admits(&self, feet: [f32; 3], scale: f32, player: bool) -> bool {
+    pub fn admits(
+        &self,
+        feet: [f32; 3],
+        scale: f32,
+        player: bool,
+        bounds: SkinGeometryBounds,
+    ) -> bool {
         if feet.iter().any(|value| !value.is_finite()) {
             return true;
         }
@@ -30,17 +47,7 @@ impl ActorAnimationView {
         } else if offset.iter().any(|value| value.abs() > self.entity_radius) {
             return false;
         }
-        let scale = if scale.is_finite() {
-            scale.max(1.0)
-        } else {
-            1.0
-        };
-        let low = [feet[0] - 0.5 * scale, feet[1], feet[2] - 0.5 * scale];
-        let high = [
-            feet[0] + 0.5 * scale,
-            feet[1] + 2.0 * scale,
-            feet[2] + 0.5 * scale,
-        ];
+        let (low, high) = bounds.at(feet, scale);
         self.planes.iter().all(|plane| {
             let corner: [f32; 3] = std::array::from_fn(|axis| {
                 if plane[axis] >= 0.0 {
@@ -70,10 +77,10 @@ mod tests {
 
     #[test]
     fn a_box_straddling_a_plane_is_admitted_and_one_past_it_is_not() {
-        assert!(wall().admits([10.4, 0.0, 0.0], 1.0, false));
-        assert!(!wall().admits([10.6, 0.0, 0.0], 1.0, false));
+        assert!(wall().admits([10.4, 0.0, 0.0], 1.0, false, Default::default()));
+        assert!(!wall().admits([10.6, 0.0, 0.0], 1.0, false, Default::default()));
         // A scaled box reaches farther across the plane.
-        assert!(wall().admits([11.5, 0.0, 0.0], 4.0, false));
+        assert!(wall().admits([11.5, 0.0, 0.0], 4.0, false, Default::default()));
     }
 
     #[test]
@@ -82,8 +89,25 @@ mod tests {
             planes: [[0.0, 0.0, 0.0, 1.0]; 6],
             ..wall()
         };
-        assert!(!view.admits([0.0, 0.0, 73.0], 1.0, false));
-        assert!(view.admits([0.0, 0.0, 73.0], 1.0, true));
-        assert!(!view.admits([0.0, 0.0, 101.0], 1.0, true));
+        assert!(!view.admits([0.0, 0.0, 73.0], 1.0, false, Default::default()));
+        assert!(view.admits([0.0, 0.0, 73.0], 1.0, true, Default::default()));
+        assert!(!view.admits([0.0, 0.0, 101.0], 1.0, true, Default::default()));
+    }
+
+    #[test]
+    fn authored_visibility_box_keeps_edge_skin_animation_running() {
+        let bounds = assets::SkinGeometryBounds {
+            center: [0.0, 2.0, 0.0],
+            half_extents: [1.5, 2.0, 1.5],
+        };
+        assert!(!wall().admits([11.0, 0.0, 0.0], 1.0, true, Default::default()));
+        assert!(wall().admits([11.0, 0.0, 0.0], 1.0, true, bounds));
+        assert!(!wall().admits([11.6, 0.0, 0.0], 1.0, true, bounds));
+        let above = ActorAnimationView {
+            planes: [[0.0, 1.0, 0.0, -3.0]; 6],
+            ..wall()
+        };
+        assert!(!above.admits([0.0; 3], 1.0, true, Default::default()));
+        assert!(above.admits([0.0; 3], 1.0, true, bounds));
     }
 }

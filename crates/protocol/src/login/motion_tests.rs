@@ -8,10 +8,25 @@ use bytes::{Buf, BufMut, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, McpePacketName, PlayerInputTick, SetActorMotionPacket, Vec3 as WireVec3,
+    ActorRuntimeId, McpePacketName, NetworkStackLatencyPacket, PlayerInputTick,
+    SetActorMotionPacket, Vec3 as WireVec3,
 };
 
 use super::*;
+
+#[test]
+fn server_latency_probe_remains_in_the_ordered_world_event_stream() {
+    let probe = NetworkStackLatencyPacket {
+        creation_time: 777,
+        is_from_server: true,
+    };
+    assert!(into_world_event(probe.into(), 0).unwrap().is_some());
+    let ignored = NetworkStackLatencyPacket {
+        creation_time: 888,
+        is_from_server: false,
+    };
+    assert!(into_world_event(ignored.into(), 0).unwrap().is_none());
+}
 
 fn raw_motion_packet(body: &[u8]) -> jolyne::raw::RawPacket {
     let mut payload = BytesMut::new();

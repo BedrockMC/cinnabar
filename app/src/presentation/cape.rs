@@ -184,11 +184,13 @@ mod tests {
         let mut cape = vec![0u8; 64 * 32 * 4];
         cape[..4].copy_from_slice(&[9, 8, 7, 255]);
         let layer = cape_layer(64, 32, &cape).unwrap();
-        assert_eq!(layer.len(), 64 * 64 * 4);
+        assert_eq!(layer.len(), render::STANDARD_SKIN_BYTES);
         assert_eq!(&layer[..4], &[9, 8, 7, 255]);
-        // Two layer rows sample each source row of a half-height cape.
-        assert_eq!(&layer[64 * 4..64 * 4 + 4], &[9, 8, 7, 255]);
-        assert_eq!(&layer[2 * 64 * 4..2 * 64 * 4 + 4], &[0, 0, 0, 0]);
+        let row = render::STANDARD_SKIN_SIDE * 4;
+        let rows_per_source = render::STANDARD_SKIN_SIDE / 32;
+        assert_eq!(&layer[row..row + 4], &[9, 8, 7, 255]);
+        let next = rows_per_source * row;
+        assert_eq!(&layer[next..next + 4], &[0, 0, 0, 0]);
         assert!(cape_layer(64, 32, &cape[1..]).is_none());
     }
 

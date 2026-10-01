@@ -1,3 +1,6 @@
+mod commit;
+pub(crate) use commit::{PreparedActorPublication, publish_actor_render_frame};
+
 use std::sync::Arc;
 
 use bevy::prelude::DetectChanges;
@@ -9,9 +12,8 @@ use bevy::{
 };
 use client_world::{LocalItemUse, LocalPlayerFeed, WorldStream};
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRigFrameBuilder,
-    ActorRigSubmission, HandItemAtlas, HandRigLight, HandRigScene,
-    MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorMainWitness, ActorRenderScene, ActorRigFrameBuilder, ActorRigSubmission,
+    HandItemAtlas, HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 
 use super::{
@@ -23,7 +25,6 @@ use crate::{
     presentation::actors::{
         ActorRigPresentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
-        update_actor_rig_scene,
     },
     presentation::equipment::{
         EquipmentPresentation, EquipmentRuntime, FirstPersonArms, FirstPersonHand, FirstPersonItem,
@@ -132,7 +133,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     client_world: ResMut<'w, ClientWorld>,
     time: Res<'w, Time<Real>>,
     scene: ResMut<'w, ActorRenderScene>,
-    frame: ResMut<'w, ActorRenderFrame>,
+    prepared: ResMut<'w, PreparedActorPublication>,
     published_session: Local<'s, Option<u64>>,
     published_pack: Local<'s, Option<Arc<super::entity_pack::SessionEntityPack>>>,
     published_items: Local<'s, Option<Arc<super::entity_pack::SessionItems>>>,
@@ -143,7 +144,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
-    skin_pack: Local<'s, crate::presentation::actors::SkinLayerPack>,
+    skin_layers: Local<'s, crate::presentation::skin_layers::SkinLayerCache>,
     poses: Local<'s, crate::presentation::actors::PoseConversions>,
     layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
@@ -162,12 +163,13 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
 }
 
-pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
+/// Captures this frame's actor inputs before outbound interactions can change them.
+pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
     let ActorFramePublication {
         mut client_world,
         time,
         mut scene,
-        mut frame,
+        mut prepared,
         mut published_session,
         mut published_pack,
         mut published_items,
@@ -177,7 +179,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut session_artwork,
         mut cape_state,
         mut skin_rigs,
-        mut skin_pack,
+        mut skin_layers,
         mut poses,
         mut layer_poses,
         mut hand_builder,
@@ -204,7 +206,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         settings,
         view,
         local_physics,
-        witness,
         camera,
     } = presentation;
     let session_id = client_world
@@ -215,6 +216,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if new_session {
         scene.reset();
         actor_clock.reset();
+        *skin_layers = Default::default();
         *published_session = session_id;
         if let Some(stream) = client_world.stream.as_mut() {
             stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
@@ -321,7 +323,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         {
             super::actor_sampling::sample_actor_world_state(stream, collisions);
         }
-        stream.advance_actor_interpolation_ticks(step.ticks);
+        stream.advance_actor_interpolation_frame(step.ticks);
     }
     let authoritative_subject_eye = authoritative_local_actor_eye(
         local_physics.render_eye_position(),
@@ -612,12 +614,24 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             &mut layer_poses,
         );
     }
-    // Layers were built above from the visible body, so hiding the body keeps armor and held items.
+    if let Some(stream) = client_world.stream.as_ref()
+        && let Some(pages) = skin_layers.apply(
+            &mut batch,
+            artwork,
+            |runtime_id| stream.actor_rig(runtime_id),
+            &mut skin_rigs,
+            |geometry| new_geometries.push(geometry),
+        )
+    {
+        scene.configure_artwork(pages);
+    }
+    // Hiding skin layers keeps armor and held items visible.
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
             if (identity.layer == render::ACTOR_LAYER_BODY
                 || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+                || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
                     .actor(identity.runtime_id)
@@ -631,29 +645,28 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         new_geometries.extend(equipment.take_pending_geometries());
     }
     drop(preparation);
-    let rig_build = profiler
-        .as_deref()
-        .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
-    register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
-    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch, &mut skin_pack).clone();
-    drop(rig_build);
-    witness.observe_main(ActorMainWitness {
-        local_snapshot: visibility_snapshot.is_some(),
-        local_visible,
-        expected_runtime_id: local_runtime_id,
-        visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
-        selected_count,
-        local_route: frame
-            .rig
-            .manifest
-            .iter()
-            .find(|entry| entry.identity.runtime_id == local_runtime_id)
-            .map(|entry| entry.route),
-        frame_instances: frame.rig.instances.len(),
-        frame_manifest: frame.rig.manifest.len(),
-        skin_bytes: frame.skins_rgba8.len(),
-        rejects: frame.rig.rejects,
-        unrigged_actors,
+    {
+        let _rig_build = profiler
+            .as_deref()
+            .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
+        register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
+    }
+    prepared.0 = Some(commit::PendingActorPublication {
+        batch,
+        partial_tick: step.partial_tick,
+        witness: ActorMainWitness {
+            local_snapshot: visibility_snapshot.is_some(),
+            local_visible,
+            expected_runtime_id: local_runtime_id,
+            visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
+            selected_count,
+            local_route: None,
+            frame_instances: 0,
+            frame_manifest: 0,
+            skin_bytes: 0,
+            rejects: Default::default(),
+            unrigged_actors,
+        },
     });
     let hand_light = client_world.stream.as_ref().map_or(
         HandRigLight {
@@ -926,10 +939,14 @@ mod tests {
             for z in (-60..=60).step_by(3) {
                 for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
                     let feet = [x as f32, y, z as f32];
-                    if render::actor_bounds_are_visible(feet, scale, Some(cull)) {
+                    if render::actor_bounds_are_visible(feet, scale, Default::default(), Some(cull))
+                    {
                         drawn += 1;
-                        assert!(view.admits(feet, scale, false), "{feet:?} x{scale}");
-                    } else if !view.admits(feet, scale, false) {
+                        assert!(
+                            view.admits(feet, scale, false, Default::default()),
+                            "{feet:?} x{scale}"
+                        );
+                    } else if !view.admits(feet, scale, false, Default::default()) {
                         held += 1;
                     }
                 }

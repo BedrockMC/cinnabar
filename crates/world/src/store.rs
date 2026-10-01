@@ -452,16 +452,29 @@ impl ChunkStore {
     /// Removes a complete column and returns its stored sub-chunk keys sorted
     /// by Y. External `Arc<SubChunk>` snapshots remain valid.
     pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
-        self.loaded_chunks.remove(&key);
+        self.detach_chunks(&BTreeSet::from([key])).0
+    }
+
+    /// Removes column authority together and returns owned data for deferred destruction.
+    pub fn detach_chunks(&mut self, keys: &BTreeSet<ChunkKey>) -> (Vec<SubChunkKey>, Vec<Chunk>) {
         self.authoritative_sub_chunks
-            .retain(|sub_chunk| sub_chunk.chunk() != key);
-        self.collision_revisions.remove(&key);
-        self.chunks
-            .remove(&key)
-            .into_iter()
-            .flat_map(|chunk| chunk.sub_chunks.into_keys())
-            .map(|y| SubChunkKey::from_chunk(key, y))
-            .collect()
+            .retain(|key| !keys.contains(&key.chunk()));
+        let mut removed = Vec::new();
+        let mut retired = Vec::new();
+        for &key in keys {
+            self.loaded_chunks.remove(&key);
+            self.collision_revisions.remove(&key);
+            if let Some(chunk) = self.chunks.remove(&key) {
+                removed.extend(
+                    chunk
+                        .sub_chunks
+                        .keys()
+                        .map(|&y| SubChunkKey::from_chunk(key, y)),
+                );
+                retired.push(chunk);
+            }
+        }
+        (removed, retired)
     }
 
     fn remove_sub_chunk(

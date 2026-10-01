@@ -1,0 +1,15 @@
+[package]
+name = "mod-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+sha2 = "0.10"
+wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
+wit-component = "=0.247.0"
+
+[dev-dependencies]
+tempfile = "3"

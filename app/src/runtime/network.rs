@@ -11,10 +11,7 @@ use bevy::{
 };
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
-use render::{
-    ActorRuntimeWitness, ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage,
-    RuntimeStageProfiler,
-};
+use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
 use crate::{
     acceptance::{
@@ -65,7 +62,7 @@ pub(crate) use session::{
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
-const ACTOR_TICK_NANOS: u128 = 50_000_000;
+const ACTOR_TICK_NANOS: u128 = client_world::ACTOR_TICK_DURATION.as_nanos();
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
 
@@ -88,7 +85,6 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     settings: Res<'w, CameraSettingsAuthority>,
     view: Res<'w, LocalViewPose>,
     local_physics: Res<'w, LocalPhysicsController>,
-    witness: Res<'w, ActorRuntimeWitness>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -249,6 +245,9 @@ pub(crate) fn receive_network_events(
         mut ui_runtime,
         time,
     } = state;
+    if let Some(stream) = client_world.stream.as_mut() {
+        stream.begin_frame_work();
+    }
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
@@ -408,6 +407,7 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.begin_frame_work();
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
@@ -926,7 +926,8 @@ mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
+    ActorFramePartialTick, HandRigBuilder, PreparedActorPublication, prepare_actor_render_frame,
+    publish_actor_render_frame,
 };
 
 #[cfg(test)]
