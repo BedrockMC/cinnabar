@@ -181,8 +181,6 @@ pub(super) struct ServerAtlas {
     /// Sidecars read up front, by path stem, whether or not the pack has the image.
     sidecars: BTreeMap<String, TextureMeta>,
     pack: Option<PackTextures>,
-    /// Image keys by lowercase spelling.
-    folded: BTreeMap<String, String>,
     /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
     /// The local vanilla resource pack vanilla image paths read from.
@@ -320,16 +318,10 @@ impl ServerAtlas {
             })
             .collect::<BTreeMap<_, _>>();
         let pack = view.map(PackTextures::index);
-        let folded = sources
-            .keys()
-            .chain(pack.iter().flat_map(|pack| pack.images.keys()))
-            .map(|key| (key.to_ascii_lowercase(), key.clone()))
-            .collect();
         Self {
             sources,
             sidecars,
             pack,
-            folded,
             max_pages,
             dirty: true,
             ..Self::default()
@@ -403,8 +395,9 @@ impl ServerAtlas {
             let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
             let found = (key.starts_with("textures/") || relative != key).then(|| {
                 IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                    let bytes = std::fs::read(root.join(format!("{relative}{extension}"))).ok()?;
-                    source(bytes.into())
+                    let path = root.join(format!("{relative}{extension}"));
+                    exact_case(&path).then_some(())?;
+                    source(std::fs::read(path).ok()?.into())
                 })
             });
             (found.flatten(), true)
@@ -417,11 +410,6 @@ impl ServerAtlas {
             extra.insert(key.to_owned(), found.clone());
         }
         found
-    }
-
-    /// The source key spelled `folded` in lowercase.
-    pub(super) fn folded(&self, folded: &str) -> Option<&str> {
-        self.folded.get(folded).map(String::as_str)
     }
 
     pub(super) fn placement(&self, key: &str) -> Option<ServerTexture> {
@@ -555,6 +543,17 @@ impl ServerAtlas {
     }
 }
 
+/// Whether `path`'s file name exists spelled exactly so, as the client's asset
+/// index matches even on a case-insensitive file system.
+fn exact_case(path: &std::path::Path) -> bool {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return false;
+    };
+    std::fs::read_dir(parent).is_ok_and(|mut entries| {
+        entries.any(|entry| entry.is_ok_and(|entry| entry.file_name() == name))
+    })
+}
+
 /// A decodable image as a source.
 fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
     let size = dimensions(&bytes)?;
@@ -667,10 +666,6 @@ mod tests {
                 .is_some()
         );
         assert_eq!(atlas.image_size("textures/ui/wide"), Some([512.0, 4.0]));
-        assert_eq!(
-            atlas.folded("textures/ui/button"),
-            Some("textures/ui/button")
-        );
         atlas.require(["textures/ui/button"]);
         assert_eq!(
             atlas.placement("textures/ui/button").unwrap().rect,
@@ -775,5 +770,23 @@ mod tests {
             resident, 2,
             "two pages hold two of three; the rest is left out"
         );
+    }
+
+    // Vanilla's `textures/ui/White` must not open `white.png`, even on a
+    // case-insensitive file system.
+    #[test]
+    fn vanilla_images_match_their_exact_spelling() {
+        let root = std::env::temp_dir().join(format!(
+            "cinnabar-exact-case-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let ui = root.join("textures/ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(ui.join("white.png"), png(2, 2)).unwrap();
+        let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(root.clone()), None);
+        assert_eq!(atlas.fallback_size("textures/ui/white"), Some([2.0, 2.0]));
+        assert_eq!(atlas.fallback_size("textures/ui/White"), None);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

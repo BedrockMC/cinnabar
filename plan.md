@@ -3,6 +3,14 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 JSON-UI layout: sizes, anchors, stack/grid/scroll and clipping follow
+the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
+match exactly as the client's asset index does; an unresolved one draws the
+default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
+live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+the top of their grid because the client answers no `#get_grid_size` (absent
+from the 1.26.50 binary), so whatever pads them is unidentified.
+
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
 axes and scale, clip direction none by default with pixel-perfect snapping),
