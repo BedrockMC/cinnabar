@@ -352,8 +352,7 @@ fn fill_child_absorbs_leftover_main_axis() {
     assert_eq!(child_named(&placed, "c").rect.y, 90.0);
 }
 
-/// `100%c` sizes a container to its children's content extent (a stack sums, a
-/// plain panel takes the max).
+/// `100%c` sizes a container to the sum of its children's extents.
 #[test]
 fn percent_children_measures_content_extent() {
     let panel = ctrl(
@@ -370,7 +369,7 @@ fn percent_children_measures_content_extent() {
     );
     let placed = layout(&root, [200.0, 200.0], &zero_env());
     let rect = child_named(&placed, "panel").rect;
-    assert_eq!([rect.w, rect.h], [40.0, 30.0]);
+    assert_eq!([rect.w, rect.h], [65.0, 45.0]);
 }
 
 /// A label's `default` width comes from its measured text extent.

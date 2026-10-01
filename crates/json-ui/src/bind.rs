@@ -23,6 +23,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::env::Env;
+use crate::layout::GRID_TEMPLATE_KEY;
 use crate::predicate::{self, Bindings, Scalar};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
@@ -190,7 +191,12 @@ impl<'a> Binder<'a> {
         ) {
             scope.indices.insert(panel, index as usize);
         }
-        let own = self.gather_own(control, &scope);
+        let mut own = self.gather_own(control, &scope);
+        if control.control_type.as_deref() == Some("grid")
+            && let Some(capacity) = grid_capacity(&src, &own)
+        {
+            own.insert("#grid_number_size".to_owned(), Scalar::Num(capacity as f64));
+        }
         if let Some(name) = control
             .properties
             .get("collection_name")
@@ -233,11 +239,7 @@ impl<'a> Binder<'a> {
         } else if let Some(items) = self.feed(control) {
             self.expand_feed(control, items, scope)
         } else if let Some(template) = grid_template(control) {
-            let cells = src
-                .prop("grid_dimensions")
-                .and_then(Value::as_array)
-                .and_then(|dims| Some(dims.first()?.as_u64()? * dims.get(1)?.as_u64()?));
-            self.expand_grid(control, cells, &template, scope)
+            self.expand_grid(src, own, &template, scope)
         } else {
             let columns = static_grid_columns(control);
             (0..control.children.len())
@@ -313,8 +315,22 @@ impl<'a> Binder<'a> {
                                 .map_or(collection, String::as_str);
                             self.data.collections.get(key)?.get(index)
                         });
-                    let value = item.and_then(|item| {
-                        lookup(source, &item.values, &own, self.data.strict, &self.env)
+                    // The controller answers a collection's size itself.
+                    let total = (source == "#collection_total_items")
+                        .then(|| binding.get("binding_collection_name")?.as_str())
+                        .flatten()
+                        .and_then(|collection| {
+                            let key = scope
+                                .keys
+                                .get(collection)
+                                .map_or(collection, String::as_str);
+                            self.data.collections.get(key)
+                        })
+                        .map(|items| Scalar::Num(items.len() as f64));
+                    let value = total.or_else(|| {
+                        item.and_then(|item| {
+                            lookup(source, &item.values, &own, self.data.strict, &self.env)
+                        })
                     });
                     let target = target_name(binding, source);
                     match value {
@@ -472,33 +488,25 @@ impl<'a> Binder<'a> {
         name.to_owned()
     }
 
-    /// One `grid_item_template` instance per collection item, capped by
-    /// `maximum_grid_items` when set.
+    /// One `grid_item_template` instance per cell the grid holds (columns × rows,
+    /// or `maximum_grid_items` when rescaling), then the template itself, kept
+    /// for layout to measure. A grid filling its extent holds one per item.
     fn expand_grid(
         &mut self,
-        control: &ResolvedControl,
-        cells: Option<u64>,
+        src: &Src,
+        own: &BTreeMap<String, Scalar>,
         template: &ControlRef,
         scope: &Scope,
     ) -> Vec<Node> {
-        let Some(collection) = control
+        let control = src.get();
+        let collection = control
             .properties
             .get("collection_name")
             .and_then(Value::as_str)
-        else {
-            return Vec::new();
-        };
-        let cap = control
-            .properties
-            .get("maximum_grid_items")
-            .and_then(Value::as_u64)
-            .map_or(usize::MAX, |cap| cap as usize);
-        // A fixed grid always has `columns * rows` cells; a rescaling one follows
-        // its collection.
-        let key = self.collection_key(collection, scope);
-        let count = cells
-            .map_or_else(|| self.data.collection_len(&key), |cells| cells as usize)
-            .min(cap);
+            .filter(|name| !name.is_empty());
+        let key = collection.map(|name| self.collection_key(name, scope));
+        let count = grid_capacity(src, own)
+            .unwrap_or_else(|| key.as_ref().map_or(0, |key| self.data.collection_len(key)));
         let Some(resolved) = self.resolve_scoped(template, control, &BTreeMap::new()) else {
             self.diagnostics.push(format!(
                 "{}: grid template {template} unresolved",
@@ -506,18 +514,30 @@ impl<'a> Binder<'a> {
             ));
             return Vec::new();
         };
-        (0..count)
+        let mut cells: Vec<Node> = (0..count)
             .map(|index| {
-                let child_scope = scope.enter(collection, key.clone(), index);
+                let child_scope = match (collection, &key) {
+                    (Some(name), Some(key)) => scope.enter(name, key.clone(), index),
+                    _ => scope.clone(),
+                };
                 let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
-                    patch.properties.insert(
-                        "collection_scope".to_owned(),
-                        Value::String(collection.to_owned()),
-                    );
+                    if let Some(name) = collection {
+                        patch.properties.insert(
+                            "collection_scope".to_owned(),
+                            Value::String(name.to_owned()),
+                        );
+                    }
                 });
                 self.build(cell, &child_scope)
             })
-            .collect()
+            .collect();
+        let template_node = Src::root(resolved).patched(|patch| {
+            patch
+                .properties
+                .insert(GRID_TEMPLATE_KEY.to_owned(), Value::Bool(true));
+        });
+        cells.push(self.build(template_node, scope));
+        cells
     }
 
     /// Pass two: evaluate every `view` binding until the values settle, so a view
@@ -919,13 +939,49 @@ fn with_index(src: Src, index: usize) -> Src {
     })
 }
 
-/// The `grid_item_template` of a collection-bound `grid`.
+/// A templated grid's cell count, or `None` when a filling grid's count waits
+/// for layout: `maximum_grid_items` (a bound `#maximum_grid_items` winning, only
+/// an integer counting) when rescaling, else columns × rows.
+fn grid_capacity(src: &Src, own: &BTreeMap<String, Scalar>) -> Option<usize> {
+    let direction = |key: &str| {
+        src.prop(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value == "horizontal" || value == "vertical")
+    };
+    if direction("grid_rescaling_type") {
+        let bound = own.get("#maximum_grid_items").map(|value| match value {
+            Scalar::Num(number) if number.fract() == 0.0 && *number >= 0.0 => *number as usize,
+            _ => 0,
+        });
+        let literal = || {
+            src.prop("maximum_grid_items")
+                .and_then(Value::as_f64)
+                .filter(|max| max.fract() == 0.0 && *max >= 0.0)
+                .map_or(0, |max| max as usize)
+        };
+        return Some(bound.unwrap_or_else(literal));
+    }
+    if direction("grid_fill_direction") {
+        return None;
+    }
+    let dims = src.prop("grid_dimensions").and_then(Value::as_array);
+    let int = |index: usize| {
+        dims.and_then(|dims| dims.get(index)?.as_i64())
+            .map_or(0, |value| value.max(0) as usize)
+    };
+    Some(int(0) * int(1))
+}
+
+/// The `grid_item_template` of a `grid`.
 fn grid_template(control: &ResolvedControl) -> Option<ControlRef> {
     if control.control_type.as_deref() != Some("grid") {
         return None;
     }
-    let template = control.properties.get("grid_item_template")?.as_str()?;
-    control.properties.get("collection_name")?;
+    let template = control
+        .properties
+        .get("grid_item_template")?
+        .as_str()
+        .filter(|template| !template.is_empty())?;
     let owner = control
         .base
         .as_ref()

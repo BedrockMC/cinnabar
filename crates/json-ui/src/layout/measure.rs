@@ -3,18 +3,16 @@
 
 use std::{cell::RefCell, collections::HashMap};
 
-use super::{
-    Axis, LayoutEnv, Rect, ResolvedControl, axis_context, axis_index, children_max, clamp_bounds,
-    content_extent, eval_length, height_first, in_dependency_order, known_size, pixels_or,
-};
-use crate::expr::Length;
+use super::{Axis, LayoutEnv, Rect, ResolvedControl, axis_index, grid, size, stack};
+use crate::expr::{Length, Unit};
 
 type Key = (usize, Option<u64>, Option<u64>);
-type IntrinsicKey = (usize, u64, u64);
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Children {
+    /// Summed visible children per axis (`%c`).
     pub(super) content: [f64; 2],
+    /// Largest visible child per axis (`%cm`).
     pub(super) maximum: [f64; 2],
 }
 
@@ -23,12 +21,10 @@ type PlaceMemo = HashMap<(usize, u64, u64), Vec<(usize, Rect)>>;
 thread_local! {
     static CHILDREN: RefCell<HashMap<Key, Children>> = RefCell::new(HashMap::new());
     static NATURAL: RefCell<HashMap<Key, Option<[f64; 2]>>> = RefCell::new(HashMap::new());
-    /// [`intrinsic`] by control address and known parent width and height
-    /// (`u64::MAX` when unknown). Intrinsic size is pure in the subtree, `env` and
-    /// those, but content extents re-derive it, so without this the cost is
-    /// exponential in tree depth.
-    pub(super) static INTRINSIC: RefCell<HashMap<IntrinsicKey, [f64; 2]>> =
-        RefCell::new(HashMap::new());
+    /// [`sizes`] by parent address and known extent. Children sizes are pure in
+    /// the subtree, `env` and that extent, but content extents re-derive them, so
+    /// without this the cost is exponential in tree depth.
+    static SIZES: RefCell<HashMap<Key, Vec<[f64; 2]>>> = RefCell::new(HashMap::new());
     /// Parsed `size`/`min_size`/`max_size` lengths by control address and slot.
     pub(super) static LENGTHS: RefCell<HashMap<(usize, u8), Option<Length>>> =
         RefCell::new(HashMap::new());
@@ -41,7 +37,7 @@ thread_local! {
 pub(super) fn reset() {
     CHILDREN.with(|memo| memo.borrow_mut().clear());
     NATURAL.with(|memo| memo.borrow_mut().clear());
-    INTRINSIC.with(|memo| memo.borrow_mut().clear());
+    SIZES.with(|memo| memo.borrow_mut().clear());
     LENGTHS.with(|memo| memo.borrow_mut().clear());
     PLACED.with(|memo| memo.borrow_mut().clear());
 }
@@ -52,7 +48,7 @@ pub(super) fn reset() {
 pub struct MeasureCache {
     children: HashMap<Key, Children>,
     natural: HashMap<Key, Option<[f64; 2]>>,
-    intrinsic: HashMap<IntrinsicKey, [f64; 2]>,
+    sizes: HashMap<Key, Vec<[f64; 2]>>,
     lengths: HashMap<(usize, u8), Option<Length>>,
     placed: PlaceMemo,
     /// The root's address last layout; a moved root's entries go stale.
@@ -63,7 +59,7 @@ impl MeasureCache {
     fn swap(&mut self) {
         CHILDREN.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.children));
         NATURAL.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.natural));
-        INTRINSIC.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.intrinsic));
+        SIZES.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.sizes));
         LENGTHS.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.lengths));
         PLACED.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.placed));
     }
@@ -76,7 +72,7 @@ impl MeasureCache {
             let stale = self.root;
             CHILDREN.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             NATURAL.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
-            INTRINSIC.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
+            SIZES.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             LENGTHS.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             PLACED.with(|memo| memo.borrow_mut().retain(|key, _| key.0 != stale));
             self.root = address;
@@ -92,13 +88,14 @@ impl MeasureCache {
 /// Identify a control and its exact known `[width, height]` for the lifetime of this layout.
 fn key(control: &ResolvedControl, own: [Option<f64>; 2]) -> Key {
     (
-        control as *const ResolvedControl as usize,
+        std::ptr::from_ref(control).addr(),
         own[0].map(f64::to_bits),
         own[1].map(f64::to_bits),
     )
 }
 
-/// Measure visible children once, retaining both content extent and largest child.
+/// Measure visible children once at `own`, the control's known extent. A
+/// templated grid's `%c` builds no terms, so it sums to zero.
 pub(super) fn children(
     control: &ResolvedControl,
     env: &LayoutEnv,
@@ -111,40 +108,159 @@ pub(super) fn children(
     if let Some(cached) = CHILDREN.with(|memo| memo.borrow().get(&key).copied()) {
         return cached;
     }
+    let sizes = sizes(control, own, env);
     let mut sum = [0.0; 2];
     let mut maximum = [0.0_f64; 2];
-    let mut count = 0;
-    for child in control
-        .children
-        .iter()
-        .filter(|child| super::visible(child))
-    {
-        let size = intrinsic(child, env, own);
+    let resting = crate::widgets::rest_hidden_children(control);
+    for (child, size) in control.children.iter().zip(&sizes) {
+        if !super::visible(child) || grid::is_template_node(child) || resting.contains(&child.name)
+        {
+            continue;
+        }
         for axis in 0..2 {
             sum[axis] += size[axis];
             maximum[axis] = maximum[axis].max(size[axis]);
         }
-        count += 1;
     }
-    let content = if let Some(columns) = super::grid_columns(control) {
-        let columns = super::fitted_columns(columns, own[0], maximum[0], count);
-        [
-            maximum[0] * columns.min(count) as f64,
-            maximum[1] * count.div_ceil(columns) as f64,
-        ]
-    } else {
-        match super::stack_axis(control) {
-            Some(Axis::X) => [sum[0], maximum[1]],
-            Some(Axis::Y) => [maximum[0], sum[1]],
-            None => maximum,
-        }
+    if grid::has_template(control) {
+        sum = [0.0; 2];
+    }
+    let measured = Children {
+        content: sum,
+        maximum,
     };
-    let measured = Children { content, maximum };
     CHILDREN.with(|memo| memo.borrow_mut().insert(key, measured));
     measured
 }
 
-/// Measure a label or natural-size image once for each known width, including absent sizes.
+/// Every child's `[w, h]` under `parent` of known `extent`, by the parent's
+/// kind: stack items, grid cells, or ordinary relative rules.
+pub(super) fn sizes(
+    parent: &ResolvedControl,
+    extent: [Option<f64>; 2],
+    env: &LayoutEnv,
+) -> Vec<[f64; 2]> {
+    let key = key(parent, extent);
+    if let Some(cached) = SIZES.with(|memo| memo.borrow().get(&key).cloned()) {
+        return cached;
+    }
+    let measured = if stack::orientation(parent).is_some() {
+        stack::child_sizes(parent, extent, env)
+    } else if grid::is_grid(parent) {
+        grid::child_sizes(parent, extent, env)
+    } else {
+        relative_sizes(parent, extent, env)
+    };
+    SIZES.with(|memo| memo.borrow_mut().insert(key, measured.clone()));
+    measured
+}
+
+/// Children sized by their own rules against `extent`.
+pub(super) fn relative_sizes(
+    parent: &ResolvedControl,
+    extent: [Option<f64>; 2],
+    env: &LayoutEnv,
+) -> Vec<[f64; 2]> {
+    let mut sizes = resolve_children(parent, extent, env, |_| true);
+    apply_inherit(parent, &mut sizes, |_| true);
+    sizes
+}
+
+/// Resolve the children `include` selects (others stay zero): those reading
+/// `%sm` after the rest, against the largest resolved sibling.
+pub(super) fn resolve_children(
+    parent: &ResolvedControl,
+    extent: [Option<f64>; 2],
+    env: &LayoutEnv,
+    include: impl Fn(&ResolvedControl) -> bool,
+) -> Vec<[f64; 2]> {
+    let mut sizes = vec![[0.0; 2]; parent.children.len()];
+    let mut deferred = false;
+    for (child, slot) in parent.children.iter().zip(sizes.iter_mut()) {
+        if !include(child) {
+            continue;
+        }
+        if reads_sibling_max(child) {
+            deferred = true;
+            continue;
+        }
+        *slot = size::resolve_size(child, extent, [0.0; 2], env);
+    }
+    if deferred {
+        let siblings = sibling_maxima(parent, &sizes);
+        for (child, slot) in parent.children.iter().zip(sizes.iter_mut()) {
+            if include(child) && reads_sibling_max(child) {
+                *slot = size::resolve_size(child, extent, siblings, env);
+            }
+        }
+    }
+    sizes
+}
+
+fn reads_sibling_max(child: &ResolvedControl) -> bool {
+    [Axis::X, Axis::Y]
+        .into_iter()
+        .any(|axis| size::reads(child, axis, &[Unit::PercentSiblingMax]))
+}
+
+/// The largest visible child per axis among those whose size does not itself
+/// read `%sm` (the client leaves those out to avoid a cycle).
+pub(super) fn sibling_maxima(parent: &ResolvedControl, sizes: &[[f64; 2]]) -> [f64; 2] {
+    let mut maxima = [0.0_f64; 2];
+    for (child, size) in parent.children.iter().zip(sizes) {
+        if !super::visible(child) || grid::is_template_node(child) {
+            continue;
+        }
+        for axis in [Axis::X, Axis::Y] {
+            let index = axis_index(axis);
+            if !size::size_length(child, axis)
+                .is_some_and(|length| length.uses(Unit::PercentSiblingMax))
+            {
+                maxima[index] = maxima[index].max(size[index]);
+            }
+        }
+    }
+    maxima
+}
+
+/// `inherit_max_sibling_width`/`height`: after solving, each inheriting child
+/// (of those `include` selects) takes the largest same-axis value among itself
+/// and its visible siblings, all read before any is replaced.
+pub(super) fn apply_inherit(
+    parent: &ResolvedControl,
+    sizes: &mut [[f64; 2]],
+    include: impl Fn(&ResolvedControl) -> bool,
+) {
+    const KEYS: [&str; 2] = ["inherit_max_sibling_width", "inherit_max_sibling_height"];
+    let inherits = |child: &ResolvedControl, index: usize| {
+        matches!(
+            child.properties.get(KEYS[index]),
+            Some(serde_json::Value::Bool(true))
+        )
+    };
+    if !parent
+        .children
+        .iter()
+        .any(|child| inherits(child, 0) || inherits(child, 1))
+    {
+        return;
+    }
+    let mut maxima = [0.0_f64; 2];
+    for (child, size) in parent.children.iter().zip(sizes.iter()) {
+        if super::visible(child) && !grid::is_template_node(child) {
+            maxima = [maxima[0].max(size[0]), maxima[1].max(size[1])];
+        }
+    }
+    for (child, size) in parent.children.iter().zip(sizes.iter_mut()) {
+        for index in 0..2 {
+            if include(child) && inherits(child, index) {
+                size[index] = size[index].max(maxima[index]);
+            }
+        }
+    }
+}
+
+/// Measure a label or texture once for each known width, including absent sizes.
 pub(super) fn natural(
     control: &ResolvedControl,
     width: Option<f64>,
@@ -183,81 +299,19 @@ pub(super) fn placed_children<'a>(
     if let Some(placed) = memoized {
         return placed;
     }
-    let base = parent.children.as_ptr().addr();
-    let size = std::mem::size_of::<ResolvedControl>().max(1);
     let relative: Vec<(usize, Rect)> =
         super::layout_children(parent, Rect::new(0.0, 0.0, rect.w, rect.h), env)
             .into_iter()
-            .map(|(child, at)| ((std::ptr::from_ref(child).addr() - base) / size, at))
+            .map(|(child, at)| (child_index(parent, child), at))
             .collect();
     let placed = relative.iter().map(shift).collect();
     PLACED.with(|memo| memo.borrow_mut().insert(key, relative));
     placed
 }
 
-/// Intrinsic size used when a parent aggregates this child for its own `%c`/`%cm`.
-/// Percent sizes resolve against whichever parent axes are known (so wrapped text
-/// measures at its width); unknown parent-relative units resolve to zero.
-pub(super) fn intrinsic(
-    control: &ResolvedControl,
-    env: &LayoutEnv,
-    parent: [Option<f64>; 2],
-) -> [f64; 2] {
-    let key = (
-        control as *const ResolvedControl as usize,
-        parent[0].map_or(u64::MAX, f64::to_bits),
-        parent[1].map_or(u64::MAX, f64::to_bits),
-    );
-    if let Some(cached) = INTRINSIC.with(|memo| memo.borrow().get(&key).copied()) {
-        return cached;
-    }
-    let value = intrinsic_uncached(control, env, parent);
-    INTRINSIC.with(|memo| memo.borrow_mut().insert(key, value));
-    value
-}
-
-fn intrinsic_uncached(
-    control: &ResolvedControl,
-    env: &LayoutEnv,
-    parent: [Option<f64>; 2],
-) -> [f64; 2] {
-    // A size is only known downstream when the parent axis it resolved against is.
-    let known = |own: [Option<f64>; 2]| {
-        [
-            own[0].filter(|_| parent[0].is_some()),
-            own[1].filter(|_| parent[1].is_some()),
-        ]
-    };
-    let axis = |axis: Axis, other: Option<(Axis, f64)>| {
-        let axis_parent = parent[axis_index(axis)].unwrap_or(0.0);
-        let own = known(known_size(other));
-        let ctx = axis_context(
-            axis_parent,
-            other,
-            content_extent(control, env, own),
-            children_max(control, env, own),
-            [0.0; 2],
-            super::natural(control, env, own[0]),
-            axis,
-        );
-        pixels_or(eval_length(control, axis, &ctx), axis_parent)
-    };
-    let [width, height] = in_dependency_order(control, axis);
-    let own = known(if height_first(control) {
-        [Some(width), Some(height)]
-    } else {
-        [Some(width), None]
-    });
-    // A parent aggregating this child sees it after its own min/max clamp.
-    let content = content_extent(control, env, own);
-    let parent_rect = Rect::new(0.0, 0.0, parent[0].unwrap_or(0.0), parent[1].unwrap_or(0.0));
-    let nat = super::natural(control, env, parent[0].map(|_| width));
-    clamp_bounds(
-        control,
-        parent_rect,
-        [width, height],
-        content,
-        nat,
-        parent[0].is_some(),
-    )
+/// A child's position among its parent's children.
+pub(super) fn child_index(parent: &ResolvedControl, child: &ResolvedControl) -> usize {
+    let base = parent.children.as_ptr().addr();
+    let size = std::mem::size_of::<ResolvedControl>().max(1);
+    (std::ptr::from_ref(child).addr() - base) / size
 }

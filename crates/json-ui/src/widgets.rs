@@ -84,6 +84,12 @@ pub(crate) fn hidden_state_children(
     )
 }
 
+/// State children hidden at rest (no hover, press or focus): the client hides
+/// them, so they add nothing to their parent's `%c`/`%cm`.
+pub(crate) fn rest_hidden_children(control: &ResolvedControl) -> Vec<String> {
+    hidden_under(control, false, false, false)
+}
+
 /// Per state child of a stateful control, the interaction states it shows under,
 /// as a mask over [`state_index`]; empty for controls without state children.
 pub(crate) fn state_child_masks(control: &ResolvedControl) -> Vec<(String, u8)> {

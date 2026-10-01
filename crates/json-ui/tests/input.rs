@@ -307,7 +307,7 @@ fn slider_box_travels_with_the_value_and_progress_clips() {
 
 #[test]
 fn fixed_grid_packs_cells_row_major() {
-    let cells = (0..4)
+    let mut cells: Vec<_> = (0..4)
         .map(|index| {
             ctrl(
                 "cell",
@@ -317,10 +317,17 @@ fn fixed_grid_packs_cells_row_major() {
             )
         })
         .collect();
+    cells.push(ctrl(
+        "template",
+        "panel",
+        json!({ "size": [18, 18], "grid_template_node": true }),
+        vec![],
+    ));
     let grid = ctrl(
         "grid",
         "grid",
-        json!({ "size": [36, 36], "anchor_from": "top_left", "anchor_to": "top_left", "grid_dimensions": [2, 2] }),
+        json!({ "size": [36, 36], "anchor_from": "top_left", "anchor_to": "top_left",
+                "grid_dimensions": [2, 2], "grid_item_template": "t.cell" }),
         cells,
     );
     let root = screen(vec![grid]);
