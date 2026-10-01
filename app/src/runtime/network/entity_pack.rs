@@ -210,3 +210,6 @@ mod equipment_report;
 
 #[cfg(test)]
 mod render_report;
+
+#[cfg(test)]
+mod scene_report;

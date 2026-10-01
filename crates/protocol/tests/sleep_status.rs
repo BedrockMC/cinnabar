@@ -30,9 +30,11 @@ fn int_compound(tags: &[(&str, i32)]) -> Vec<u8> {
 #[test]
 fn sleeping_players_generic_level_event_carries_its_compound() {
     let nbt = int_compound(&[("sleepingPlayerCount", 1), ("overworldPlayerCount", 3)]);
+    // On the wire the tags float loose: no root compound header and no closing end tag.
+    let loose = Bytes::copy_from_slice(&nbt[2..nbt.len() - 1]);
     let packet = LevelEventGenericPacket {
         event_id: 9801,
-        __ctd__: Nbt(Bytes::from(nbt.clone())),
+        __ctd__: Nbt(loose.clone()),
     };
     assert_eq!(
         into_world_event(packet.into(), 0).unwrap(),

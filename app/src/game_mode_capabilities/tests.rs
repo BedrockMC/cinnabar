@@ -59,10 +59,11 @@ fn mode_defaults_follow_the_gamemode_table() {
     assert!(!spectator.visible && !spectator.has_collision);
     assert_eq!(spectator.attack_reach, 0.0);
 
+    // An unrecognized id interacts like vanilla's base game mode instead of failing closed.
     let unknown = GameModeCapabilities::for_mode(Unknown);
-    assert!(!unknown.can_use_blocks() && !unknown.can_mine && !unknown.can_attack);
-    assert!(!unknown.can_fly);
-    assert_eq!(unknown.attack_reach, 0.0);
+    assert!(unknown.can_use_blocks() && unknown.can_mine && unknown.can_attack);
+    assert!(unknown.can_use_items && !unknown.can_fly);
+    assert_eq!(unknown.attack_reach, survival.attack_reach);
 }
 
 /// An explicit Build+Mine grant lets an adventure player edit the world.
