@@ -844,7 +844,7 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
 }
 
 #[test]
-fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
+fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
     let mut stream = lit_stream(0);
     let top = SubChunkKey::new(0, 0, 19, 0);
     stream.record_known_air(top);
