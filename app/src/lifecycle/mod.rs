@@ -1,5 +1,6 @@
 //! Process lifecycle around the client: crash capture, first-run asset preparation, update checks.
 
+pub(crate) mod children;
 pub(crate) mod core_health;
 mod crash;
 mod update;

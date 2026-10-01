@@ -229,9 +229,6 @@ fn emit_text(
             } else {
                 glyph_color
             };
-            let style_flags = u8::from(glyph.style.obfuscated)
-                | (u8::from(glyph.style.bold) << 1)
-                | (u8::from(glyph.style.italic) << 2);
             // §k swaps to a same-width raster, stable within a frame
             // (so both passes agree) and animated across frames.
             let (page, uv) = obfuscated_raster(glyph, index, layout_id, effects);
@@ -246,7 +243,6 @@ fn emit_text(
                 uv,
                 page,
                 glyph_color,
-                style_flags,
                 shear,
                 bold_offset,
                 rotation,
@@ -293,14 +289,14 @@ fn obfuscation_selector(seed: u64, layout_id: u64, index: usize) -> u64 {
 }
 
 /// Emits one glyph: italic leans the top edge right by `shear`, and a
-/// `Some(bold_offset)` draws a second copy shifted right to embolden it.
+/// `Some(bold_offset)` draws a second copy shifted right to embolden it. Styles
+/// are pure geometry; glyph vertices carry no style bits (bit 1 is the glint).
 #[allow(clippy::too_many_arguments)]
 fn emit_text_glyph(
     glyph_bounds: UiRect,
     uv: [u16; 4],
     page: u16,
     color: [u8; 4],
-    style_flags: u8,
     shear: f32,
     bold_offset: Option<f32>,
     rotation: Option<Rotation>,
@@ -332,7 +328,7 @@ fn emit_text_glyph(
             uv_corners,
             page,
             color,
-            style_flags,
+            0,
             UiBlendMode::Alpha,
             clip,
             vertices,
@@ -509,35 +505,8 @@ fn shadow_color(color: [u8; 4]) -> [u8; 4] {
 }
 
 fn style_color(style: BedrockColor, base: [u8; 4]) -> [u8; 4] {
-    let rgb = match style {
-        BedrockColor::White => return base,
-        BedrockColor::Black => [0, 0, 0],
-        BedrockColor::DarkBlue => [0, 0, 170],
-        BedrockColor::DarkGreen => [0, 170, 0],
-        BedrockColor::DarkAqua => [0, 170, 170],
-        BedrockColor::DarkRed => [170, 0, 0],
-        BedrockColor::DarkPurple => [170, 0, 170],
-        BedrockColor::Gold => [255, 170, 0],
-        BedrockColor::Gray => [170, 170, 170],
-        BedrockColor::DarkGray => [85, 85, 85],
-        BedrockColor::Blue => [85, 85, 255],
-        BedrockColor::Green => [85, 255, 85],
-        BedrockColor::Aqua => [85, 255, 255],
-        BedrockColor::Red => [255, 85, 85],
-        BedrockColor::LightPurple => [255, 85, 255],
-        BedrockColor::Yellow => [255, 255, 85],
-        BedrockColor::MinecoinGold => [221, 214, 5],
-        BedrockColor::MaterialQuartz => [227, 212, 209],
-        BedrockColor::MaterialIron => [206, 202, 202],
-        BedrockColor::MaterialNetherite => [68, 58, 59],
-        BedrockColor::MaterialRedstone => [151, 22, 7],
-        BedrockColor::MaterialCopper => [180, 104, 77],
-        BedrockColor::MaterialGold => [222, 177, 45],
-        BedrockColor::MaterialEmerald => [17, 160, 54],
-        BedrockColor::MaterialDiamond => [44, 186, 168],
-        BedrockColor::MaterialLapis => [35, 98, 180],
-        BedrockColor::MaterialAmethyst => [154, 92, 198],
-        BedrockColor::MaterialResin => [237, 105, 52],
+    let Some(rgb) = style.rgb() else {
+        return base;
     };
     [rgb[0], rgb[1], rgb[2], base[3]]
 }

@@ -321,3 +321,65 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     );
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }
+
+fn connecting_menu(stage: super::super::JoinStage) -> MenuRuntime {
+    let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.catalog_started = true;
+    menu.mark_connecting();
+    menu.feeds.join = super::super::JoinProgress::new(super::super::JoinKind::External);
+    menu.feeds.join.observe(Some(stage));
+    menu
+}
+
+fn drive_once(menu: MenuRuntime, network: NetworkHandle) -> App {
+    let mut app = App::new();
+    app.add_message::<AppExit>()
+        .insert_resource(menu)
+        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(network)
+        .insert_resource(ClientBlobCacheOwner::default())
+        .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(UiRuntime::new(1))
+        .insert_resource(ClientWorld::default())
+        .insert_resource(MovementTicker::default())
+        .insert_resource(LocalPhysicsController::default())
+        .insert_resource(LocalPlayerFrameCarrier::default())
+        .insert_resource(InteractionOriginSnapshot::default())
+        .add_systems(Update, drive_menu_connection);
+    app.update();
+    app
+}
+
+// Cancelling a download retires the session, closing its link to the core, and returns to Play.
+#[test]
+fn cancelling_a_pack_download_retires_the_session() {
+    let mut menu = connecting_menu(super::super::JoinStage::Packs {
+        done: 0,
+        total: 1,
+        received_bytes: 1,
+        total_bytes: 4,
+    });
+    menu.activate(MenuAction::AddBack);
+    let mut network = NetworkHandle::disconnected();
+    let (session_events, receiver) = tokio::sync::mpsc::channel(1);
+    *network.control_events_mut() = receiver;
+    let app = drive_once(menu, network);
+    let menu = app.world().resource::<MenuRuntime>();
+    assert!(!menu.is_connecting());
+    assert!(menu.is_visible());
+    assert_eq!(menu.view().screen, MenuScreen::Play);
+    assert!(session_events.is_closed());
+}
+
+// Vanilla's Realm lookup offers no cancel, so back leaves the join running.
+#[test]
+fn back_during_the_realm_lookup_keeps_joining() {
+    let mut menu = connecting_menu(super::super::JoinStage::Realm);
+    menu.activate(MenuAction::AddBack);
+    let mut network = NetworkHandle::disconnected();
+    let (session_events, receiver) = tokio::sync::mpsc::channel(1);
+    *network.control_events_mut() = receiver;
+    let app = drive_once(menu, network);
+    assert!(app.world().resource::<MenuRuntime>().is_connecting());
+    assert!(!session_events.is_closed());
+}

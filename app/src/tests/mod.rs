@@ -277,6 +277,7 @@ mod core_process;
 mod crafting_authority_schedule;
 mod finish;
 mod frame_cost_bench;
+mod gameplay_click;
 mod inventory;
 mod inventory_schedule;
 mod inventory_secondary_input;

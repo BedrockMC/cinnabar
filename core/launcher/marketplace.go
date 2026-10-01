@@ -28,7 +28,7 @@ type marketplace struct {
 // signed out. A nil front opens a real store session with the account's token source on first use.
 func (s *Service) Marketplace(front Storefront) control.Marketplace {
 	if front == nil {
-		front = store.NewSession(s.cfg.TokenSource, s.cfg.StoreImageDir)
+		front = store.NewSession(s.cfg.Account, s.cfg.StoreImageDir)
 	}
 	return marketplace{svc: s, front: front}
 }

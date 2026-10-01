@@ -12,9 +12,19 @@ impl WorldStream {
             return;
         }
 
-        self.evict_all_resident();
+        // Vanilla keeps chunk data across a teleport and drops only what the moved view no
+        // longer covers (`NetworkChunkSubscriber::moveRegion`), so overlap stays presented.
         self.transport_pending_requests = 0;
         self.publisher_center = Some(center);
+        let stale = self
+            .tracked_columns()
+            .into_iter()
+            .chain(self.request_collision_failures.iter().copied())
+            .filter(|column| !self.column_is_data_interesting(*column))
+            .collect::<BTreeSet<_>>();
+        for column in stale {
+            self.evict_column(column);
+        }
         self.committed_view_cohort = None;
         self.required_columns.clear();
         self.provisional_publisher_rebase = true;
@@ -193,5 +203,39 @@ impl WorldStream {
         self.requested_sub_chunks
             .get(&key.chunk())
             .is_some_and(|expected| expected.contains_key(&key.y))
+    }
+    /// Whether the server still owes `key`: it is in range and unknown, and either requested or
+    /// in a column of the announced disk not yet sent while the server is still streaming.
+    /// Servers may send a smaller disk than they announce, so a quiet stream owes nothing more.
+    pub(super) fn sub_chunk_is_due(&self, key: SubChunkKey, now: Instant) -> bool {
+        if self.light_source_is_known(key) {
+            return false;
+        }
+        let Some(range) = vanilla_dimension_range(key.dimension) else {
+            return false;
+        };
+        let end = range
+            .base_sub_chunk_y
+            .saturating_add(i32::try_from(range.sub_chunk_count).unwrap_or(i32::MAX));
+        if key.y < range.base_sub_chunk_y || key.y >= end {
+            return false;
+        }
+        if self.is_expected_sub_chunk(key) {
+            return true;
+        }
+        let column = key.chunk();
+        if self.loaded_columns.contains(&column) || self.requested_sub_chunks.contains_key(&column)
+        {
+            return false;
+        }
+        self.last_column_arrival
+            .is_some_and(|arrival| now.saturating_duration_since(arrival) < UNSENT_COLUMN_GRACE)
+            && self.column_is_data_interesting(column)
+            && self.committed_view_cohort.is_none_or(|cohort| {
+                let dx = i64::from(column.x) - i64::from(cohort.center[0]);
+                let dz = i64::from(column.z) - i64::from(cohort.center[1]);
+                let radius = i64::from(cohort.radius);
+                dx * dx + dz * dz <= radius * radius
+            })
     }
 }

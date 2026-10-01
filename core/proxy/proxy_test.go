@@ -36,11 +36,7 @@ func (d dialerTestDownstream) IdentityData() login.IdentityData { return d.ident
 func (d dialerTestDownstream) ClientData() login.ClientData     { return d.client }
 func (d dialerTestDownstream) Proto() minecraft.Protocol        { return d.protocol }
 
-// TestNewUpstreamDialerDefaultsUpstreamClientCacheOff is the updated ratchet
-// for the explicit UpstreamClientCache option: the gophertunnel Dialer field
-// itself stays false even under the opt-in (the capability is wire-level in
-// PacketFunc), and a dialer built without the option must leave today's
-// outbound ClientCacheStatus byte untouched.
+// The UpstreamClientCache opt-in maps onto the native Dialer option and is off by default.
 func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 	optedIn := newUpstreamDialerForAdmission(
 		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
@@ -50,11 +46,8 @@ func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 		nil,
 		true,
 	)
-	if optedIn.EnableClientCache {
-		t.Fatal("EnableClientCache = true under the opt-in; the capability must stay wire-level in PacketFunc")
-	}
-	if optedIn.PacketFunc == nil {
-		t.Fatal("opt-in dialer installed no ClientCacheStatus flip observer")
+	if !optedIn.EnableClientCache {
+		t.Fatal("EnableClientCache = false under the opt-in")
 	}
 
 	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
@@ -231,7 +224,7 @@ func TestCacheBoundaryScriptedUpstreamObservesDefaultDisabledStatus(t *testing.T
 
 // TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn drives the
 // same scripted login with UpstreamClientCache enabled and requires the fake
-// upstream server to observe the flipped ClientCacheStatus byte on the wire,
+// upstream server to observe the enabled ClientCacheStatus byte on the wire,
 // plus honest effective-value telemetry.
 func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testing.T) {
 	telemetry := new(cacheBoundaryTelemetry)
@@ -304,51 +297,6 @@ func TestCacheBoundaryScriptedUpstreamObservesEnabledStatusWhenOptedIn(t *testin
 	snapshot := telemetry.snapshot()
 	if !snapshot.upstreamStatusSeen || !snapshot.upstreamStatusEnabled {
 		t.Fatalf("opt-in upstream cache status snapshot = %#v, want seen enabled=true", snapshot)
-	}
-}
-
-// TestUpstreamClientCacheFlipTouchesOnlyCacheStatusPackets proves the flip is
-// scoped to the exact ClientCacheStatus payload byte: unrelated packet IDs and
-// trailing payload bytes pass through unmutated, the flip works without any
-// cache-boundary telemetry configured, and a read-path-style clone handed to
-// the callback is the only slice affected (gophertunnel clones inbound
-// payloads before this callback, so an unexpected inbound copy stays inert).
-func TestUpstreamClientCacheFlipTouchesOnlyCacheStatusPackets(t *testing.T) {
-	flipper := newUpstreamDialerForAdmission(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
-		nil,
-		nil,
-		nil,
-		nil,
-		true,
-	)
-	if flipper.PacketFunc == nil {
-		t.Fatal("opt-in dialer installed no packet observer")
-	}
-	unrelated := []byte{0xde, 0xad, 0xbe, 0xef}
-	flipper.PacketFunc(packet.Header{PacketID: packet.IDText}, unrelated, nil, nil)
-	if !bytes.Equal(unrelated, []byte{0xde, 0xad, 0xbe, 0xef}) {
-		t.Fatalf("unrelated packet payload mutated to %#x", unrelated)
-	}
-
-	cacheStatus := []byte{0, 0xff, 0xee}
-	flipper.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, cacheStatus, nil, nil)
-	if cacheStatus[0] != 1 || cacheStatus[1] != 0xff || cacheStatus[2] != 0xee {
-		t.Fatalf("cache status payload = %#x, want only the first byte flipped", cacheStatus)
-	}
-
-	unmetered := newUpstreamDialerForAdmission(
-		dialerTestDownstream{protocol: minecraft.DefaultProtocol},
-		nil,
-		nil,
-		nil,
-		nil,
-		true,
-	)
-	payload := []byte{0}
-	unmetered.PacketFunc(packet.Header{PacketID: packet.IDClientCacheStatus}, payload, nil, nil)
-	if payload[0] != 1 {
-		t.Fatalf("dialer without cache telemetry left outbound status byte %d", payload[0])
 	}
 }
 
@@ -798,7 +746,8 @@ func TestRelayDropsInitialLoadingScreenPairAcrossAdjacentWireBatches(t *testing.
 	}
 }
 
-func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
+// A source batch is written once in order; splitting at the packet limit belongs to the library encoder.
+func TestRelayWritesEachUpstreamBatchOnceInOrder(t *testing.T) {
 	const packetLimit = 1600
 	up := newFakeUpstream(nil)
 	down := newFakeDownstream(nil)
@@ -823,16 +772,13 @@ func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
 	}
 
 	batches := down.flushedBatches()
-	wantSizes := []int{1, packetLimit, packetLimit, 1}
+	wantSizes := []int{1, packetLimit*2 + 1}
 	if len(batches) != len(wantSizes) {
 		t.Fatalf("batch count = %d, want %d; sizes = %v", len(batches), len(wantSizes), batchSizes(batches))
 	}
 	for index, batch := range batches {
 		if len(batch) != wantSizes[index] {
 			t.Fatalf("batch %d size = %d, want %d", index, len(batch), wantSizes[index])
-		}
-		if len(batch) > packetLimit {
-			t.Fatalf("batch %d size = %d, exceeds %d", index, len(batch), packetLimit)
 		}
 	}
 
@@ -1477,6 +1423,26 @@ func (s *fakeSession) isClosed() bool {
 	}
 }
 
+// Chat must carry the authenticated upstream identity even through the observing wrappers.
+func TestRelayRewritesChatIdentityThroughSessionWrappers(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	up.identity = login.IdentityData{DisplayName: "Canonical", XUID: "2535"}
+	wrapped := observeDisconnects(observeTransfers(up, new(TransferState), nil), func(DisconnectInfo) {})
+	down.useBatchReads = true
+	down.batchReads <- batchResult{packets: []packet.Packet{&packet.Text{TextType: packet.TextTypeChat, SourceName: "offline", XUID: "1", Message: "hi"}}}
+	down.batchReads <- batchResult{err: io.EOF}
+
+	if err := pumpPackets(down, wrapped, true); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	batches := up.flushedBatches()
+	text, ok := batches[0][0].(*packet.Text)
+	if !ok || text.SourceName != "Canonical" || text.XUID != "2535" {
+		t.Fatalf("forwarded chat = %#v", batches[0][0])
+	}
+}
+
 type fakeDownstream struct {
 	fakeSession
 	start func(context.Context, minecraft.GameData) error
@@ -1499,6 +1465,7 @@ type fakeUpstream struct {
 	data     minecraft.GameData
 	packs    []*resource.Pack
 	required bool
+	identity login.IdentityData
 }
 
 func newFakeUpstream(spawn func(context.Context) error) *fakeUpstream {
@@ -1512,6 +1479,7 @@ func (s *fakeUpstream) DoSpawnContext(ctx context.Context) error { return s.spaw
 func (s *fakeUpstream) GameData() minecraft.GameData             { return s.data }
 func (s *fakeUpstream) ResourcePacks() []*resource.Pack          { return slices.Clone(s.packs) }
 func (s *fakeUpstream) TexturePacksRequired() bool               { return s.required }
+func (s *fakeUpstream) IdentityData() login.IdentityData         { return s.identity }
 
 type errorCloser struct{ err error }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ type stubServices struct {
 
 func (s *stubServices) Realms(context.Context) ([]catalog.Realm, error)   { return s.realms, s.err }
 func (s *stubServices) Friends(context.Context) ([]catalog.Friend, error) { return s.friends, s.err }
-func (s *stubServices) Connect(kind, value string) error {
+func (s *stubServices) Connect(_ context.Context, kind, value string) error {
 	s.kind, s.value = kind, value
 	return s.err
 }
@@ -122,6 +123,9 @@ func TestConnectValidatesAndForwardsTarget(t *testing.T) {
 	if reply := rpc(t, dir, methodConnect, `{"kind":"realm","value":"42"}`); reply.Error != nil || stub.kind != "realm" || stub.value != "42" {
 		t.Fatalf("connect = %+v kind=%q value=%q", reply.Error, stub.kind, stub.value)
 	}
+	if reply := rpc(t, dir, methodConnect, `{"kind":"gathering","value":"5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"}`); reply.Error != nil || stub.kind != TargetGathering {
+		t.Fatalf("gathering connect = %+v kind=%q", reply.Error, stub.kind)
+	}
 	for _, params := range []string{
 		`{"kind":"bogus","value":"x"}`, `{"kind":"raknet","value":""}`,
 		`{"kind":"raknet","value":"` + strings.Repeat("a", 300) + `"}`,
@@ -179,13 +183,35 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 		events.Transfer == nil || events.Transfer.Host != "next.example" {
 		t.Fatalf("events = %+v", events)
 	}
-	store.ObservePackDownload(proxy.ResourcePackDownload{ReceivedBytes: 5, TotalBytes: 9})
-	if got := store.Events().PackDownload; got == nil || got.ReceivedBytes != 5 || got.TotalBytes != 9 {
-		t.Fatalf("pack download = %+v", got)
+	store.ObserveConnectProgress(proxy.ConnectProgress{Stage: proxy.ConnectStagePacks, PacksDone: 1, PacksTotal: 3, ReceivedBytes: 5, TotalBytes: 9})
+	reply = rpc(t, dir, methodEvents, "")
+	var wire struct {
+		Connect map[string]any `json:"connect"`
 	}
+	if err := json.Unmarshal(reply.Result, &wire); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"stage": "packs", "packs_done": 1.0, "packs_total": 3.0, "received_bytes": 5.0, "total_bytes": 9.0}
+	if !maps.Equal(wire.Connect, want) {
+		t.Fatalf("connect wire = %v, want %v", wire.Connect, want)
+	}
+	store.ObserveConnectProgress(proxy.ConnectProgress{Stage: proxy.ConnectStageRealm})
+	reply = rpc(t, dir, methodEvents, "")
+	wire.Connect = nil
+	if err := json.Unmarshal(reply.Result, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(wire.Connect, map[string]any{"stage": "realm"}) {
+		t.Fatalf("realm stage wire = %v, want zero counters omitted", wire.Connect)
+	}
+	store.ObserveConnectProgress(proxy.ConnectProgress{})
+	if got := store.Events().Connect; got != nil {
+		t.Fatalf("withdrawn stage still published: %+v", got)
+	}
+	store.ObserveConnectProgress(proxy.ConnectProgress{Stage: proxy.ConnectStageConnecting})
 	store.Observe(snapshot(1, proxy.ResourcePackOfferNone))
 	store.Observe(snapshot(2, proxy.ResourcePackOfferNone))
-	if got := store.Events(); got.Disconnect != nil || got.Transfer != nil || got.PackDownload != nil {
+	if got := store.Events(); got.Disconnect != nil || got.Transfer != nil || got.Connect != nil {
 		t.Fatalf("new attempt kept stale events: %+v", got)
 	}
 }

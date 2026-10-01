@@ -71,7 +71,7 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 	provisioner := &localworld.Provisioner{Root: bdsDir, Version: opts.bdsVersion, Log: logger}
 	provisioner.SetRuntime(runtimeInfo)
 	provisioner.SetDetector(func(ctx context.Context) localworld.RuntimeInfo { return detectRuntime(ctx, opts) })
-	runners[localworld.BackendBDS] = localworld.BDSRunner{Provisioner: provisioner, Log: logger, Docker: opts.docker}
+	runners[localworld.BackendBDS] = localworld.BDSRunner{Provisioner: provisioner, Log: logger, Docker: opts.docker, Image: opts.bdsImage}
 	manager := localworld.NewManager(store, runners, logger)
 	manager.SetSetup(provisioner)
 	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")

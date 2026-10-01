@@ -625,7 +625,15 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let (mut session, game_data) = match login {
                     Ok(connected) => connected,
                     Err(error) => {
-                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error).await;
+                        // A join-time Disconnect words the failure like a play-time one.
+                        let disconnect = error.server_disconnect();
+                        send_startup_failure(
+                            &control_event_tx,
+                            &mut shutdown_rx,
+                            error,
+                            disconnect,
+                        )
+                        .await;
                         return;
                     }
                 };
@@ -656,7 +664,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 {
                     Ok(registry) => registry,
                     Err(error) => {
-                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error).await;
+                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None)
+                            .await;
                         return;
                     }
                 };

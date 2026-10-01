@@ -20,7 +20,7 @@ names them, so they default off. Evidence: the 26.30 reconstruction
 | --- | --- | --- | --- |
 | Main menu | `/main-menu` | JSON-UI (dev override only) | `start_screen.json` |
 | Play | `/play/:tab` | **OreUI** (selected and supported) | OreUI, drawn natively |
-| Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** | not built yet (create buttons are disabled) |
+| Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** (1.26.50: Create has no JSON-UI path) | OreUI; General and Advanced tabs only |
 | Death | `/gameplay/death` | **OreUI** | OreUI |
 | Bed | `/gameplay/bedtime` | **OreUI** | OreUI |
 | Settings | `/oreui-settings` | JSON-UI unless the `mc-new-settings-screen` treatment (default off; preference default unrecovered) | `settings_screen.json` |
@@ -57,6 +57,9 @@ per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
 - Inbox: category menu, card layout, the Recent/History split.
 - Friends drawer: search field (not interactive), tab icons, the People list (only friends
   currently in worlds are known).
+- Create / edit world and templates: text field, segmented control and switch art (approximated
+  from `baseTextField*` facts), the side-menu tab icons, the world preview image, the missing
+  Multiplayer, Cheats, pack and experiment tabs, Hardcore, and the "Leave Create New World?" prompt.
 - Play: tab bar bevels, world rows (thumbnails are placeholders; no pager or grid mode), the
   Servers tab's classic layout (the `servers_tab_v2` flag's default is unknown), the Realms tab
   details (shows the first Realm; no selection), and Add server still opening the JSON-UI form.

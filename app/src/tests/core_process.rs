@@ -18,11 +18,11 @@ fn stdin_holding_child() -> (Child, PathBuf) {
 }
 
 /// Spawns a script child that never reads stdin and keeps running long past
-/// any graceful deadline, forcing the kill fallback.
+/// any graceful deadline, forcing the SIGTERM (Windows: kill) fallback.
 fn stdin_ignoring_child() -> (Child, PathBuf) {
     fixture_child(|windows_body, unix_body| {
         *windows_body = "@echo off\r\nping -n 30 127.0.0.1 > nul\r\n".to_owned();
-        *unix_body = "#!/bin/sh\nsleep 30 </dev/null\n".to_owned();
+        *unix_body = "#!/bin/sh\nexec sleep 30 </dev/null\n".to_owned();
     })
 }
 
@@ -89,7 +89,7 @@ fn core_guard_stops_gracefully_through_stdin_eof_without_kill() {
 }
 
 #[test]
-fn core_guard_kills_only_after_the_graceful_deadline() {
+fn core_guard_escalates_only_after_the_graceful_deadline() {
     let (child, directory) = stdin_ignoring_child();
     let mut guard = CoreProcessGuard::default();
     guard.replace(child);
@@ -98,7 +98,12 @@ fn core_guard_kills_only_after_the_graceful_deadline() {
     let outcome = guard.stop_with_deadline(Duration::from_millis(50));
     let elapsed = started.elapsed();
 
-    assert_eq!(outcome, CoreStopOutcome::KilledAfterGracefulTimeout);
+    let escalated = if cfg!(unix) {
+        CoreStopOutcome::TerminatedAfterGracefulTimeout
+    } else {
+        CoreStopOutcome::KilledAfterGracefulTimeout
+    };
+    assert_eq!(outcome, escalated);
     assert!(elapsed >= Duration::from_millis(50));
     remove_directory(&directory);
 }
@@ -122,6 +127,28 @@ fn core_guard_replace_stops_the_previous_child_gracefully() {
 
     guard.replace(second);
 
+    assert_eq!(guard.stop(), CoreStopOutcome::ExitedAfterGracefulClose);
+    remove_directory(&first_directory);
+    remove_directory(&second_directory);
+}
+
+// A replaced core that ignores the graceful close is still reaped before its successor runs.
+#[test]
+fn core_guard_replace_reaps_a_wedged_previous_core() {
+    let (first, first_directory) = stdin_ignoring_child();
+    let first_id = first.id();
+    let (second, second_directory) = stdin_holding_child();
+    let mut guard = CoreProcessGuard::default();
+    guard.replace(first);
+
+    guard.replace(second);
+
+    #[cfg(unix)]
+    {
+        let pid = rustix::process::Pid::from_raw(first_id as i32).unwrap();
+        assert!(rustix::process::test_kill_process(pid).is_err());
+    }
+    assert_ne!(guard.id(), Some(first_id));
     assert_eq!(guard.stop(), CoreStopOutcome::ExitedAfterGracefulClose);
     remove_directory(&first_directory);
     remove_directory(&second_directory);

@@ -88,9 +88,9 @@ pub(crate) struct MenuProfile {
     pub(crate) picture_path: String,
     pub(crate) real_name: String,
     pub(crate) presence: String,
-    pub(crate) gamerscore: i64,
-    pub(crate) friends: u32,
-    pub(crate) followers: u32,
+    pub(crate) gamerscore: Option<i64>,
+    pub(crate) friends: Option<u32>,
+    pub(crate) followers: Option<u32>,
 }
 
 /// Service feed data beyond the catalog cards: featured-server details keyed
@@ -110,8 +110,75 @@ pub(crate) struct MenuFeeds {
     pub(crate) description_expanded: bool,
     pub(crate) news_expanded: bool,
     pub(crate) home: MenuHome,
-    /// `(received, total)` bytes while the core downloads the server's packs.
-    pub(crate) pack_download: Option<(u64, u64)>,
+    /// The join the progress screen reports while connecting.
+    pub(crate) join: JoinProgress,
+}
+
+/// Which kind of join is under way; picks vanilla's connect title and progress screen.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum JoinKind {
+    #[default]
+    External,
+    Realm,
+    Local,
+}
+
+/// A join's stage, as vanilla's progress handlers split it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum JoinStage {
+    /// The Realm lookup.
+    Realm,
+    /// Transport connect and login.
+    #[default]
+    Connecting,
+    /// Pack acquisition; the byte total stays zero until a download begins.
+    Packs {
+        done: u32,
+        total: u32,
+        received_bytes: u64,
+        total_bytes: u64,
+    },
+    /// The core handed the session over and the world is not ready yet.
+    Generating,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct JoinProgress {
+    pub(crate) kind: JoinKind,
+    pub(crate) stage: JoinStage,
+    /// The core reported this join, so its report vanishing means the handoff.
+    reported: bool,
+}
+
+impl JoinProgress {
+    pub(crate) fn new(kind: JoinKind) -> Self {
+        Self {
+            kind,
+            ..Self::default()
+        }
+    }
+
+    /// Folds in the core's latest report; `None` before its first or after the handoff.
+    pub(crate) fn observe(&mut self, core: Option<JoinStage>) {
+        match core {
+            Some(stage) => {
+                self.stage = stage;
+                self.reported = true;
+            }
+            None if self.reported => self.stage = JoinStage::Generating,
+            None => {}
+        }
+    }
+
+    /// Whether vanilla's handler for this stage lets the player cancel.
+    pub(crate) fn cancellable(&self) -> bool {
+        match self.stage {
+            JoinStage::Realm => false,
+            JoinStage::Connecting => self.kind == JoinKind::External,
+            JoinStage::Packs { total_bytes, .. } => total_bytes > 0,
+            JoinStage::Generating => true,
+        }
+    }
 }
 
 /// The start screen's service data: messaging tile art, inbox and invite
@@ -237,6 +304,8 @@ pub(crate) struct MenuView {
     /// The saved server the add screen is editing.
     pub(crate) editing: Option<usize>,
     pub(crate) local_worlds: Vec<LocalWorldCard>,
+    /// The local-world create, edit and template screens and their modals.
+    pub(crate) local: crate::local_worlds::WorldsView,
     pub(crate) volumes: super::settings_values::Volumes,
     pub(crate) feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.

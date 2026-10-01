@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
-	"golang.org/x/oauth2"
 )
 
 type feedFixture struct {
@@ -31,15 +31,15 @@ func newFeedFixture(t *testing.T) *feedFixture {
 
 func (f *feedFixture) service() *Service {
 	return New(Config{
-		TokenSource: staticSource{}, ArtworkDir: f.art, CacheFile: f.file,
-		Featured: func(context.Context, oauth2.TokenSource) ([]catalog.FeaturedServer, error) {
+		Account: testAccount(), ArtworkDir: f.art, CacheFile: f.file,
+		Featured: func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error) {
 			f.calls++
 			return f.featured()
 		},
-		Gatherings: func(context.Context, oauth2.TokenSource) ([]catalog.Gathering, error) {
+		Gatherings: func(context.Context, *authcache.Account) ([]catalog.Gathering, error) {
 			return nil, errors.New("offline")
 		},
-		Home: func(context.Context, oauth2.TokenSource, *catalog.MessagingSession, string) (catalog.Home, error) {
+		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
 			return catalog.Home{}, errors.New("offline")
 		},
 		CacheArt: func(context.Context, string, []*catalog.Image) {},

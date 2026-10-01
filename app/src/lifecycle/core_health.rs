@@ -78,6 +78,11 @@ pub(crate) fn capture_client_stderr(layout: &InstallLayout) {
 pub(crate) fn capture_client_stderr(_layout: &InstallLayout) {}
 
 fn open_log(dir: &Path, name: &str, rotate_past: u64) -> Option<File> {
+    // Tests never append to or rotate a real install's logs, such as a worktree's shared `.local`.
+    #[cfg(test)]
+    if !dir.starts_with(std::env::temp_dir()) {
+        return None;
+    }
     fs::create_dir_all(dir).ok()?;
     let path = dir.join(name);
     if fs::metadata(&path).is_ok_and(|meta| meta.len() > rotate_past) {
@@ -100,6 +105,15 @@ mod tests {
         assert_eq!(backoff.next_delay(quick), Some(Duration::from_secs(4)));
         assert_eq!(backoff.next_delay(quick), Some(Duration::from_secs(8)));
         assert_eq!(backoff.next_delay(quick), None);
+    }
+
+    #[test]
+    fn tests_cannot_open_the_discovered_install_logs() {
+        let layout = InstallLayout::discover().expect("development layout");
+        assert!(open_core_log(&layout).is_none());
+        let scratch = InstallLayout::scratch("core-log");
+        assert!(open_core_log(&scratch).is_some());
+        assert!(scratch.log_dir().join("core.log").is_file());
     }
 
     #[test]
