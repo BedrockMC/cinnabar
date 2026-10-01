@@ -29,7 +29,8 @@ mod ui_textures;
 
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
-    UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan,
+    UI_DYNAMIC_PAGE_SIDE, UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage,
+    UiTexturePlan,
 };
 mod ui_render;
 mod viewmodel;

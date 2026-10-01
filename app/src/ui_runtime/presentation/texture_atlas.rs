@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use super::UiPresentationError;
 
-const VANILLA_HUD_ATLAS_SIDE: u32 = 256;
+use render::UI_DYNAMIC_PAGE_SIDE as VANILLA_HUD_ATLAS_SIDE;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
