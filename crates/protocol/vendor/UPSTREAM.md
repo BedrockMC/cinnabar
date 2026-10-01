@@ -35,6 +35,9 @@ shared-codec and Jolyne transport hardening.
 gophertunnel's `Disconnect.Marshal` does; the manifest still lacks that
 conditional. The normalization input fingerprints include this patch.
 
+Jolyne's client ends a join-time Disconnect with `ProtocolError::ServerDisconnect`,
+keeping the server's reason and message texts for the disconnect screen.
+
 Generated protocol reservations are normalized locally after generation by
 `tools/protocol-normalize/normalize.py` and its pinned neutral-only manifest.
 Numeric packet selectors, enum values, union discriminators and field ordinals

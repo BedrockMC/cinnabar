@@ -35,8 +35,8 @@ pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 pub(crate) use view::{
-    ButtonArt, InboxItem, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard,
-    MenuView, PingInfo, SavedServer,
+    ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
+    MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
 };
 use view::{CatalogFile, MenuFeeds};
 #[cfg(test)]
@@ -774,6 +774,11 @@ impl MenuRuntime {
 
     fn go_back(&mut self) {
         if self.dialog.take().is_some() {
+            return;
+        }
+        // Back on the join progress screen is its cancel button, where vanilla offers one.
+        if self.connecting {
+            self.disconnect_requested |= self.feeds.join.cancellable();
             return;
         }
         match self.screen {
