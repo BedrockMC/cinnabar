@@ -141,6 +141,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
     skin_pack: Local<'s, crate::presentation::actors::SkinLayerPack>,
+    skin_layers: Local<'s, crate::presentation::skin_layers::SkinLayerCache>,
     poses: Local<'s, crate::presentation::actors::PoseConversions>,
     layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
@@ -173,6 +174,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut cape_state,
         mut skin_rigs,
         mut skin_pack,
+        mut skin_layers,
         mut poses,
         mut layer_poses,
         mut hand_builder,
@@ -209,6 +211,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if *published_session != session_id {
         scene.reset();
         actor_clock.reset();
+        *skin_layers = Default::default();
         *published_session = session_id;
         if let Some(stream) = client_world.stream.as_mut() {
             stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
@@ -591,12 +594,24 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             &mut layer_poses,
         );
     }
-    // Layers were built above from the visible body, so hiding the body keeps armor and held items.
+    if let Some(stream) = client_world.stream.as_ref()
+        && let Some(pages) = skin_layers.apply(
+            &mut batch,
+            artwork,
+            |runtime_id| stream.actor_rig(runtime_id),
+            &mut skin_rigs,
+            |geometry| new_geometries.push(geometry),
+        )
+    {
+        scene.configure_artwork(pages);
+    }
+    // Hiding skin layers keeps armor and held items visible.
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
             if (identity.layer == render::ACTOR_LAYER_BODY
                 || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+                || crate::presentation::skin_layers::is_skin_layer(identity.layer)
                 || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
                     .actor(identity.runtime_id)

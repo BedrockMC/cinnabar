@@ -91,8 +91,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,
-            width: 64,
-            height: 64,
+            width: render::STANDARD_SKIN_SIDE as u32,
+            height: render::STANDARD_SKIN_SIDE as u32,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
         }),
     }
@@ -126,6 +126,7 @@ fn rig<'a>(
         render: &[],
         bone_names: &[],
         skin_geometry: None,
+        skin_layers: &[],
         hand: Default::default(),
     }
 }

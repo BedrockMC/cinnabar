@@ -353,6 +353,7 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
             skin: PlayerSkin::Standard(StandardSkin {
                 geometry: geometry.map(|(resource_patch, geometry_data)| {
                     Arc::new(SkinGeometrySource {
+                        animations: Arc::from([]),
                         resource_patch: resource_patch.into(),
                         geometry_data: geometry_data.into(),
                     })
@@ -362,8 +363,8 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
                     height: 32,
                     rgba8: vec![cape; 64 * 32 * 4].into(),
                 }),
-                width: 64,
-                height: 64,
+                width: render::STANDARD_SKIN_SIDE as u32,
+                height: render::STANDARD_SKIN_SIDE as u32,
                 rgba8: vec![skin; STANDARD_SKIN_BYTES].into(),
             }),
         }]),
@@ -646,12 +647,13 @@ fn vanilla_skin_geometry() -> Option<PlayerSkin> {
     let geometry_data = fs::read_to_string(path).ok()?;
     Some(PlayerSkin::Standard(StandardSkin {
         geometry: Some(Arc::new(SkinGeometrySource {
+            animations: Arc::from([]),
             resource_patch: r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.into(),
             geometry_data: geometry_data.into(),
         })),
         cape: None,
-        width: 64,
-        height: 64,
+        width: render::STANDARD_SKIN_SIDE as u32,
+        height: render::STANDARD_SKIN_SIDE as u32,
         rgba8: vec![128; STANDARD_SKIN_BYTES].into(),
     }))
 }
@@ -774,4 +776,146 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
             .any(|rotation| rotation.iter().zip(rest).any(|(a, b)| (a - b).abs() > 1e-3)),
         "rest {rest:?}, swing {swing:?}"
     );
+}
+
+#[test]
+fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
+    use crate::presentation::{actors, skin_layers, skin_rig};
+    let patch =
+        r#"{"geometry":{"default":"geometry.humanoid.custom","animated_32x32":"geometry.cape"}}"#;
+    let WorldEvent::Actor(ActorEvent::PlayerList(mut update)) =
+        player_list_with(200, None, Some((patch, GEOMETRY)))
+    else {
+        panic!("player list fixture");
+    };
+    let PlayerListEntry::Add {
+        skin: PlayerSkin::Standard(skin),
+        ..
+    } = &mut Arc::make_mut(&mut update.entries)[0]
+    else {
+        panic!("standard skin fixture");
+    };
+    Arc::make_mut(skin.geometry.as_mut().unwrap()).animations =
+        Arc::from([protocol::SkinAnimation {
+            kind: protocol::SkinAnimationKind::Body32,
+            width: 24,
+            height: 512,
+            rgba8: vec![255; 24 * 512 * 4].into(),
+            frames: 16,
+            blinking: false,
+        }]);
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    world
+        .submit(1, WorldEvent::Actor(ActorEvent::PlayerList(update)))
+        .unwrap();
+    world.submit(2, spawn_player()).unwrap();
+    world.advance_actor_interpolation_ticks(4);
+    let rig = world.actor_rig(42).unwrap();
+    assert_eq!(rig.skin_layers.len(), 1);
+    let body = actors::actor_rig_presentation(
+        &rig,
+        world.actor(42).unwrap(),
+        world.actor_player_profile(42),
+        0.5,
+    )
+    .unwrap();
+    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
+    let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
+    let mut layers = skin_layers::SkinLayerCache::default();
+    let mut geometries = Vec::new();
+    let artwork = layers
+        .apply(
+            &mut batch,
+            &Default::default(),
+            |id| world.actor_rig(id),
+            &mut skin_rig::SkinRigCache::default(),
+            |geometry| geometries.push(geometry),
+        )
+        .unwrap();
+    assert_eq!(artwork.pages()[0].dimensions(), (24, 512));
+    for geometry in geometries {
+        scene.insert_geometry(geometry).unwrap();
+    }
+    scene.configure_artwork(artwork);
+    let layer = &batch.submissions[1];
+    assert_eq!(layer.uv_anim, rig.skin_layers[0].uv_anim);
+    assert_eq!(
+        layer.input.current_bones.len(),
+        rig.skin_layers[0].current.len()
+    );
+    assert_eq!(
+        layer.world_from_actor,
+        batch.submissions[0].world_from_actor
+    );
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    assert_eq!(frame.rig.rejects, ActorRigRejects::default());
+    assert_eq!(frame.rig.manifest.len(), 2);
+    assert_eq!(
+        frame.rig.manifest[1].identity.layer,
+        skin_layers::SKIN_LAYER_BASE + protocol::SkinAnimationKind::Body32.slot() as u8
+    );
+    assert_eq!(frame.rig.manifest[1].bone_count, 2);
+    assert_ne!(frame.instance_pages()[1], 0);
+}
+
+/// Replays the pinned carrier's real blink controller into the animated face UV frame.
+#[test]
+#[ignore = "requires the installed pinned runtime carriers"]
+fn persona_face_blinks_with_the_pinned_runtime_controller() {
+    let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.local/assets/compiled");
+    let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
+        path: compiled.join("vanilla-v2193.mcbea"),
+        source: crate::asset_startup::AssetPathSource::CommandLine,
+    })
+    .unwrap();
+    let entities = Arc::clone(loaded.entities.runtime());
+    assert!(entities.controllers().iter().any(|controller| {
+        entities.symbols()[controller.symbol as usize]
+            .identifier
+            .as_ref()
+            == "controller.animation.persona.blink"
+    }));
+    let patch =
+        r#"{"geometry":{"default":"geometry.humanoid.custom","animated_face":"geometry.cape"}}"#;
+    let WorldEvent::Actor(ActorEvent::PlayerList(mut update)) =
+        player_list_with(200, None, Some((patch, GEOMETRY)))
+    else {
+        panic!("player list fixture");
+    };
+    let PlayerListEntry::Add {
+        skin: PlayerSkin::Standard(skin),
+        ..
+    } = &mut Arc::make_mut(&mut update.entries)[0]
+    else {
+        panic!("standard skin fixture");
+    };
+    Arc::make_mut(skin.geometry.as_mut().unwrap()).animations =
+        Arc::from([protocol::SkinAnimation {
+            kind: protocol::SkinAnimationKind::Face,
+            width: 32,
+            height: 64,
+            rgba8: vec![255; 32 * 64 * 4].into(),
+            frames: 2,
+            blinking: true,
+        }]);
+    let mut world = stream(entities);
+    world
+        .submit(1, WorldEvent::Actor(ActorEvent::PlayerList(update)))
+        .unwrap();
+    world.submit(2, spawn_player()).unwrap();
+    let mut opened = false;
+    let mut closed = false;
+    for _ in 0..800 {
+        world.advance_actor_interpolation_ticks(1);
+        let rig = world.actor_rig(42).unwrap();
+        assert_eq!(rig.skin_layers.len(), 1);
+        let offset = rig.skin_layers[0].uv_anim[1];
+        opened |= offset == 0.0;
+        closed |= offset == 0.5;
+        if opened && closed {
+            break;
+        }
+    }
+    assert!(opened && closed, "face must publish both blink frames");
 }
