@@ -1,10 +1,12 @@
-//! Placement: a sized control's rect from its anchors and offset, and the
-//! offset animation measured the same way.
+//! Placement: a sized control's rect from its anchors and offset, and its
+//! animations' offset and size ends measured the same way.
 
 use serde_json::Value;
 
 use super::{Axis, AxisContext, LayoutEnv, Rect, ResolvedControl, axis_index, axis_of, pixels_or};
-use crate::anim::{Inherited, Motion, SLIDE_KEY, Slide};
+use std::sync::Arc;
+
+use crate::anim::{AnimGraph, AnimKind, ControlAnims, GRAPH_KEY, Inherited, NodeAnim};
 use crate::expr;
 
 /// The child's rect from its resolved size and anchor/offset within `parent_rect`:
@@ -57,20 +59,99 @@ fn offset_pixels(pair: &Value, parent_rect: Rect, size: [f64; 2]) -> [f64; 2] {
     [axis_value(0, Axis::X), axis_value(1, Axis::Y)]
 }
 
-/// The control's `offset` animation in pixels, measured like its static offset.
-pub(super) fn motion(
+/// The control's animations with offset and size ends in pixels, `%` of the
+/// parent and `%x`/`%y` of the control's own size.
+pub(super) fn control_anims(
     control: &ResolvedControl,
+    key: &str,
+    rect: Rect,
     parent_rect: Rect,
-    size: [f64; 2],
     inherited: &Inherited,
-) -> Option<Motion> {
-    let slide: Slide = serde_json::from_value(control.properties.get(SLIDE_KEY)?.clone()).ok()?;
-    let (born, clock) = inherited.timing();
-    let rest = offset(control, parent_rect, size);
-    Some(slide.motion(rest, born, clock, |pair| match pair {
-        Value::Null => rest,
-        pair => offset_pixels(pair, parent_rect, size),
+) -> Option<Arc<ControlAnims>> {
+    let mut graph: AnimGraph =
+        serde_json::from_value(control.properties.get(GRAPH_KEY)?.clone()).ok()?;
+    let size = [rect.w, rect.h];
+    let rest_offset = offset(control, parent_rect, size);
+    for node in &mut graph.nodes {
+        let ends = match node.kind {
+            AnimKind::Offset => {
+                [&node.from_expr, &node.to_expr].map(|pair| offset_pixels(pair, parent_rect, size))
+            }
+            AnimKind::Size => [&node.from_expr, &node.to_expr].map(|pair| match pair {
+                Value::Array(_) => offset_pixels(pair, parent_rect, size),
+                _ => size,
+            }),
+            _ => continue,
+        };
+        node.from = [ends[0][0] as f32, ends[0][1] as f32, 0.0, 0.0];
+        node.to = [ends[1][0] as f32, ends[1][1] as f32, 0.0, 0.0];
+    }
+    let context = inherited.own(control);
+    let wait_scale = control
+        .properties
+        .get("property_bag")
+        .and_then(|bag| bag.get("wait_duration_scaler"))
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0) as f32;
+    for node in graph
+        .nodes
+        .iter_mut()
+        .filter(|node| node.kind == AnimKind::Wait)
+    {
+        node.duration *= wait_scale;
+    }
+    let anchor = anchor_to(control);
+    Some(Arc::new(ControlAnims {
+        key: key.to_owned(),
+        graph,
+        rest_alpha: control
+            .properties
+            .get("alpha")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0) as f32,
+        rest_offset: rest_offset.map(|axis| axis as f32),
+        rect: [rect.x, rect.y, rect.w, rect.h],
+        anchor,
+        born: context.born,
+        clock: context.clock,
+        disable_fast_forward: crate::widgets::bound_bool(control, "disable_anim_fast_forward")
+            .unwrap_or(false),
+        reset_name: control
+            .properties
+            .get("animation_reset_name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned),
+        has_sprite: control.control_type.as_deref() == Some("image"),
     }))
+}
+
+/// The static sprite uv and clip a draw's own animations replace.
+pub(super) fn sprite_rest(control: &ResolvedControl, node: &mut NodeAnim) {
+    let pair = |key: &str| {
+        let items = control.properties.get(key)?.as_array()?;
+        Some([
+            items.first()?.as_f64()? as f32,
+            items.get(1)?.as_f64()? as f32,
+        ])
+    };
+    node.uv_rest = pair("uv").unwrap_or([0.0; 2]);
+    node.uv_size_rest = pair("uv_size");
+    if node
+        .own
+        .as_ref()
+        .is_some_and(|own| own.writes(AnimKind::Clip))
+    {
+        node.clip_direction = Some(
+            control
+                .properties
+                .get("clip_direction")
+                .and_then(Value::as_str)
+                .unwrap_or("left")
+                .to_owned(),
+        );
+        node.clip_rest = crate::widgets::bound_number(control, "clip_ratio").unwrap_or(0.0) as f32;
+    }
 }
 
 pub(super) fn anchor_from(control: &ResolvedControl) -> [f64; 2] {

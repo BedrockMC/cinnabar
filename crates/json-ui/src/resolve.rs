@@ -91,7 +91,7 @@ impl<'a> Resolver<'a> {
         let (factory, control_ids_consumed) =
             self.extract_factory(control, control_type.as_deref(), env);
         let mut properties = build_properties(control, env, control_ids_consumed, &mut missing);
-        self.resolve_anims(&mut properties, env);
+        self.resolve_anims(&mut properties, env, &control.owner_ns);
         if factory.is_some() || properties.contains_key("grid_item_template") {
             let scope = self.local_scope(env);
             let key = scope_key(&scope);
@@ -132,55 +132,56 @@ impl<'a> Resolver<'a> {
         )
     }
 
-    /// Replace `@anim` references in `alpha`/`offset`/`anims` with their resolved chains,
-    /// and an animated `uv` with its first frame plus the flip-book that plays it.
-    fn resolve_anims(&self, properties: &mut std::collections::BTreeMap<String, Value>, env: &Env) {
-        if let Some(Value::String(reference)) = properties.get("uv")
-            && reference.starts_with('@')
-        {
-            match anim::resolve_flip_book(self.catalog, reference, env) {
-                Some(book) => {
-                    properties.insert("uv".to_owned(), serde_json::json!(book.initial_uv));
-                    if let Ok(value) = serde_json::to_value(book) {
-                        properties.insert(anim::FLIP_BOOK_KEY.to_owned(), value);
-                    }
+    /// Link the control's animation references (named or inline, in the
+    /// animated properties and `anims`) into its graph; a referencing property
+    /// takes the animation's initial value, as the factory sets it.
+    fn resolve_anims(
+        &self,
+        properties: &mut std::collections::BTreeMap<String, Value>,
+        env: &Env,
+        owner_ns: &str,
+    ) {
+        let catalog = self.catalog;
+        let mut load = |target: &ControlRef| {
+            let (def, _) = flatten_def(catalog, &target.namespace, &target.name, &mut Vec::new())?;
+            let mut scope = env.clone();
+            apply_declarations(&mut scope, &def.props);
+            match substitute(&Value::Object(def.props), &scope, &mut Vec::new()) {
+                Value::Object(props) => Some((props, def.owner_ns)),
+                _ => None,
+            }
+        };
+        let mut builder = anim::GraphBuilder::new(&mut load);
+        for key in anim::ANIMATED_PROPERTIES {
+            let Some(value) = properties.get(key).cloned() else {
+                continue;
+            };
+            match builder.add_head(&value, owner_ns) {
+                Some(Some(initial)) => {
+                    properties.insert(key.to_owned(), initial);
                 }
-                None => {
-                    properties.remove("uv");
+                Some(None) => {
+                    properties.remove(key);
                 }
+                // An unknown reference leaves the property at its default.
+                None if value.as_str().is_some_and(|text| text.starts_with('@')) => {
+                    properties.remove(key);
+                }
+                None => {}
             }
         }
-        let mut chains = Vec::new();
-        if let Some(Value::String(reference)) = properties.get("alpha")
-            && reference.starts_with('@')
+        let anims = match properties.remove("anims") {
+            Some(Value::Array(items)) => items,
+            Some(single @ (Value::String(_) | Value::Object(_))) => vec![single],
+            _ => Vec::new(),
+        };
+        for item in &anims {
+            builder.add_head(item, owner_ns);
+        }
+        if let Some(graph) = builder.finish()
+            && let Ok(value) = serde_json::to_value(graph)
         {
-            chains.extend(anim::resolve_chain(self.catalog, reference, env));
-            properties.remove("alpha");
-        }
-        let mut slide = None;
-        if let Some(Value::String(reference)) = properties.get("offset")
-            && reference.starts_with('@')
-        {
-            slide = anim::resolve_slide(self.catalog, reference, env);
-            properties.remove("offset");
-        }
-        if let Some(Value::Array(items)) = properties.get("anims") {
-            for reference in items.iter().filter_map(Value::as_str) {
-                if reference.starts_with('@') {
-                    chains.extend(anim::resolve_chain(self.catalog, reference, env));
-                    if slide.is_none() {
-                        slide = anim::resolve_slide(self.catalog, reference, env);
-                    }
-                }
-            }
-        }
-        if !chains.is_empty()
-            && let Ok(value) = serde_json::to_value(chains)
-        {
-            properties.insert(anim::CHAINS_KEY.to_owned(), value);
-        }
-        if let Some(value) = slide.and_then(|slide| serde_json::to_value(slide).ok()) {
-            properties.insert(anim::SLIDE_KEY.to_owned(), value);
+            properties.insert(anim::GRAPH_KEY.to_owned(), value);
         }
     }
 

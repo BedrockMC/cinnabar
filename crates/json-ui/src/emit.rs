@@ -110,15 +110,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
-    /// Animations scaling `alpha`, evaluated by the caller at paint time.
-    #[serde(default)]
-    pub fades: Vec<crate::anim::Fade>,
-    /// A sprite's `uv` flip-book, stepped by the caller at paint time.
-    #[serde(default)]
-    pub flip_book: Option<crate::anim::FlipBook>,
-    /// Offset animations shifting `dest` and `clip`, evaluated at paint time.
-    #[serde(default)]
-    pub motions: crate::anim::Motions,
+    /// Animations reaching this draw; see [`DrawNode::animate`].
+    #[serde(skip)]
+    pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
     pub draw: Draw,
     /// State children this node sits under, from [`emit_gated`]; see [`DrawNode::shown`].
     #[serde(default)]
@@ -140,26 +134,6 @@ impl DrawNode {
         self.gates
             .iter()
             .all(|gate| gate.mask & (1 << crate::widgets::state_index(state, &gate.key)) != 0)
-    }
-}
-
-impl DrawNode {
-    /// `dest` and `clip` displaced by this node's offset animations at `now`.
-    pub fn animated_rects(
-        &self,
-        now: f64,
-        clocks: Option<&BTreeMap<String, f64>>,
-    ) -> (RectOut, RectOut) {
-        if self.motions.own.is_empty() && self.motions.clip.is_empty() {
-            return (self.dest, self.clip);
-        }
-        let (own, clip) = self.motions.at(now, clocks);
-        let shift = |rect: RectOut, by: [f64; 2]| RectOut {
-            x: rect.x + by[0],
-            y: rect.y + by[1],
-            ..rect
-        };
-        (shift(self.dest, own), shift(self.clip, clip))
     }
 }
 
@@ -262,8 +236,14 @@ fn emit_own(
     out: &mut Vec<(i32, usize, DrawNode)>,
     order: &mut usize,
 ) {
+    // A clip animation crops at paint time instead.
+    let animated_clip = node
+        .anim
+        .as_ref()
+        .is_some_and(|anim| anim.clip_direction.is_some());
     let visible_rect = node
         .clip_ratio
+        .filter(|_| !animated_clip)
         .map(|ratio| clipped_rect(node.control, node.rect, ratio));
     for (dest, draw) in draws_for(node.control, node.rect, env) {
         let Some((dest, draw)) = crop(dest, draw, visible_rect) else {
@@ -290,12 +270,7 @@ fn emit_own(
                 clip: node.clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
-                fades: node.fades.clone(),
-                motions: node.motions.clone(),
-                flip_book: match &draw {
-                    Draw::Sprite { texture, .. } => flip_book(node.control, texture, env),
-                    _ => None,
-                },
+                anim: node.anim.clone(),
                 draw,
                 gates: Vec::new(),
             },
@@ -382,22 +357,6 @@ fn sprite_draws(
             },
         )],
     }
-}
-
-/// The control's flip-book with its frame step normalised to `texture`'s width.
-fn flip_book(
-    control: &ResolvedControl,
-    texture: &str,
-    env: &LayoutEnv,
-) -> Option<crate::anim::FlipBook> {
-    let value = control.properties.get(crate::anim::FLIP_BOOK_KEY)?;
-    let mut book: crate::anim::FlipBook = serde_json::from_value(value.clone()).ok()?;
-    let width = env.textures.texture(texture)?.base_size[0];
-    if book.frame_count <= 1 || width <= 0.0 {
-        return None;
-    }
-    book.step_u = (book.frame_step / width) as f32;
-    Some(book)
 }
 
 /// A literal `uv`/`uv_size` sub-rect of the texture, normalised.
@@ -510,13 +469,18 @@ fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
 /// The part of `rect` a progress image keeps after clipping `ratio` of it away
 /// toward `clip_direction` (the image stays pinned to the named side).
 fn clipped_rect(control: &ResolvedControl, rect: Rect, ratio: f32) -> Rect {
-    let keep = (1.0 - f64::from(ratio)).clamp(0.0, 1.0);
-    match control
+    let direction = control
         .properties
         .get("clip_direction")
         .and_then(Value::as_str)
-        .unwrap_or("left")
-    {
+        .unwrap_or("left");
+    crop_rect(rect, ratio, direction)
+}
+
+/// The part of `rect` a clip `ratio` keeps, cut from `direction`.
+pub(crate) fn crop_rect(rect: Rect, ratio: f32, direction: &str) -> Rect {
+    let keep = (1.0 - f64::from(ratio)).clamp(0.0, 1.0);
+    match direction {
         "right" => Rect::new(
             rect.x + rect.w * (1.0 - keep),
             rect.y,
@@ -545,7 +509,7 @@ fn clipped_rect(control: &ResolvedControl, rect: Rect, ratio: f32) -> Rect {
 
 /// Crop a primitive to `visible`, scaling a sprite's UVs with its dest; a fully
 /// clipped primitive yields `None`.
-fn crop(dest: Rect, draw: Draw, visible: Option<Rect>) -> Option<(Rect, Draw)> {
+pub(crate) fn crop(dest: Rect, draw: Draw, visible: Option<Rect>) -> Option<(Rect, Draw)> {
     let Some(visible) = visible else {
         return Some((dest, draw));
     };

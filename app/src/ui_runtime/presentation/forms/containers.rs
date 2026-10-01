@@ -642,9 +642,7 @@ fn held_stack(
         clip,
         layer: i32::MAX,
         alpha: 1.0,
-        fades: Vec::new(),
-        flip_book: None,
-        motions: Default::default(),
+        anim: None,
         draw,
         gates: Vec::new(),
     };

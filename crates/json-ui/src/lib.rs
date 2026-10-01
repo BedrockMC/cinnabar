@@ -41,8 +41,8 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 pub use anim::{
-    Chain, Fade, FlipBook, Motion, Motions, Step, StepKind, fade_factor, fade_factor_at,
-    motion_offset,
+    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
+    NodeAnim, Written,
 };
 pub use bind::{
     CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_reporting,
@@ -89,7 +89,9 @@ pub use resolve::Resolver;
 pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
 };
-pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
+pub use sidecar::{
+    AsepriteFrame, NineSlice, TextureMeta, parse_aseprite_frames, parse_texture_meta,
+};
 pub use state::{FocusMemory, LayoutReport, ScrollMetrics, ScrollRetained, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 pub use widgets::{Draggable, ScrollMotion};

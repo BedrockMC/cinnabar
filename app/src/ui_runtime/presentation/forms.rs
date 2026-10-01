@@ -175,6 +175,14 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// Retire animation state no paint touched this frame, so a control that
+    /// comes back starts its animations afresh.
+    pub(super) fn end_animation_frame(&self) {
+        if let Some(engine) = self.form_presentation.engine.as_ref() {
+            engine.animator().end_frame();
+        }
+    }
+
     /// The dynamic pages holding the server pack's UI textures.
     /// Drawn engine textures too big for a server page, for the art pages.
     pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
@@ -351,7 +359,14 @@ impl UiPresentationRuntime {
                             overlay: &[],
                         };
                         let catalog = renderer.catalog_label();
-                        match renderer.render(&form, &state.view, entry.identity, inputs, out) {
+                        let now = self.menu_seconds;
+                        match renderer.render(
+                            &form,
+                            &state.view,
+                            (entry.identity, now),
+                            inputs,
+                            out,
+                        ) {
                             Ok(Some(frame)) => {
                                 self.form_presentation.frame = Some(frame);
                                 log_path(
