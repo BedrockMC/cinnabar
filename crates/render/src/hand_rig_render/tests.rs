@@ -8,7 +8,9 @@ fn single_instance_frame() -> ActorRigRenderFrame {
         instances: Arc::from([ActorGpuInstance::default()]),
         previous_bones: Arc::from([[[0.0; 4]; 3]]),
         current_bones: Arc::from([[[0.0; 4]; 3]]),
-        geometry_vertices: Arc::from([ActorRigVertex::default()]),
+        geometry_vertices: crate::actor::ActorRigVertexSegments::from_vertices([
+            ActorRigVertex::default(),
+        ]),
         geometry_spans: Arc::from([ActorRigGeometrySpan {
             first_vertex: 0,
             vertex_count: 1,

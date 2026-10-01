@@ -109,13 +109,26 @@ pub(super) fn pose_layers(
     }
 }
 
-/// Gives each layer the pose it drew last tick as its previous pose, so layers interpolate.
+/// The pose of a layer that draws the rig's own geometry, shared by every such layer.
+fn empty_pose() -> Arc<[BoneTransform]> {
+    static EMPTY: std::sync::LazyLock<Arc<[BoneTransform]>> =
+        std::sync::LazyLock::new(|| Arc::from([]));
+    Arc::clone(&EMPTY)
+}
+
+/// Gives each layer the pose it drew last tick as its previous pose, so layers interpolate, and
+/// keeps last tick's hidden-bone list when unchanged so its derived poses stay cached.
 pub(super) fn carry_layer_poses(
     old: &[RenderTextureLayer],
     new: &mut [RenderTextureLayer],
     reset: bool,
 ) {
     for (index, layer) in new.iter_mut().enumerate() {
+        if let Some(previous) = old.get(index)
+            && previous.hidden_bones == layer.hidden_bones
+        {
+            layer.hidden_bones = Arc::clone(&previous.hidden_bones);
+        }
         layer.previous_pose = match old.get(index) {
             Some(previous)
                 if !reset
@@ -286,8 +299,8 @@ pub(super) fn evaluate_render(
                         hidden_bones: Arc::clone(&hidden_bones),
                         uv_anim,
                         geometry,
-                        previous_pose: Arc::from([]),
-                        pose: Arc::from([]),
+                        previous_pose: empty_pose(),
+                        pose: empty_pose(),
                         ignore_lighting: layer.ignore_lighting,
                     });
                     break;

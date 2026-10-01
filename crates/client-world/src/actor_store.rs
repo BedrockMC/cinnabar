@@ -562,6 +562,8 @@ pub(crate) struct ActorStore {
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
     camera_position: [f32; 3],
+    /// Rigs outside this view hold their pose instead of animating.
+    animation_view: Option<crate::actor_animation::ActorAnimationView>,
     /// Seat layouts for mounts whose riders stream no seat offset.
     seat_defaults: std::sync::Arc<SeatDefaults>,
     property_registry: properties::PropertyRegistry,
