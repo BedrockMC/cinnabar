@@ -301,6 +301,7 @@ pub(crate) struct MenuView {
     pub(crate) auth_state: AuthState,
     pub(crate) connecting: bool,
     pub(crate) settings_section: u8,
+    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub(crate) disconnect_message: Option<String>,
     /// The saved server the add screen is editing.

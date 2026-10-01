@@ -168,6 +168,7 @@ pub(crate) enum MenuAction {
     OpenLiveEvent,
     /// A press on a Marketplace screen.
     Store(crate::store::StoreAction),
+    GlobalResources(crate::global_resources::Action),
 }
 
 #[derive(Debug, Resource)]
@@ -227,6 +228,8 @@ pub(crate) struct MenuRuntime {
     sign_out_requested: bool,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
+    pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
+    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
     store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
     volumes: settings_values::Volumes,
@@ -329,6 +332,8 @@ impl MenuRuntime {
             control_auth: None,
             sign_out_requested: false,
             store_actions: Vec::new(),
+            global_resource_actions: Vec::new(),
+            global_resources: Default::default(),
             store_snapshot: None,
             volumes: Default::default(),
             volume_change: None,
@@ -420,6 +425,7 @@ impl MenuRuntime {
             volumes: self.volumes,
             feeds: self.feeds.clone(),
             store: self.store_snapshot.clone(),
+            global_resources: self.global_resources.clone(),
         }
     }
 
@@ -752,6 +758,7 @@ impl MenuRuntime {
             MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
+            MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Store(action) => {
                 if action == crate::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
@@ -782,6 +789,11 @@ impl MenuRuntime {
     }
 
     fn go_back(&mut self) {
+        if self.screen == MenuScreen::Settings && self.global_resources.settings.is_some() {
+            self.global_resource_actions
+                .push(crate::global_resources::Action::CloseSettings);
+            return;
+        }
         if self.dialog.take().is_some() {
             return;
         }
