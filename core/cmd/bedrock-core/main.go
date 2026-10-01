@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
+	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -71,6 +72,7 @@ type options struct {
 	socketDir                 string
 	upstream                  string
 	authCache                 string
+	language                  string
 	catalogFile               string
 	authEvents                bool
 	resourcePackCacheDir      string
@@ -94,6 +96,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.socketDir, "socket-dir", "", "directory containing the local bridge endpoint")
 	flags.StringVar(&opts.upstream, "upstream", "", "upstream Bedrock server address (host:port)")
 	flags.StringVar(&opts.authCache, "auth-cache", "", "path to the Microsoft authentication token cache")
+	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
@@ -284,7 +287,7 @@ func runWithResourcePackCacheFactory(
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
 		}
 		service := launcher.New(launcher.Config{
-			Account: account, AuthCache: opts.authCache,
+			Account: account, AuthCache: opts.authCache, Language: opts.language,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 			StoreImageDir: authSibling(opts.authCache, "store-images"),

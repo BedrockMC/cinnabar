@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"golang.org/x/text/language"
 )
 
@@ -81,7 +82,7 @@ func (c *Client) Offer(ctx context.Context, id string) (OfferDetail, error) {
 }
 
 func firstLocalized(d playfabcatalog.Dictionary[string]) string {
-	if v, ok := d.Lookup("en-US"); ok && v != "" {
+	if v, ok := d.Lookup(locale.Default); ok && v != "" {
 		return v
 	}
 	return d.Neutral()
