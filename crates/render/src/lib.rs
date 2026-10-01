@@ -15,6 +15,8 @@ mod hand_rig_render;
 mod item_geometry;
 mod lightning;
 mod lightning_render;
+mod media;
+pub use media::MediaTexture;
 mod nametag;
 mod nametag_render;
 mod panorama;
