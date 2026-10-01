@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn extension_overlay_adds_one_video_control() {
         let mut catalog = Catalog::default();
-        catalog.load_text(
+        catalog.overlay_text(
             "ui/general_section.json",
             r#"{"namespace":"general_section","video_section":{"type":"stack_panel","controls":[]}}"#,
         );
