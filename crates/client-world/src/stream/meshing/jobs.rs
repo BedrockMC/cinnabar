@@ -6,7 +6,7 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
-        if budget == 0 {
+        if budget == 0 || self.pending_mesh.is_empty() {
             return 0;
         }
 
@@ -14,90 +14,73 @@ impl WorldStream {
             position: camera_position,
             forward: self.view_forward,
         };
-        let camera_cell = view.cell();
-        if self.mesh_scheduler_camera_cell != Some(camera_cell) {
-            let mut deferred = std::mem::take(&mut self.pending_resident_mesh_deferred)
-                .into_iter()
-                .chain(std::mem::take(&mut self.pending_mesh_removal_deferred))
-                .filter_map(|candidate| {
-                    self.pending_mesh
-                        .get(&candidate.key)
-                        .is_some_and(|pending| pending.revision == candidate.revision)
-                        .then_some((candidate.key, candidate.revision))
-                })
-                .collect::<HashSet<_>>();
-            deferred.extend(self.pending_mesh_scan.iter().copied());
-            let mut resident = Vec::new();
-            let mut removals = Vec::new();
-            let mut resident_deferred = Vec::new();
-            let mut removals_deferred = Vec::new();
-            for (&key, pending) in &self.pending_mesh {
-                let candidate =
-                    PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent);
-                let (ready, next_round) =
-                    if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                        (&mut resident, &mut resident_deferred)
-                    } else {
-                        (&mut removals, &mut removals_deferred)
-                    };
-                if !pending.urgent && deferred.contains(&(key, pending.revision)) {
-                    next_round.push(candidate);
-                } else {
-                    ready.push(candidate);
-                }
-            }
-            self.pending_resident_mesh_ready = BinaryHeap::from(resident);
-            self.pending_mesh_removal_ready = BinaryHeap::from(removals);
-            self.pending_resident_mesh_deferred = BinaryHeap::from(resident_deferred);
-            self.pending_mesh_removal_deferred = BinaryHeap::from(removals_deferred);
-            self.pending_mesh_scan.clear();
-            self.mesh_scheduler_camera_cell = Some(camera_cell);
-        } else {
-            let pending_mesh = &self.pending_mesh;
-            super::super::dirty::compact_scheduler_scan(
-                &mut self.pending_mesh_scan,
-                pending_mesh.len(),
-                |key, revision| {
-                    pending_mesh
-                        .get(&key)
-                        .is_some_and(|p| p.revision == revision)
-                },
-            );
-            let ingress_budget = self
-                .pending_mesh_scan
-                .len()
-                .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
-            for _ in 0..ingress_budget {
-                let Some((key, queued_revision)) = self.pending_mesh_scan.pop_front() else {
-                    break;
-                };
-                let Some(pending) = self
-                    .pending_mesh
+        let pending_mesh = &self.pending_mesh;
+        self.mesh_scheduler_refresh.refresh(
+            view,
+            [
+                &mut self.pending_resident_mesh_ready,
+                &mut self.pending_resident_mesh_deferred,
+                &mut self.pending_mesh_removal_ready,
+                &mut self.pending_mesh_removal_deferred,
+            ],
+            self.poll_deadline,
+            |key, revision| {
+                pending_mesh
                     .get(&key)
-                    .copied()
-                    .filter(|pending| pending.revision == queued_revision)
-                else {
-                    continue;
-                };
-                let candidate =
-                    PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
-                let (ready, deferred) =
-                    if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                        (
-                            &mut self.pending_resident_mesh_ready,
-                            &mut self.pending_resident_mesh_deferred,
-                        )
-                    } else {
-                        (
-                            &mut self.pending_mesh_removal_ready,
-                            &mut self.pending_mesh_removal_deferred,
-                        )
-                    };
-                if pending.urgent {
-                    ready.push(candidate);
+                    .is_some_and(|p| p.revision == revision)
+            },
+        );
+        let pending_mesh = &self.pending_mesh;
+        super::super::dirty::compact_scheduler_scan(
+            &mut self.pending_mesh_scan,
+            pending_mesh.len(),
+            |key, revision| {
+                pending_mesh
+                    .get(&key)
+                    .is_some_and(|p| p.revision == revision)
+            },
+        );
+        let ingress_budget = self
+            .pending_mesh_scan
+            .len()
+            .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
+        let mut ingressed = false;
+        for index in 0..ingress_budget {
+            if self.poll_budget_exhausted()
+                && (ingressed || index >= MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+            {
+                break;
+            }
+            let Some((key, queued_revision)) = self.pending_mesh_scan.pop_front() else {
+                break;
+            };
+            let Some(pending) = self
+                .pending_mesh
+                .get(&key)
+                .copied()
+                .filter(|pending| pending.revision == queued_revision)
+            else {
+                continue;
+            };
+            let candidate =
+                PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
+            ingressed = true;
+            let (ready, deferred) =
+                if self.resident.contains(&key) && !self.known_air.contains(&key) {
+                    (
+                        &mut self.pending_resident_mesh_ready,
+                        &mut self.pending_resident_mesh_deferred,
+                    )
                 } else {
-                    deferred.push(candidate);
-                }
+                    (
+                        &mut self.pending_mesh_removal_ready,
+                        &mut self.pending_mesh_removal_deferred,
+                    )
+                };
+            if pending.urgent {
+                ready.push(candidate);
+            } else {
+                deferred.push(candidate);
             }
         }
         if self.pending_resident_mesh_ready.is_empty() {
@@ -117,13 +100,33 @@ impl WorldStream {
         let worker_budget = budget.min(
             super::admission::mesh_job_cap(rayon::current_num_threads()).saturating_sub(occupied),
         );
-        let mut resident_candidates = Vec::new();
+        let mut resident_candidates =
+            scheduler_refresh::near_camera_keys(view, self.current_dimension)
+                .filter_map(|key| {
+                    let pending = self.pending_mesh.get(&key).copied()?;
+                    (self.resident.contains(&key)
+                        && !self.known_air.contains(&key)
+                        && !self.in_flight.contains_key(&key)
+                        && self.revisions.is_current(key, pending.revision))
+                    .then_some((
+                        PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent),
+                        pending,
+                        false,
+                    ))
+                })
+                .collect::<Vec<_>>();
+        resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+        resident_candidates.truncate(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
         let mut removal_candidates = Vec::new();
         for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
-            let Some(candidate) = self.pending_resident_mesh_ready.pop() else {
+            if worker_budget == 0 && self.poll_budget_exhausted() {
+                break;
+            }
+            let Some(mut candidate) = self.pending_resident_mesh_ready.pop() else {
                 break;
             };
             let key = candidate.key;
+            candidate.distance_squared = view.rank(key);
             let Some(pending) = self.pending_mesh.get(&key).copied() else {
                 continue;
             };
@@ -135,7 +138,14 @@ impl WorldStream {
             {
                 self.pending_resident_mesh_deferred.push(candidate);
             } else if self.resident.contains(&key) && !self.known_air.contains(&key) {
-                resident_candidates.push((candidate, pending));
+                if let Some((_, _, queued)) = resident_candidates
+                    .iter_mut()
+                    .find(|(entry, _, _)| entry.key == key)
+                {
+                    *queued = true;
+                } else {
+                    resident_candidates.push((candidate, pending, true));
+                }
             } else {
                 self.pending_mesh_removal_ready.push(candidate);
             }
@@ -149,10 +159,22 @@ impl WorldStream {
             .min(budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
         if removal_authority != 0 {
-            self.pending_mesh_removal_ready
-                .append(&mut self.pending_mesh_removal_deferred);
+            for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+                if index != 0 && self.poll_budget_exhausted() {
+                    break;
+                }
+                let Some(candidate) = self.pending_mesh_removal_deferred.pop() else {
+                    break;
+                };
+                self.pending_mesh_removal_ready.push(candidate);
+            }
         }
-        for _ in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
+        for index in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
+            if self.poll_budget_exhausted()
+                && (!removal_candidates.is_empty() || index >= MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+            {
+                break;
+            }
             let Some(candidate) = self.pending_mesh_removal_ready.pop() else {
                 break;
             };
@@ -177,28 +199,42 @@ impl WorldStream {
 
         let mut dispatched = 0;
         let now = Instant::now();
-        for (candidate, pending) in resident_candidates {
+        resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+        for (candidate, pending, queued) in resident_candidates {
             let key = candidate.key;
-            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES || dispatched >= worker_budget {
-                self.pending_resident_mesh_ready.push(candidate);
+            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
+                || dispatched >= worker_budget
+                || (dispatched != 0 && self.poll_budget_exhausted())
+            {
+                if queued {
+                    self.pending_resident_mesh_ready.push(candidate);
+                }
                 continue;
             }
             if !self.revisions.is_current(key, pending.revision)
                 || self.in_flight.contains_key(&key)
             {
-                self.pending_resident_mesh_deferred.push(candidate);
+                if queued {
+                    self.pending_resident_mesh_deferred.push(candidate);
+                }
                 continue;
             }
             if self.mesh_neighbour_is_due(key, now) {
-                self.pending_resident_mesh_deferred.push(candidate);
+                if queued {
+                    self.pending_resident_mesh_deferred.push(candidate);
+                }
                 continue;
             }
             let Some(center) = self.store.sub_chunk(key) else {
-                self.pending_resident_mesh_deferred.push(candidate);
+                if queued {
+                    self.pending_resident_mesh_deferred.push(candidate);
+                }
                 continue;
             };
             let Some(light_halo) = self.mesh_light_halo(key) else {
-                self.pending_resident_mesh_deferred.push(candidate);
+                if queued {
+                    self.pending_resident_mesh_deferred.push(candidate);
+                }
                 continue;
             };
             let snapshot = self.mesh_snapshot(key, center, light_halo);
@@ -259,7 +295,14 @@ impl WorldStream {
         }
 
         let mut removal_candidates = removal_candidates.into_iter();
+        let mut removed = false;
         while let Some((candidate, pending)) = removal_candidates.next() {
+            if (removed || dispatched != 0) && self.poll_budget_exhausted() {
+                self.pending_mesh_removal_deferred.push(candidate);
+                self.pending_mesh_removal_deferred
+                    .extend(removal_candidates.map(|(candidate, _)| candidate));
+                break;
+            }
             let key = candidate.key;
             if !self.revisions.is_current(key, pending.revision) {
                 self.pending_mesh_removal_deferred.push(candidate);
@@ -279,6 +322,7 @@ impl WorldStream {
                 None => None,
             };
             self.pending_mesh.remove(&key);
+            removed = true;
             if self.known_air.contains(&key) {
                 self.set_connectivity(key, Some(FaceConnectivity::all()));
                 let registered = self.register_mesh_dependency_mask(
