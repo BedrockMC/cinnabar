@@ -151,11 +151,10 @@ impl UiPresentationRuntime {
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
             .map(|(key, metrics)| (key.clone(), metrics.clone()));
         for region in frame.hits.iter().filter(|region| region.enabled) {
-            if chat.settings.open && !region.key.contains("popup_factory") {
-                continue;
-            }
             if region.kind == HitKind::EditBox {
-                chat.edit_box = Some(region.key.clone());
+                if !chat.settings.open {
+                    chat.edit_box = Some(region.key.clone());
+                }
                 continue;
             }
             if let Some(actions) = super::settings_controls::slider_actions(region) {
@@ -177,6 +176,11 @@ impl UiPresentationRuntime {
             let Some(hit) = hit else {
                 continue;
             };
+            if chat.settings.open
+                && !matches!(hit, ChatHit::SettingsClose | ChatHit::SettingsAction(_))
+            {
+                continue;
+            }
             if let Some(bounds) = window_rect(region, frame.scale, frame.origin) {
                 chat.hits.push((hit, bounds, region.key.clone()));
             }
