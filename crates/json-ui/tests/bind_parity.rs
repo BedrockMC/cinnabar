@@ -220,9 +220,11 @@ fn view(source: &str, property: &str, target: &str) -> Value {
     })
 }
 
-// B26: an unnamed view reads only its own bag.
+// B26: an unnamed view reads its own bag, never an ancestor's; a property the
+// bag lacks comes from the screen controller (Zeqa picks its form layouts with
+// unnamed views over `#title_text`, which only the controller answers).
 #[test]
-fn unnamed_view_reads_only_its_own_bag() {
+fn unnamed_view_reads_its_own_bag_then_the_controller() {
     let child = leaf(
         "child",
         "panel",
@@ -234,8 +236,10 @@ fn unnamed_view_reads_only_its_own_bag() {
         json!({ "property_bag": { "#x": "ancestor" } }),
         vec![child],
     );
-    let bound = bind(&root, &global("#x", text("global")), &EmptyLibrary);
+    let bound = bind(&root, &DataSource::new(), &EmptyLibrary);
     assert_eq!(get(find(&bound, "child"), "#out"), Some(&json!("seed")));
+    let bound = bind(&root, &global("#x", text("global")), &EmptyLibrary);
+    assert_eq!(get(find(&bound, "child"), "#out"), Some(&json!("global")));
 }
 
 // B27: a named view has no globals fallback.
