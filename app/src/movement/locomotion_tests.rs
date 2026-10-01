@@ -330,18 +330,33 @@ fn rider_correction_replay_does_not_start_a_player_jump() {
     for _ in 0..3 {
         let sample = step(
             &mut physics,
-            MovementInput { jumping: true, ..MovementInput::default() },
-            ModeIntent { ride: Some(RideKind::Boat), ..ModeIntent::default() },
+            MovementInput {
+                jumping: true,
+                ..MovementInput::default()
+            },
+            ModeIntent {
+                ride: Some(RideKind::Boat),
+                ..ModeIntent::default()
+            },
             &VersionedFloor(1),
         );
         ticker.enqueue_completed_physics(sample).unwrap();
     }
     super::reconcile_candidate_physics_correction(
-        &mut ticker, &mut physics, [0.1, 2.620_01, 0.0], 101, true,
-        super::PhysicsCorrectionMode::ReplayIfRetained, &VersionedFloor(1),
-    ).unwrap();
+        &mut ticker,
+        &mut physics,
+        [0.1, 2.620_01, 0.0],
+        101,
+        true,
+        super::PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
     for snapshot in ticker.pending_snapshots() {
-        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits(), 0);
+        assert_eq!(
+            snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits(),
+            0
+        );
         assert_ne!(snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(), 0);
     }
 }

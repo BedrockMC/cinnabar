@@ -77,7 +77,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             )
             .with_mask(
                 PlayerInputFlags::JUMPING,
-                !retained.processed.jump_arc_active,
+                !retained.jumping,
             );
     }
     reconcile_candidate_physics_correction(
@@ -111,7 +111,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             ),
             (
                 PlayerInputFlags::JUMPING,
-                retained.processed.jump_arc_active,
+                retained.jumping,
             ),
         ] {
             assert_eq!(

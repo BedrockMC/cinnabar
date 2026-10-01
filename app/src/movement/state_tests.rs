@@ -501,8 +501,7 @@ fn early_landing_correction_closes_the_replayed_jump_arc() {
 
     // The server reports the player already landed at the second airborne
     // tick. The replayed remainder starts from a grounded anchor with no
-    // initiation there, so the following snapshot must drop Jumping instead
-    // of carrying an arc the server says never happened.
+    // initiation there. Released input must keep Jumping clear after replay.
     let anchor = &airborne[1];
     reconcile_candidate_physics_correction(
         &mut harness.ticker,
@@ -523,7 +522,7 @@ fn early_landing_correction_closes_the_replayed_jump_arc() {
     assert_eq!(
         after_anchor.flags.bits() & PlayerInputFlags::JUMPING.bits(),
         0,
-        "a server-reported landing closes the arc for replayed ticks"
+        "replay preserves the released jump button"
     );
 }
 
@@ -608,7 +607,10 @@ fn a_fresh_edge_inside_the_post_jump_cooldown_initiates_nothing() {
         0,
         "Jumping still describes the held button during cooldown"
     );
-    assert_eq!(snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits(), 0);
+    assert_eq!(
+        snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits(),
+        0
+    );
 
     // The gate is not a lockout: once the retained cooldown expires under a
     // held button, the simulator's own repeated-request path initiates again.
@@ -672,7 +674,7 @@ fn an_airborne_tap_opens_no_arc_and_gestates_no_later_initiation() {
             assert_eq!(
                 flags & PlayerInputFlags::JUMPING.bits(),
                 0,
-                "landing closes the carried arc with no replacement"
+                "the released jump button remains clear on landing"
             );
         } else {
             assert!(!landed, "grounded report followed by airborne sample");
@@ -734,11 +736,7 @@ fn grounded_correction_at_the_initiation_tick_outranks_the_retained_initiation()
 
     // The server corrects the initiated takeoff tick itself and reports
     // ground contact there, contradicting this client's takeoff prediction.
-    // The replay seed deliberately lets that server-reported outcome outrank
-    // the retained initiation: seeding the arc open would assert Jumping
-    // through replayed ticks anchored on a grounded report. This documents
-    // the accepted provisional precedence (see `apply_correction`); a native
-    // correction-heavy measurement replaces it deliberately or confirms it.
+    // The replay seed clears the internal arc; released input stays clear.
     reconcile_candidate_physics_correction(
         &mut harness.ticker,
         &mut harness.physics,
@@ -763,7 +761,7 @@ fn grounded_correction_at_the_initiation_tick_outranks_the_retained_initiation()
         assert_eq!(
             snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
             0,
-            "tick {} must not carry an arc seeded by the outranked initiation",
+            "tick {} must keep the released jump button clear",
             snapshot.tick
         );
     }
@@ -783,8 +781,7 @@ fn correction_upstream_of_the_initiation_asserts_no_phantom_arc() {
     // The server contradicts this client's prediction one tick BEFORE the
     // recorded initiation: it reports the player already airborne there at an
     // elevated position. The replayed timeline therefore starts falling and
-    // can never consume the recorded takeoff edge, so no replayed tick may
-    // assert Jumping from that stale initiation record.
+    // cannot consume the takeoff edge. The held button still survives replay.
     let anchor = [0.0, takeoff.position[1] + 6.0, 0.0];
     reconcile_candidate_physics_correction(
         &mut harness.ticker,
@@ -812,7 +809,11 @@ fn correction_upstream_of_the_initiation_asserts_no_phantom_arc() {
     for snapshot in &replayed {
         assert_eq!(
             snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
-            if snapshot.tick == takeoff.tick { PlayerInputFlags::JUMPING.bits() } else { 0 },
+            if snapshot.tick == takeoff.tick {
+                PlayerInputFlags::JUMPING.bits()
+            } else {
+                0
+            },
             "tick {} must preserve the recorded held button",
             snapshot.tick
         );
@@ -878,7 +879,11 @@ fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
     for snapshot in &replayed {
         assert_eq!(
             snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
-            if snapshot.tick == tap.tick { PlayerInputFlags::JUMPING.bits() } else { 0 },
+            if snapshot.tick == tap.tick {
+                PlayerInputFlags::JUMPING.bits()
+            } else {
+                0
+            },
             "tick {} must preserve the recorded held button",
             snapshot.tick
         );
