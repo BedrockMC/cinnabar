@@ -3643,3 +3643,15 @@ Scaffold support uses the stable registry unit cube and the native pre-move top/
 conditions (Lens `0x8eff050`, `0x8eff210`; `R:s/ScaffoldingBlock.cpp:189`). Registry
 coverage includes both runtime-ID modes and all stair corners/halves. Scaffold movement
 coefficients, powder-snow equipment behavior and broader interaction parity remain open.
+
+### Historical replay continuation (2026-10-02, incomplete INT-10)
+
+Palette prediction frames now retain immutable block pages, load state, registry data
+and collision revisions. Replays use each frame's world even after live edits or unloads.
+Controller frames retain mode intent, input edges, requested controls, mode state and
+environment; corrected ticks re-evaluate pose and repeated jumps and preserve retimed
+server overrides. Tests cover changed ceilings, changed correction anchors and repeated
+replays. Lens `0x38db020` and `R:r/RewindSimulation.cpp:84` establish history-based
+component replay; these tests verify our implementation, not complete native parity.
+Anchor depenetration remains provisional (INT-10), and full component coverage and the
+memory/performance cost of retained world metadata still need validation.

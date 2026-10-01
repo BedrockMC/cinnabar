@@ -110,7 +110,19 @@ impl LocalPhysicsController {
             confirmation.position == network_position
                 && retained_sample.position == network_position
                 && confirmation.world_identity == retained_sample.world_identity
-                && collision_identity_is_current(world, feet, &confirmation.world_identity)
+                && self
+                    .history
+                    .world_at(tick)
+                    .map_or_else(
+                        || collision_identity_is_current(world, feet, &confirmation.world_identity),
+                        |snapshot| {
+                            collision_identity_is_current(
+                                snapshot,
+                                feet,
+                                &confirmation.world_identity,
+                            )
+                        },
+                    )
                     .unwrap_or(false)
         });
         if !server_confirmed_prediction {
@@ -163,9 +175,16 @@ impl LocalPhysicsController {
         let corrected_collisions = corrected.collisions;
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
+        let mut controller_frames = self.controller_history.clone();
+        let anchor_controller = controller_frames
+            .iter()
+            .find(|frame| frame.tick == tick)
+            .copied()
+            .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
+        let mut modes = anchor_controller.modes;
         let (replay, replayed_ticks) = self
             .history
-            .rewind_and_replay_with_controls(
+            .rewind_and_replay_prepared(
                 self.state
                     .as_mut()
                     .expect("active correction checked for local state"),
@@ -173,6 +192,16 @@ impl LocalPhysicsController {
                 &self.simulator,
                 world,
                 &motion_overlays,
+                |state, input, world, previous| {
+                    let frame = controller_frames
+                        .iter_mut()
+                        .find(|frame| frame.tick == state.tick + 1)
+                        .expect("controller and prediction histories retain the same ticks");
+                    let environment = previous.map_or(anchor_controller.environment, |output| {
+                        output.tick_result.environment
+                    });
+                    frame.prepare(&mut modes, environment, state, input, world)
+                },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
 
@@ -200,6 +229,12 @@ impl LocalPhysicsController {
                 .expect("retained correction sample was checked"),
         );
         for output in replayed_ticks {
+            if let Some(frame) = controller_frames
+                .iter_mut()
+                .find(|frame| frame.tick == output.tick_result.tick)
+            {
+                frame.environment = output.tick_result.environment;
+            }
             let result = output.tick_result;
             let Some(retained) = self
                 .sample_history
@@ -208,9 +243,12 @@ impl LocalPhysicsController {
             else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
-            if retained.world_identity != result.world_identity {
+            if self.history.world_at(result.tick).is_none()
+                && retained.world_identity != result.world_identity
+            {
                 return Err(PhysicsCorrectionError::WorldIdentityMismatch { tick: result.tick });
             }
+            retained.world_identity = result.world_identity.clone();
             retained.position = [
                 result.position.x as f32,
                 result.position.y as f32 + PLAYER_NETWORK_OFFSET,
@@ -244,6 +282,17 @@ impl LocalPhysicsController {
             retained.processed.sneaking = frame_input.sneaking;
             retained.processed.sprinting = frame_input.sprinting;
             retained.processed.mode = frame_input.mode;
+            if let Some(frame) = controller_frames
+                .iter()
+                .find(|frame| frame.tick == result.tick)
+            {
+                retained.grounded_before_tick = frame.grounded_before_tick;
+                retained.jump_repeated = frame.jump_repeated;
+                retained.processed.forced_sneak = frame.forced_sneak;
+                if let Some(delta) = frame.ride_delta {
+                    retained.movement = delta;
+                }
+            }
             retained.processed.direction_flags = Some(super::super::encoding::direction_flags([
                 -frame_input.strafe as f32,
                 frame_input.forward as f32,
@@ -253,6 +302,11 @@ impl LocalPhysicsController {
             replayed_samples.push(retained.clone());
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
+        self.modes = modes;
+        self.last_environment = controller_frames
+            .back()
+            .map_or(anchor_controller.environment, |frame| frame.environment);
+        self.controller_history = controller_frames;
         let corrected_world_identity = {
             let corrected_sample = self
                 .sample_history

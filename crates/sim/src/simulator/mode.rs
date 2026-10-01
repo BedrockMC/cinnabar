@@ -44,7 +44,7 @@ impl MovementMode {
 
 /// Whether the player box for `mode` fits at `feet` without touching a solid.
 pub fn pose_fits(
-    world: &impl CollisionWorld,
+    world: &(impl CollisionWorld + ?Sized),
     feet: Vec3,
     mode: MovementMode,
     sneaking: bool,
