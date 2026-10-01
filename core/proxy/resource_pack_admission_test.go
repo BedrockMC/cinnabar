@@ -390,7 +390,7 @@ func TestListenerBoundaryPreparesBeforeLoginAndHandsOffExactConnection(t *testin
 	if err != nil || taken != prepared {
 		t.Fatalf("takePreparedAfterAccept = (%p, %v), want (%p, nil)", taken, err, prepared)
 	}
-	if err := accepted.StartGameContext(ctx, prepared.upstream.GameData()); err != nil {
+	if err := accepted.StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 1}); err != nil {
 		t.Fatalf("start downstream game: %v", err)
 	}
 	clientResult := <-clientDone

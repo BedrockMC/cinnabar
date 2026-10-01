@@ -145,26 +145,6 @@ func TestRelaySkipsEmptyBatchesWithoutFlushing(t *testing.T) {
 	}
 }
 
-func TestRelayFlushesDeferredLoadingStartOnSourceClose(t *testing.T) {
-	for name, terminal := range map[string]error{"eof": io.EOF, "transport": errors.New("reset")} {
-		t.Run(name, func(t *testing.T) {
-			down := newFakeDownstream(nil)
-			up := newFakeUpstream(nil)
-			down.useBatchReads = true
-			start := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
-			down.batchReads <- batchResult{packets: []packet.Packet{start}}
-			down.batchReads <- batchResult{err: terminal}
-			if err := pumpPackets(down, up, true); !errors.Is(err, terminal) {
-				t.Fatalf("pumpPackets() error = %v, want %v", err, terminal)
-			}
-			batches := up.flushedBatches()
-			if len(batches) != 1 || len(batches[0]) != 1 || batches[0][0] != start {
-				t.Fatalf("deferred Start was lost or merged: %#v", batches)
-			}
-		})
-	}
-}
-
 func TestRelayKeepsBatchBoundaryBeforeUpstreamDisconnect(t *testing.T) {
 	down := newFakeDownstream(nil)
 	up := newFakeUpstream(nil)

@@ -802,9 +802,6 @@ func servePreparedConnection(ctx context.Context, downstream downstreamSession, 
 		}
 		err = errors.Join(err, shutdownSession(downstream), prepared.close())
 	}()
-	if err := spawnBarrier(ctx, downstream, prepared.upstream); err != nil {
-		return err
-	}
 	err = relayPacketsWithCacheTelemetry(ctx, downstream, prepared.upstream, prepared.telemetry)
 	relayCompleted = true
 	return err
