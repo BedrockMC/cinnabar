@@ -60,7 +60,7 @@ impl Live {
             let owner = Principal {
                 session: grant.session.clone(),
                 bundle: bundle.manifest.id.clone(),
-                generation: 1,
+                generation: INITIAL_BUNDLE_GENERATION,
             };
             let mut scope = grant.offer.offer.scope.clone();
             scope.permissions = bundle.manifest.permissions.clone();
@@ -187,7 +187,7 @@ impl Live {
                     .iter()
                     .map(|p| p.digest.clone())
                     .collect(),
-                generation: 1,
+                generation: INITIAL_BUNDLE_GENERATION,
                 permissions: self
                     .instances
                     .iter()

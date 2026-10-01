@@ -108,7 +108,7 @@ impl Capabilities {
         let permission = match command {
             Command::Widget { id, text } => {
                 ensure!(
-                    identifier(id) && (text.is_empty() || plain_text(text, 512)),
+                    identifier(id) && (text.is_empty() || plain_text(text, MAX_WIDGET_TEXT_BYTES)),
                     "invalid widget"
                 );
                 Permission::Ui

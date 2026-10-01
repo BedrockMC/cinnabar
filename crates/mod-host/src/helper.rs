@@ -229,7 +229,10 @@ pub fn serve_developer() -> Result<()> {
 }
 
 /// Checks an IPC length before allocating or deserializing its payload.
-fn read_frame<T: serde::de::DeserializeOwned>(reader: &mut impl Read, limit: usize) -> Result<T> {
+pub(crate) fn read_frame<T: serde::de::DeserializeOwned>(
+    reader: &mut impl Read,
+    limit: usize,
+) -> Result<T> {
     let mut header = [0; 4];
     reader.read_exact(&mut header)?;
     let len = u32::from_le_bytes(header) as usize;
@@ -240,7 +243,11 @@ fn read_frame<T: serde::de::DeserializeOwned>(reader: &mut impl Read, limit: usi
 }
 
 /// Sends one length-delimited transaction without ambient handles or paths.
-fn write_frame(writer: &mut impl Write, value: &impl Serialize, limit: usize) -> Result<()> {
+pub(crate) fn write_frame(
+    writer: &mut impl Write,
+    value: &impl Serialize,
+    limit: usize,
+) -> Result<()> {
     let bytes = serde_json::to_vec(value)?;
     ensure!(bytes.len() <= limit, "IPC frame too large");
     writer.write_all(&(bytes.len() as u32).to_le_bytes())?;

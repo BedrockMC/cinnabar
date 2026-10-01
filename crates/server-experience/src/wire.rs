@@ -48,7 +48,9 @@ impl Channel {
     /// Validates the declared positional record before guest dispatch or sending.
     pub fn validate(&self, payload: &[Scalar], direction: Direction) -> Result<()> {
         ensure!(
-            identifier(&self.id) && self.direction == direction && self.fields.len() <= 64,
+            identifier(&self.id)
+                && self.direction == direction
+                && self.fields.len() <= MAX_CHANNEL_FIELDS,
             "channel denied"
         );
         ensure!(
@@ -211,7 +213,7 @@ impl Ingress {
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
         ensure!(
-            message.generation == 1
+            message.generation == INITIAL_BUNDLE_GENERATION
                 && grant
                     .offer
                     .offer

@@ -152,7 +152,7 @@ fn aggregate_budget_and_trap_quarantine_cannot_be_multiplied() {
     let owner = runtime::Principal {
         session: crypto::hex(&[1; 32]),
         bundle: "test:one".into(),
-        generation: 1,
+        generation: policy::INITIAL_BUNDLE_GENERATION,
     };
     budget
         .reserve(owner.clone(), policy::MAX_GUEST_MEMORY, 0)
@@ -176,7 +176,7 @@ fn stale_and_partially_invalid_transactions_never_publish() {
     let owner = runtime::Principal {
         session: crypto::hex(&[1; 32]),
         bundle: "test:one".into(),
-        generation: 1,
+        generation: policy::INITIAL_BUNDLE_GENERATION,
     };
     let capabilities = runtime::Capabilities {
         scope: manifest::Scope {
@@ -302,7 +302,7 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
         connection: grant.connection.clone(),
         subclient: grant.subclient,
         bundle: grant.offer.offer.packages[0].id.clone(),
-        generation: 1,
+        generation: policy::INITIAL_BUNDLE_GENERATION,
         channel: channel.id.clone(),
         schema: channel.schema,
         sequence: 1,

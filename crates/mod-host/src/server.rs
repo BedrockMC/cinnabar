@@ -27,6 +27,23 @@ struct State {
 }
 
 impl State {
+    /// Reserves the serialized owner, epoch and empty command array before guest output.
+    fn begin_output(&mut self) -> Result<()> {
+        self.commands.clear();
+        self.calls = 0;
+        self.bytes = serde_json::to_vec(&Transaction {
+            owner: self.owner.clone(),
+            epoch: self.epoch,
+            commands: Vec::new(),
+        })?
+        .len();
+        ensure!(
+            self.bytes <= MAX_HOST_OUTPUT,
+            "host output envelope too large"
+        );
+        Ok(())
+    }
+
     /// Stops host-call floods even when the guest repeatedly ignores denied results.
     fn charge(&mut self) -> Result<()> {
         self.calls += 1;
@@ -40,11 +57,10 @@ impl State {
         if let Err(error) = self.capabilities.validate(&command) {
             return Ok(Err(error.to_string()));
         }
-        let size = serde_json::to_vec(&command)?.len();
-        ensure!(
-            size <= MAX_HOST_OUTPUT - self.bytes,
-            "host output budget exceeded"
-        );
+        let size = serde_json::to_vec(&command)?.len() + usize::from(!self.commands.is_empty());
+        if size > MAX_HOST_OUTPUT - self.bytes {
+            return Ok(Err("host output budget exceeded".into()));
+        }
         self.bytes += size;
         self.commands.push(command);
         Ok(Ok(()))
@@ -179,7 +195,7 @@ impl BundleHost {
         let component = Component::new(&engine, bytes)?;
         let mut linker = Linker::new(&engine);
         ServerBundle::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let state = State {
+        let mut state = State {
             limits: StoreLimitsBuilder::new()
                 .memory_size(capabilities.scope.memory_bytes as usize)
                 .table_elements(4096)
@@ -196,6 +212,7 @@ impl BundleHost {
             bytes: 0,
             calls: 0,
         };
+        state.begin_output()?;
         let mut store = Store::new(&engine, state);
         store.limiter(|state| &mut state.limits);
         store.set_fuel(CALLBACK_FUEL)?;
@@ -218,15 +235,13 @@ impl BundleHost {
     ) -> Result<Transaction> {
         ensure!(self.active, "bundle quarantined");
         ensure!(
-            record.len() <= MAX_PAYLOAD_BYTES && channel.len() <= 96,
+            record.len() <= MAX_PAYLOAD_BYTES && channel.len() <= MAX_IDENTIFIER_BYTES,
             "event too large"
         );
         let state = self.store.data_mut();
-        state.commands.clear();
-        state.bytes = 0;
-        state.calls = 0;
         state.actions = actions;
         state.epoch = epoch;
+        state.begin_output()?;
         self.store.set_fuel(CALLBACK_FUEL)?;
         if let Err(error) = self.guest.call_dispatch(&mut self.store, channel, record) {
             self.active = false;
@@ -246,3 +261,6 @@ impl BundleHost {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
