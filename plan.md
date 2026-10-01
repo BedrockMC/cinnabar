@@ -3604,3 +3604,13 @@ expiry remain provisional. The simulator still uses its existing f64 arithmetic.
 No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound PAI
 and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
 no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.
+
+## Cinnabar extension: server experiences (incomplete; not vanilla parity)
+
+- Discovery, signed session negotiation, scoped consent, hashed bundle delivery,
+  capability hosting and synchronized media are an opt-in Cinnabar extension.
+- This branch is code-only and UNCOMPILED by owner instruction. Tests are authored,
+  not run. No vanilla, visual, performance or containment gate is closed.
+- Production remote execution must remain unavailable until restricted helpers,
+  compiler limits and media decoding pass independent cross-platform validation.
+- See `docs/server-experiences.md` for the client implementation and remaining gates.

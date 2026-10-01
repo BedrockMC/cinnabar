@@ -58,6 +58,7 @@ pub(crate) fn drain_committed_ui_before_authority(
     }
     for committed in committed_ui {
         let result = match committed {
+            CommittedUiEvent::Experience { .. } => Ok(()),
             CommittedUiEvent::LocalAbilities {
                 sequence,
                 stream_identity,

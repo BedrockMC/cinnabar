@@ -7,6 +7,7 @@ mod block_edit;
 mod camera;
 mod codec;
 mod disconnect;
+mod experience;
 mod interaction;
 mod inventory;
 mod item;
@@ -25,6 +26,10 @@ mod transfer;
 mod ui;
 mod world;
 pub mod world_control;
+
+pub use experience::{
+    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
+};
 
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,

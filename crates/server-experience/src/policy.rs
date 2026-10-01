@@ -1,0 +1,28 @@
+//! Shared host ceilings; signed policy may reduce these, never increase them.
+
+pub const MARKER_PATH: &str = "cinnabar/extension-offer.json";
+pub const WIRE_VERSION: u16 = 1;
+pub const API_VERSION: u16 = 1;
+pub const MAX_MARKER_BYTES: usize = 64 * 1024;
+pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024;
+pub const MAX_MESSAGES_PER_SECOND: u64 = 64;
+pub const MAX_BYTES_PER_SECOND: u64 = 64 * 1024;
+pub const MAX_QUEUE_MESSAGES: usize = 256;
+pub const MAX_QUEUE_BYTES: usize = 256 * 1024;
+pub const MAX_CHANNELS: usize = 64;
+pub const MAX_BUNDLES: usize = 4;
+pub const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_EXPANDED_BYTES: u64 = 256 * 1024 * 1024;
+pub const MAX_FILES: usize = 4096;
+pub const MAX_GUEST_MEMORY: u64 = 32 * 1024 * 1024;
+pub const MAX_SESSION_MEMORY: u64 = 64 * 1024 * 1024;
+pub const MAX_GPU_BYTES: u64 = 128 * 1024 * 1024;
+pub const MAX_HOST_OUTPUT: usize = 64 * 1024;
+pub const MAX_DRAWS: u32 = 128;
+pub const MAX_TRIANGLES: u32 = 100_000;
+pub const MAX_PARTICLES: u32 = 4096;
+pub const CACHE_QUOTA: u64 = 512 * 1024 * 1024;
+pub const MAX_OFFER_LIFETIME_SECS: u64 = 24 * 60 * 60;
+pub const NEGOTIATION_TIMEOUT_MS: u64 = 15_000;
+pub const DEVELOPER_ENV: &str = "CINNABAR_DEV_SERVER_EXPERIENCES";

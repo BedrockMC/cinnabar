@@ -13,6 +13,7 @@ members = [
     "examples/mods/hello",
     "crates/protocol",
     "crates/resource-pack",
+    "crates/server-experience",
     "crates/render",
     "crates/sim",
     "crates/ui",
