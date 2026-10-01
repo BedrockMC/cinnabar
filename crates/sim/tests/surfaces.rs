@@ -124,7 +124,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
 fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
     for (response, expected) in [
         (SurfaceResponse::Slime, 0.6076),
-        (SurfaceResponse::Bed, 0.374_36),
+        (SurfaceResponse::Bed, 0.4361),
     ] {
         let mut state = PlayerState::new(Vec3::new(0.0, 1.2, 0.0));
         state.velocity.y = -0.7;
@@ -160,6 +160,22 @@ fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
         )
         .unwrap();
     assert!(grounded.velocity.y <= 0.0);
+}
+
+/// Current BedBlock restitution is 0.75, without a one-block velocity cap.
+#[test]
+fn bed_restitution_is_uncapped() {
+    let mut state = PlayerState::new(Vec3::new(0.0, 1.2, 0.0));
+    state.velocity.y = -2.0;
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput::default(),
+            &surface(SurfaceResponse::Bed),
+        )
+        .unwrap();
+    assert!(tick.collisions.y);
+    assert!((state.velocity.y - 1.3916).abs() <= 1.0e-12);
 }
 
 #[test]

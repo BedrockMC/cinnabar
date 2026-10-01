@@ -312,7 +312,8 @@ impl Simulator {
                     }
                 }
                 crate::SurfaceResponse::Bed if bounces => {
-                    (-0.66 * pre_collision_velocity.y).min(1.0)
+                    // Current BedBlock restitution (1.26.50.26 RVA 0x2e27ce0).
+                    -0.75 * pre_collision_velocity.y
                 }
                 _ => 0.0,
             };

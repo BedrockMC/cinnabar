@@ -622,17 +622,36 @@ fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
 #[test]
 fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance() {
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
-    let audit = audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12).unwrap();
+    // Vanilla's uncapped 0.75 restitution intentionally differs from this old Go capture.
+    assert!(matches!(
+        audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12),
+        Err(ConformanceError::Mismatch {
+            field: "velocity.y",
+            expected: 0.37436,
+            ..
+        })
+    ));
+    let retained = trace.lines().map(|line| {
+        let mut record: serde_json::Value = serde_json::from_str(line).unwrap();
+        if record["scenario"] == "bed_bounce" {
+            record["evidence"] = serde_json::json!({"status": "unsupported_non_conformance", "reason": "Vanilla differs from Go: bed restitution is 0.75 without a cap"});
+            for step in record["steps"].as_array_mut().unwrap() {
+                step.as_object_mut().unwrap().remove("expected");
+            }
+        }
+        record.to_string()
+    }).collect::<Vec<_>>().join("\n");
+    let audit = audit_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-12).unwrap();
     assert_eq!(audit.scripts, 31);
-    assert_eq!(audit.observed_steps, 38);
+    assert_eq!(audit.observed_steps, 36);
     // Only the strata bedsim v0.1.3 genuinely implements are observed. Fluids,
     // bubble columns, scaffolding, honey, cobweb sensing, the step-correction
     // divergence, and the unloaded-chunk error contract have no bedsim oracle,
     // so they stay an explicit coverage ledger rather than a parity claim.
-    assert_eq!(audit.unsupported_scripts, 12);
+    assert_eq!(audit.unsupported_scripts, 13);
     assert!(matches!(
-        verify_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12),
-        Err(ConformanceError::UnsupportedEvidence { count: 12 })
+        verify_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-12),
+        Err(ConformanceError::UnsupportedEvidence { count: 13 })
     ));
 
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
