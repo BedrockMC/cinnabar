@@ -1,16 +1,15 @@
-//! Stage C: turn raw controls into the resolved tree. For each control we build a
-//! variable scope (inherited scope, then `$decl`s, then matching `variables[]`
-//! blocks), substitute `$vars` in properties, record any factory, drop `ignored`
-//! children, and recurse. Base references on child keys are resolved here because
-//! they may be `$var`s that only the scope knows.
+//! Stage C: turn raw controls into the resolved tree, in the vanilla
+//! `UIResolvedDef` order: `ignored` evaluates in the enclosing scope, then the
+//! control's `$` declarations and selected `variables` blocks form its frame, and
+//! its properties, factory and children resolve in that scope. Base references on
+//! child keys are resolved here because they may be `$var`s only the scope knows.
 
 use serde_json::{Map, Value};
 
 use crate::anim;
 use crate::catalog::{Catalog, RawControl, child_controls};
-use crate::env::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
-use crate::merge::{deep_merge_control, flatten_def};
-use crate::predicate;
+use crate::env::{Env, evaluate, substitute};
+use crate::merge::{Layering, flatten_def, inherit};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 const MAX_DEPTH: usize = 256;
@@ -64,12 +63,12 @@ impl<'a> Resolver<'a> {
         }
         let (control, provenance) =
             flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
-        let env = self.build_env(root_env, &control.props);
         // An ignored definition creates nothing, whether a screen or a
         // factory's instance (a pack's title overlay gated on one title).
-        if self.is_ignored(&control, &env) {
+        if self.is_ignored(&control, root_env) {
             return None;
         }
+        let env = self.build_env(root_env, &control.props);
         Some(self.resolve_with_env(&control, provenance, None, &env, 0))
     }
 
@@ -82,10 +81,11 @@ impl<'a> Resolver<'a> {
         root_env: &Env,
     ) -> Option<(Option<String>, std::collections::BTreeMap<String, Value>)> {
         let (control, _) = flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
-        let env = self.build_env(root_env, &control.props);
-        if self.is_ignored(&control, &env) {
+        // As in `resolve_root`, `ignored` reads the scope before the control's own `$` values.
+        if self.is_ignored(&control, root_env) {
             return None;
         }
+        let env = self.build_env(root_env, &control.props);
         let mut missing = Vec::new();
         let control_type = control
             .props
@@ -109,13 +109,18 @@ impl<'a> Resolver<'a> {
         let control_type = control
             .props
             .get("type")
-            .map(|value| substitute(value, env, &mut missing))
+            .map(|value| evaluate(value, env))
             .and_then(value_string);
         let (factory, control_ids_consumed) =
             self.extract_factory(control, control_type.as_deref(), env);
         let mut properties = build_properties(control, env, control_ids_consumed, &mut missing);
         self.resolve_anims(&mut properties, env);
-        if factory.is_some() || properties.contains_key("grid_item_template") {
+        // A grid's items and a `control_name` template resolve in this scope;
+        // `control_ids` creations see only their own and captured variables.
+        let template = factory
+            .as_ref()
+            .is_some_and(|factory| factory.control_name.is_some());
+        if template || properties.contains_key("grid_item_template") {
             let scope = self.local_scope(env);
             let key = scope_key(&scope);
             properties.insert(FACTORY_SCOPE.to_owned(), scope);
@@ -146,13 +151,8 @@ impl<'a> Resolver<'a> {
     /// The variables `env` holds beyond the root scope, which the controls a
     /// factory or grid creates resolve with, as they would inside it.
     fn local_scope(&self, env: &Env) -> Value {
-        let root = self.root.as_ref();
-        Value::Object(
-            env.iter()
-                .filter(|(name, value)| root.and_then(|root| root.get(name)) != Some(*value))
-                .map(|(name, value)| (name.clone(), value.clone()))
-                .collect(),
-        )
+        let root = self.root.clone().unwrap_or_default();
+        Value::Object(env.above(&root).into_iter().collect())
     }
 
     /// Replace `@anim` references in `alpha`/`offset`/`anims` with their resolved chains,
@@ -235,24 +235,25 @@ impl<'a> Resolver<'a> {
             }
             return Vec::new();
         }
-        // A `$var` child list (`"controls": "$button_contents"`) is read here.
+        // A `$var` child list (`"controls": "$button_contents"`) is read here, its
+        // entries left for each child's own scope; it replaces the static list
+        // even when it resolves to nothing.
         let dynamic = match control.props.get("controls") {
-            Some(Value::String(reference)) => {
-                match reference.strip_prefix('$').and_then(|name| env.get(name)) {
-                    Some(value) => child_controls(&control.owner_ns, value, &mut self.diagnostics),
-                    None => Vec::new(),
+            Some(reference @ Value::String(_)) => Some(match evaluate(reference, env) {
+                value @ Value::Array(_) => {
+                    child_controls(&control.owner_ns, &value, &mut self.diagnostics)
                 }
-            }
-            _ => Vec::new(),
+                _ => Vec::new(),
+            }),
+            _ => None,
         };
-        let children = if dynamic.is_empty() {
-            &control.children
-        } else {
-            &dynamic
-        };
+        let children = dynamic.as_ref().unwrap_or(&control.children);
         let mut resolved = Vec::new();
         for child in children {
-            let (working, provenance, unresolved) = self.resolve_child_base(child, env);
+            let (mut working, provenance, unresolved) = self.resolve_child_base(child, env);
+            if child.base.is_none() && !child.name.starts_with('$') {
+                working.name = crate::catalog::unqualified(&child.name).to_owned();
+            }
             // `ignored` reads the enclosing scope only: the vanilla client
             // evaluates it before the control's own `$` declarations apply.
             if self.is_ignored(&working, env) {
@@ -270,24 +271,30 @@ impl<'a> Resolver<'a> {
         resolved
     }
 
+    /// `ignored`, evaluated in the enclosing scope: a bool or integer decides; a
+    /// string (an unset `$var`, literal text) keeps the control, as does an
+    /// expression that needs runtime bindings.
     fn is_ignored(&mut self, control: &RawControl, env: &Env) -> bool {
-        match control.props.get("ignored") {
-            None => false,
-            Some(Value::Bool(flag)) => *flag,
-            Some(Value::String(expression)) => match predicate::eval(expression, env) {
-                Some(flag) => flag,
-                None => {
-                    self.diagnostics.push(format!(
-                        "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
-                        control.owner_ns,
-                        control.name,
-                        clipped(expression),
-                        expression.len()
-                    ));
-                    false
-                }
-            },
-            Some(_) => false,
+        let Some(raw) = control.props.get("ignored") else {
+            return false;
+        };
+        match evaluate(raw, env) {
+            Value::Bool(flag) => flag,
+            Value::Number(number) => {
+                number.as_i64().is_some_and(|value| value != 0)
+                    || number.as_u64().is_some_and(|value| value != 0)
+            }
+            Value::String(expression) if expression.starts_with('(') => {
+                self.diagnostics.push(format!(
+                    "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
+                    control.owner_ns,
+                    control.name,
+                    clipped(&expression),
+                    expression.len()
+                ));
+                false
+            }
+            _ => false,
         }
     }
 
@@ -333,7 +340,7 @@ impl<'a> Resolver<'a> {
             &mut self.diagnostics,
         ) {
             Some((base_control, _)) => {
-                let mut working = deep_merge_control(&base_control, child);
+                let mut working = inherit(&base_control, child, Layering::Inline);
                 working.base = None;
                 (working, Some(base_ref), None)
             }
@@ -349,41 +356,71 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The control's frame over `parent`: its `$` declarations in name order,
+    /// each evaluated as it is declared, then its selected `variables` blocks.
     fn build_env(&mut self, parent: &Env, props: &Map<String, Value>) -> Env {
-        let mut env = parent.clone();
-        apply_declarations(&mut env, props);
-        self.apply_variables_blocks(props.get("variables"), &mut env);
-        env
+        let mut env = parent.child();
+        for (key, value) in props {
+            if let Some(name) = key.strip_prefix('$') {
+                let value = evaluate(value, &env);
+                env.set(name, value);
+            }
+        }
+        if let Some(blocks) = props.get("variables") {
+            match evaluate(blocks, &env) {
+                Value::Array(blocks) => {
+                    for block in blocks.iter().filter_map(Value::as_object) {
+                        self.apply_block(block, &mut env);
+                    }
+                }
+                Value::Object(block) => self.apply_block(&block, &mut env),
+                _ => {}
+            }
+        }
+        env.settle()
     }
 
-    fn apply_variables_blocks(&mut self, blocks: Option<&Value>, env: &mut Env) {
-        let Some(Value::Array(blocks)) = blocks else {
-            return;
+    /// One `variables` block: `requires` selects it by the vanilla typed rules
+    /// (a nonzero number, a nonempty string, a nonempty array or object; missing
+    /// or null never), and its `$` members then follow `$` references.
+    fn apply_block(&mut self, block: &Map<String, Value>, env: &mut Env) {
+        let raw = block.get("requires").unwrap_or(&Value::Null);
+        let selected = match evaluate(raw, env) {
+            Value::Null => false,
+            Value::Bool(flag) => flag,
+            Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
+            // Lenient: a condition that needs runtime bindings selects nothing.
+            Value::String(text) if text.starts_with('(') => false,
+            Value::String(text) => !text.is_empty(),
+            Value::Array(items) => !items.is_empty(),
+            Value::Object(map) => !map.is_empty(),
         };
-        let mut sink = Vec::new();
-        for block in blocks {
-            let Value::Object(entries) = block else {
+        if !selected {
+            return;
+        }
+        for (key, value) in block {
+            let Some(name) = key.strip_prefix('$') else {
                 continue;
             };
-            let selected = match entries.get("requires").and_then(Value::as_str) {
-                Some(expression) => predicate::eval(expression, env) == Some(true),
-                None => true,
-            };
-            if !selected {
-                continue;
-            }
-            for (key, value) in entries {
-                if key == "requires" {
-                    continue;
+            let mut value = value.clone();
+            for _ in 0..MAX_BLOCK_HOPS {
+                if !value.as_str().is_some_and(|text| text.starts_with('$')) {
+                    break;
                 }
-                if let Some((name, _)) = parse_var_key(key) {
-                    let resolved = fold_expression(value, substitute(value, env, &mut sink), env);
-                    env.set(name, resolved);
+                let next = evaluate(&value, env);
+                if next == value {
+                    break;
                 }
+                value = next;
             }
+            env.set(name, value);
         }
     }
 
+    /// The factory a control declares: a `type: "factory"` control naming a
+    /// `control_name` or `control_ids` is its own factory, else an object-valued
+    /// `factory` (possibly a `$var`) is. `true` when the control's own
+    /// `control_ids` were consumed.
     fn extract_factory(
         &mut self,
         control: &RawControl,
@@ -391,54 +428,94 @@ impl<'a> Resolver<'a> {
         env: &Env,
     ) -> (Option<Factory>, bool) {
         let owner = &control.owner_ns;
-        if let Some(Value::Object(spec)) = control.props.get("factory") {
-            let name = spec.get("name").and_then(Value::as_str).map(str::to_owned);
-            let control_ids = control_id_map(spec.get("control_ids"), owner, env);
-            let control_name = spec
-                .get("control_name")
-                .and_then(Value::as_str)
-                .map(|reference| parse_reference(reference, owner, env));
-            let max_children_size = spec
-                .get("max_children_size")
-                .and_then(Value::as_u64)
-                .map(|max| max as usize);
-            let factory = Factory {
-                name,
-                control_ids,
-                control_name,
-                max_children_size,
+        if control_type == Some("factory") {
+            let names = |key: &str| {
+                control
+                    .props
+                    .get(key)
+                    .is_some_and(|value| !evaluate(value, env).is_null())
             };
-            if !factory.is_empty() || factory.name.is_some() {
-                return (Some(factory), false);
+            if names("control_name") || names("control_ids") {
+                let name = instance_name(&control.name, env);
+                let factory = self.factory_from(&control.props, Some(name), owner, env);
+                return (Some(factory), true);
             }
         }
-        // A `type: "factory"` control is its own factory, named by its instance.
-        if control_type == Some("factory") {
-            let control_ids = control_id_map(control.props.get("control_ids"), owner, env);
-            let control_name = control
-                .props
-                .get("control_name")
-                .and_then(Value::as_str)
-                .map(|reference| parse_reference(reference, owner, env));
-            if !control_ids.is_empty() || control_name.is_some() {
-                return (
-                    Some(Factory {
-                        name: Some(instance_name(&control.name, env)),
-                        control_ids,
-                        control_name,
-                        max_children_size: control
-                            .props
-                            .get("max_children_size")
-                            .and_then(Value::as_u64)
-                            .map(|max| max as usize),
-                    }),
-                    true,
-                );
-            }
+        if let Some(spec) = control.props.get("factory")
+            && let Value::Object(spec) = evaluate(spec, env)
+        {
+            return (Some(self.factory_from(&spec, None, owner, env)), false);
         }
         (None, false)
     }
+
+    /// A factory's declaration, each field evaluated in the declaring scope.
+    fn factory_from(
+        &mut self,
+        fields: &Map<String, Value>,
+        name: Option<String>,
+        owner: &str,
+        env: &Env,
+    ) -> Factory {
+        let field = |key: &str| fields.get(key).map(|value| evaluate(value, env));
+        let name = name.or_else(|| field("name").and_then(value_string));
+        if name.as_deref().is_none_or(str::is_empty) {
+            self.diagnostics
+                .push(format!("{owner}: factory name should not be empty"));
+        }
+        let mut factory = Factory {
+            name: name.filter(|name| !name.is_empty()),
+            ..Factory::default()
+        };
+        // A `control_name` template takes priority; `control_ids` then go unread.
+        match field("control_name").and_then(value_string) {
+            Some(reference) if !reference.is_empty() => {
+                factory.control_name = Some(ControlRef::parse(&reference, owner));
+            }
+            _ => {
+                if let Some(Value::Object(entries)) = field("control_ids") {
+                    for (role, reference) in entries {
+                        let Some(reference) = value_string(evaluate(&reference, env)) else {
+                            continue;
+                        };
+                        if let Some((instance, _)) = reference.split_once('@')
+                            && !instance.is_empty()
+                        {
+                            factory
+                                .instance_names
+                                .insert(role.clone(), instance.to_owned());
+                        }
+                        factory
+                            .control_ids
+                            .insert(role, ControlRef::parse(&reference, owner));
+                    }
+                }
+            }
+        }
+        if let Some(Value::Array(names)) = field("factory_variables") {
+            for name in names.iter().filter_map(Value::as_str) {
+                let key = name.strip_prefix('$').unwrap_or(name).to_owned();
+                factory
+                    .variables
+                    .insert(key, evaluate(&Value::from(name), env));
+            }
+        }
+        match field("max_children_size").as_ref().and_then(Value::as_i64) {
+            Some(max) if max < 0 => self
+                .diagnostics
+                .push(format!("{owner}: negative factory max_children_size {max}")),
+            // Zero means unlimited.
+            Some(max) if max > 0 => factory.max_children_size = usize::try_from(max).ok(),
+            _ => {}
+        }
+        factory.insert_front =
+            field("insert_location").and_then(value_string).as_deref() == Some("front");
+        factory
+    }
 }
+
+/// Most times a `variables` block value may follow a `$` reference.
+const MAX_BLOCK_HOPS: usize = 8;
 
 /// A stable digest of a scope's serialized vars.
 fn scope_key(scope: &Value) -> String {
@@ -464,8 +541,7 @@ fn build_properties(
         if control_ids_consumed && key == "control_ids" {
             continue;
         }
-        let substituted = substitute(value, env, missing);
-        properties.insert(key.clone(), fold_expression(value, substituted, env));
+        properties.insert(key.clone(), substitute(value, env, missing));
     }
     properties
 }
@@ -475,35 +551,6 @@ fn is_reserved(key: &str) -> bool {
         key,
         "type" | "ignored" | "variables" | "factory" | "controls"
     )
-}
-
-/// A factory's role map; the whole map may itself be a `$var` holding an object.
-fn control_id_map(
-    value: Option<&Value>,
-    owner: &str,
-    env: &Env,
-) -> std::collections::BTreeMap<String, ControlRef> {
-    let mut map = std::collections::BTreeMap::new();
-    let value = value.map(|value| substitute(value, env, &mut Vec::new()));
-    if let Some(Value::Object(entries)) = &value {
-        for (role, reference) in entries {
-            if let Some(text) = reference.as_str() {
-                map.insert(role.clone(), parse_reference(text, owner, env));
-            }
-        }
-    }
-    map
-}
-
-fn parse_reference(reference: &str, owner: &str, env: &Env) -> ControlRef {
-    let resolved = match reference.strip_prefix('$') {
-        Some(variable) => match env.get(variable) {
-            Some(Value::String(text)) => text.clone(),
-            _ => reference.to_owned(),
-        },
-        None => reference.to_owned(),
-    };
-    ControlRef::parse(&resolved, owner)
 }
 
 /// A diagnostic-sized prefix of server-supplied text.
@@ -558,5 +605,35 @@ mod tests {
             .map(|child| child.name.as_str())
             .collect();
         assert_eq!(names, ["mouse"]);
+    }
+
+    fn names(catalog: &Catalog, reference: &str) -> Vec<String> {
+        let root = resolve(catalog, reference, &Context::empty())
+            .control
+            .unwrap();
+        root.children
+            .iter()
+            .map(|child| child.name.clone())
+            .collect()
+    }
+
+    // A derived `controls`, even an empty dynamic one, replaces the base's children.
+    #[test]
+    fn derived_controls_replace_the_base_children() {
+        let mut catalog = Catalog::default();
+        catalog.overlay_text(
+            "ui/a.json",
+            r#"{ "namespace": "a",
+                "base": { "type": "panel", "controls": [ { "old": { "type": "panel" } } ] },
+                "derived@a.base": { "controls": [ { "new": { "type": "panel" } } ] },
+                "dynamic@a.base": { "$children": [], "controls": "$children" },
+                "inline": { "type": "panel", "controls": [ { "x@a.base": { "controls": [] } } ] } }"#,
+        );
+        assert_eq!(names(&catalog, "a.derived"), ["new"]);
+        assert!(names(&catalog, "a.dynamic").is_empty());
+        let inline = resolve(&catalog, "a.inline", &Context::empty())
+            .control
+            .unwrap();
+        assert!(inline.children[0].children.is_empty());
     }
 }

@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{Binder, Node, Scope, Src};
+use super::{Binder, Node, Scope, Src, with_index};
 use crate::predicate::Scalar;
-use crate::tree::{ControlRef, ResolvedControl};
+use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 /// One control a screen controller asked a named factory to create: the
 /// `control_ids` entry, the instance name, the `$vars` it resolves with, the `#`
@@ -86,7 +86,9 @@ impl<'a> Binder<'a> {
         self.data.factories.get(name).map(Vec::as_slice)
     }
 
-    /// One control per fed item, newest `max_children_size` kept.
+    /// One control per fed item, oldest first: a `control_name` template as
+    /// declared, else the item's `control_ids` entry with its own and the
+    /// captured variables; an id the factory lacks creates nothing.
     pub(super) fn expand_feed(
         &mut self,
         control: &ResolvedControl,
@@ -96,24 +98,24 @@ impl<'a> Binder<'a> {
         let Some(factory) = control.factory.clone() else {
             return Vec::new();
         };
-        let skip = factory
-            .max_children_size
-            .map_or(0, |max| items.len().saturating_sub(max));
         let mut nodes = Vec::new();
-        for item in &items[skip..] {
-            let Some(reference) = factory
-                .control_ids
-                .get(&item.control_id)
-                .or(factory.control_name.as_ref())
-                .cloned()
-            else {
+        for item in items {
+            let (reference, vars) = match &factory.control_name {
+                Some(template) => (template.clone(), BTreeMap::new()),
+                None => match factory.control_ids.get(&item.control_id) {
+                    Some(reference) => (reference.clone(), factory.creation_vars(&item.vars)),
+                    None => continue,
+                },
+            };
+            let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
                 continue;
             };
-            let Some(resolved) = self.resolve_scoped(&reference, control, &item.vars) else {
-                continue;
-            };
+            let name = item
+                .name
+                .clone()
+                .or_else(|| factory.instance_names.get(&item.control_id).cloned());
             let instance = Src::root(resolved).patched(|patch| {
-                patch.name.clone_from(&item.name);
+                patch.name.clone_from(&name);
                 patch
                     .properties
                     .insert(crate::anim::BORN_KEY.to_owned(), Value::from(item.born));
@@ -137,6 +139,51 @@ impl<'a> Binder<'a> {
             );
             item_scope.values = std::sync::Arc::new(values);
             nodes.push(self.build(instance, &item_scope));
+        }
+        nodes
+    }
+
+    pub(super) fn expand_factory(
+        &mut self,
+        control: &ResolvedControl,
+        own: &BTreeMap<String, Scalar>,
+        scope: &Scope,
+    ) -> Vec<Node> {
+        let Some(factory) = &control.factory else {
+            return Vec::new();
+        };
+        let Some(collection) = collection_name(control) else {
+            return Vec::new();
+        };
+        let key = self.collection_key(collection, scope);
+        let roles: Vec<Option<String>> = match self.data.collections.get(&key) {
+            Some(items) => items.iter().map(|item| item.role.clone()).collect(),
+            None => unsupplied_roles(control, factory, own),
+        };
+        let mut nodes = Vec::with_capacity(roles.len());
+        for (index, role) in roles.iter().enumerate() {
+            let role = role.as_deref();
+            let Some(reference) = select_control(factory, role) else {
+                self.diagnostics.push(format!(
+                    "{}: factory has no control for role {role:?}",
+                    control.name
+                ));
+                continue;
+            };
+            let reference = reference.clone();
+            let vars = match factory.control_name {
+                Some(_) => BTreeMap::new(),
+                None => factory.creation_vars(&BTreeMap::new()),
+            };
+            let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
+                self.diagnostics.push(format!(
+                    "{}: factory control {reference} unresolved",
+                    control.name
+                ));
+                continue;
+            };
+            let child_scope = scope.enter(collection, key.clone(), index);
+            nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope));
         }
         nodes
     }
@@ -190,5 +237,58 @@ fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect(),
         _ => BTreeMap::new(),
+    }
+}
+
+/// Most instances a factory makes for a collection the screen does not supply.
+const MAX_UNSUPPLIED_ITEMS: usize = 64;
+
+/// Roles for a collection the screen does not supply, from `#collection_length`:
+/// an array of control ids makes one instance per id; a number makes that many
+/// only for a `control_name` template, since an id-mapped factory needs ids.
+fn unsupplied_roles(
+    control: &ResolvedControl,
+    factory: &Factory,
+    own: &BTreeMap<String, Scalar>,
+) -> Vec<Option<String>> {
+    let ids = control
+        .properties
+        .get("property_bag")
+        .and_then(|bag| bag.get("#collection_length"))
+        .and_then(Value::as_array);
+    if let Some(ids) = ids {
+        return ids
+            .iter()
+            .take(MAX_UNSUPPLIED_ITEMS)
+            .map(|id| id.as_str().map(str::to_owned))
+            .collect();
+    }
+    match own.get("#collection_length") {
+        Some(Scalar::Num(length)) if *length > 0.0 && factory.control_name.is_some() => {
+            vec![None; (*length as usize).min(MAX_UNSUPPLIED_ITEMS)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A control's `collection_name`; an empty one declares no collection.
+pub(super) fn collection_name(control: &ResolvedControl) -> Option<&str> {
+    let name = control.properties.get("collection_name")?.as_str()?;
+    (!name.is_empty()).then_some(name)
+}
+
+pub(super) fn is_collection_factory(control: &ResolvedControl) -> bool {
+    control.factory.is_some() && collection_name(control).is_some()
+}
+
+/// The control a collection item creates: the template, else its role's entry
+/// (an item without a role takes the first); a role the factory lacks creates nothing.
+fn select_control<'a>(factory: &'a Factory, role: Option<&str>) -> Option<&'a ControlRef> {
+    if let Some(template) = &factory.control_name {
+        return Some(template);
+    }
+    match role {
+        Some(role) => factory.control_ids.get(role),
+        None => factory.control_ids.values().next(),
     }
 }

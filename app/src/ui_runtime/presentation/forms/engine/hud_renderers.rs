@@ -254,7 +254,7 @@ pub(super) fn with_java_hud(
     catalog.apply_pack(kept);
     catalog.apply_pack(
         [(
-            "ui/cinnabar_title.json",
+            "ui/ui_art_assets_common.json",
             super::menu_renderers::TITLE_PANEL_OVERLAY,
         )]
         .into_iter()
