@@ -57,7 +57,13 @@ fn settings_category_button_pitch_matches_vanilla_toggle_height() {
 
 /// Render one desktop section selected by its controller variable.
 fn section(variable: &str) {
-    let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+    if variable == "storage_management_forced_index" {
+        menu.activate(crate::menu::MenuAction::SettingsSection(
+            crate::menu::settings_storage::SECTION_INDEX,
+        ));
+    }
+    let mut view = menu.view();
     let local = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.local");
     view.language_choices =
         crate::menu::settings_options::SettingsOptions::language_choices(&local);

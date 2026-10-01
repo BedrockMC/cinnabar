@@ -151,6 +151,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
+    menu: Option<Res<'w, crate::menu::MenuRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
@@ -185,6 +186,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         collisions,
         item_use,
         ui,
+        menu,
         mut dropped_items,
         profiler,
         mut partial_tick,
@@ -663,7 +665,10 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         &mut hand_builder.0,
         &mut hand_scene,
         &mut hand_revision,
-        hand_source,
+        hand_source.filter(|_| {
+            menu.as_ref()
+                .is_none_or(|menu| menu.settings_snapshot().0.value("hide_hand") == 0)
+        }),
         hand_camera_fov,
         hand_light,
         step.partial_tick,

@@ -284,6 +284,23 @@ pub(crate) fn keyboard_usage(key: KeyCode) -> Option<u16> {
         KeyCode::Escape => 0x29,
         KeyCode::Tab => 0x2b,
         KeyCode::Space => 0x2c,
+        KeyCode::Minus => 0x2d,
+        KeyCode::Equal => 0x2e,
+        KeyCode::BracketLeft => 0x2f,
+        KeyCode::BracketRight => 0x30,
+        KeyCode::Backslash => 0x31,
+        KeyCode::Semicolon => 0x33,
+        KeyCode::Quote => 0x34,
+        KeyCode::Backquote => 0x35,
+        KeyCode::Comma => 0x36,
+        KeyCode::Period => 0x37,
+        KeyCode::Slash => 0x38,
+        KeyCode::Insert => 0x49,
+        KeyCode::Home => 0x4a,
+        KeyCode::PageUp => 0x4b,
+        KeyCode::Delete => 0x4c,
+        KeyCode::End => 0x4d,
+        KeyCode::PageDown => 0x4e,
         KeyCode::F1 => 0x3a,
         KeyCode::F2 => 0x3b,
         KeyCode::F3 => 0x3c,
@@ -314,7 +331,8 @@ pub(crate) fn keyboard_usage(key: KeyCode) -> Option<u16> {
     })
 }
 
-fn mouse_button_code(button: MouseButton) -> Option<u8> {
+/// Converts desktop mouse buttons to the persisted gameplay binding codes.
+pub(crate) fn mouse_button_code(button: MouseButton) -> Option<u8> {
     Some(match button {
         MouseButton::Left => 1,
         MouseButton::Right => 2,
@@ -329,7 +347,7 @@ fn mouse_button_code(button: MouseButton) -> Option<u8> {
 /// produce. This is the single source of truth: `gamepad_button_codes` reads it
 /// to build a frame, and the binding-reachability test reads it to prove no
 /// default binding names a code the app cannot emit.
-const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
+pub(crate) const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
     (0, GamepadButton::South),
     (1, GamepadButton::East),
     (2, GamepadButton::North),

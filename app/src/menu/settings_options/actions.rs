@@ -17,6 +17,9 @@ impl MenuRuntime {
             }
             MenuAction::SettingsSection(section) => {
                 self.settings_section = section;
+                if section == crate::menu::settings_storage::SECTION_INDEX {
+                    self.refresh_storage();
+                }
                 self.settings_dropdown = None;
                 self.key_remap = None;
             }
@@ -27,6 +30,19 @@ impl MenuRuntime {
             MenuAction::SettingsLanguage(index) => self.set_language(index),
             MenuAction::SettingsDropdown(index) => {
                 self.settings_dropdown = (self.settings_dropdown != Some(index)).then_some(index);
+            }
+            MenuAction::SettingsResetBindings(gamepad) => {
+                self.dialog = Some(crate::menu::MenuDialog::SettingsResetBindings(gamepad));
+            }
+            MenuAction::SettingsConfirmResetBindings(gamepad) => {
+                if self.dialog != Some(crate::menu::MenuDialog::SettingsResetBindings(gamepad)) {
+                    return;
+                }
+                self.dialog = None;
+                Arc::make_mut(&mut self.settings_options).reset_bindings(gamepad);
+                self.key_remap = None;
+                self.settings_dirty = true;
+                self.settings_apply = true;
             }
             MenuAction::SettingsKey(index) => self.key_remap = Some(index),
             MenuAction::SettingsResetKey(index) => {

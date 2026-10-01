@@ -941,3 +941,29 @@ fn notched_boss_overlays_draw_their_dividers() {
     assert_eq!(quads(ProtocolBossOverlay::Notched6), Some(plain + 5));
     assert_eq!(quads(ProtocolBossOverlay::Notched20), Some(plain + 19));
 }
+
+/// A saved visibility edit changes the emitted HUD and restores it without a reload.
+#[test]
+fn settings_hide_hud_suppresses_the_rendered_overlay() {
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime.set_local_selected_slot(0);
+    let shown = build(&mut presentation, &runtime, 0);
+    let mut options = SettingsOptions::default();
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "hide_hud")
+        .unwrap();
+    options.set(index, 1);
+    presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
+    let hidden = build(&mut presentation, &runtime, 0);
+    assert!(hidden.vertices.len() < shown.vertices.len());
+    options.set(index, 0);
+    presentation.set_chat_settings_snapshot((Arc::new(options), None));
+    let restored = build(&mut presentation, &runtime, 0);
+    assert_eq!(restored.vertices.len(), shown.vertices.len());
+}

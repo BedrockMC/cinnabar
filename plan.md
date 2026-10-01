@@ -22,10 +22,10 @@ not established by the pack binding names. See the settings audit below.
   capture covers the existing semantic gameplay actions; raw inventory/chat/drop
   keys and controller rebinding are incomplete. Duplicate-key rejection and key
   display strings are not established vanilla behavior.
-- UI only, system missing: gamma, smooth lighting, leaves, clouds, fancy skies,
-  particle toggles, most advanced graphics, HUD/hand/paperdoll toggles, screen
-  animation and panorama speed, auto-jump, spyglass dampening, controller cursor
-  options, narration/subtitles, glint/darkness settings, Creator diagnostics and
+- UI only, system missing: gamma, smooth lighting, leaves, fancy skies,
+  particle toggles, most advanced graphics, paperdoll toggles, screen
+  animation, auto-jump, spyglass dampening, controller cursor
+  options, narration/subtitles, glint settings, Creator diagnostics and
   script options, tutorial/profile preferences and several chat presentation options.
   These values persist but do not close runtime parity gates.
 - Global Resources provides empty pack collections as a clean integration hook;
@@ -3584,3 +3584,19 @@ remaining questions are in `docs/biome-blending.md`. This does not close
 P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
+
+
+### Settings desktop continuation (incomplete parity)
+
+The desktop host now consumes Hide HUD, Hide Hand (animated and fallback paths),
+player-name visibility, panorama speed, cloud visibility, darkness strength, HUD
+opacity and HUD text-background opacity. Focus-loss pause reads its saved setting;
+explicit pause-menu state remains authoritative. These are runtime adapters, not a
+closed visual or numeric-default parity gate.
+
+References: P:ui/settings_sections/general_section.json:3302,3332,3374,3407,3544,3636;
+P:ui/hud_screen.json:3556–3569; R:b/BaseOptionRegistry.cpp:1841,1867,2159,2300,2603,3277;
+R:h/HudScreenController.cpp:16487. The current Lens source search for hide_hud found
+artifact 6 RVA 0xccdb30, but its function_read failed with Transport closed.
+OptionRegistry numeric defaults remain provisional pending a readable registration
+body. Cloud and hand preferences do not modify the JSON-UI engine.

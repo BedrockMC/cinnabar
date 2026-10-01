@@ -37,6 +37,10 @@ mod settings_language;
 mod settings_resources;
 #[cfg(test)]
 mod settings_snapshots;
+mod settings_storage;
+#[cfg(test)]
+mod settings_storage_support_tests;
+mod settings_support;
 mod sign_editor;
 #[cfg(test)]
 pub(crate) mod snapshot;

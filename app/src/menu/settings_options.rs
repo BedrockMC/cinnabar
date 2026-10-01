@@ -2,6 +2,7 @@
 
 mod actions;
 mod chat;
+mod control_bindings;
 mod definitions;
 mod keybindings;
 mod language;
@@ -14,6 +15,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) use control_bindings::{
+    EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, binding_gamepad, binding_key,
+    binding_mouse, binding_pressed, gamepad_icon,
+};
 pub(crate) use definitions::{SETTINGS_OPTIONS, SettingDefinition, SettingKind};
 pub(crate) use keybindings::{KEY_BINDINGS, key_name};
 pub(crate) use persistence::SETTINGS_FILE;

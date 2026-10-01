@@ -92,6 +92,7 @@ impl MenuRuntime {
             store_actions: Vec::new(),
             store_snapshot: None,
             settings_options: std::sync::Arc::new(settings_options),
+            storage: Default::default(),
             settings_dropdown: None,
             settings_dirty: false,
             settings_apply: true,
