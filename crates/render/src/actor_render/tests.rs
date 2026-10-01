@@ -113,7 +113,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
         current_bone_base: 0,
         bone_count: 1,
     }]);
-    frame.rig.geometry_vertices = Arc::from(
+    frame.rig.geometry_vertices = crate::actor::ActorRigVertexSegments::from_vertices(
         [ActorRigVertex {
             position: [0.0; 3],
             normal: [0.0, 1.0, 0.0],

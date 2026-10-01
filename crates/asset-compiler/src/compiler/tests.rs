@@ -288,3 +288,52 @@ fn every_current_registry_button_has_a_supported_name() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(unsupported.is_empty(), "{unsupported:?}");
 }
+
+/// The v2193 fallback inventory carries cube envelopes for these blocks; they must not win.
+#[test]
+fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
+    let records = assets::read_registry_for_protocol(
+        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
+        2193,
+    )
+    .unwrap();
+    let fallback = super::visuals::fallback::inventory(2193).expect("v2193 fallback inventory");
+    let (visuals, _, _, _) = super::visuals::dispatcher::compile_visuals(
+        &records,
+        &empty_pack_sources(),
+        &BTreeMap::new(),
+        0,
+        fallback,
+        no_exact_admissions(),
+    )
+    .expect("compile the pinned v2193 registry");
+    let invisible = records
+        .iter()
+        .filter(|record| super::visuals::literal::is_default_invisible(&record.name))
+        .collect::<Vec<_>>();
+    for name in [
+        "minecraft:barrier",
+        "minecraft:structure_void",
+        "minecraft:invisible_bedrock",
+        "minecraft:moving_block",
+        "minecraft:light_block_0",
+        "minecraft:light_block_15",
+    ] {
+        assert!(
+            invisible.iter().any(|record| record.name.as_ref() == name),
+            "{name}"
+        );
+    }
+    assert_eq!(invisible.len(), 20);
+    for record in invisible {
+        let visual = &visuals[record.sequential_id as usize];
+        assert_eq!(visual.kind, VisualKind::Invisible, "{}", record.name);
+        assert!(
+            !visual.flags.intersects(
+                assets::BlockFlags::CUBE_GEOMETRY | assets::BlockFlags::OCCLUDES_FULL_FACE
+            ),
+            "{} must not cull its neighbours",
+            record.name
+        );
+    }
+}

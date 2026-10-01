@@ -12,11 +12,8 @@ fn shader_for_naga() -> String {
         "",
         1,
     );
-    let biome_tint = include_str!("../src/biome_tint.wgsl").replacen(
-        "#define_import_path cinnabar::biome_tint",
-        "",
-        1,
-    );
+    let biome_tint = meshing::biome_lattice::shader_source(include_str!("../src/biome_tint.wgsl"))
+        .replacen("#define_import_path cinnabar::biome_tint", "", 1);
     SHADER
         .replacen(
             "#import bevy_render::view::View",

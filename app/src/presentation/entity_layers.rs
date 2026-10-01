@@ -1,6 +1,6 @@
 //! Render-controller layers of entity bodies: the first replaces the body's default texture
 //! (and model, when its controller picks another), later layers draw after it.
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use client_world::{ActorRigSnapshot, BoneTransform, RenderTextureLayer};
 use render::{
@@ -16,12 +16,14 @@ pub(crate) const ACTOR_LAYER_TEXTURE_BASE: u8 = 32;
 const MAX_TEXTURE_LAYERS: usize = (u8::MAX - ACTOR_LAYER_TEXTURE_BASE) as usize + 2;
 
 /// A controller's own model: its rig id and poses.
+#[derive(Debug)]
 struct LayerModel {
     rig: EntityRigId,
     previous: Arc<[RenderBoneTransform]>,
     current: Arc<[RenderBoneTransform]>,
 }
 
+#[derive(Debug)]
 struct ResolvedLayer {
     location: ActorArtworkLocation,
     tint: u32,
@@ -30,6 +32,84 @@ struct ResolvedLayer {
     uv_anim: [f32; 4],
     model: Option<LayerModel>,
     ignore_lighting: bool,
+}
+
+/// Render-space layer poses and their hidden-bone variants, kept while their source poses are
+/// drawn so every frame of a tick reuses one conversion.
+#[derive(Debug, Default)]
+pub(crate) struct LayerPoseCache {
+    /// Source pose, its conversion and the frame it was last drawn, by source allocation.
+    converted: HashMap<usize, ConvertedPose>,
+    /// Pose, hidden bones, the pose with them hidden and the frame it was last drawn.
+    hidden: HashMap<(usize, usize), HiddenPose>,
+    frame: u64,
+    /// One body's resolved layers, refilled per body.
+    resolved: Vec<ResolvedLayer>,
+    extras: Vec<ActorRigSubmission>,
+}
+
+type RenderPose = Arc<[RenderBoneTransform]>;
+type ConvertedPose = (Arc<[BoneTransform]>, Option<RenderPose>, u64);
+type HiddenPose = (RenderPose, Arc<[u32]>, RenderPose, u64);
+
+/// Frames a pose may go undrawn before its conversion is released.
+const LAYER_POSE_RETENTION_FRAMES: u64 = 4;
+
+impl LayerPoseCache {
+    pub(crate) fn begin_frame(&mut self) {
+        self.frame += 1;
+        let oldest = self.frame.saturating_sub(LAYER_POSE_RETENTION_FRAMES);
+        self.converted.retain(|_, entry| entry.2 >= oldest);
+        self.hidden.retain(|_, entry| entry.3 >= oldest);
+    }
+
+    fn convert(&mut self, pose: &Arc<[BoneTransform]>) -> Option<Arc<[RenderBoneTransform]>> {
+        let frame = self.frame;
+        let key = Arc::as_ptr(pose).cast::<u8>() as usize;
+        match self.converted.get_mut(&key) {
+            Some(entry) if Arc::ptr_eq(&entry.0, pose) => {
+                entry.2 = frame;
+                entry.1.clone()
+            }
+            _ => {
+                let converted = convert(pose);
+                self.converted
+                    .insert(key, (Arc::clone(pose), converted.clone(), frame));
+                converted
+            }
+        }
+    }
+
+    fn hide(
+        &mut self,
+        poses: &Arc<[RenderBoneTransform]>,
+        hidden: &Arc<[u32]>,
+    ) -> Arc<[RenderBoneTransform]> {
+        let frame = self.frame;
+        let key = (
+            Arc::as_ptr(poses).cast::<u8>() as usize,
+            Arc::as_ptr(hidden).cast::<u8>() as usize,
+        );
+        match self.hidden.get_mut(&key) {
+            Some(entry) if Arc::ptr_eq(&entry.0, poses) && Arc::ptr_eq(&entry.1, hidden) => {
+                entry.3 = frame;
+                Arc::clone(&entry.2)
+            }
+            _ => {
+                let result = hide_bones(poses, hidden);
+                self.hidden.insert(
+                    key,
+                    (
+                        Arc::clone(poses),
+                        Arc::clone(hidden),
+                        Arc::clone(&result),
+                        frame,
+                    ),
+                );
+                result
+            }
+        }
+    }
 }
 
 fn convert(bones: &[BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
@@ -68,30 +148,34 @@ fn resolve(
     submission: &ActorRigSubmission,
     layers: &[RenderTextureLayer],
     artwork: &ActorArtworkPages,
-) -> Vec<ResolvedLayer> {
-    layers
-        .iter()
-        .filter_map(|layer| {
-            let model = match layer.geometry {
-                None => None,
-                Some(geometry) => Some(LayerModel {
-                    rig: layer_geometry_rig_id(submission.input.rig, geometry),
-                    previous: convert(&layer.previous_pose)?,
-                    current: convert(&layer.pose)?,
-                }),
-            };
-            Some(ResolvedLayer {
-                model,
-                ignore_lighting: layer.ignore_lighting,
-                location: artwork.variant_location(submission.input.rig, layer.source)?,
-                tint: pack_layer_tint(layer.color),
-                overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
-                hidden_bones: Arc::clone(&layer.hidden_bones),
-                uv_anim: layer.uv_anim,
+    cache: &mut LayerPoseCache,
+    resolved: &mut Vec<ResolvedLayer>,
+) {
+    resolved.clear();
+    resolved.extend(
+        layers
+            .iter()
+            .filter_map(|layer| {
+                let model = match layer.geometry {
+                    None => None,
+                    Some(geometry) => Some(LayerModel {
+                        rig: layer_geometry_rig_id(submission.input.rig, geometry),
+                        previous: cache.convert(&layer.previous_pose)?,
+                        current: cache.convert(&layer.pose)?,
+                    }),
+                };
+                Some(ResolvedLayer {
+                    model,
+                    ignore_lighting: layer.ignore_lighting,
+                    location: artwork.variant_location(submission.input.rig, layer.source)?,
+                    tint: pack_layer_tint(layer.color),
+                    overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
+                    hidden_bones: Arc::clone(&layer.hidden_bones),
+                    uv_anim: layer.uv_anim,
+                })
             })
-        })
-        .take(MAX_TEXTURE_LAYERS)
-        .collect()
+            .take(MAX_TEXTURE_LAYERS),
+    );
 }
 
 /// The zero-scale pose vanilla uses to hide a bone.
@@ -105,7 +189,12 @@ fn hide_bones(poses: &Arc<[RenderBoneTransform]>, hidden: &[u32]) -> Arc<[Render
     poses.into()
 }
 
-fn layered(body: &ActorRigSubmission, layer: &ResolvedLayer, index: usize) -> ActorRigSubmission {
+fn layered(
+    body: &ActorRigSubmission,
+    layer: &ResolvedLayer,
+    index: usize,
+    cache: &mut LayerPoseCache,
+) -> ActorRigSubmission {
     let mut submission = body.clone();
     if index > 0 {
         submission.input.identity.layer = ACTOR_LAYER_TEXTURE_BASE + (index - 1) as u8;
@@ -126,21 +215,33 @@ fn layered(body: &ActorRigSubmission, layer: &ResolvedLayer, index: usize) -> Ac
     }
     if !layer.hidden_bones.is_empty() {
         submission.input.previous_bones =
-            hide_bones(&submission.input.previous_bones, &layer.hidden_bones);
+            cache.hide(&submission.input.previous_bones, &layer.hidden_bones);
         submission.input.current_bones =
-            hide_bones(&submission.input.current_bones, &layer.hidden_bones);
+            cache.hide(&submission.input.current_bones, &layer.hidden_bones);
     }
     submission
 }
 
 /// Applies each entity body's selected texture layers to the batch: the first replaces the
 /// body's texture, the rest are appended as extra layers of the same actor.
+#[cfg(test)]
 pub(crate) fn apply_render_layers<'a>(
     batch: &mut ActorPresentationBatch,
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     artwork: &ActorArtworkPages,
 ) {
-    let mut extras = Vec::new();
+    apply_render_layers_cached(batch, rig_of, artwork, &mut LayerPoseCache::default());
+}
+
+/// [`apply_render_layers`] reusing `cache`'s conversions across frames.
+pub(crate) fn apply_render_layers_cached<'a>(
+    batch: &mut ActorPresentationBatch,
+    rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
+    artwork: &ActorArtworkPages,
+    cache: &mut LayerPoseCache,
+) {
+    let mut resolved = std::mem::take(&mut cache.resolved);
+    let mut extras = std::mem::take(&mut cache.extras);
     for index in 0..batch.submissions.len() {
         let body = &batch.submissions[index];
         let identity = body.input.identity;
@@ -150,13 +251,13 @@ pub(crate) fn apply_render_layers<'a>(
         let Some(rig) = rig_of(identity.runtime_id) else {
             continue;
         };
-        let layers = resolve(body, rig.render, artwork);
-        if layers.is_empty() {
+        resolve(body, rig.render, artwork, cache, &mut resolved);
+        if resolved.is_empty() {
             continue;
         }
         let pristine = body.clone();
-        for (layer_index, layer) in layers.iter().enumerate() {
-            let submission = layered(&pristine, layer, layer_index);
+        for (layer_index, layer) in resolved.iter().enumerate() {
+            let submission = layered(&pristine, layer, layer_index, cache);
             batch
                 .artwork
                 .insert(submission.input.identity, layer.location);
@@ -167,7 +268,10 @@ pub(crate) fn apply_render_layers<'a>(
             }
         }
     }
-    batch.submissions.extend(extras);
+    batch.submissions.append(&mut extras);
+    resolved.clear();
+    cache.resolved = resolved;
+    cache.extras = extras;
 }
 
 #[cfg(test)]

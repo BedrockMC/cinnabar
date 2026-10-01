@@ -41,11 +41,12 @@ pub use rig::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
     ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometry,
     ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
-    IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, ActorRigVertexSegments,
+    EntityRigId, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
     MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, layer_geometry_rig_id,
-    pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skin_rig_id,
+    actor_bounds_are_visible, actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id,
+    layer_geometry_rig_id, pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8,
+    pack_rig_id, skin_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -54,6 +55,9 @@ pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 
 pub const MAX_RENDERED_PLAYERS: usize = 128;
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
+/// Vanilla gathers non-player render candidates no farther than this from the camera on any
+/// axis (`LevelRendererCamera::queueRenderEntities`, `min(radius, 72)`); players are added apart.
+pub const ACTOR_CANDIDATE_RADIUS_BLOCKS: f32 = 72.0;
 pub const STANDARD_SKIN_SIDE: usize = 64;
 pub const STANDARD_SKIN_BYTES: usize = STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE * 4;
 pub const STANDARD_BIPED_VERTEX_COUNT: usize = 6 * 6 * 6;
@@ -125,6 +129,15 @@ pub struct ActorRenderFrame {
     pub rig: ActorRigRenderFrame,
     pub(crate) artwork: Arc<ActorArtworkPages>,
     pub(crate) instance_pages: Arc<[u8]>,
+}
+
+#[cfg(feature = "publication-test-support")]
+impl ActorRenderFrame {
+    /// The artwork page each rig instance samples; 0 is the player-skin array.
+    #[must_use]
+    pub fn instance_pages(&self) -> &[u8] {
+        &self.instance_pages
+    }
 }
 
 impl Default for ActorRenderFrame {
@@ -425,7 +438,7 @@ impl ActorRenderScene {
             view,
             submissions,
             skins_rgba8,
-            &std::collections::BTreeMap::new(),
+            &std::collections::HashMap::new(),
         )
     }
 
@@ -435,9 +448,15 @@ impl ActorRenderScene {
         view: Option<ActorCullView>,
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
         skins_rgba8: Arc<[u8]>,
-        assignments: &std::collections::BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
+        assignments: &std::collections::HashMap<ActorRenderIdentity, ActorArtworkLocation>,
     ) -> &ActorRenderFrame {
-        let rig = self.rig_builder.build(partial_tick, view, submissions);
+        let rig = self
+            .rig_builder
+            .build_paged(partial_tick, view, submissions, |identity| {
+                assignments
+                    .get(identity)
+                    .map_or(0, |location| location.page)
+            });
         let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
         let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
         let instance_pages: Vec<_> = rig

@@ -99,17 +99,31 @@ impl GpuArtwork {
     }
 }
 
-pub(super) fn draw_spans(pages: &[u8]) -> Vec<ActorDrawSpan> {
+/// One draw per run of instances sharing a texture page and geometry, each with that geometry's
+/// own vertex count.
+pub(super) fn draw_spans(
+    pages: &[u8],
+    instances: &[crate::actor::ActorGpuInstance],
+    geometry: &[crate::actor::ActorRigGeometrySpan],
+) -> Vec<ActorDrawSpan> {
     let mut spans: Vec<ActorDrawSpan> = Vec::new();
-    for (index, page) in pages.iter().copied().enumerate() {
-        if let Some(span) = spans.last_mut().filter(|span| span.page == page) {
+    let mut last_geometry = None;
+    for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
+        if let Some(span) = spans
+            .last_mut()
+            .filter(|span| span.page == page && last_geometry == Some(instance.geometry_id))
+        {
             span.count += 1;
         } else {
             spans.push(ActorDrawSpan {
                 page,
                 first: index as u32,
                 count: 1,
+                vertex_count: geometry
+                    .get(instance.geometry_id as usize)
+                    .map_or(0, |span| span.vertex_count),
             });
+            last_geometry = Some(instance.geometry_id);
         }
     }
     spans
@@ -119,31 +133,45 @@ pub(super) fn draw_spans(pages: &[u8]) -> Vec<ActorDrawSpan> {
 mod tests {
     use super::*;
     #[test]
-    fn page_spans_preserve_global_instance_order_and_bone_bases() {
-        let spans = draw_spans(&[0, 1, 1, 0, 2]);
+    fn spans_split_on_page_and_geometry_and_carry_exact_vertex_counts() {
+        let instance = |geometry_id| crate::actor::ActorGpuInstance {
+            geometry_id,
+            ..Default::default()
+        };
+        let geometry = [
+            crate::actor::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: 36,
+            },
+            crate::actor::ActorRigGeometrySpan {
+                first_vertex: 36,
+                vertex_count: 3024,
+            },
+        ];
+        let spans = draw_spans(
+            &[0, 1, 1, 1, 2],
+            &[
+                instance(0),
+                instance(1),
+                instance(1),
+                instance(0),
+                instance(0),
+            ],
+            &geometry,
+        );
+        let span = |page, first, count, vertex_count| ActorDrawSpan {
+            page,
+            first,
+            count,
+            vertex_count,
+        };
         assert_eq!(
             spans,
             vec![
-                ActorDrawSpan {
-                    page: 0,
-                    first: 0,
-                    count: 1
-                },
-                ActorDrawSpan {
-                    page: 1,
-                    first: 1,
-                    count: 2
-                },
-                ActorDrawSpan {
-                    page: 0,
-                    first: 3,
-                    count: 1
-                },
-                ActorDrawSpan {
-                    page: 2,
-                    first: 4,
-                    count: 1
-                },
+                span(0, 0, 1, 36),
+                span(1, 1, 2, 3024),
+                span(1, 3, 1, 36),
+                span(2, 4, 1, 36),
             ]
         );
     }

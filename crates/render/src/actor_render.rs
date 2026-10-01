@@ -114,7 +114,7 @@ struct ActorGpu {
     instance_buffer: Buffer,
     previous_bone_buffer: Buffer,
     current_bone_buffer: Buffer,
-    geometry_vertex_buffer: Option<Buffer>,
+    geometry_vertices: crate::actor::gpu::SegmentedVertexBuffer,
     geometry_span_buffer: Option<Buffer>,
     instance_count: u32,
     maximum_vertex_count: u32,
@@ -203,7 +203,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
-        geometry_vertex_buffer: None,
+        geometry_vertices: default(),
         geometry_span_buffer: None,
         instance_count: 0,
         maximum_vertex_count: 0,
@@ -253,25 +253,20 @@ fn prepare_actor_resources(
         gate.clear();
         tracker.clear();
         gpu.frame_generation = u64::MAX;
-        if rig.geometry_vertices.is_empty() || rig.geometry_spans.is_empty() {
-            gpu.geometry_vertex_buffer = None;
-            gpu.geometry_span_buffer = None;
-        } else {
-            gpu.geometry_vertex_buffer = Some(render_device.create_buffer_with_data(
-                &BufferInitDescriptor {
-                    label: Some("shared immutable actor rig vertices"),
-                    contents: bytemuck::cast_slice::<ActorRigVertex, u8>(&rig.geometry_vertices),
-                    usage: BufferUsages::STORAGE,
-                },
-            ));
-            gpu.geometry_span_buffer = Some(render_device.create_buffer_with_data(
-                &BufferInitDescriptor {
-                    label: Some("shared immutable actor rig geometry spans"),
-                    contents: bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
-                    usage: BufferUsages::STORAGE,
-                },
-            ));
-        }
+        // A new skin model or item mesh uploads only its own vertices.
+        gpu.geometry_vertices.sync(
+            &render_device,
+            &render_queue,
+            "shared actor rig vertices",
+            &rig.geometry_vertices,
+        );
+        gpu.geometry_span_buffer = (!rig.geometry_spans.is_empty()).then(|| {
+            render_device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("shared actor rig geometry spans"),
+                contents: bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
+                usage: BufferUsages::STORAGE,
+            })
+        });
         gpu.geometry_revision = rig.geometry_revision;
         gpu.bind_group = None;
         gpu.artwork.invalidate_bindings();
@@ -320,7 +315,7 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages);
+            gpu.spans = draw_spans(&frame.instance_pages, &rig.instances, &rig.geometry_spans);
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
@@ -601,7 +596,7 @@ fn prepare_actor_bind_group(
         gpu.bind_group = None;
         return;
     };
-    let Some(geometry_vertex_buffer) = gpu.geometry_vertex_buffer.as_ref() else {
+    let Some(geometry_vertex_buffer) = gpu.geometry_vertices.buffer() else {
         gpu.bind_group = None;
         return;
     };
@@ -851,26 +846,27 @@ impl<P: PhaseItem> RenderCommand<P> for DrawActors {
         let gpu = gpu.into_inner();
         let tracker = tracker.into_inner();
         let mut executed_instances = 0;
+        let mut bound_page = None;
         for span in &gpu.spans {
             if span.page != 0 && !gpu.artwork_current {
                 continue;
             }
-            let bind_group = if span.page == 0 {
-                gpu.bind_group.as_ref()
-            } else {
-                gpu.artwork
-                    .pages
-                    .get(usize::from(span.page) - 1)
-                    .and_then(|page| page.bind_group.as_ref())
-            };
-            let Some(bind_group) = bind_group else {
-                continue;
-            };
-            pass.set_bind_group(0, bind_group, &[view.1.offset]);
-            pass.draw(
-                0..gpu.maximum_vertex_count,
-                span.first..span.first + span.count,
-            );
+            if bound_page != Some(span.page) {
+                let bind_group = if span.page == 0 {
+                    gpu.bind_group.as_ref()
+                } else {
+                    gpu.artwork
+                        .pages
+                        .get(usize::from(span.page) - 1)
+                        .and_then(|page| page.bind_group.as_ref())
+                };
+                let Some(bind_group) = bind_group else {
+                    continue;
+                };
+                pass.set_bind_group(0, bind_group, &[view.1.offset]);
+                bound_page = Some(span.page);
+            }
+            pass.draw(0..span.vertex_count, span.first..span.first + span.count);
             tracker.record_draw(view.0.to_bits(), *span);
             executed_instances += span.count;
         }
