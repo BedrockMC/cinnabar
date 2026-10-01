@@ -62,6 +62,9 @@ compiled local assets. This work does not write the owner's `.local` directory.
   three-step minimum, matching the existing default. Predicted movement uses a
   separate buffer and actors without an interpolator can snap; projectile-specific
   selection is not yet confirmed.
+- Frame-level rotation fidelity: the shared GPU rig interpolates posed matrices;
+  vanilla target queries interpolate angles. Dedicated projectile frame validation
+  remains open.
 - Arrow collision/stuck-state transition and shake trigger/countdown. The pack shake
   animation exists; retained client shake state is not implemented. Configuration
   parsing at Lens RVA `0x2649800` is not proof of the runtime hit trigger.

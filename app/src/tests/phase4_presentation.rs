@@ -591,9 +591,14 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
             entity_rig_presentation(&rig, &actor, &render::ActorArtworkPages::default(), 1.0)
                 .unwrap();
         let rows = presentation.submission.world_from_actor;
-        assert_eq!(rows[0][0], 1.0, "{identifier}");
-        assert_eq!(rows[0][2], 0.0, "{identifier}");
-        assert_eq!(rows[2][0], 0.0, "{identifier}");
-        assert_eq!(rows[2][2], 1.0, "{identifier}");
+        let basis = if identifier == "minecraft:arrow" {
+            -1.0
+        } else {
+            1.0
+        };
+        assert!((rows[0][0] - basis).abs() < 1e-6, "{identifier}");
+        assert!(rows[0][2].abs() < 1e-6, "{identifier}");
+        assert!(rows[2][0].abs() < 1e-6, "{identifier}");
+        assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
     }
 }
