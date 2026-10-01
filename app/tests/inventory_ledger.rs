@@ -261,7 +261,7 @@ fn admitted_request_timeout_fails_closed_without_unsafe_retransmission() {
     assert!(!ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
     // The prediction stays for a late response; nothing is retransmitted.
     assert_eq!(ledger.pending_request_id(), Some(request));
-    assert!(ledger.pending_packet().unwrap().is_none());
+    assert!(ledger.pending_batch().unwrap().is_none());
     assert!(ledger.resync_required());
     assert_eq!(request, -3);
 }
@@ -629,8 +629,8 @@ fn negotiated_occupied_merge_retries_exactly_and_rejection_rolls_back() {
     ledger.apply(&cursor_content(cursor.clone()));
 
     let request = ledger.begin_place_count(0, 4).unwrap();
-    let first = ledger.pending_packet().unwrap().unwrap();
-    assert_eq!(ledger.pending_packet().unwrap(), Some(first));
+    let first = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(ledger.pending_batch().unwrap(), Some(first));
     assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
     assert_eq!(ledger.cursor_stack().unwrap().count, 29);
 

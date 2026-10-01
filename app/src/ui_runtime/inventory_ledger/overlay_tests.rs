@@ -113,7 +113,7 @@ fn respond(
 }
 
 fn send_all(ledger: &mut PlayerInventoryLedger) {
-    while ledger.pending_packet().unwrap().is_some() {
+    while ledger.pending_batch().unwrap().is_some() {
         assert!(ledger.mark_transport_enqueued(10));
     }
 }
@@ -157,7 +157,7 @@ fn gestures_pipeline_in_wire_order_over_the_folded_view() {
         );
         assert!(ledger.mark_transport_enqueued(10));
     }
-    assert_eq!(ledger.pending_packet().unwrap(), None);
+    assert_eq!(ledger.pending_batch().unwrap(), None);
     let StackRequestAction::Place { destination, .. } = ledger.queue[1].actions[0] else {
         panic!("second gesture places the held stack");
     };

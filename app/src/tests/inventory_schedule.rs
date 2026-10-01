@@ -179,7 +179,7 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
         app.world()
             .resource::<UiRuntime>()
             .inventory_ledger()
-            .pending_packet()
+            .pending_batch()
             .unwrap()
             .is_some()
     );

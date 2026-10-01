@@ -129,7 +129,7 @@ fn correction(container: u8, slot: u8, count: u8, stack_network_id: i32) -> Stac
 fn personal_gesture_waits_for_open_admission_and_uses_empty_stack_id_zero() {
     let mut ledger = ledger_with_slot_zero();
     assert!(ledger.request_personal_open(42));
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     assert_eq!(
         ledger.begin_click(0),
         Err(InventoryGestureError::PersonalInventoryUnavailable)
@@ -159,7 +159,7 @@ fn open_queue_pressure_retains_one_control_and_admits_it_once() {
     assert!(ledger.request_personal_open(42));
     ledger.note_transport_pressure(10);
     ledger.note_transport_pressure(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     assert_eq!(
         ledger.begin_click(0),
         Err(InventoryGestureError::PersonalInventoryUnavailable)
@@ -311,7 +311,7 @@ fn none_type_client_ack_only_completes_an_admitted_personal_close() {
     ledger.request_personal_close();
     ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
     assert!(ledger.personal.is_some(), "a queued close is not admitted");
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 
     assert!(ledger.mark_transport_enqueued(20));
     ledger.apply(&close(3, NO_CONTAINER_WINDOW_TYPE, false));
