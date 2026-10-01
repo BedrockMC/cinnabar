@@ -2147,6 +2147,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       history), only after the applicable deterministic tests, native/GPU
       acceptance, zero-diagnostic state gate, and block-entity manifest gate
       are green.
+  - [ ] Render-invisible blocks. Barrier, structure void, light blocks 0–15, invisible bedrock
+    and moving block compile to non-occluding `Invisible` terrain ahead of the fallback
+    inventory (`literal::is_default_invisible`). Incomplete: vanilla also tessellates barriers
+    and light blocks as camera-facing sprites (`materials/barrier.material`) and structure voids
+    as cube faces into their own terrain layers, drawn only while a creative local player's
+    selected item is that block (`LevelRendererCamera::render`); those layers are not built.
 - [ ] **2.7 Client lighting and atmosphere.** `P2.7-ATMOSPHERE` Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
