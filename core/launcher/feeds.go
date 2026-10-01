@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
-	"golang.org/x/oauth2"
 )
 
 const (
@@ -52,13 +52,13 @@ type feedSpec[T any] struct {
 	index int
 	ttl   time.Duration
 	slot  func(*snapshot) *feed[T]
-	fetch func(s *Service, ctx context.Context, src oauth2.TokenSource, previous *T) (T, error)
+	fetch func(s *Service, ctx context.Context, src *authcache.Account, previous *T) (T, error)
 }
 
 var featuredFeed = feedSpec[[]catalog.FeaturedServer]{
 	name: "featured", index: 0, ttl: listTTL,
 	slot: func(snap *snapshot) *feed[[]catalog.FeaturedServer] { return &snap.Featured },
-	fetch: func(s *Service, ctx context.Context, src oauth2.TokenSource, _ *[]catalog.FeaturedServer) ([]catalog.FeaturedServer, error) {
+	fetch: func(s *Service, ctx context.Context, src *authcache.Account, _ *[]catalog.FeaturedServer) ([]catalog.FeaturedServer, error) {
 		servers, err := s.cfg.Featured(ctx, src)
 		if err == nil {
 			s.cacheArt(ctx, catalog.FeaturedImages(servers))
@@ -70,7 +70,7 @@ var featuredFeed = feedSpec[[]catalog.FeaturedServer]{
 var gatheringsFeed = feedSpec[[]catalog.Gathering]{
 	name: "gatherings", index: 1, ttl: listTTL,
 	slot: func(snap *snapshot) *feed[[]catalog.Gathering] { return &snap.Gatherings },
-	fetch: func(s *Service, ctx context.Context, src oauth2.TokenSource, _ *[]catalog.Gathering) ([]catalog.Gathering, error) {
+	fetch: func(s *Service, ctx context.Context, src *authcache.Account, _ *[]catalog.Gathering) ([]catalog.Gathering, error) {
 		gatherings, err := s.cfg.Gatherings(ctx, src)
 		if err == nil {
 			s.cacheArt(ctx, catalog.GatheringImages(gatherings))
@@ -82,7 +82,7 @@ var gatheringsFeed = feedSpec[[]catalog.Gathering]{
 var homeFeed = feedSpec[catalog.Home]{
 	name: "home", index: 2, ttl: homeTTL,
 	slot: func(snap *snapshot) *feed[catalog.Home] { return &snap.Home },
-	fetch: func(s *Service, ctx context.Context, src oauth2.TokenSource, previous *catalog.Home) (catalog.Home, error) {
+	fetch: func(s *Service, ctx context.Context, src *authcache.Account, previous *catalog.Home) (catalog.Home, error) {
 		home, err := s.cfg.Home(ctx, src, &s.messaging, s.cfg.ArtworkDir)
 		if err != nil {
 			return home, err
@@ -134,7 +134,7 @@ func cached[T any](ctx context.Context, s *Service, spec feedSpec[T]) (T, error)
 }
 
 // refresh starts a background fetch of the feed unless one is already in flight.
-func refresh[T any](s *Service, src oauth2.TokenSource, spec feedSpec[T]) *flight {
+func refresh[T any](s *Service, src *authcache.Account, spec feedSpec[T]) *flight {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if f := s.flights[spec.index]; f != nil {

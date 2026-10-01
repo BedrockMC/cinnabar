@@ -84,7 +84,7 @@ pub struct FeaturedServer {
     pub games: Vec<FeaturedGame>,
 }
 
-/// A community gathering; `address` is empty when it could not be resolved.
+/// A community gathering; the core joins it by `id` only when the player connects.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Gathering {
     #[serde(default)]
@@ -97,8 +97,6 @@ pub struct Gathering {
     pub description: String,
     #[serde(default)]
     pub creator: String,
-    #[serde(default)]
-    pub address: String,
     #[serde(default)]
     pub image: Artwork,
     #[serde(default)]
@@ -120,12 +118,13 @@ pub struct Profile {
     pub real_name: String,
     #[serde(default)]
     pub presence_text: String,
+    /// Absent when the lookup failed, so the UI never shows a fabricated zero.
     #[serde(default)]
-    pub gamerscore: i64,
+    pub gamerscore: Option<i64>,
     #[serde(default)]
-    pub friends: u32,
+    pub friends: Option<u32>,
     #[serde(default)]
-    pub followers: u32,
+    pub followers: Option<u32>,
 }
 
 /// The start screen's service data: messaging surfaces, inbox counts,
@@ -303,6 +302,8 @@ pub enum ConnectTarget {
     Realm(String),
     /// A friend's XUID from [`Friend::xuid`].
     Friend(String),
+    /// A gathering's experience ID from [`Gathering::id`].
+    Gathering(String),
 }
 
 impl ConnectTarget {
@@ -311,6 +312,7 @@ impl ConnectTarget {
             Self::RakNet(value) => ("raknet", value),
             Self::Realm(value) => ("realm", value),
             Self::Friend(value) => ("friend", value),
+            Self::Gathering(value) => ("gathering", value),
         };
         ConnectParams { kind, value }
     }
@@ -591,6 +593,11 @@ mod tests {
         );
         let friend = serde_json::to_string(&ConnectTarget::Friend("9".into()).params());
         assert_eq!(friend.expect("encode"), r#"{"kind":"friend","value":"9"}"#);
+        let gathering = serde_json::to_string(&ConnectTarget::Gathering("e".into()).params());
+        assert_eq!(
+            gathering.expect("encode"),
+            r#"{"kind":"gathering","value":"e"}"#
+        );
     }
 
     #[test]
