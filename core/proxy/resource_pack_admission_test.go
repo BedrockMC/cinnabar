@@ -9,8 +9,11 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,13 +47,13 @@ type offerTestDownstream struct {
 	writeStartOnce  sync.Once
 }
 
-func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resource.Pack, required bool) error {
+func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(offer minecraft.ResourcePackOfferSnapshot, required bool) error {
 	if downstream.configPanic != nil {
 		panic(downstream.configPanic)
 	}
 	downstream.configured = true
 	downstream.configuredOffer = true
-	downstream.offered = slices.Clone(packs)
+	downstream.offered = offer.Packs()
 	downstream.required = required
 	return downstream.err
 }
@@ -95,7 +98,7 @@ func TestConfigureResourcePackOfferForwardsOptionalSelectedStack(t *testing.T) {
 	if err := configureResourcePackOffer(downstream, stack); err != nil {
 		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required || !slices.Equal(downstream.offered, stack.packs) {
+	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required {
 		t.Fatalf("downstream offer = (offer=%t, stack=%t, offered=%d, required=%t), want selected optional offer and stack", downstream.configuredOffer, downstream.configuredStack, len(downstream.offered), downstream.required)
 	}
 	if got := len(upstream.ResourcePacks()); got != 2 {
@@ -135,8 +138,8 @@ func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibil
 	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true}); err != nil {
 		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.offered) != 1 {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, offered=%d, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, len(downstream.offered), downstream.required)
+	if !downstream.configured || !downstream.configuredStack || downstream.required {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, downstream.required)
 	}
 	if len(downstream.writes) != 0 {
 		t.Fatalf("downstream packet count = %d, want no pre-login Disconnect", len(downstream.writes))
@@ -169,23 +172,14 @@ func TestConfigureResourcePackOfferAllowsEmptyRequiredBitAsEmptyOptional(t *test
 	}
 }
 
-func TestSelectedResourcePackStackRetainsExactOrderAndOwnsClones(t *testing.T) {
+func TestAdmitResourcePacksKeepsStackOrderLessExcluded(t *testing.T) {
 	first := testAdmissionPack(t).WithDownloadURL("https://example.invalid/first")
 	second := testAdmissionPack(t).WithDownloadURL("https://example.invalid/second")
 	third := testAdmissionPack(t).WithDownloadURL("https://example.invalid/third")
 
-	stack := newSelectedResourcePackStack([]*resource.Pack{third, first}, true, resourcePackSize)
-	if !stack.required || len(stack.packs) != 2 {
-		t.Fatalf("selected stack = (required=%t, count=%d), want (true, 2)", stack.required, len(stack.packs))
-	}
-	if got := []string{stack.packs[0].DownloadURL(), stack.packs[1].DownloadURL()}; !slices.Equal(got, []string{"https://example.invalid/third", "https://example.invalid/first"}) {
-		t.Fatalf("selected order = %v", got)
-	}
-	if stack.packs[0] == third || stack.packs[1] == first {
-		t.Fatal("selected stack retained caller-owned pack pointers")
-	}
-	if slices.Contains(stack.packs, second) {
-		t.Fatal("selected stack retained a pack omitted by the server stack")
+	admitted := admitResourcePacks([]*resource.Pack{third, second, first}, func(pack *resource.Pack) bool { return pack == second }, resourcePackSize)
+	if got := []string{admitted[0].DownloadURL(), admitted[1].DownloadURL()}; len(admitted) != 2 || !slices.Equal(got, []string{"https://example.invalid/third", "https://example.invalid/first"}) {
+		t.Fatalf("admitted order = %v, want stack order less the excluded pack", got)
 	}
 }
 
@@ -217,7 +211,7 @@ func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsForwarded(t *testi
 	if len(stack.packs) != 2 {
 		t.Fatalf("retained selected count = %d, want 2", len(stack.packs))
 	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.offered) != 2 {
+	if !downstream.configured || !downstream.configuredStack || downstream.required {
 		t.Fatalf("downstream offer = (configured=%t, stack=%t, offered=%d, required=%t), want selected optional handoff", downstream.configured, downstream.configuredStack, len(downstream.offered), downstream.required)
 	}
 }
@@ -234,20 +228,20 @@ func TestConfigureResourcePackOfferStripsIgnoredSelection(t *testing.T) {
 }
 
 func TestSelectedResourcePackStackSkipsUnavailableNilAndOverBudgetPacks(t *testing.T) {
-	if _, err := captureSelectedResourcePackStack(newFakeUpstream(nil)); !errors.Is(err, errResourcePackStackUnavailable) {
+	if _, err := captureSelectedResourcePackStack(newFakeUpstream(nil), nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("missing post-negotiation snapshot error = %v", err)
 	}
 	// A nil entry is skipped, not fatal.
-	if stack := newSelectedResourcePackStack([]*resource.Pack{nil}, false, resourcePackSize); len(stack.packs) != 0 {
-		t.Fatalf("nil selected pack count = %d, want 0", len(stack.packs))
+	if admitted := admitResourcePacks([]*resource.Pack{nil}, nil, resourcePackSize); len(admitted) != 0 {
+		t.Fatalf("nil selected pack count = %d, want 0", len(admitted))
 	}
 	// Count beyond the bound truncates to the first maxSelectedResourcePacks.
 	tooMany := make([]*resource.Pack, maxSelectedResourcePacks+1)
 	for index := range tooMany {
 		tooMany[index] = testAdmissionPack(t)
 	}
-	if stack := newSelectedResourcePackStack(tooMany, false, resourcePackSize); len(stack.packs) != maxSelectedResourcePacks {
-		t.Fatalf("count overflow kept %d packs, want %d", len(stack.packs), maxSelectedResourcePacks)
+	if admitted := admitResourcePacks(tooMany, nil, resourcePackSize); len(admitted) != maxSelectedResourcePacks {
+		t.Fatalf("count overflow kept %d packs, want %d", len(admitted), maxSelectedResourcePacks)
 	}
 	// A pack whose size would break the byte bound is skipped while later packs
 	// that still fit are kept.
@@ -262,9 +256,8 @@ func TestSelectedResourcePackStackSkipsUnavailableNilAndOverBudgetPacks(t *testi
 			return 1, true
 		}
 	}
-	stack := newSelectedResourcePackStack([]*resource.Pack{first, second, third}, false, sizes)
-	if len(stack.packs) != 2 {
-		t.Fatalf("byte overflow kept %d packs, want the 2 that fit", len(stack.packs))
+	if admitted := admitResourcePacks([]*resource.Pack{first, second, third}, nil, sizes); len(admitted) != 2 {
+		t.Fatalf("byte overflow kept %d packs, want the 2 that fit", len(admitted))
 	}
 	if err := configureResourcePackOffer(new(offerTestDownstream), nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("nil prepared stack policy error = %v", err)
@@ -1266,7 +1259,7 @@ func TestPostCaptureFailureReleasesSelectedStackReferences(t *testing.T) {
 		return upstream, nil
 	}
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t)}}
-	connections.captureResourcePackStack = func(upstreamSession) (*selectedResourcePackStack, error) {
+	connections.captureResourcePackStack = func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
 		return stack, nil
 	}
 
@@ -1515,7 +1508,7 @@ func TestServePreparedConnectionReleasesTransferredOwnershipExactlyOnce(t *testi
 
 func newTestPreparedConnections() *preparedConnections {
 	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	connections.captureResourcePackStack = func(upstream upstreamSession) (*selectedResourcePackStack, error) {
+	connections.captureResourcePackStack = func(upstream upstreamSession, _ func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
 		var fake *fakeUpstream
 		switch upstream := upstream.(type) {
 		case *fakeUpstream:
@@ -1734,7 +1727,6 @@ func observedBudget(t *testing.T, info *packet.ResourcePacksInfo) (*resourcePack
 	var causes []error
 	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { causes = append(causes, cause) })
 	budget.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, info))
-	t.Cleanup(budget.stop)
 	return budget, &causes
 }
 
@@ -1795,93 +1787,183 @@ func admissionPackWithUUID(t *testing.T, id string) *resource.Pack {
 	return pack
 }
 
-// A pack whose transfer grew past its offer is dropped from the handoff while
-// the honest packs still apply; the join is never failed.
-func TestSelectedStackDropsBudgetExcludedGrownPacks(t *testing.T) {
-	const grownID = "aaaaaaaa-0000-0000-0000-000000000000"
-	grown := admissionPackWithUUID(t, grownID)
-	honest := admissionPackWithUUID(t, "bbbbbbbb-0000-0000-0000-000000000000")
-	stack := newSelectedResourcePackStack([]*resource.Pack{grown, honest}, false, resourcePackSize)
-	if len(stack.packs) != 2 {
-		t.Fatalf("selected count = %d, want 2 before exclusion", len(stack.packs))
-	}
-	stack.withoutPacks(func(pack *resource.Pack) bool { return pack.UUID().String() == grownID })
-	if len(stack.packs) != 1 || stack.packs[0].UUID().String() != honest.UUID().String() {
-		t.Fatalf("post-exclusion packs = %v, want only the honest pack", stack.packs)
-	}
+func started(source minecraft.ResourcePackSource, id uuid.UUID, size uint64) minecraft.ResourcePackEvent {
+	return minecraft.ResourcePackEvent{Kind: minecraft.ResourcePackStarted, Source: source, UUID: id, Version: "1.0.0", Size: size}
 }
 
-func dataInfo(id string, size uint64) *packet.ResourcePackDataInfo {
-	return &packet.ResourcePackDataInfo{UUID: id + "_1.0.0", DataChunkSize: 1, Size: size, Hash: make([]byte, 32)}
-}
-
-// A transfer larger than its offer, or for an unadvertised pack, is dropped from
-// the handoff without cancelling the join; only the memory ceiling cancels.
+// A transfer larger than its offer, or for an unadvertised pack, is dropped from the handoff
+// without cancelling the join; only the memory ceiling cancels.
 func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(t *testing.T) {
 	const mib = 1024 * 1024
 	info := packInfos(mib, mib)
-	grown, honest := info.TexturePacks[0].UUID.String(), info.TexturePacks[1].UUID.String()
+	grown, honest, unadvertised := info.TexturePacks[0].UUID, info.TexturePacks[1].UUID, uuid.New()
 	budget, causes := observedBudget(t, info)
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(grown, 5*mib)))
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(honest, mib)))
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo("unadvertised", mib)))
-	budget.mu.Lock()
-	excluded := map[string]bool{grown: budget.excluded[grown], honest: budget.excluded[honest], "unadvertised": budget.excluded["unadvertised"]}
-	budget.mu.Unlock()
-	if !excluded[grown] || excluded[honest] || !excluded["unadvertised"] || len(*causes) != 0 {
-		t.Fatalf("excluded = %v causes = %v, want only grown+unadvertised dropped and no cancel", excluded, *causes)
+	budget.event(started(minecraft.ResourcePackSourceChunks, grown, 5*mib))
+	budget.event(started(minecraft.ResourcePackSourceChunks, honest, mib))
+	budget.event(started(minecraft.ResourcePackSourceChunks, unadvertised, mib))
+	grownPack, honestPack := admissionPackWithUUID(t, grown.String()), admissionPackWithUUID(t, honest.String())
+	if !budget.excludes(grownPack) || budget.excludes(honestPack) || !budget.excludes(admissionPackWithUUID(t, unadvertised.String())) || len(*causes) != 0 {
+		t.Fatalf("causes = %v, want only grown+unadvertised dropped and no cancel", *causes)
+	}
+	if admitted := admitResourcePacks([]*resource.Pack{grownPack, honestPack}, budget.excludes, resourcePackSize); len(admitted) != 1 || admitted[0] != honestPack {
+		t.Fatalf("admitted = %v, want only the honest pack", admitted)
 	}
 
 	over, overCauses := observedBudget(t, packInfos(mib))
-	over.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo("flood", maxResourcePackTransferBytes+1)))
+	over.event(started(minecraft.ResourcePackSourceURL, uuid.New(), maxResourcePackTransferBytes+1))
 	if len(*overCauses) != 1 || !errors.Is((*overCauses)[0], errResourcePackTransferTooLarge) {
 		t.Fatalf("memory ceiling causes = %v", *overCauses)
 	}
 }
 
-// A stall cancels the dial; steady progress past the stall bound and completion do not.
-func TestAcquisitionBudgetCancelsStallButNotProgressOrCompletion(t *testing.T) {
-	fired := make(chan error, 4)
-	stalled := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
-	stalled.limit = time.Millisecond
-	stalled.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
+// cdnPackListener offers pack by URL from a CDN whose dialer-facing response is shaped by serve.
+func cdnPackListener(t *testing.T, serve func(http.ResponseWriter, *http.Request, []byte)) (minecraft.Network, *minecraft.Listener) {
+	t.Helper()
+	archive := testAdmissionPackArchive(t)
+	var fetched atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fetched.CompareAndSwap(false, true) {
+			_, _ = w.Write(archive) // the listener's own read of the pack
+			return
+		}
+		serve(w, r, archive)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(server.CloseClientConnections) // runs first so Close need not wait on a stalled handler
+	pack, err := resource.ReadURL(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
+	})
+	return network, listener
+}
+
+func dialBudgeted(ctx context.Context, network minecraft.Network, cancelled *atomic.Value) <-chan admissionDialResult {
+	dialCtx, cancelDial := context.WithCancelCause(ctx)
+	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) {
+		cancelled.Store(cause)
+		cancelDial(cause)
+	})
+	dialer := withResourcePackAcquisitionBudget(minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Budgeted"},
+		Protocol:     minecraft.DefaultProtocol,
+	}, budget)
+	done := make(chan admissionDialResult, 1)
+	go func() {
+		defer cancelDial(nil)
+		conn, err := dialer.DialContextNetwork(dialCtx, network, "")
+		done <- admissionDialResult{conn: conn, err: err}
+	}()
+	return done
+}
+
+// A CDN download that trickles in without any game packet is never cancelled by the core.
+func TestSlowCDNPackDownloadCompletesWithoutCancellation(t *testing.T) {
+	var served atomic.Bool
+	network, listener := cdnPackListener(t, func(w http.ResponseWriter, _ *http.Request, archive []byte) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		for offset := 0; offset < len(archive); offset += 16 {
+			served.Store(offset+16 >= len(archive))
+			_, _ = w.Write(archive[offset:min(offset+16, len(archive))])
+			w.(http.Flusher).Flush()
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var cancelled atomic.Value
+	done := dialBudgeted(ctx, network, &cancelled)
+	accepted, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accepted.Close()
+	if err := accepted.(*minecraft.Conn).StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 9}); err != nil {
+		t.Fatalf("start game: %v", err)
+	}
+	result := <-done
+	if result.err != nil || cancelled.Load() != nil || !served.Load() {
+		t.Fatalf("slow download: err=%v cancel=%v served=%t", result.err, cancelled.Load(), served.Load())
+	}
+	_ = result.conn.Close()
+}
+
+// A CDN that stops sending keeps the join waiting, as vanilla does, until the user cancels it.
+func TestStalledCDNPackDownloadWaitsForTheUserToCancel(t *testing.T) {
+	release := make(chan struct{})
+	network, _ := cdnPackListener(t, func(w http.ResponseWriter, r *http.Request, archive []byte) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	defer close(release)
+	ctx, cancelUser := context.WithCancel(context.Background())
+	var cancelled atomic.Value
+	done := dialBudgeted(ctx, network, &cancelled)
 	select {
-	case cause := <-fired:
-		if !errors.Is(cause, errResourcePackAcquisitionStalled) {
-			t.Fatalf("stalled acquisition cause = %v", cause)
+	case result := <-done:
+		t.Fatalf("stalled download ended on its own: %v", result.err)
+	case <-time.After(750 * time.Millisecond):
+	}
+	cancelUser()
+	select {
+	case result := <-done:
+		if !errors.Is(result.err, context.Canceled) || cancelled.Load() != nil {
+			t.Fatalf("user cancel: err=%v core cancel=%v", result.err, cancelled.Load())
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("stalled acquisition was not cancelled")
-	}
-
-	steady := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
-	steady.limit = 100 * time.Millisecond
-	info := packInfos(1)
-	steady.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, info))
-	for range 6 {
-		time.Sleep(40 * time.Millisecond)
-		steady.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, nil)
-	}
-	steady.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(info.TexturePacks[0].UUID.String(), 1)))
-	steady.observe(packet.Header{PacketID: packet.IDResourcePackStack}, nil)
-	select {
-	case cause := <-fired:
-		t.Fatalf("progressing acquisition was cancelled after outlasting the stall bound: %v", cause)
-	case <-time.After(250 * time.Millisecond):
+		t.Fatal("user cancel did not abort the stalled download")
 	}
 }
 
-// Chunk bytes report against the admitted offer's total.
-func TestAcquisitionBudgetReportsChunkProgressAgainstTheAdmittedTotal(t *testing.T) {
-	var reports []ResourcePackDownload
-	budget, _ := observedBudget(t, packInfos(300, 700))
-	budget.onProgress = func(download ResourcePackDownload) { reports = append(reports, download) }
-	chunk := &packet.ResourcePackChunkData{UUID: "pack", Data: make([]byte, 250)}
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, chunk))
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, chunk))
-	want := []ResourcePackDownload{{ReceivedBytes: 250, TotalBytes: 1000}, {ReceivedBytes: 500, TotalBytes: 1000}}
+// Like vanilla, totals grow as each download begins, cache hits leave the pack count, a pack
+// finishes on its completion, and a failed URL download is reverted before its chunk fallback.
+func TestAcquisitionBudgetReportsVanillaPackProgress(t *testing.T) {
+	var reports []ConnectProgress
+	info := packInfos(300, 700, 50)
+	budget, _ := observedBudget(t, info)
+	budget.onProgress = func(progress ConnectProgress) { reports = append(reports, progress) }
+	first, second, cached := info.TexturePacks[0].UUID, info.TexturePacks[1].UUID, info.TexturePacks[2].UUID
+	event := func(kind minecraft.ResourcePackEventKind, source minecraft.ResourcePackSource, id uuid.UUID, size uint64) {
+		budget.event(minecraft.ResourcePackEvent{Kind: kind, Source: source, UUID: id, Version: "1.0.0", Size: size})
+	}
+	url, chunks := minecraft.ResourcePackSourceURL, minecraft.ResourcePackSourceChunks
+	event(minecraft.ResourcePackFinished, minecraft.ResourcePackSourceCache, cached, 50)
+	event(minecraft.ResourcePackStarted, url, first, 300)
+	event(minecraft.ResourcePackReceived, url, first, 100)
+	event(minecraft.ResourcePackFailed, url, first, 0)
+	event(minecraft.ResourcePackStarted, chunks, first, 300)
+	event(minecraft.ResourcePackReceived, chunks, first, 300)
+	event(minecraft.ResourcePackFinished, chunks, first, 0)
+	event(minecraft.ResourcePackStarted, url, second, 700)
+	event(minecraft.ResourcePackReceived, url, second, 350)
+	packs := func(done, total uint32, received, bytes uint64) ConnectProgress {
+		return ConnectProgress{Stage: ConnectStagePacks, PacksDone: done, PacksTotal: total, ReceivedBytes: received, TotalBytes: bytes}
+	}
+	want := []ConnectProgress{
+		packs(0, 2, 0, 0),
+		packs(0, 2, 0, 300),
+		packs(0, 2, 100, 300),
+		packs(0, 2, 0, 0),
+		packs(0, 2, 0, 300),
+		packs(0, 2, 300, 300),
+		packs(1, 2, 300, 300),
+		packs(1, 2, 300, 1000),
+		packs(1, 2, 650, 1000),
+	}
 	if !slices.Equal(reports, want) {
-		t.Fatalf("reports = %+v, want %+v", reports, want)
+		t.Fatalf("reports = %+v\nwant %+v", reports, want)
+	}
+	budget.finish()
+	event(minecraft.ResourcePackReceived, url, second, 350)
+	if len(reports) != len(want) {
+		t.Fatal("an event after the dial returned was reported")
 	}
 }
 
@@ -1918,16 +2000,105 @@ func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 		t.Fatalf("budgeted dial: %v", result.err)
 	}
 	defer result.conn.Close()
-	stack, err := captureSelectedResourcePackStack(result.conn)
+	stack, err := captureSelectedResourcePackStack(result.conn, nil)
 	if err != nil {
 		t.Fatalf("capture stack: %v", err)
 	}
-	if len(stack.packs) != 1 || stack.packs[0].UUID() != pack.UUID() {
-		t.Fatalf("captured stack packs = %d, want the acquired required pack", len(stack.packs))
+	if len(stack.packs) != 1 || stack.packs[0].UUID() != pack.UUID() || !stack.offer.TexturePackRequired() {
+		t.Fatalf("captured stack packs = %d, want the acquired required pack with the upstream offer", len(stack.packs))
+	}
+	if entries := stack.offer.TexturePacks(); len(entries) != 1 || entries[0].Info().UUID != pack.UUID() || entries[0].Info().Size != uint64(pack.Size()) {
+		t.Fatalf("projected offer entries = %+v", entries)
+	}
+	// An excluded pack is gone from both the offer and the stack, so configuring them cannot restore it.
+	excluded, err := captureSelectedResourcePackStack(result.conn, func(*resource.Pack) bool { return true })
+	if err != nil {
+		t.Fatalf("capture excluded stack: %v", err)
+	}
+	for _, entry := range excluded.snapshot.Entries() {
+		if entry.UUID() == pack.UUID().String() {
+			t.Fatal("the excluded pack stayed in the stack")
+		}
+	}
+	if len(excluded.packs) != 0 || len(excluded.offer.TexturePacks()) != 0 {
+		t.Fatalf("excluded capture kept %d packs", len(excluded.packs))
 	}
 	telemetry := newResourcePackAdmissionTelemetry(1, nil)
 	telemetry.observeOffer(result.conn)
 	if got := telemetry.snapshot(); got.Offer != ResourcePackOfferRequired || got.Acquisition != ResourcePackAcquisitionComplete {
 		t.Fatalf("telemetry = %#v, want complete required acquisition", got)
+	}
+}
+
+// A join reports vanilla's stages in order, and closing the client mid-download aborts the
+// core's upstream dial and CDN request.
+func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
+	aborted := make(chan struct{})
+	upstreamNetwork, _ := cdnPackListener(t, func(w http.ResponseWriter, r *http.Request, archive []byte) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		close(aborted)
+	})
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	var mu sync.Mutex
+	var stages []ConnectStage
+	downloading := make(chan struct{})
+	var once sync.Once
+	connections.connectProgress = func(progress ConnectProgress) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(stages) == 0 || stages[len(stages)-1] != progress.Stage {
+			stages = append(stages, progress.Stage)
+		}
+		if progress.Stage == ConnectStagePacks {
+			once.Do(func() { close(downloading) })
+		}
+	}
+	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		reportConnectStage(ctx, ConnectStageRealm)
+		return &resolvedUpstreamTarget{network: upstreamNetwork, realm: true}, nil
+	}
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		return dialer.DialContextNetwork(ctx, target.network, "")
+	}
+	prepared := make(chan error, 1)
+	_, network := newAdmissionTestListener(t, func(ctx context.Context, conn *minecraft.Conn) error {
+		err := connections.prepare(ctx, conn)
+		prepared <- err
+		return err
+	})
+	clientCtx, cancelClient := context.WithCancel(context.Background())
+	go func() {
+		conn, err := (minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "Cancel"}, Protocol: minecraft.DefaultProtocol}).DialContextNetwork(clientCtx, network, "")
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+	select {
+	case <-downloading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pack stage was never reported")
+	}
+	cancelClient()
+	select {
+	case err := <-prepared:
+		var cancelled *preparationCancellationError
+		if !errors.As(err, &cancelled) {
+			t.Fatalf("prepare error = %v, want a preparation cancellation", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing the client did not end the preparation")
+	}
+	select {
+	case <-aborted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the CDN request outlived the cancelled join")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []ConnectStage{ConnectStageRealm, ConnectStageConnecting, ConnectStagePacks, ""}; !slices.Equal(stages, want) {
+		t.Fatalf("stages = %q, want %q", stages, want)
 	}
 }

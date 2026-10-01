@@ -460,8 +460,9 @@ fn generate_chain_internal(
     let (skin_data_b64, skin_image_width, skin_image_height, arm_size) =
         client_data_skin_fields(skin);
 
-    // Device ID is a UUID
-    let device_id = Uuid::new_v4().to_string();
+    // The GDK Windows client reports Win32 with a lowercase-hex device ID; BDS 1.26.5x
+    // drops logins that claim the retired Win10 platform.
+    let device_id = Uuid::new_v4().simple().to_string();
 
     let client_claims = ClientDataPayload {
         animated_image_data: vec![],
@@ -477,7 +478,7 @@ fn generate_chain_internal(
         default_input_mode: 1,
         device_id,
         device_model: "JolyneClient".into(),
-        device_os: 7, // Win10
+        device_os: 8, // Win32 (GDK)
         game_version: crate::valentine::GAME_VERSION.into(),
         graphics_mode: 0,
         gui_scale: 0,

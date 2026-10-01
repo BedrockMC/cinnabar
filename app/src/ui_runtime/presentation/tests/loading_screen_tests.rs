@@ -50,11 +50,10 @@ fn loading_screen_names_the_join_stage_over_the_dimensions_backdrop() {
     presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
         .unwrap();
-    assert!(
-        texts(&presentation)
-            .iter()
-            .any(|text| text == "Building terrain")
-    );
+    let shown = texts(&presentation);
+    for wanted in ["Generating World", "Building terrain"] {
+        assert!(shown.iter().any(|text| text == wanted), "{shown:?}");
+    }
     assert!(has_sprite(&presentation, "textures/blocks/netherrack"));
 }
 
@@ -83,6 +82,7 @@ fn loading_screen_snapshot() {
     };
     // The first frame places pack textures; the second draws their full-resolution copies.
     build(&mut presentation);
+    presentation.finish_menu_artwork();
     let input = build(&mut presentation);
     super::super::forms::snapshot::write(&input, "loading_screen");
     if std::env::var_os("CINNABAR_FORM_PACK_DIR").is_some() {

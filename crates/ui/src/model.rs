@@ -37,7 +37,7 @@ pub enum UiBlendMode {
     Invert,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum UiVisual {
     #[default]
     None,
@@ -113,7 +113,7 @@ pub enum TextShadow {
     Offset64(u32),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UiNode {
     id: UiNodeId,
     parent: Option<UiNodeId>,

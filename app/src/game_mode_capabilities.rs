@@ -5,7 +5,7 @@
 use protocol::{AbilitiesUpdate, AbilityLayersEvidence, PlayerGameMode};
 
 /// Documented survival/adventure melee reach from the eye.
-const SURVIVAL_ATTACK_REACH: f64 = 3.0;
+pub(crate) const SURVIVAL_ATTACK_REACH: f64 = 3.0;
 /// Creative melee reach. Needs independent measurement.
 const CREATIVE_ATTACK_REACH: f64 = 7.0;
 
@@ -124,24 +124,9 @@ impl GameModeCapabilities {
                 attack_reach: 0.0,
                 creative_reach: false,
             },
-            // Fail closed on an unresolved mode: no interaction until one arrives.
-            PlayerGameMode::Unknown => Self {
-                can_build: false,
-                can_mine: false,
-                can_use_switches: false,
-                can_open_containers: false,
-                can_use_items: false,
-                can_attack: false,
-                can_fly: false,
-                flying: false,
-                creative_inventory: false,
-                instant_break: false,
-                invulnerable: false,
-                visible: true,
-                has_collision: true,
-                attack_reach: 0.0,
-                creative_reach: false,
-            },
+            // `Player::_setPlayerGameType` gives any id but survival the base GameMode, which
+            // interacts freely; server abilities still refine Build and Mine.
+            PlayerGameMode::Unknown => Self::for_mode(PlayerGameMode::Survival),
         }
     }
 

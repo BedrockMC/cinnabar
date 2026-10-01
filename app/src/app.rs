@@ -764,101 +764,104 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         Color::srgb(0.035, 0.043, 0.059)
     };
-    app.insert_resource(frame_limited_winit_settings(args.frame_cap))
-        .insert_resource(ClearColor(clear_color))
-        .insert_resource(shutdown_watchdog.clone())
-        .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
-        .insert_resource(present_mode_runtime)
-        .insert_resource(core_process)
-        .insert_resource(client_blob_cache)
-        .insert_resource(network)
-        .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(actor_artwork)
-        .insert_resource(ClientWorld::new_with_entity_assets(
-            Arc::clone(&runtime_assets),
-            entity_runtime,
-        ))
-        .insert_resource({
-            let mut ui_runtime = UiRuntime::new(0);
-            ui_runtime.set_lang_catalog(lang_assets.into_runtime());
-            ui_runtime.set_active_language(active_lang);
-            ui_runtime
-        })
-        .insert_resource(ui_presentation)
-        .insert_resource(WorldClock::default())
-        .insert_resource(WeatherState::default())
-        .insert_resource(environment::CameraMediumState::default())
-        .insert_resource(environment::LightningFlashState::default())
-        .insert_resource(EnvironmentContext::default())
-        .insert_resource(EnvironmentProfileRoute::default())
-        .insert_resource(movement_ticker)
-        .insert_resource(if args.freecam || args.auto_fly {
-            PhysicsAuthorityGate::ProductionDisabled
-        } else if args.phase3_candidate_physics {
-            PhysicsAuthorityGate::CandidateEvidence
+    app.insert_resource(frame_limited_winit_settings(
+        args.frame_cap,
+        args.acceptance_seconds.is_some(),
+    ))
+    .insert_resource(ClearColor(clear_color))
+    .insert_resource(shutdown_watchdog.clone())
+    .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
+    .insert_resource(present_mode_runtime)
+    .insert_resource(core_process)
+    .insert_resource(client_blob_cache)
+    .insert_resource(network)
+    .insert_resource(ResourcePackAdmissionState::default())
+    .insert_resource(actor_artwork)
+    .insert_resource(ClientWorld::new_with_entity_assets(
+        Arc::clone(&runtime_assets),
+        entity_runtime,
+    ))
+    .insert_resource({
+        let mut ui_runtime = UiRuntime::new(0);
+        ui_runtime.set_lang_catalog(lang_assets.into_runtime());
+        ui_runtime.set_active_language(active_lang);
+        ui_runtime
+    })
+    .insert_resource(ui_presentation)
+    .insert_resource(WorldClock::default())
+    .insert_resource(WeatherState::default())
+    .insert_resource(environment::CameraMediumState::default())
+    .insert_resource(environment::LightningFlashState::default())
+    .insert_resource(EnvironmentContext::default())
+    .insert_resource(EnvironmentProfileRoute::default())
+    .insert_resource(movement_ticker)
+    .insert_resource(if args.freecam || args.auto_fly {
+        PhysicsAuthorityGate::ProductionDisabled
+    } else if args.phase3_candidate_physics {
+        PhysicsAuthorityGate::CandidateEvidence
+    } else {
+        PhysicsAuthorityGate::ProductionEnabled
+    })
+    .insert_resource(local_player_skin.clone())
+    .insert_resource(MenuRuntime::new_with_layout(
+        !connection_requested,
+        args.gui_scale.unwrap_or(args::DEFAULT_GUI_SCALE),
+        args.display_name.clone(),
+        layout,
+        local_player_skin,
+    ))
+    .init_resource::<crate::menu::MenuClipboard>()
+    .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
+    .insert_resource(named_audio)
+    .insert_resource(audio_engine)
+    .insert_non_send_resource(audio_device)
+    .insert_resource(LocalPhysicsController::default())
+    .insert_resource(LocalMovementEffectTimeline::default())
+    .insert_resource(LocalMovementSpeedAuthority::default())
+    .insert_resource(collision_registries)
+    .insert_resource(actor_render_scene)
+    .insert_resource(equipment_runtime)
+    .insert_resource(hand_rig_builder)
+    .insert_resource(AtmosphereFrame::default())
+    .insert_resource(weather_textures)
+    .insert_resource(AtmosphereTextureAssets::new(
+        atmosphere_runtime,
+        atmosphere_identity,
+    ))
+    .insert_resource(startup_biome_tints(&runtime_assets))
+    .insert_resource(ChunkTextureAssets::new(runtime_assets))
+    .insert_resource(CaveVisibilityCache::default())
+    .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
+    .insert_resource(runtime_config)
+    .insert_resource(AppMetrics(
+        if let Some(sample_seconds) = args.metrics_sample_seconds {
+            MetricsCollector::with_asset_metrics_window(
+                asset_metrics,
+                std::time::Duration::from_secs(args.metrics_warmup_seconds),
+                std::time::Duration::from_secs(sample_seconds),
+            )
         } else {
-            PhysicsAuthorityGate::ProductionEnabled
-        })
-        .insert_resource(local_player_skin.clone())
-        .insert_resource(MenuRuntime::new_with_layout(
-            !connection_requested,
-            args.gui_scale.unwrap_or(args::DEFAULT_GUI_SCALE),
-            args.display_name.clone(),
-            layout,
-            local_player_skin,
-        ))
-        .init_resource::<crate::menu::MenuClipboard>()
-        .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
-        .insert_resource(named_audio)
-        .insert_resource(audio_engine)
-        .insert_non_send_resource(audio_device)
-        .insert_resource(LocalPhysicsController::default())
-        .insert_resource(LocalMovementEffectTimeline::default())
-        .insert_resource(LocalMovementSpeedAuthority::default())
-        .insert_resource(collision_registries)
-        .insert_resource(actor_render_scene)
-        .insert_resource(equipment_runtime)
-        .insert_resource(hand_rig_builder)
-        .insert_resource(AtmosphereFrame::default())
-        .insert_resource(weather_textures)
-        .insert_resource(AtmosphereTextureAssets::new(
-            atmosphere_runtime,
-            atmosphere_identity,
-        ))
-        .insert_resource(startup_biome_tints(&runtime_assets))
-        .insert_resource(ChunkTextureAssets::new(runtime_assets))
-        .insert_resource(CaveVisibilityCache::default())
-        .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
-        .insert_resource(runtime_config)
-        .insert_resource(AppMetrics(
-            if let Some(sample_seconds) = args.metrics_sample_seconds {
-                MetricsCollector::with_asset_metrics_window(
-                    asset_metrics,
-                    std::time::Duration::from_secs(args.metrics_warmup_seconds),
-                    std::time::Duration::from_secs(sample_seconds),
-                )
-            } else {
-                MetricsCollector::with_asset_metrics_and_warmup(
-                    asset_metrics,
-                    std::time::Duration::from_secs(args.metrics_warmup_seconds),
-                )
-            },
-        ))
-        .insert_resource(DiagnosticQuads::default())
-        .insert_resource(block_entity_scene)
-        .insert_resource(PublicationController::new(
-            PublicationServiceConfig::PHASE2_GATE,
-        ))
-        .insert_resource(TransparentWitnessFileSource::new(
-            args.transparent_witness_request,
-        ))
-        .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
-        .insert_resource(AcceptanceRun::new(
-            args.acceptance_seconds,
-            args.metrics_out,
-            args.full_view_teleport_gate,
-            args.require_transparent_presentation,
-        ));
+            MetricsCollector::with_asset_metrics_and_warmup(
+                asset_metrics,
+                std::time::Duration::from_secs(args.metrics_warmup_seconds),
+            )
+        },
+    ))
+    .insert_resource(DiagnosticQuads::default())
+    .insert_resource(block_entity_scene)
+    .insert_resource(PublicationController::new(
+        PublicationServiceConfig::PHASE2_GATE,
+    ))
+    .insert_resource(TransparentWitnessFileSource::new(
+        args.transparent_witness_request,
+    ))
+    .insert_resource(ModelWitnessFileSource::new(args.model_witness_request))
+    .insert_resource(AcceptanceRun::new(
+        args.acceptance_seconds,
+        args.metrics_out,
+        args.full_view_teleport_gate,
+        args.require_transparent_presentation,
+    ));
     if stage_profile_enabled {
         const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
         app.insert_resource(RuntimeStageProfiler::new(true))
@@ -919,80 +922,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 }
 
 #[cfg(test)]
-mod direct_session_directory_tests {
-    use super::*;
-    use crate::args::ParseOutcome;
-
-    fn run_args(arguments: &[&str]) -> args::ClientArgs {
-        match args::ClientArgs::parse_from(arguments.to_vec()) {
-            Ok(ParseOutcome::Run(parsed)) => *parsed,
-            outcome => panic!("expected run arguments, got {outcome:?}"),
-        }
-    }
-
-    fn temporary_root(label: &str) -> std::path::PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock must be after the Unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("rust-mcbe-{label}-{}-{nonce}", std::process::id()))
-    }
-
-    #[test]
-    fn explicit_non_grammar_socket_dir_starts_without_a_guard() {
-        // Base behavior: documented custom socket directories are accepted
-        // even though their leaf violates the session-directory grammar.
-        let root = temporary_root("explicit-sock-dir");
-        let custom = root.join("custom.sock");
-        let parsed = run_args(&[
-            "client",
-            "--address",
-            "127.0.0.1:19132",
-            "--socket-dir",
-            custom.to_str().expect("temp path is UTF-8"),
-        ]);
-        assert!(parsed.socket_dir_explicit);
-
-        let holder = bind_direct_session_directory(&parsed, resolve_socket_dir(&parsed.socket_dir))
-            .expect("an explicit non-grammar socket directory must start cleanly");
-        assert!(
-            custom.is_dir(),
-            "the historical side effect of ensuring the directory exists stays"
-        );
-        let owned_entries = fs::read_dir(&custom)
-            .expect("read prepared socket directory")
-            .count();
-        assert_eq!(
-            owned_entries, 0,
-            "unguarded operator directories never receive an ownership marker"
-        );
-        drop(holder);
-        assert!(
-            custom.is_dir(),
-            "teardown leaves an unowned operator directory untouched"
-        );
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn derived_default_directory_still_binds_the_guard() {
-        let root = temporary_root("derived-sock-dir");
-        fs::create_dir_all(&root).expect("create temp root");
-        let parsed = run_args(&["client", "--address", "127.0.0.1:19132"]);
-        assert!(!parsed.socket_dir_explicit);
-        let socket_dir = root.join("direct-123");
-
-        let holder = bind_direct_session_directory(&parsed, socket_dir.clone())
-            .expect("app-derived directories keep exclusive ownership");
-        assert!(socket_dir.is_dir(), "binding prepares the owned directory");
-        drop(holder);
-        assert!(
-            !socket_dir.exists(),
-            "default-path ownership and teardown are unchanged"
-        );
-        let _ = fs::remove_dir_all(&root);
-    }
-}
+mod direct_session_directory_tests;
 
 #[cfg(test)]
 mod preg_startup_tests;

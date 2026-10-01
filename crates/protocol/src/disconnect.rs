@@ -30,6 +30,28 @@ impl ServerDisconnectEvent {
     }
 }
 
+impl crate::ProtocolError {
+    /// The server's Disconnect that ended the join, when one did.
+    pub fn server_disconnect(&self) -> Option<ServerDisconnectEvent> {
+        let Self::Session(jolyne::error::JolyneError::Protocol(
+            jolyne::error::ProtocolError::ServerDisconnect {
+                reason,
+                message,
+                filtered_message,
+                ..
+            },
+        )) = self
+        else {
+            return None;
+        };
+        Some(ServerDisconnectEvent {
+            reason: clamp_bytes(reason, MAX_REASON_LABEL_BYTES),
+            message: bounded_text(message),
+            filtered_message: bounded_text(filtered_message),
+        })
+    }
+}
+
 fn reason_label(reason: &EnumsConnectionDisconnectFailReason) -> String {
     clamp_bytes(&format!("{reason:?}"), MAX_REASON_LABEL_BYTES)
 }
@@ -134,6 +156,27 @@ mod tests {
         ))
         .expect("unknown reason normalizes");
         assert_eq!(unknown.reason, "UnknownValue(-7)");
+    }
+
+    #[test]
+    fn a_join_time_disconnect_keeps_the_server_text() {
+        let error = crate::ProtocolError::Session(
+            jolyne::error::ProtocolError::ServerDisconnect {
+                stage: "login",
+                reason: "Unknown".to_owned(),
+                message: "disconnectionScreen.cantConnect".to_owned(),
+                filtered_message: String::new(),
+            }
+            .into(),
+        );
+        let event = error.server_disconnect().expect("disconnect retained");
+        assert_eq!(
+            event.message.as_deref(),
+            Some("disconnectionScreen.cantConnect")
+        );
+        assert_eq!(event.filtered_message, None);
+        let closed = crate::ProtocolError::Session(jolyne::error::JolyneError::ConnectionClosed);
+        assert!(closed.server_disconnect().is_none());
     }
 
     #[test]

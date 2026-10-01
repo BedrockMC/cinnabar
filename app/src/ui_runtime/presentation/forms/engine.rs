@@ -9,7 +9,7 @@ use std::{borrow::Borrow, cell::RefCell, sync::Arc};
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, ViewState, bind_form, render_bound,
+    ResolvedControl, ViewState, bind_form, render_bound_gated,
 };
 use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 
@@ -19,7 +19,7 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 mod fill_renderers;
 pub(crate) mod hud_renderers;
 mod menu_renderers;
-mod screen_cache;
+pub(super) mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
@@ -87,11 +87,12 @@ pub(super) struct EngineInputs<'a> {
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, catalog: Catalog, first_page: u16) -> Self {
         let vanilla = Arc::new(catalog);
-        let base = Arc::new(with_java_hud(&vanilla, &Default::default()));
+        let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
         Self {
             textures: TextureSet::new(&assets, first_page),
             assets,
             catalog: Arc::clone(&base),
+            screens: screen_cache::ScreenCache::resolving_settings(&base),
             vanilla,
             base,
             context: super::menu_screens::retail_context(),
@@ -100,7 +101,6 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
-            screens: screen_cache::ScreenCache::default(),
         }
     }
 
@@ -181,8 +181,7 @@ impl FormEngine {
         (drawn, missing)
     }
 
-    /// Re-apply a server resource pack's ui files over the vanilla catalog and
-    /// the Java HUD pack; an empty set restores the base catalog.
+    /// Apply a server pack's ui files over vanilla and the Java HUD pack; none restores the base.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
             self.catalog = Arc::clone(&self.base);
@@ -198,7 +197,7 @@ impl FormEngine {
                 )
             })
             .collect();
-        let mut catalog = with_java_hud(&self.vanilla, &touched);
+        let mut catalog = hud_renderers::with_java_hud(&self.vanilla, &touched);
         for files in layers {
             catalog.apply_pack(
                 files
@@ -216,8 +215,7 @@ impl FormEngine {
         self.catalog = Arc::new(catalog);
     }
 
-    /// Render `model` into `nodes`; `Ok(None)` when its template is missing. The
-    /// bound tree and layout are reused until their inputs change.
+    /// Render `model`; `Ok(None)` without its template. Layout holds until model or scroll change.
     pub(super) fn render(
         &mut self,
         model: &FormModel,
@@ -249,21 +247,25 @@ impl FormEngine {
             .as_ref()
             .and_then(|cache| cache.screen_cancel.clone());
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
+        let screen_art = ScreenArt {
+            view: Some(view),
+            ..ScreenArt::default()
+        };
         let frame = render_with(
             art,
             inputs,
             out,
-            ScreenArt::default(),
+            screen_art,
             Some(identity),
             move |env, root| {
                 let cache = cache.as_mut()?;
-                let fresh = cache
-                    .laid
-                    .as_ref()
-                    .is_some_and(|laid| laid.view == *view && laid.root == root && laid.px == px);
+                let fresh = cache.laid.as_ref().is_some_and(|laid| {
+                    laid.view.scroll == view.scroll && (laid.root, laid.px) == (root, px)
+                });
                 if !fresh {
                     *passes += 1;
-                    let render = render_bound(cache.bound.clone(), root, env, view);
+                    let measures = &mut Default::default();
+                    let render = render_bound_gated(cache.bound.clone(), root, env, view, measures);
                     cache.laid = Some(LaidForm {
                         view: view.clone(),
                         root,
@@ -284,9 +286,9 @@ impl FormEngine {
         &self.assets
     }
 
-    /// Resolve `reference` under `context` in the background ahead of its first open.
-    pub(super) fn prewarm(&self, reference: &'static str, context: Context) {
-        self.screens.prewarm(reference, &self.catalog, context);
+    /// Lay `screen` out in the background ahead of its first open.
+    pub(super) fn prepare(&self, screen: screen_cache::Prepared) {
+        self.screens.prepare(screen, self);
     }
 
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
@@ -303,8 +305,7 @@ impl FormEngine {
         &self.context
     }
 
-    /// Paint what `draw` lays out (given the layout env and root size) over this
-    /// engine's textures; `Ok(None)` when it lays out nothing.
+    /// Paint what `draw` lays out over this engine's textures; `Ok(None)` when it lays out nothing.
     pub(super) fn draw<R: Borrow<FormRender>>(
         &self,
         art: ScreenArt<'_>,
@@ -315,19 +316,19 @@ impl FormEngine {
         render_with(self.art(), inputs, out, art, None, draw)
     }
 
-    /// Render an allow-listed screen against `data`; `art` backs its custom
-    /// renderers (item icons, the player preview, the pointer tooltip).
+    /// Render an allow-listed screen against `data` under `view`; `art` backs its custom renderers.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn render_screen(
+    pub(super) fn render_screen<'a>(
         &self,
         reference: &str,
         data: &DataSource,
         context: &Context,
-        view: &ViewState,
-        art: ScreenArt<'_>,
+        view: &'a ViewState,
+        mut art: ScreenArt<'a>,
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        art.view = Some(view);
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = (inputs.translate)("menu.play");
         render_with(self.art(), inputs, out, art, None, |env, root| {
@@ -344,26 +345,6 @@ impl FormEngine {
             self.screens.render(key, env)
         })
     }
-}
-
-/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
-/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
-fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
-    let mut catalog = vanilla.clone();
-    let kept = super::hud::JAVA_HUD_PACK
-        .iter()
-        .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
-        .map(|(path, _, bytes)| (*path, *bytes));
-    catalog.apply_pack(kept);
-    catalog.apply_pack(
-        [(
-            "ui/cinnabar_title.json",
-            menu_renderers::TITLE_PANEL_OVERLAY,
-        )]
-        .into_iter()
-        .chain(menu_renderers::NO_COPYRIGHT_OVERLAYS),
-    );
-    catalog
 }
 
 fn render_with<R: Borrow<FormRender>>(
