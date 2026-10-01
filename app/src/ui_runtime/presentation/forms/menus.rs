@@ -513,7 +513,13 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
-            ..HitRegion::default()
+            drag_axes: [false; 2],
+            sound: None,
+            input: Default::default(),
+            focus: None,
+            collections: Vec::new(),
+            widget: Default::default(),
+            modal_root: None,
         };
         let hits = segments(&region, 3, 2.0, [5.0, 7.0]);
         for (track_x, expected) in [
