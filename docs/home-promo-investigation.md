@@ -1,7 +1,8 @@
 # Start-screen promo investigation
 
-The left-hand promo is still incomplete. The verified change sends the selected
-UI language to player messaging; it does not add a guessed placement or control.
+The left-hand promo is the gathering panel. Its parity gate remains incomplete:
+the offline fixture is authored, and the exact current public-config request and
+complete click behavior still need verification.
 
 ## Owner evidence
 
@@ -44,7 +45,10 @@ unfixed. RVA `0x5498290` parses the start response's `result.id` as the session
 ID and `reportFrequency` (default 20), then handles the shared messages/inbox
 response at `0x544b210`. The pinned Go client cannot update its session ID, so
 rewriting only the first request URL would be insufficient. Previous-session
-persistence and the HTTP Session-Id identity still need verification.
+persistence and service-session lifecycle still need verification. The HTTP
+Session-Id is separate from the messaging JSON session ID: base request
+constructor `0x8667510` copies the service's session string, and POST builder
+`0x54497e0` uses it. Supplying the messaging client's ID there would be wrong.
 
 The supplied `v1.26.50.4/full/resource_pack/ui/start_screen.json` confirms the
 existing main-button banners:
@@ -91,9 +95,65 @@ metadata and request cloning. Removing the locale setter makes the regression
 fail with an empty Accept-Language header; restoring it passes. A Rust launcher
 argument test checks `pt_BR` becomes `pt-BR`.
 
-No live Microsoft, PlayFab or Xbox calls were made. No tile-present snapshot or
-before/after visual acceptance is claimed. The missing reference must be resolved
-before this investigation can close the promo bug.
+No live Microsoft, PlayFab or Xbox calls were made. The earlier investigation did
+not capture a tile-present snapshot or close visual acceptance.
+
+## Desktop gathering correction
+
+The Android/Google query literals were in `core/catalog/home.go`, not the fork.
+`core/clientplatform` now owns the desktop identity; the gatherings query and the
+common authenticated service token configuration use it. Messaging, persona,
+marketplace and discovery do not have equivalent platform query parameters in
+their current request builders. Their shared token source already defaults to
+Windows, and now receives that platform explicitly from the same constant.
+The XAL Android OAuth application configuration is separate from these service
+platform fields and has not been changed.
+
+Current Lens source-backed artifact 6 (`1.26.50.26`) has the build accessors at
+RVAs `0x94f40` (`Windows10`, nine characters) and `0x94f70` (`Win32`, five
+characters). The gathering manager constructor at `0x542a4c0` registers service
+name `gatherings`. This corroborates the fork's discovery key; a discovered host
+containing `gatherings-secondary` is not evidence for changing that key.
+Current controller callback `0x558aa50` localizes the configured button text or
+falls back to `gathering.button.liveEventFallback`, which is now also used by the
+Rust home-feed mapping. The pack's `texts/en_US.lang:11964` supplies “Join Game”.
+
+The exact public request is positively identified in the older Lens client:
+`GatheringManager::_setupRefreshTask()::$_0::invoke`, VA `0x1046e7cd0`, constructs
+the GET handler for `/api/v1.0/config/public` and calls
+`GatheringServiceRequestHandler::_getRequestUriParameters`, VA `0x1046b7430`.
+The latter reads the network game version and the build's platform/subplatform
+virtual accessors, omitting the subplatform only when empty. The mcsrc references
+are `R:g/GatheringServiceRequestHandler.cpp:33` (query construction),
+`R:g/GatheringService.cpp:1944` (host resolution; discovery registration at 1980),
+and `R:g/GatheringServiceRequest.cpp:421` / `:469` (Authorization / Session-Id).
+The request code sets JSON Content-Type only when it has a nonempty body.
+The fork's public-config request uses its supplied Minecraft service token.
+These older request details have not yet been matched to a current Lens public
+request body; unsuccessful literal searches do not prove it was removed.
+The endpoint and authentication implementation therefore remain unchanged.
+
+The binding registration is `R:s/StartMenuScreenController.cpp:2645` through
+`:2814`. Its badge callback (`0x10323f390`) returns downloaded art or the built-in
+badge. Its file-system callback (`0x10323f450`) returns `RawPath` for downloaded
+art and `InUserPackage` for the fallback. Lens data at `0x10f5fc0f0` and
+`0x10f5fc0d5` identifies those strings. The current pack's
+`ui/start_screen.json:816` binds both texture and texture_file_system;
+`:802` binds `button.gathering`, `#gathering_button_text` and button enabled;
+`:910` binds `#gathering_countdown_text`; `:1009` controls panel visibility.
+Cinnabar was missing the downloaded badge's file-system binding; it now supplies
+`RawPath`. Its existing route-to-Servers/direct-connect action is provisional:
+the full vanilla controller action, default badge, GIF and countdown behavior
+are not claimed as complete.
+
+The offline Go transport test checks the desktop query, discovery host and token,
+then maps the synthetic public response into `Home.LiveEvents` and cached artwork.
+It can export that actual Go home-feed JSON using `CINNABAR_HOME_PROMO_FIXTURE`.
+The Rust mapping test checks configured and fallback labels. The optional real
+carrier snapshot test consumes the Go feed and renders a generated blue badge;
+it asserts that badge pixels reach the start screen. Generated JSON, art and PNG
+stay in the scratch directory. This is not a recorded-response fixture and does
+not establish that correcting the query resolves the owner's service 404.
 
 ## Verification interruption
 
