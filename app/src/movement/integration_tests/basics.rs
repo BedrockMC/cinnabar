@@ -607,7 +607,7 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     assert_eq!(frame.samples[1].tick, 42);
     assert_eq!(frame.samples[0].input_mode, PlayerInputMode::GamePad);
     assert_eq!(frame.samples[0].position[1], 2.620_01);
-    let expected_deltas = [frame.samples[0].movement, frame.samples[1].movement];
+    let expected_deltas = [frame.samples[0].velocity, frame.samples[1].velocity];
 
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 40, [0.0, 2.620_01, 0.0]);
