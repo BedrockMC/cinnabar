@@ -3,6 +3,13 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 home promo: incomplete. Messaging now sends the selected UI language
+as `Accept-Language`, matching the current client. The persistent left-hand promo
+placement, control and click action remain unidentified in the supplied reference;
+the owner's cached feed contains only Marketplace button art and inbox messages.
+No promo visibility or visual parity gate is closed. See
+[the investigation](docs/home-promo-investigation.md).
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
