@@ -126,6 +126,7 @@ fn rig<'a>(
         render: &[],
         bone_names: &[],
         skin_geometry: None,
+        hand: Default::default(),
     }
 }
 

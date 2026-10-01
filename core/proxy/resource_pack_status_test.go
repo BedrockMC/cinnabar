@@ -252,6 +252,15 @@ func TestResourcePackAdmissionUpdatePublishesResetThenFinal(t *testing.T) {
 
 func testAdmissionPack(t *testing.T) *resource.Pack {
 	t.Helper()
+	pack, err := resource.ReadBytes(testAdmissionPackArchive(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pack
+}
+
+func testAdmissionPackArchive(t *testing.T) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	manifest, err := writer.Create("manifest.json")
@@ -265,9 +274,26 @@ func testAdmissionPack(t *testing.T) *resource.Pack {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	pack, err := resource.ReadBytes(archive.Bytes())
-	if err != nil {
-		t.Fatal(err)
+	return archive.Bytes()
+}
+
+// Signed download URLs never reach logs, whether as download_url, nested in a group or inside an error.
+func TestSecretSafeResourcePackHandlerRedactsURLsEverywhere(t *testing.T) {
+	var output bytes.Buffer
+	handler := secretSafeResourcePackHandler{next: slog.NewTextHandler(&output, nil)}
+	signed := "https://cdn.example.test/pack.zip?sig=secret-signature"
+	logger := slog.New(handler).With("component", "upstream-dialer", slog.Group("pack", slog.String("url", signed), slog.Int("size", 7)))
+	logger.Warn("download "+signed+" failed", "download_url", signed, "downloaded_UUID", "uuid-sentinel",
+		"err", fmt.Errorf("Get %q: dial tcp: timeout", signed), slog.Group("attempt", slog.String("next", signed), slog.Int("try", 2)))
+	got := output.String()
+	for _, forbidden := range []string{"secret-signature", "cdn.example.test", "uuid-sentinel"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("log exposed %q: %s", forbidden, got)
+		}
 	}
-	return pack
+	for _, kept := range []string{"dial tcp: timeout", "pack.size=7", "attempt.try=2", "[url]"} {
+		if !strings.Contains(got, kept) {
+			t.Fatalf("log lost %q: %s", kept, got)
+		}
+	}
 }

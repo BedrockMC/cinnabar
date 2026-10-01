@@ -62,8 +62,8 @@ func TestPersistentSourceCanonicalizesTrustedTopLevelAlias(t *testing.T) {
 	if canonical == raw {
 		t.Skip("temporary directory does not use a trusted top-level alias")
 	}
-	source := PersistentSource(context.Background(), raw, oauth2.StaticTokenSource(testOAuthToken("account-a")), io.Discard)
-	persistent, ok := source.(*persistentAuthSource)
+	source := NewAccount(context.Background(), raw, oauth2.StaticTokenSource(testOAuthToken("account-a")), io.Discard)
+	persistent, ok := source, source != nil
 	if !ok {
 		t.Fatal("persistent source was not constructed")
 	}

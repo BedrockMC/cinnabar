@@ -114,16 +114,15 @@ fn quarantine(path: &Path) -> Result<PathBuf> {
     Ok(target)
 }
 
-/// Atomically replaces the saved-server file.
-///
-/// The serialized list is staged in a pid-suffixed temp sibling, flushed to
-/// disk, then renamed over the target, so a crash mid-write leaves the
-/// previous complete file intact. A stale temp from an earlier crashed run
-/// is removed first, so a recycled pid can never wedge future saves. On
-/// POSIX a power loss after the rename may resurrect the older complete
-/// file (no directory fsync); torn state is impossible either way.
-/// Refuses to persist entries that [`load_servers`] would quarantine.
+/// Validates and atomically writes `servers`, as [`ServerWriter`] does off the frame.
+#[cfg(test)]
 pub(crate) fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
+    validate(servers)?;
+    write_servers(path, servers)
+}
+
+/// The schema limits [`load_servers`] enforces, checked before any write.
+fn validate(servers: &[SavedServer]) -> Result<()> {
     if servers.len() > MAX_SAVED_SERVERS {
         bail!(
             "too many saved servers: {} exceeds {MAX_SAVED_SERVERS}",
@@ -139,6 +138,18 @@ pub(crate) fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+/// Atomically replaces the saved-server file.
+///
+/// The serialized list is staged in a pid-suffixed temp sibling, flushed to
+/// disk, then renamed over the target, so a crash mid-write leaves the
+/// previous complete file intact. A stale temp from an earlier crashed run
+/// is removed first, so a recycled pid can never wedge future saves. On
+/// POSIX a power loss after the rename may resurrect the older complete
+/// file (no directory fsync); torn state is impossible either way.
+fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -158,7 +169,7 @@ pub(crate) fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
             .unwrap_or_default(),
         process::id()
     ));
-    // The menu owns this file single-threaded, so clearing a leftover temp
+    // One writer thread owns this file, so clearing a leftover temp
     // from an earlier crashed run is safe and keeps create_new working when
     // the OS recycles that pid.
     let _ = fs::remove_file(&temp);
@@ -189,4 +200,94 @@ pub(crate) fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
         return Err(error).with_context(|| format!("publish {}", path.display()));
     }
     Ok(())
+}
+
+enum Job {
+    Save(Vec<SavedServer>),
+    #[cfg(test)]
+    Flush(crossbeam_channel::Sender<()>),
+}
+
+/// Persists saved-server snapshots on a worker so the frame never waits on
+/// `sync_all`; writes stay ordered and only the newest pending one runs.
+#[derive(Debug)]
+pub(crate) struct ServerWriter {
+    jobs: Option<crossbeam_channel::Sender<Job>>,
+    errors: crossbeam_channel::Receiver<String>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ServerWriter {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        let (jobs, queue) = crossbeam_channel::unbounded::<Job>();
+        let (report, errors) = crossbeam_channel::unbounded();
+        let worker = std::thread::Builder::new()
+            .name("saved-servers".to_owned())
+            .spawn(move || {
+                let run = |job| match job {
+                    Job::Save(servers) => {
+                        if let Err(error) = write_servers(&path, &servers) {
+                            let _ = report.send(format!("{error:#}"));
+                        }
+                    }
+                    #[cfg(test)]
+                    Job::Flush(ack) => {
+                        let _ = ack.send(());
+                    }
+                };
+                while let Ok(mut job) = queue.recv() {
+                    // A newer snapshot supersedes a queued one; anything else runs in order.
+                    while let Ok(next) = queue.try_recv() {
+                        if matches!((&job, &next), (Job::Save(_), Job::Save(_))) {
+                            job = next;
+                        } else {
+                            run(std::mem::replace(&mut job, next));
+                        }
+                    }
+                    run(job);
+                }
+            })
+            .ok();
+        Self {
+            jobs: Some(jobs),
+            errors,
+            worker,
+        }
+    }
+
+    /// Queues `servers` for writing; schema violations fail here, I/O later
+    /// through [`Self::take_error`].
+    pub(crate) fn save(&self, servers: &[SavedServer]) -> Result<()> {
+        validate(servers)?;
+        if let Some(jobs) = &self.jobs {
+            let _ = jobs.send(Job::Save(servers.to_vec()));
+        }
+        Ok(())
+    }
+
+    /// A write that failed since the last call.
+    pub(crate) fn take_error(&self) -> Option<String> {
+        self.errors.try_recv().ok()
+    }
+
+    /// Blocks until every queued write has finished.
+    #[cfg(test)]
+    pub(crate) fn flush(&self) {
+        let (ack, done) = crossbeam_channel::bounded(1);
+        if let Some(jobs) = &self.jobs
+            && jobs.send(Job::Flush(ack)).is_ok()
+        {
+            let _ = done.recv();
+        }
+    }
+}
+
+impl Drop for ServerWriter {
+    /// Finishes queued writes so a save right before exit still lands.
+    fn drop(&mut self) {
+        drop(self.jobs.take());
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }

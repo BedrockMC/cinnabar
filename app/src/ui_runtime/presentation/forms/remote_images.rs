@@ -1,10 +1,11 @@
 //! Remote form images (`http`/`https` button images) downloaded off the frame
 //! loop into a bounded in-memory cache, as the vanilla client fetches them.
+//! A few download at once, newest request first; unasked ones are dropped.
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, Weak, mpsc},
-    time::Duration,
+    sync::{Arc, Mutex, Weak},
+    time::{Duration, Instant},
 };
 
 /// Most URLs remembered; the oldest settled entry goes first.
@@ -12,6 +13,10 @@ const MAX_ENTRIES: usize = 64;
 /// Largest response body accepted for one image.
 const MAX_IMAGE_BYTES: usize = 2 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+/// Downloads in flight at once, so one slow host cannot hold up the rest.
+const MAX_IN_FLIGHT: usize = 4;
+/// A queued URL no screen asked for within this long is dropped unfetched.
+const OBSOLETE_AFTER: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum RemoteState {
@@ -20,20 +25,22 @@ pub(super) enum RemoteState {
     Failed,
 }
 
-/// A shared handle to the download cache and its single worker thread.
+/// A shared handle to the download cache and its worker thread.
 #[derive(Clone, Default)]
 pub(super) struct RemoteImages(Arc<Remote>);
 
 #[derive(Default)]
 struct Remote {
     entries: Mutex<Entries>,
-    worker: Mutex<Option<mpsc::Sender<String>>>,
+    worker: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
 }
 
 #[derive(Default)]
 struct Entries {
     states: HashMap<String, RemoteState>,
     order: VecDeque<String>,
+    /// When a drawn screen last asked for each loading URL.
+    asked: HashMap<String, Instant>,
 }
 
 pub(super) fn is_remote(path: &str) -> bool {
@@ -44,12 +51,16 @@ impl RemoteImages {
     /// The download state of `url`, starting its download on first sight.
     pub(super) fn state(&self, url: &str) -> RemoteState {
         let mut entries = self.0.entries.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(state) = entries.states.get(url) {
-            return state.clone();
+        if let Some(state) = entries.states.get(url).cloned() {
+            if state == RemoteState::Loading {
+                entries.asked.insert(url.to_owned(), Instant::now());
+            }
+            return state;
         }
         let valid =
             url::Url::parse(url).is_ok_and(|parsed| matches!(parsed.scheme(), "http" | "https"));
         let state = if valid && self.request(url) {
+            entries.asked.insert(url.to_owned(), Instant::now());
             RemoteState::Loading
         } else {
             RemoteState::Failed
@@ -85,17 +96,37 @@ impl RemoteImages {
 impl Remote {
     fn finish(&self, url: String, bytes: Option<Vec<u8>>) {
         let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        entries.asked.remove(&url);
         if let Some(state) = entries.states.get_mut(&url) {
             *state = bytes.map_or(RemoteState::Failed, |bytes| {
                 RemoteState::Ready(bytes.into())
             });
         }
     }
+
+    /// Whether a queued `url` is still wanted; an obsolete one is forgotten so
+    /// a later ask queues it afresh.
+    fn still_wanted(&self, url: &str) -> bool {
+        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        let fresh = entries
+            .asked
+            .get(url)
+            .is_some_and(|asked| asked.elapsed() < OBSOLETE_AFTER);
+        if !fresh {
+            entries.asked.remove(url);
+            if entries.states.get(url) == Some(&RemoteState::Loading) {
+                entries.states.remove(url);
+                entries.order.retain(|key| key != url);
+            }
+        }
+        fresh
+    }
 }
 
-/// One worker fetching queued URLs in order; it ends with the cache.
-fn spawn(remote: Weak<Remote>) -> Option<mpsc::Sender<String>> {
-    let (sender, receiver) = mpsc::channel::<String>();
+/// One worker keeping up to [`MAX_IN_FLIGHT`] downloads going, newest request
+/// first (what a screen just drew); it ends with the cache.
+fn spawn(remote: Weak<Remote>) -> Option<tokio::sync::mpsc::UnboundedSender<String>> {
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
     std::thread::Builder::new()
         .name("form-images".to_owned())
         .spawn(move || {
@@ -108,13 +139,42 @@ fn spawn(remote: Weak<Remote>) -> Option<mpsc::Sender<String>> {
             let Ok(client) = reqwest::Client::builder().timeout(FETCH_TIMEOUT).build() else {
                 return;
             };
-            for url in receiver {
-                let bytes = runtime.block_on(fetch(&client, &url));
-                let Some(remote) = remote.upgrade() else {
-                    break;
-                };
-                remote.finish(url, bytes);
-            }
+            runtime.block_on(async move {
+                let mut queue: Vec<String> = Vec::new();
+                let mut fetches = tokio::task::JoinSet::new();
+                let mut open = true;
+                loop {
+                    while fetches.len() < MAX_IN_FLIGHT
+                        && let Some(url) = queue.pop()
+                    {
+                        let Some(remote) = remote.upgrade() else {
+                            return;
+                        };
+                        if remote.still_wanted(&url) {
+                            let client = client.clone();
+                            fetches.spawn(async move {
+                                let bytes = fetch(&client, &url).await;
+                                (url, bytes)
+                            });
+                        }
+                    }
+                    if !open && fetches.is_empty() && queue.is_empty() {
+                        return;
+                    }
+                    tokio::select! {
+                        url = receiver.recv(), if open => match url {
+                            Some(url) => queue.push(url),
+                            None => open = false,
+                        },
+                        Some(Ok((url, bytes))) = fetches.join_next(), if !fetches.is_empty() => {
+                            let Some(remote) = remote.upgrade() else {
+                                return;
+                            };
+                            remote.finish(url, bytes);
+                        }
+                    }
+                }
+            });
         })
         .ok()?;
     Some(sender)
@@ -169,6 +229,37 @@ pub(crate) mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         images.state(url)
+    }
+
+    // A slow host does not hold up other images, and an image no screen still
+    // asks for is never fetched.
+    #[test]
+    fn a_slow_image_does_not_block_the_rest() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let slow = format!("http://{}/slow.png", listener.local_addr().unwrap());
+        // Accepts and never answers, like a stalled host.
+        std::thread::spawn(move || {
+            let held: Vec<_> = listener.incoming().flatten().collect();
+            drop(held);
+        });
+        let images = RemoteImages::default();
+        assert_eq!(images.state(&slow), RemoteState::Loading);
+        let base = serve(b"fast".to_vec());
+        let fast = format!("{base}/fast.png");
+        let started = Instant::now();
+        assert_eq!(
+            settle(&images, &fast),
+            RemoteState::Ready(b"fast".as_slice().into())
+        );
+        assert!(started.elapsed() < FETCH_TIMEOUT);
+        assert_eq!(images.state(&slow), RemoteState::Loading);
+
+        let remote = &images.0;
+        remote.entries.lock().unwrap().asked.insert(
+            "http://unasked.invalid/x.png".to_owned(),
+            Instant::now() - OBSOLETE_AFTER,
+        );
+        assert!(!remote.still_wanted("http://unasked.invalid/x.png"));
     }
 
     // A URL downloads once in the background; other schemes never fetch.

@@ -1,12 +1,12 @@
 //! Lifecycle of the spawned `bedrock-core` child process.
 //!
-//! The guard owns both the child handle and the piped stdin that
-//! bedrock-core consumes as its graceful cancellation path.
+//! The guard owns the tracked child; closing its piped stdin is the graceful
+//! cancellation path bedrock-core itself consumes.
 
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
@@ -15,64 +15,98 @@ use bevy::prelude::Resource;
 
 use crate::{
     install_layout::InstallLayout,
+    lifecycle::children::{self, Spawned, StopOutcome},
     runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
 };
 
-/// Bounds the graceful-stop wait before the kill fallback fires.
+/// Bounds the graceful-stop wait before SIGTERM, then SIGKILL, fire.
 ///
-/// The deadline must stay inside the post-`AppExit` shutdown watchdog
-/// envelope (2 s) so a wedged core cannot turn orderly teardown into a
-/// watchdog `process::exit` that would orphan the child. Explicit stop
-/// callers run before the watchdog arms; the `Drop` path accepts roughly
-/// half a second of teardown slack before that race, and the OS closing
-/// the pipe still delivers stdin EOF to the core even then.
-const CORE_GRACEFUL_STOP_DEADLINE: Duration = Duration::from_millis(1_500);
-const CORE_STOP_POLL_INTERVAL: Duration = Duration::from_millis(20);
+/// With that escalation the stop stays inside the post-`AppExit` shutdown
+/// watchdog envelope (2 s), so a wedged core cannot turn orderly teardown
+/// into a watchdog `process::exit` that skips the stop.
+const CORE_GRACEFUL_STOP_DEADLINE: Duration = children::EXIT_GRACE;
+/// How long a freshly spawned core has to publish its bridge endpoint.
+pub(crate) const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoreStopOutcome {
     NotRunning,
     ExitedAfterGracefulClose,
+    TerminatedAfterGracefulTimeout,
     KilledAfterGracefulTimeout,
+    /// Survived SIGKILL's bounded wait; the exit sweep retries it.
+    Unreaped,
 }
 
 #[derive(Debug, Resource, Default)]
 pub(crate) struct CoreProcessGuard {
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
+    child: Option<Spawned>,
 }
 
 impl CoreProcessGuard {
-    pub(crate) fn replace(&mut self, mut child: Child) {
+    /// Stops (and reaps) the current core before adopting `child`.
+    pub(crate) fn replace(&mut self, child: impl Into<Spawned>) {
         self.stop();
-        self.stdin = child.stdin.take();
-        self.child = Some(child);
+        self.child = Some(child.into());
     }
 
     /// Stops the core gracefully: close its piped stdin (the cancellation
-    /// path bedrock-core itself consumes), wait bounded for exit, then kill
-    /// only as a fallback so endpoint leases and the pack cache still see an
-    /// orderly shutdown whenever the core honors stdin EOF.
+    /// path bedrock-core itself consumes), wait bounded for exit, then
+    /// escalate to SIGTERM and SIGKILL, so endpoint leases and the pack cache
+    /// still see an orderly shutdown whenever the core honors stdin EOF.
     pub(crate) fn stop(&mut self) -> CoreStopOutcome {
         self.stop_with_deadline(CORE_GRACEFUL_STOP_DEADLINE)
     }
 
     pub(crate) fn stop_with_deadline(&mut self, deadline: Duration) -> CoreStopOutcome {
-        let Some(mut child) = self.child.take() else {
-            self.stdin = None;
+        let Some(child) = self.child.take() else {
             return CoreStopOutcome::NotRunning;
         };
-        drop(self.stdin.take());
-        let started = Instant::now();
-        while started.elapsed() < deadline {
-            if let Ok(Some(_)) = child.try_wait() {
-                return CoreStopOutcome::ExitedAfterGracefulClose;
-            }
-            std::thread::sleep(CORE_STOP_POLL_INTERVAL);
+        match child.stop(deadline) {
+            StopOutcome::Exited => CoreStopOutcome::ExitedAfterGracefulClose,
+            StopOutcome::Terminated => CoreStopOutcome::TerminatedAfterGracefulTimeout,
+            StopOutcome::Killed => CoreStopOutcome::KilledAfterGracefulTimeout,
+            StopOutcome::Unreaped => CoreStopOutcome::Unreaped,
         }
-        let _ = child.kill();
-        let _ = child.wait();
-        CoreStopOutcome::KilledAfterGracefulTimeout
+    }
+
+    #[cfg(test)]
+    pub(crate) fn id(&self) -> Option<u32> {
+        self.child.as_ref().map(Spawned::id)
+    }
+
+    /// Whether the child has already exited on its own.
+    pub(crate) fn exited(&mut self) -> bool {
+        self.child
+            .as_ref()
+            .is_some_and(|child| matches!(child.try_wait(), Ok(Some(_))))
+    }
+
+    /// [`Self::stop`] on a reaper thread, running `then` once the core is gone,
+    /// so the frame never waits out the graceful deadline. The child stays
+    /// tracked, so the exit sweep still ends it if the process exits first.
+    pub(crate) fn stop_detached(&mut self, then: impl FnOnce() + Send + 'static) {
+        let Some(child) = self.child.take() else {
+            then();
+            return;
+        };
+        type Job = (Spawned, Box<dyn FnOnce() + Send>);
+        let (job, next) = crossbeam_channel::bounded::<Job>(1);
+        let spawned = std::thread::Builder::new()
+            .name("bedrock-core-reaper".to_owned())
+            .spawn(move || {
+                if let Ok((child, then)) = next.recv() {
+                    child.stop(CORE_GRACEFUL_STOP_DEADLINE);
+                    then();
+                }
+            });
+        if let Err(error) = spawned {
+            bevy::log::warn!("core reaper unavailable, stopping inline: {error}");
+            child.stop(CORE_GRACEFUL_STOP_DEADLINE);
+            then();
+            return;
+        }
+        let _ = job.send((child, Box::new(then)));
     }
 }
 
@@ -98,7 +132,7 @@ pub(crate) fn spawn_core_for_address(
     address: &str,
     auth_cache: Option<&Path>,
     enable_upstream_client_cache: bool,
-) -> Result<Child> {
+) -> Result<Spawned> {
     let executable = core_executable(layout).ok_or_else(|| {
         anyhow::anyhow!(
             "bedrock-core executable was not found at {}",
@@ -114,10 +148,8 @@ pub(crate) fn spawn_core_for_address(
         auth_cache,
         enable_upstream_client_cache,
     );
-    let child = command
-        .spawn()
-        .with_context(|| format!("spawn {} for {address}", executable.display()))?;
-    Ok(child)
+    children::spawn(&mut command)
+        .with_context(|| format!("spawn {} for {address}", executable.display()))
 }
 
 pub(super) fn core_command_for_address(
@@ -170,8 +202,10 @@ pub(crate) fn clear_stale_bridge_endpoint(socket_dir: &Path) -> Result<()> {
     }
 }
 
+/// Blocks until the core publishes its endpoint; only for paths off the frame.
 pub(crate) fn wait_for_core(socket_dir: &Path) -> Result<()> {
-    for _ in 0..100 {
+    let deadline = Instant::now() + CORE_START_TIMEOUT;
+    while Instant::now() < deadline {
         if bridge_endpoint_exists(socket_dir) {
             return Ok(());
         }

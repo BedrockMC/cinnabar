@@ -2,42 +2,83 @@ use super::model::Input;
 
 pub(crate) const DOCKER_URL: &str = "https://www.docker.com/products/docker-desktop/";
 
-/// The modal shown when vanilla worlds cannot run for want of Docker (macOS only; the core never
-/// reports a reason on Windows or Linux).
+/// Why default worlds cannot run (macOS only; the core never reports a reason on Windows or Linux).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PromptKind {
     DockerMissing,
     DockerNotRunning,
 }
 
+/// What the Docker modal is blocking.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PromptFor {
+    /// Opening the create screen: informational, can be dismissed for good.
+    BeginCreate,
+    /// Creating a default world, which needs the dedicated server.
+    CreateDefault,
+    /// Playing a saved world that runs on the dedicated server.
+    Play,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PromptButton {
-    PlayAnyway,
+    /// Continue with a Flat world on the built-in server.
+    CreateFlat,
     GetDocker,
     DontShowAgain,
     Retry,
+    Cancel,
 }
 
-impl PromptKind {
+/// The Docker modal: its reason and what it blocks decide the text and the ways forward.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Prompt {
+    pub(crate) kind: PromptKind,
+    pub(crate) blocking: PromptFor,
+}
+
+impl Prompt {
+    pub(crate) fn title(self) -> &'static str {
+        match self.kind {
+            PromptKind::DockerMissing => "Docker is needed",
+            PromptKind::DockerNotRunning => "Docker is not running",
+        }
+    }
+
     pub(crate) fn text(self) -> &'static str {
-        match self {
-            Self::DockerMissing => {
-                "Vanilla terrain and mobs on Mac need Docker (Docker Desktop, OrbStack or Colima). \
-                 Without it, this world runs on a basic server with simpler terrain and no vanilla \
-                 mob behavior."
+        match (self.kind, self.blocking) {
+            (PromptKind::DockerMissing, PromptFor::Play) => {
+                "This world runs on the official Bedrock Dedicated Server, which needs Docker on Mac \
+                 (Docker Desktop, OrbStack or Colima). Install Docker, start it, then play again."
             }
-            Self::DockerNotRunning => "Start Docker to use vanilla worlds",
+            (PromptKind::DockerNotRunning, PromptFor::Play) => {
+                "This world runs on the official Bedrock Dedicated Server in Docker. Start Docker, \
+                 then choose Retry."
+            }
+            (PromptKind::DockerMissing, _) => {
+                "Default worlds run on the official Bedrock Dedicated Server, which needs Docker on \
+                 Mac (Docker Desktop, OrbStack or Colima). Without Docker you can still create a Flat \
+                 world on the built-in server."
+            }
+            (PromptKind::DockerNotRunning, _) => {
+                "Default worlds run on the official Bedrock Dedicated Server in Docker. Start Docker, \
+                 then choose Retry, or create a Flat world on the built-in server."
+            }
         }
     }
 
     pub(crate) fn buttons(self) -> &'static [PromptButton] {
-        match self {
-            Self::DockerMissing => &[
-                PromptButton::PlayAnyway,
-                PromptButton::GetDocker,
-                PromptButton::DontShowAgain,
-            ],
-            Self::DockerNotRunning => &[PromptButton::Retry, PromptButton::PlayAnyway],
+        use PromptButton::*;
+        match (self.kind, self.blocking) {
+            (PromptKind::DockerMissing, PromptFor::BeginCreate) => {
+                &[CreateFlat, GetDocker, DontShowAgain]
+            }
+            (PromptKind::DockerMissing, PromptFor::CreateDefault) => {
+                &[CreateFlat, GetDocker, Cancel]
+            }
+            (PromptKind::DockerMissing, PromptFor::Play) => &[GetDocker, Cancel],
+            (PromptKind::DockerNotRunning, PromptFor::Play) => &[Retry, Cancel],
+            (PromptKind::DockerNotRunning, _) => &[Retry, CreateFlat, Cancel],
         }
     }
 }
@@ -45,10 +86,11 @@ impl PromptKind {
 impl PromptButton {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::PlayAnyway => "Play anyway",
+            Self::CreateFlat => "Create Flat world",
             Self::GetDocker => "Get Docker",
             Self::DontShowAgain => "Don't show again",
             Self::Retry => "Retry",
+            Self::Cancel => "Cancel",
         }
     }
 
