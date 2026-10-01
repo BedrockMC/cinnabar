@@ -16,6 +16,7 @@ use bevy::{
 use ui::{ChatClipboard, UiPoint};
 
 use super::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MenuField, MenuRuntime};
+use crate::local_worlds::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
 use crate::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
 
 #[derive(Resource)]
@@ -136,6 +137,17 @@ impl MenuRuntime {
         match self.field? {
             MenuField::Name => Some(&self.name),
             MenuField::Address => Some(&self.address),
+            MenuField::WorldName => Some(&self.local_ui.name),
+            MenuField::WorldSeed => Some(&self.local_ui.seed),
+        }
+    }
+
+    fn text_target(&mut self, field: MenuField) -> &mut String {
+        match field {
+            MenuField::Name => &mut self.name,
+            MenuField::Address => &mut self.address,
+            MenuField::WorldName => &mut self.local_ui.name,
+            MenuField::WorldSeed => &mut self.local_ui.seed,
         }
     }
 
@@ -155,10 +167,7 @@ impl MenuRuntime {
         let Some(field) = self.field else {
             return 0;
         };
-        let maximum = match field {
-            MenuField::Name => MAX_SERVER_NAME_BYTES,
-            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
-        };
+        let maximum = max_bytes(field);
         if self.text_selected {
             maximum
         } else {
@@ -170,16 +179,11 @@ impl MenuRuntime {
         let Some(field) = self.field else {
             return;
         };
-        let target = match field {
-            MenuField::Name => &mut self.name,
-            MenuField::Address => &mut self.address,
-        };
-        let maximum = match field {
-            MenuField::Name => MAX_SERVER_NAME_BYTES,
-            MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
-        };
+        let maximum = max_bytes(field);
+        let selected = self.text_selected;
+        let target = self.text_target(field);
         let mut insertion = String::new();
-        let base_length = if self.text_selected { 0 } else { target.len() };
+        let base_length = if selected { 0 } else { target.len() };
         for character in text.chars().filter(|character| !character.is_control()) {
             if base_length
                 .saturating_add(insertion.len())
@@ -193,7 +197,7 @@ impl MenuRuntime {
         if insertion.is_empty() {
             return;
         }
-        if self.text_selected {
+        if selected {
             target.clear();
         }
         target.push_str(&insertion);
@@ -204,16 +208,24 @@ impl MenuRuntime {
         let Some(field) = self.field else {
             return;
         };
-        let target = match field {
-            MenuField::Name => &mut self.name,
-            MenuField::Address => &mut self.address,
-        };
-        if self.text_selected {
+        let selected = self.text_selected;
+        let target = self.text_target(field);
+        if selected {
             target.clear();
         } else {
             let _ = target.pop();
         }
         self.text_selected = false;
+    }
+}
+
+/// A field's byte budget; world fields allow their vanilla character limits in any script.
+fn max_bytes(field: MenuField) -> usize {
+    match field {
+        MenuField::Name => MAX_SERVER_NAME_BYTES,
+        MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
+        MenuField::WorldName => MAX_WORLD_NAME_CHARS * 4,
+        MenuField::WorldSeed => MAX_SEED_CHARS,
     }
 }
 

@@ -83,6 +83,7 @@ func (store *Store) write(world World) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("localworld: create world directory: %w", err)
 	}
+	world.SizeBytes = 0
 	raw, err := json.MarshalIndent(world, "", "  ")
 	if err != nil {
 		return err
@@ -172,6 +173,7 @@ func (store *Store) List() ([]World, error) {
 			continue
 		}
 		if world, err := store.read(entry.Name()); err == nil {
+			world.SizeBytes = dirSize(filepath.Join(store.root, entry.Name()))
 			worlds = append(worlds, world)
 		}
 	}
@@ -184,19 +186,43 @@ func (store *Store) List() ([]World, error) {
 	return worlds, nil
 }
 
-// Rename changes a world's display name.
-func (store *Store) Rename(id, name string) (World, error) {
-	name, err := ValidateName(name)
-	if err != nil {
-		return World{}, err
-	}
+// dirSize totals the regular files under dir; unreadable entries count as empty.
+func dirSize(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, entry os.DirEntry, err error) error {
+		if err == nil && entry.Type().IsRegular() {
+			if info, err := entry.Info(); err == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	return total
+}
+
+// Update validates and applies a settings change; the new game mode and difficulty take effect on the next open.
+func (store *Store) Update(id string, update Update) (World, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	world, err := store.read(id)
 	if err != nil {
 		return World{}, err
 	}
-	world.Name = name
+	if update.Name != nil {
+		if world.Name, err = ValidateName(*update.Name); err != nil {
+			return World{}, err
+		}
+	}
+	if update.GameMode != nil {
+		if world.GameMode, err = oneOf(*update.GameMode, world.GameMode, GameModeSurvival, GameModeCreative, GameModeAdventure); err != nil {
+			return World{}, err
+		}
+	}
+	if update.Difficulty != nil {
+		if world.Difficulty, err = oneOf(*update.Difficulty, world.Difficulty, DifficultyPeaceful, DifficultyEasy, DifficultyNormal, DifficultyHard); err != nil {
+			return World{}, err
+		}
+	}
 	return world, store.write(world)
 }
 

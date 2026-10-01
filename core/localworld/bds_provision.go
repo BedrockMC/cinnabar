@@ -22,15 +22,13 @@ import (
 	"time"
 )
 
-// TargetVersionPrefix is the dedicated-server line fetched for the client's pinned protocol (2193, shared by
-// 1.26.50 through 1.26.52); matching is per dotted component, so "1.26.5" would not match 1.26.52.x.
-const TargetVersionPrefix = "1.26.52"
-
 const (
 	linksAPI        = "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links"
 	directURLFormat = "https://www.minecraft.net/bedrockdedicatedserver/bin-%s/bedrock-server-%s.zip"
-	maxZipBytes     = 1 << 30
-	maxUnpackBytes  = 4 << 30
+	// userAgent names the downloader; minecraft.net resets requests carrying Go's default agent.
+	userAgent      = "Cinnabar-local-worlds"
+	maxZipBytes    = 1 << 30
+	maxUnpackBytes = 4 << 30
 )
 
 var zipVersion = regexp.MustCompile(`bedrock-server-(\d+(?:\.\d+)+)\.zip$`)
@@ -42,20 +40,26 @@ const (
 	SetupUnsupported  SetupState = "unsupported"
 	SetupEULARequired SetupState = "eula_required"
 	SetupNotInstalled SetupState = "not_installed"
-	SetupDownloading  SetupState = "downloading"
-	SetupUnpacking    SetupState = "unpacking"
-	SetupReady        SetupState = "ready"
-	SetupFailed       SetupState = "failed"
+	// SetupCheckingRuntime and SetupPullingImage are the container runtime's steps before the download.
+	SetupCheckingRuntime SetupState = "checking_runtime"
+	SetupPullingImage    SetupState = "pulling_image"
+	SetupDownloading     SetupState = "downloading"
+	SetupUnpacking       SetupState = "unpacking"
+	SetupReady           SetupState = "ready"
+	SetupFailed          SetupState = "failed"
 )
 
 // SetupStatus reports BDS acquisition; Error never carries paths.
 type SetupStatus struct {
-	State        SetupState `json:"state"`
-	Version      string     `json:"version,omitempty"`
-	BytesDone    int64      `json:"bytes_done"`
-	BytesTotal   int64      `json:"bytes_total"`
-	EULAAccepted bool       `json:"eula_accepted"`
-	Error        string     `json:"error,omitempty"`
+	State      SetupState `json:"state"`
+	Version    string     `json:"version,omitempty"`
+	BytesDone  int64      `json:"bytes_done"`
+	BytesTotal int64      `json:"bytes_total"`
+	// LayersDone and LayersTotal count image layers while pulling; Docker reports no bytes without a TTY.
+	LayersDone   int    `json:"layers_done,omitempty"`
+	LayersTotal  int    `json:"layers_total,omitempty"`
+	EULAAccepted bool   `json:"eula_accepted"`
+	Error        string `json:"error,omitempty"`
 	// Runtime is how BDS runs on this machine (native, container, none) and Reason says why.
 	Runtime string `json:"runtime"`
 	Reason  string `json:"reason,omitempty"`
@@ -85,10 +89,10 @@ type manifest struct {
 // Nothing is bundled or committed; builds live in Root/<version>/ with a provenance manifest.
 type Provisioner struct {
 	Root string
-	// Version, when set, is an exact build (for example "1.26.52.3") fetched from its versioned official URL;
-	// otherwise the download API's current build must match VersionPrefix.
+	// Version is the exact build (the client passes the target manifest's server_version), fetched from its
+	// versioned official URL; without it the download API's current build must match VersionPrefix.
 	Version       string
-	VersionPrefix string // default TargetVersionPrefix
+	VersionPrefix string // default: Version's first three components
 	Client        *http.Client
 	Log           *slog.Logger
 
@@ -105,9 +109,10 @@ type Provisioner struct {
 
 	ensureMu sync.Mutex
 	mu       sync.Mutex
-	op       SetupState // downloading or unpacking while Ensure runs
+	op       SetupState // the step in progress while a BDS world starts
 	done     int64
 	total    int64
+	layers   [2]int // pulled, total
 	version  string
 	lastErr  string
 }
@@ -186,11 +191,15 @@ func (p *Provisioner) runtimeKind() (kind, reason string) {
 	return kind, reason
 }
 
+// prefix is the release line the client can join; empty when nothing is pinned.
 func (p *Provisioner) prefix() string {
 	if p.VersionPrefix != "" {
 		return p.VersionPrefix
 	}
-	return TargetVersionPrefix
+	if parts := strings.Split(p.Version, "."); len(parts) >= 3 {
+		return strings.Join(parts[:3], ".")
+	}
+	return ""
 }
 
 func (p *Provisioner) log() *slog.Logger {
@@ -250,7 +259,7 @@ func (p *Provisioner) installed() (binary, version string, ok bool) {
 
 func (p *Provisioner) versionMatches(version string) bool {
 	prefix := p.prefix()
-	return version == prefix || strings.HasPrefix(version, prefix+".")
+	return prefix != "" && (version == prefix || strings.HasPrefix(version, prefix+"."))
 }
 
 // Status reports the installation state for the client.
@@ -258,23 +267,15 @@ func (p *Provisioner) Status() SetupStatus {
 	kind, reason, unavailable := p.runtimeInfo()
 	accepted := p.eulaAccepted()
 	p.mu.Lock()
-	op, done, total, version, lastErr := p.op, p.done, p.total, p.version, p.lastErr
+	op, done, total, layers, version, lastErr := p.op, p.done, p.total, p.layers, p.version, p.lastErr
 	p.mu.Unlock()
-	status := SetupStatus{Version: version, BytesDone: done, BytesTotal: total, EULAAccepted: accepted, Runtime: kind, Reason: reason, UnavailableReason: unavailable}
+	status := SetupStatus{Version: version, BytesDone: done, BytesTotal: total, LayersDone: layers[0], LayersTotal: layers[1],
+		EULAAccepted: accepted, Runtime: kind, Reason: reason, UnavailableReason: unavailable}
 	switch {
 	case kind == RuntimeNone:
 		status.State = SetupUnsupported
 	case op != "":
 		status.State = op
-	case kind == RuntimeContainer:
-		switch {
-		case !accepted:
-			status.State = SetupEULARequired
-		case lastErr != "":
-			status.State, status.Error = SetupFailed, lastErr
-		default:
-			status.State = SetupReady
-		}
 	default:
 		if _, v, ok := p.installed(); ok {
 			status.State, status.Version = SetupReady, v
@@ -291,23 +292,35 @@ func (p *Provisioner) Status() SetupStatus {
 
 func (p *Provisioner) setOp(op SetupState, version string, done, total int64) {
 	p.mu.Lock()
-	p.op, p.version, p.done, p.total = op, version, done, total
+	p.op, p.version, p.done, p.total, p.layers = op, version, done, total, [2]int{}
+	p.mu.Unlock()
+}
+
+func (p *Provisioner) setLayers(done, total int) {
+	p.mu.Lock()
+	p.layers = [2]int{done, total}
 	p.mu.Unlock()
 }
 
 func (p *Provisioner) fail(err error) error {
+	return p.failWith("dedicated server download failed", err)
+}
+
+// failWith ends the current step; message is the path-free text the client shows.
+func (p *Provisioner) failWith(message string, err error) error {
 	p.log().Error("dedicated server setup failed", "error", err)
 	p.mu.Lock()
-	p.op, p.lastErr = "", "dedicated server download failed"
+	p.op, p.lastErr = "", message
 	p.mu.Unlock()
 	return err
 }
 
 // Ensure returns the path of the server binary, downloading and unpacking it first if needed.
+// The container runtime gets the Linux build, which runs inside the container.
 func (p *Provisioner) Ensure(ctx context.Context) (string, error) {
 	p.ensureMu.Lock()
 	defer p.ensureMu.Unlock()
-	if kind, _ := p.runtimeKind(); kind != RuntimeNative {
+	if kind, _ := p.runtimeKind(); kind != RuntimeNative && kind != RuntimeContainer {
 		return "", ErrBackendUnavailable
 	}
 	if !p.eulaAccepted() {
@@ -369,6 +382,7 @@ func (p *Provisioner) get(ctx context.Context, rawURL string) (*http.Response, e
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := p.client().Do(req)
 	if err != nil {
 		return nil, err
@@ -392,6 +406,9 @@ func (p *Provisioner) resolve(ctx context.Context) (version, link string, err er
 			return "", "", fmt.Errorf("localworld: server version %s does not match client version %s", p.Version, p.prefix())
 		}
 		return p.Version, fmt.Sprintf(directURLFormat, dir, p.Version), nil
+	}
+	if p.prefix() == "" {
+		return "", "", errors.New("localworld: no dedicated server version is pinned")
 	}
 	api := p.linksURL
 	if api == "" {
@@ -563,15 +580,6 @@ func extractEntry(root string, entry *zip.File, budget int64) (int64, error) {
 		return n, errors.New("localworld: dedicated server archive exceeds size limit")
 	}
 	return n, nil
-}
-
-// exactVersion returns the full BDS build the client can join (for the container runtime).
-func (p *Provisioner) exactVersion(ctx context.Context) (string, error) {
-	version, _, err := p.resolve(ctx)
-	if err != nil {
-		return "", p.fail(err)
-	}
-	return version, nil
 }
 
 // RuntimeInfo is the detected way to run BDS.

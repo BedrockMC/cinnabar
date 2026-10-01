@@ -3,6 +3,18 @@
 
 use super::*;
 
+impl MenuAction {
+    /// The text field a press on this control focuses.
+    pub(super) fn text_field(self) -> Option<MenuField> {
+        match self {
+            Self::AddName => Some(MenuField::Name),
+            Self::AddAddress => Some(MenuField::Address),
+            Self::LocalWorld(action) => action.field(),
+            _ => None,
+        }
+    }
+}
+
 impl MenuRuntime {
     pub(crate) fn move_focus(&mut self, direction: i32) {
         let actions = self.focus_actions();
@@ -12,10 +24,9 @@ impl MenuRuntime {
         }
         let length = actions.len() as i32;
         self.focused = (self.focused as i32 + direction).rem_euclid(length) as usize;
-        match actions[self.focused] {
-            MenuAction::AddName => self.focus_field(MenuField::Name),
-            MenuAction::AddAddress => self.focus_field(MenuField::Address),
-            _ => {
+        match actions[self.focused].text_field() {
+            Some(field) => self.focus_field(field),
+            None => {
                 self.field = None;
                 self.text_selected = false;
             }
@@ -60,7 +71,20 @@ impl MenuRuntime {
                 actions
             }
             MenuScreen::Play => {
+                if let Some(actions) = self.local_focus_actions() {
+                    return actions;
+                }
                 let mut actions = nav();
+                actions.extend([
+                    MenuAction::LocalWorld(LocalWorldAction::BeginCreate),
+                    MenuAction::LocalWorld(LocalWorldAction::OpenTemplates),
+                ]);
+                for index in 0..self.local_worlds.len() {
+                    actions.extend([
+                        MenuAction::PlayLocalWorld(index),
+                        MenuAction::LocalWorld(LocalWorldAction::Edit(index)),
+                    ]);
+                }
                 actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len()).map(MenuAction::PlayRealm));
                 actions.extend(

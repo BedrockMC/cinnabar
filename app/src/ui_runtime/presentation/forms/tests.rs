@@ -55,9 +55,9 @@ pub(crate) fn mini_engine_presentation() -> UiPresentationRuntime {
     presentation
 }
 
-// A static form resolves once; only view-state changes re-run layout.
+// A static form resolves and lays out once; hovering a button only repaints.
 #[test]
-fn static_form_resolves_once_and_relayouts_only_on_view_changes() {
+fn static_form_resolves_once_and_hover_only_repaints() {
     let mut presentation = mini_engine_presentation();
     let mut runtime = super::pack_harness::action_form("Menu", &["A", "B", "C"]);
     let passes = |presentation: &UiPresentationRuntime| {
@@ -86,7 +86,13 @@ fn static_form_resolves_once_and_relayouts_only_on_view_changes() {
             .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
             .unwrap();
     }
-    assert_eq!(passes(&presentation), [1, 2]);
+    assert_eq!(passes(&presentation), [1, 1]);
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    assert_eq!(
+        frame.hits.len(),
+        3,
+        "gated hover children add no hit regions"
+    );
 }
 
 #[test]
@@ -361,21 +367,69 @@ fn pause_screen_draws_the_retail_buttons() {
     }
 }
 
-// A pack download shows vanilla's "Downloading packs" title with the percent and bytes.
+// A pack download shows vanilla's "Downloading packs" title with the pack count and sizes.
 #[test]
 fn connecting_screen_reports_the_pack_download() {
     let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
     view.connecting = true;
-    view.feeds.pack_download = Some((5 * 1024 * 1024, 20 * 1024 * 1024));
+    view.feeds.join.observe(Some(crate::menu::JoinStage::Packs {
+        done: 1,
+        total: 3,
+        received_bytes: 5 * 1024 * 1024,
+        total_bytes: 20 * 1024 * 1024,
+    }));
     let Some(texts) = screen_texts(&view) else {
         return;
     };
-    for wanted in ["Downloading packs 25%", "5.0 / 20.0 MB"] {
+    for wanted in ["Downloading packs [1 / 3]", "[5.0MB / 20.0MB]", "Cancel"] {
         assert!(
             texts.iter().any(|text| text == wanted),
             "{wanted}: {texts:?}"
         );
     }
+}
+
+// A Realm join lays out vanilla's Realms loading screen with the lookup's words.
+#[test]
+fn realm_join_screen_reports_the_realm_lookup() {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.connecting = true;
+    view.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
+    view.feeds.join.observe(Some(crate::menu::JoinStage::Realm));
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    for wanted in ["Joining Realm...", "This may take a few moments"] {
+        assert!(
+            texts.iter().any(|text| text == wanted),
+            "{wanted}: {texts:?}"
+        );
+    }
+}
+
+// Opening a local world shows vanilla's loading screen with the current stage and its bytes.
+#[test]
+fn local_world_loading_screen_names_the_stage() {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.local.progress = Some(crate::local_worlds::Progress {
+        stage: crate::local_worlds::Stage::DownloadingServer,
+        fraction: Some(0.5),
+        detail: "50.0 / 100.0 MB".to_owned(),
+    });
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    assert!(
+        texts.iter().any(|text| text == "Starting World"),
+        "{texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Downloading Bedrock Dedicated Server")
+                && text.contains("50.0 / 100.0 MB")),
+        "{texts:?}"
+    );
 }
 
 // Retail desktop settings show vanilla's section set; debug, edu, touch and
@@ -388,8 +442,10 @@ fn retail_settings_hide_debug_and_automation_sections() {
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
-    let (reference, context) = super::menu_screens::settings_prewarm();
-    let tree = json_ui::resolve(&catalog, reference, &context)
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+    view.screen = crate::menu::MenuScreen::Settings;
+    let settings = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let tree = json_ui::resolve(&catalog, settings.reference, &settings.context)
         .control
         .unwrap();
     let mut names = Vec::new();
@@ -427,4 +483,43 @@ fn retail_settings_hide_debug_and_automation_sections() {
     ] {
         assert!(!names.contains(&hidden), "{hidden} shown");
     }
+}
+
+// The Servers tab builds only the saved rows its list shows, however long the list.
+#[test]
+fn the_server_list_builds_only_visible_rows() {
+    let drawn = |count: usize| {
+        let mut presentation = mini_engine_presentation();
+        let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+        view.screen = crate::menu::MenuScreen::Servers;
+        view.servers = (0..count)
+            .map(|index| crate::menu::SavedServer {
+                name: format!("Server {index}"),
+                address: format!("10.0.0.{}:19132", index % 250),
+                favorite: false,
+                last_joined_unix: 0,
+            })
+            .collect();
+        presentation.set_menu_view(Some(view));
+        let input = presentation
+            .build(
+                &UiRuntime::new(1),
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let saved = presentation
+            .menu_hit_targets
+            .iter()
+            .filter(|(action, _)| matches!(action, crate::menu::MenuAction::SelectSaved(_)))
+            .count();
+        (input.vertices.len(), saved)
+    };
+    let (short, short_rows) = drawn(40);
+    let (long, long_rows) = drawn(300);
+    assert!(short_rows > 0 && short_rows < 40, "{short_rows}");
+    assert_eq!(long_rows, short_rows);
+    // Only the list's count label grows a digit.
+    assert!(long < short + 64, "{long} vs {short}");
 }

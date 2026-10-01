@@ -841,8 +841,28 @@ fn decode_world_raw_with(
     {
         return Ok(Some(WorldEvent::Equipment(equipment)));
     }
+    if let Some(packet) = level_event_generic(&raw) {
+        return Ok(into_world_event(packet, current_dimension)?);
+    }
     let packet = decode(raw)?;
     Ok(into_world_event(packet, current_dimension)?)
+}
+
+/// LevelEventGeneric's event data is loose NBT tags filling the rest of the packet (as
+/// gophertunnel documents); the generated decoder reads one rooted value and rejects the rest.
+fn level_event_generic(raw: &RawPacket) -> Option<Packet> {
+    use valentine::bedrock::codec::{BedrockCodec, Nbt, ZigZag32};
+    use valentine::bedrock::version::v1_26_51::LevelEventGenericPacket;
+    if raw.id != McpePacketName::LevelEventGenericPacket {
+        return None;
+    }
+    let mut body = raw.body().clone();
+    let event_id = ZigZag32::decode(&mut body, ()).ok()?.0;
+    let data = McpePacketData::LevelEventGenericPacket(LevelEventGenericPacket {
+        event_id,
+        __ctd__: Nbt(body),
+    });
+    Some(Packet::new(raw.header, data))
 }
 
 /// Reclassifies the raw UI pre-validator's semantic rejections as skippable
@@ -930,6 +950,8 @@ fn decode_empty_mob_equipment(
 
 #[cfg(test)]
 mod block_event_tests;
+#[cfg(test)]
+mod generic_event_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
