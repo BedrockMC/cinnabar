@@ -35,6 +35,19 @@ fn repeated_request_preserves_completion_but_new_candidate_clears_it() {
 }
 
 #[test]
+fn repeated_geometry_request_retains_the_exact_acknowledged_snapshot() {
+    let bridge = ChunkTextureReload::default();
+    let assets = candidate(1);
+    let geometry: Arc<[ChunkRenderInstance]> = Arc::from([]);
+    bridge.request_geometry(assets.clone(), geometry.clone());
+    bridge.finish(assets.identity(), true);
+    bridge.request_geometry(assets.clone(), Arc::from([]));
+    assert!(Arc::ptr_eq(&bridge.geometry().unwrap(), &geometry));
+    assert_eq!(bridge.status(assets.identity()), Some(Ok(())));
+    assert!(bridge.geometry_pending());
+}
+
+#[test]
 fn cancellation_releases_abandoned_cpu_assets_and_ignores_late_worker_finish() {
     let bridge = ChunkTextureReload::default();
     let current = candidate(1);

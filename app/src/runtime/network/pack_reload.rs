@@ -5,7 +5,7 @@ use super::reload_environment::{
 };
 use super::resource_packs::{self, PackApplication};
 use crate::{runtime::world::ClientWorld, ui_runtime::UiRuntime};
-use bevy::prelude::{Res, ResMut, Resource};
+use bevy::prelude::{Query, Res, ResMut, Resource};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 use std::{
     sync::{Arc, Mutex, mpsc},
@@ -39,6 +39,7 @@ struct Pending {
 /// A bounded worker transaction; only the newest requested stack may be published.
 #[derive(Resource)]
 pub(crate) struct PackReload {
+    geometry: super::pack_reload_geometry::GeometryPreparation,
     globals: Arc<ValidatedPackStack>,
     server: Arc<ValidatedPackStack>,
     inputs: Arc<PackInputs>,
@@ -58,6 +59,7 @@ impl Default for PackReload {
     fn default() -> Self {
         let empty = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
         Self {
+            geometry: Default::default(),
             globals: empty.clone(),
             server: empty,
             inputs: Arc::default(),
@@ -247,6 +249,9 @@ pub(crate) fn reload_resource_packs(
     mut particles: Option<ResMut<render::ParticleSystem>>,
     mut entity_artwork: Option<ResMut<render::ActorArtworkPages>>,
     gpu_reload: Option<Res<render::ChunkTextureReload>>,
+    mut chunks: Query<&mut render::ChunkRenderInstance>,
+    mut render_queue: Option<ResMut<render::ChunkRenderQueue>>,
+    mut biome_tints: Option<ResMut<render::ChunkBiomeTints>>,
 ) {
     let result = reload
         .ready
@@ -292,7 +297,18 @@ pub(crate) fn reload_resource_packs(
                 if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref())
                     && !Arc::ptr_eq(current.assets(), &prepared.assets)
                 {
-                    gpu.request(candidate.clone());
+                    if let Err(error) = reload.geometry.request(
+                        &candidate,
+                        current,
+                        world.stream.as_ref(),
+                        &chunks,
+                        gpu,
+                    ) {
+                        gpu.cancel_except(current.identity());
+                        reload.error = Some(error);
+                        reload.applied = reload.revision;
+                        return;
+                    }
                     match gpu.status(candidate.identity()) {
                         None => {
                             reload.ready = Some(prepared);
@@ -309,6 +325,16 @@ pub(crate) fn reload_resource_packs(
                 } else if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref())
                 {
                     gpu.cancel_except(current.identity());
+                }
+                if let Some(gpu) = gpu_reload.as_ref()
+                    && reload.geometry.publish(&mut chunks, gpu)
+                    && textures.as_ref().is_some_and(|current| {
+                        !current.assets().has_same_geometry(&prepared.assets)
+                            || current.assets().biome_assets() != prepared.assets.biome_assets()
+                    })
+                    && let Some(queue) = render_queue.as_mut()
+                {
+                    queue.discard_resource_work();
                 }
                 let entities_changed = reload.previous.as_ref().is_none_or(|old| {
                     !same_optional(&old.entities, &prepared.application.entities)
@@ -347,6 +373,9 @@ pub(crate) fn reload_resource_packs(
                 }
                 if let Some(stream) = world.stream.as_mut() {
                     stream.reload_resource_assets(prepared.assets.clone());
+                    if let Some(tints) = biome_tints.as_mut() {
+                        crate::runtime::world::synchronize_biome_tints(stream, tints);
+                    }
                     if entities_changed {
                         stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
                             (

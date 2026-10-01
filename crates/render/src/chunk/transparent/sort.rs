@@ -229,8 +229,8 @@ mod prepare;
 mod state;
 
 pub(in crate::chunk) use prepare::{
-    build_transparent_candidates, prepare_transparent_sorts,
-    transparent_snapshot_addresses_are_resident,
+    build_transparent_candidates, prepare_transparent_sorts, quantized_camera_orientation,
+    quantized_camera_position, transparent_snapshot_addresses_are_resident,
 };
 pub(in crate::chunk) use state::{
     TransparentAddressIdentity, TransparentCandidateCache, TransparentSortRequest,

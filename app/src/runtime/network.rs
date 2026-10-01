@@ -213,7 +213,7 @@ fn consume_equipment_route(
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
-    mut pack_reload: ResMut<PackReload>,
+    mut pack_reload: Option<ResMut<PackReload>>,
     mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
@@ -321,7 +321,9 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 }
-                pack_reload.begin_session(session_generation, &packs);
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.begin_session(session_generation, &packs);
+                }
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
@@ -618,7 +620,9 @@ pub(crate) fn receive_network_events(
                 UiRuntime::retire_crafting_observation();
                 render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
-                pack_reload.end_session();
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.end_session();
+                }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
                 ui_runtime.clear_local_abilities();
@@ -644,7 +648,9 @@ pub(crate) fn receive_network_events(
                 UiRuntime::retire_crafting_observation();
                 render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
-                pack_reload.end_session();
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.end_session();
+                }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
                 ui_runtime.clear_local_abilities();
@@ -665,7 +671,9 @@ pub(crate) fn receive_network_events(
                 UiRuntime::retire_crafting_observation();
                 render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
-                pack_reload.end_session();
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.end_session();
+                }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
                 ui_runtime.clear_local_abilities();
@@ -907,6 +915,7 @@ pub(crate) use item_icons::set_vanilla_item_paths;
 mod local_pack;
 mod pack_reload;
 mod pack_reload_diff;
+mod pack_reload_geometry;
 #[cfg(test)]
 mod pack_reload_tests;
 #[cfg(test)]
