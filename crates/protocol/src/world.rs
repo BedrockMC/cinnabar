@@ -802,6 +802,12 @@ pub fn into_world_event(
                 source_tick: packet.tick.inputtick,
             })
         }
+        McpePacketData::NetworkStackLatencyPacket(packet) => {
+            if !packet.is_from_server {
+                return Ok(None);
+            }
+            WorldEvent::NetworkStackLatency(packet.creation_time)
+        }
         McpePacketData::SetActorMotionPacket(packet) => {
             let motion = [packet.motion.x, packet.motion.y, packet.motion.z];
             if motion.iter().any(|value| !value.is_finite()) {

@@ -258,6 +258,7 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
     state: AppWorldState,
+    network: Option<Res<NetworkHandle>>,
     mut acceptance: ResMut<AcceptanceRun>,
     upload_budget: Res<ChunkUploadBudget>,
     model_witness_source: Res<ModelWitnessFileSource>,
@@ -303,8 +304,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
         upload_budget.max_per_frame,
     );
     frame_poll.cohort = frame_cohort_status(stream, &acceptance);
-    let controls = stream.take_committed_controls();
-    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
     drain_committed_audio(stream, |event| {
         audio.write(event);
     });
@@ -326,7 +325,49 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
 
-    for control in controls {
+    if network
+        .as_ref()
+        .is_some_and(|network| network.flush_latency_reply().is_err())
+    {
+        movement.set_control_fence_pending(true);
+        return;
+    }
+    movement.set_control_fence_pending(false);
+    let controls = stream.take_committed_controls();
+    if movement.has_unsent_inputs()
+        && controls
+            .iter()
+            .any(|control| matches!(control, CommittedControlEvent::NetworkStackLatency { .. }))
+    {
+        movement.set_control_fence_pending(true);
+        stream.restore_committed_controls(controls.into_iter());
+        return;
+    }
+    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
+
+    let mut controls = controls.into_iter();
+    while let Some(control) = controls.next() {
+        if let CommittedControlEvent::NetworkStackLatency { creation_time, .. } = control {
+            let Some(network) = network.as_ref() else {
+                movement.set_control_fence_pending(true);
+                stream.restore_committed_controls(std::iter::once(control).chain(controls));
+                return;
+            };
+            match network.send_latency_reply(creation_time) {
+                Ok(()) => {
+                    movement.set_control_fence_pending(network.has_pending_latency_reply());
+                    crate::movement::trace_server_control(&movement, &local_physics, &control)
+                }
+                Err(super::network::BatchSendError::Full) => {
+                    movement.set_control_fence_pending(true);
+                    stream.restore_committed_controls(std::iter::once(control).chain(controls));
+                    return;
+                }
+                Err(super::network::BatchSendError::Closed) => return,
+            }
+            continue;
+        }
+        crate::movement::trace_server_control(&movement, &local_physics, &control);
         if let CommittedControlEvent::LocalHurt {
             source_direction, ..
         } = control
@@ -614,6 +655,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
+            | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
