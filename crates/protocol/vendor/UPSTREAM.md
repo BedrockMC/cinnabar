@@ -42,6 +42,9 @@ Jolyne hands off required resource packs instead of refusing them: either
 required bit makes stack selection strict and is carried as
 `ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
 
+The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
+lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.
+
 Generated protocol reservations are normalized locally after generation by
 `tools/protocol-normalize/normalize.py` and its pinned neutral-only manifest.
 Numeric packet selectors, enum values, union discriminators and field ordinals

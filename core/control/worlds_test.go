@@ -30,8 +30,15 @@ func (s *stubWorlds) Create(spec localworld.Spec) (localworld.World, error) {
 	}
 	return localworld.World{ID: "0123456789abcdef", Name: spec.Name, GameMode: "survival"}, nil
 }
-func (s *stubWorlds) Rename(id, name string) (localworld.World, error) {
-	return localworld.World{ID: id, Name: name}, s.err
+func (s *stubWorlds) Update(id string, u localworld.Update) (localworld.World, error) {
+	world := localworld.World{ID: id}
+	if u.Name != nil {
+		world.Name = *u.Name
+	}
+	if u.Difficulty != nil {
+		world.Difficulty = *u.Difficulty
+	}
+	return world, s.err
 }
 func (s *stubWorlds) Delete(string) error { return s.err }
 func (s *stubWorlds) Prefs(_ context.Context, u localworld.PrefsUpdate) (localworld.Prefs, error) {
@@ -93,8 +100,8 @@ func TestWorldListCreateRenameDelete(t *testing.T) {
 	if !strings.Contains(string(created), `"name":"fresh"`) {
 		t.Fatalf("create = %s", created)
 	}
-	renamed := call(t, dir, methodWorldRename, `{"id":"0123456789abcdef","name":"two"}`)
-	if !strings.Contains(string(renamed), `"name":"two"`) {
+	renamed := call(t, dir, methodWorldUpdate, `{"id":"0123456789abcdef","name":"two","difficulty":"hard"}`)
+	if !strings.Contains(string(renamed), `"name":"two"`) || !strings.Contains(string(renamed), `"difficulty":"hard"`) {
 		t.Fatalf("rename = %s", renamed)
 	}
 	if deleted := call(t, dir, methodWorldDelete, `{"id":"0123456789abcdef"}`); !strings.Contains(string(deleted), `"result"`) {
@@ -143,7 +150,7 @@ func TestWorldParamValidation(t *testing.T) {
 	dir := startWorlds(t, &stubWorlds{})
 	for _, tc := range []struct{ method, params string }{
 		{methodWorldCreate, ""}, {methodWorldCreate, `{"name":"x","bogus":1}`}, {methodWorldOpen, `{}`},
-		{methodWorldRename, `{"id":"a"}`}, {methodWorldPause, `{"paused":"yes"}`},
+		{methodWorldUpdate, `{"id":"a"}`}, {methodWorldPause, `{"paused":"yes"}`},
 		{methodWorldList, `{}`}, {methodWorldStatus, `{}`}, {methodWorldClose, `{}`},
 	} {
 		assertRPCError(t, call(t, dir, tc.method, tc.params), -32602)

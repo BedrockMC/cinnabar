@@ -9,6 +9,7 @@ use bevy::{
 use crate::{
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset},
     movement::{LocalPhysicsController, MovementTicker},
+    runtime::endpoint::bridge_endpoint_exists,
     runtime::{
         network::{NetworkConfig, NetworkHandle, ResourcePackAdmissionState},
         world::ClientWorld,
@@ -17,8 +18,11 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
+use std::{path::PathBuf, time::Instant};
+
 use super::{
-    CoreProcessGuard, LauncherCoreSlot, MenuRuntime, spawn_core_for_address, wait_for_core,
+    CoreProcessGuard, LauncherCoreSlot, MenuRuntime, core_process::CORE_START_TIMEOUT,
+    spawn_core_for_address,
 };
 
 #[derive(SystemParam)]
@@ -35,11 +39,15 @@ pub(crate) struct MenuSessionState<'w> {
     launcher: Option<ResMut<'w, LauncherCoreSlot>>,
 }
 
+type BlobCache = crate::app::ClientBlobCacheOwner;
+
 impl MenuSessionState<'_> {
     fn retire(&mut self, menu: &mut MenuRuntime) -> u64 {
         *self.network = NetworkHandle::disconnected();
-        self.guard.stop();
-        menu.release_session_directory();
+        // The directories go only once their core has exited.
+        let directory = menu.session_directory.take();
+        let join = menu.join.take();
+        self.guard.stop_detached(move || drop((join, directory)));
         let generation = menu.next_session_generation();
         self.resource_packs.begin_generation(generation);
         self.runtime.begin_session(generation);
@@ -57,8 +65,30 @@ impl MenuSessionState<'_> {
     }
 }
 
-/// Spawns a fresh core and network session for one address, replacing any
-/// previous session.
+/// A join still provisioning while the connecting screen shows; polled each frame.
+#[derive(Debug)]
+pub(super) struct JoinAttempt {
+    generation: u64,
+    address: String,
+    auth_cache: Option<PathBuf>,
+    local_world: bool,
+    stage: JoinStage,
+}
+
+#[derive(Debug)]
+enum JoinStage {
+    /// The launcher core selecting the target on a worker.
+    Launcher(crossbeam_channel::Receiver<Result<PathBuf, String>>),
+    /// A per-session core that must publish its endpoint by `deadline`.
+    Core {
+        socket_dir: PathBuf,
+        directory: SessionDirectoryGuard,
+        deadline: Instant,
+    },
+}
+
+/// Starts provisioning a fresh core and network session for one address,
+/// replacing any previous session; [`poll_join`] finishes it on later frames.
 ///
 /// This is the single replacement-handoff path shared by user joins and
 /// automatic server-transfer follows: identity-checked session directory,
@@ -66,12 +96,11 @@ impl MenuSessionState<'_> {
 /// generation for every attempt. A running launcher core takes the join
 /// instead: it selects the target over `connect.v1` and the session dials it.
 fn attempt_connect(
-    commands: &mut bevy::prelude::Commands,
     menu: &mut MenuRuntime,
-    client_blob_cache: &crate::app::ClientBlobCacheOwner,
     session: &mut MenuSessionState<'_>,
+    cache: &BlobCache,
     address: String,
-    auth_cache: Option<std::path::PathBuf>,
+    auth_cache: Option<PathBuf>,
     local_world: bool,
 ) {
     // A replacement owns no route back into the old session, even when
@@ -83,103 +112,197 @@ fn attempt_connect(
     let launcher = session
         .launcher
         .as_deref()
-        .and_then(|slot| slot.prepare_join(&address, local_world, auth_cache.is_some()));
-    match launcher {
-        Some(Ok(socket_dir)) => {
-            if let Err(error) =
-                start_network(commands, menu, client_blob_cache, generation, socket_dir)
-            {
-                menu.message = Some(format!("Could not connect: {error}"));
-                menu.connecting = false;
-            }
-            return;
-        }
+        .and_then(|slot| slot.begin_join(&address, local_world, auth_cache.is_some()));
+    let stage = match launcher {
+        Some(receiver) => JoinStage::Launcher(receiver),
         // A local world exists only behind the launcher core.
-        Some(Err(error)) if local_world => {
-            menu.message = Some(format!("Could not open {address}: {error}"));
-            menu.connecting = false;
-            return;
-        }
         None if local_world => {
-            menu.message = Some(format!("Could not open {address}: no launcher core"));
-            menu.connecting = false;
+            fail_join(menu, format!("Could not open {address}: no launcher core"));
             return;
         }
-        // Otherwise a per-session core dials the address directly.
-        Some(Err(_)) | None => {}
-    }
+        None => match start_core(
+            menu,
+            session,
+            cache,
+            &address,
+            auth_cache.as_deref(),
+            generation,
+        ) {
+            Ok(stage) => stage,
+            Err(message) => {
+                fail_join(menu, message);
+                return;
+            }
+        },
+    };
+    menu.join = Some(JoinAttempt {
+        generation,
+        address,
+        auth_cache,
+        local_world,
+        stage,
+    });
+    menu.mark_connecting();
+}
+
+/// Spawns a per-session core that dials `address` directly.
+fn start_core(
+    menu: &MenuRuntime,
+    session: &mut MenuSessionState<'_>,
+    cache: &BlobCache,
+    address: &str,
+    auth_cache: Option<&std::path::Path>,
+    generation: u64,
+) -> Result<JoinStage, String> {
     // Namespaced by process id like the `--address` path: a bare
     // generation counter restarts at the same value every launch, so a
     // previous run's directory would be reused for this session.
     let socket_dir = menu
         .layout
         .connect_socket_dir(std::process::id(), generation);
-    // The guard owns the directory across every teardown path below;
-    // an identity conflict fails this connect loudly instead of
-    // reusing another session's directory.
-    let session_directory = match SessionDirectoryGuard::bind(socket_dir.clone()) {
-        Ok(directory) => directory,
-        Err(error) => {
-            menu.message = Some(format!("Could not start {address}: {error}"));
-            menu.connecting = false;
-            return;
-        }
-    };
-    let child = match spawn_core_for_address(
+    // The guard owns the directory across every teardown path; an identity
+    // conflict fails this connect loudly instead of reusing another
+    // session's directory.
+    let directory = SessionDirectoryGuard::bind(socket_dir.clone())
+        .map_err(|error| format!("Could not start {address}: {error}"))?;
+    let child = spawn_core_for_address(
         &menu.layout,
         &socket_dir,
-        &address,
-        auth_cache.as_deref(),
+        address,
+        auth_cache,
         // Advertise upstream cache capability exactly because this same
         // connect hands the verified blob cache to the new network
-        // session below; that ownership is what makes the client answer
+        // session; that ownership is what makes the client answer
         // LoginSuccess with cache-enabled status downstream.
-        client_blob_cache.enables_upstream_client_cache(),
-    ) {
-        Ok(child) => child,
-        Err(error) => {
-            drop(session_directory);
-            menu.message = Some(format!("Could not start {address}: {error}"));
-            menu.connecting = false;
-            return;
-        }
-    };
+        cache.enables_upstream_client_cache(),
+    )
+    .map_err(|error| format!("Could not start {address}: {error}"))?;
     session.guard.replace(child);
-    if let Err(error) = wait_for_core(&socket_dir) {
-        super::core_process::stop_core_then(&mut session.guard, |_| drop(session_directory));
-        menu.message = Some(format!("Could not start {address}: {error}"));
-        menu.connecting = false;
+    Ok(JoinStage::Core {
+        socket_dir,
+        directory,
+        deadline: Instant::now() + CORE_START_TIMEOUT,
+    })
+}
+
+/// Advances the pending join without blocking: starts its network session
+/// once the endpoint is ready, or fails it back to the menu.
+fn poll_join(
+    commands: &mut bevy::prelude::Commands,
+    menu: &mut MenuRuntime,
+    session: &mut MenuSessionState<'_>,
+    cache: &BlobCache,
+) {
+    let Some(mut attempt) = menu.join.take() else {
+        return;
+    };
+    // A retired generation's attempt drops; `retire` already stopped its core.
+    if attempt.generation != menu.session_generation || !menu.connecting {
         return;
     }
-    menu.bind_session_directory(session_directory);
-    if let Err(error) = start_network(commands, menu, client_blob_cache, generation, socket_dir) {
-        super::core_process::stop_core_then(&mut session.guard, |_| {
-            menu.release_session_directory();
-        });
-        menu.message = Some(format!("Could not connect: {error}"));
-        menu.connecting = false;
+    let address = attempt.address.clone();
+    match attempt.stage {
+        JoinStage::Launcher(ref receiver) => {
+            let selected = match receiver.try_recv() {
+                Err(crossbeam_channel::TryRecvError::Empty) => {
+                    menu.join = Some(attempt);
+                    return;
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    Err("the launcher core did not answer".to_owned())
+                }
+                Ok(selected) => selected,
+            };
+            match selected {
+                Ok(socket_dir) => {
+                    if let Err(error) = start_network(commands, menu, cache, socket_dir) {
+                        fail_join(menu, format!("Could not connect: {error}"));
+                    }
+                }
+                Err(error) if attempt.local_world => {
+                    fail_join(menu, format!("Could not open {address}: {error}"));
+                }
+                // Otherwise a per-session core dials the address directly.
+                Err(_) => {
+                    let auth_cache = attempt.auth_cache.clone();
+                    match start_core(
+                        menu,
+                        session,
+                        cache,
+                        &address,
+                        auth_cache.as_deref(),
+                        attempt.generation,
+                    ) {
+                        Ok(stage) => {
+                            attempt.stage = stage;
+                            menu.join = Some(attempt);
+                        }
+                        Err(message) => fail_join(menu, message),
+                    }
+                }
+            }
+        }
+        JoinStage::Core {
+            socket_dir,
+            directory,
+            deadline,
+        } => {
+            if !bridge_endpoint_exists(&socket_dir) {
+                let error = if session.guard.exited() {
+                    "bedrock-core exited before publishing its endpoint"
+                } else if Instant::now() >= deadline {
+                    "bedrock-core did not publish its endpoint"
+                } else {
+                    attempt.stage = JoinStage::Core {
+                        socket_dir,
+                        directory,
+                        deadline,
+                    };
+                    menu.join = Some(attempt);
+                    return;
+                };
+                session.guard.stop_detached(move || drop(directory));
+                fail_join(
+                    menu,
+                    format!(
+                        "Could not start {address}: {error} at {}",
+                        socket_dir.display()
+                    ),
+                );
+                return;
+            }
+            menu.bind_session_directory(directory);
+            if let Err(error) = start_network(commands, menu, cache, socket_dir) {
+                let directory = menu.session_directory.take();
+                session.guard.stop_detached(move || drop(directory));
+                fail_join(menu, format!("Could not connect: {error}"));
+            }
+        }
     }
+}
+
+fn fail_join(menu: &mut MenuRuntime, message: String) {
+    menu.message = Some(message);
+    menu.connecting = false;
 }
 
 /// Starts the network session against the core serving `socket_dir`.
 fn start_network(
     commands: &mut bevy::prelude::Commands,
-    menu: &mut MenuRuntime,
-    client_blob_cache: &crate::app::ClientBlobCacheOwner,
-    generation: u64,
-    socket_dir: std::path::PathBuf,
+    menu: &MenuRuntime,
+    cache: &BlobCache,
+    socket_dir: PathBuf,
 ) -> Result<(), String> {
     let replacement = crate::runtime::network::spawn_network(NetworkConfig {
-        session_generation: generation,
+        session_generation: menu.session_generation,
         socket_dir,
         display_name: menu.display_name.clone(),
-        client_blob_cache: client_blob_cache.cache(),
+        client_blob_cache: cache.cache(),
         player_skin: menu.player_skin.clone(),
     })
     .map_err(|error| error.to_string())?;
     commands.insert_resource(replacement.movement_ticker());
     commands.insert_resource(replacement);
-    menu.mark_connecting();
     Ok(())
 }
 
@@ -188,22 +311,24 @@ pub(crate) fn drive_menu_connection(
     mut commands: bevy::prelude::Commands,
     mut exits: MessageWriter<AppExit>,
     mut menu: ResMut<MenuRuntime>,
-    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
+    client_blob_cache: Res<BlobCache>,
     mut session: MenuSessionState,
     launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
 ) {
     menu.poll_catalog(launcher_account.is_some());
+    menu.poll_saves();
     menu.sync_audio_settings(audio_settings);
     let in_session = session.client_world.stream.is_some();
+    let upstream_cache = client_blob_cache.enables_upstream_client_cache();
     if let Some(slot) = session.launcher.as_deref_mut() {
         let idle = menu.is_launcher() && !menu.is_connecting() && !in_session;
         slot.drive(
             &mut commands,
             &mut menu,
             idle,
-            client_blob_cache.enables_upstream_client_cache(),
+            upstream_cache,
             local_worlds.as_deref_mut(),
         );
     }
@@ -226,15 +351,15 @@ pub(crate) fn drive_menu_connection(
     }
     if let Some(pending) = menu.take_pending_connect() {
         attempt_connect(
-            &mut commands,
             &mut menu,
-            &client_blob_cache,
             &mut session,
+            &client_blob_cache,
             pending.address,
             pending.auth_cache,
             pending.local_world,
         );
     }
+    poll_join(&mut commands, &mut menu, &mut session, &client_blob_cache);
     if menu.take_disconnect_request() {
         // A disconnect while connecting is a cancelled join, which returns to the play screen.
         let cancelled_join = menu.is_connecting();
@@ -248,6 +373,8 @@ pub(crate) fn drive_menu_connection(
         }
     }
     if menu.take_exit_request() {
+        // Exit stops the core inline, inside the shutdown watchdog's envelope.
+        session.guard.stop();
         session.retire(&mut menu);
         exits.write(AppExit::Success);
     }
@@ -282,9 +409,8 @@ pub(crate) fn recover_menu_session_failure(
 /// a transfer loop ends in a visible menu state instead of reconnecting
 /// forever.
 pub(crate) fn follow_server_transfer(
-    mut commands: bevy::prelude::Commands,
     mut menu: ResMut<MenuRuntime>,
-    client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
+    client_blob_cache: Res<BlobCache>,
     mut session: MenuSessionState,
 ) {
     let Some(notice) = session.client_world.transfer_notice.take() else {
@@ -327,10 +453,9 @@ pub(crate) fn follow_server_transfer(
     // The shared replacement path tears down old transport and world/UI state
     // before provisioning, so every early failure leaves no stale session.
     attempt_connect(
-        &mut commands,
         &mut menu,
-        &client_blob_cache,
         &mut session,
+        &client_blob_cache,
         address.clone(),
         auth_cache,
         false,
@@ -627,6 +752,97 @@ mod transfer_follow_tests {
                 .is_none()
         );
         assert!(old_controls.is_closed());
+    }
+
+    /// A menu whose per-session core is `script`, in an app driving joins.
+    #[cfg(unix)]
+    fn app_with_core(root: &Path, script: &str) -> App {
+        use std::os::unix::fs::PermissionsExt;
+
+        let layout = missing_core_layout(root);
+        fs::create_dir_all(layout.core_executable.parent().unwrap()).unwrap();
+        fs::write(&layout.core_executable, script).unwrap();
+        fs::set_permissions(&layout.core_executable, fs::Permissions::from_mode(0o755)).unwrap();
+        let menu = MenuRuntime::new_with_layout(
+            true,
+            2,
+            "Player".to_owned(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Player"),
+        );
+        let mut app = App::new();
+        app.add_message::<bevy::app::AppExit>()
+            .insert_resource(menu)
+            .insert_resource(CoreProcessGuard::default())
+            .insert_resource(NetworkHandle::disconnected())
+            .insert_resource(ClientBlobCacheOwner::default())
+            .insert_resource(ResourcePackAdmissionState::default())
+            .insert_resource(UiRuntime::new(1))
+            .insert_resource(ClientWorld::default())
+            .insert_resource(crate::movement::MovementTicker::default())
+            .insert_resource(crate::movement::LocalPhysicsController::default())
+            .insert_resource(crate::local_player::LocalPlayerFrameCarrier::default())
+            .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
+            .add_systems(Update, super::drive_menu_connection);
+        app
+    }
+
+    // Join frames stay short while the core starts; cancelling reaps it.
+    #[cfg(unix)]
+    #[test]
+    fn a_join_frame_does_not_wait_for_the_core() {
+        let root = TempRoot::new();
+        // Holds stdin like bedrock-core and never publishes an endpoint.
+        let mut app = app_with_core(root.path(), "#!/bin/sh\nIFS= read -r hold\n");
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .request_connect("127.0.0.1:19132".to_owned());
+        let started = std::time::Instant::now();
+        app.update();
+        app.update();
+        let frames = started.elapsed();
+        if std::env::var_os("CINNABAR_MENU_LATENCY").is_some() {
+            eprintln!("menu-latency join (two frames)          {frames:?}");
+        }
+        let menu = app.world().resource::<MenuRuntime>();
+        assert!(frames < std::time::Duration::from_secs(1), "{frames:?}");
+        assert!(menu.is_connecting() && menu.join.is_some());
+        assert!(menu.view().connecting);
+
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .disconnect_requested = true;
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        assert!(!menu.is_connecting() && menu.join.is_none());
+    }
+
+    // A core that dies before publishing fails the join on a later frame, not
+    // after the full start timeout.
+    #[cfg(unix)]
+    #[test]
+    fn a_core_that_exits_early_fails_the_join_promptly() {
+        let root = TempRoot::new();
+        let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 3\n");
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .request_connect("127.0.0.1:19132".to_owned());
+        while app.world().resource::<MenuRuntime>().is_connecting() {
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let menu = app.world().resource::<MenuRuntime>();
+        assert!(menu.join.is_none());
+        // The exit is seen, not the start timeout (a new executable's first
+        // launch can itself take seconds on macOS).
+        assert!(
+            menu.message.as_deref().is_some_and(|message| {
+                message.starts_with("Could not start 127.0.0.1")
+                    && message.contains("exited before publishing")
+            }),
+            "{:?}",
+            menu.message
+        );
     }
 
     fn failed_automatic_replacement(from_settings: bool) {

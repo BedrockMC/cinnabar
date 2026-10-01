@@ -10,6 +10,8 @@ mod fallback;
 mod hud;
 mod join_progress;
 mod loading_screen;
+#[cfg(test)]
+mod menu_latency;
 mod menu_screens;
 mod menus;
 mod model;

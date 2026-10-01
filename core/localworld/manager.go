@@ -158,7 +158,7 @@ func (m *Manager) bdsRunnable() bool {
 	return m.setup != nil && m.setup.Status().State != SetupUnsupported
 }
 
-func (m *Manager) Rename(id, name string) (World, error) { return m.store.Rename(id, name) }
+func (m *Manager) Update(id string, update Update) (World, error) { return m.store.Update(id, update) }
 
 // Delete removes a world that is not starting, running or stopping.
 func (m *Manager) Delete(id string) error {
@@ -185,7 +185,7 @@ func (m *Manager) Status() Status {
 }
 
 func failureText(err error) string {
-	for _, known := range []error{ErrEULARequired, ErrBackendUnavailable, ErrVanillaNeedsBDS} {
+	for _, known := range []error{ErrEULARequired, ErrDockerNotRunning, ErrBackendUnavailable, ErrVanillaNeedsBDS, ErrImageNotPinned} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}

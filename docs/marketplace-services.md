@@ -16,9 +16,8 @@ needs one live capture against a sandbox account before it is relied on.
 | PlayFab entity token (`X-EntityToken`, `master_player_account`) | PlayFab Catalog calls |
 | MCToken (`Authorization`) + `Session-Id` header | every store-service call below |
 
-The store base URI is a discovery service environment whose name is not recoverable from the reconstruction (candidates tried: `store`,
-`marketplace`, `mktpl`; fallback `store.mktpl.minecraft-services.net`). guess. Discovery URIs outside `*.minecraft-services.net` over
-https are ignored so the MCToken never leaves Mojang's domain.
+The store base URI is discovery `serviceEnvironments.store.prod.serviceUri`. ref. Protocol code lives in
+gophertunnel `minecraft/service/marketplace`, which keeps every request (and redirect) on that origin.
 
 ## Service calls
 
@@ -27,40 +26,31 @@ Store-service paths are relative to the store base URI. Every answer is wrapped 
 
 | Function | Call | Notes |
 | --- | --- | --- |
-| Session config | `GET /api/v1.0/session/config` | ref. Members: `knownPages` (name -> layout path), `latestTextureVersion`, filter collections, dressing-room filters, per-category terms, `platformSkus`, `feedbackCharacterLimit`, `badgePromoCountdownWindow` |
-| Home / rows / upsell pages | `POST {knownPages[name]}` body `{entitlements: [uuid], inventoryVersion, listVersion}` | ref body; the path is server-supplied and the client appends a per-request-type suffix table that is not recoverable (guess: `knownPages` value is used as-is). Answer headers `InventoryETag`, `X-UserLists-Version`; body `{page, inventoryVersion, sidebarLayoutType, userListsVersion}` with `page.layout.sections[].rows` (guess for inner names) |
-| Row continuation | `POST /api/v2.0/layout/items` body `{continuationToken, inventoryVersion}` | ref path and body; `store_row_more.v1`; the result shape is a guess (parsed like a page) |
-| Search (marketplace) | `POST` search-layout body: filters (`price`, `rating`, `...FilterTag` tag filters, range `{type,value,high,low}`), `installedPackIds`, `filterCurrentRealmsPlus`, `filterPastRealmsPlus` | ref member names only; core uses the catalog search below |
-| Catalog search | PlayFab `POST /Catalog/Search` (`/Catalog/SearchStores` for store scope) | ref path; body is the PlayFab economy search filter. Core uses the documented `Catalog/SearchItems` through `go-playfab` (doc) |
-| Offer detail | PlayFab `/Catalog/GetPublishedItem`; core uses documented `Catalog/GetItem` via `go-playfab` | ref / doc |
-| Ratings | read: PlayFab `/Catalog/GetItemReviewSummary`, `/Catalog/GetMyReview`; write: PlayFab `/Catalog/CreateOrUpdateReview` or store `POST /api/v1.0/catalog/reviewitem` body `{ItemId, Rating}` | ref; core returns `Item.Rating` only, no rating writes |
-| Minecoin balance | `GET /api/v1.0/currencies/virtual/balances` | ref. `result.virtualCurrencyBalances: [{type, amount}]`; `type` also takes a PlayStation token value |
-| Entitlements | `GET /api/v1.0/player/inventory?includeReceipt=true` (the query is 20 characters in the client; the flag name is a guess) | ref path; result shape guess, parsed leniently for id members |
-| Inventory refresh | `POST /api/v1.0/inventory/refresh` (empty object body) | ref path and body; method and answer `{result: {version}}`; the core calls it after every successful purchase and on `store_entitlements.v1 {refresh: true}` |
+| Session config | `GET /api/v1.0/session/config` with `Session-Id` | ref. `result`: `knownPages` (name -> page id), `latestTextureVersion`, `binaryUrls`, `globalNotTags`, `storeFilters`, `dressingRoomFilters`, `storeSearch`, `platformSkus`, `storeVersion`, `feedbackCharacterLimit`, `userListsVersion`, `badgePromoCountdownWindow`, `upsellQueries` |
+| Layout pages | `POST /api/v2.0/layout/pages/{id}` (`productId/{id}`, `packId/{id}` by navigation action) body `{entitlements, inventoryVersion, listVersion}` | ref. `id` is `knownPages[name]`, else the name. Headers `InventoryETag`, `X-UserLists-Version`; `result.layout[].{sectionName, rows[]}`; a row is `{telemetryId, controlId, components[], queries[]}` and carries no offers |
+| Row fill | PlayFab catalog search per row query | provisional: `Query.SearchFilter` maps content types, tags and product ids onto an OData filter; the vanilla search body is unconfirmed and rarity/piece/creator queries are refused |
+| Row continuation | `POST /api/v2.0/layout/items` body `{continuationToken, inventoryVersion}` | ref. `{continuationToken, result: [catalog items]}`; where rows get the token is not identified |
+| Catalog search / offer detail | PlayFab `Catalog/SearchItems`, `Catalog/GetItem` via `go-playfab` | doc |
+| Minecoin balance | `POST /api/v1.0/currencies/virtual/balances` | ref. `result.virtualCurrencyBalances: [{type, amount}]` |
+| Entitlements | `GET /api/v1.0/player/inventory?includeReceipt=true` | ref. `result.{inventory.entitlements[].id, receipt, thirdPartyReceipts}` |
+| Inventory refresh | `POST /api/v1.0/inventory/refresh` body `{}` | ref. `result.version` |
 | **Minecoin purchase** | `POST /api/v1.0/transaction/virtual` | ref, below |
-| Real-money top-up redeem | `POST /api/v1.0/transaction/redeem` | ref, below; not implemented |
-| Feedback / safety | `/api/v1.0/feedback`, `/api/v1.0/messages/*` | out of scope |
+| Real-money top-up redeem | `PUT /api/v1.0/transaction/redeem` | ref, not implemented |
 
 ### Purchase (ref)
 
 Body:
 
 ```json
-{"VirtualCurrency": {"Type": "<currency>", "Amount": "<decimal string>"},
+{"VirtualCurrency": {"Type": "Minecoin", "Amount": "<decimal string>"},
  "OfferId": "<id>", "StoreId": "<id>", "UnitDurationInSeconds": 0,
  "CustomTags": {"ClientId": "", "DeviceSessionId": "", "CorrelationId": "", "TitleId": "20CA2",
                 "BuildPlat": 7, "editionType": "", "Seq": 1, "DnAPlat": "", "Xuid": ""}}
 ```
 
-`UnitDurationInSeconds` is present only for subscription offers. Response: header `InventoryEtag`; on non-2xx the body is
-`{"code": "PlayFabError", "customData": {"marketplaceErrorCode": "<int>"}}` (missing or malformed -> 1502).
-HTTP 2xx = purchased, 422 and 412 each get their own client outcome, anything else is a generic failure. The 422 outcome is shown with
-`store.popup.purchasePriceMismatch.msg` (inferred, guess); the purchase-failed dialog is `store.popup.purchaseFailed.*`; a service error
-dialog shows the marketplace error code and correlation id (`store.csb.purchaseErrorDialog.*`).
-
-Unverified vocabularies (a wrong value fails the purchase, it cannot make one free): `Type` (the balance `type` vs the catalog price item id),
-`StoreId` origin, `editionType`, `DnAPlat`, `Session-Id`. The core sends `BuildPlat` 7 and `Windows10` to match the device the auth
-token claims.
+`UnitDurationInSeconds` is present only for subscription offers. HTTP 2xx = purchased, 422 price mismatch, 412 precondition
+failed, anything else a generic failure; the body is not read (`marketplaceErrorCode` belongs to redeem). Sent at most once, never
+retried; no answer is an unknown outcome that holds the offer.
 
 ### Real-money top-up (documented, not implemented)
 

@@ -2,21 +2,18 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 const (
-	guardTTL          = time.Hour
-	guardMax          = 256
-	uncertainHold     = 2 * time.Minute
-	defaultMarketCode = 1502
+	guardTTL      = time.Hour
+	guardMax      = 256
+	uncertainHold = 2 * time.Minute
 )
 
 type purchaseEntry struct {
@@ -99,41 +96,6 @@ func (g *purchaseGuard) prune(now time.Time) {
 	}
 }
 
-// customTags is the client telemetry block the purchase request carries.
-type customTags struct {
-	ClientID        string `json:"ClientId"`
-	DeviceSessionID string `json:"DeviceSessionId"`
-	CorrelationID   string `json:"CorrelationId"`
-	TitleID         string `json:"TitleId"`
-	BuildPlat       int    `json:"BuildPlat"`
-	EditionType     string `json:"editionType"`
-	Seq             uint32 `json:"Seq"`
-	DnAPlat         string `json:"DnAPlat"`
-	Xuid            string `json:"Xuid,omitempty"`
-}
-
-type purchaseBody struct {
-	VirtualCurrency struct {
-		Type   string `json:"Type"`
-		Amount string `json:"Amount"`
-	} `json:"VirtualCurrency"`
-	OfferID               string     `json:"OfferId"`
-	StoreID               string     `json:"StoreId"`
-	CustomTags            customTags `json:"CustomTags"`
-	UnitDurationInSeconds *uint64    `json:"UnitDurationInSeconds,omitempty"`
-}
-
-func (c *Client) purchaseBody(r PurchaseRequest, correlation string) purchaseBody {
-	body := purchaseBody{OfferID: r.OfferID, StoreID: r.StoreID, UnitDurationInSeconds: r.UnitDurationSeconds}
-	body.VirtualCurrency.Type, body.VirtualCurrency.Amount = r.Currency, r.Amount
-	id := c.cfg.Identity
-	body.CustomTags = customTags{
-		ClientID: id.DeviceID, DeviceSessionID: c.sessionID, CorrelationID: correlation, TitleID: id.TitleID,
-		BuildPlat: id.BuildPlatform, EditionType: id.EditionType, Seq: c.seq.Add(1), DnAPlat: id.DNAPlatform, Xuid: id.XUID,
-	}
-	return body
-}
-
 // Purchase buys an offer with virtual currency through the store service. It is sent at most once per
 // purchase_id; a replay returns the recorded outcome, and the offer is locked while one is in flight.
 func (c *Client) Purchase(ctx context.Context, r PurchaseRequest) (PurchaseResult, error) {
@@ -160,31 +122,42 @@ func (c *Client) Purchase(ctx context.Context, r PurchaseRequest) (PurchaseResul
 }
 
 func (c *Client) sendPurchase(ctx context.Context, r PurchaseRequest) (PurchaseResult, error) {
+	amount, err := strconv.ParseUint(r.Amount, 10, 64)
+	if err != nil {
+		return PurchaseResult{}, ErrInvalidRequest
+	}
 	correlation := uuid.NewString()
-	res := PurchaseResult{CorrelationID: correlation}
-	resp, err := c.do(ctx, http.MethodPost, pathTransaction, c.purchaseBody(r, correlation))
-	var svc *ServiceError
-	switch {
-	case err == nil:
-		res.Status, res.HTTPStatus = PurchaseOK, resp.status
-	case errors.As(err, &svc):
-		res.HTTPStatus = svc.Status
-		res.Status = statusFor(svc.Status)
-		res.MarketplaceErrorCode = marketplaceErrorCode(svc.Body)
-		if resp != nil {
-			res.InventoryVersion = resp.header.Get("InventoryEtag")
-		}
+	id := c.cfg.Identity
+	sent, err := c.cfg.Market.PurchaseVirtual(ctx, marketplace.Purchase{
+		OfferID: r.OfferID, StoreID: r.StoreID, Amount: amount, UnitDurationSeconds: r.UnitDurationSeconds,
+		Tags: marketplace.CustomTags{
+			ClientID: id.DeviceID, DeviceSessionID: c.cfg.Market.SessionID(), CorrelationID: correlation, TitleID: id.TitleID,
+			BuildPlat: id.BuildPlatform, EditionType: id.EditionType, Seq: c.seq.Add(1), DnAPlat: id.DNAPlatform, Xuid: id.XUID,
+		},
+	})
+	if err != nil {
+		return PurchaseResult{}, err // not sent
+	}
+	res := PurchaseResult{CorrelationID: correlation, HTTPStatus: sent.StatusCode, InventoryVersion: sent.InventoryETag}
+	switch sent.Outcome {
+	case marketplace.PurchaseSucceeded:
+		res.Status = PurchaseOK
+	case marketplace.PurchasePriceMismatch:
+		res.Status = PurchasePriceRefused
+	case marketplace.PurchasePreconditionFailed:
+		res.Status = PurchaseStaleState
+	case marketplace.PurchaseFailed:
+		res.Status = PurchaseFailed
 	default:
 		// The request may or may not have reached the service; never report failure as definitive.
 		res.Status = PurchaseUnknown
 		c.invalidateInventory()
 		return res, nil
 	}
-	if resp != nil {
-		if v := resp.header.Get("InventoryEtag"); v != "" {
-			res.InventoryVersion = v
-		}
-		c.remember(resp.header)
+	if sent.InventoryETag != "" {
+		c.mu.Lock()
+		c.etag = sent.InventoryETag
+		c.mu.Unlock()
 	}
 	if res.Status == PurchaseOK || res.Status == PurchaseStaleState {
 		c.invalidateInventory()
@@ -193,32 +166,4 @@ func (c *Client) sendPurchase(ctx context.Context, r PurchaseRequest) (PurchaseR
 		}
 	}
 	return res, nil
-}
-
-func statusFor(code int) string {
-	switch code {
-	case http.StatusUnprocessableEntity:
-		return PurchasePriceRefused
-	case http.StatusPreconditionFailed:
-		return PurchaseStaleState
-	}
-	return PurchaseFailed
-}
-
-// marketplaceErrorCode reads customData.marketplaceErrorCode from a PlayFab error body, defaulting when absent.
-func marketplaceErrorCode(body []byte) int {
-	var e struct {
-		Code       string `json:"code"`
-		CustomData struct {
-			Code json.RawMessage `json:"marketplaceErrorCode"`
-		} `json:"customData"`
-	}
-	if json.Unmarshal(body, &e) != nil || e.Code != "PlayFabError" || len(e.CustomData.Code) == 0 {
-		return defaultMarketCode
-	}
-	var n flexInt
-	if n.UnmarshalJSON(e.CustomData.Code) != nil || n <= 0 || n > 1<<20 {
-		return defaultMarketCode
-	}
-	return int(n)
 }
