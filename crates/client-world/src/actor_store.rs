@@ -586,6 +586,7 @@ mod hurt;
 mod lifecycle;
 mod lightning;
 mod placement;
+mod projectile;
 pub(crate) mod properties;
 mod query;
 

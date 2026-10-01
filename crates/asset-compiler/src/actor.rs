@@ -187,7 +187,6 @@ fn build_artwork(
         for offset in 0..usize::from(rig.geometry_count) {
             let candidate_index = rig.first_geometry as usize + offset;
             let candidate = entities.rig_geometries[candidate_index];
-            let geometry = &entities.geometries[candidate.geometry as usize];
             // Out-of-range UVs sample the clamped edge, so a lenient build still draws them.
             if !lenient
                 && !neutral_actor_geometry_uvs_are_supported(
@@ -200,11 +199,11 @@ fn build_artwork(
             }
             let mut default_texture = None;
             for &source in &sources {
-                // The actor carrier admits only entity textures.
+                // Actor definitions may bind entity art or an item icon.
                 if !lenient
                     && !entities.sources[source as usize]
                         .path
-                        .starts_with("textures/entity/")
+                        .starts_with("textures/")
                 {
                     continue;
                 }
@@ -215,14 +214,7 @@ fn build_artwork(
                 let Some(raster) = decoded[&source].as_ref() else {
                     continue;
                 };
-                // UVs are normalised by the geometry's declared size, so a lenient build
-                // accepts a raster of another resolution.
-                if !lenient
-                    && (raster.width != geometry.texture_width
-                        || raster.height != geometry.texture_height)
-                {
-                    continue;
-                }
+                // UVs use the declared size, independent of the raster resolution.
                 let index = match table.get(&source) {
                     Some(&index) => index,
                     None => match admit(&mut textures, &mut pixel_bytes, source, raster) {
@@ -253,27 +245,22 @@ fn build_artwork(
                 pose_mode: assets::ActorPoseMode::CompiledLiteral,
             });
         }
-        // Controllers drawing their own geometry sample rasters sized for that geometry.
-        let layer_sizes: Vec<(u16, u16)> = layers
+        // Controllers may draw another geometry with its own normalised UVs.
+        let has_layer_geometry = layers
             .iter()
             .flat_map(|layer| {
                 render.geometries[layer.first_geometry as usize..]
                     [..usize::from(layer.geometry_count)]
                     .iter()
             })
-            .filter(|choice| {
+            .any(|choice| {
                 lenient
                     || neutral_actor_geometry_uvs_are_supported(
                         &entities.geometries,
                         choice.geometry as usize,
                     )
-            })
-            .map(|choice| {
-                let geometry = &entities.geometries[choice.geometry as usize];
-                (geometry.texture_width, geometry.texture_height)
-            })
-            .collect();
-        if layer_sizes.is_empty() {
+            });
+        if !has_layer_geometry {
             continue;
         }
         for &source in &sources {
@@ -281,7 +268,7 @@ fn build_artwork(
                 || (!lenient
                     && !entities.sources[source as usize]
                         .path
-                        .starts_with("textures/entity/"))
+                        .starts_with("textures/"))
             {
                 continue;
             }
@@ -292,9 +279,6 @@ fn build_artwork(
             let Some(raster) = decoded[&source].as_ref() else {
                 continue;
             };
-            if !lenient && !layer_sizes.contains(&(raster.width, raster.height)) {
-                continue;
-            }
             match admit(&mut textures, &mut pixel_bytes, source, raster) {
                 Some(index) => {
                     table.insert(source, index);
