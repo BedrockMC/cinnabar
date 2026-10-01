@@ -8,9 +8,10 @@
 use std::sync::Arc;
 
 use json_ui::{
-    BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context, DataSource,
-    FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl, Sidebar,
-    Timed, ViewState, bind_shared, hud_clocks, hud_context, hud_data_source, render_bound, resolve,
+    BindState, BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context,
+    DataSource, FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl,
+    Sidebar, Timed, ViewState, bind_stateful, hud_clocks, hud_context, hud_data_source,
+    render_bound, resolve,
 };
 use ui::{TimedText, UiNode};
 
@@ -61,6 +62,8 @@ pub(super) struct CachedScreen {
     resolved: Option<(Arc<Catalog>, Option<Arc<ResolvedControl>>)>,
     /// Factory and grid resolutions for the resolved catalog, kept across binds.
     library: ResolveCache,
+    /// The screen's live bindings across data refreshes.
+    binding: BindState,
     laid: Option<Laid>,
     /// Bind+layout passes run, for cache tests and profiling.
     pub(super) passes: usize,
@@ -131,13 +134,14 @@ impl CachedScreen {
                 let tree = resolve(catalog, reference, context).control.map(Arc::new);
                 self.resolved = Some((Arc::clone(catalog), tree));
                 self.library = ResolveCache::default();
+                self.binding = BindState::new();
             }
             let tree = self.resolved.as_ref()?.1.as_ref()?;
             let library = CachedLibrary {
                 library: CatalogLibrary { catalog, context },
                 cache: &self.library,
             };
-            let bound = bind_shared(tree, &data, &library);
+            let bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
             self.passes += 1;
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
