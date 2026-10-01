@@ -176,6 +176,43 @@ fn flight_without_permission_never_starts() {
 }
 
 #[test]
+fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
+    let mut physics = grounded_controller();
+    let input = MovementInput {
+        jumping: true,
+        ..Default::default()
+    };
+    let world = VersionedFloor(1);
+    let flying = step(
+        &mut physics,
+        input,
+        ModeIntent {
+            can_fly: true,
+            server_flying: true,
+            ..Default::default()
+        },
+        &world,
+    );
+    assert_eq!(flying.processed.mode, MovementMode::Flying);
+    assert!(!flying.grounded_after_tick);
+    let stopped = step(
+        &mut physics,
+        input,
+        ModeIntent {
+            can_fly: true,
+            server_flying: false,
+            ..Default::default()
+        },
+        &world,
+    );
+    assert_eq!(stopped.processed.mode, MovementMode::Walking);
+    assert!(has(
+        input_flags(&stopped, HeldInput::from(&flying)),
+        PlayerInputFlags::STOP_FLYING
+    ));
+}
+
+#[test]
 fn crawl_edges_fire_once_on_entry_and_once_on_exit() {
     let mut crawling = settled_sample(101, [0.0, 2.620_01, 0.0]);
     crawling.processed.mode = MovementMode::Crawling;
