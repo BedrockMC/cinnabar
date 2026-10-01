@@ -525,3 +525,108 @@ fn the_server_list_builds_only_visible_rows() {
     // Only the list's count label grows a digit.
     assert!(long < short + 64, "{long} vs {short}");
 }
+
+/// The OreUI screen `view` draws, as its text runs.
+fn oreui_texts(view: &crate::menu::MenuView) -> Vec<String> {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    let metrics = super::super::TextMetrics::for_viewport([1600, 900], dpi, None);
+    let (mut nodes, mut next) = (Vec::new(), 1);
+    presentation
+        .append_oreui_screen(view, &mut nodes, &mut next, metrics, [1600.0, 900.0], None)
+        .unwrap()
+        .expect("an OreUI screen");
+    super::pack_harness::drawn_texts(&nodes)
+}
+
+// The owner's world type labels show on the create form, the edit screen, the worlds list
+// and the no-Docker dialog's built-in option.
+#[test]
+fn world_types_carry_the_owner_labels_everywhere_they_show() {
+    use crate::local_worlds::{
+        Event, FLAT_WORLD_LABEL, Input, NORMAL_WORLD_LABEL, Tab, WorldsMenu,
+    };
+    use protocol::world_control::{
+        Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
+        World, WorldState, WorldStatus,
+    };
+    let mut runtime = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned());
+    runtime.activate(crate::menu::MenuAction::Navigate(
+        crate::menu::MenuScreen::Play,
+    ));
+    let flat = World {
+        id: "0123456789abcdef".to_owned(),
+        name: "Plains".to_owned(),
+        game_mode: GameMode::Creative,
+        generator: Generator::Flat,
+        difficulty: Difficulty::Easy,
+        backend: Backend::Dragonfly,
+        seed: 1,
+        created_unix: 1,
+        last_played_unix: 1,
+        size_bytes: 0,
+    };
+    let base = |menu: &WorldsMenu| {
+        let mut view = runtime.view();
+        view.local = menu.view();
+        view.local_worlds = vec![crate::menu::LocalWorldCard {
+            name: flat.name.clone(),
+            game_mode: "Creative".to_owned(),
+            world_type: crate::local_worlds::world_type_label(flat.generator).to_owned(),
+            date: String::new(),
+            size: String::new(),
+        }];
+        view
+    };
+    let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
+    let mut menu = WorldsMenu::default();
+    menu.update(Input::Refresh);
+    menu.apply(Event::Listed(vec![flat.clone()]));
+    let list = oreui_texts(&base(&menu));
+    assert!(has(&list, FLAT_WORLD_LABEL), "worlds list: {list:?}");
+
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SelectTab(Tab::Advanced));
+    let create = oreui_texts(&base(&menu));
+    for label in [NORMAL_WORLD_LABEL, FLAT_WORLD_LABEL] {
+        assert!(has(&create, label), "create form {label}: {create:?}");
+    }
+    menu.update(Input::Back);
+
+    menu.update(Input::BeginEdit(0));
+    let edit = oreui_texts(&base(&menu));
+    assert!(has(&edit, FLAT_WORLD_LABEL), "edit screen: {edit:?}");
+    menu.update(Input::Back);
+
+    let setup = Setup {
+        state: SetupState::Unsupported,
+        version: None,
+        bytes_done: 0,
+        bytes_total: 0,
+        layers_done: 0,
+        layers_total: 0,
+        eula_accepted: false,
+        error: None,
+        runtime: "none".to_owned(),
+        reason: None,
+    };
+    menu.apply(Event::Prefs(
+        Prefs::default(),
+        WorldStatus {
+            state: WorldState::Idle,
+            world_id: None,
+            backend: None,
+            paused: false,
+            pause_supported: true,
+            error: None,
+            setup: Some(setup),
+            backend_unavailable_reason: Some(UnavailableReason::DockerMissing),
+        },
+    ));
+    menu.update(Input::BeginCreate);
+    let dialog = oreui_texts(&base(&menu));
+    assert!(
+        has(&dialog, &format!("Create {FLAT_WORLD_LABEL} world")),
+        "no-Docker dialog: {dialog:?}"
+    );
+}

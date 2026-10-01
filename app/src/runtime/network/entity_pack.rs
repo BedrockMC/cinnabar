@@ -212,4 +212,7 @@ mod equipment_report;
 mod render_report;
 
 #[cfg(test)]
+mod lobby_bench;
+
+#[cfg(test)]
 mod scene_report;

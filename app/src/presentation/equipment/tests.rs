@@ -203,8 +203,10 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
         &body,
         4,
         EntityRigId(0x8000_0001),
-        vec![bone([0.0; 3], 1.0)],
-        vec![bone([1.0; 3], 1.0)],
+        [
+            Arc::from([bone([0.0; 3], 1.0)]),
+            Arc::from([bone([1.0; 3], 1.0)]),
+        ],
         location,
         0xff00_00ff,
     );
