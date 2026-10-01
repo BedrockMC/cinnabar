@@ -1,3 +1,4 @@
+use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -165,9 +166,13 @@ pub(in crate::chunk) fn prepare_chunk_animation_clock(
     render_queue.write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
 }
 
-type PendingTextures = std::sync::Mutex<
-    std::sync::mpsc::Receiver<Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)>>,
->;
+type PreparedReplacement = (
+    PreparedChunkTextureAssets,
+    ChunkTextureUploadStats,
+    Option<PreparedResourceGeometry>,
+);
+
+type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
@@ -176,7 +181,7 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
     pending_identity: Option<ChunkTextureAssetIdentity>,
-    staged: Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)>,
+    staged: Option<PreparedReplacement>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -189,7 +194,12 @@ pub struct ChunkTextureUploadStats {
     pub padded_upload_bytes: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_chunk_texture_assets(
+    mut commands: Commands,
+    instances: Query<(Entity, &ChunkRenderInstance)>,
+    views: Query<(Entity, &ExtractedView), With<ExtractedCamera>>,
+    mut arena: ResMut<ChunkGpuArena>,
     assets: Res<ChunkTextureAssets>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -217,7 +227,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         gpu_assets.staged = completed;
     }
     let requested = reload.requested();
-    if gpu_assets.staged.as_ref().is_some_and(|(prepared, _)| {
+    if gpu_assets.staged.as_ref().is_some_and(|(prepared, _, _)| {
         prepared.identity != identity
             && requested
                 .as_ref()
@@ -228,9 +238,14 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     if gpu_assets
         .staged
         .as_ref()
-        .is_some_and(|(prepared, _)| prepared.identity == identity)
+        .is_some_and(|(prepared, _, _)| prepared.identity == identity)
     {
-        let (prepared, uploaded) = gpu_assets.staged.take().expect("matching staged atlas");
+        let (prepared, uploaded, geometry) =
+            gpu_assets.staged.take().expect("matching staged atlas");
+        if let Some(geometry) = geometry {
+            geometry.publish(&mut commands, &instances, &mut arena);
+        }
+        reload.published();
         gpu_assets.prepared = Some(prepared);
         gpu_assets.attempted_identity = Some(identity);
         gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
@@ -250,7 +265,10 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let Some(candidate) = requested else {
         return;
     };
-    if gpu_assets.pending.is_some() || reload.status(candidate.identity()).is_some() {
+    if candidate.identity() == identity
+        || gpu_assets.pending.is_some()
+        || reload.status(candidate.identity()).is_some()
+    {
         return;
     }
     let device = render_device.clone();
@@ -258,8 +276,26 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     gpu_assets.pending_identity = Some(candidate.identity());
     gpu_assets.pending = Some(std::sync::Mutex::new(receiver));
+    let geometry = reload.geometry();
+    let view = views
+        .iter()
+        .min_by_key(|(entity, _)| *entity)
+        .map(|(entity, view)| super::resource_sorts::ResourceView {
+            entity,
+            transform: view.world_from_view,
+        });
     std::thread::spawn(move || {
-        let _ = sender.send(build_chunk_texture_assets(&candidate, &device, &queue));
+        let result =
+            build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {
+                let geometry = match geometry {
+                    Some(instances) => Some(PreparedResourceGeometry::build(
+                        &instances, candidate, device, queue, view,
+                    )?),
+                    None => None,
+                };
+                Some((atlas, stats, geometry))
+            });
+        let _ = sender.send(result);
     });
 }
 

@@ -73,6 +73,7 @@ mod request_queue;
 mod requests;
 mod residency;
 mod resource_reload;
+pub use resource_reload::ResourceMeshSnapshot;
 mod retries;
 mod sequencing;
 mod sign_edit;
