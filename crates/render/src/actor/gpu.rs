@@ -453,4 +453,27 @@ mod tests {
         gate.publish_reserved(stale, now, now);
         assert!(gate.drain().is_empty());
     }
+
+    /// A segment appended within an epoch writes into the same buffer; a new epoch replaces it.
+    #[test]
+    fn appended_segments_reuse_the_buffer_and_new_epochs_replace_it() {
+        use crate::actor::{ActorRigVertex, ActorRigVertexSegments};
+        use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (
+            RenderDevice::from(device),
+            RenderQueue(Arc::new(WgpuWrapper::new(queue))),
+        );
+        let first = ActorRigVertexSegments::from_vertices(vec![ActorRigVertex::default(); 64]);
+        let mut mirror = super::SegmentedVertexBuffer::default();
+        mirror.sync(&device, &queue, "test", &first);
+        let buffer = mirror.buffer().unwrap().id();
+        // The headroom holds a small registration without reallocating.
+        let grown = first.with_segment(Arc::from(vec![ActorRigVertex::default(); 8]));
+        mirror.sync(&device, &queue, "test", &grown);
+        assert_eq!(mirror.buffer().unwrap().id(), buffer);
+        let relaid = ActorRigVertexSegments::from_vertices(vec![ActorRigVertex::default(); 64]);
+        mirror.sync(&device, &queue, "test", &relaid);
+        assert_ne!(mirror.buffer().unwrap().id(), buffer);
+    }
 }
