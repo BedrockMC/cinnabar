@@ -29,6 +29,7 @@ mod particles;
 mod pick_block;
 mod player_skin;
 mod present_mode;
+mod render_mode;
 pub mod semantic_controls;
 pub mod server_camera;
 pub mod session_audio;

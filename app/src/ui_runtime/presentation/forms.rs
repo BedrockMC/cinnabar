@@ -29,6 +29,7 @@ mod recipe_book;
 mod remote_images;
 mod server_pack;
 mod settings_defaults;
+mod enhanced_setting;
 mod sign_editor;
 #[cfg(test)]
 pub(crate) mod snapshot;

@@ -890,6 +890,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
     ));
+    app.add_plugins(crate::render_mode::RenderModePlugin::new(
+        args.render_mode,
+        diagnostics_enabled,
+    ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render::ParticleSystem::from_assets(particle_assets));

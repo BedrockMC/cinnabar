@@ -1,6 +1,7 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use thiserror::Error;
+use ui::RenderMode;
 
 /// The settings screen's GUI-scale step when `--gui-scale` is auto.
 pub const DEFAULT_GUI_SCALE: u8 = 2;
@@ -24,6 +25,7 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
+  --render-mode <MODE>         vanilla or enhanced; CINNABAR_RENDER_MODE is the fallback
   --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
   --dev-debug-overlay          Enable the non-vanilla F3 developer overlay (default: off)
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
@@ -97,6 +99,8 @@ pub struct ClientArgs {
     /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
     /// selects the Java auto rule; the normal client default is scale 2.
     pub gui_scale: Option<u8>,
+    /// Session-only override of the saved rendering mode.
+    pub render_mode: Option<RenderMode>,
     /// F3 developer overlay; not a vanilla surface.
     pub dev_debug_overlay: bool,
     /// Requested UI language code; `None` follows the environment locale.
@@ -127,6 +131,7 @@ impl Default for ClientArgs {
             no_vsync: false,
             frame_cap: None,
             gui_scale: None,
+            render_mode: None,
             dev_debug_overlay: false,
             language: None,
             full_view_teleport_gate: false,
@@ -170,6 +175,9 @@ pub enum ArgsError {
 
     #[error("--gui-scale must be an integer from 1 through 4, got {0:?}")]
     InvalidGuiScale(String),
+
+    #[error("--render-mode must be vanilla or enhanced, got {0:?}")]
+    InvalidRenderMode(String),
 
     #[error("--language must be a code like de_DE, got {0:?}")]
     InvalidLanguage(String),
@@ -350,6 +358,15 @@ impl ClientArgs {
                                 .ok_or_else(|| ArgsError::InvalidGuiScale(value.clone()))?,
                         )
                     };
+                }
+                Some("--render-mode") => {
+                    let value = next_value(&mut arguments, "--render-mode")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 {
+                            flag: "--render-mode",
+                        })?;
+                    parsed.render_mode =
+                        Some(RenderMode::parse(&value).ok_or(ArgsError::InvalidRenderMode(value))?);
                 }
                 _ => return Err(ArgsError::Unknown(argument)),
             }
@@ -533,6 +550,24 @@ mod tests {
         ] {
             assert!(HELP.contains(flag));
         }
+    }
+
+    #[test]
+    fn render_mode_is_an_optional_validated_session_override() {
+        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client"]).unwrap() else {
+            panic!("expected run");
+        };
+        assert_eq!(args.render_mode, None);
+        let ParseOutcome::Run(args) =
+            ClientArgs::parse_from(["client", "--render-mode", "Enhanced"]).unwrap()
+        else {
+            panic!("expected run");
+        };
+        assert_eq!(args.render_mode, Some(ui::RenderMode::Enhanced));
+        assert_eq!(
+            ClientArgs::parse_from(["client", "--render-mode", "ultra"]),
+            Err(ArgsError::InvalidRenderMode("ultra".to_owned()))
+        );
     }
 
     #[test]
