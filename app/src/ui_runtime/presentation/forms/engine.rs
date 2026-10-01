@@ -510,7 +510,7 @@ fn scaled_request<'a>(
 ) -> TextLayoutRequest<'a> {
     let mut request = metrics.request(text, width_64, font);
     if factor != 1.0
-        && let Ok(scale) = UiScale::new(metrics.scale.get() * factor)
+        && let Ok(scale) = UiScale::new_display(metrics.scale.get() * factor)
     {
         request.scale = scale;
     }

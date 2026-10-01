@@ -13,20 +13,155 @@ Assert-True (-not $validationSource.Contains('$PinnedValentineForkCommit')) `
 Assert-True (-not $validationSource.Contains('$PinnedValentineUpstreamCommit')) `
     'acceptance validation references the removed Valentine upstream pin'
 
+. (Join-Path $ProjectRoot 'scripts\acceptance\Gophertunnel.ps1')
 . (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
 
-$resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
-    -ProjectRoot $ProjectRoot `
-    -ExpectedVersion 'v1.25.3-0.20260929084839-b725d82563e9' `
-    -ExpectedCommit 'b725d82563e93308fd1f92d27da5e97301ad5040'
-Assert-Equal 'b725d82563e93308fd1f92d27da5e97301ad5040' $resolvedGophertunnelCommit `
-    'gophertunnel commit was not derived from the resolved Go module replacement'
-Assert-ThrowsLike {
-    Get-PinnedGophertunnelCommit `
-        -ProjectRoot $ProjectRoot `
-        -ExpectedVersion 'v1.25.3-0.20260807205305-000000000000' `
-        -ExpectedCommit ('0' * 40)
-} '*different*gophertunnel*replacement*' 'gophertunnel provenance accepted a stale expected replacement'
+function Assert-GophertunnelPinFixtures {
+    $fixtureRoot = Join-Path $TempRoot 'gophertunnel pin with spaces'
+    $modulePath = 'github.com/sandertv/gophertunnel'
+    $forkPath = 'github.com/hashimthearab/gophertunnel'
+    $firstCommit = 'a' * 40
+    $firstVersion = 'v0.0.0-20200102030405-{0}' -f $firstCommit.Substring(0, 12)
+    $savedExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+    $savedExitCodeValue = $null
+    if ($null -ne $savedExitCode) { $savedExitCodeValue = $savedExitCode.Value }
+
+    function Reset-GophertunnelPinFixture {
+        param([string]$Version = $firstVersion, [string]$Commit = $firstCommit)
+
+        $script:pinFixtureSource = [ordered]@{
+            Replace = @([ordered]@{
+                Old = [ordered]@{ Path = $modulePath }
+                New = [ordered]@{ Path = $forkPath; Version = $Version }
+            })
+        }
+        $script:pinFixtureModule = [ordered]@{
+            Path = $modulePath
+            Replace = [ordered]@{ Path = $forkPath; Version = $Version }
+        }
+        $script:pinFixtureDownload = [ordered]@{
+            Path = $forkPath
+            Version = $Version
+            Origin = [ordered]@{ VCS = 'git'; URL = "https://$forkPath"; Hash = $Commit }
+        }
+        $script:pinFixtureModuleJson = $null
+        $script:pinFixtureSourceJson = $null
+    }
+
+    function go {
+        Assert-Equal '-C' $args[0] 'gophertunnel provenance omitted its explicit Go working directory'
+        $global:LASTEXITCODE = 0
+        switch ($args[2..($args.Count - 1)] -join ' ') {
+            'mod edit -json' {
+                Assert-Equal (Join-Path $fixtureRoot 'core') $args[1] 'pin was not read from canonical core/go.mod'
+                if ($null -ne $script:pinFixtureSourceJson) { return $script:pinFixtureSourceJson }
+                return ($script:pinFixtureSource | ConvertTo-Json -Depth 6)
+            }
+            "list -m -json $modulePath" {
+                Assert-Equal $fixtureRoot $args[1] 'module was not resolved against the workspace graph'
+                if ($null -ne $script:pinFixtureModuleJson) { return $script:pinFixtureModuleJson }
+                return ($script:pinFixtureModule | ConvertTo-Json -Depth 6)
+            }
+            default {
+                Assert-Equal $fixtureRoot $args[1] 'origin was not verified from the workspace root'
+                Assert-Equal "mod download -json $forkPath@$($script:pinFixtureSource.Replace[0].New.Version)" `
+                    ($args[2..($args.Count - 1)] -join ' ') 'download query did not follow the canonical replacement'
+                return ($script:pinFixtureDownload | ConvertTo-Json -Depth 6)
+            }
+        }
+    }
+
+    try {
+        Reset-GophertunnelPinFixture
+        Assert-Equal $firstCommit (Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot) `
+            'gophertunnel commit was not derived from the verified module origin'
+        $changedCommit = 'b' * 40
+        $changedVersion = 'v1.2.3-0.20210102030405-{0}' -f $changedCommit.Substring(0, 12)
+        Reset-GophertunnelPinFixture -Version $changedVersion -Commit $changedCommit
+        Assert-Equal $changedCommit (Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot) `
+            'gophertunnel provenance did not follow an updated canonical pin'
+        $prereleaseVersion = 'v1.2.3-beta.0.20210102030405-{0}' -f $changedCommit.Substring(0, 12)
+        Reset-GophertunnelPinFixture -Version $prereleaseVersion -Commit $changedCommit
+        Assert-Equal $changedCommit (Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot) `
+            'gophertunnel provenance rejected a valid prerelease pseudo-version'
+
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace[0].New.Path = 'github.com/other/gophertunnel'
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*core/go.mod*canonical*' 'gophertunnel provenance accepted a different canonical fork'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace[0].Old.Version = 'v1.0.0'
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*core/go.mod*unversioned*' 'gophertunnel provenance accepted a version-scoped replacement'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace[0].Old.Version = $null
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*core/go.mod*unversioned*' 'gophertunnel provenance accepted a malformed null replacement scope'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace += $script:pinFixtureSource.Replace[0]
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*exactly one*' 'gophertunnel provenance accepted duplicate canonical replacements'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace[0].New.Version = 'v1.2.3'
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*core/go.mod*pseudo-version*' 'gophertunnel provenance accepted an unpinned release version'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace[0].New.Version = $firstVersion + "`n"
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*core/go.mod*pseudo-version*' 'gophertunnel provenance accepted a pseudo-version with trailing LF'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSource.Replace[0].New.Version = $firstVersion.Replace('20200102', '20201302')
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*valid pinned pseudo-version*' 'gophertunnel provenance accepted an invalid pseudo-version timestamp'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureModule.Replace.Version = $changedVersion
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*different*gophertunnel*replacement*' 'gophertunnel provenance accepted a workspace pin override'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureModule.Replace.Version = @($firstVersion)
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*different*gophertunnel*replacement*' 'gophertunnel provenance accepted a non-string resolved version'
+        foreach ($case in @(
+            @{ Field = 'Hash'; Value = ('c' * 40) },
+            @{ Field = 'Hash'; Value = ('a' * 39) },
+            @{ Field = 'Hash'; Value = ('A' * 40) },
+            @{ Field = 'Hash'; Value = ($firstCommit + "`n") },
+            @{ Field = 'URL'; Value = 'https://github.com/other/gophertunnel' },
+            @{ Field = 'VCS'; Value = 'hg' }
+        )) {
+            Reset-GophertunnelPinFixture
+            $script:pinFixtureDownload.Origin[$case.Field] = $case.Value
+            Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+                '*origin*expected exact commit*' "gophertunnel provenance accepted a wrong origin $($case.Field)"
+        }
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureSourceJson = '{'
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*go mod edit*malformed*' 'gophertunnel provenance accepted malformed canonical module metadata'
+        foreach ($malformed in @('{', '[]')) {
+            Reset-GophertunnelPinFixture
+            $script:pinFixtureModuleJson = $malformed
+            Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+                '*go list -m*malformed*' 'gophertunnel provenance accepted malformed resolved module metadata'
+        }
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureModuleJson = '{"Path":"wrong","Path":"github.com/sandertv/gophertunnel"}'
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*go list -m*duplicate field*' 'gophertunnel provenance accepted duplicate resolved module fields'
+        Reset-GophertunnelPinFixture
+        $script:pinFixtureModuleJson = ($script:pinFixtureModule | ConvertTo-Json -Depth 6).Replace('"Path":', '"path":')
+        Assert-ThrowsLike { Get-PinnedGophertunnelCommit -ProjectRoot $fixtureRoot } `
+            '*different*gophertunnel*replacement*' 'gophertunnel provenance accepted wrong-case JSON schema keys'
+    }
+    finally {
+        if ($null -eq $savedExitCode) { Remove-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue }
+        else { $global:LASTEXITCODE = $savedExitCodeValue }
+        Remove-Variable pinFixtureSource, pinFixtureModule, pinFixtureDownload, pinFixtureModuleJson, pinFixtureSourceJson `
+            -Scope Script -ErrorAction SilentlyContinue
+    }
+}
+
+Assert-GophertunnelPinFixtures
 
 $PinnedAxolotlStackCommit = $expectedAxolotlStackRevision
 $PinnedProtocolgenCommit = $expectedProtocolgenRevision
@@ -47,7 +182,7 @@ function Copy-ProtocolDependencyProvenanceFixture {
     New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.toml') -Destination $DestinationRoot
     Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.lock') -Destination $DestinationRoot
-    foreach ($workspaceDirectory in @('app', 'crates', 'tools')) {
+    foreach ($workspaceDirectory in @('app', 'crates', 'tools', 'examples')) {
         Copy-Item -LiteralPath (Join-Path $SourceRoot $workspaceDirectory) `
             -Destination $DestinationRoot -Recurse
     }

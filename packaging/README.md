@@ -21,9 +21,24 @@ Installers also ship the pinned OFL Monocraft font at `<resources>/fonts/`, fetc
 via `scripts/fetch-ui-font.sh`, so first-run setup can draw before any download.
 
 CI: `.github/workflows/package.yml`. Pushes to `main` replace the `nightly` prerelease (tag moved,
-assets replaced); `v*` tags draft a release. Version comes from `[workspace.package]`. Every
-installer is extracted and checked by `packaging/check-payload.sh`, which fails on any file outside
-the payload allowlist (shared with `stage-payload.sh`).
+assets replaced). To publish a stable release, run **Package** in GitHub Actions and choose
+`current`, `patch`, `minor`, or `major`. Manual runs use the default branch. `current` releases the
+version in `[workspace.package]`; the other choices update that version and the inherited
+workspace entries in `Cargo.lock`, commit the change, and create a matching `vX.Y.Z` tag. The
+commit and tag are pushed together before building. Every platform builds the exact prepared
+commit, and the final job publishes the installers as a stable release rather than a draft.
+
+An unsuccessful build leaves its tag unpublished. Re-run the failed jobs, or select `current`
+while that tag still points at the default branch's HEAD, to finish it. Manual preparation rejects
+an existing release or a tag on a different commit for the version being released. Pushing a
+matching `vX.Y.Z` tag by hand also builds and publishes it; re-running that tagged workflow
+replaces its release assets. Stable runs do not cancel a running release; GitHub may replace an
+older pending run. Main pushes cancel older nightly runs.
+
+Every installer is extracted and checked by `packaging/check-payload.sh`, which fails on any file
+outside the payload allowlist (shared with `stage-payload.sh`). Windows uses WiX extraction without
+running installer actions. DMG creation retries the transient `Resource busy` error on hosted
+macOS runners; other errors remain fatal.
 
 Signing is optional; each missing secret yields unsigned output instead of a failure:
 
