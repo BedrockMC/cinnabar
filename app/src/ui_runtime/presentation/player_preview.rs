@@ -287,7 +287,7 @@ struct ProjectedVertex {
 }
 
 /// Renders a nearest-neighbour, orthographic 3-D biped preview from a
-/// validated 64x64 player skin, facing the viewer as `view` turns it, its
+/// validated packed player skin, facing the viewer as `view` turns it, its
 /// arms swayed by `bob` degrees. Transparent pixels remain transparent.
 pub(crate) fn render(
     skin: &[u8],
@@ -613,11 +613,11 @@ fn face_shade(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
 }
 
 fn sample_skin(skin: &[u8], uv: [f32; 2]) -> Option<[u8; 4]> {
-    if skin.len() != 64 * 64 * 4 || !uv.iter().all(|value| value.is_finite()) {
+    let side = (skin.len() / 4).isqrt();
+    if side == 0 || side * side * 4 != skin.len() || !uv.iter().all(|value| value.is_finite()) {
         return None;
     }
-    let x = ((uv[0] * 64.0).floor() as i32).clamp(0, 63) as usize;
-    let y = ((uv[1] * 64.0).floor() as i32).clamp(0, 63) as usize;
-    let offset = (y * 64 + x) * 4;
+    let [x, y] = uv.map(|value| ((value * side as f32).floor() as usize).min(side - 1));
+    let offset = (y * side + x) * 4;
     skin[offset..offset + 4].try_into().ok()
 }

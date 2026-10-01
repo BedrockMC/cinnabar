@@ -13,6 +13,10 @@ use super::{
     MAX_RENDER_BONES_PER_ACTOR,
 };
 
+#[cfg(test)]
+#[path = "skin_geometry_tests.rs"]
+mod skin_geometry_tests;
+
 pub(super) fn geometry_from_runtime_assets(
     assets: &RuntimeEntityAssets,
     binding_index: usize,
@@ -128,13 +132,22 @@ pub fn skin_geometry(
                 cube,
                 bone_index as u32,
                 texture_size,
-                false,
-                0.0,
+                bone.mirror.unwrap_or(false),
+                bone.inflate.map_or(0.0, |inflate| inflate.get()),
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
         }
+    }
+    for (bone_index, mesh) in geometry.poly_meshes.iter().enumerate() {
+        if bones[bone_index].never_render == Some(true) {
+            continue;
+        }
+        let Some(mesh) = mesh else {
+            continue;
+        };
+        super::skin_poly_mesh::append(&mut vertices, mesh, bone_index as u32, texture_size)?;
     }
     if vertices.is_empty() {
         return Err(ActorRigGeometryError::VertexCount);

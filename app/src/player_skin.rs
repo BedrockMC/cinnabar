@@ -27,38 +27,53 @@ pub(crate) struct LocalPlayerSkin {
 }
 
 impl LocalPlayerSkin {
-    /// Loads the skin PNG resolved from `layout`, normalizing to 64x64; on any failure logs once
-    /// at warn and falls back to the vanilla default skin.
+    /// Loads a classic skin within vanilla's upload size limit; a failure uses the default skin.
     #[must_use]
     pub fn load(layout: &InstallLayout, display_name: &str) -> Self {
         let path = layout.player_skin_asset();
-        let rgba8 = match load_normalized_skin(&path) {
-            Ok(rgba8) => rgba8,
+        let (rgba8, side) = match load_normalized_skin(&path) {
+            Ok(pixels) => pixels,
             Err(reason) => {
                 bevy::log::warn!(
                     path = %path.display(),
                     reason = %reason,
                     "local player skin unavailable; using the default skin"
                 );
-                render::default_actor_skin_rgba8()
+                (
+                    render::default_actor_skin_rgba8(),
+                    protocol::CLASSIC_SKIN_SIDE,
+                )
             }
         };
-        Self::from_rgba8(rgba8, display_name)
+        Self::from_rgba8(rgba8, side, display_name)
     }
 
     /// A default-skinned identity, for construction sites without a loaded PNG (e.g. tests).
     #[cfg(test)]
     #[must_use]
     pub fn generated_default(display_name: &str) -> Self {
-        Self::from_rgba8(render::default_actor_skin_rgba8(), display_name)
+        Self::from_rgba8(
+            render::default_actor_skin_rgba8(),
+            protocol::CLASSIC_SKIN_SIDE,
+            display_name,
+        )
     }
 
-    fn from_rgba8(rgba8: Arc<[u8]>, display_name: &str) -> Self {
-        let side = render::STANDARD_SKIN_SIDE as u32;
+    /// Keeps classic upload dimensions independent of the renderer's larger shared array.
+    fn from_rgba8(packed: Arc<[u8]>, side: usize, display_name: &str) -> Self {
+        let mut rgba8 = Vec::with_capacity(side * side * 4);
+        for y in 0..side {
+            for x in 0..side {
+                let source = (y * render::STANDARD_SKIN_SIDE / side * render::STANDARD_SKIN_SIDE
+                    + x * render::STANDARD_SKIN_SIDE / side)
+                    * 4;
+                rgba8.extend_from_slice(&packed[source..source + 4]);
+            }
+        }
         Self {
-            rgba8,
-            width: side,
-            height: side,
+            rgba8: rgba8.into(),
+            width: side as u32,
+            height: side as u32,
             arm_size: Arc::from(DEFAULT_ARM_SIZE),
             local_uuid: stable_local_uuid(display_name),
         }
@@ -88,7 +103,8 @@ impl LocalPlayerSkin {
     }
 }
 
-fn load_normalized_skin(path: &Path) -> Result<Arc<[u8]>, String> {
+/// Packs supported source pixels, retaining a legal classic size for the login upload.
+fn load_normalized_skin(path: &Path) -> Result<(Arc<[u8]>, usize), String> {
     let image = image::open(path).map_err(|error| error.to_string())?;
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
@@ -98,6 +114,12 @@ fn load_normalized_skin(path: &Path) -> Result<Arc<[u8]>, String> {
         rgba8: Arc::from(rgba.into_raw()),
     };
     render::normalize_actor_skin(&pixels)
+        .map(|pixels| {
+            (
+                pixels,
+                (width as usize).min(protocol::MAX_CLASSIC_SKIN_SIDE),
+            )
+        })
         .ok_or_else(|| format!("unsupported skin dimensions {width}x{height} or byte length"))
 }
 
@@ -111,4 +133,25 @@ fn stable_local_uuid(display_name: &str) -> [u8; 16] {
     // A SHA-256 prefix is never all-zero in practice; guarantee the non-zero invariant anyway.
     uuid[0] |= 1;
     uuid
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An HD classic upload keeps every texel without acquiring the GPU array dimensions.
+    #[test]
+    fn packed_resolution_does_not_change_classic_login_dimensions() {
+        let side = protocol::MAX_CLASSIC_SKIN_SIDE;
+        let original: Arc<[u8]> = (0..side * side * 4).map(|value| value as u8).collect();
+        let packed = render::normalize_actor_skin(&render::ActorSkinPixels {
+            width: side as u32,
+            height: side as u32,
+            rgba8: Arc::clone(&original),
+        })
+        .unwrap();
+        let skin = LocalPlayerSkin::from_rgba8(packed, side, "fixture").to_client_skin();
+        assert_eq!((skin.width, skin.height), (side as u32, side as u32));
+        assert_eq!(skin.rgba8.as_slice(), original.as_ref());
+    }
 }
