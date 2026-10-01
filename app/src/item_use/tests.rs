@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
+mod admission;
+
 const BOW: i32 = 300;
 const SNOWBALL: i32 = 388;
 const MENU_ITEM: i32 = 20329;
