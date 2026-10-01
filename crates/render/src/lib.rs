@@ -42,7 +42,7 @@ pub use particles::{
     ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound, ParticleSystem,
     ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
     block_crack_request, classify_level_event, is_particle_level_event, item_icon_request,
-    named_request, parse_molang_variables, particle_view, update_particle_frame,
+    named_request, parse_molang_variables, particle_view, terrain_request, update_particle_frame,
 };
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
@@ -154,7 +154,7 @@ pub use lightning::{
 };
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
-    NAMETAG_TEXT_LIFT_BLOCKS, NametagRecord, NametagScene,
+    NAMETAG_TEXT_LIFT_BLOCKS, NametagAtlasRect, NametagRecord, NametagScene,
 };
 pub use panorama::{
     MAX_PANORAMA_FACE_SIDE, PANORAMA_WGSL, PanoramaFaces, PanoramaScene, PanoramaView,

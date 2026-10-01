@@ -36,6 +36,7 @@ pub(super) struct RequestQueue {
     popped: HashMap<RequestIdentity, RequestPriority>,
     reservations: HashMap<u64, u64>,
     next_sequence: u64,
+    mesh_blockers: BTreeSet<ChunkKey>,
     last_popped_class: Option<RequestClass>,
 }
 
@@ -69,6 +70,7 @@ impl RequestQueue {
             sequence: u64,
             distance: u128,
             transport_retry: bool,
+            mesh_blocker: bool,
             starved: bool,
         }
 
@@ -105,6 +107,7 @@ impl RequestQueue {
                     class,
                     sequence: priority.map_or(u64::MAX, |priority| priority.sequence),
                     distance: horizontal_distance_squared(request.chunk, player_chunk),
+                    mesh_blocker: self.mesh_blockers.contains(&request.chunk),
                     transport_retry: priority.is_some_and(|priority| priority.transport_retry),
                     starved: priority
                         .is_some_and(|priority| priority.bypasses >= MAX_PRIORITY_BYPASSES),
@@ -129,7 +132,12 @@ impl RequestQueue {
         } else {
             (
                 candidates.iter().min_by_key(|candidate| {
-                    (candidate.class, candidate.distance, candidate.sequence)
+                    (
+                        candidate.class,
+                        !candidate.mesh_blocker,
+                        candidate.distance,
+                        candidate.sequence,
+                    )
                 }),
                 false,
                 false,
@@ -267,6 +275,7 @@ impl RequestQueue {
                             player_chunk,
                             required_columns,
                         ),
+                        !self.mesh_blockers.contains(&request.chunk),
                         horizontal_distance_squared(request.chunk, player_chunk),
                         priority.sequence,
                     )
@@ -337,10 +346,23 @@ impl RequestQueue {
         });
     }
 
-    pub(super) fn forget_column(&mut self, chunk: ChunkKey) {
+    /// Gives requested neighbours preference within their existing request class.
+    pub(super) fn prioritize_mesh_blocker(&mut self, chunk: ChunkKey) {
+        self.mesh_blockers.insert(chunk);
+    }
+
+    /// Removes a dependency once its column has completed.
+    pub(super) fn clear_mesh_blocker(&mut self, chunk: ChunkKey) {
+        self.mesh_blockers.remove(&chunk);
+    }
+
+    /// Forgets retired request identities in one pass.
+    pub(super) fn forget_columns(&mut self, chunks: &BTreeSet<ChunkKey>) {
+        self.mesh_blockers.retain(|chunk| !chunks.contains(chunk));
         self.priorities
-            .retain(|identity, _| identity.chunk != chunk);
-        self.popped.retain(|identity, _| identity.chunk != chunk);
+            .retain(|identity, _| !chunks.contains(&identity.chunk));
+        self.popped
+            .retain(|identity, _| !chunks.contains(&identity.chunk));
     }
 
     fn allocate_sequence(&mut self) -> u64 {
@@ -561,5 +583,42 @@ mod tests {
         assert_eq!(retry.next_class, Some(RequestClass::PrefetchInitial));
         assert!(retry.next_is_transport_retry);
         assert!(!retry.next_is_starved);
+    }
+
+    /// Blocker preference preserves player, starvation and reservation ordering.
+    #[test]
+    fn requested_mesh_blocker_precedes_same_class_prefetch() {
+        let player = ChunkKey::new(0, 0, 0);
+        let near = ChunkKey::new(0, 1, 0);
+        let blocker = ChunkKey::new(0, 2, 0);
+        let mut queue = RequestQueue::default();
+        queue.push_ready(request(near, 0), false);
+        queue.push_ready(request(blocker, 0), false);
+        queue.push_ready(request(player, 0), false);
+        queue.prioritize_mesh_blocker(blocker);
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            player
+        );
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            blocker
+        );
+        assert_eq!(
+            queue
+                .pop_next(Some(player), &BTreeSet::new())
+                .unwrap()
+                .chunk,
+            near
+        );
+        queue.reserve(1);
+        queue.push_ready(request(blocker, 0), false);
+        assert!(queue.pop_next(Some(player), &BTreeSet::new()).is_none());
     }
 }

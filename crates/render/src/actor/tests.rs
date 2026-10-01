@@ -199,12 +199,12 @@ fn high_resolution_standard_skin_is_nearest_sampled_and_invalid_skin_uses_author
     let frame = scene.update(1.0, None, [first, second]);
 
     assert_eq!(&frame.skins_rgba8[0..4], &[1, 2, 3, 255]);
-    assert_eq!(frame.skins_rgba8.len(), 2 * 64 * 64 * 4);
+    assert_eq!(frame.skins_rgba8.len(), 2 * super::STANDARD_SKIN_BYTES);
     assert_eq!(
         DEFAULT_SKIN_PROVENANCE,
         "locally generated Cinnabar Default skin"
     );
-    let default = &frame.skins_rgba8[64 * 64 * 4..];
+    let default = &frame.skins_rgba8[super::STANDARD_SKIN_BYTES..];
     assert!(
         default
             .chunks_exact(4)
@@ -251,6 +251,8 @@ fn legacy_half_height_skin_expands_with_mirrored_left_limbs() {
     })
     .expect("legacy skin normalizes");
     assert_eq!(square.len(), super::STANDARD_SKIN_BYTES);
+    let scale = super::STANDARD_SKIN_SIDE / 64;
+    let texel = |x: usize, y: usize| (y * scale * super::STANDARD_SKIN_SIDE + x * scale) * 4;
     // Left leg front face (20..24, 52..64) mirrors it into its rightmost column.
     assert_eq!(&square[texel(23, 52)..texel(23, 52) + 4], &[1, 2, 3, 255]);
     assert_eq!(&square[texel(4, 20)..texel(4, 20) + 4], &[1, 2, 3, 255]);
@@ -288,6 +290,30 @@ fn cached_skin_normalization_resamples_each_source_once() {
         &first,
         &super::normalize_actor_skin_cached(&copy).unwrap()
     ));
+}
+
+/// Narrow opaque texels in HD skins must not disappear when packed into the skin array.
+#[test]
+fn skin_packing_preserves_native_texels_between_old_downsample_points() {
+    // Isolated texels from captured HD skins: the old nearest downsample missed both.
+    for (side, x, y, pixel) in [
+        (128usize, 96usize, 29usize, [91, 91, 91, 254]),
+        (256, 5, 0, [231, 170, 57, 255]),
+    ] {
+        let mut rgba8 = vec![0; side * side * 4];
+        let source = (y * side + x) * 4;
+        rgba8[source..source + 4].copy_from_slice(&pixel);
+        let packed = super::normalize_actor_skin(&ActorSkinPixels {
+            width: side as u32,
+            height: side as u32,
+            rgba8: rgba8.into(),
+        })
+        .unwrap();
+        let at = (y * super::STANDARD_SKIN_SIDE / side * super::STANDARD_SKIN_SIDE
+            + x * super::STANDARD_SKIN_SIDE / side)
+            * 4;
+        assert_eq!(&packed[at..at + 4], &pixel, "{side}-pixel skin");
+    }
 }
 
 /// New skin models and item meshes share one catalog rebuild instead of one each.

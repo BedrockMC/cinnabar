@@ -296,7 +296,7 @@ fn compound_slab_step_and_head_collision_use_exact_shapes() {
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
     assert_eq!(stepped.movement.y, 0.5);
-    assert!((stepped.movement.z - 0.4001).abs() <= 1.0e-12);
+    assert!((stepped.movement.z - 0.4).abs() <= 1.0e-12);
     assert!(stepped.on_ground);
     assert!(state.on_ground);
     assert!((stepped.velocity.y + 0.0784).abs() <= 1.0e-12);

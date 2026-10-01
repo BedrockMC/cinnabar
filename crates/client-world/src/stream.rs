@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::{
         Arc,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -50,7 +50,9 @@ use super::{ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, Re
 mod block_cracks;
 mod block_entities;
 mod block_events;
+mod cave_visibility;
 mod cohort;
+mod commit_budget;
 mod connectivity;
 mod construction;
 mod decode;
@@ -62,6 +64,7 @@ mod map_data;
 mod meshing;
 mod model;
 mod movement_attribute;
+mod particle_events;
 mod polling;
 mod prediction;
 mod publication;
@@ -75,6 +78,7 @@ mod residency;
 mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;
 mod retries;
+mod scheduler_refresh;
 mod sequencing;
 mod sign_edit;
 
@@ -116,8 +120,7 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
-/// How long the server may go without delivering chunk data before announced columns it has
-/// not sent stop holding back neighbouring meshes.
+/// Quiet wait after local relevance or new publisher-cohort progress.
 const UNSENT_COLUMN_GRACE: Duration = Duration::from_secs(1);
 /// Completed meshes held for a publication permit rather than remeshed.
 const MAX_STAGED_MESH_COMPLETIONS: usize = 256;
@@ -323,7 +326,7 @@ pub struct WorldStream {
     pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_light_deferred: BinaryHeap<PendingSchedulerCandidate>,
     light_priority_wakeups: HashMap<SubChunkKey, u64>,
-    light_scheduler_camera_cell: Option<[i32; 4]>,
+    light_scheduler_refresh: scheduler_refresh::SchedulerRefresh<2>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     next_light_batch_id: u64,
     in_flight_light_batches: HashMap<u64, usize>,
@@ -342,10 +345,13 @@ pub struct WorldStream {
     pending_resident_mesh_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_mesh_removal_deferred: BinaryHeap<PendingSchedulerCandidate>,
     pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
-    mesh_scheduler_camera_cell: Option<[i32; 4]>,
+    mesh_scheduler_refresh: scheduler_refresh::SchedulerRefresh<4>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
+    admitted_mesh_jobs: Arc<AtomicUsize>,
+    mesh_memory: meshing::memory::MeshMemoryBudget,
+    mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,
@@ -365,8 +371,11 @@ pub struct WorldStream {
     requests: RequestQueue,
     transport_pending_requests: usize,
     last_request_player_chunk: Option<ChunkKey>,
-    /// When the server last delivered column or sub-chunk data; a quiet stream has sent all it will.
-    last_column_arrival: Option<Instant>,
+    unsent_column_deadlines: HashMap<ChunkKey, Instant>,
+    arrival_cohort: Option<residency::ArrivalCohort>,
+    poll_deadline: Option<Instant>,
+    polling: bool,
+    pending_sub_chunk_commit: Option<commit_budget::PendingSubChunkCommit>,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,
