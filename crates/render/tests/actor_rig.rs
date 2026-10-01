@@ -60,6 +60,7 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
         uv_anim: render::IDENTITY_UV_ANIM,
         light: 0,
         overlay_rgba8: 0,
+        culling_bounds: Default::default(),
     }
 }
 
