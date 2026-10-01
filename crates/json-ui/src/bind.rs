@@ -266,15 +266,17 @@ impl<'a> Binder<'a> {
         if !self.data.components.is_empty() {
             scope.layout_key = crate::layout::child_key(&scope.layout_key, control);
         }
-        let (fresh, for_children) = bag::bags(control, &scope.for_children);
+        let for_children = declaration.bags.children(&scope.for_children);
         let retained = self.state.controls.remove(&key);
         let parent = scope.retained_parent;
         let created = retained.is_none();
         let mut memory = retained.unwrap_or_default();
         memory.parent = parent;
         let mut own = if created {
-            let mut own = (*scope.values).clone();
-            own.extend(fresh);
+            let mut own = declaration.bags.own(&scope.for_children);
+            for (name, value) in scope.values.iter() {
+                own.entry(name.clone()).or_insert_with(|| value.clone());
+            }
             apply::widget_defaults(control, &mut own);
             own
         } else {

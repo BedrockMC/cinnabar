@@ -43,8 +43,10 @@ impl Src {
             .fold(&*self.tree, |node, &index| &node.children[index as usize])
     }
 
+    /// Extend the path with one allocation, reserving space for the child index.
     pub(super) fn child(&self, index: usize) -> Self {
-        let mut path = self.path.clone();
+        let mut path = Vec::with_capacity(self.path.len() + 1);
+        path.extend_from_slice(&self.path);
         path.push(index as u32);
         Self {
             tree: Arc::clone(&self.tree),
