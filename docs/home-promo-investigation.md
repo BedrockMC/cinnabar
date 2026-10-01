@@ -146,14 +146,50 @@ Cinnabar was missing the downloaded badge's file-system binding; it now supplies
 the full vanilla controller action, default badge, GIF and countdown behavior
 are not claimed as complete.
 
-The offline Go transport test checks the desktop query, discovery host and token,
+The offline Go transport test checks the desktop query, request path, discovery host and token,
 then maps the synthetic public response into `Home.LiveEvents` and cached artwork.
 It can export that actual Go home-feed JSON using `CINNABAR_HOME_PROMO_FIXTURE`.
-The Rust mapping test checks configured and fallback labels. The optional real
-carrier snapshot test consumes the Go feed and renders a generated blue badge;
-it asserts that badge pixels reach the start screen. Generated JSON, art and PNG
-stay in the scratch directory. This is not a recorded-response fixture and does
-not establish that correcting the query resolves the owner's service 404.
+The Rust mapping test checks configured and fallback labels. The real-carrier
+snapshot test consumes the Go feed when supplied, or uses authored test data.
+It renders a generated blue badge and requires more than 1,000 badge pixels on
+the start screen, with none before adding the event. Normal test runs exercise
+the render whenever the carrier is available; requesting PNG output without a
+carrier fails. Generated JSON, art and PNG stay outside git. Synthetic coverage
+does not establish that correcting the query resolves the owner's service 404.
+
+## Offline recording replay
+
+No recorded successful public-config response was supplied in the handoff or
+the home-promo scratch directory. The existing `home-feed.json` was exported
+from authored data, not captured from the service. No live requests or token
+reads were made to fill this gap. Recorded-response acceptance remains open.
+
+`TestRecordedPublicConfigReachesHomeArtwork` now accepts an external recording
+through `CINNABAR_GATHERING_RESPONSE_FIXTURE`. Set
+`CINNABAR_GATHERING_FIXTURE_TIME` to its RFC3339 recording time, so expired
+events can still be replayed deterministically. The test checks the desktop
+request and requires an active event with badge artwork. It explicitly skips
+when no recording is supplied, rather than relabeling synthetic data.
+
+To replay without service access, set those variables and
+`CINNABAR_HOME_PROMO_FIXTURE` to the desired home-feed output path, then run
+`go test ./catalog -run '^TestRecordedPublicConfigReachesHomeArtwork$' -count=1`
+from `core`. Pass the exported home-feed path to the Rust test below. Do not
+commit recordings containing service-delivered art or account information.
+
+For local PNGs, set `CINNABAR_HOME_PROMO_FIXTURE` to the exported Go feed and
+`CINNABAR_FORM_SNAPSHOT_DIR` to the scratch output directory, then run through
+the supplied `cslot` limiter:
+
+```sh
+cargo test -p bedrock-client --lib --locked snapshot_core_home_promo -- --nocapture
+```
+
+This writes `home-promo-before.png` and `home-promo.png` at 2560x1440, DPI scale
+2, using the real JSON-UI carrier and a synthetic blue badge. It checks rendering
+and feed handoff, not target-platform visual parity or complete click behavior.
+The latest local gate run must use `lcheck`; the remote interruption below is
+historical and does not authorize remote verification in this continuation.
 
 ## Verification interruption
 
