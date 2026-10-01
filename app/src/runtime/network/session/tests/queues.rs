@@ -15,6 +15,7 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
         control_events,
         world_events,
         commands,
+        pending_latency_reply: std::sync::Mutex::new(None),
         physics_reanchor,
         shutdown,
         thread: None,

@@ -27,7 +27,7 @@ fn enabled_for_env_value(value: Option<&OsStr>) -> bool {
 }
 
 /// Whether this process traces outbound movement. Evaluated at most once.
-fn movement_trace_enabled() -> bool {
+pub(super) fn movement_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| enabled_for_env_value(std::env::var_os(MOVEMENT_TRACE).as_deref()))
 }

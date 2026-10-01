@@ -392,6 +392,7 @@ impl ActorStore {
             }
             ActorEvent::Status(status) => self.apply_status(status),
             ActorEvent::TakeItem(take) => self.apply_take_item(take),
+            ActorEvent::Skin { uuid, skin } => self.apply_skin_update(uuid, skin),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
                 for entry in update.entries.iter() {

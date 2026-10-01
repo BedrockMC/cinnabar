@@ -43,8 +43,9 @@ pub use hud_extras::{
     MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
 };
 pub use skin_geometry::{
-    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, SkinGeometry, SkinGeometryError,
-    parse_skin_geometry, skin_geometry_name,
+    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
+    SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
+    parse_skin_geometry_layer, skin_geometry_name,
 };
 
 pub use actor::{

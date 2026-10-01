@@ -1,21 +1,7 @@
-//! Production wiring witnesses for the opt-in HandledTeleport acknowledgement.
+//! HandledTeleport coverage through production world-stream reconciliation.
 //!
-//! The state-machine coverage in `teleport_ack_tests.rs` drives ticker methods
-//! manually; these witnesses exist because removing every world-stream call
-//! site would otherwise keep that suite green. Each one drives the REAL
-//! production reconciliation system (`runtime::world::
-//! reconcile_world_stream_before_physics`) inside a minimal Bevy App whose
-//! committed controls were produced by real client-world sequencing, then
-//! asserts on the exact outbound packets produced by the production flush
-//! hand-off.
-//!
-//! Opt-in states are driven through the forced construction flag (the exact
-//! field the `RUST_MCBE_TELEPORT_ACK` startup read populates) rather than
-//! process-environment mutation, so parallel test execution stays
-//! deterministic; the pure environment-value gate is covered separately in
-//! `env_gate_requires_exactly_the_digit_one`. Every policy constant here
-//! remains explicitly provisional pending version-matched native Bedrock
-//! measurement.
+//! MovePlayer teleports acknowledge without opt-in. Correction-snap and
+//! respawn acknowledgements remain gated until their reference is established.
 
 use bevy::prelude::{App, Update};
 use protocol::{
@@ -303,8 +289,8 @@ fn committed_teleport_snap_correction_dispatches_through_production_reconciliati
 
 #[test]
 fn committed_move_player_teleported_split_dispatches_through_production() {
-    // Marked leg: an explicitly teleported local MovePlayer arms.
-    let mut marked = wiring_app(authorized_ticker(true), LocalPhysicsController::default());
+    // MovePlayer mode Teleport arms without the provisional opt-in.
+    let mut marked = wiring_app(authorized_ticker(false), LocalPhysicsController::default());
     submit(
         &mut marked,
         1,
@@ -325,6 +311,16 @@ fn committed_move_player_teleported_split_dispatches_through_production() {
         Some(TELEPORT_ACK_ADMITTED_TICK_BUDGET),
         "the production MovePlayer arm must mark an explicit teleport"
     );
+
+    let mut ticker = marked
+        .world_mut()
+        .remove_resource::<MovementTicker>()
+        .expect("ticker resource");
+    let packets = transmit_two_after_reconciliation(&mut ticker);
+    assert_eq!(packets.len(), 2);
+    assert!(carries_handled_teleport(&packets[0]));
+    assert!(!carries_handled_teleport(&packets[1]));
+    assert_eq!(ticker.pending_teleport_ack_admitted_ticks(), None);
 
     // Counting leg: an unmarked local MovePlayer counts without arming.
     let mut unmarked = wiring_app(authorized_ticker(true), LocalPhysicsController::default());
