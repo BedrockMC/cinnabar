@@ -21,13 +21,6 @@ not read. No account identifiers or cached payloads are included here.
 
 
 
-The refresh request uses the discovered messaging service URI and has no
-placement, platform or locale query. Locale is an HTTP header. The service's
-registered surfaces are `LoginAnnouncement`, `MarketplaceAnnouncement`,
-`MarketplaceButton`, `PlayButton`, `InboxMessage` and `ToastNotification`.
-This investigation did not establish whether Cinnabar must send a messaging
-start request before its first refresh, or the identity used for the HTTP
-Session-Id header. Those behaviors were not changed speculatively.
 
 The supplied `v1.26.50.4/full/resource_pack/ui/start_screen.json` confirms the
 existing main-button banners:
@@ -38,6 +31,13 @@ existing main-button banners:
 - Lines 944–1013 define the separate left-hand gathering badge/button panel.
 - The featured-world control at lines 1869 and 2316 is unrelated to messaging.
 
+
+The Dungeons II tile's association with that panel remains unconfirmed. A
+read-only inspection of the locally available iOS
+`1.26.50.04` OreUI bundle also did not identify a home news carousel. These
+findings do not rule out another platform, treatment or service-delivered layout.
+The exact promo surface, image key, Learn More action and geometry need an
+identified reference before a promo fixture and visibility fix can be written.
 
 ## Pipeline and implemented change
 
@@ -63,3 +63,14 @@ argument test checks `pt_BR` becomes `pt-BR`.
 No live Microsoft, PlayFab or Xbox calls were made. No tile-present snapshot or
 before/after visual acceptance is claimed. The missing reference must be resolved
 before this investigation can close the promo bug.
+
+## Verification interruption
+
+Full `rcheck` was started for code commit
+`0ddbf259ce59576d1399e86611c139208ac72fb9` using `RCHECK_SOURCE_MODE=objects`,
+which avoids stash and remote ref updates. Formatting passed; clippy began
+compiling but the remote pod entered `Failed`. Subsequent SSH polls returned
+`cannot exec into a container in a completed pod; current phase is Failed`.
+The local poll was interrupted with exit 130. There is no green rcheck result;
+architecture, Rust tests and the remaining remote gates are unverified. Focused
+offline Go tests passed locally. No new PNGs could be captured.
