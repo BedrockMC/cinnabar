@@ -29,12 +29,18 @@ pub struct Scope {
 impl Scope {
     /// Validates the user-visible scope against host ceilings.
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.memory_bytes <= MAX_SESSION_MEMORY, "memory grant too large");
+        ensure!(
+            self.memory_bytes <= MAX_SESSION_MEMORY,
+            "memory grant too large"
+        );
         ensure!(self.gpu_bytes <= MAX_GPU_BYTES, "GPU grant too large");
-        ensure!(self.origins.len() <= 8, "too many origins");
+        ensure!(self.origins.len() <= MAX_ORIGINS, "too many origins");
         for origin in &self.origins {
             let url = crate::fetch::approved_url(origin, &self.origins)?;
-            ensure!(url.origin().ascii_serialization() == *origin, "origin must be canonical");
+            ensure!(
+                url.origin().ascii_serialization() == *origin,
+                "origin must be canonical"
+            );
         }
         Ok(())
     }
@@ -67,26 +73,52 @@ pub struct Offer {
 impl Offer {
     /// Checks all pre-consent metadata without contacting an external origin.
     pub fn validate(&self, audience: &str, now_unix: u64) -> Result<()> {
-        ensure!(self.version == WIRE_VERSION, "unsupported extension version");
+        ensure!(
+            self.version == WIRE_VERSION,
+            "unsupported extension version"
+        );
         ensure!(self.audience == audience, "wrong server audience");
         fixed_hex::<32>(&self.server_key)?;
         ensure!(self.expires_unix > now_unix, "offer expired");
-        ensure!(self.expires_unix - now_unix <= MAX_OFFER_LIFETIME_SECS, "offer lifetime too long");
-        ensure!(self.carrier == protocol::EXPERIENCE_CHANNEL, "unsupported carrier");
-        ensure!(!self.packages.is_empty() && self.packages.len() <= MAX_BUNDLES, "invalid package count");
-        ensure!(plain_text(&self.fallback, 512), "invalid fallback description");
+        ensure!(
+            self.expires_unix - now_unix <= MAX_OFFER_LIFETIME_SECS,
+            "offer lifetime too long"
+        );
+        ensure!(
+            self.carrier == protocol::EXPERIENCE_CHANNEL,
+            "unsupported carrier"
+        );
+        ensure!(
+            !self.packages.is_empty() && self.packages.len() <= MAX_BUNDLES,
+            "invalid package count"
+        );
+        ensure!(
+            plain_text(&self.fallback, MAX_FALLBACK_BYTES),
+            "invalid fallback description"
+        );
         self.scope.validate()?;
         let mut ids = BTreeSet::new();
         let mut total = 0u64;
         for package in &self.packages {
-            ensure!(identifier(&package.id) && ids.insert(&package.id), "invalid package identity");
+            ensure!(
+                identifier(&package.id) && ids.insert(&package.id),
+                "invalid package identity"
+            );
             fixed_hex::<32>(&package.publisher_key)?;
             fixed_hex::<32>(&package.digest)?;
-            ensure!(package.bytes > 0 && package.bytes <= MAX_BUNDLE_BYTES as u64, "invalid bundle size");
-            total = total.checked_add(package.bytes).ok_or_else(|| anyhow::anyhow!("size overflow"))?;
+            ensure!(
+                package.bytes > 0 && package.bytes <= MAX_BUNDLE_BYTES as u64,
+                "invalid bundle size"
+            );
+            total = total
+                .checked_add(package.bytes)
+                .ok_or_else(|| anyhow::anyhow!("size overflow"))?;
             crate::fetch::approved_url(&package.url, &self.scope.origins)?;
         }
-        ensure!(total <= MAX_EXPANDED_BYTES, "aggregate bundle size exceeded");
+        ensure!(
+            total <= MAX_EXPANDED_BYTES,
+            "aggregate bundle size exceeded"
+        );
         Ok(())
     }
 }
@@ -116,9 +148,11 @@ pub struct Manifest {
 
 /// Restricts identifiers to an unambiguous, portable owned namespace.
 pub fn identifier(text: &str) -> bool {
-    !text.is_empty() && text.len() <= 96 && text.bytes().all(|b| {
-        b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b':' | b'_' | b'-' | b'.')
-    })
+    !text.is_empty()
+        && text.len() <= MAX_IDENTIFIER_BYTES
+        && text.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b':' | b'_' | b'-' | b'.')
+        })
 }
 
 /// Keeps remote strings out of control markup and trusted UI formatting.

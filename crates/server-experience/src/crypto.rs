@@ -1,7 +1,10 @@
 //! Domain-separated Ed25519 signatures over exact canonical JSON bytes.
 
 use anyhow::{Result, bail, ensure};
-use ring::{rand::{SecureRandom, SystemRandom}, signature};
+use ring::{
+    rand::{SecureRandom, SystemRandom},
+    signature,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 
@@ -36,7 +39,10 @@ impl SignedDocument {
             .verify(&message, &signature)
             .map_err(|_| anyhow::anyhow!("invalid signature"))?;
         let value: T = serde_json::from_slice(&payload)?;
-        ensure!(serde_json::to_vec(&value)? == payload, "noncanonical document");
+        ensure!(
+            serde_json::to_vec(&value)? == payload,
+            "noncanonical document"
+        );
         Ok((value, digest(&payload)))
     }
 }
@@ -60,21 +66,26 @@ pub fn hex(bytes: &[u8]) -> String {
 /// Rejects uppercase, odd lengths and alternate encodings.
 pub fn unhex(text: &str) -> Result<Vec<u8>> {
     ensure!(text.len().is_multiple_of(2), "odd hex length");
-    text.as_bytes().chunks_exact(2).map(|pair| {
-        Ok((nibble(pair[0])? << 4) | nibble(pair[1])?)
-    }).collect()
+    text.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| Ok((nibble(pair[0])? << 4) | nibble(pair[1])?))
+        .collect()
 }
 
 /// Parses fixed-width keys, digests and nonces without truncation.
 pub fn fixed_hex<const N: usize>(text: &str) -> Result<[u8; N]> {
     ensure!(text.len() == N * 2, "incorrect hex length");
-    unhex(text)?.try_into().map_err(|_| anyhow::anyhow!("incorrect hex length"))
+    unhex(text)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("incorrect hex length"))
 }
 
 /// Generates an unpredictable connection challenge from the operating system.
 pub fn challenge() -> Result<String> {
     let mut bytes = [0; 32];
-    SystemRandom::new().fill(&mut bytes).map_err(|_| anyhow::anyhow!("random source failed"))?;
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| anyhow::anyhow!("random source failed"))?;
     Ok(hex(&bytes))
 }
 

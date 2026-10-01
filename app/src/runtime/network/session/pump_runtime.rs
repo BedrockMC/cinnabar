@@ -78,7 +78,10 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
     control_event_tx: mpsc::Sender<NetworkControlEvent>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     shutdown_rx: watch::Receiver<bool>,
-    gates: (Arc<ReadinessIngressCounter>, Arc<experience::ExperienceGate>),
+    gates: (
+        Arc<ReadinessIngressCounter>,
+        Arc<experience::ExperienceGate>,
+    ),
 ) {
     let (readiness_ingress, experience_gate) = gates;
     run_network_pump_with_readiness_ingress_and_trace(
@@ -399,8 +402,8 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
-                let now_ms = u64::try_from(experience_start.elapsed().as_millis())
-                    .unwrap_or(u64::MAX);
+                let now_ms =
+                    u64::try_from(experience_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 if !experience_gate.admit(&event, &mut experience_rate, now_ms) {
                     continue;
                 }

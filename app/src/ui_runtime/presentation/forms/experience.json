@@ -2,53 +2,299 @@
   "namespace": "cinnabar_experience",
   "copy": {
     "type": "label",
-    "size": ["100%", "100%"],
+    "size": [
+      "100%",
+      "100%"
+    ],
     "text": "#experience_text",
     "text_alignment": "left",
-    "color": [1, 1, 1],
+    "color": [
+      1,
+      1,
+      1
+    ],
     "shadow": true,
-    "bindings": [{"binding_name": "#experience_text"}]
+    "bindings": [
+      {
+        "binding_name": "#experience_text"
+      }
+    ]
   },
   "indicator": {
     "type": "panel",
-    "size": ["100%", 22],
+    "size": [
+      "100%",
+      22
+    ],
     "fill": true,
-    "color": [0.04, 0.04, 0.04, 1],
+    "color": [
+      0.04,
+      0.04,
+      0.04,
+      1
+    ],
     "anchor_from": "top_left",
     "anchor_to": "top_left",
-    "offset": [4, 4],
+    "offset": [
+      4,
+      4
+    ],
     "controls": [
-      {"copy@cinnabar_experience.copy": {}},
-      {"guest": {
-        "type": "label", "size": ["95%", 72],
-        "anchor_from": "bottom_left", "anchor_to": "top_left",
-        "offset": [0, 4], "text": "#experience_widgets",
-        "text_alignment": "left", "color": [0.8, 0.8, 0.8],
-        "shadow": true, "bindings": [{"binding_name": "#experience_widgets"}]
-      }}
+      {
+        "copy@cinnabar_experience.copy": {}
+      },
+      {
+        "guest": {
+          "type": "label",
+          "size": [
+            "95%",
+            72
+          ],
+          "anchor_from": "bottom_left",
+          "anchor_to": "top_left",
+          "offset": [
+            0,
+            4
+          ],
+          "text": "#experience_widgets",
+          "text_alignment": "left",
+          "color": [
+            0.8,
+            0.8,
+            0.8
+          ],
+          "shadow": true,
+          "bindings": [
+            {
+              "binding_name": "#experience_widgets"
+            }
+          ]
+        }
+      }
     ]
   },
   "choice": {
     "type": "button",
-    "size": ["100%", 22],
+    "size": [
+      "100%",
+      22
+    ],
     "$caption": "",
     "$action": "",
-    "button_mappings": [{"from_button_id": "button.menu_select", "to_button_id": "$action", "mapping_type": "pressed"}],
-    "controls": [{"label": {
-      "type": "label", "size": ["100%", "100%"], "text": "$caption",
-      "text_alignment": "center", "color": [0.7, 1, 0.7], "shadow": true
-    }}]
+    "button_mappings": [
+      {
+        "from_button_id": "button.menu_select",
+        "to_button_id": "$action",
+        "mapping_type": "pressed"
+      }
+    ],
+    "controls": [
+      {
+        "label": {
+          "type": "label",
+          "size": [
+            "100%",
+            "100%"
+          ],
+          "text": "$caption",
+          "text_alignment": "center",
+          "color": [
+            0.7,
+            1,
+            0.7
+          ],
+          "shadow": true
+        }
+      }
+    ]
   },
   "consent": {
     "type": "panel",
-    "size": ["94%", "94%"],
+    "size": [
+      "94%",
+      "94%"
+    ],
     "fill": true,
-    "color": [0.04, 0.04, 0.04, 1],
+    "color": [
+      0.04,
+      0.04,
+      0.04,
+      1
+    ],
     "controls": [
-      {"body@cinnabar_experience.copy": {"size": ["100%", "100% - 76px"], "anchor_from": "top_left", "anchor_to": "top_left"}},
-      {"once@cinnabar_experience.choice": {"$caption": "F6: Allow once", "$action": "experience.once", "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "offset": [0, -48]}},
-      {"always@cinnabar_experience.choice": {"$caption": "F7: Always for this server and scope", "$action": "experience.always", "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "offset": [0, -24]}},
-      {"never@cinnabar_experience.choice": {"$caption": "F8: Never for this server", "$action": "experience.never", "anchor_from": "bottom_middle", "anchor_to": "bottom_middle"}}
+      {
+        "disclosures": {
+          "type": "scroll_view",
+          "size": [
+            "100%",
+            "100% - 92px"
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "scroll_content": "body",
+          "scrollbar_box": "thumb",
+          "scroll_speed": 20,
+          "controls": [
+            {
+              "viewport": {
+                "type": "panel",
+                "size": [
+                  "100% - 8px",
+                  "100%"
+                ],
+                "anchor_from": "top_left",
+                "anchor_to": "top_left",
+                "clips_children": true,
+                "controls": [
+                  {
+                    "body": {
+                      "type": "stack_panel",
+                      "orientation": "vertical",
+                      "size": [
+                        "100%",
+                        "100%c"
+                      ],
+                      "anchor_from": "top_left",
+                      "anchor_to": "top_left",
+                      "collection_name": "disclosures",
+                      "factory": {
+                        "name": "lines",
+                        "control_ids": {
+                          "line": "@cinnabar_experience.disclosure_line"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "bar": {
+                "type": "panel",
+                "size": [
+                  6,
+                  "100%"
+                ],
+                "anchor_from": "top_right",
+                "anchor_to": "top_right",
+                "fill": true,
+                "color": [
+                  0.2,
+                  0.2,
+                  0.2,
+                  1
+                ],
+                "controls": [
+                  {
+                    "thumb": {
+                      "type": "scrollbar_box",
+                      "size": [
+                        6,
+                        "100%"
+                      ],
+                      "fill": true,
+                      "color": [
+                        0.7,
+                        0.7,
+                        0.7,
+                        1
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "hint": {
+          "type": "label",
+          "size": [
+            "100%",
+            16
+          ],
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [
+            0,
+            -72
+          ],
+          "text": "Scroll / Page Down to review all disclosures",
+          "text_alignment": "left",
+          "color": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "once@cinnabar_experience.choice": {
+          "$caption": "F6: Allow once",
+          "$action": "experience.once",
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [
+            0,
+            -48
+          ],
+          "bindings": [
+            {
+              "binding_name": "#experience_reviewed",
+              "binding_name_override": "#enabled"
+            }
+          ]
+        }
+      },
+      {
+        "always@cinnabar_experience.choice": {
+          "$caption": "F7: Always for this server and scope",
+          "$action": "experience.always",
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [
+            0,
+            -24
+          ],
+          "bindings": [
+            {
+              "binding_name": "#experience_reviewed",
+              "binding_name_override": "#enabled"
+            }
+          ]
+        }
+      },
+      {
+        "never@cinnabar_experience.choice": {
+          "$caption": "F8: Never for this server",
+          "$action": "experience.never",
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle"
+        }
+      }
+    ]
+  },
+  "disclosure_line": {
+    "type": "label",
+    "size": [
+      "100%",
+      "default"
+    ],
+    "text": "#disclosure_text",
+    "text_alignment": "left",
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true,
+    "bindings": [
+      {
+        "binding_type": "collection",
+        "binding_collection_name": "disclosures",
+        "binding_name": "#disclosure_text"
+      }
     ]
   }
 }

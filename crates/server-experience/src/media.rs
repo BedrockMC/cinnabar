@@ -16,6 +16,7 @@ pub const MAX_FRAMES: usize = 3;
 pub const MAX_COMPRESSED_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_SAMPLE_BYTES: usize = 2 * 1024 * 1024;
 pub const SAMPLE_RATE: u32 = 48_000;
+pub const OPUS_PACKET_FRAMES: usize = SAMPLE_RATE as usize / 50;
 pub const MAX_PCM_FRAMES: usize = SAMPLE_RATE as usize / 4;
 pub const MAX_DURATION_US: u64 = 4 * 60 * 60 * 1_000_000;
 
@@ -31,10 +32,16 @@ pub struct UnavailablePlatformDecoder;
 
 impl PlatformDecoder for UnavailablePlatformDecoder {
     /// No platform codec is advertised by the initial build.
-    fn supports_mp4_h264_aac(&self) -> bool { false }
+    fn supports_mp4_h264_aac(&self) -> bool {
+        false
+    }
 
     /// Keeps unsupported containers on the poster path.
-    fn decode(&mut self, _bytes: &[u8], _generation: u64) -> anyhow::Result<Vec<frames::VideoFrame>> {
+    fn decode(
+        &mut self,
+        _bytes: &[u8],
+        _generation: u64,
+    ) -> anyhow::Result<Vec<frames::VideoFrame>> {
         anyhow::bail!("MP4 platform decoder is not implemented")
     }
 }

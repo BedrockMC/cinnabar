@@ -3,6 +3,10 @@
 pub const MARKER_PATH: &str = "cinnabar/extension-offer.json";
 pub const WIRE_VERSION: u16 = 1;
 pub const API_VERSION: u16 = 1;
+pub const MAX_IDENTIFIER_BYTES: usize = 96;
+pub const MAX_URL_BYTES: usize = 2048;
+pub const MAX_ORIGINS: usize = 8;
+pub const MAX_FALLBACK_BYTES: usize = 512;
 pub const MAX_MARKER_BYTES: usize = 64 * 1024;
 pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024;
 pub const MAX_MESSAGES_PER_SECOND: u64 = 64;

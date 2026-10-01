@@ -44,17 +44,17 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_systems(
             Update,
             (
-                drive_sign_editor,
-                drive_server_form_input,
-                drive_chat_ui_actions,
+                drive_sign_editor.run_if(crate::server_experiences::input::ordinary_input),
+                drive_server_form_input.run_if(crate::server_experiences::input::ordinary_input),
+                drive_chat_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
                 drain_inventory_authority,
-                drive_chat_keyboard_input,
+                drive_chat_keyboard_input.run_if(crate::server_experiences::input::ordinary_input),
                 drive_menu_input,
-                drive_inventory_ui_actions,
+                drive_inventory_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
                 drive_menu_connection,
                 crate::store::drive_store,
                 synchronize_semantic_input_authority,
-                drive_world_inventory_keys,
+                drive_world_inventory_keys.run_if(crate::server_experiences::input::ordinary_input),
             )
                 .chain()
                 .in_set(ClientFrameSet::UiAuthority),

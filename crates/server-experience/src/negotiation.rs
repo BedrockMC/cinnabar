@@ -3,7 +3,11 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto::{self, SignedDocument}, manifest::Offer, policy::*};
+use crate::{
+    crypto::{self, SignedDocument},
+    manifest::Offer,
+    policy::*,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -24,7 +28,9 @@ impl VerifiedOffer {
         ensure!(bytes.len() <= MAX_MARKER_BYTES, "marker too large");
         let marker: Marker = serde_json::from_slice(bytes)?;
         let (offer, digest): (Offer, _) = marker.offer.verify(
-            &marker.server_key, crypto::OFFER_DOMAIN, MAX_MARKER_BYTES / 2,
+            &marker.server_key,
+            crypto::OFFER_DOMAIN,
+            MAX_MARKER_BYTES / 2,
         )?;
         ensure!(offer.server_key == marker.server_key, "key substitution");
         offer.validate(audience, now_unix)?;
@@ -90,7 +96,11 @@ impl Pending {
             connection: crypto::challenge()?,
             subclient,
         };
-        Ok(Self { offer, hello, started_ms: now_ms })
+        Ok(Self {
+            offer,
+            hello,
+            started_ms: now_ms,
+        })
     }
 
     /// Produces the only pre-grant packet, after the user has approved.
@@ -100,15 +110,32 @@ impl Pending {
 
     /// Consumes the challenge so an accept cannot be replayed within a session.
     pub fn accept(self, document: &SignedDocument, now_unix: u64, now_ms: u64) -> Result<Grant> {
-        ensure!(now_ms.saturating_sub(self.started_ms) <= NEGOTIATION_TIMEOUT_MS, "handshake timed out");
+        ensure!(
+            now_ms.saturating_sub(self.started_ms) <= NEGOTIATION_TIMEOUT_MS,
+            "handshake timed out"
+        );
         let (accept, _): (Accept, _) = document.verify(
-            &self.offer.offer.server_key, crypto::ACCEPT_DOMAIN, MAX_PAYLOAD_BYTES,
+            &self.offer.offer.server_key,
+            crypto::ACCEPT_DOMAIN,
+            MAX_PAYLOAD_BYTES,
         )?;
         ensure!(accept.hello == self.hello, "wrong connection challenge");
-        ensure!(accept.audience == self.offer.offer.audience, "wrong audience");
-        ensure!(accept.offer_digest == self.offer.digest, "offer changed after consent");
-        ensure!(accept.revision == self.offer.offer.revision, "deployment revision changed");
-        ensure!(accept.expires_unix > now_unix && accept.expires_unix <= self.offer.offer.expires_unix, "invalid grant expiry");
+        ensure!(
+            accept.audience == self.offer.offer.audience,
+            "wrong audience"
+        );
+        ensure!(
+            accept.offer_digest == self.offer.digest,
+            "offer changed after consent"
+        );
+        ensure!(
+            accept.revision == self.offer.offer.revision,
+            "deployment revision changed"
+        );
+        ensure!(
+            accept.expires_unix > now_unix && accept.expires_unix <= self.offer.offer.expires_unix,
+            "invalid grant expiry"
+        );
         crypto::fixed_hex::<32>(&accept.server_challenge)?;
         crypto::fixed_hex::<32>(&accept.session)?;
         Ok(Grant {
@@ -124,13 +151,27 @@ impl Pending {
 /// Canonicalizes the selected address; advertised addresses never replace it.
 pub fn canonical_audience(address: &str) -> Result<String> {
     let url = url::Url::parse(&format!("https://{address}"))?;
-    ensure!(url.username().is_empty() && url.password().is_none(), "invalid destination");
-    ensure!(url.path() == "/" && url.query().is_none() && url.fragment().is_none(), "invalid destination");
-    let host = url.host_str().ok_or_else(|| anyhow::anyhow!("missing host"))?;
-    ensure!(!host.ends_with('.'), "use a destination without a trailing dot");
+    ensure!(
+        url.username().is_empty() && url.password().is_none(),
+        "invalid destination"
+    );
+    ensure!(
+        url.path() == "/" && url.query().is_none() && url.fragment().is_none(),
+        "invalid destination"
+    );
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("missing host"))?;
+    ensure!(
+        !host.ends_with('.'),
+        "use a destination without a trailing dot"
+    );
     // Bedrock's default comes from the existing protocol/core contract at the call site.
-    let port: u16 = address.rsplit_once(':')
-        .ok_or_else(|| anyhow::anyhow!("destination requires an explicit port"))?.1.parse()?;
+    let port: u16 = address
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("destination requires an explicit port"))?
+        .1
+        .parse()?;
     ensure!(port != 0, "invalid destination port");
     Ok(format!("{host}:{port}"))
 }
