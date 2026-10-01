@@ -99,11 +99,11 @@ fn cobweb_scales_each_axis_and_stops_residual_motion_after_move() {
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
     assert!(tick.environment.in_cobweb);
-    assert!((tick.movement.x - 0.2).abs() <= 1.0e-12);
-    assert!((tick.movement.y + 0.04).abs() <= 1.0e-12);
-    assert!((tick.movement.z - 0.2).abs() <= 1.0e-12);
+    assert!((tick.movement.x - 0.2).abs() <= f64::from(f32::EPSILON));
+    assert!((tick.movement.y + 0.04).abs() <= f64::from(f32::EPSILON));
+    assert!((tick.movement.z - 0.2).abs() <= f64::from(f32::EPSILON));
     assert_eq!(state.velocity.x, 0.0);
-    assert!((state.velocity.y + 0.0784).abs() <= 1.0e-12);
+    assert!((state.velocity.y + 0.0784).abs() <= f64::from(f32::EPSILON));
     assert_eq!(state.velocity.z, 0.0);
 }
 
@@ -161,7 +161,7 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
 
         assert!(tick.environment.in_cobweb);
         assert_eq!(state.velocity.x, 0.0);
-        assert!((state.velocity.y - expected_y).abs() <= 1.0e-12);
+        assert!((state.velocity.y - expected_y).abs() <= f64::from(f32::EPSILON));
         assert_eq!(state.velocity.z, 0.0);
     }
 }
@@ -178,7 +178,7 @@ fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
             .tick(&mut state, MovementInput::default(), &surface(response))
             .unwrap();
         assert!(tick.collisions.y);
-        assert!((state.velocity.y - expected).abs() <= 1.0e-12);
+        assert!((state.velocity.y - expected).abs() <= f64::from(f32::EPSILON));
     }
 
     let mut sneaking = PlayerState::new(Vec3::new(0.0, 1.2, 0.0));
@@ -221,7 +221,7 @@ fn bed_restitution_is_uncapped() {
         )
         .unwrap();
     assert!(tick.collisions.y);
-    assert!((state.velocity.y - 1.3916).abs() <= 1.0e-12);
+    assert!((state.velocity.y - 1.3916).abs() <= f64::from(f32::EPSILON));
 }
 
 #[test]

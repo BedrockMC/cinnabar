@@ -3621,3 +3621,13 @@ and replay packets use actual jump initiation. Server flight-off is authoritativ
 Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9
 (Lens `0x4f32090`; `R:l/LocalPlayer.cpp:5095`) while the ledger retains its real type.
 No live or visual acceptance gate is closed by these changes.
+
+### Numeric continuation (2026-10-02, incomplete D01)
+
+Walking vectors, collision arithmetic, AABB centers, jump impulses, gravity and drag
+now round at f32 operations. Motion remains independent of the rounded final position
+(Lens `0x6dcbfc0`; `R:f/FinalizeMoveSystemImpl.cpp:28`). Sprint jumps use native float
+indices and table initialization by `sinf(index / 10430.378f)` (Lens `0x296ccd0`,
+`0xa5dacf0`; `R:m/MobJumpFromGroundSystemImpl.cpp:233`). Exact angle and distant-position
+witnesses cover these changes. D01 remains incomplete: the non-walking travel models
+and exhaustive Windows-versus-host sinf bit equivalence still need validation.

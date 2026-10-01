@@ -146,7 +146,7 @@ pub(super) fn tick_mode(
     )?;
     let identity = sampled.identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
-    next.position += motion.resolved;
+    next.position = motion.position;
     next.on_ground = motion.stepped
         || (motion.collisions.y && pre_collision_velocity.y < 0.0)
         || (grounded_at_start
