@@ -3,9 +3,9 @@
 
 use serde_json::Value;
 
-use super::{Axis, AxisContext, LayoutEnv, Rect, ResolvedControl, axis_index, axis_of};
+use super::{Axis, LayoutEnv, Rect, ResolvedControl, axis_index, measure};
 use crate::anim::{Inherited, Motion, SLIDE_KEY, Slide};
-use crate::expr;
+use crate::expr::{self, AxisContext, Length};
 
 /// The child's rect from its resolved size and anchor/offset within `parent_rect`:
 /// its `anchor_to` point lands on the parent's `anchor_from` point.
@@ -13,50 +13,61 @@ pub(super) fn place_by_anchor(
     control: &ResolvedControl,
     parent_rect: Rect,
     size: [f64; 2],
-    _env: &LayoutEnv,
+    siblings: [f64; 2],
+    env: &LayoutEnv,
 ) -> Rect {
     let from = anchor_from(control);
     let to = anchor_to(control);
-    let off = offset(control, parent_rect, size);
-    let x = parent_rect.x + parent_rect.w * anchor_frac(from, Axis::X)
-        - size[0] * anchor_frac(to, Axis::X)
-        + off[0];
-    let y = parent_rect.y + parent_rect.h * anchor_frac(from, Axis::Y)
-        - size[1] * anchor_frac(to, Axis::Y)
-        + off[1];
+    let off = offset(control, parent_rect, size, siblings, env);
+    let x = parent_rect.x + parent_rect.w * from[0] - size[0] * to[0] + off[0];
+    let y = parent_rect.y + parent_rect.h * from[1] - size[1] * to[1] + off[1];
     Rect::new(x, y, size[0], size[1])
 }
 
-/// The static `offset`: `%` of the parent, `%x`/`%y` of the control's own size.
-pub(super) fn offset(control: &ResolvedControl, parent_rect: Rect, size: [f64; 2]) -> [f64; 2] {
-    control
-        .properties
-        .get("offset")
-        .map_or([0.0; 2], |pair| offset_pixels(pair, parent_rect, size))
+/// The static `offset` in pixels.
+fn offset(
+    control: &ResolvedControl,
+    parent_rect: Rect,
+    size: [f64; 2],
+    siblings: [f64; 2],
+    env: &LayoutEnv,
+) -> [f64; 2] {
+    control.properties.get("offset").map_or([0.0; 2], |pair| {
+        offset_pixels(control, pair, parent_rect, size, siblings, env)
+    })
 }
-
-/// An `[x, y]` offset pair in pixels; anything else is no offset.
-fn offset_pixels(pair: &Value, parent_rect: Rect, size: [f64; 2]) -> [f64; 2] {
+/// An `[x, y]` offset pair in pixels, its units read like size units (`%` of the
+/// parent, `%x`/`%y` own size, `%c`/`%cm` children, `%sm` siblings). An axis
+/// that is not an expression (`default`, `fill`) adds no offset.
+fn offset_pixels(
+    control: &ResolvedControl,
+    pair: &Value,
+    parent_rect: Rect,
+    size: [f64; 2],
+    siblings: [f64; 2],
+    env: &LayoutEnv,
+) -> [f64; 2] {
     let Value::Array(items) = pair else {
         return [0.0; 2];
     };
-    if items.len() < 2 {
-        return [0.0; 2];
-    }
-    let axis_value = |index: usize, axis: Axis| {
+    let children = measure::children(control, env, [Some(size[0]), Some(size[1])]);
+    let axis_value = |axis: Axis| {
+        let index = axis_index(axis);
+        let Some(Length::Terms(terms)) = items.get(index).map(expr::length_from_value) else {
+            return 0.0;
+        };
         let ctx = AxisContext {
-            parent: axis_of(parent_rect, axis),
+            parent: [parent_rect.w, parent_rect.h][index],
             own_width: Some(size[0]),
             own_height: Some(size[1]),
-            ..AxisContext::default()
+            children: Some(children.content[index]),
+            children_max: Some(children.maximum[index]),
+            sibling_max: Some(siblings[index]),
+            natural: None,
         };
-        // An axis that is not an expression (`default`, `fill`) adds no offset.
-        match expr::length_from_value(&items[index]) {
-            expr::Length::Terms(terms) => expr::Length::Terms(terms).eval_pixels(&ctx),
-            _ => 0.0,
-        }
+        Length::Terms(terms).eval_pixels(&ctx)
     };
-    [axis_value(0, Axis::X), axis_value(1, Axis::Y)]
+    [axis_value(Axis::X), axis_value(Axis::Y)]
 }
 
 /// The control's `offset` animation in pixels, measured like its static offset.
@@ -65,13 +76,14 @@ pub(super) fn motion(
     parent_rect: Rect,
     size: [f64; 2],
     inherited: &Inherited,
+    env: &LayoutEnv,
 ) -> Option<Motion> {
     let slide: Slide = serde_json::from_value(control.properties.get(SLIDE_KEY)?.clone()).ok()?;
     let (born, clock) = inherited.timing();
-    let rest = offset(control, parent_rect, size);
+    let rest = offset(control, parent_rect, size, [0.0; 2], env);
     Some(slide.motion(rest, born, clock, |pair| match pair {
         Value::Null => rest,
-        pair => offset_pixels(pair, parent_rect, size),
+        pair => offset_pixels(control, pair, parent_rect, size, [0.0; 2], env),
     }))
 }
 
@@ -107,8 +119,4 @@ fn anchor(control: &ResolvedControl, key: &str) -> [f64; 2] {
         0.5
     };
     [fx, fy]
-}
-
-pub(super) fn anchor_frac(point: [f64; 2], axis: Axis) -> f64 {
-    point[axis_index(axis)]
 }
