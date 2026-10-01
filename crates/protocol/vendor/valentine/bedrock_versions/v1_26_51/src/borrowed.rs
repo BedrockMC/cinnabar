@@ -31460,9 +31460,8 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for LevelEventGenericPacketVi
                 (),
             )?
             .0;
-        // Hand patch: the event data is loose NBT tags filling the rest of the packet.
         let __ctd__ =
-            crate::bedrock::codec::Nbt(bytes::Buf::copy_to_bytes(buf, bytes::Buf::remaining(buf)));
+            <crate::bedrock::codec::Nbt as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self { event_id, __ctd__ })
     }
 }
