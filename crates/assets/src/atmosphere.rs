@@ -78,13 +78,15 @@ pub struct FogDistance {
     pub start_bits: u32,
     pub end_bits: u32,
     pub rgb8: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<crate::FogTransition>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ResolvedFog {
     pub start: f32,
     pub end: f32,
-    pub rgb8: u32,
+    pub rgb: [f32; 3],
 }
 
 impl FogDistance {
@@ -110,7 +112,7 @@ impl FogDistance {
         Some(ResolvedFog {
             start: self.start() * scale,
             end: self.end() * scale,
-            rgb8: self.rgb8,
+            rgb: [16, 8, 0].map(|shift| ((self.rgb8 >> shift) & 255) as f32 / 255.0),
         })
     }
 }
@@ -649,9 +651,11 @@ fn validate_environment_profiles(
             let end = distance.end();
             if !start.is_finite()
                 || !end.is_finite()
-                || start < 0.0
                 || end < start
                 || distance.rgb8 > 0x00ff_ffff
+                || distance
+                    .transition
+                    .is_some_and(|transition| !transition.is_valid())
             {
                 return Err(invalid("fog distance is invalid"));
             }
@@ -782,6 +786,7 @@ mod tests {
                     start_bits: 0.92_f32.to_bits(),
                     end_bits: 1.0_f32.to_bits(),
                     rgb8: 0x0B_08_0C,
+                    transition: None,
                 }]
                 .into_boxed_slice(),
             }]
@@ -810,10 +815,14 @@ mod tests {
             start_bits: 10.0_f32.to_bits(),
             end_bits: 96.0_f32.to_bits(),
             rgb8: 0x33_08_08,
+            transition: None,
         };
         assert_eq!(fixed.resolve(256.0).unwrap().start, 10.0);
         assert_eq!(fixed.resolve(256.0).unwrap().end, 96.0);
-        assert_eq!(fixed.resolve(256.0).unwrap().rgb8, 0x33_08_08);
+        assert_eq!(
+            fixed.resolve(256.0).unwrap().rgb,
+            [51.0 / 255.0, 8.0 / 255.0, 8.0 / 255.0]
+        );
 
         let relative = FogDistance {
             medium: FogMedium::Air,
@@ -821,11 +830,12 @@ mod tests {
             start_bits: 0.92_f32.to_bits(),
             end_bits: 1.0_f32.to_bits(),
             rgb8: 0xAB_D2_FF,
+            transition: None,
         };
         let resolved = relative.resolve(256.0).unwrap();
         assert_eq!(resolved.start, 235.52);
         assert_eq!(resolved.end, 256.0);
-        assert_eq!(resolved.rgb8, 0xAB_D2_FF);
+        assert_eq!(resolved.rgb, [171.0 / 255.0, 210.0 / 255.0, 1.0]);
         assert!(relative.resolve(f32::NAN).is_none());
         assert!(relative.resolve(-1.0).is_none());
     }

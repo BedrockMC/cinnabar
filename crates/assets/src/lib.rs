@@ -12,6 +12,8 @@ mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
+mod fog_layers;
+mod fog_transition;
 mod font;
 mod fsb;
 mod glyph_sheet;
@@ -55,6 +57,9 @@ pub use actor::{
     neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
     neutral_actor_pose_mode,
 };
+pub use fog_layers::resolve_fog_layers;
+pub use fog_transition::FogTransition;
+
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
     BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
