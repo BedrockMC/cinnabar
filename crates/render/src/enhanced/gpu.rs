@@ -645,7 +645,9 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetEnhancedViewBindGroup
         if !enhanced {
             return RenderCommandResult::Success;
         }
-        let Some(views) = views else { return RenderCommandResult::Skip; };
+        let Some(views) = views else {
+            return RenderCommandResult::Skip;
+        };
         let Some(bind_group) = views
             .into_inner()
             .0

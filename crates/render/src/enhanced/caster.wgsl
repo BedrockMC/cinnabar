@@ -16,6 +16,7 @@ struct CasterUniform {
 @group(1) @binding(1) var caster_material_classes: texture_2d<u32>;
 
 // Projects a caster after applying the same material wave as the lit pass.
+// Apply the same foliage motion before the light projection.
 fn caster_clip(world: vec3<f32>, material_id: u32, weight: f32) -> vec4<f32> {
     var position = world;
     let dimensions = textureDimensions(caster_material_classes);

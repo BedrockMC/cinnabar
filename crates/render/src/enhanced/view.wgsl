@@ -20,6 +20,7 @@ const DARK_FLOOR: f32 = 0.025;
 const EMISSIVE_GAIN: f32 = 3.0;
 const SHADOW_TAPS: u32 = 8u;
 
+// Read the palette-derived class, defaulting unknown IDs to ordinary surfaces.
 fn material_class(material_id: u32) -> u32 {
     let size = textureDimensions(enhanced_material_classes);
     if (material_id >= size.x * size.y) { return 0u; }
@@ -27,6 +28,7 @@ fn material_class(material_id: u32) -> u32 {
         vec2<i32>(i32(material_id % size.x), i32(material_id / size.x)), 0).r;
 }
 
+// Displace classified foliage only when wind is enabled.
 fn waved_position(world: vec3<f32>, class: u32, weight: f32) -> vec3<f32> {
     if ((enhanced_frame.flags.x & FEATURE_WAVING) == 0u) {
         return world;
@@ -40,6 +42,7 @@ fn waved_position(world: vec3<f32>, class: u32, weight: f32) -> vec3<f32> {
     );
 }
 
+// Displace shared water surface edges with the same analytic wave.
 fn waved_water_position(world: vec3<f32>, top_surface: bool) -> vec3<f32> {
     if ((enhanced_frame.flags.x & FEATURE_WAVING) == 0u || !top_surface) {
         return world;
@@ -94,6 +97,7 @@ fn shadow_visibility(world: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> f
     return 1.0;
 }
 
+// Boost bright texels of materials whose block states all emit light.
 fn emissive_light(albedo: vec3<f32>, class: u32) -> vec3<f32> {
     let level = f32(class & CLASS_EMISSION_MASK) / 15.0;
     if (level <= 0.0) {
@@ -151,6 +155,7 @@ fn ripple_normal(xz: vec2<f32>, seconds: f32) -> vec3<f32> {
     return normalize(vec3(-slope.x, 1.0, -slope.y));
 }
 
+// Project a ray sample into the opaque scene snapshot.
 fn scene_uv(world: vec3<f32>) -> vec3<f32> {
     let clip = enhanced_frame.clip_from_world * vec4(world, 1.0);
     if (clip.w <= 0.0) {
@@ -160,6 +165,7 @@ fn scene_uv(world: vec3<f32>) -> vec3<f32> {
     return vec3(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
 }
 
+// Read reverse-Z opaque depth with clamped integer coordinates.
 fn scene_depth_at(uv: vec2<f32>) -> f32 {
     let size = vec2<i32>(textureDimensions(enhanced_scene_depth));
     let coord = clamp(vec2<i32>(uv * vec2<f32>(size)), vec2(0), size - vec2(1));
@@ -210,7 +216,7 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, jitter: f32) -> vec
 }
 
 // Water top surface with Fresnel reflection, sun glint and depth absorption.
-// Returns premultiplied-by-construction colour for ALPHA_BLENDING.
+// Returns straight alpha colour for ALPHA_BLENDING.
 fn shade_water(
     base: vec3<f32>,
     alpha: f32,
