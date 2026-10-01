@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 )
@@ -140,12 +139,23 @@ func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
-// Create saves a new world; an explicit BDS backend is refused where the platform cannot run it.
+// Create saves a new world; a BDS world (every normal world) is refused where BDS cannot run.
 func (m *Manager) Create(spec Spec) (World, error) {
-	if strings.EqualFold(strings.TrimSpace(spec.Backend), BackendBDS) && m.setup != nil && m.setup.Status().State == SetupUnsupported {
+	normalized, err := spec.normalize()
+	if err != nil {
+		return World{}, err
+	}
+	if normalized.Backend == BackendBDS && !m.bdsRunnable() {
+		if normalized.Generator == GeneratorNormal {
+			return World{}, ErrVanillaNeedsBDS
+		}
 		return World{}, ErrBackendUnavailable
 	}
-	return m.store.Create(spec)
+	return m.store.Create(normalized)
+}
+
+func (m *Manager) bdsRunnable() bool {
+	return m.setup != nil && m.setup.Status().State != SetupUnsupported
 }
 
 func (m *Manager) Rename(id, name string) (World, error) { return m.store.Rename(id, name) }
@@ -175,7 +185,7 @@ func (m *Manager) Status() Status {
 }
 
 func failureText(err error) string {
-	for _, known := range []error{ErrEULARequired, ErrBackendUnavailable} {
+	for _, known := range []error{ErrEULARequired, ErrBackendUnavailable, ErrVanillaNeedsBDS} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}
@@ -213,6 +223,9 @@ func (m *Manager) Open(id string, opts ...OpenOptions) error {
 	dir, err := m.store.Dir(id)
 	if err != nil {
 		return err
+	}
+	if world.Backend == BackendDragonfly && world.Generator == GeneratorNormal {
+		return ErrVanillaNeedsBDS // saved before normal worlds moved to BDS; never regenerate as an approximation
 	}
 	if world.Backend == BackendBDS {
 		if m.setup == nil {

@@ -43,7 +43,7 @@ pub use address::{
 };
 pub use client_packets::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    lectern_update_packet,
+    crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use request::manual_craft::{

@@ -182,16 +182,11 @@ fn prepare_panorama(
         return;
     };
     gpu.visible = true;
-    let uniform = PanoramaUniform {
-        view: [
-            view.yaw_radians,
-            view.pitch_radians,
-            (view.vertical_fov_radians * 0.5).tan(),
-            view.aspect,
-        ],
-        tint: view.tint,
-    };
-    queue.write_buffer(&gpu.uniform, 0, bytemuck::bytes_of(&uniform));
+    queue.write_buffer(
+        &gpu.uniform,
+        0,
+        bytemuck::cast_slice(&view.shader_uniform()),
+    );
 }
 
 struct PanoramaPipelineSpecializer;

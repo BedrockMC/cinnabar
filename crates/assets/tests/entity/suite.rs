@@ -513,6 +513,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             channel_count: 1,
             source: 1,
             override_previous: false,
+            geometry: None,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -607,6 +608,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             initialize: None,
             pre_animation: None,
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
+            scale_expressions: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -622,12 +624,14 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             name: 0,
             clip: 0,
             weight: None,
+            order: 0,
         }]
         .into_boxed_slice(),
         rig_controllers: vec![EntityRigControllerBinding {
             name: 0,
             controller: 0,
             weight: None,
+            order: 0,
         }]
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {
@@ -663,6 +667,10 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 color: None,
                 overlay_color: None,
                 on_fire_color: None,
+                uv_anim: None,
+                first_geometry: 0,
+                geometry_count: 0,
+                ignore_lighting: false,
             }]),
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,
@@ -676,6 +684,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 pattern: "root".into(),
                 condition: 0,
             }]),
+            geometries: Box::new([]),
         },
     }
 }

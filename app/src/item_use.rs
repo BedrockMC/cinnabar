@@ -171,6 +171,32 @@ impl ItemUseRuntime {
         }
     }
 
+    /// Why a latched press sends nothing on this frame, for the click-drop trace; `None` when it
+    /// is used or no press waits.
+    pub(crate) fn press_drop_reason(&self, frame: &UseFrame) -> Option<&'static str> {
+        if !self.latched_press || self.active.is_some() {
+            return None;
+        }
+        if frame.press_consumed {
+            Some("consumed_by_block_or_attack")
+        } else if self
+            .rearm_millis
+            .is_some_and(|rearm| frame.now_millis <= rearm)
+        {
+            Some("rearm_pending")
+        } else if frame.selection.is_none() {
+            Some("selection_unverified")
+        } else if frame
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.item.is_empty())
+        {
+            Some("no_air_use_for_item")
+        } else {
+            None
+        }
+    }
+
     fn try_use(&mut self, frame: &UseFrame, pressed: bool, outcome: &mut UseOutcome) {
         if frame.press_consumed
             || self
@@ -380,15 +406,26 @@ pub(crate) fn produce_item_use(
     runtime.synchronize(context.ui.session_id());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let admitted = context.input.snapshot().is_some()
-        && focused
-        && !context.ui.ui_focused()
-        && context
-            .ui
-            .game_mode_capabilities()
-            .is_some_and(|caps| caps.can_use_items)
-        && movement.accepts_block_interactions();
     let use_phase = context.input.phase(Action::Use);
+    let admitted = if context.input.snapshot().is_none() {
+        false
+    } else if !focused || context.ui.ui_focused() {
+        use_phase
+            .pressed
+            .then(|| crate::movement::note_click_drop("use", "screen_open"));
+        false
+    } else if context
+        .ui
+        .game_mode_capabilities()
+        .is_some_and(|caps| !caps.can_use_items)
+    {
+        use_phase
+            .pressed
+            .then(|| crate::movement::note_click_drop("use", "spectator"));
+        false
+    } else {
+        true
+    };
     runtime.observe_press(admitted && use_phase.pressed);
     let held = admitted && use_phase.held;
     let Some(stream) = context.client_world.stream.as_ref() else {
@@ -419,6 +456,9 @@ pub(crate) fn produce_item_use(
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
     };
+    if let Some(reason) = runtime.press_drop_reason(&frame) {
+        crate::movement::note_click_drop("use", reason);
+    }
     let outcome = runtime.step(&frame);
     let duration = swing_duration(context.effects.mining_effects());
     if outcome.swung && swings.try_swing(sample.tick, duration) {

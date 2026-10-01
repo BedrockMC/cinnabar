@@ -65,16 +65,17 @@ pub use actor::{
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex,
     DEFAULT_PLAYER_SKIN_PATH, DEFAULT_SKIN_PROVENANCE, EntityRigId, EquipmentRaster,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
-    MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
-    MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
+    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES, MAX_ACTOR_TEXTURE_PAGES,
+    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, entity_geometry, equipment_geometry,
     equipment_rig_id, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
-    held_sprite_vertices, install_default_player_skin, item_mesh_rig_id, normalize_actor_skin,
-    normalize_actor_skin_cached, pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id,
-    skin_geometry, skin_rig_id, skull_geometry, standard_biped_overlay_vertices,
-    standard_biped_vertices, textured_cube_vertices,
+    held_sprite_vertices, install_default_player_skin, item_mesh_rig_id, layer_geometry_rig_id,
+    normalize_actor_skin, normalize_actor_skin_cached, pack_actor_light, pack_equipment_rig_id,
+    pack_overlay_rgba8, pack_rig_id, skin_geometry, skin_rig_id, skull_geometry,
+    standard_biped_overlay_vertices, standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
@@ -148,7 +149,9 @@ pub use lightning::{
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
 };
-pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView};
+pub use panorama::{
+    MAX_PANORAMA_FACE_SIDE, PANORAMA_WGSL, PanoramaFaces, PanoramaScene, PanoramaView,
+};
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,

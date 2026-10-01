@@ -421,6 +421,9 @@ fn render_plugin() -> RenderPlugin {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
+    let _children = crate::lifecycle::children::StopOnDrop;
+    crate::lifecycle::children::install_exit_hooks();
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
@@ -492,7 +495,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         crate::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
-            equipment_catalog,
+            equipment_catalog.clone(),
             Arc::clone(icon_assets.runtime()),
             Some(Arc::clone(&loaded_assets.runtime)),
             crate::asset_startup::load_optional_block_entity_assets(&loaded_assets.selected_path),
@@ -600,6 +603,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     {
         eprintln!("OreUI originals disabled ({reason})");
     }
+    ui_presentation.set_equipment_catalog(equipment_catalog);
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();

@@ -271,6 +271,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             -pitch.to_degrees(),
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
+        if let Ok((transform, _)) = camera.single() {
+            stream.set_actor_camera_position(transform.translation.to_array());
+        }
         // Fluid and bed state is tick state; a frame without a tick would resample the same.
         if step.ticks > 0
             && let Some(collisions) = collisions.as_deref()
@@ -487,10 +490,10 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         cull_view,
     );
     if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::entity_layers::apply_render_layers(
+        crate::presentation::actors::light_bodies(
             &mut batch,
-            |runtime_id| stream.actor_rig(runtime_id),
-            artwork,
+            stream,
+            super::dropped_items::DAYLIGHT,
         );
     }
     if let (Some(stream), Some(cape)) = (
@@ -527,6 +530,14 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 batch.submissions.push(layer.submission);
             }
         }
+    }
+    // After equipment, which rides the rig's own model even when a controller draws another.
+    if let Some(stream) = client_world.stream.as_ref() {
+        crate::presentation::entity_layers::apply_render_layers(
+            &mut batch,
+            |runtime_id| stream.actor_rig(runtime_id),
+            artwork,
+        );
     }
     // Layers were built above from the visible body, so hiding the body keeps armor and held items.
     if let Some(stream) = client_world.stream.as_ref() {

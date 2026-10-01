@@ -1,12 +1,12 @@
 //! App-owned authoritative gameplay-HUD state beyond the basic stat rows:
-//! hotbar/offhand stacks, armor equipment, status effects, air, freezing, and
+//! hotbar/offhand stacks, status effects, air, freezing, and
 //! the local mount. Every field mirrors server state the Bedrock protocol
 //! actually exposes; nothing here invents state.
 
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
-    ArmorEquipmentEvent, CanonicalCell, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent,
-    NetworkItemStack, project_container_cell,
+    CanonicalCell, EquipmentEvent, HOTBAR_SLOT_COUNT, InventoryEvent, NetworkItemStack,
+    project_container_cell,
 };
 
 pub const MAX_HUD_EFFECTS: usize = 32;
@@ -83,14 +83,13 @@ pub enum HeartVariant {
     Frozen,
 }
 
-/// The local player's authoritative armor stacks.
+/// The local player's worn armor stacks, helmet to boots.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ArmorSlots {
     pub helmet: NetworkItemStack,
     pub chestplate: NetworkItemStack,
     pub leggings: NetworkItemStack,
     pub boots: NetworkItemStack,
-    pub body: NetworkItemStack,
 }
 
 /// Bounded diagnostics for skipped/odd gameplay-HUD data. Odd remote values
@@ -127,7 +126,6 @@ pub struct GameplayHudState {
     hotbar: [Option<NetworkItemStack>; HOTBAR_SLOT_COUNT as usize],
     hotbar_known: bool,
     offhand: Option<NetworkItemStack>,
-    armor: Option<ArmorSlots>,
     effects: Vec<HudEffect>,
     air_supply_ticks: Option<i16>,
     max_air_supply_ticks: Option<i16>,
@@ -200,11 +198,6 @@ impl GameplayHudState {
     /// authority for consumers that must not admit unknown equipment.
     pub(crate) fn offhand_is_empty(&self) -> Option<bool> {
         self.offhand.as_ref().map(NetworkItemStack::is_empty)
-    }
-
-    #[must_use]
-    pub const fn armor(&self) -> Option<&ArmorSlots> {
-        self.armor.as_ref()
     }
 
     #[must_use]
@@ -385,16 +378,6 @@ impl GameplayHudState {
         let Some(now) = now_tick else { return };
         self.effects
             .retain(|effect| effect.visible_at_tick(Some(now)));
-    }
-
-    pub fn apply_armor(&mut self, event: &ArmorEquipmentEvent) {
-        self.armor = Some(ArmorSlots {
-            helmet: event.helmet.clone(),
-            chestplate: event.chestplate.clone(),
-            leggings: event.leggings.clone(),
-            boots: event.boots.clone(),
-            body: event.body.clone(),
-        });
     }
 
     /// Counts one semantically odd attribute value that was skipped.

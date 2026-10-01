@@ -57,6 +57,8 @@ pub struct ActorRigSnapshot<'a> {
     pub fallback: EntityRigFallback,
     /// Authored uniform model scale about the feet origin.
     pub scale: f32,
+    /// Authored per-axis model scale (`scaleX`, `scaleY`, `scaleZ`) on top of `scale`.
+    pub axis_scale: [f32; 3],
     /// Body yaw in degrees at the previous and current completed tick.
     pub previous_body_yaw: f32,
     pub body_yaw: f32,
@@ -137,6 +139,10 @@ struct ActorRigState {
     bone_names: Vec<Box<str>>,
     /// This tick's render-controller result.
     render: Vec<RenderTextureLayer>,
+    /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
+    scale: Option<[f32; 4]>,
+    /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
+    layer_skeletons: BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
     controllers: Vec<ControllerState>,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
@@ -202,6 +208,7 @@ struct EvaluatedState {
     pose: Vec<BoneTransform>,
     /// `None` when the render controllers ran out of budget, keeping the last choice.
     render: Option<Vec<RenderTextureLayer>>,
+    scale: Option<[f32; 4]>,
     controllers: Vec<ControllerState>,
     variables: MolangVariables,
 }
@@ -450,6 +457,7 @@ impl ActorAnimationStore {
                 (&assets, &self.layout)
             };
             if state.fallback != EntityRigFallback::GeometryOnly {
+                render::cache_layer_skeletons(state_assets, state);
                 geometry::reselect_geometry(
                     state_assets,
                     state_layout,
@@ -476,8 +484,10 @@ impl ActorAnimationStore {
             match result {
                 Ok(evaluated) => {
                     state.controllers = evaluated.controllers;
+                    state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
-                    if let Some(render) = evaluated.render {
+                    if let Some(mut render) = evaluated.render {
+                        render::carry_layer_poses(&state.render, &mut render, state.reset_pending);
                         state.render = render;
                     }
                     state.initialized = true;
@@ -554,13 +564,21 @@ impl ActorAnimationStore {
             completed_tick: state.completed_tick,
             reset_generation: state.reset_generation,
             fallback: state.fallback,
-            scale: if state.pack {
-                self.pack.as_ref().map(|pack| &pack.assets)
-            } else {
-                self.assets.as_ref()
-            }
-            .and_then(|assets| assets.rig_bindings().get(state.rig_binding))
-            .map_or(1.0, |rig| rig.scale.get()),
+            scale: state.scale.map_or_else(
+                || {
+                    if state.pack {
+                        self.pack.as_ref().map(|pack| &pack.assets)
+                    } else {
+                        self.assets.as_ref()
+                    }
+                    .and_then(|assets| assets.rig_bindings().get(state.rig_binding))
+                    .map_or(1.0, |rig| rig.scale.get())
+                },
+                |scale| scale[0],
+            ),
+            axis_scale: state
+                .scale
+                .map_or([1.0; 3], |scale| [scale[1], scale[2], scale[3]]),
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
@@ -681,6 +699,8 @@ fn resolve_rig(
         bones,
         bone_names,
         render: Vec::new(),
+        scale: None,
+        layer_skeletons: BTreeMap::new(),
         controllers,
         previous: current.clone(),
         rest: current.clone(),

@@ -516,6 +516,8 @@ dependencies = [
  "bytes",
  "client-world",
  "crossbeam-channel",
+ "ctrlc",
+ "fontdue",
  "image",
  "json-ui",
  "meshing",
@@ -535,6 +537,8 @@ dependencies = [
  "tokio",
  "ui",
  "url",
+ "wgpu",
+ "winit",
  "world",
  "zip",
 ]

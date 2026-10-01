@@ -496,3 +496,47 @@ fn legacy_request_ids_step_down_by_two_and_wrap() {
     runtime.last_legacy_request_id = i32::MIN;
     assert_eq!(runtime.next_legacy_request_id(), -4);
 }
+
+/// An ender pearl press sends its click-air transaction and starts no held use.
+#[test]
+fn an_ender_pearl_press_sends_click_air() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let outcome = runtime.step(&UseFrame {
+        air_use: classify("minecraft:ender_pearl", false, 0, None),
+        ..frame(100, true)
+    });
+    assert_eq!(kinds(&outcome), ["use"]);
+    assert!(!outcome.started && !runtime.is_using());
+}
+
+/// A press that sends nothing names why for the click-drop trace; a held item never reads as
+/// having no air use, since every item sends click-air.
+#[test]
+fn a_dropped_press_names_its_reason() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert_eq!(runtime.press_drop_reason(&frame(100, true)), None);
+    let consumed = UseFrame {
+        press_consumed: true,
+        ..frame(100, true)
+    };
+    assert_eq!(
+        runtime.press_drop_reason(&consumed),
+        Some("consumed_by_block_or_attack")
+    );
+    let unverified = UseFrame {
+        selection: None,
+        ..frame(100, true)
+    };
+    assert_eq!(
+        runtime.press_drop_reason(&unverified),
+        Some("selection_unverified")
+    );
+    runtime.step(&frame(100, true));
+    assert_eq!(
+        runtime.press_drop_reason(&frame(101, true)),
+        None,
+        "no press waits"
+    );
+}
