@@ -223,6 +223,7 @@ impl UiPresentationRuntime {
                 safe_area: self.safe_area,
                 content,
                 translate: &translate,
+                language: runtime.language_identity(),
             };
             let out = EngineOutput {
                 nodes: &mut *nodes,

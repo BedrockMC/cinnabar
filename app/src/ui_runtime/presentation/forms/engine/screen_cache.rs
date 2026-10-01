@@ -18,8 +18,8 @@ pub(super) struct ScreenKey<'a> {
     pub(super) view: &'a ViewState,
     pub(super) root: [f64; 2],
     pub(super) px: f32,
-    /// A translated probe string, so a language change relays out.
-    pub(super) language: Option<Arc<str>>,
+    /// The active language tables, so a language change relays out.
+    pub(super) language: crate::ui_runtime::LanguageIdentity,
 }
 
 struct Entry {
@@ -30,7 +30,7 @@ struct Entry {
     view: ViewState,
     root: [f64; 2],
     px: f32,
-    language: Option<Arc<str>>,
+    language: crate::ui_runtime::LanguageIdentity,
     render: Arc<FormRender>,
 }
 
@@ -286,7 +286,7 @@ mod tests {
             view: &view,
             root,
             px: 2.0,
-            language: None,
+            language: Default::default(),
         };
         let first = cache.get_or_render(key([400.0, 300.0]), render).unwrap();
         let again = cache

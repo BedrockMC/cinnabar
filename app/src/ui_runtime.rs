@@ -159,6 +159,11 @@ impl UiAuthorityTransition {
     }
 }
 
+/// The identity of the language tables translating UI text: equal values,
+/// equal translations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct LanguageIdentity(pub(crate) [usize; 3]);
+
 #[derive(Clone, Debug, Resource)]
 pub struct UiRuntime {
     local_abilities: local_abilities::LocalAbilities,

@@ -666,6 +666,25 @@ impl UiRuntime {
         self.server_ui.as_ref()
     }
 
+    /// Which language tables translate text, by identity.
+    pub(crate) fn language_identity(&self) -> super::LanguageIdentity {
+        let id = |table: Option<*const ()>| table.map_or(0, |table| table as usize);
+        super::LanguageIdentity([
+            id(self
+                .server_lang
+                .as_ref()
+                .map(|table| Arc::as_ptr(table).cast())),
+            id(self
+                .active_lang
+                .as_ref()
+                .map(|table| Arc::as_ptr(table).cast())),
+            id(self
+                .lang_catalog
+                .as_ref()
+                .map(|table| Arc::as_ptr(table).cast())),
+        ])
+    }
+
     pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
         self.server_lang
             .as_ref()
