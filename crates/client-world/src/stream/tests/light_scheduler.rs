@@ -130,11 +130,16 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
     }
 }
 
+/// Advances bounded scheduler turns until all test lighting is current.
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
             return;
+        }
+        // A finished scan round can defer ready work until the next turn.
+        if stream.in_flight_light.is_empty() {
+            continue;
         }
         let completion = stream
             .light_rx
@@ -231,6 +236,7 @@ mod filter_dominance;
 
 mod mesh_admission;
 
+mod backlog;
 mod mutation_summary;
 
 mod sky_boundary;
