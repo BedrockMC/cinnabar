@@ -23,7 +23,10 @@ fn production_form_enqueue_binds_generation_and_distinguishes_definite_backpress
     ));
     let NetworkCommand::Send {
         packet: accepted, ..
-    } = receiver.try_recv().unwrap();
+    } = receiver.try_recv().unwrap()
+    else {
+        panic!("form enqueue must submit a packet");
+    };
     let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
         protocol::encode(&accepted, &session).unwrap(),

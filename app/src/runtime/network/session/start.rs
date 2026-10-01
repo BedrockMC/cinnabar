@@ -190,6 +190,62 @@ async fn send_startup_transfer(
 mod tests {
     use super::*;
 
+    struct LoadingSession(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl NetworkSession for LoadingSession {
+        type Error = &'static str;
+
+        async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
+            std::future::pending().await
+        }
+
+        async fn send_packet(&mut self, _: Packet) -> Result<(), Self::Error> {
+            panic!("loading completion must use its own command");
+        }
+
+        async fn finish_loading(&mut self) -> Result<(), Self::Error> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err("completion write failed")
+        }
+
+        fn decode_error_count(&self) -> u64 {
+            0
+        }
+    }
+
+    #[tokio::test]
+    async fn pump_waits_for_readiness_command_and_reports_completion_send_failure() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (commands, command_rx) = mpsc::channel(1);
+        let (controls, mut events) = mpsc::channel(1);
+        let (world, _world_rx) = mpsc::channel(1);
+        let (_shutdown, shutdown_rx) = watch::channel(false);
+        let mut pump = std::pin::pin!(run_network_pump(
+            LoadingSession(Arc::clone(&calls)),
+            NetworkSequencer::new(1, 0, 42),
+            command_rx,
+            controls,
+            world,
+            shutdown_rx
+        ));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(pump.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        commands.try_send(NetworkCommand::FinishLoading).unwrap();
+        pump.await;
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(matches!(
+            events.recv().await,
+            Some(NetworkControlEvent::Failed {
+                origin: NetworkFailureOrigin::Send,
+                ..
+            })
+        ));
+    }
+
     #[tokio::test]
     async fn startup_transfer_reaches_reconnect_unless_cancelled() {
         for cancelled in [false, true] {

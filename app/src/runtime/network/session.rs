@@ -252,6 +252,8 @@ fn wrap_inbound_world_event(
     }
 }
 
+// Keep frequent packet sends inline; completion is a single command per session.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum NetworkCommand {
     FinishLoading,
@@ -533,6 +535,10 @@ impl NetworkHandle {
                 }
                 mpsc::error::TrySendError::Closed(NetworkCommand::Send { packet, .. }) => {
                     PacketSendError::Closed(packet)
+                }
+                mpsc::error::TrySendError::Full(NetworkCommand::FinishLoading)
+                | mpsc::error::TrySendError::Closed(NetworkCommand::FinishLoading) => {
+                    unreachable!("only packet commands are submitted here")
                 }
             })
     }
