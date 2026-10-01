@@ -30,9 +30,11 @@ fn int_compound(tags: &[(&str, i32)]) -> Vec<u8> {
 #[test]
 fn sleeping_players_generic_level_event_carries_its_compound() {
     let nbt = int_compound(&[("sleepingPlayerCount", 1), ("overworldPlayerCount", 3)]);
+    // On the wire the tags float loose: no root compound header and no closing end tag.
+    let loose = Bytes::copy_from_slice(&nbt[2..nbt.len() - 1]);
     let packet = LevelEventGenericPacket {
         event_id: 9801,
-        __ctd__: Nbt(Bytes::from(nbt.clone())),
+        __ctd__: Nbt(loose.clone()),
     };
     assert_eq!(
         into_world_event(packet.into(), 0).unwrap(),
@@ -45,4 +47,18 @@ fn sleeping_players_generic_level_event_carries_its_compound() {
         __ctd__: Nbt(Bytes::from(int_compound(&[]))),
     };
     assert_eq!(into_world_event(other.into(), 0).unwrap(), None);
+}
+
+/// BDS 1.26.52 sends generic events at join; their loose tags must decode without trailing bytes.
+#[test]
+fn generic_level_event_wire_takes_the_rest_of_the_packet_as_loose_tags() {
+    use valentine::bedrock::codec::BedrockCodec;
+    let nbt = int_compound(&[("originX", 3), ("originY", 64)]);
+    let mut wire = vec![0xd2, 0x1f]; // zigzag varint event id 2025
+    wire.extend_from_slice(&nbt[2..nbt.len() - 1]);
+    let mut buf = Bytes::from(wire);
+    let packet = LevelEventGenericPacket::decode(&mut buf, ()).expect("decodes");
+    assert_eq!(packet.event_id, 2025);
+    assert_eq!(packet.__ctd__.0.as_ref(), &nbt[2..nbt.len() - 1]);
+    assert!(buf.is_empty());
 }
