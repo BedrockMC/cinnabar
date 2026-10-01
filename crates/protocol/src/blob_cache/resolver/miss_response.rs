@@ -96,6 +96,7 @@ impl BlobCacheResolver {
 /// Checks conflicts and aggregate size before any response entry can be published.
 fn validate_delta(store: &CacheStore, unique: &[(u64, Vec<u8>)]) -> Result<usize, BlobCacheError> {
     let mut total_bytes = store.total_bytes;
+    let mut pinned_bytes = store.pinned_bytes;
     let mut new_entries = 0;
     for (hash, payload) in unique {
         if let Some(existing) = store.entries.get(hash) {
@@ -106,6 +107,12 @@ fn validate_delta(store: &CacheStore, unique: &[(u64, Vec<u8>)]) -> Result<usize
             total_bytes = total_bytes
                 .checked_add(payload.len())
                 .ok_or(BlobCacheError::ByteCountOverflow)?;
+            if store.pins.contains_key(hash) {
+                pinned_bytes = pinned_bytes.saturating_add(payload.len());
+                if pinned_bytes > MAX_CLIENT_BLOB_PINNED_BYTES {
+                    return Err(BlobCacheError::PinnedPayloadPressure);
+                }
+            }
             new_entries += 1;
         }
     }
