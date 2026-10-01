@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/clientplatform"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -181,11 +182,6 @@ func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.
 	return s.client, nil
 }
 
-const (
-	clientPlatform = "Android"
-	clientSub      = "Google"
-)
-
 // HomeFeed gathers the start screen's service data; the persona head is
 // written into artworkDir.
 func HomeFeed(ctx context.Context, account *authcache.Account, session *MessagingSession, artworkDir string) (Home, error) {
@@ -311,13 +307,14 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 	return messages, inbox
 }
 
-func liveEvents(ctx context.Context, discovery *service.Discovery, account *authcache.Account, now time.Time) ([]LiveEvent, error) {
+// liveEvents fetches the desktop public configuration from the discovered service.
+func liveEvents(ctx context.Context, discovery *service.Discovery, account service.TokenSource, now time.Time) ([]LiveEvent, error) {
 	client, err := gatheringsClient(discovery, account)
 	if err != nil {
 		return nil, err
 	}
 	configs, err := client.PublicConfig(ctx, gatherings.ConfigQuery{
-		ClientVersion: protocol.CurrentVersion, ClientPlatform: clientPlatform, ClientSubPlatform: clientSub,
+		ClientVersion: protocol.CurrentVersion, ClientPlatform: clientplatform.Platform, ClientSubPlatform: clientplatform.SubPlatform,
 	})
 	if err != nil {
 		return nil, err
