@@ -438,6 +438,9 @@ pub fn into_world_event(
         McpePacketData::PlayerListPacket(packet) => {
             WorldEvent::Actor(normalize_player_list(packet)?)
         }
+        McpePacketData::PlayerSkinPacket(packet) => {
+            WorldEvent::Actor(crate::actor::normalize_skin_update(*packet))
+        }
         McpePacketData::AddItemActorPacket(packet) => {
             WorldEvent::Actor(normalize_add_item_actor(*packet, current_dimension)?)
         }

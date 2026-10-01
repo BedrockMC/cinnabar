@@ -497,7 +497,7 @@ fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
 }
 
 #[test]
-fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
+fn request_mode_biome_arrival_dirties_vertical_diagonal_blend_dependents() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -507,20 +507,19 @@ fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let neighbour = SubChunkKey::new(0, 1, -4, 1);
+    let neighbour = SubChunkKey::new(0, 1, -5, 1);
+    let mut payload = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../world/fixtures/uniform_non_air.bin"
+    ))
+    .to_vec();
+    // Version 9 carries the absolute subchunk Y in its third byte.
+    payload[2] = neighbour.y as i8 as u8;
     stream
         .store
         .commit_level_chunk(
             neighbour.chunk(),
-            DecodedLevelChunk::decode(
-                -4,
-                1,
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../world/fixtures/uniform_non_air.bin"
-                )),
-                &RAW_IDS,
-            ),
+            DecodedLevelChunk::decode(-5, 1, &payload, &RAW_IDS),
         )
         .unwrap();
     stream.resident.insert(neighbour);
@@ -542,7 +541,7 @@ fn request_mode_biome_arrival_dirties_diagonal_cross_chunk_blend_dependents() {
 
     assert!(
         stream.pending_mesh.contains_key(&neighbour),
-        "a newly committed biome column must invalidate a diagonal tint halo"
+        "a newly committed biome column must invalidate a vertical diagonal tint halo"
     );
 }
 

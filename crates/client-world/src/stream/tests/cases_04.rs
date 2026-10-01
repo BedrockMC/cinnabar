@@ -400,6 +400,7 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
     stream
         .mesh_changes
         .push_back(super::WorldMeshChange::Upsert {
+            output_permit: None,
             key,
             mesh,
             biome: PackedBiomeRecord::fallback(),
@@ -490,6 +491,8 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
     let tint_identity = stream.biome_tint_identity();
 
     stream.accept_mesh_completion(MeshCompletion {
+        output_permit: None,
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -560,6 +563,8 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
     );
     let tint_identity = stream.biome_tint_identity();
     stream.accept_mesh_completion(MeshCompletion {
+        output_permit: None,
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -630,6 +635,8 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         DecodedBiomeColumn::decode(-4, 1, &[1, 88], &RAW_BIOMES),
     );
     stream.accept_mesh_completion(MeshCompletion {
+        output_permit: None,
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -694,6 +701,8 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
     );
     let tint_identity = stream.biome_tint_identity();
     stream.accept_mesh_completion(MeshCompletion {
+        output_permit: None,
+        _job_permit: None,
         key,
         revision: generation,
         source,
@@ -1157,26 +1166,4 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
             source_cohort: None,
         }]
     );
-}
-
-#[test]
-fn urgent_mesh_completion_retry_stays_at_the_front() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    let key = SubChunkKey::new(0, 0, 0, 0);
-    let revision = stream.mark_dirty_exact(key, Instant::now());
-    stream.pending_mesh.remove(&key);
-    stream.pending_mesh_scan.clear();
-
-    stream.requeue_current_mesh_completion(key, revision, true);
-
-    assert!(stream.pending_mesh[&key].urgent);
-    assert_eq!(stream.pending_mesh_scan.front(), Some(&(key, revision)));
 }

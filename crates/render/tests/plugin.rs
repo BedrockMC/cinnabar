@@ -85,11 +85,8 @@ fn standalone_world_shader(source: &str) -> String {
         "",
         1,
     );
-    let biome_tint = include_str!("../src/biome_tint.wgsl").replacen(
-        "#define_import_path cinnabar::biome_tint",
-        "",
-        1,
-    );
+    let biome_tint = meshing::biome_lattice::shader_source(include_str!("../src/biome_tint.wgsl"))
+        .replacen("#define_import_path cinnabar::biome_tint", "", 1);
     source
         .replacen(
             "#import bevy_render::view::View",

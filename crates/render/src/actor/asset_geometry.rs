@@ -13,6 +13,10 @@ use super::{
     MAX_RENDER_BONES_PER_ACTOR,
 };
 
+#[cfg(test)]
+#[path = "skin_geometry_tests.rs"]
+mod skin_geometry_tests;
+
 pub(super) fn geometry_from_runtime_assets(
     assets: &RuntimeEntityAssets,
     binding_index: usize,
@@ -96,6 +100,12 @@ pub(super) fn geometry_from_geometry_index(
             }
         }
     }
+    // The neutral catalog profile draws a plane's textured face from either side.
+    for vertex in &mut vertices {
+        if vertex.back_uv == super::geometry::ONE_SIDED_BACK_UV {
+            vertex.back_uv = vertex.uv;
+        }
+    }
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
@@ -122,13 +132,22 @@ pub fn skin_geometry(
                 cube,
                 bone_index as u32,
                 texture_size,
-                false,
-                0.0,
+                bone.mirror.unwrap_or(false),
+                bone.inflate.map_or(0.0, |inflate| inflate.get()),
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
         }
+    }
+    for (bone_index, mesh) in geometry.poly_meshes.iter().enumerate() {
+        if bones[bone_index].never_render == Some(true) {
+            continue;
+        }
+        let Some(mesh) = mesh else {
+            continue;
+        };
+        super::skin_poly_mesh::append(&mut vertices, mesh, bone_index as u32, texture_size)?;
     }
     if vertices.is_empty() {
         return Err(ActorRigGeometryError::VertexCount);
@@ -312,6 +331,39 @@ mod tests {
     use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv};
 
     use super::overlay_geometry_bone;
+
+    #[test]
+    fn catalog_arrow_planes_keep_their_front_texture_on_the_back() {
+        let temporary = tempfile::tempdir().unwrap();
+        for family in [
+            "entity",
+            "models/entity",
+            "animations",
+            "animation_controllers",
+            "render_controllers",
+            "textures/entity",
+        ] {
+            std::fs::create_dir_all(temporary.path().join(family)).unwrap();
+        }
+        std::fs::write(temporary.path().join("models/entity/projectile.geo.json"),
+            br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.projectile","texture_width":32,"texture_height":32},"bones":[{"name":"body","cubes":[{"origin":[0,-2.5,-3],"size":[0,5,16],"uv":{"east":{"uv":[0,0]}}}]}]}]}"#).unwrap();
+        let compiled = asset_compiler::compile_entity_assets(
+            temporary.path(),
+            include_bytes!("../../../../assets/vanilla-source.json"),
+        )
+        .unwrap();
+        let runtime =
+            assets::RuntimeEntityAssets::decode(&assets::encode_entity_blob(&compiled).unwrap())
+                .unwrap();
+        let geometry = super::entity_geometry(&runtime, 0, super::EntityRigId(0)).unwrap();
+        assert_eq!(geometry.vertices.len(), 6);
+        assert!(
+            geometry
+                .vertices
+                .iter()
+                .all(|vertex| vertex.back_uv == vertex.uv)
+        );
+    }
 
     fn bone(reset: Option<bool>, cubes: usize) -> EntityGeometryBone {
         let zero = EntityGeometryScalar::ZERO;

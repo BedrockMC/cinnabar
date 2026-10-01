@@ -41,15 +41,15 @@ pub(super) fn append_entity_cube_vertices(
     let zero_axes: Vec<_> = size
         .iter()
         .enumerate()
-        .filter(|(_, value)| **value == 0.0)
+        .filter(|(_, value)| **value + 2.0 * inflate == 0.0)
         .map(|(axis, _)| axis)
         .collect();
-    if zero_axes.len() > 1 || (!zero_axes.is_empty() && inflate != 0.0) {
+    if zero_axes.len() > 1 {
         return Err(ActorRigGeometryError::InvalidAssetGeometry);
     }
     let min = std::array::from_fn(|axis| (origin[axis] - inflate) / 16.0);
     let max = std::array::from_fn(|axis| (origin[axis] + size[axis] + inflate) / 16.0);
-    if (0..3).any(|axis| size[axis] != 0.0 && min[axis] >= max[axis]) {
+    if (0..3).any(|axis| min[axis] > max[axis]) {
         return Err(ActorRigGeometryError::InvalidAssetGeometry);
     }
     let mut corners = cuboid_corners(min, max);
@@ -65,7 +65,7 @@ pub(super) fn append_entity_cube_vertices(
     }
     let corners = corners.map(mirror_x);
     let mirror = cube.mirror ^ bone_mirror;
-    let face_uvs = entity_face_uvs(&cube.uv, size, texture_size)?;
+    let face_uvs = entity_face_uvs(cube, texture_size)?;
     // A mirrored cube reflects each face across the cube's X midplane, carrying its UVs.
     let face_corners = ENTITY_FACES.map(|face| {
         if mirror {
@@ -149,10 +149,10 @@ fn mirror_x(point: [f32; 3]) -> [f32; 3] {
 }
 
 fn entity_face_uvs(
-    uv: &EntityGeometryUv,
-    size: [f32; 3],
+    cube: &EntityGeometryCube,
     texture_size: (u16, u16),
 ) -> Result<[Option<FaceUvQuad>; 6], ActorRigGeometryError> {
+    let size = cube.size.map(|value| value.get());
     let (width, height) = (f32::from(texture_size.0), f32::from(texture_size.1));
     let quad = |origin: [f32; 2], dimensions: [f32; 2]| {
         let left = origin[0] / width;
@@ -161,7 +161,7 @@ fn entity_face_uvs(
         let bottom = (origin[1] + dimensions[1]) / height;
         [[left, top], [right, top], [right, bottom], [left, bottom]]
     };
-    let result = match uv {
+    let result = match &cube.uv {
         EntityGeometryUv::Box(origin) => {
             let [u, v] = origin.map(|value| value.get());
             // Box layout spans whole texels of the authored size.
@@ -175,14 +175,18 @@ fn entity_face_uvs(
                 Some(quad([u + z + x, v], [x, z])),
             ]
         }
-        EntityGeometryUv::Faces(faces) => [
-            face_uv_quad(faces.north.as_ref(), &quad),
-            face_uv_quad(faces.south.as_ref(), &quad),
-            face_uv_quad(faces.east.as_ref(), &quad),
-            face_uv_quad(faces.west.as_ref(), &quad),
-            face_uv_quad(faces.up.as_ref(), &quad),
-            face_uv_quad(faces.down.as_ref(), &quad),
-        ],
+        EntityGeometryUv::Faces(faces) => {
+            let faces = [
+                &faces.north,
+                &faces.south,
+                &faces.east,
+                &faces.west,
+                &faces.up,
+                &faces.down,
+            ];
+            let dimensions = cube.face_uv_dimensions();
+            std::array::from_fn(|face| face_uv_quad(faces[face].as_ref(), dimensions[face], &quad))
+        }
     };
     if result
         .iter()
@@ -200,13 +204,14 @@ type FaceUvQuad = [[f32; 2]; 4];
 
 fn face_uv_quad(
     face: Option<&EntityGeometryFaceUv>,
+    dimensions: [f32; 2],
     quad: &impl Fn([f32; 2], [f32; 2]) -> FaceUvQuad,
 ) -> Option<FaceUvQuad> {
     face.map(|face| {
         quad(
             face.uv.map(|value| value.get()),
             face.uv_size
-                .map_or([1.0, 1.0], |size| size.map(|value| value.get())),
+                .map_or(dimensions, |size| size.map(|value| value.get())),
         )
     })
 }
@@ -358,6 +363,25 @@ mod tests {
     }
 
     #[test]
+    fn arrow_face_without_uv_size_samples_the_whole_shaft() {
+        let mut shaft = cube([0.0, -2.5, -3.0], [0.0, 5.0, 16.0], false);
+        shaft.uv = EntityGeometryUv::Faces(assets::EntityGeometryFaceUvs {
+            east: Some(EntityGeometryFaceUv {
+                uv: [scalar(0.0); 2],
+                uv_size: None,
+            }),
+            north: None,
+            south: None,
+            west: None,
+            up: None,
+            down: None,
+        });
+        let vertices = build(&shaft);
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(region(&vertices).0, [0.0, 0.0, 16.0, 5.0]);
+    }
+
+    #[test]
     fn box_uv_faces_follow_the_skin_layout_in_the_mirrored_rig_frame() {
         let vertices = build(&cube([-4.0, 24.0, -4.0], [8.0; 3], false));
         assert_eq!(vertices.len(), 36);
@@ -448,7 +472,42 @@ mod tests {
     }
 
     #[test]
-    fn planar_geometry_rejects_lines_points_and_inflate() {
+    fn captured_skin_inflated_plane_keeps_its_authored_face() {
+        let geometry = assets::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.test"}}"#,
+            r#"{"format_version":"1.14.0","minecraft:geometry":[{
+                "description":{"identifier":"geometry.test","texture_width":256,"texture_height":256},
+                "bones":[{"name":"helmet","cubes":[{
+                    "origin":[-6,29.60000038146973,-6],"size":[12,0,12],
+                    "pivot":[0,29.60000038146973,0],"inflate":0.6800000071525574,
+                    "uv":{"up":{"uv":[13,13],"uv_size":[-12,-12]}}
+                }]}]}]}"#,
+        )
+        .unwrap()
+        .unwrap();
+        let built = crate::actor::skin_geometry(&geometry, crate::actor::EntityRigId(1))
+            .expect("inflation gives the zero-height cube a drawable top face");
+        assert_eq!(built.vertices.len(), 6);
+        let expected_y = (29.6_f32 + 0.68) / 16.0;
+        assert!(built.vertices.iter().all(|vertex| {
+            (vertex.position[1] - expected_y).abs() < 1.0e-6 && vertex.normal == [0.0, 1.0, 0.0]
+        }));
+        assert!(
+            built
+                .vertices
+                .iter()
+                .any(|vertex| vertex.uv == [13.0 / 256.0; 2])
+        );
+        assert!(
+            built
+                .vertices
+                .iter()
+                .any(|vertex| vertex.uv == [1.0 / 256.0; 2])
+        );
+    }
+
+    #[test]
+    fn planar_geometry_rejects_lines_points_and_negative_size() {
         let mut cube = plane(0, false);
         for size in [[0.0, 0.0, 3.0], [0.0; 3], [-1.0, 2.0, 3.0]] {
             cube.size = size.map(scalar);
@@ -457,11 +516,6 @@ mod tests {
                     .is_err()
             );
         }
-        cube = plane(0, false);
-        cube.inflate = scalar(0.1);
-        assert!(
-            append_entity_cube_vertices(&mut Vec::new(), &cube, 0, (16, 16), false, 0.0).is_err()
-        );
     }
 
     // A plane with one textured face (display text, logos) draws that face one-sided instead of

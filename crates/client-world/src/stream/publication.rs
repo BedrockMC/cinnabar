@@ -157,8 +157,14 @@ impl WorldStream {
     pub fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
         self.actors.seed_item_registry(registry)
     }
+    /// Advances simulation ticks with one visual evaluation per tick.
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
+    }
+    /// Advances elapsed tick state, evaluating animation once for this rendered frame.
+    /// Bedrock 1.26.50.26: AnimationComponent RVAs 0x1e019a0 and 0x1e13940.
+    pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
+        self.actors.advance_interpolation_frame(ticks);
     }
     /// Drains decoded actor status events (hurt, death, taming, totem, ...) for particle and sound consumers.
     pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {

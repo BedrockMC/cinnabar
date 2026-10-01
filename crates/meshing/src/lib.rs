@@ -1,8 +1,11 @@
 //! Pure CPU geometry construction for chunks, liquids, biomes, and clouds.
 
 pub mod biome;
+pub mod biome_lattice;
 mod chunk;
 mod classifier;
+mod output_memory;
+pub use output_memory::{MeshOutputBounds, mesh_output_byte_len};
 pub mod cloud;
 pub mod color;
 mod connectivity;
@@ -15,9 +18,8 @@ mod types;
 const SIDE: usize = 16;
 
 pub use biome::{
-    BIOME_BLEND_RADIUS, BIOME_BLEND_SAMPLE_COUNT, BIOME_BLEND_WEIGHT_DENOMINATOR,
     BIOME_NEIGHBOUR_SLOT_COUNT, BiomeBlendSample, ChunkBiomeTintIdentity,
-    MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord, biome_neighbour_index,
+    MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord, biome_neighbour_index, biome_volume_index,
 };
 pub use chunk::build::{
     mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood, mesh_sub_chunk_in_neighbourhood_with_lighting,
