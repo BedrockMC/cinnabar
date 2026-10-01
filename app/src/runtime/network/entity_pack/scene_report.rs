@@ -22,8 +22,8 @@ use crate::{
     },
 };
 
-const WIDTH: u32 = 1280;
-const HEIGHT: u32 = 752;
+pub(super) const WIDTH: u32 = 1280;
+pub(super) const HEIGHT: u32 = 752;
 const HORIZONTAL_FOV_DEGREES: f32 = 90.0;
 
 /// `CINNABAR_RENDER_SCENE` is a capture TSV (`E|P, identifier|username, variant, scale, x, y, z,
@@ -256,7 +256,7 @@ impl Frame {
     }
 
     /// Fills a triangle; `shade` returns straight-alpha RGBA for perspective-correct `uv`.
-    fn triangle(
+    pub(super) fn triangle(
         &mut self,
         corners: [(Vec3, [f32; 2]); 3],
         depth_test: bool,

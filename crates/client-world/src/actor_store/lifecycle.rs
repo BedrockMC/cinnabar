@@ -481,14 +481,6 @@ impl ActorStore {
         }
         self.apply_link_inner(event)
     }
-    /// Replaces a remote actor's velocity without changing its position interpolation target.
-    pub(crate) fn apply_motion(&mut self, sequence: u64, event: protocol::ActorMotionEvent) {
-        if let Some(actor) = self.actors.get_mut(&event.actor_runtime_id) {
-            actor.velocity = event.motion;
-            actor.movement_revision = sequence;
-        }
-    }
-
     pub(crate) fn advance_interpolation_ticks(&mut self, ticks: u32) {
         for _ in 0..ticks {
             for actor in self.actors.values_mut() {

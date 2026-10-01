@@ -65,7 +65,7 @@ pub(super) fn append_entity_cube_vertices(
     }
     let corners = corners.map(mirror_x);
     let mirror = cube.mirror ^ bone_mirror;
-    let face_uvs = entity_face_uvs(&cube.uv, size, texture_size)?;
+    let face_uvs = entity_face_uvs(cube, texture_size)?;
     // A mirrored cube reflects each face across the cube's X midplane, carrying its UVs.
     let face_corners = ENTITY_FACES.map(|face| {
         if mirror {
@@ -149,10 +149,10 @@ fn mirror_x(point: [f32; 3]) -> [f32; 3] {
 }
 
 fn entity_face_uvs(
-    uv: &EntityGeometryUv,
-    size: [f32; 3],
+    cube: &EntityGeometryCube,
     texture_size: (u16, u16),
 ) -> Result<[Option<FaceUvQuad>; 6], ActorRigGeometryError> {
+    let size = cube.size.map(|value| value.get());
     let (width, height) = (f32::from(texture_size.0), f32::from(texture_size.1));
     let quad = |origin: [f32; 2], dimensions: [f32; 2]| {
         let left = origin[0] / width;
@@ -161,7 +161,7 @@ fn entity_face_uvs(
         let bottom = (origin[1] + dimensions[1]) / height;
         [[left, top], [right, top], [right, bottom], [left, bottom]]
     };
-    let result = match uv {
+    let result = match &cube.uv {
         EntityGeometryUv::Box(origin) => {
             let [u, v] = origin.map(|value| value.get());
             // Box layout spans whole texels of the authored size.
@@ -175,14 +175,18 @@ fn entity_face_uvs(
                 Some(quad([u + z + x, v], [x, z])),
             ]
         }
-        EntityGeometryUv::Faces(faces) => [
-            face_uv_quad(faces.north.as_ref(), &quad),
-            face_uv_quad(faces.south.as_ref(), &quad),
-            face_uv_quad(faces.east.as_ref(), &quad),
-            face_uv_quad(faces.west.as_ref(), &quad),
-            face_uv_quad(faces.up.as_ref(), &quad),
-            face_uv_quad(faces.down.as_ref(), &quad),
-        ],
+        EntityGeometryUv::Faces(faces) => {
+            let faces = [
+                &faces.north,
+                &faces.south,
+                &faces.east,
+                &faces.west,
+                &faces.up,
+                &faces.down,
+            ];
+            let dimensions = cube.face_uv_dimensions();
+            std::array::from_fn(|face| face_uv_quad(faces[face].as_ref(), dimensions[face], &quad))
+        }
     };
     if result
         .iter()
@@ -200,13 +204,14 @@ type FaceUvQuad = [[f32; 2]; 4];
 
 fn face_uv_quad(
     face: Option<&EntityGeometryFaceUv>,
+    dimensions: [f32; 2],
     quad: &impl Fn([f32; 2], [f32; 2]) -> FaceUvQuad,
 ) -> Option<FaceUvQuad> {
     face.map(|face| {
         quad(
             face.uv.map(|value| value.get()),
             face.uv_size
-                .map_or([1.0, 1.0], |size| size.map(|value| value.get())),
+                .map_or(dimensions, |size| size.map(|value| value.get())),
         )
     })
 }

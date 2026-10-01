@@ -96,6 +96,12 @@ pub(super) fn geometry_from_geometry_index(
             }
         }
     }
+    // The neutral catalog profile draws a plane's textured face from either side.
+    for vertex in &mut vertices {
+        if vertex.back_uv == super::geometry::ONE_SIDED_BACK_UV {
+            vertex.back_uv = vertex.uv;
+        }
+    }
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
