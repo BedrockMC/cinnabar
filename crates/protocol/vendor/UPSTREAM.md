@@ -38,6 +38,10 @@ conditional. The normalization input fingerprints include this patch.
 Jolyne's client ends a join-time Disconnect with `ProtocolError::ServerDisconnect`,
 keeping the server's reason and message texts for the disconnect screen.
 
+Jolyne hands off required resource packs instead of refusing them: either
+required bit makes stack selection strict and is carried as
+`ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
+
 The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
 lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.
 

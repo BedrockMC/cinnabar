@@ -1,5 +1,4 @@
 //! Per-frame HUD observation and publication.
-
 use super::*;
 use bevy::prelude::Transform;
 
@@ -21,7 +20,6 @@ pub(crate) fn observe_mount_jump_input(
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
-
 /// Resources beyond Bevy's sixteen-parameter limit.
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
@@ -34,6 +32,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
+        Res<'w, crate::runtime::network::NetworkHandle>,
     ),
 );
 
@@ -60,7 +59,7 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather),
+        (actor_partial, local_frame, clock, weather, network),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -154,6 +153,9 @@ pub(crate) fn prepare_ui_runtime(
         } else {
             Some(LoadingStage::BuildingTerrain)
         });
+        if startup_released && !presentation.startup.completion_queued {
+            presentation.startup.completion_queued = network.finish_loading();
+        }
     }
     runtime.expire_gameplay_effects(now_millis);
     // Off-world the launcher's paper doll wears the local skin.
