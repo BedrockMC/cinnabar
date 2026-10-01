@@ -55,9 +55,9 @@ pub(crate) fn mini_engine_presentation() -> UiPresentationRuntime {
     presentation
 }
 
-// A static form resolves once; only view-state changes re-run layout.
+// A static form resolves and lays out once; hovering a button only repaints.
 #[test]
-fn static_form_resolves_once_and_relayouts_only_on_view_changes() {
+fn static_form_resolves_once_and_hover_only_repaints() {
     let mut presentation = mini_engine_presentation();
     let mut runtime = super::pack_harness::action_form("Menu", &["A", "B", "C"]);
     let passes = |presentation: &UiPresentationRuntime| {
@@ -86,7 +86,13 @@ fn static_form_resolves_once_and_relayouts_only_on_view_changes() {
             .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
             .unwrap();
     }
-    assert_eq!(passes(&presentation), [1, 2]);
+    assert_eq!(passes(&presentation), [1, 1]);
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    assert_eq!(
+        frame.hits.len(),
+        3,
+        "gated hover children add no hit regions"
+    );
 }
 
 #[test]
@@ -388,8 +394,10 @@ fn retail_settings_hide_debug_and_automation_sections() {
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
-    let (reference, context) = super::menu_screens::settings_prewarm();
-    let tree = json_ui::resolve(&catalog, reference, &context)
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+    view.screen = crate::menu::MenuScreen::Settings;
+    let settings = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let tree = json_ui::resolve(&catalog, settings.reference, &settings.context)
         .control
         .unwrap();
     let mut names = Vec::new();
@@ -427,4 +435,43 @@ fn retail_settings_hide_debug_and_automation_sections() {
     ] {
         assert!(!names.contains(&hidden), "{hidden} shown");
     }
+}
+
+// The Servers tab builds only the saved rows its list shows, however long the list.
+#[test]
+fn the_server_list_builds_only_visible_rows() {
+    let drawn = |count: usize| {
+        let mut presentation = mini_engine_presentation();
+        let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+        view.screen = crate::menu::MenuScreen::Servers;
+        view.servers = (0..count)
+            .map(|index| crate::menu::SavedServer {
+                name: format!("Server {index}"),
+                address: format!("10.0.0.{}:19132", index % 250),
+                favorite: false,
+                last_joined_unix: 0,
+            })
+            .collect();
+        presentation.set_menu_view(Some(view));
+        let input = presentation
+            .build(
+                &UiRuntime::new(1),
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let saved = presentation
+            .menu_hit_targets
+            .iter()
+            .filter(|(action, _)| matches!(action, crate::menu::MenuAction::SelectSaved(_)))
+            .count();
+        (input.vertices.len(), saved)
+    };
+    let (short, short_rows) = drawn(40);
+    let (long, long_rows) = drawn(300);
+    assert!(short_rows > 0 && short_rows < 40, "{short_rows}");
+    assert_eq!(long_rows, short_rows);
+    // Only the list's count label grows a digit.
+    assert!(long < short + 64, "{long} vs {short}");
 }

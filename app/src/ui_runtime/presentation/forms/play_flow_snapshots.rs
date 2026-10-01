@@ -60,7 +60,7 @@ fn realm(name: &str, state: &str, member: bool, days_left: i32, expired: bool) -
 }
 
 /// A signed-in view carrying every service feed the play flow shows.
-fn fixture_view(dir: &std::path::Path) -> MenuView {
+pub(super) fn fixture_view(dir: &std::path::Path) -> MenuView {
     let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
     view.auth_state = AuthState::Authenticated;
     view.catalog_loading = false;
@@ -197,6 +197,7 @@ fn snapshot_at(view: &MenuView, name: &str, now_millis: u64) {
         runtime.set_lang_catalog(Arc::new(lang));
     }
     presentation.sync_menu_artwork(super::super::menu_artwork::view_paths(view));
+    presentation.finish_menu_artwork();
     let dpi = DpiScale::new(2.0).unwrap();
     for _ in 0..2 {
         presentation.set_menu_view(Some(view.clone()));
