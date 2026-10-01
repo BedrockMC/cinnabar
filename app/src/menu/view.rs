@@ -204,6 +204,8 @@ pub(crate) struct MenuFriendCard {
 #[derive(Clone, Debug)]
 pub(crate) struct MenuView {
     pub(crate) visible: bool,
+    /// The menu opened over the session's world rather than the launcher's.
+    pub(crate) over_world: bool,
     pub(crate) screen: MenuScreen,
     pub(crate) focused_action: Option<MenuAction>,
     pub(crate) hovered: Option<MenuAction>,

@@ -177,11 +177,13 @@ pub(crate) struct MenuRuntime {
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
     text_selected: bool,
-    settings_return_to_pause: bool,
+    /// Screens opened on the way here; back returns to the one below.
+    history: json_ui::ScreenNav<MenuScreen>,
     name: String,
     address: String,
     message: Option<String>,
     gui_scale: u8,
+    gui_scale_changed: bool, // the settings slider moved since presentation last read it
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -279,11 +281,16 @@ impl MenuRuntime {
             dialog: None,
             field: None,
             text_selected: false,
-            settings_return_to_pause: false,
+            history: {
+                let mut history = json_ui::ScreenNav::default();
+                history.reset(MenuScreen::Home);
+                history
+            },
             name: String::new(),
             address: String::new(),
             message: loaded.recovery_message,
             gui_scale: gui_scale.clamp(1, 4),
+            gui_scale_changed: false,
             display_name,
             servers: loaded.servers,
             config_path,
@@ -334,6 +341,26 @@ impl MenuRuntime {
         self.screen
     }
 
+    /// The GUI scale the settings slider picked since the last call.
+    pub(crate) fn take_gui_scale_change(&mut self) -> Option<u8> {
+        std::mem::take(&mut self.gui_scale_changed).then_some(self.gui_scale)
+    }
+
+    /// Whether a visible menu opened over the session's world (its history
+    /// starts at pause or death) rather than the launcher; true while hidden.
+    pub(crate) fn over_world(&self) -> bool {
+        !self.visible
+            || matches!(
+                self.history.screens().first(),
+                Some(MenuScreen::Pause | MenuScreen::Death)
+            )
+    }
+
+    /// The visible screen, which the scene stack puts over the game.
+    pub(crate) fn scene(&self) -> Option<MenuScreen> {
+        self.visible.then_some(self.screen)
+    }
+
     pub(crate) fn player_skin(&self) -> &crate::player_skin::LocalPlayerSkin {
         &self.player_skin
     }
@@ -373,6 +400,7 @@ impl MenuRuntime {
             && (!self.catalog_started || self.catalog_process.is_some()));
         MenuView {
             visible: self.visible,
+            over_world: self.over_world(),
             screen: self.screen,
             focused_action: self.focus_actions().get(self.focused).copied(),
             hovered: self.hovered,
@@ -455,7 +483,8 @@ impl MenuRuntime {
             return;
         }
         self.death_shown = true;
-        self.enter(MenuScreen::Death);
+        self.history.reset(MenuScreen::Death);
+        self.show_top();
     }
 
     /// Health came back above zero: a later death shows the screen again.
@@ -463,6 +492,7 @@ impl MenuRuntime {
         self.death_shown = false;
         if self.screen == MenuScreen::Death && self.visible {
             self.set_visible(false);
+            self.history.reset(MenuScreen::Home);
             self.screen = MenuScreen::Home;
         }
     }
@@ -476,9 +506,9 @@ impl MenuRuntime {
         if self.visible || self.connecting {
             return;
         }
+        self.history.reset(MenuScreen::Pause);
         self.screen = MenuScreen::Pause;
         self.focused = 0;
-        self.settings_return_to_pause = false;
         self.message = None;
         self.visible = true;
     }
@@ -497,29 +527,30 @@ impl MenuRuntime {
     pub(crate) fn mark_connected(&mut self) {
         self.connecting = false;
         self.visible = false;
+        self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.message = None;
         self.field = None;
         self.text_selected = false;
-        self.settings_return_to_pause = false;
     }
 
     pub(crate) fn mark_connecting(&mut self) {
         self.connecting = true;
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
-        self.settings_return_to_pause = false;
         self.message = Some("Connecting…".to_owned());
     }
 
     pub(crate) fn mark_disconnected(&mut self) {
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.focused = 0;
         self.connecting = false;
         self.field = None;
         self.text_selected = false;
-        self.settings_return_to_pause = false;
         self.dialog = None;
     }
 
@@ -533,11 +564,12 @@ impl MenuRuntime {
         }
         self.connecting = false;
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
         self.dialog = None;
         self.field = None;
         self.text_selected = false;
-        self.settings_return_to_pause = false;
         // The raw chain is for the log; the disconnect screen words it as vanilla does.
         bevy::log::warn!(error, "session ended");
         self.message = None;
@@ -593,7 +625,6 @@ impl MenuRuntime {
         self.disconnect_message = None;
         match action {
             MenuAction::Navigate(screen) => {
-                self.settings_return_to_pause = false;
                 self.enter(screen);
             }
             MenuAction::OpenExitDialog => {
@@ -706,9 +737,15 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
-            MenuAction::SettingsScale(scale) => self.gui_scale = scale.clamp(1, 4),
+            MenuAction::SettingsScale(scale) => {
+                self.gui_scale = scale.clamp(1, 4);
+                self.gui_scale_changed = true;
+            }
             // The game menu opened from the death screen returns to it.
-            MenuAction::PauseResume if self.death_shown => self.enter(MenuScreen::Death),
+            MenuAction::PauseResume if self.death_shown => {
+                self.history.reset(MenuScreen::Death);
+                self.show_top();
+            }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
                 self.disconnect_requested = true;
@@ -716,7 +753,6 @@ impl MenuRuntime {
             }
             MenuAction::PauseSettings => {
                 self.enter(MenuScreen::Settings);
-                self.settings_return_to_pause = true;
             }
             MenuAction::EditSaved(index) => {
                 if let Some(server) = self.servers.get(index) {
@@ -753,7 +789,34 @@ impl MenuRuntime {
         }
     }
 
+    /// Opens `screen` over the current one, or returns to it when it is already
+    /// open below; a tab of an open vanilla screen takes that screen's place.
     fn enter(&mut self, screen: MenuScreen) {
+        use crate::ui_runtime::presentation::forms::menu_reference;
+        let same = |open: MenuScreen| {
+            open == screen
+                || menu_reference(open).is_some_and(|r| menu_reference(screen) == Some(r))
+        };
+        match self
+            .history
+            .screens()
+            .iter()
+            .copied()
+            .find(|open| same(*open))
+        {
+            Some(open) => {
+                self.history.pop_back_to(open);
+                self.history.pop();
+                self.history.push(screen);
+            }
+            None => self.history.push(screen),
+        }
+        self.show_top();
+    }
+
+    /// Shows the history's top screen with fresh focus.
+    fn show_top(&mut self) {
+        let screen = self.history.top().unwrap_or(MenuScreen::Home);
         if screen != MenuScreen::Store {
             self.store_snapshot = None;
         }
@@ -767,28 +830,25 @@ impl MenuRuntime {
         self.visible = true;
     }
 
+    /// Returns to the screen below; an in-game root closes the menu.
     fn go_back(&mut self) {
         if self.dialog.take().is_some() {
             return;
         }
         match self.screen {
             // Death has no way back; only respawn or leaving ends it.
-            MenuScreen::Home | MenuScreen::Death => {}
-            MenuScreen::Pause if self.death_shown => self.enter(MenuScreen::Death),
-            MenuScreen::Pause => self.set_visible(false),
+            MenuScreen::Death => {}
             MenuScreen::Store => self.store_actions.push(crate::store::StoreAction::Back),
-            MenuScreen::Settings if self.settings_return_to_pause => {
-                self.settings_return_to_pause = false;
-                self.enter(MenuScreen::Pause);
+            _ if self.history.screens().len() > 1 => {
+                self.history.pop();
+                self.show_top();
             }
-            _ => {
-                self.settings_return_to_pause = false;
-                self.enter(if self.screen == MenuScreen::AddServer {
-                    MenuScreen::Servers
-                } else {
-                    MenuScreen::Home
-                });
+            MenuScreen::Pause if self.death_shown => {
+                self.history.reset(MenuScreen::Death);
+                self.show_top();
             }
+            MenuScreen::Pause => self.set_visible(false),
+            _ => {}
         }
     }
 

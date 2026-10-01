@@ -173,6 +173,7 @@ impl UiPresentationRuntime {
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
                 splash: renderer.splash(&translate),
                 now: self.menu_seconds,
+                clocks: Some(&self.scene_clock),
                 ..engine::ScreenArt::default()
             };
             match renderer.render_screen(

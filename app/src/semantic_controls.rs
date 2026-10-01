@@ -327,10 +327,10 @@ pub(crate) fn synchronize_semantic_input_authority(
         .as_deref()
         .and_then(|world| world.stream.as_ref())
         .map_or(0, client_world::WorldStream::current_dimension);
-    let context = if menu.as_ref().is_some_and(|menu| menu.is_visible()) || ui.ui_focused() {
-        InputContext::UiFocused
-    } else {
+    let context = if ui.gameplay_input(menu.as_deref()) {
         InputContext::Gameplay
+    } else {
+        InputContext::UiFocused
     };
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;

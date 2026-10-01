@@ -34,16 +34,20 @@ pub(crate) mod tests;
 mod textures;
 mod toast_screen;
 
-pub(crate) use chat_screen::ChatHit;
+pub(crate) use chat_screen::{CHAT_SCREEN, ChatHit};
 pub(crate) use container_data::observe_station_block;
-pub(crate) use loading_screen::LoadingStage;
+pub(crate) use loading_screen::{LOADING_SCREEN, LoadingStage};
+pub(crate) use menu_screens::menu_reference;
+pub(crate) use npc::NPC_SCREEN;
 pub(crate) use oreui::BedHit;
 pub(crate) use panorama::drive_menu_panorama;
+pub(crate) use sign_editor::SIGN_SCREEN;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
+use crate::ui_runtime::scene_stack::ScreenSettingsTable;
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
-pub(crate) use containers::{engine_panel_contains, engine_screen_for};
+pub(crate) use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
 pub(crate) use engine::hud_renderers;
 pub(crate) use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
 pub(crate) use server_pack::ServerUiPack;
@@ -82,6 +86,10 @@ pub(super) struct FormPresentation {
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
+    /// The engine catalog's screen settings; carried across the per-frame reset.
+    screen_settings: Arc<ScreenSettingsTable>,
+    /// Last build's container frame, for this build's pointer hover.
+    previous_container: Option<(EngineFrame, containers::ScreenLayout)>,
 }
 
 impl UiPresentationRuntime {
@@ -106,6 +114,7 @@ impl UiPresentationRuntime {
         engine.textures.server_page =
             (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
         self.form_presentation.engine = Some(Box::new(engine));
+        self.refresh_screen_settings();
         self.hud_frame.engine_containers = true;
         Ok(())
     }
@@ -129,6 +138,7 @@ impl UiPresentationRuntime {
             "server resource-pack UI applied to the form engine"
         );
         engine.set_server_atlas(atlas, first as u16);
+        self.refresh_screen_settings();
         self.sync_server_ui_pages();
     }
 
@@ -204,6 +214,20 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// The live catalog's screen settings; empty without the JSON-UI engine.
+    pub(crate) fn screen_settings(&self) -> Arc<ScreenSettingsTable> {
+        Arc::clone(&self.form_presentation.screen_settings)
+    }
+
+    fn refresh_screen_settings(&mut self) {
+        if let Some(engine) = self.form_presentation.engine.as_deref() {
+            self.form_presentation.screen_settings = Arc::new(ScreenSettingsTable::for_catalog(
+                engine.catalog(),
+                engine.context(),
+            ));
+        }
+    }
+
     /// The engine frame for `identity`, when the engine drew that form.
     pub(crate) fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
         self.form_presentation
@@ -258,6 +282,50 @@ impl UiPresentationRuntime {
         )
     }
 
+    /// Starts a build's form state, keeping what is carried across builds.
+    pub(super) fn begin_form_frame(&mut self) {
+        let previous_container = self.form_presentation.container.take();
+        let state = std::mem::take(&mut self.form_presentation);
+        self.form_presentation = FormPresentation {
+            engine: state.engine,
+            menu_keys: state.menu_keys,
+            logged: state.logged,
+            hud: state.hud,
+            container_cache: state.container_cache,
+            chat: state.chat,
+            bed: state.bed,
+            sign: state.sign,
+            oreui_originals: state.oreui_originals,
+            oreui_look: state.oreui_look,
+            screen_settings: state.screen_settings,
+            previous_container,
+            ..FormPresentation::default()
+        };
+    }
+
+    /// Draws the open container's engine screen.
+    pub(super) fn append_container_scene(
+        &mut self,
+        runtime: &UiRuntime,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        width: f32,
+        height: f32,
+    ) -> Result<(), UiPresentationError> {
+        let previous = self.form_presentation.previous_container.take();
+        self.append_engine_container(
+            runtime,
+            previous.as_ref().map(|(frame, _)| frame),
+            nodes,
+            next,
+            metrics,
+            width,
+            height,
+        )?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn append_server_form(
         &mut self,
@@ -268,45 +336,6 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<(), UiPresentationError> {
-        let engine = self.form_presentation.engine.take();
-        let previous_container = self.form_presentation.container.take();
-        let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
-        let logged = self.form_presentation.logged;
-        let hud = std::mem::take(&mut self.form_presentation.hud);
-        let container_cache = self.form_presentation.container_cache.take();
-        let chat = std::mem::take(&mut self.form_presentation.chat);
-        let bed = std::mem::take(&mut self.form_presentation.bed);
-        let sign = std::mem::take(&mut self.form_presentation.sign);
-        self.form_presentation = FormPresentation {
-            engine,
-            menu_keys,
-            logged,
-            hud,
-            container_cache,
-            chat,
-            bed,
-            sign,
-            oreui_originals: self.form_presentation.oreui_originals.take(),
-            oreui_look: self.form_presentation.oreui_look,
-            ..FormPresentation::default()
-        };
-        // Server settings draw over the settings menu; other forms wait it out.
-        let settings_form = runtime
-            .server_forms()
-            .active()
-            .is_some_and(|entry| entry.kind == protocol::FormKind::ServerSettings);
-        if self.menu_view.is_some() && !settings_form {
-            return Ok(());
-        }
-        self.append_engine_container(
-            runtime,
-            previous_container.as_ref().map(|(frame, _)| frame),
-            nodes,
-            next,
-            metrics,
-            width,
-            height,
-        )?;
         let Some(entry) = runtime.server_forms().active() else {
             return Ok(());
         };
@@ -386,6 +415,18 @@ impl UiPresentationRuntime {
         );
         self.append_fallback_form(runtime, nodes, next, metrics, width, height)
     }
+}
+
+/// Screens the host draws beyond [`json_ui::ENGINE_SCREENS`], for the scene settings.
+pub(crate) fn host_screen_references() -> impl Iterator<Item = &'static str> {
+    [
+        SIGN_SCREEN,
+        NPC_SCREEN,
+        toast_screen::TOAST_SCREEN,
+        crate::store::SDL_SCREEN,
+    ]
+    .into_iter()
+    .chain(loading_screen::LOADING_SCREENS)
 }
 
 /// Logs which path draws `identity`, once per form.
