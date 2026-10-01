@@ -71,8 +71,8 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
         panic!("UI viewport must remain a uniform struct");
     };
     assert_eq!(*span, 16);
-    assert_eq!(members[3].name.as_deref(), Some("glint_strength"));
-    assert_eq!(members[3].offset, 12);
+    assert_eq!(members[2].name.as_deref(), Some("glint_strength"));
+    assert_eq!(members[2].offset, 12);
 }
 
 #[test]
