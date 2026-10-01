@@ -1,6 +1,47 @@
 use super::super::*;
 
 impl WorldStream {
+    /// Keeps nearby pending work's priority while executing its highest light dependency.
+    fn near_light_column_candidate(
+        &self,
+        key: SubChunkKey,
+        view: SchedulerView,
+    ) -> Option<PendingSchedulerCandidate> {
+        let (highest, pending) = self.highest_pending_light_in_column(key)?;
+        if !self.resident.contains(&highest)
+            || !self.light_revisions.is_current(highest, pending.revision)
+            || self.in_flight_light.contains_key(&highest)
+            || !self.original_light_column_context_ready(highest)
+            || !self.light_dispatch_ready(highest)
+        {
+            return None;
+        }
+        let mut candidate =
+            PendingSchedulerCandidate::new(highest, pending.revision, view, pending.urgent);
+        let mut priority = candidate;
+        if let Some(range) = vanilla_dimension_range(key.dimension) {
+            for offset in 0..range.sub_chunk_count {
+                let member = SubChunkKey::new(
+                    key.dimension,
+                    key.x,
+                    range.base_sub_chunk_y + offset as i32,
+                    key.z,
+                );
+                if let Some(pending) = self.pending_light.get(&member) {
+                    priority = priority.max(PendingSchedulerCandidate::new(
+                        member,
+                        pending.revision,
+                        view,
+                        pending.urgent,
+                    ));
+                }
+            }
+        }
+        candidate.distance_squared = priority.distance_squared;
+        candidate.urgent = priority.urgent;
+        Some(candidate)
+    }
+
     pub(in crate::stream) fn dispatch_light_jobs(
         &mut self,
         camera_position: [f32; 3],
@@ -19,7 +60,7 @@ impl WorldStream {
             .max(self.running_light_jobs.load(Ordering::Acquire));
         let worker_budget = light_job_cap.saturating_sub(occupied);
         let solve_budget = budget.min(worker_budget);
-        if self.fatal_light_failure || solve_budget == 0 {
+        if self.fatal_light_failure || solve_budget == 0 || self.pending_light.is_empty() {
             return 0;
         }
 
@@ -27,80 +68,59 @@ impl WorldStream {
             position: camera_position,
             forward: self.view_forward,
         };
-        let camera_cell = view.cell();
-        if self.light_scheduler_camera_cell != Some(camera_cell) {
-            let mut deferred = std::mem::take(&mut self.pending_light_deferred)
-                .into_iter()
-                .filter_map(|candidate| {
-                    self.pending_light
-                        .get(&candidate.key)
-                        .is_some_and(|pending| pending.revision == candidate.revision)
-                        .then_some((candidate.key, candidate.revision))
-                })
-                .collect::<HashSet<_>>();
-            deferred.extend(self.pending_light_scan.iter().copied());
-            let waiting = self
-                .light_waiters
-                .values()
-                .flat_map(|waiters| waiters.iter().copied())
-                .collect::<HashSet<_>>();
-            let mut ready = Vec::new();
-            let mut next_round = Vec::new();
-            for (&key, pending) in &self.pending_light {
-                if waiting.contains(&key) {
-                    continue;
-                }
-                let candidate =
-                    PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent);
-                if pending.urgent
-                    || self.light_priority_wakeups.get(&key) == Some(&pending.revision)
-                {
-                    ready.push(candidate);
-                } else if deferred.contains(&(key, pending.revision)) {
-                    next_round.push(candidate);
-                } else {
-                    ready.push(candidate);
-                }
-            }
-            self.pending_light_ready = BinaryHeap::from(ready);
-            self.pending_light_deferred = BinaryHeap::from(next_round);
-            self.pending_light_scan.clear();
-            self.light_scheduler_camera_cell = Some(camera_cell);
-        } else {
-            let pending_light = &self.pending_light;
-            super::super::dirty::compact_scheduler_scan(
-                &mut self.pending_light_scan,
-                pending_light.len(),
-                |key, revision| {
-                    pending_light
-                        .get(&key)
-                        .is_some_and(|p| p.revision == revision)
-                },
-            );
-            let ingress_budget = self
-                .pending_light_scan
-                .len()
-                .min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
-            for _ in 0..ingress_budget {
-                let Some((key, queued_revision)) = self.pending_light_scan.pop_front() else {
-                    break;
-                };
-                let Some(pending) = self
-                    .pending_light
+        let pending_light = &self.pending_light;
+        self.light_scheduler_refresh.refresh(
+            view,
+            [
+                &mut self.pending_light_ready,
+                &mut self.pending_light_deferred,
+            ],
+            self.poll_deadline,
+            |key, revision| {
+                pending_light
                     .get(&key)
-                    .copied()
-                    .filter(|pending| pending.revision == queued_revision)
-                else {
-                    continue;
-                };
-                let candidate =
-                    PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
-                if pending.urgent || self.light_priority_wakeups.get(&key) == Some(&queued_revision)
-                {
-                    self.pending_light_ready.push(candidate);
-                } else {
-                    self.pending_light_deferred.push(candidate);
-                }
+                    .is_some_and(|p| p.revision == revision)
+            },
+        );
+        let pending_light = &self.pending_light;
+        super::super::dirty::compact_scheduler_scan(
+            &mut self.pending_light_scan,
+            pending_light.len(),
+            |key, revision| {
+                pending_light
+                    .get(&key)
+                    .is_some_and(|p| p.revision == revision)
+            },
+        );
+        let ingress_budget = self
+            .pending_light_scan
+            .len()
+            .min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
+        let mut ingressed = false;
+        for index in 0..ingress_budget {
+            if self.poll_budget_exhausted()
+                && (ingressed || index >= MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+            {
+                break;
+            }
+            let Some((key, queued_revision)) = self.pending_light_scan.pop_front() else {
+                break;
+            };
+            let Some(pending) = self
+                .pending_light
+                .get(&key)
+                .copied()
+                .filter(|pending| pending.revision == queued_revision)
+            else {
+                continue;
+            };
+            let candidate =
+                PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
+            ingressed = true;
+            if pending.urgent || self.light_priority_wakeups.get(&key) == Some(&queued_revision) {
+                self.pending_light_ready.push(candidate);
+            } else {
+                self.pending_light_deferred.push(candidate);
             }
         }
         if self.pending_light_ready.is_empty() {
@@ -110,21 +130,46 @@ impl WorldStream {
             );
         }
 
+        let mut near = scheduler_refresh::near_light_columns(view, self.current_dimension)
+            .filter_map(|key| self.near_light_column_candidate(key, view))
+            .collect::<BinaryHeap<_>>();
         let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
         while prepared_batches.len() < solve_budget
             && scanned < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
+            && (prepared_batches.is_empty() || !self.poll_budget_exhausted())
         {
-            let Some(mut candidate) = self.pending_light_ready.pop() else {
+            let queued = self
+                .pending_light_ready
+                .peek()
+                .is_some_and(|candidate| near.peek().is_none_or(|local| candidate >= local));
+            let Some(mut candidate) = (if queued {
+                &mut self.pending_light_ready
+            } else {
+                &mut near
+            })
+            .pop() else {
                 break;
             };
+            let mut queued = queued;
+            if queued {
+                candidate.distance_squared = view.rank(candidate.key);
+            }
+            if queued && near.peek().is_some_and(|local| *local > candidate) {
+                self.pending_light_ready.push(candidate);
+                candidate = near.pop().expect("near candidate was inspected");
+                queued = false;
+            }
             scanned += 1;
             if let Some((highest_key, highest_pending)) =
                 self.highest_pending_light_in_column(candidate.key)
                 && highest_key != candidate.key
             {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
+                queued = false;
                 candidate = PendingSchedulerCandidate::new(
                     highest_key,
                     highest_pending.revision,
@@ -141,19 +186,27 @@ impl WorldStream {
                 continue;
             }
             if !self.light_revisions.is_current(key, revision) {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
                 continue;
             }
             if self.in_flight_light.contains_key(&key) {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
                 continue;
             }
             if !self.resident.contains(&key) {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
                 continue;
             }
             if !self.original_light_column_context_ready(key) {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
                 continue;
             }
             if !self.light_dispatch_ready(key) {
@@ -170,11 +223,15 @@ impl WorldStream {
                     selected.contains(&neighbour) || self.in_flight_light.contains_key(&neighbour)
                 })
             {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
                 continue;
             }
             let Some(block_generation) = self.block_generations.get(&key).copied() else {
-                self.pending_light_deferred.push(candidate);
+                if queued {
+                    self.pending_light_deferred.push(candidate);
+                }
                 continue;
             };
             let Some(bounds) = light_bounds(key) else {

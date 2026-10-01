@@ -7,6 +7,8 @@ mod item;
 mod server_position;
 mod stream;
 
+pub use culling::CaveVisibilityScratch;
+
 pub use action::{
     ActorEventIdentity, ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, MAX_ACTIONS_PER_ACTOR,
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,

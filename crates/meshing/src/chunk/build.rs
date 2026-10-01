@@ -194,7 +194,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                         continue;
                     };
                     let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
-                        2
+                        super::models::MAX_COMPOUND_MODEL_PARTS
                     } else {
                         1
                     };

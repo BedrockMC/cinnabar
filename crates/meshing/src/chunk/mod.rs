@@ -1,4 +1,4 @@
 pub(crate) mod build;
 mod liquids;
-mod models;
+pub(crate) mod models;
 mod opaque;
