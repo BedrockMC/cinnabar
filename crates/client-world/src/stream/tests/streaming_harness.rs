@@ -504,14 +504,17 @@ fn streaming_harness_reports_teleport_and_resend() {
         harness.send_view(ChunkKey::new(0, 0, 0), false);
         let join = harness.run();
         println!("[{columns_per_frame} col per frames] join: {join:?}");
+        assert_eq!((join.dark_meshes, join.geometry_meshes), (0, 0));
 
         harness.send_view(ChunkKey::new(0, 125, 137), true);
         let teleport = harness.run();
         println!("[{columns_per_frame} col per frames] far teleport: {teleport:?}");
+        assert_eq!((teleport.dark_meshes, teleport.geometry_meshes), (0, 0));
 
         harness.send_view(ChunkKey::new(0, 127, 137), true);
         let resend = harness.run();
         println!("[{columns_per_frame} col per frames] near teleport with re-send: {resend:?}");
+        assert_eq!((resend.dark_meshes, resend.geometry_meshes), (0, 0));
         assert!(
             resend.min_presented_in_view * 10 >= resend.in_view * 8,
             "a re-send of the same area must not drop presented meshes"

@@ -115,8 +115,7 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
-/// How long the server may go without delivering chunk data before announced columns it has
-/// not sent stop holding back neighbouring meshes.
+/// Quiet wait after local relevance or new publisher-cohort progress.
 const UNSENT_COLUMN_GRACE: Duration = Duration::from_secs(1);
 /// Completed meshes held for a publication permit rather than remeshed.
 const MAX_STAGED_MESH_COMPLETIONS: usize = 256;
@@ -366,8 +365,8 @@ pub struct WorldStream {
     requests: RequestQueue,
     transport_pending_requests: usize,
     last_request_player_chunk: Option<ChunkKey>,
-    /// When the server last delivered column or sub-chunk data; a quiet stream has sent all it will.
-    last_column_arrival: Option<Instant>,
+    unsent_column_deadlines: HashMap<ChunkKey, Instant>,
+    arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     polling: bool,
     pending_sub_chunk_commit: Option<commit_budget::PendingSubChunkCommit>,

@@ -1,5 +1,13 @@
 use super::*;
 
+/// Tracks new data in one publisher cohort without treating re-sends as progress.
+pub(super) struct ArrivalCohort {
+    epoch: u64,
+    view: ViewCohort,
+    seen: HashSet<(ChunkKey, Option<i32>)>,
+    deadline: Instant,
+}
+
 impl WorldStream {
     pub(super) fn provisionally_rebase_for_local_teleport(&mut self, position: [f32; 3]) {
         let center = position.map(floor_to_i32);
@@ -14,8 +22,10 @@ impl WorldStream {
 
         // Vanilla keeps chunk data across a teleport and drops only what the moved view no
         // longer covers (`NetworkChunkSubscriber::moveRegion`), so overlap stays presented.
+        self.arrival_cohort = None;
         self.transport_pending_requests = 0;
         self.publisher_center = Some(center);
+        self.prune_column_deadlines();
         let stale = self
             .tracked_columns()
             .into_iter()
@@ -114,6 +124,8 @@ impl WorldStream {
         }
     }
     pub(super) fn evict_all_resident(&mut self) {
+        self.unsent_column_deadlines.clear();
+        self.arrival_cohort = None;
         let mut columns = self
             .resident
             .iter()
@@ -154,6 +166,8 @@ impl WorldStream {
             key.dimension == current_dimension && chunk_in_view(radius, [key.x, key.z], center_xz)
         };
         self.required_columns.retain(is_retained);
+        self.unsent_column_deadlines
+            .retain(|key, _| is_retained(key));
         let stale = self
             .tracked_columns()
             .into_iter()
@@ -215,9 +229,67 @@ impl WorldStream {
             .get(&key.chunk())
             .is_some_and(|expected| expected.contains_key(&key.y))
     }
+    /// Drops deadlines outside the current retained view and publisher scope.
+    pub(super) fn prune_column_deadlines(&mut self) {
+        self.unsent_column_deadlines = std::mem::take(&mut self.unsent_column_deadlines)
+            .into_iter()
+            .filter(|(key, _)| self.column_is_data_interesting(*key))
+            .collect();
+    }
+
+    /// Starts a missing column's deadline only when adjacent data first arrives.
+    pub(super) fn record_column_arrival(&mut self, column: ChunkKey, now: Instant) {
+        self.record_cohort_progress(column, None, now);
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                let Some((x, z)) = column.x.checked_add(dx).zip(column.z.checked_add(dz)) else {
+                    continue;
+                };
+                let neighbour = ChunkKey::new(column.dimension, x, z);
+                if self.column_is_data_interesting(neighbour) {
+                    self.unsent_column_deadlines
+                        .entry(neighbour)
+                        .or_insert(now + UNSENT_COLUMN_GRACE);
+                }
+            }
+        }
+    }
+
+    /// Counts each delivered slot once in the current cohort's quiet period.
+    pub(super) fn record_sub_chunk_arrival(&mut self, key: SubChunkKey, now: Instant) {
+        self.record_column_arrival(key.chunk(), now);
+        self.record_cohort_progress(key.chunk(), Some(key.y), now);
+    }
+
+    /// Renews only for new data in the current publisher epoch and bounds.
+    fn record_cohort_progress(&mut self, column: ChunkKey, y: Option<i32>, now: Instant) {
+        let Some(view) = self.committed_view_cohort else {
+            return;
+        };
+        if !view.contains_column(column.dimension, [column.x, column.z]) {
+            return;
+        }
+        if self
+            .arrival_cohort
+            .as_ref()
+            .is_none_or(|cohort| cohort.epoch != self.publisher_epoch || cohort.view != view)
+        {
+            self.arrival_cohort = Some(ArrivalCohort {
+                epoch: self.publisher_epoch,
+                view,
+                seen: HashSet::new(),
+                deadline: now + UNSENT_COLUMN_GRACE,
+            });
+        }
+        let cohort = self.arrival_cohort.as_mut().expect("cohort initialized");
+        if cohort.seen.insert((column, y)) {
+            cohort.deadline = now + UNSENT_COLUMN_GRACE;
+        }
+    }
+
     /// Whether the server still owes `key`: it is in range and unknown, and either requested or
-    /// in a column of the announced disk not yet sent while the server is still streaming.
-    /// Servers may send a smaller disk than they announce, so a quiet stream owes nothing more.
+    /// in an unsent column whose local deadline has not elapsed.
+    /// This retained timeout fallback is provisional; vanilla requires eligible columns.
     pub(super) fn sub_chunk_is_due(&self, key: SubChunkKey, now: Instant) -> bool {
         if self.light_source_is_known(key) {
             return false;
@@ -239,8 +311,18 @@ impl WorldStream {
         {
             return false;
         }
-        self.last_column_arrival
-            .is_some_and(|arrival| now.saturating_duration_since(arrival) < UNSENT_COLUMN_GRACE)
+        (self
+            .unsent_column_deadlines
+            .get(&column)
+            .is_some_and(|deadline| now < *deadline)
+            || self.arrival_cohort.as_ref().is_some_and(|cohort| {
+                cohort.epoch == self.publisher_epoch
+                    && Some(cohort.view) == self.committed_view_cohort
+                    && cohort
+                        .view
+                        .contains_column(column.dimension, [column.x, column.z])
+                    && now < cohort.deadline
+            }))
             && self.column_is_data_interesting(column)
             && self.committed_view_cohort.is_none_or(|cohort| {
                 let dx = i64::from(column.x) - i64::from(cohort.center[0]);

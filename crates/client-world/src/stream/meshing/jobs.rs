@@ -313,10 +313,24 @@ impl WorldStream {
     }
     /// Faces, AO and smooth light sample all 26 neighbours; meshing before one the server still
     /// owes arrives bakes a hole or dark corner, so the mesh waits for it.
-    pub(in crate::stream) fn mesh_neighbour_is_due(&self, key: SubChunkKey, now: Instant) -> bool {
-        key.mesh_neighbourhood_dependents()
+    pub(in crate::stream) fn mesh_neighbour_is_due(
+        &mut self,
+        key: SubChunkKey,
+        now: Instant,
+    ) -> bool {
+        let mut due = false;
+        for neighbour in key
+            .mesh_neighbourhood_dependents()
             .filter(|neighbour| *neighbour != key)
-            .any(|neighbour| self.sub_chunk_is_due(neighbour, now))
+        {
+            if self.sub_chunk_is_due(neighbour, now) {
+                due = true;
+                if self.is_expected_sub_chunk(neighbour) {
+                    self.requests.prioritize_mesh_blocker(neighbour.chunk());
+                }
+            }
+        }
+        due
     }
     pub(in crate::stream) fn mesh_snapshot(
         &self,
