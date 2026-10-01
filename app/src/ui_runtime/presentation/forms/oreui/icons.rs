@@ -11,6 +11,7 @@ pub(super) enum Icon {
     Cross,
     Search,
     Player,
+    Pencil,
 }
 
 impl Icon {
@@ -21,6 +22,7 @@ impl Icon {
             Self::Cross => "assets/cross@0.5x.icon-a30f9556f5895c0d6996af977c6fbb91.png",
             Self::Search => "assets/search@0.5x.icon-57e5a707535fd5959a31271ce38e0b7f.png",
             Self::Player => "assets/player@0.5x.icon-5f2efe885c1189f09a5388b6e6b07c9f.png",
+            Self::Pencil => "assets/edit@0.5x.icon-a786502003e9894de25c9a2b274fbcbb.png",
         }
     }
 
@@ -58,6 +60,20 @@ impl Icon {
             Self::Player => &[
                 "..####..", "..####..", "..####..", "..####..", "........", ".######.", "########",
                 "########", "########",
+            ],
+            Self::Pencil => &[
+                "............",
+                "........###.",
+                ".......#####",
+                "......#####.",
+                ".....#####..",
+                "....#####...",
+                "...#####....",
+                "..#####.....",
+                ".#####......",
+                ".####.......",
+                ".###........",
+                "............",
             ],
         }
     }

@@ -2,7 +2,7 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use super::view::{MenuHome, MenuProfile, PingInfo, ServerDetails};
+use super::view::{JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
 
 /// Control method names the implementation calls.
@@ -59,10 +59,12 @@ pub(crate) trait AccountControl {
     fn pings(&mut self) -> Option<Vec<(String, PingInfo)>> {
         None
     }
-    /// `(received, total)` pack bytes while the core downloads them.
-    fn pack_download(&mut self) -> Option<(u64, u64)> {
+    /// The core's stage of preparing the current join; `None` once it hands over.
+    fn join_stage(&mut self) -> Option<JoinStage> {
         None
     }
+    /// Whether the menu is connecting, which speeds up event polling.
+    fn set_joining(&mut self, _joining: bool) {}
 }
 
 impl MenuRuntime {
@@ -125,7 +127,10 @@ impl MenuRuntime {
         if let Some(pings) = control.pings() {
             self.feeds.pings.extend(pings);
         }
-        self.feeds.pack_download = control.pack_download().filter(|_| self.connecting);
+        control.set_joining(self.connecting);
+        if self.connecting {
+            self.feeds.join.observe(control.join_stage());
+        }
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
         }
@@ -200,6 +205,72 @@ mod tests {
         fn poll_event(&mut self) -> Option<AccountEvent> {
             self.events.pop()
         }
+    }
+
+    struct Staged(Option<JoinStage>);
+
+    impl AccountControl for Staged {
+        fn account_status(&mut self) -> Option<AuthState> {
+            None
+        }
+        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
+            None
+        }
+        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
+            None
+        }
+        fn sign_out(&mut self) -> bool {
+            false
+        }
+        fn poll_event(&mut self) -> Option<AccountEvent> {
+            None
+        }
+        fn join_stage(&mut self) -> Option<JoinStage> {
+            self.0
+        }
+    }
+
+    // The core's stages drive the join until its report vanishes at the handoff,
+    // and a failed join's Disconnect lands on the disconnect screen in vanilla's words.
+    #[test]
+    fn join_progress_follows_the_core_until_handoff() {
+        use super::super::view::{JoinKind, JoinProgress};
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.mark_connecting();
+        menu.feeds.join = JoinProgress::new(JoinKind::Realm);
+        let mut control = Staged(None);
+        let mut step = |menu: &mut MenuRuntime, stage| {
+            control.0 = stage;
+            menu.sync_account_control(&mut control);
+            menu.view().feeds.join.stage
+        };
+        assert_eq!(step(&mut menu, None), JoinStage::Connecting);
+        assert_eq!(step(&mut menu, Some(JoinStage::Realm)), JoinStage::Realm);
+        let downloading = |received_bytes| JoinStage::Packs {
+            done: 0,
+            total: 2,
+            received_bytes,
+            total_bytes: 100,
+        };
+        assert_eq!(step(&mut menu, Some(downloading(10))), downloading(10));
+        assert_eq!(step(&mut menu, Some(downloading(60))), downloading(60));
+        assert_eq!(step(&mut menu, None), JoinStage::Generating);
+
+        let error = crate::runtime::network::session_failure_display(
+            "Bedrock session failed: Server disconnected during login: Unknown",
+            Some(&protocol::ServerDisconnectEvent {
+                reason: "Unknown".to_owned(),
+                message: Some("disconnectionScreen.cantConnectToRealm".to_owned()),
+                filtered_message: None,
+            }),
+        );
+        assert!(menu.absorb_session_failure(&error));
+        let view = menu.view();
+        assert!(!view.connecting);
+        assert_eq!(
+            super::super::disconnect::describe(&view.disconnect_message.unwrap()).body,
+            super::super::disconnect::DisconnectBody::Key("disconnectionScreen.cantConnectToRealm")
+        );
     }
 
     #[test]

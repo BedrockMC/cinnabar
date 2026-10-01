@@ -11,7 +11,8 @@ use super::{
     armor::{bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{ATLAS_SIDE, SpriteAtlas},
     display::{
-        ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped,
+        FirstPersonHand, FirstPersonShape, ItemDisplay, attach_to_bone, first_person_display,
+        held_block_display, held_sprite_display, is_hand_equipped, is_mirrored_art,
     },
     runtime::{FirstPersonArms, layer_presentation},
 };
@@ -81,7 +82,6 @@ fn attach_with_identity_display_passes_the_hand_pose_through() {
         rotation: Quat::IDENTITY,
         translation: Vec3::ZERO,
         scale: 1.0,
-        mirror_x: false,
     };
     let attached = attach_to_bone(bone([0.25, 0.5, -0.75], 1.0), display).unwrap();
     assert_eq!(attached.translation_scale, [0.25, 0.5, -0.75, 1.0]);
@@ -94,7 +94,6 @@ fn attach_scales_the_display_offset_by_the_hand_scale_and_hides_with_it() {
         rotation: Quat::IDENTITY,
         translation: Vec3::new(0.0, 1.0, 0.0),
         scale: 0.5,
-        mirror_x: false,
     };
     let attached = attach_to_bone(bone([0.0, 2.0, 0.0], 2.0), display).unwrap();
     assert_eq!(attached.translation_scale, [0.0, 4.0, 0.0, 1.0]);
@@ -113,15 +112,13 @@ fn hand_rotation_turns_the_display_offset() {
         rotation: Quat::IDENTITY,
         translation: Vec3::X,
         scale: 1.0,
-        mirror_x: false,
     };
     let attached = attach_to_bone(hand, display).unwrap();
     assert!((attached.translation_scale[1] - 1.0).abs() < 1e-5);
     assert!(attached.translation_scale[0].abs() < 1e-5);
 }
 
-// Held items take the reference's sizes: the item default scale (1.5) over the grip scale, and
-// the icon is mirrored into the reference's icon space.
+// Held items take the reference's sizes: the item default scale (1.5) over the grip scale.
 #[test]
 fn held_item_placements_follow_the_reference_scales() {
     let sprite = held_sprite_display(false);
@@ -130,7 +127,6 @@ fn held_item_placements_follow_the_reference_scales() {
     assert!((sprite.scale - 0.5625).abs() < 1e-5, "{}", sprite.scale);
     assert!((sword.scale - 0.9375).abs() < 1e-5, "{}", sword.scale);
     assert!((block.scale - 0.375).abs() < 1e-5, "{}", block.scale);
-    assert!(sprite.mirror_x && sword.mirror_x && !block.mirror_x);
     assert!(is_hand_equipped("minecraft:diamond_sword") && is_hand_equipped("minecraft:stick"));
     assert!(!is_hand_equipped("minecraft:name_tag"));
 }
@@ -662,4 +658,103 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
         Some(24)
     );
     assert!(!runtime.take_pending_geometries().is_empty());
+}
+
+// With the arm hanging (identity hand in the rig frame, facing -Z), a held sword points forward
+// and slightly up out of the fist, as vanilla's third-person grip holds it.
+#[test]
+fn third_person_sword_points_forward_and_up_from_a_hanging_arm() {
+    let sword = held_sprite_display(true);
+    let handle = icon_point(sword, 1.0, 15.0);
+    let tip = icon_point(sword, 15.0, 1.0);
+    let blade = tip - handle;
+    assert!(blade.z < -0.5 && blade.y > 0.0, "{blade}");
+}
+
+const REST: FirstPersonHand = FirstPersonHand {
+    swing: 0.0,
+    equip: 1.0,
+    consume: None,
+};
+
+/// Camera-space position of texel corner `(column, row)` of a 16-texel held sprite.
+fn icon_point(display: ItemDisplay, column: f32, row: f32) -> Vec3 {
+    let local = Vec3::new(-column / 16.0, 1.0 - row / 16.0, 0.0);
+    display.translation + display.rotation * (local * display.scale)
+}
+
+// First person draws the item in camera space, as vanilla's recorded first-person sword: the
+// handle low on the right and the blade rising up and to the right, face towards the camera.
+#[test]
+fn first_person_sprite_rises_up_right_facing_the_camera() {
+    let display = first_person_display(
+        FirstPersonShape::Sprite {
+            mirrored_art: false,
+        },
+        REST,
+    );
+    let handle = icon_point(display, 1.0, 15.0);
+    let tip = icon_point(display, 15.0, 1.0);
+    assert!(
+        handle.x > 0.0 && handle.y < 0.0 && handle.z < 0.0,
+        "{handle}"
+    );
+    let screen = |point: Vec3| Vec3::new(point.x / -point.z, point.y / -point.z, 0.0);
+    assert!(screen(tip).x > screen(handle).x && screen(tip).y > screen(handle).y);
+    let normal = display.rotation * Vec3::Z;
+    let centre = icon_point(display, 8.0, 8.0);
+    assert!(
+        normal.dot(centre).abs() > 0.5 * centre.length(),
+        "faces the camera"
+    );
+    assert!(
+        (display.scale - 0.6).abs() < 1e-5,
+        "0.4 hand scale over the 1.5 default"
+    );
+}
+
+// The equip dip lowers the item 0.6 blocks while the new item is taken, and a rod turns about.
+#[test]
+fn first_person_equip_dip_and_mirrored_art() {
+    let sprite = FirstPersonShape::Sprite {
+        mirrored_art: false,
+    };
+    let rest = first_person_display(sprite, REST);
+    let dipped = first_person_display(sprite, FirstPersonHand { equip: 0.0, ..REST });
+    assert!((rest.translation.y - dipped.translation.y - 0.6).abs() < 1e-5);
+    let turned = first_person_display(FirstPersonShape::Sprite { mirrored_art: true }, REST);
+    let half_turn = rest.rotation.inverse() * turned.rotation;
+    assert!(half_turn.angle_between(Quat::IDENTITY) > 3.0);
+    assert!(is_mirrored_art("minecraft:fishing_rod") && !is_mirrored_art("minecraft:stick"));
+    let block = first_person_display(FirstPersonShape::Block, REST);
+    assert!((block.scale - 0.4).abs() < 1e-5);
+    assert!(
+        (block.translation - Vec3::new(0.56, -0.52, -0.72)).length() < 1e-5,
+        "the cube centres on the hand anchor"
+    );
+}
+
+// Eating raises the item towards the mouth once the first fifth of the use has passed.
+#[test]
+fn first_person_consume_raises_the_item() {
+    let sprite = FirstPersonShape::Sprite {
+        mirrored_art: false,
+    };
+    let rest = first_person_display(sprite, REST);
+    let eating = first_person_display(
+        sprite,
+        FirstPersonHand {
+            consume: Some((16.0, 32.0)),
+            ..REST
+        },
+    );
+    assert!(eating.translation.distance(rest.translation) > 0.3);
+    let started = first_person_display(
+        sprite,
+        FirstPersonHand {
+            consume: Some((0.0, 32.0)),
+            ..REST
+        },
+    );
+    assert!(started.translation.distance(rest.translation) < 0.05);
 }

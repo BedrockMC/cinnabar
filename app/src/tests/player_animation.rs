@@ -465,6 +465,38 @@ fn first_person_pose_ignores_the_view_and_dips_the_arm_while_an_item_equips() {
     assert_eq!(swap.last(), Some(&rest), "{swap:?}");
 }
 
+// The rig reports the equip progress it animates the arm with, a tick behind as well as now,
+// so the first-person item dips and rises in step with the arm.
+#[test]
+fn rig_reports_the_equip_progress_of_its_last_two_ticks() {
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    for _ in 0..3 {
+        world.sync_local_player_pose(&local_feed(None));
+        world.advance_actor_interpolation_ticks(1);
+    }
+    let rest = world.actor_rig(1).unwrap().hand;
+    assert_eq!(rest.map(|phase| phase.arm_height), [1.0; 2]);
+    let hands = (0..8)
+        .map(|_| {
+            world.sync_local_player_pose(&local_feed(Some("minecraft:stick")));
+            world.advance_actor_interpolation_ticks(1);
+            world.actor_rig(1).unwrap().hand
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        hands.iter().any(|[_, current]| current.arm_height < 0.5),
+        "{hands:?}"
+    );
+    for pair in hands.windows(2) {
+        assert_eq!(
+            pair[1][0], pair[0][1],
+            "the previous phase is the last tick's"
+        );
+    }
+    assert_eq!(hands.last().unwrap()[1].arm_height, 1.0);
+}
+
 const NPC_PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
 const NPC_GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[{
  "description":{"identifier":"geometry.npc","texture_width":128,"texture_height":128},

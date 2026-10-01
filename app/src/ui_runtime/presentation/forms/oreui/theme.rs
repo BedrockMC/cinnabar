@@ -101,6 +101,23 @@ pub(super) const SECONDARY: Role = Role {
     specular_bottom_hovered: white(153),
 };
 
+/// `colorsDestructive` (#ca3636); the state fills and edges are unrecovered approximations.
+pub(super) const DESTRUCTIVE: Role = Role {
+    fill: rgb(0xca3636),
+    hovered: rgb(0xb02e2e),
+    pressed: rgb(0x8f2424),
+    text: TEXT,
+    shadow: rgb(0x8f2424),
+    specular_top: white(51),
+    specular_bottom: white(26),
+    specular_top_hovered: white(102),
+    specular_bottom_hovered: white(77),
+};
+
+/// Text field facts from `baseTextField*`: white text, dimmest placeholder, green caret.
+pub(super) const FIELD_PLACEHOLDER: Rgba = rgb(0xb1b2b5);
+pub(super) const FIELD_CARET: Rgba = rgb(0x6cc349);
+
 /// Solid surfaces.
 pub(super) const NEUTRAL90: Rgba = rgb(0x242425);
 pub(super) const NEUTRAL100: Rgba = rgb(0x1e1e1f);

@@ -2,7 +2,10 @@ use super::*;
 
 #[test]
 fn urgent_scheduler_work_preempts_nearer_ordinary_work() {
-    let camera = [0.0, 0.0, 0.0];
+    let camera = super::SchedulerView {
+        position: [0.0; 3],
+        forward: None,
+    };
     let near = SubChunkKey::new(0, 0, 0, 0);
     let far = SubChunkKey::new(0, 16, 0, 0);
     let mut candidates = BinaryHeap::from([
@@ -279,7 +282,7 @@ fn mesh_light_halo_samples_center_face_edge_corner_and_absent_fallback() {
     assert_eq!(halo.sample_channels([16, 0, 0]), [3, 4]);
     assert_eq!(halo.sample_channels([16, 16, 0]), [5, 6]);
     assert_eq!(halo.sample_channels([-1, -1, -1]), [7, 8]);
-    assert_eq!(halo.sample_channels([0, 0, 16]), [0, 0]);
+    assert_eq!(halo.sample_channels([0, 0, 16]), [0, 15]);
     assert_eq!(halo.sample_channels([32, 0, 0]), [0, 0]);
     assert_eq!(halo.occupied_slot_count(), 4);
 }

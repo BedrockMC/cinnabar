@@ -54,6 +54,8 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "death.death_screen",
     "progress.progress_screen",
     "progress.world_convert_modal_progress_screen",
+    "progress.world_loading_progress_screen",
+    "progress.realms_stories_loading_progress_screen",
     "disconnect.disconnect_screen",
     "xbl_console_signin.xbl_console_signin",
     "store_layout.store_data_driven_screen",
@@ -129,5 +131,13 @@ mod tests {
         assert!(is_engine_screen("hud.hud_screen"));
         assert!(is_engine_screen("hud_crosshair.hud_crosshair_screen"));
         assert!(!is_engine_screen("hud.hud_content"));
+    }
+
+    #[test]
+    fn vanilla_join_progress_screens_are_engine_screens() {
+        assert!(is_engine_screen("progress.world_loading_progress_screen"));
+        assert!(is_engine_screen(
+            "progress.realms_stories_loading_progress_screen"
+        ));
     }
 }

@@ -11,11 +11,11 @@ mod worlds;
 use std::path::Path;
 
 pub use account::{
-    Account, Artwork, AuthState, ConnectTarget, Events, FeaturedGame, FeaturedServer, Friend,
-    Gathering, Home, Inbox, LiveEvent, Message, MessageButton, MessageEvent, MessageImage,
-    PackDownload, Profile, Realm, ServerDisconnect, ServerPing, account_status, connect_target,
-    home, list_featured_servers, list_friends, list_gatherings, list_realms, ping_servers,
-    poll_events, profile, report_message_event, sign_out,
+    Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
+    FeaturedGame, FeaturedServer, Friend, Gathering, Home, Inbox, LiveEvent, Message,
+    MessageButton, MessageEvent, MessageImage, Profile, Realm, ServerDisconnect, ServerPing,
+    account_status, connect_target, home, list_featured_servers, list_friends, list_gatherings,
+    list_realms, ping_servers, poll_events, profile, report_message_event, sign_out,
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;
@@ -32,9 +32,9 @@ pub use store::{
 };
 pub use worlds::{
     Backend, CODE_EULA_REQUIRED, Difficulty, GameMode, Generator, NewWorld, Prefs, PrefsUpdate,
-    Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus, accept_bds_eula,
-    close_world, create_world, delete_world, list_worlds, local_worlds_prefs, open_world,
-    open_world_with, rename_world, set_world_paused, world_status,
+    Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus, WorldUpdate,
+    accept_bds_eula, close_world, create_world, delete_world, list_worlds, local_worlds_prefs,
+    open_world, open_world_with, set_world_paused, update_world, world_status,
 };
 
 /// Returns the platform endpoint used for the logical socket directory.

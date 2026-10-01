@@ -864,8 +864,13 @@ pub fn into_world_event(
             if packet.event_id != LEVEL_EVENT_SLEEPING_PLAYERS {
                 return Ok(None);
             }
+            // The event data is loose tags; wrap them in a root compound as vanilla decodes it.
+            let mut nbt = Vec::with_capacity(packet.__ctd__.0.len() + 3);
+            nbt.extend_from_slice(&[0x0a, 0x00]);
+            nbt.extend_from_slice(&packet.__ctd__.0);
+            nbt.push(0x00);
             WorldEvent::Ui(UiEvent::SleepStatus(crate::SleepStatusEvent {
-                nbt: Arc::from(packet.__ctd__.0.as_ref()),
+                nbt: Arc::from(nbt),
             }))
         }
         McpePacketData::LevelEventPacket(packet) => {

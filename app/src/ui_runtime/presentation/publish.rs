@@ -28,6 +28,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
+        Option<ResMut<'w, render::NametagScene>>,
     ),
 );
 
@@ -54,7 +55,7 @@ pub(crate) fn publish_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather),
+        (actor_partial, local_frame, clock, weather, nametag_scene),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -110,6 +111,7 @@ pub(crate) fn publish_ui_runtime(
                 });
         let render_work_drained =
             render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
+        let loading = presentation.startup.probe_enabled(connected);
         let (startup_released, loading_milestone) = presentation.startup.observe_with_milestone(
             StartupReadinessInput {
                 session_generation: runtime.session_id(),
@@ -117,9 +119,19 @@ pub(crate) fn publish_ui_runtime(
                 diagnostics_frame_generation: diagnostics_input.frame_generation(),
                 snapshot: visibility_diagnostics.snapshot(),
                 visible_rendered: visibility.visible_rendered,
-                cohort_target_complete: frame_poll
-                    .cohort
-                    .is_some_and(|status| status.target_is_complete()),
+                cohort_target_complete: frame_poll.cohort.map_or_else(
+                    // Outside acceptance runs the cohort is only scanned while loading, so a
+                    // sparse view (a Flat world) can still release the loading screen.
+                    || {
+                        loading
+                            && client_world.stream.as_ref().is_some_and(|stream| {
+                                stream.committed_view_cohort().is_some_and(|target| {
+                                    stream.cohort_status(target).target_is_complete()
+                                })
+                            })
+                    },
+                    |status| status.target_is_complete(),
+                ),
                 stream_work_drained,
                 render_work_drained,
             },
@@ -272,12 +284,14 @@ pub(crate) fn publish_ui_runtime(
                 &transform,
                 [logical_width, logical_height],
                 presentation.safe_area,
-                collisions.as_deref(),
                 actor_partial.0,
             )
         })
         .unwrap_or_default();
     presentation.set_nametag_anchors(nametags);
+    if let Some(mut nametag_scene) = nametag_scene {
+        *nametag_scene = presentation.nametag_scene();
+    }
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));

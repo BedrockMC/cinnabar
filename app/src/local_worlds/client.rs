@@ -82,10 +82,10 @@ async fn execute(dir: &std::path::Path, effect: Effect) -> Option<Event> {
             let result = control::delete_world(dir, &id).await;
             Some(result.map_or_else(failed, |()| Event::Deleted(id)))
         }
-        Effect::Rename { id, name } => Some(
-            control::rename_world(dir, &id, &name)
+        Effect::Update { id, update } => Some(
+            control::update_world(dir, &id, &update)
                 .await
-                .map_or_else(failed, Event::Renamed),
+                .map_or_else(failed, Event::Updated),
         ),
         Effect::Open(id) => Some(match control::open_world(dir, &id).await {
             Ok(status) => Event::Status(status),

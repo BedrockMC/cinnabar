@@ -44,7 +44,8 @@ mod menu;
 mod menu_artwork;
 mod menu_scroll;
 pub(crate) use menu_artwork::BUILT_IN_TITLE;
-mod nametags;
+pub(crate) mod nametag_atlas;
+pub(crate) mod nametags;
 mod player_preview;
 mod primitives;
 mod publish;
@@ -125,6 +126,8 @@ pub struct UiPresentationRuntime {
     obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
+    /// What the last menu frame was built from, while time cannot change its output.
+    last_menu: Option<BuiltMenu>,
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
@@ -139,8 +142,9 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// World-projected below-name score anchors for the current frame.
     below_name_anchors: Vec<BelowNameAnchor>,
-    /// World-projected nametags for players without a below-name score.
+    /// This frame's world-space name tags, and the atlas their lines rasterize into.
     nametag_anchors: Vec<nametags::NametagAnchor>,
+    nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
@@ -165,15 +169,16 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_source: Option<IconRef>,
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
-    menu_artwork_paths: Vec<(String, u32)>,
+    /// The art set last requested: service art plus engine textures too big for a server page.
+    menu_artwork_set: menu_artwork::ArtworkSet,
+    menu_artwork_loader: menu_artwork::ArtworkLoader,
     /// This frame's clock in seconds, which engine screen animations paint at.
     menu_seconds: f64,
     scene_clocks: super::scene_stack::SceneClocks,
     /// The drawing scene's transition event clocks.
     scene_clock: std::collections::BTreeMap<String, f64>,
-    /// Engine textures too big for a server page, keyed by texture path.
-    menu_artwork_oversized: Vec<(String, Arc<[u8]>)>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
+    /// The installed refs must be rebased onto moved art pages.
     menu_artwork_dirty: bool,
     session_icons: session_icons::SessionIconPage,
     session_glyphs: session_glyphs::SessionGlyphPages,
@@ -243,6 +248,7 @@ impl UiPresentationRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             last_input: None,
+            last_menu: None,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
@@ -252,6 +258,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
+            nametag_atlas: nametag_atlas::NametagAtlas::default(),
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -269,11 +276,11 @@ impl UiPresentationRuntime {
             offhand_viewmodel_source: None,
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
-            menu_artwork_paths: Vec::new(),
+            menu_artwork_set: Default::default(),
+            menu_artwork_loader: Default::default(),
             menu_seconds: 0.0,
             scene_clocks: Default::default(),
             scene_clock: Default::default(),
-            menu_artwork_oversized: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             // The title logo loads before any service art arrives.
             menu_artwork_dirty: true,
@@ -342,20 +349,26 @@ impl UiPresentationRuntime {
         dynamic_textures::rebuild(self);
     }
 
-    /// Service art at `paths`, plus the engine's oversized textures, on the art pages.
+    /// Service art at `paths`, plus the engine's oversized textures, on the art
+    /// pages once the worker has packed them; the last atlas draws meanwhile.
     pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<(String, u32)>) {
-        let oversized = self.oversized_ui_textures();
-        let same_oversized = oversized.len() == self.menu_artwork_oversized.len()
-            && oversized
-                .iter()
-                .zip(&self.menu_artwork_oversized)
-                .all(|(a, b)| a.0 == b.0);
-        if self.menu_artwork_paths == paths && same_oversized {
-            return;
+        let set = menu_artwork::ArtworkSet {
+            paths,
+            oversized: self.oversized_ui_textures(),
+        };
+        if !set.same(&self.menu_artwork_set) {
+            self.menu_artwork_set = set.clone();
+            self.menu_artwork_loader.request(set);
         }
-        self.menu_artwork_paths = paths;
-        self.menu_artwork_oversized = oversized;
-        self.menu_artwork_dirty = true;
+        if self.menu_artwork_loader.poll() {
+            self.rebuild_dynamic_textures();
+        }
+    }
+
+    /// Installs the latest requested art set's complete atlas.
+    #[cfg(test)]
+    pub(crate) fn finish_menu_artwork(&mut self) {
+        self.menu_artwork_loader.wait();
         self.rebuild_dynamic_textures();
     }
 
@@ -415,6 +428,21 @@ impl UiPresentationRuntime {
         self.nametag_anchors = anchors;
     }
 
+    /// The world-space tag quads for this frame's anchors.
+    fn nametag_scene(&mut self) -> render::NametagScene {
+        let (font, glyphs) = (&self.font, &self.session_glyphs);
+        let dynamic_start = self.textures.dynamic_start();
+        nametags::build_nametag_scene(
+            &self.nametag_anchors,
+            font,
+            &mut self.layouts,
+            &mut self.nametag_atlas,
+            &|page| {
+                nametag_atlas::font_page(font, page).or_else(|| glyphs.page(dynamic_start, page))
+            },
+        )
+    }
+
     /// Retained text-layout cache entries, exposed for the bounded-memory
     /// steady-state witnesses.
     #[cfg(test)]
@@ -449,7 +477,7 @@ impl UiPresentationRuntime {
         .append(runtime, &frame, container)
     }
 
-    /// The world's own overlays: diagnostics, nametags and below-name scores.
+    /// The world's own overlays: diagnostics and below-name scores.
     fn append_gameplay_overlays(
         &mut self,
         nodes: &mut Vec<UiNode>,
@@ -458,16 +486,6 @@ impl UiPresentationRuntime {
         content: [f32; 2],
     ) -> Result<(), UiPresentationError> {
         self.append_debug_overlay(nodes, next_id, metrics, content[0])?;
-        nametags::append_nametag_nodes(
-            nodes,
-            next_id,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            &self.nametag_anchors,
-            content,
-        )?;
         retained_hud::append_below_name_nodes(
             nodes,
             next_id,
@@ -514,6 +532,7 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
+        let menu_visible = self.menu_view.is_some();
         let content = [content_width, content_height];
         let host = SceneHost {
             menu: self.menu_view.as_ref().map(|view| view.screen),
@@ -624,6 +643,24 @@ impl UiPresentationRuntime {
             now_millis,
         )?;
         self.sync_server_ui_pages();
+        // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
+        let built = menu_visible.then(|| BuiltMenu {
+            nodes: Vec::new(),
+            frame: (physical_size, dpi_scale.get(), safe_area),
+            textures: Arc::clone(&self.textures),
+        });
+        if let (Some(last), Some(now), Some(input)) = (&self.last_menu, &built, &self.last_input)
+            && last.same(now, &nodes)
+        {
+            self.menu_hit_targets = menu_hit_targets;
+            return Ok(input.clone());
+        }
+        self.last_menu = built
+            .filter(|_| !obfuscated(&nodes))
+            .map(|built| BuiltMenu {
+                nodes: nodes.clone(),
+                ..built
+            });
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
@@ -647,6 +684,29 @@ impl UiPresentationRuntime {
         self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }
+}
+
+/// A menu frame's inputs: its nodes, viewport and texture array.
+struct BuiltMenu {
+    nodes: Vec<UiNode>,
+    frame: ([u32; 2], f32, SafeArea),
+    textures: Arc<UiRenderTextureArray>,
+}
+
+impl BuiltMenu {
+    fn same(&self, now: &Self, nodes: &[UiNode]) -> bool {
+        self.frame == now.frame && Arc::ptr_eq(&self.textures, &now.textures) && self.nodes == nodes
+    }
+}
+
+/// Whether any text carries `§k`, whose glyphs change every frame.
+fn obfuscated(nodes: &[UiNode]) -> bool {
+    nodes.iter().any(|node| match node.visual() {
+        UiVisual::Text { layout, .. } | UiVisual::RotatedText { layout, .. } => {
+            layout.glyphs().iter().any(|glyph| glyph.style.obfuscated)
+        }
+        _ => false,
+    })
 }
 
 #[cfg(test)]
