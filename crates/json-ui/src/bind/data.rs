@@ -1,7 +1,7 @@
 //! The screen data source a form binds against: globals, collections and
 //! named-factory feeds a screen controller supplies.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use super::FactoryItem;
 use crate::predicate::Scalar;
@@ -31,12 +31,30 @@ impl CollectionItem {
     }
 }
 
+/// An immutable collection whose unchanged publications compare in constant time.
+#[derive(Clone, Debug)]
+pub(super) struct SharedCollection(Arc<[CollectionItem]>);
+
+impl PartialEq for SharedCollection {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+
+impl std::ops::Deref for SharedCollection {
+    type Target = [CollectionItem];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// The screen data source a form binds against: `global` values and named
 /// collections.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DataSource {
     pub(super) globals: BTreeMap<String, Scalar>,
-    pub(super) collections: BTreeMap<String, Vec<CollectionItem>>,
+    pub(super) collections: BTreeMap<String, SharedCollection>,
     /// Values the controller writes straight into named controls' bags.
     pub(super) controls: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// Controls created through named factories (`chat_item_factory`, …).
@@ -105,7 +123,13 @@ impl DataSource {
 
     /// Replace a named collection's per-index items.
     pub fn set_collection(&mut self, name: impl Into<String>, items: Vec<CollectionItem>) {
-        self.collections.insert(name.into(), items);
+        self.set_shared_collection(name, items.into());
+    }
+
+    /// Reuse an unchanged collection without copying its item bags.
+    pub fn set_shared_collection(&mut self, name: impl Into<String>, items: Arc<[CollectionItem]>) {
+        self.collections
+            .insert(name.into(), SharedCollection(items));
     }
 
     /// The controls the factory named `name` holds, oldest first.
@@ -132,12 +156,14 @@ impl DataSource {
         name: &str,
         items: Vec<CollectionItem>,
     ) {
-        self.collections
-            .insert(scoped_key(parent_key, index, name), items);
+        self.collections.insert(
+            scoped_key(parent_key, index, name),
+            SharedCollection(items.into()),
+        );
     }
 
     pub(super) fn collection_len(&self, name: &str) -> usize {
-        self.collections.get(name).map_or(0, Vec::len)
+        self.collections.get(name).map_or(0, |items| items.len())
     }
 }
 

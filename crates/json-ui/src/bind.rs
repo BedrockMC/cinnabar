@@ -23,6 +23,7 @@ use crate::tree::{ControlRef, ResolvedControl};
 mod apply;
 mod bag;
 mod data;
+mod declarations;
 mod feed;
 mod grid;
 mod native;
@@ -119,6 +120,7 @@ fn bind_with(
     state: &mut BindState,
     retain: bool,
 ) -> (ResolvedControl, Vec<String>) {
+    state.scroll_observed = false;
     let mut binder = Binder {
         data,
         lib,
@@ -129,13 +131,28 @@ fn bind_with(
         resolved: BTreeMap::new(),
         resolved_with: BTreeMap::new(),
         parsed: HashMap::new(),
+        empty_bindings: Arc::default(),
         keys: state::KeyMap::default(),
         retain,
     };
+    let prof = std::env::var_os("CINNABAR_BIND_PROFILE").is_some();
+    let at = std::time::Instant::now();
     let mut node = binder.build(Src::root(Arc::clone(root)), &Scope::default());
+    let built = at.elapsed();
     binder.settle_views(&mut node);
+    let viewed = at.elapsed();
     let baked = binder.bake(&node);
+    let baked_at = at.elapsed();
     binder.retain(node);
+    if prof {
+        eprintln!(
+            "BIND_PROFILE retain={retain} build={} views={} bake={} retain_us={}",
+            built.as_micros(),
+            (viewed - built).as_micros(),
+            (baked_at - viewed).as_micros(),
+            (at.elapsed() - baked_at).as_micros()
+        );
+    }
     (baked, binder.diagnostics)
 }
 
@@ -232,6 +249,7 @@ struct Binder<'a> {
     resolved_with: BTreeMap<(ControlRef, String), Option<Arc<ResolvedControl>>>,
     /// Parsed binding declarations per template control.
     parsed: HashMap<usize, Arc<Vec<Binding>>>,
+    empty_bindings: Arc<Vec<Binding>>,
     /// Keys handed out this refresh, with how often.
     keys: state::KeyMap<usize>,
     /// Whether the refresh's state outlives it.
@@ -245,18 +263,25 @@ impl<'a> Binder<'a> {
         }
     }
 
-    fn bindings_of(&mut self, control: &ResolvedControl) -> Arc<Vec<Binding>> {
+    fn bindings_of(&mut self, src: &Src) -> Arc<Vec<Binding>> {
+        let control = src.get();
+        if !control.properties.contains_key("bindings")
+            && !control.properties.contains_key("grid_dimension_binding")
+        {
+            self.state.scroll_observed |= spec::observes_scroll(control, &[]);
+            return Arc::clone(&self.empty_bindings);
+        }
         let id = control as *const ResolvedControl as usize;
         if let Some(parsed) = self.parsed.get(&id) {
             return Arc::clone(parsed);
         }
-        let mut notes = Vec::new();
-        let parsed = Arc::new(spec::parse(control, &mut notes));
-        for note in notes {
-            self.note(note);
+        let declaration = declarations::get(src);
+        for note in &declaration.diagnostics {
+            self.note(note.clone());
         }
-        self.parsed.insert(id, Arc::clone(&parsed));
-        parsed
+        self.state.scroll_observed |= declaration.observes_scroll;
+        self.parsed.insert(id, Arc::clone(&declaration.bindings));
+        Arc::clone(&declaration.bindings)
     }
 
     /// Create `src` under `scope`: its bag, its bindings for this refresh, and
@@ -318,7 +343,7 @@ impl<'a> Binder<'a> {
             props: std::mem::take(&mut memory.native),
             collection_length: None,
         };
-        let bindings = self.bindings_of(control);
+        let bindings = self.bindings_of(&src);
         self.run_bindings(
             control,
             &bindings,

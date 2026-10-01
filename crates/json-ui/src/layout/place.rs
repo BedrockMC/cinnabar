@@ -1,6 +1,7 @@
 //! Placement: a sized control's rect from its anchors and offset, and its
 //! animations' offset and size ends measured the same way.
 
+use serde::Deserialize;
 use serde_json::Value;
 
 use std::sync::Arc;
@@ -198,8 +199,7 @@ pub(super) fn control_anims(
     packed: bool,
     env: &LayoutEnv,
 ) -> Option<Arc<ControlAnims>> {
-    let mut graph: AnimGraph =
-        serde_json::from_value(control.properties.get(GRAPH_KEY)?.clone()).ok()?;
+    let mut graph: AnimGraph = AnimGraph::deserialize(control.properties.get(GRAPH_KEY)?).ok()?;
     let size = [rect.w, rect.h];
     let rest_offset = offset(control, parent_rect, size, [0.0; 2], env);
     for node in &mut graph.nodes {

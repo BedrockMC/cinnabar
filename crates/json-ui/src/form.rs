@@ -544,6 +544,19 @@ pub fn render_bound(
     finish(bound, root_size, env, state)
 }
 
+/// Render a stable tree with measurements retained by the caller across data updates.
+/// Call `MeasureCache::update_tree` before changing the tree; reset the cache when
+/// the root size or measurement environment changes.
+pub fn render_bound_cached(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    measures: &mut MeasureCache,
+) -> FormRender {
+    lay_out_and_emit(bound, root_size, env, state, Some((measures, false)))
+}
+
 /// [`render_bound`] independent of hover, press and focus: only `state`'s scroll
 /// offsets lay out, and state children emit gated ([`crate::emit_gated`]), so
 /// the result stays valid until the data, scroll, or root size change. Filter
@@ -561,7 +574,7 @@ pub fn render_bound_gated(
         scroll: state.scroll.clone(),
         ..ViewState::default()
     };
-    lay_out_and_emit(bound, root_size, env, &neutral, Some(measures))
+    lay_out_and_emit(bound, root_size, env, &neutral, Some((measures, true)))
 }
 
 /// Lay out, emit, and collect input for a bound tree.
@@ -579,12 +592,17 @@ fn lay_out_and_emit(
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
-    gated: Option<&mut MeasureCache>,
+    gated: Option<(&mut MeasureCache, bool)>,
 ) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let gate = gated.is_some();
+        let gate = gated.as_ref().is_some_and(|(_, gate)| *gate);
         let (laid, report) = match gated {
-            Some(measures) => crate::layout::layout_culled(&bound, root_size, env, state, measures),
+            Some((measures, true)) => {
+                crate::layout::layout_culled(&bound, root_size, env, state, measures)
+            }
+            Some((measures, false)) => {
+                crate::layout::layout_cached(&bound, root_size, env, state, measures)
+            }
             None => layout_with(&bound, root_size, env, state),
         };
         (

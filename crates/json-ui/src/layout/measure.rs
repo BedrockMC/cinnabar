@@ -53,7 +53,71 @@ pub(super) struct Children {
     pub(super) maximum: [f64; 2],
 }
 
-type PlaceMemo = Memo<(usize, u64, u64), Vec<(usize, Rect)>>;
+type PlaceMemo = Memo<(usize, u64, u64), Placements>;
+
+/// Contiguous grid rows in placement order, including earlier rows' overhang.
+struct Row {
+    top: f64,
+    bottom: f64,
+    start: usize,
+}
+
+struct Placements {
+    children: Vec<(usize, Rect)>,
+    rows: Vec<Row>,
+}
+
+impl Placements {
+    /// Index grids whose rows advance monotonically; arbitrary placement stays unindexed.
+    fn new(children: Vec<(usize, Rect)>, grid: bool) -> Self {
+        let mut rows: Vec<Row> = Vec::new();
+        if grid {
+            let mut bottom = f64::NEG_INFINITY;
+            for (index, (_, rect)) in children.iter().enumerate() {
+                if !rect.y.is_finite()
+                    || !rect.h.is_finite()
+                    || rows.last().is_some_and(|row| rect.y < row.top)
+                {
+                    rows.clear();
+                    break;
+                }
+                bottom = bottom.max(rect.y + rect.h);
+                if let Some(row) = rows.last_mut().filter(|row| row.top == rect.y) {
+                    row.bottom = bottom;
+                } else {
+                    rows.push(Row {
+                        top: rect.y,
+                        bottom,
+                        start: index,
+                    });
+                }
+            }
+        }
+        Self { children, rows }
+    }
+
+    /// Select possibly intersecting rows while preserving child order and indexes.
+    fn visible(&self, clip: Option<Rect>, origin: Rect) -> &[(usize, Rect)] {
+        let Some(clip) = clip.filter(|_| !self.rows.is_empty()) else {
+            return &self.children;
+        };
+        let first = self
+            .rows
+            .partition_point(|row| row.bottom <= clip.y - origin.y);
+        let end = self
+            .rows
+            .partition_point(|row| row.top < clip.y + clip.h - origin.y);
+        let start = self
+            .rows
+            .get(first)
+            .map_or(self.children.len(), |row| row.start);
+        let end = self
+            .rows
+            .get(end)
+            .map_or(self.children.len(), |row| row.start);
+        &self.children[start.min(end)..end]
+    }
+}
 
 thread_local! {
     static CHILDREN: RefCell<Memo<Key, Children>> = RefCell::new(Memo::default());
@@ -130,6 +194,27 @@ pub struct MeasureCache {
 }
 
 impl MeasureCache {
+    /// Replace changed controls in place and retain measurements of untouched subtrees.
+    pub fn update_tree(&mut self, tree: &mut ResolvedControl, next: ResolvedControl) {
+        let mut dirty = HashSet::new();
+        if !super::refresh::update(tree, next, &mut dirty) {
+            return;
+        }
+        // The root moves into the render call; its cached address differs from `tree`.
+        dirty.insert(self.root);
+        if !self.suppressed.is_empty() {
+            *self = Self::default();
+            return;
+        }
+        self.children.retain(|key, _| !dirty.contains(&key.0));
+        self.natural.retain(|key, _| !dirty.contains(&key.0));
+        self.sizes.retain(|key, _| !dirty.contains(&key.0));
+        self.lengths.retain(|key, _| !dirty.contains(&key.0));
+        self.flags.retain(|key, _| !dirty.contains(key));
+        self.placed.retain(|key, _| !dirty.contains(&key.0));
+        self.roles.clear();
+    }
+
     fn swap(&mut self) {
         CHILDREN.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.children));
         NATURAL.with(|memo| std::mem::swap(&mut *memo.borrow_mut(), &mut self.natural));
@@ -354,6 +439,7 @@ pub(super) fn placed_children<'a>(
     parent: &'a ResolvedControl,
     rect: Rect,
     env: &LayoutEnv,
+    clip: Option<Rect>,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
     let key = (
         std::ptr::from_ref(parent).addr(),
@@ -367,7 +453,7 @@ pub(super) fn placed_children<'a>(
     let memoized = PLACED.with(|memo| {
         let memo = memo.borrow();
         memo.get(&key)
-            .map(|placed| placed.iter().map(shift).collect())
+            .map(|placed| placed.visible(clip, rect).iter().map(shift).collect())
     });
     if let Some(placed) = memoized {
         return placed;
@@ -377,7 +463,8 @@ pub(super) fn placed_children<'a>(
             .into_iter()
             .map(|(child, at)| (child_index(parent, child), at))
             .collect();
-    let placed = relative.iter().map(shift).collect();
+    let relative = Placements::new(relative, grid::is_grid(parent));
+    let placed = relative.visible(clip, rect).iter().map(shift).collect();
     PLACED.with(|memo| memo.borrow_mut().insert(key, relative));
     placed
 }
@@ -387,4 +474,54 @@ pub(super) fn child_index(parent: &ResolvedControl, child: &ResolvedControl) -> 
     let base = parent.children.as_ptr().addr();
     let size = std::mem::size_of::<ResolvedControl>().max(1);
     (std::ptr::from_ref(child).addr() - base) / size
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    /// Indexed clipping must retain tall earlier cells and original collection order.
+    #[test]
+    fn visible_rows_match_full_placement_culling() {
+        let children: Vec<_> = (0..60)
+            .map(|index| {
+                let height = if index == 2 { 80.0 } else { 10.0 };
+                (
+                    index,
+                    Rect::new(
+                        (index % 3) as f64 * 10.0,
+                        (index / 3) as f64 * 10.0,
+                        10.0,
+                        height,
+                    ),
+                )
+            })
+            .collect();
+        let reverse = Placements::new(children.iter().copied().rev().collect(), true);
+        assert!(reverse.rows.is_empty());
+        let placements = Placements::new(children, true);
+        let origin = Rect::new(2.0, -37.0, 30.0, 200.0);
+        for y in [0.0, 10.0, 32.0, 100.0, 250.0] {
+            let clip = Rect::new(0.0, y, 40.0, 24.0);
+            let visible = |items: &[(usize, Rect)]| {
+                items
+                    .iter()
+                    .filter_map(|(index, rect)| {
+                        let rect = Rect::new(rect.x + origin.x, rect.y + origin.y, rect.w, rect.h);
+                        (!super::super::disjoint(rect, clip)).then_some(*index)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                visible(placements.visible(Some(clip), origin)),
+                visible(&placements.children)
+            );
+        }
+        assert!(
+            placements
+                .visible(Some(Rect::new(0.0, 100.0, 40.0, 24.0)), origin)
+                .len()
+                < 15
+        );
+    }
 }

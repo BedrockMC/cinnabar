@@ -436,6 +436,32 @@ fn entry(name: &str) -> String {
     format!("§e{name}\n§7PRACTICE\n§eDESCRIPTION\n§7Practice {name} here")
 }
 
+/// The snapshot's Zeqa training fixture keeps the full second-line word before dots.
+#[test]
+fn training_labels_keep_practice_before_the_ellipsis() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    let Some(pack) = env_pack() else {
+        eprintln!("skipping: server pack absent");
+        return;
+    };
+    presentation.set_server_ui_pack(&pack);
+    let button = entry("BRIDGING");
+    let runtime = action_form("Training", &[&button]);
+    let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
+    let texts = drawn_texts(&nodes);
+    assert!(
+        texts.iter().any(|text| text.contains("PRACTICE...")),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|text| text.contains("PRACTIC...")),
+        "{texts:?}"
+    );
+}
+
 // Writes PNG snapshots of pack forms for visual inspection (local only).
 #[test]
 fn snapshot_pack_forms() {

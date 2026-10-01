@@ -11,7 +11,7 @@ use json_ui::{
     BindState, BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context,
     DataSource, FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl,
     Sidebar, Timed, ViewState, bind_stateful, hud_clocks, hud_context, hud_data_source,
-    render_bound, resolve,
+    render_bound_cached, resolve,
 };
 use ui::{TimedText, UiNode};
 
@@ -65,6 +65,7 @@ pub(super) struct CachedScreen {
     /// The screen's live bindings across data refreshes.
     binding: BindState,
     laid: Option<Laid>,
+    measures: json_ui::MeasureCache,
     /// Bind+layout passes run, for cache tests and profiling.
     pub(super) passes: usize,
 }
@@ -72,7 +73,7 @@ pub(super) struct CachedScreen {
 struct Laid {
     reference: String,
     catalog: Arc<Catalog>,
-    data: DataSource,
+    data: Arc<DataSource>,
     view: ViewState,
     root: [f64; 2],
     px: f32,
@@ -86,11 +87,11 @@ impl CachedScreen {
         reference: &str,
         catalog: &Arc<Catalog>,
         context: &Context,
-        data: DataSource,
+        data: Arc<DataSource>,
         at: ([f64; 2], f32),
         env: &json_ui::LayoutEnv,
     ) -> Option<&FormRender> {
-        self.render_with(
+        self.render_shared_with(
             reference,
             catalog,
             context,
@@ -113,12 +114,35 @@ impl CachedScreen {
         env: &json_ui::LayoutEnv,
         view: &ViewState,
     ) -> Option<&FormRender> {
+        self.render_shared_with(
+            reference,
+            catalog,
+            context,
+            Arc::new(data),
+            (root, px),
+            env,
+            view,
+        )
+    }
+
+    /// Reuse a controller revision without cloning or comparing all its bags.
+    #[allow(clippy::too_many_arguments)]
+    fn render_shared_with(
+        &mut self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+        data: Arc<DataSource>,
+        (root, px): ([f64; 2], f32),
+        env: &json_ui::LayoutEnv,
+        view: &ViewState,
+    ) -> Option<&FormRender> {
         let fresh = self.laid.as_ref().is_some_and(|laid| {
             laid.reference == reference
                 && Arc::ptr_eq(&laid.catalog, catalog)
                 && laid.root == root
                 && laid.px == px
-                && laid.data == data
+                && (Arc::ptr_eq(&laid.data, &data) || laid.data == data)
                 && laid.view == *view
         });
         if !fresh {
@@ -141,12 +165,24 @@ impl CachedScreen {
                 library: CatalogLibrary { catalog, context },
                 cache: &self.library,
             };
-            let bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
+            let mut bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
+            if current
+                && self
+                    .laid
+                    .as_ref()
+                    .is_some_and(|laid| laid.root == root && laid.px == px)
+            {
+                let mut previous = self.laid.take()?.render.bound;
+                self.measures.update_tree(&mut previous, bound);
+                bound = previous;
+            } else {
+                self.measures = json_ui::MeasureCache::default();
+            }
             self.passes += 1;
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
-                render: render_bound(bound, root, env, view),
+                render: render_bound_cached(bound, root, env, view, &mut self.measures),
                 data,
                 view: view.clone(),
                 root,
@@ -168,6 +204,8 @@ pub(super) struct HudScreens {
     pub(super) loading: CachedScreen,
     /// This frame's fade clocks (title, action bar, item name).
     clocks: std::collections::BTreeMap<String, f64>,
+    model: Option<HudModel>,
+    data: Arc<DataSource>,
 }
 
 impl UiPresentationRuntime {
@@ -191,16 +229,20 @@ impl UiPresentationRuntime {
         frame.now_millis = now_millis;
         let mut icons = Vec::new();
         let data = if crosshair {
-            self.form_presentation.hud.clocks.clear();
-            DataSource::new()
+            Arc::default()
         } else {
             let sidebar = self
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
                 .map(sidebar_model);
             let model = hud_model(runtime, &frame, sidebar, &mut icons);
-            self.form_presentation.hud.clocks = hud_clocks(&model);
-            hud_data_source(&model)
+            let hud = &mut self.form_presentation.hud;
+            hud.clocks = hud_clocks(&model);
+            if hud.model.as_ref() != Some(&model) {
+                hud.data = Arc::new(hud_data_source(&model));
+                hud.model = Some(model);
+            }
+            Arc::clone(&hud.data)
         };
         self.form_presentation
             .hud

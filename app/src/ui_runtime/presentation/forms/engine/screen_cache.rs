@@ -4,10 +4,7 @@
 //! which only re-bind and re-lay out, and a screen about to open (Settings from
 //! the start screen) is laid out on a background thread ahead of time.
 
-use std::{
-    sync::{Arc, Condvar, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 
 use json_ui::{Catalog, Context, DataSource, FormRender, ResolvedControl, ViewState};
 
@@ -80,8 +77,8 @@ pub(super) struct ScreenCache {
     /// Shared with preparing threads.
     laid: Arc<Mutex<Vec<Entry>>>,
     resolved: Arc<Mutex<Vec<Resolved>>>,
-    /// The screen a preparing thread is laying out; notified when it finishes.
-    preparing: Arc<(Mutex<Option<&'static str>>, Condvar)>,
+    /// The screen a worker is preparing; cleared when the worker finishes.
+    preparing: Arc<Mutex<Option<&'static str>>>,
     /// Each screen's live bindings across data refreshes.
     bindings: Mutex<Vec<Bound>>,
 }
@@ -109,7 +106,9 @@ impl ScreenCache {
             entries.push(entry);
             return Some(render);
         }
+        drop(entries);
         let rendered = Arc::new(render()?);
+        let mut entries = lock(&self.laid);
         if entries.len() >= SLOTS {
             entries.remove(0);
         }
@@ -134,7 +133,6 @@ impl ScreenCache {
         key: ScreenKey<'_>,
         env: &json_ui::LayoutEnv,
     ) -> Option<Arc<FormRender>> {
-        self.await_preparation(&key);
         let (reference, catalog, context, data, view, root) = (
             key.reference,
             key.catalog,
@@ -193,11 +191,11 @@ impl ScreenCache {
     }
 
     /// A cache already resolving the settings screen on a background thread,
-    /// which its preparation or an early open then waits for.
+    /// while the UI continues to draw its current screen.
     pub(super) fn resolving_settings(catalog: &Arc<Catalog>) -> Self {
         let (reference, context) = super::super::menu_screens::settings_target();
         let cache = Self::default();
-        *lock(&cache.preparing.0) = Some(reference);
+        *lock(&cache.preparing) = Some(reference);
         let (resolved, preparing, catalog) = (
             Arc::clone(&cache.resolved),
             Arc::clone(&cache.preparing),
@@ -209,34 +207,20 @@ impl ScreenCache {
                 resolved_in(&resolved, reference, &catalog, &context, || {
                     json_ui::resolve(&catalog, reference, &context).control
                 });
-                *lock(&preparing.0) = None;
-                preparing.1.notify_all();
+                *lock(&preparing) = None;
             });
         if spawned.is_err() {
-            *lock(&cache.preparing.0) = None;
+            *lock(&cache.preparing) = None;
         }
         cache
     }
 
-    /// On a miss for the screen a thread is preparing, waits for it: finishing
-    /// that is never slower than laying the screen out again here.
-    fn await_preparation(&self, key: &ScreenKey<'_>) {
-        let (flag, done) = &*self.preparing;
-        let running = lock(flag);
-        if *running == Some(key.reference)
-            && !lock(&self.laid).iter().any(|entry| entry.matches(key))
-        {
-            let wait = Duration::from_secs(2);
-            let _ = done.wait_timeout_while(running, wait, |running| running.is_some());
-        }
-    }
-
     /// Resolve, bind and lay out `screen` on a background thread so opening it
-    /// later is a cache hit; one preparation runs at a time.
-    pub(super) fn prepare(&self, screen: Prepared, engine: &super::FormEngine) {
+    /// later is a cache hit; returns false while its requested layout is pending.
+    pub(super) fn prepare(&self, screen: Prepared, engine: &super::FormEngine) -> bool {
         // Only a no-pack catalog lays out identically off the frame.
         if !Arc::ptr_eq(&engine.catalog, &engine.base) {
-            return;
+            return true;
         }
         let key = ScreenKey {
             reference: screen.reference,
@@ -249,11 +233,11 @@ impl ScreenCache {
             text: screen.language,
         };
         if lock(&self.laid).iter().any(|entry| entry.matches(&key)) {
-            return;
+            return true;
         }
-        let mut preparing = lock(&self.preparing.0);
+        let mut preparing = lock(&self.preparing);
         if preparing.is_some() {
-            return;
+            return false;
         }
         *preparing = Some(screen.reference);
         drop(preparing);
@@ -269,8 +253,10 @@ impl ScreenCache {
             .name("screen-prepare".to_owned())
             .spawn(move || detached.lay_out(screen));
         if spawned.is_err() {
-            *lock(&self.preparing.0) = None;
+            *lock(&self.preparing) = None;
+            return true;
         }
+        false
     }
 
     /// The resolved tree of `reference` under `context`, else `resolve()`'s;
@@ -341,7 +327,7 @@ struct Detached {
     textures: super::TextureSet,
     laid: Arc<Mutex<Vec<Entry>>>,
     resolved: Arc<Mutex<Vec<Resolved>>>,
-    preparing: Arc<(Mutex<Option<&'static str>>, Condvar)>,
+    preparing: Arc<Mutex<Option<&'static str>>>,
 }
 
 impl Detached {
@@ -396,8 +382,7 @@ impl Detached {
                 render: Arc::new(render),
             });
         }
-        *lock(&self.preparing.0) = None;
-        self.preparing.1.notify_all();
+        *lock(&self.preparing) = None;
     }
 }
 

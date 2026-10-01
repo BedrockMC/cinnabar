@@ -23,6 +23,7 @@ use crate::widgets;
 mod grid;
 mod measure;
 mod place;
+mod refresh;
 mod scroll;
 mod size;
 mod stack;
@@ -150,7 +151,22 @@ pub fn layout_with<'a>(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
+    measure::reset();
     lay_out(root, root_size, env, state, false)
+}
+
+/// Lay out a stable bound tree using retained measurements, with ordinary visibility.
+pub(crate) fn layout_cached<'a>(
+    root: &'a ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    cache: &mut MeasureCache,
+) -> (LaidOut<'a>, LayoutReport) {
+    cache.enter(root);
+    let laid = lay_out(root, root_size, env, state, false);
+    cache.leave();
+    laid
 }
 
 /// [`layout_with`] over `cache`'s measurements that omits hidden controls'
@@ -177,9 +193,6 @@ fn lay_out<'a>(
     state: &ViewState,
     cull: bool,
 ) -> (LaidOut<'a>, LayoutReport) {
-    if !cull {
-        measure::reset();
-    }
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = size::resolve_size(root, [Some(screen.w), Some(screen.h)], [0.0; 2], env);
     let rect = place_by_anchor(root, screen, own, [0.0; 2], env);
@@ -334,7 +347,20 @@ fn place_subtree<'a>(
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
-        measure::placed_children(control, rect, ctx.env)
+        let indexed_clip = (ctx.cull
+            && grid::is_grid(control)
+            && dropdown.is_none()
+            && ctx.sliders.is_empty()
+            && ctx
+                .scrolls
+                .last()
+                .is_some_and(|frame| frame.metrics.is_some())
+            && !ctx
+                .scrolls
+                .iter()
+                .any(|frame| frame.adjusts_children(control)))
+        .then_some(child_clip);
+        measure::placed_children(control, rect, ctx.env, indexed_clip)
     };
     let placed_rects: Vec<(&str, Rect)> = match &dropdown {
         Some(_) => placed

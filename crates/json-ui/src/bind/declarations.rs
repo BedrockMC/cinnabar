@@ -1,0 +1,62 @@
+//! Binding declarations belong to immutable templates, not data refreshes.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
+
+use super::{Binding, Src, spec};
+use crate::tree::ResolvedControl;
+
+/// Parsed bindings and creation diagnostics shared by template instances.
+pub(super) struct Declaration {
+    pub(super) bindings: Arc<Vec<Binding>>,
+    pub(super) diagnostics: Vec<String>,
+    pub(super) observes_scroll: bool,
+}
+
+struct Entry {
+    owner: Weak<ResolvedControl>,
+    declaration: Arc<Declaration>,
+}
+
+/// Bound the cache across screen and pack replacements.
+const MAX_DECLARATIONS: usize = 4096;
+
+thread_local! {
+    static CACHE: RefCell<HashMap<usize, Entry>> = RefCell::new(HashMap::new());
+}
+
+/// Parse a template once while its owning immutable tree stays alive.
+pub(super) fn get(src: &Src) -> Arc<Declaration> {
+    let control = src.get();
+    let key = control as *const ResolvedControl as usize;
+    CACHE.with(|cache| {
+        if let Some(entry) = cache.borrow().get(&key)
+            && entry.owner.as_ptr() == Arc::as_ptr(src.owner())
+        {
+            return Arc::clone(&entry.declaration);
+        }
+        let mut diagnostics = Vec::new();
+        let bindings = Arc::new(spec::parse(control, &mut diagnostics));
+        let declaration = Arc::new(Declaration {
+            observes_scroll: spec::observes_scroll(control, &bindings),
+            bindings,
+            diagnostics,
+        });
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= MAX_DECLARATIONS {
+            cache.retain(|_, entry| entry.owner.strong_count() != 0);
+            if cache.len() >= MAX_DECLARATIONS {
+                cache.clear();
+            }
+        }
+        cache.insert(
+            key,
+            Entry {
+                owner: Arc::downgrade(src.owner()),
+                declaration: Arc::clone(&declaration),
+            },
+        );
+        declaration
+    })
+}

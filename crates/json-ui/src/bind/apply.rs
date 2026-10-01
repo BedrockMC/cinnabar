@@ -115,7 +115,7 @@ impl Binder<'_> {
         answer: impl Fn(&str) -> Option<Scalar>,
     ) {
         let strict = self.data.strict;
-        for (rank, property) in source.properties().into_iter().enumerate() {
+        for (rank, property) in source.properties().enumerate() {
             let target = if rename.is_empty() { property } else { rename };
             match answer(property) {
                 Some(value) => {

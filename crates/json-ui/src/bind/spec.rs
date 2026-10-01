@@ -50,13 +50,12 @@ pub(super) enum Source {
 
 impl Source {
     /// The `#name`s a binding queries, in order.
-    pub(super) fn properties(&self) -> Vec<&str> {
-        match self {
-            Source::Simple(name) => vec![name.as_str()],
-            Source::Expression { properties, .. } => {
-                properties.iter().map(String::as_str).collect()
-            }
-        }
+    pub(super) fn properties(&self) -> impl Iterator<Item = &str> {
+        let names = match self {
+            Source::Simple(name) => std::slice::from_ref(name),
+            Source::Expression { properties, .. } => properties.as_slice(),
+        };
+        names.iter().map(String::as_str)
     }
 }
 
@@ -296,4 +295,24 @@ fn property_evaluation(value: Option<&Value>) -> Option<Source> {
         }
     }
     None
+}
+
+/// Whether layout feedback can change this control's bound values.
+pub(super) fn observes_scroll(control: &ResolvedControl, bindings: &[Binding]) -> bool {
+    let is_scroll = |name: &str| {
+        matches!(
+            name,
+            "#scrolled_to_end" | "#scrollbar_hit_bottom" | "#scroll_bar_visible"
+        )
+    };
+    control
+        .properties
+        .values()
+        .any(|value| value.as_str().is_some_and(is_scroll))
+        || bindings.iter().any(|binding| match &binding.kind {
+            Kind::Global { source, .. }
+            | Kind::Collection { source, .. }
+            | Kind::View { source, .. } => source.properties().any(is_scroll),
+            Kind::Details { .. } => false,
+        })
 }

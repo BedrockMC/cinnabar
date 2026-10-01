@@ -315,9 +315,9 @@ impl FormEngine {
         &self.assets
     }
 
-    /// Lay `screen` out in the background ahead of its first open.
-    pub(super) fn prepare(&self, screen: screen_cache::Prepared) {
-        self.screens.prepare(screen, self);
+    /// Lay `screen` out off-thread; false keeps the previous screen visible until ready.
+    pub(super) fn prepare(&self, screen: screen_cache::Prepared) -> bool {
+        self.screens.prepare(screen, self)
     }
 
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {

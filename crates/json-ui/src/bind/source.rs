@@ -24,6 +24,11 @@ pub(super) struct Patch {
 }
 
 impl Src {
+    /// The immutable tree that owns this control's template.
+    pub(super) fn owner(&self) -> &Arc<ResolvedControl> {
+        &self.tree
+    }
+
     pub(super) fn root(tree: Arc<ResolvedControl>) -> Self {
         Self {
             tree,

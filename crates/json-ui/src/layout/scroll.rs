@@ -95,7 +95,7 @@ fn locate<'a>(
     let mut parent = rect;
     for &index in path {
         let child = node.children.get(index)?;
-        let placed = measure::placed_children(node, at, env);
+        let placed = measure::placed_children(node, at, env, None);
         let (_, child_rect) = placed
             .into_iter()
             .find(|(placed, _)| std::ptr::eq(*placed, child))?;
@@ -141,6 +141,16 @@ pub(crate) struct ScrollFrame {
 }
 
 impl ScrollFrame {
+    /// Whether a direct child still needs a scroll-role transform before culling.
+    pub(super) fn adjusts_children(&self, parent: &ResolvedControl) -> bool {
+        let start = parent.children.as_ptr().addr();
+        let end = start + std::mem::size_of_val(parent.children.as_slice());
+        [self.content, self.bar_box, self.panel]
+            .into_iter()
+            .flatten()
+            .any(|address| address >= start && address < end)
+    }
+
     /// Solve `view`'s scroll geometry within `rect`.
     pub fn open(
         view: &ResolvedControl,
