@@ -33,13 +33,50 @@ impl TextureSource for FixedTextures {
     }
 }
 
+/// Every `ui/*.json` file under `root`, keyed by its pack-relative path.
+fn pack_files(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if let (Ok(relative), Ok(bytes)) =
+                (path.strip_prefix(root), std::fs::read(&path))
+            {
+                let relative = relative.to_string_lossy().replace('\\', "/");
+                if relative.starts_with("ui/") && relative.ends_with(".json") {
+                    out.push((relative, bytes));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[test]
 #[ignore = "benchmark; needs the local vanilla UI templates"]
 fn frame_cost_bench_changing_hud_bind_layout() {
+    run_hud_bench("changing_hud", None);
+}
+
+/// `CINNABAR_HUD_PACK` names an unpacked server resource pack whose `ui/` overlays the HUD.
+#[test]
+#[ignore = "benchmark; needs the local vanilla UI templates and an unpacked server pack"]
+fn frame_cost_bench_server_pack_hud() {
+    let Some(pack) = std::env::var_os("CINNABAR_HUD_PACK") else {
+        eprintln!("FRAME_COST server_pack_hud: skipped, CINNABAR_HUD_PACK is unset");
+        return;
+    };
+    run_hud_bench("server_pack_hud", Some(PathBuf::from(pack)));
+}
+
+fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let vanilla = support::vanilla_pack().join("ui");
     if !vanilla.is_dir() {
-        eprintln!("FRAME_COST changing_hud: skipped, no local vanilla templates");
+        eprintln!("FRAME_COST {name}: skipped, no local vanilla templates");
         return;
     }
     let mut catalog = Catalog::load_dir(&vanilla).unwrap();
@@ -53,6 +90,14 @@ fn frame_cost_bench_changing_hud_bind_layout() {
         })
         .collect();
     catalog.apply_pack(java.iter().map(|(path, bytes)| (*path, bytes.as_slice())));
+    if let Some(pack) = &server_pack {
+        let files = pack_files(pack);
+        catalog.apply_pack(
+            files
+                .iter()
+                .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+        );
+    }
     let context = hud_context(&Context::desktop());
     let started = Instant::now();
     let tree = Arc::new(resolve(&catalog, HUD_SCREEN, &context).control.unwrap());
@@ -103,6 +148,10 @@ fn frame_cost_bench_changing_hud_bind_layout() {
     const FRAMES: u32 = 200;
     for frame in 0..=FRAMES {
         model.boss_bars[0].progress = f64::from(frame % 100) / 100.0;
+        model.actionbar = Some(Timed {
+            text: format!("Online: {} | Ping: {}ms", 200 + frame % 7, 40 + frame % 13),
+            born: f64::from(frame),
+        });
         let data = hud_data_source(&model);
         let started = Instant::now();
         let bound = bind_shared(&tree, &data, &library);
@@ -120,7 +169,7 @@ fn frame_cost_bench_changing_hud_bind_layout() {
         }
     }
     eprintln!(
-        "FRAME_COST changing_hud: cold_resolve={:.3}ms bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
+        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
         cold_resolve.as_secs_f64() * 1e3,
         (bind_time / FRAMES).as_secs_f64() * 1e3,
         (layout_time / FRAMES).as_secs_f64() * 1e3,

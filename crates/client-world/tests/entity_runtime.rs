@@ -12,9 +12,9 @@ use assets::{
     RuntimeAssets, RuntimeEntityAssets, encode_entity_blob,
 };
 use client_world::{
-    MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
-    MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
-    WorldStream,
+    ActorAnimationView, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
+    MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
+    MAX_RUNTIME_BONES_PER_RIG, WorldStream,
 };
 use protocol::{
     ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
@@ -465,8 +465,36 @@ fn missing_required_rig_produces_no_stale_snapshot() {
         .submit(1, WorldEvent::Actor(ActorEvent::Spawn(missing)))
         .unwrap();
     assert!(stream.actor_rig(77).is_none());
-    assert!(stream.actor_rigs().is_empty());
+    assert!(stream.actor_rigs().next().is_none());
     assert_eq!(stream.actor_animation_stats().unrigged_spawns, 1);
+}
+
+/// An actor outside the animation view holds its pose; back in view it resumes from its new
+/// pose without blending from the held one.
+#[test]
+fn rigs_outside_the_animation_view_hold_their_pose_and_resume_unblended() {
+    let mut stream = stream(EntityRigFallback::Skip);
+    stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
+    stream.advance_actor_interpolation_ticks(2);
+    let held = stream.actor_rig(42).unwrap().current.to_vec();
+    stream.set_actor_animation_view(Some(ActorAnimationView {
+        planes: [[1.0, 0.0, 0.0, -100.0]; 6],
+        camera: [0.0, 64.0, 0.0],
+        player_distance: 192.0,
+        entity_radius: 72.0,
+    }));
+    stream.advance_actor_interpolation_ticks(5);
+    let rig = stream.actor_rig(42).unwrap();
+    assert_eq!(
+        (rig.previous, rig.current),
+        (held.as_slice(), held.as_slice())
+    );
+
+    stream.set_actor_animation_view(None);
+    stream.advance_actor_interpolation_ticks(1);
+    let rig = stream.actor_rig(42).unwrap();
+    assert_ne!(rig.current, held.as_slice());
+    assert_eq!(rig.previous, rig.current);
 }
 
 #[test]
@@ -531,7 +559,7 @@ fn dimension_change_drops_rig_palettes_without_stale_publication() {
         .unwrap();
 
     assert!(stream.actor_rig(42).is_none());
-    assert!(stream.actor_rigs().is_empty());
+    assert!(stream.actor_rigs().next().is_none());
 }
 
 #[test]

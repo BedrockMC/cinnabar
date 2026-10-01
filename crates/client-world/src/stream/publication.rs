@@ -183,6 +183,10 @@ impl WorldStream {
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);
     }
+    /// Sets the view outside which rigs hold their pose at each tick; `None` animates all.
+    pub fn set_actor_animation_view(&mut self, view: Option<crate::ActorAnimationView>) {
+        self.actors.set_animation_view(view);
+    }
     /// Sets the view's world position that camera-relative queries sample per tick.
     pub fn set_actor_camera_position(&mut self, position: [f32; 3]) {
         self.actors.set_camera_position(position);
@@ -238,7 +242,7 @@ impl WorldStream {
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
-    pub fn actor_rigs(&self) -> Vec<ActorRigSnapshot<'_>> {
+    pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
     }
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {

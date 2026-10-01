@@ -279,9 +279,8 @@ fn render_first_person_held_item_frames() {
         let frame = builder.build(1.0, None, [presentation.submission.clone()]);
         let instance = frame.instances[0];
         let span = frame.geometry_spans[instance.geometry_id as usize];
-        let first = span.first_vertex as usize;
         let body = if third {
-            &frame.geometry_vertices[first..first + span.vertex_count as usize]
+            frame.geometry_vertices.span(span).unwrap_or_default()
         } else {
             &[][..]
         };

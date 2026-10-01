@@ -102,6 +102,13 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
+    /// These actors animate their full yaw through the target-rotation queries.
+    #[must_use]
+    pub fn target_rotation_is_absolute(&self) -> bool {
+        matches!(&self.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+            "minecraft:arrow" | "minecraft:fireworks_rocket" | "minecraft:wither_skull" | "minecraft:wither_skull_dangerous"))
+    }
+
     /// The render position `alpha` of the way from the previous tick's pose to the current one,
     /// or `None` when a component is not finite.
     #[must_use]
@@ -562,6 +569,8 @@ pub(crate) struct ActorStore {
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
     camera_position: [f32; 3],
+    /// Rigs outside this view hold their pose instead of animating.
+    animation_view: Option<crate::actor_animation::ActorAnimationView>,
     /// Seat layouts for mounts whose riders stream no seat offset.
     seat_defaults: std::sync::Arc<SeatDefaults>,
     property_registry: properties::PropertyRegistry,
@@ -577,6 +586,7 @@ mod hurt;
 mod lifecycle;
 mod lightning;
 mod placement;
+mod projectile;
 pub(crate) mod properties;
 mod query;
 
@@ -621,3 +631,6 @@ mod local_tests;
 mod riding_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod projectile_tests;
