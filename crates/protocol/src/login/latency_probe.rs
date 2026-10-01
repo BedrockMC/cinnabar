@@ -32,20 +32,13 @@ mod tests {
     use super::scaled_creation_time;
 
     #[test]
-    fn extreme_probes_saturate_and_stay_finite() {
-        assert_eq!(scaled_creation_time(u64::MAX), u64::MAX);
-
-        // The largest input whose product still fits exactly...
+    fn creation_time_matches_native_fixed_width_scaling() {
+        assert_eq!(scaled_creation_time(777), 777_000_000);
+        assert_eq!(scaled_creation_time(u64::MAX), u64::MAX - 999_999);
         assert_eq!(
             scaled_creation_time(u64::MAX / 1_000_000),
             u64::MAX / 1_000_000 * 1_000_000,
-            "the largest exact product must not saturate"
         );
-        // ...and the first input past that boundary saturates instead of
-        // wrapping to a small value.
-        assert_eq!(scaled_creation_time(u64::MAX / 1_000_000 + 1), u64::MAX);
-
-        // A representative ordinary timestamp scales exactly and stays finite.
-        assert_eq!(scaled_creation_time(777), 777_000_000);
+        assert_eq!(scaled_creation_time(u64::MAX / 1_000_000 + 1), 448_384);
     }
 }

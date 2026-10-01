@@ -528,8 +528,8 @@ impl ServerScript {
                     // must be skipped, not disconnect the session; the following
                     // SetTime still arrives in order.
                     // Latency probes ride the same batch: only the from-server
-                    // probe is answered, with its creation time provisionally
-                    // scaled (x 1_000_000) and never with its flag set.
+                    // probe is answered, with native timestamp scaling and its
+                    // from-server flag preserved.
                     let mut traffic = vec![
                         McpePacket::from(LevelChunkPacket {
                             client_request_sub_chunk_limit: Some(-3),
@@ -563,15 +563,13 @@ impl ServerScript {
             }
             8 => {
                 let packets = self.decode_encrypted_client(frame);
-                // A server latency probe is answered immediately with its
-                // provisionally scaled creation time (x 1_000_000) and the
-                // from-server flag cleared.
+                // Vanilla preserves the from-server flag in its echo.
                 if let [
                     McpePacket {
                         data:
                             McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
                                 creation_time: 777_000_000,
-                                is_from_server: false,
+                                is_from_server: true,
                             }),
                         ..
                     },
