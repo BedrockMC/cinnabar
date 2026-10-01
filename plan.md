@@ -3,6 +3,16 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 modding: Cinnabar extension, disabled by default. The developer-only
+WASM component spike exposes a bounded JSON-UI label and local demo keybind,
+with fuel/memory limits, trap quarantine and transactional hot reload. This is
+not vanilla behavior and closes no parity gate. Incomplete: process isolation,
+compiler quotas, package permissions/signatures, server policy negotiation,
+multi-mod lifecycle, production API stability and native visual/performance
+acceptance. Only explicitly selected local developer components are supported;
+do not treat this as admission for untrusted downloaded mods. See
+`docs/modding-spike.md` for the executable sample and offline evidence harness.
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
