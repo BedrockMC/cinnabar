@@ -11,7 +11,7 @@ long side-menu label to fit are approximations (no OreUI stylesheet on hand), an
 unbacked settings originally showed fixed host values; their vanilla defaults were
 not established by the pack binding names. See the settings audit below.
 
-2026-10-01 settings audit — incomplete (`P5.8-SETTINGS` remains open):
+2026-10-01 settings audit — incomplete (the Settings completion gate remains open):
 
 - The legacy desktop host includes migrated JSON tabs. Selector controls use the
   pack's 30px height, without its optional 25px spatial-pattern spacer. The current
