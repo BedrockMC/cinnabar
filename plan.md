@@ -3577,3 +3577,11 @@ opacity and HUD text-background opacity. Focus-loss pause reads its saved settin
 explicit pause-menu state remains authoritative. These are runtime adapters, not a
 closed visual or numeric-default parity gate.
 
+
+Desktop continuation also wires section reset confirmations (Video, Accessibility and
+Audio), each using the existing option registry; spyglass turn scaling, secondary
+Enter for Chat until that binding is remapped, notification duration and the Creator
+chat coordinate copy/paste header. These changes remain incomplete parity until the
+full gates and rendered evidence pass. Registered provisional defaults remain
+provisional after a reset; a working consumer does not establish a vanilla default.
+

@@ -3,8 +3,8 @@
 use super::{
     SettingsOptions,
     control_bindings::{
-        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, decode_control,
-        encode_control, is_gamepad,
+        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, SECONDARY_KEYS,
+        decode_control, encode_control, is_gamepad,
     },
 };
 use semantic_input::{Action, ControlSettings, InputContext, PhysicalControl};
@@ -85,6 +85,15 @@ impl SettingsOptions {
         self.key_control(index)
     }
 
+    /// Keeps vanilla secondary defaults until a remap replaces the complete key list.
+    pub(super) fn secondary_key_control(&self, name: &str) -> Option<PhysicalControl> {
+        // R:k/KeyboardRemappingLayout.cpp:85–87 replaces the list with one captured key.
+        SECONDARY_KEYS
+            .iter()
+            .find(|(label, _)| *label == name && !self.keys.contains_key(name))
+            .map(|(_, control)| *control)
+    }
+
     /// Restores one device's full layout without disturbing bindings on the other device.
     pub(crate) fn reset_bindings(&mut self, gamepad: bool) {
         self.keys
@@ -127,9 +136,13 @@ impl SettingsOptions {
         } else {
             0..KEY_BINDINGS.len() + EXTRA_KEYS.len()
         };
-        indices
-            .into_iter()
-            .any(|other| other != index && self.key_control(other) == Some(control))
+        indices.into_iter().any(|other| {
+            other != index
+                && (self.key_control(other) == Some(control)
+                    || self.binding(other).is_some_and(|(name, _, _)| {
+                        self.secondary_key_control(&name) == Some(control)
+                    }))
+        })
     }
 
     /// Restores one action's default control while preserving other remaps.
@@ -141,6 +154,9 @@ impl SettingsOptions {
         if (self.controls().is_err()
             || self
                 .key_control(index)
+                .is_some_and(|control| self.binding_conflicts(index, control))
+            || self
+                .secondary_key_control(&name)
                 .is_some_and(|control| self.binding_conflicts(index, control)))
             && let Some(previous) = previous
         {

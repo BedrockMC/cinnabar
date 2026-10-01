@@ -62,6 +62,7 @@ pub(crate) fn publish_ui_runtime(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
+    runtime.toast_display_millis = menu_runtime.settings_snapshot().0.toast_lifetime_millis();
     let Ok(window) = windows.single() else {
         hand.clear();
         return;

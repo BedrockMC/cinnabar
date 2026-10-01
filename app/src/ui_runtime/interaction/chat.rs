@@ -12,6 +12,7 @@ pub(crate) fn drive_chat_ui_actions(
     wheel: Option<Res<AccumulatedMouseScroll>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
+    coordinates: super::chat_coordinates::ChatCoordinateContext,
     mut presentation: ResMut<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
@@ -40,6 +41,7 @@ pub(crate) fn drive_chat_ui_actions(
         return;
     }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    coordinates.publish(&runtime, &mut presentation);
     presentation.set_chat_pointer(pointer);
     if let Some(wheel) = wheel.as_deref()
         && wheel.delta.y != 0.0
@@ -72,6 +74,22 @@ pub(crate) fn drive_chat_ui_actions(
                 }
             }
             _ if presentation.chat_settings_open() => {}
+            Some(presentation::ChatHit::CoordinateDropdown) => {
+                presentation.select_chat_coordinates(None);
+            }
+            Some(presentation::ChatHit::CoordinateSource(facing)) => {
+                presentation.select_chat_coordinates(Some(facing));
+            }
+            Some(presentation::ChatHit::CopyCoordinates) => {
+                if let Some(text) = presentation.chat_coordinate_text()
+                    && PlatformClipboard.write_text(text).is_ok()
+                {
+                    presentation.chat_coordinates_copied(now_millis);
+                }
+            }
+            Some(presentation::ChatHit::Paste) => {
+                let _ = runtime.paste_chat_text(&mut PlatformClipboard);
+            }
             Some(presentation::ChatHit::Send) => {
                 dispatch_chat_ui_action(&mut runtime, UiAction::Accept, None, now_millis);
             }

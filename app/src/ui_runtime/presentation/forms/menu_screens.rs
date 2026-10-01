@@ -389,6 +389,9 @@ pub(super) fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::SettingsResetGroup(group) => {
+            return super::settings_reset::dialog_model(group, translate);
+        }
         MenuDialog::SettingsResetBindings(gamepad) => (
             translated(
                 translate,
@@ -598,6 +601,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             .or_else(|| super::settings_account::action(region))
             .or_else(|| super::settings_storage::action(region))
             .or_else(|| super::settings_support::action(region))
+            .or_else(|| super::settings_reset::action(view, region))
             .or_else(|| super::settings_keys::action(region))
             .or_else(|| super::settings_controls::action(view, region))
     {

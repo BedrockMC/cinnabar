@@ -7,7 +7,9 @@ mod definitions;
 mod keybindings;
 mod language;
 mod persistence;
+mod reset;
 mod runtime;
+pub(crate) use reset::SettingsGroup;
 #[cfg(test)]
 mod tests;
 

@@ -32,6 +32,10 @@ const MESSAGES_VIEW: &str = "messages_panel";
 pub(crate) enum ChatHit {
     Suggestion(usize),
     Send,
+    CopyCoordinates,
+    Paste,
+    CoordinateDropdown,
+    CoordinateSource(bool),
     Close,
     SettingsOpen,
     SettingsClose,
@@ -42,6 +46,7 @@ pub(crate) enum ChatHit {
 #[derive(Default)]
 pub(super) struct ChatScreen {
     pub(super) settings: super::settings_chat::ChatSettings,
+    pub(super) coordinates: super::chat_coordinates::ChatCoordinates,
     screen: CachedScreen,
     /// Window-logical hit rects and their layout keys, from the last frame.
     hits: Vec<(ChatHit, UiRect, String)>,
@@ -80,6 +85,11 @@ impl UiPresentationRuntime {
         chat.open = true;
         chat.messages = messages;
         let mut data = chat_data(runtime, now_millis, &chat.settings.options);
+        super::chat_coordinates::bind(chat, &mut data, now_millis, &|key| {
+            runtime
+                .translation(key)
+                .map_or_else(|| key.to_owned(), |value| value.to_string())
+        });
         super::settings_chat::bind(&chat.settings, &mut data, &|key| {
             runtime
                 .translation(key)
@@ -154,6 +164,7 @@ impl UiPresentationRuntime {
             }
             let hit = super::settings_chat::action(&chat.settings, region)
                 .map(ChatHit::SettingsAction)
+                .or_else(|| super::chat_coordinates::action(region))
                 .or_else(|| chat_hit(region));
             let Some(hit) = hit else {
                 continue;

@@ -12,6 +12,9 @@ pub(crate) const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
     ("key.screenshot", PhysicalControl::KeyboardUsage(0x3b)),
     ("key.fullscreen", PhysicalControl::KeyboardUsage(0x44)),
 ];
+// R:v/VanillaClientInputMappingFactory.cpp:6217–6235.
+pub(super) const SECONDARY_KEYS: &[(&str, PhysicalControl)] =
+    &[("key.chat", PhysicalControl::KeyboardUsage(0x28))];
 // R:v/VanillaClientInputMappingFactory.cpp:710,802,1094,1204.
 pub(crate) const EXTRA_GAMEPAD: &[(&str, Option<PhysicalControl>)] = &[
     ("key.inventory", Some(PhysicalControl::GamepadButton(2))),
@@ -103,8 +106,14 @@ pub(crate) fn binding_key(
     name: &str,
     key: bevy::prelude::KeyCode,
 ) -> bool {
-    crate::semantic_controls::keyboard_usage(key)
-        .is_some_and(|code| named_control(menu, name) == Some(PhysicalControl::KeyboardUsage(code)))
+    crate::semantic_controls::keyboard_usage(key).is_some_and(|code| {
+        let control = PhysicalControl::KeyboardUsage(code);
+        named_control(menu, name) == Some(control)
+            || menu.map_or_else(
+                || super::SettingsOptions::default().secondary_key_control(name),
+                |menu| menu.settings_options.secondary_key_control(name),
+            ) == Some(control)
+    })
 }
 
 /// Tests one configured keyboard or mouse action in the production device frame.
@@ -114,10 +123,13 @@ pub(crate) fn binding_pressed(
     keys: &bevy::prelude::ButtonInput<bevy::prelude::KeyCode>,
     mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
 ) -> bool {
+    if keys
+        .get_just_pressed()
+        .any(|key| binding_key(menu, name, *key))
+    {
+        return true;
+    }
     match named_control(menu, name) {
-        Some(PhysicalControl::KeyboardUsage(code)) => keys
-            .get_just_pressed()
-            .any(|key| crate::semantic_controls::keyboard_usage(*key) == Some(code)),
         Some(PhysicalControl::MouseButton(code)) => mouse.get_just_pressed().any(|button| {
             crate::semantic_controls::physical::mouse_button_code(*button) == Some(code)
         }),

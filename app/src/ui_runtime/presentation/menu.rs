@@ -519,6 +519,11 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
+        MenuDialog::SettingsResetGroup(group) => (
+            "Reset to Default",
+            "Do you really want to reset the settings?",
+            MenuAction::SettingsConfirmResetGroup(group),
+        ),
         MenuDialog::SettingsResetBindings(gamepad) => (
             "Reset to Default",
             "Reset all bindings to their defaults?",

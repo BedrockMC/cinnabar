@@ -250,6 +250,44 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
 }
 
 #[test]
+fn chat_secondary_default_obeys_remapping_and_reset_conflicts() {
+    use super::{EXTRA_KEYS, binding_key, binding_pressed};
+    use bevy::prelude::{ButtonInput, KeyCode};
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
+    let chat = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.chat")
+            .unwrap();
+    let inventory = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.inventory")
+            .unwrap();
+    let enter = PhysicalControl::KeyboardUsage(0x28);
+    let mut keys = ButtonInput::default();
+    keys.press(KeyCode::Enter);
+    assert!(binding_key(Some(&menu), "key.chat", KeyCode::KeyT));
+    assert!(binding_pressed(
+        Some(&menu),
+        "key.chat",
+        &keys,
+        &ButtonInput::default()
+    ));
+    let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
+    assert!(!settings.remap(inventory, enter));
+    assert!(settings.remap(chat, PhysicalControl::KeyboardUsage(0x1c)));
+    assert!(settings.remap(inventory, enter));
+    assert!(!settings.reset_key(chat));
+    assert!(!binding_key(Some(&menu), "key.chat", KeyCode::Enter));
+    assert!(binding_key(Some(&menu), "key.chat", KeyCode::KeyY));
+    let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
+    assert!(settings.reset_key(inventory));
+    assert!(settings.reset_key(chat));
+    assert!(binding_key(Some(&menu), "key.chat", KeyCode::Enter));
+}
+
+#[test]
 fn resetting_a_ui_key_preserves_remaps_when_its_default_was_reassigned() {
     use super::EXTRA_KEYS;
     let mut settings = SettingsOptions::default();
@@ -352,5 +390,20 @@ fn controller_swaps_agree_between_display_capture_router_and_menu() {
             .any(|binding| binding.action == semantic_input::Action::Jump
                 && binding.context == InputContext::Gameplay
                 && binding.chord.control == PhysicalControl::GamepadButton(2))
+    );
+}
+
+#[test]
+fn spyglass_damping_uses_the_selected_desktop_input_mode() {
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Spyglass".to_owned());
+    menu.set_option(index("spyglass_mouse_dampening") as u16, 25);
+    menu.set_option(index("spyglass_gamepad_dampening") as u16, 75);
+    assert_eq!(
+        menu.spyglass_damping(semantic_input::InputMode::KeyboardMouse),
+        0.25
+    );
+    assert_eq!(
+        menu.spyglass_damping(semantic_input::InputMode::GamePad),
+        0.75
     );
 }

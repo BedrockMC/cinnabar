@@ -130,10 +130,20 @@ impl SettingsOptions {
 
     /// Matches the three authored notification-duration radio choices.
     pub(crate) fn chat_lifetime(&self) -> f64 {
-        match self.value("chat_message_duration") {
-            0 => 3.0,
-            2 => 30.0,
-            _ => 10.0,
-        }
+        notification_millis(self.value("chat_message_duration")) as f64 / 1_000.0
+    }
+
+    /// Uses the pack's three toast-duration choices for new notification requests.
+    pub(crate) fn toast_lifetime_millis(&self) -> u64 {
+        notification_millis(self.value("toast_notification_duration"))
+    }
+}
+
+/// Both notification menus author the same three duration choices.
+fn notification_millis(index: i32) -> u64 {
+    match index {
+        1 => 10_000,
+        2 => 30_000,
+        _ => ui::TOAST_DISPLAY_MILLIS,
     }
 }

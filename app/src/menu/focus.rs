@@ -44,6 +44,10 @@ impl MenuRuntime {
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
         if let Some(dialog) = self.dialog {
             return match dialog {
+                MenuDialog::SettingsResetGroup(group) => vec![
+                    MenuAction::SettingsConfirmResetGroup(group),
+                    MenuAction::DismissDialog,
+                ],
                 MenuDialog::SettingsResetBindings(gamepad) => vec![
                     MenuAction::SettingsConfirmResetBindings(gamepad),
                     MenuAction::DismissDialog,
