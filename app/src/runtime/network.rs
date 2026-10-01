@@ -17,10 +17,7 @@ use protocol::WorldEvent;
 use render::{
     ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
 };
-use render::{
-    ActorRuntimeWitness, ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage,
-    RuntimeStageProfiler,
-};
+use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
 use crate::{
     acceptance::{
@@ -72,7 +69,7 @@ pub(crate) use session::{
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
-const ACTOR_TICK_NANOS: u128 = 50_000_000;
+const ACTOR_TICK_NANOS: u128 = client_world::ACTOR_TICK_DURATION.as_nanos();
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
 
@@ -95,7 +92,6 @@ pub(crate) struct ActorPresentationState<'w, 's> {
     settings: Res<'w, CameraSettingsAuthority>,
     view: Res<'w, LocalViewPose>,
     local_physics: Res<'w, LocalPhysicsController>,
-    witness: Res<'w, ActorRuntimeWitness>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
@@ -972,7 +968,8 @@ mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
+    ActorFramePartialTick, HandRigBuilder, PreparedActorPublication, prepare_actor_render_frame,
+    publish_actor_render_frame,
 };
 
 #[cfg(test)]

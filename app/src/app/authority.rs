@@ -14,9 +14,11 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::Camera,
             ClientFrameSet::Interaction,
             ClientFrameSet::WorldPublication,
+            ClientFrameSet::ActorPreparation,
+            ClientFrameSet::UiPreparation,
+            ClientFrameSet::NetworkSend,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,
-            ClientFrameSet::NetworkSend,
         )
             .chain(),
     );
@@ -27,6 +29,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<crate::runtime::network::ActorFramePartialTick>()
+        .init_resource::<crate::runtime::network::PreparedActorPublication>()
+        .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)

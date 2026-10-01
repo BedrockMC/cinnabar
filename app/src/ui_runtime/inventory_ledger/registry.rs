@@ -22,10 +22,10 @@ impl PlayerInventoryLedger {
             return;
         };
         let Some(previous) = self.item_registry.as_ref() else {
-            self.item_registry = Some(next);
+            self.item_registry = Some(std::sync::Arc::new(next));
             return;
         };
-        if previous == &next {
+        if previous.as_ref() == &next {
             return;
         }
 
@@ -50,7 +50,7 @@ impl PlayerInventoryLedger {
         for cell in affected_cells {
             self.mark_cell_recovery(cell);
         }
-        self.item_registry = Some(next);
+        self.item_registry = Some(std::sync::Arc::new(next));
         self.refold();
     }
 

@@ -31,7 +31,12 @@ pub(super) fn configure(app: &mut App, dir: PathBuf) {
         sender,
         receiver,
     })
-    .add_systems(Update, (capture_on_key, report_saved).chain());
+    .add_systems(
+        Update,
+        (capture_on_key, report_saved)
+            .chain()
+            .before(crate::app::ClientFrameSet::UiPreparation),
+    );
     if let Some(path) = std::env::var_os("CINNABAR_CAPTURE_PATH") {
         let frames = std::env::var("CINNABAR_CAPTURE_AFTER_FRAMES")
             .ok()
