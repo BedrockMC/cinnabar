@@ -39,9 +39,9 @@ pub fn flush_inventory_send<E>(
     runtime.poll_inventory_timeout(now_millis);
     let mut admitted_any = false;
     for _ in 0..MAX_INVENTORY_PACKETS_PER_FLUSH {
-        let Some(packet) = runtime
+        let Some((packet, entries)) = runtime
             .inventory_ledger()
-            .pending_packet()
+            .pending_batch()
             .expect("the ledger retains only validated protocol requests")
         else {
             break;
@@ -52,10 +52,12 @@ pub fn flush_inventory_send<E>(
                 .note_transport_pressure(now_millis);
             return Err(error);
         }
-        let admitted = runtime
-            .inventory_ledger_mut()
-            .mark_transport_enqueued(now_millis);
-        debug_assert!(admitted, "only an awaiting request can be transported");
+        for _ in 0..entries {
+            let admitted = runtime
+                .inventory_ledger_mut()
+                .mark_transport_enqueued(now_millis);
+            debug_assert!(admitted, "only an awaiting request can be transported");
+        }
         admitted_any = true;
     }
     Ok(admitted_any)

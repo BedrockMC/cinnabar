@@ -38,6 +38,55 @@ fn ledger_with_slot_zero() -> PlayerInventoryLedger {
     ledger
 }
 
+/// A refused batch retains every request; one successful retry admits them all exactly once.
+#[test]
+fn inventory_request_batch_retries_atomically() {
+    let mut runtime = UiRuntime::new(1);
+    *runtime.inventory_ledger_mut() = ledger_with_slot_zero();
+    let ledger = runtime.inventory_ledger_mut();
+    assert_eq!(ledger.begin_world_drop(0, Some(1)).unwrap(), -3);
+    assert_eq!(ledger.begin_world_drop(0, Some(1)).unwrap(), -5);
+    let mut attempts = Vec::new();
+    assert_eq!(
+        flush_inventory_send(&mut runtime, 10, |packet| {
+            attempts.push(
+                protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap(),
+            );
+            Err("full")
+        }),
+        Err("full")
+    );
+    assert!(
+        runtime
+            .inventory_ledger()
+            .queue
+            .iter()
+            .all(|request| request.state == InventoryPendingState::AwaitingTransport)
+    );
+    assert!(
+        flush_inventory_send(&mut runtime, 20, |packet| {
+            attempts.push(
+                protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap(),
+            );
+            Ok::<_, &str>(())
+        })
+        .unwrap()
+    );
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[0], attempts[1]);
+    let ledger = runtime.inventory_ledger();
+    assert!(
+        ledger
+            .queue
+            .iter()
+            .all(|request| request.state == InventoryPendingState::AwaitingResponse)
+    );
+    assert!(
+        !flush_inventory_send::<&str>(&mut runtime, 21, |_| panic!("batch was already sent"))
+            .unwrap()
+    );
+}
+
 fn personal_open(window_id: i32) -> ContainerOpenEvent {
     personal_open_with_actor(window_id, -1)
 }

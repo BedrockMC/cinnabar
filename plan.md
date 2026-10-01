@@ -3634,3 +3634,12 @@ and the complete simulator suite pass. Currents, complete swimming travel/drag, 
 attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
 from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
 with any exact difference. This comparison is not a native parity acceptance gate.
+
+### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
+
+Ready ledger requests now share one ItemStackRequest packet, retaining each request's
+ID, ordered actions and text-filter origin. Transport refusal leaves the entire batch
+unsent; successful admission advances all included requests together. Empty batches
+emit no packet (Lens `0x28d09e0`; `R:i/ItemStackNetManagerClient.cpp:4058`). The existing
+window-control priority is retained. Native tick/flush phase, cross-family packet batching,
+vehicle prediction, interaction models and emote/spin/flight input ownership remain open.
