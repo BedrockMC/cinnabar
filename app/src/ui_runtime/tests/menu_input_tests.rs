@@ -313,3 +313,67 @@ fn chat_input_preserves_buttons_for_the_visible_menu() {
     );
     assert!(!app.world().resource::<UiRuntime>().chat_focused());
 }
+
+#[test]
+fn chat_typing_consumes_movement_keys_and_mouse_input() {
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(UiRuntime::new(1))
+        .add_systems(Update, super::super::drive_chat_keyboard_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    press_key(&mut app, window, KeyCode::KeyT, Some("t"));
+    app.update();
+    assert!(app.world().resource::<UiRuntime>().chat_focused());
+    assert_eq!(
+        app.world().resource::<UiRuntime>().chat_editor().as_str(),
+        ""
+    );
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.world_mut()
+        .resource_mut::<AccumulatedMouseMotion>()
+        .delta = Vec2::ONE;
+    press_key(&mut app, window, KeyCode::KeyW, Some("w"));
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().chat_editor().as_str(),
+        "w"
+    );
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyW)
+    );
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left)
+    );
+    assert_eq!(
+        app.world().resource::<AccumulatedMouseMotion>().delta,
+        Vec2::ZERO
+    );
+    press_key(&mut app, window, KeyCode::Escape, None);
+    app.update();
+    assert!(!app.world().resource::<UiRuntime>().chat_focused());
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::Escape)
+    );
+}

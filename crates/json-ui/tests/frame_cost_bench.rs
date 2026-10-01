@@ -1,5 +1,7 @@
 //! Repeatable HUD bind/layout costs against the owner's local vanilla templates.
 
+#[path = "support/java_pack.rs"]
+mod java_pack;
 mod support;
 
 use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
@@ -76,23 +78,17 @@ fn frame_cost_bench_server_pack_hud() {
 
 /// Time the original full-refresh workload, with optional incremental measurements.
 fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let vanilla = support::vanilla_pack().join("ui");
     if !vanilla.is_dir() {
         eprintln!("FRAME_COST {name}: skipped, no local vanilla templates");
         return;
     }
     let mut catalog = Catalog::load_dir(&vanilla).unwrap();
-    let java: Vec<_> = ["ui/hud_screen.json", "ui/scoreboards.json"]
-        .into_iter()
-        .map(|path| {
-            (
-                path,
-                std::fs::read(base.join("assets/java-hud").join(path)).unwrap(),
-            )
-        })
-        .collect();
-    catalog.apply_pack(java.iter().map(|(path, bytes)| (*path, bytes.as_slice())));
+    let java = java_pack::files();
+    catalog.apply_pack(
+        java.iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    );
     if let Some(pack) = &server_pack {
         let files = pack_files(pack);
         catalog.apply_pack(

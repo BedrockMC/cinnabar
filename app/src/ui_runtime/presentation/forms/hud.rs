@@ -24,7 +24,17 @@ use crate::ui_runtime::UiRuntime;
 
 /// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
 /// under every server pack.
-pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 2] = [
+pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
+    (
+        "ui/_global_variables.json",
+        "",
+        include_bytes!("../../../../../assets/java-hud/ui/_global_variables.json"),
+    ),
+    (
+        "ui/chat_screen.json",
+        "chat",
+        include_bytes!("../../../../../assets/java-hud/ui/chat_screen.json"),
+    ),
     (
         "ui/hud_screen.json",
         "hud",
@@ -291,6 +301,12 @@ impl UiPresentationRuntime {
         } else {
             (HUD_SCREEN, &mut screens.hud)
         };
+        if !renderer
+            .scene_settings(reference, &context)
+            .renders(crosshair || !runtime.chat_focused())
+        {
+            return Ok(true);
+        }
         let inputs = EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,
