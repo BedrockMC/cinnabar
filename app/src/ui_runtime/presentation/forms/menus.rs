@@ -97,10 +97,8 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return true;
         };
-        let mut settings = view.clone();
-        settings.screen = MenuScreen::Settings;
         let translate = |key: &str| runtime.translation(key);
-        let Some(prepared) = menu_screens::screen_data(&settings, &translate) else {
+        let Some(prepared) = settings_preparation(view, &translate) else {
             return true;
         };
         let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -365,6 +363,18 @@ impl UiPresentationRuntime {
     }
 }
 
+/// Prepare only Settings; transient progress and error screens need live artwork.
+fn settings_preparation(
+    view: &MenuView,
+    translate: menu_screens::Translate<'_>,
+) -> Option<menu_screens::MenuScreenData> {
+    let mut settings = view.clone();
+    settings.screen = MenuScreen::Settings;
+    menu_screens::screen_data(&settings, translate).filter(|screen| {
+        Some(screen.reference) == menu_screens::menu_reference(MenuScreen::Settings)
+    })
+}
+
 /// A region's clipped rect in window-logical pixels.
 pub(super) fn window_rect(region: &HitRegion, scale: f32, origin: [f32; 2]) -> Option<UiRect> {
     let x0 = region.rect.x.max(region.clip.x);
@@ -431,4 +441,24 @@ fn segments(
             window_rect(&part, scale, origin).map(|bounds| (step, bounds))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod preparation_tests {
+    use super::*;
+
+    #[test]
+    fn progress_and_disconnect_views_never_prepare_without_artwork() {
+        let home = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
+        assert!(settings_preparation(&home, &|_| None).is_some());
+        let mut connecting = home.clone();
+        connecting.connecting = true;
+        let mut local = home.clone();
+        local.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
+        let mut disconnected = home;
+        disconnected.disconnect_message = Some("Disconnected".into());
+        for view in [connecting, local, disconnected] {
+            assert!(settings_preparation(&view, &|_| None).is_none());
+        }
+    }
 }
