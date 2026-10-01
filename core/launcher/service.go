@@ -16,40 +16,44 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"golang.org/x/oauth2"
 )
 
-// Config wires a Service. A nil TokenSource means the core runs without an account.
+// Config wires a Service. A nil Account means the core runs without one.
 type Config struct {
-	TokenSource oauth2.TokenSource
-	AuthCache   string // token cache path; sign-out deletes it and its derived cache
-	Store       *control.Store
-	Selector    *proxy.UpstreamSelector
-	Transfers   *proxy.TransferState
-	ArtworkDir  string // screen artwork cache; empty skips caching
-	CacheFile   string // last good catalog; empty keeps it in memory only
-	Logger      *slog.Logger
+	Account    *authcache.Account // shared per-account runtime; sign-out closes it
+	AuthCache  string             // token cache path; sign-out deletes it and its derived cache
+	Store      *control.Store
+	Selector   *proxy.UpstreamSelector
+	Transfers  *proxy.TransferState
+	ArtworkDir string // screen artwork cache; empty skips caching
+	CacheFile  string // last good catalog; empty keeps it in memory only
+	Logger     *slog.Logger
 	// StoreImageDir holds cached Marketplace images; empty disables them.
 	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
-	Realms   func(context.Context, oauth2.TokenSource) ([]catalog.Realm, error)
-	Friends  func(context.Context, oauth2.TokenSource) ([]catalog.Friend, error)
-	Gamertag func(context.Context, oauth2.TokenSource) (string, error)
+	Realms   func(context.Context, *authcache.Account) ([]catalog.Realm, error)
+	Friends  func(context.Context, *authcache.Account) ([]catalog.Friend, error)
+	Gamertag func(context.Context, *authcache.Account) (string, error)
 	Remove   func(path string) error
 
-	Featured   func(context.Context, oauth2.TokenSource) ([]catalog.FeaturedServer, error)
-	Gatherings func(context.Context, oauth2.TokenSource) ([]catalog.Gathering, error)
-	Profile    func(context.Context, oauth2.TokenSource) (catalog.Profile, error)
-	CacheArt   func(ctx context.Context, directory string, images []*catalog.Image)
-	Ping       func(ctx context.Context, addresses []string) []catalog.PingResult
-	Home       func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
-	Report     func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	Featured      func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
+	Gatherings    func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
+	Profile       func(context.Context, *authcache.Account) (catalog.Profile, error)
+	CacheArt      func(ctx context.Context, directory string, images []*catalog.Image)
+	Ping          func(ctx context.Context, addresses []string) []catalog.PingResult
+	Home          func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report        func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	JoinGathering func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
 }
 
 // Service implements control.Services.
@@ -102,6 +106,9 @@ func New(cfg Config) *Service {
 	if cfg.Report == nil {
 		cfg.Report = catalog.ReportMessageEvent
 	}
+	if cfg.JoinGathering == nil {
+		cfg.JoinGathering = catalog.JoinGathering
+	}
 	s := &Service{cfg: cfg, logger: cfg.Logger}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
@@ -110,11 +117,11 @@ func New(cfg Config) *Service {
 	return s
 }
 
-func (s *Service) source() (oauth2.TokenSource, error) {
-	if s.cfg.TokenSource == nil || s.signedOut.Load() {
+func (s *Service) source() (*authcache.Account, error) {
+	if s.cfg.Account == nil || s.signedOut.Load() {
 		return nil, control.ErrSignedOut
 	}
-	return s.cfg.TokenSource, nil
+	return s.cfg.Account, nil
 }
 
 // Realms lists the account's Realms.
@@ -155,6 +162,9 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 	if err != nil {
 		return catalog.Profile{}, err
 	}
+	if partial := profile.Partial(); partial != nil {
+		s.logger.Warn("profile partly unavailable", "error", control.RedactError(partial))
+	}
 	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
 	s.mu.Lock()
 	s.gamerpic = profile.Gamerpic.Path
@@ -188,14 +198,21 @@ func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
 }
 
 // Connect selects the upstream for the next client connection and drops any pending transfer.
-func (s *Service) Connect(kind, value string) error {
+// A gathering is joined now, so its server assignment is fresh.
+func (s *Service) Connect(ctx context.Context, kind, value string) error {
 	target, err := upstreamTarget(kind, value)
 	if err != nil {
 		return err
 	}
 	if kind != control.TargetRakNet {
-		if _, err := s.source(); err != nil {
+		account, err := s.source()
+		if err != nil {
 			return err
+		}
+		if kind == control.TargetGathering {
+			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
+				return err
+			}
 		}
 	}
 	if s.cfg.Selector != nil {
@@ -231,20 +248,62 @@ func upstreamTarget(kind, value string) (string, error) {
 			return "", control.ErrInvalidTarget
 		}
 		return "friend_xuid/" + value, nil
+	case control.TargetGathering:
+		id, err := uuid.Parse(value)
+		if err != nil || id == uuid.Nil {
+			return "", control.ErrInvalidTarget
+		}
+		return id.String(), nil
 	}
 	return "", control.ErrInvalidTarget
+}
+
+// joinGathering joins the experience and maps its typed assignment to the proxy target syntax.
+func (s *Service) joinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID) (string, error) {
+	address, err := s.cfg.JoinGathering(ctx, account, id)
+	if err != nil {
+		return "", fmt.Errorf("launcher: join gathering: %w", err)
+	}
+	target, err := gatheringTarget(address)
+	if err != nil {
+		return "", err
+	}
+	info := address.DestinationInfo
+	s.logger.Info("gathering joined", "experience", id, "protocol", address.NetworkProtocol,
+		"server_id", info.ServerID, "world_id", info.WorldID, "scenario_id", info.ScenarioID)
+	return target, nil
+}
+
+// gatheringTarget names the transport the assignment selects: host:port for RakNet, or the
+// NetherNet ID with its signaling dialect.
+func gatheringTarget(address *gatherings.Address) (string, error) {
+	if address == nil {
+		return "", errors.New("launcher: gathering returned no address")
+	}
+	dial, err := address.DialAddress()
+	if err != nil {
+		return "", err
+	}
+	switch realms.ParseNetworkProtocol(string(address.NetworkProtocol)) {
+	case realms.NetworkProtocolNetherNet:
+		return "nethernet/websocket/" + dial, nil
+	case realms.NetworkProtocolNetherNetJSONRPC:
+		return "nethernet/jsonrpc/" + dial, nil
+	}
+	return dial, nil
 }
 
 // SignOut deletes the cached Microsoft tokens and reports the signed-out state. The running
 // process stops using the account; a new sign-in needs the device-code flow and a core restart.
 func (s *Service) SignOut() error {
-	if s.cfg.TokenSource == nil {
+	if s.cfg.Account == nil {
 		return control.ErrSignedOut
 	}
 	s.mu.Lock()
 	s.signedOut.Store(true)
 	s.snap = snapshot{}
 	s.mu.Unlock()
+	_ = s.cfg.Account.Close()
 	var paths []string
 	if s.cfg.AuthCache != "" {
 		paths = append(paths, s.cfg.AuthCache, authcache.DerivedCachePath(s.cfg.AuthCache))
@@ -274,11 +333,11 @@ func (s *Service) SignOut() error {
 
 // PublishSignedIn reports the signed-in state with the gamertag when it can be read.
 func (s *Service) PublishSignedIn(ctx context.Context) {
-	if s.cfg.Store == nil || s.cfg.TokenSource == nil {
+	if s.cfg.Store == nil || s.cfg.Account == nil {
 		return
 	}
 	state := control.AuthV1{State: control.AuthSignedIn}
-	if tag, err := s.cfg.Gamertag(ctx, s.cfg.TokenSource); err == nil {
+	if tag, err := s.cfg.Gamertag(ctx, s.cfg.Account); err == nil {
 		state.Gamertag = tag
 	}
 	if s.signedOut.Load() {

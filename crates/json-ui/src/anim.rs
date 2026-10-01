@@ -1,4 +1,4 @@
-//! Alpha animations. An `@ns.anim` reference in `alpha` or `anims` resolves once,
+//! Alpha and offset animations. An `@ns.anim` reference in `alpha` or `anims` resolves once,
 //! in the referencing control's variable scope (so a factory's `$title_fade_in_time`
 //! applies), into a [`Chain`]; a draw evaluates it against the time since its
 //! control was created, which the caller supplies at paint time so layout never
@@ -18,6 +18,8 @@ pub(crate) const BORN_KEY: &str = "anim_born";
 /// Property naming the caller clock that holds an instance's creation time, so
 /// a re-sent title restarts its fade without re-binding the screen.
 pub(crate) const CLOCK_KEY: &str = "anim_clock";
+/// Property holding a control's resolved `offset` animation (a [`Slide`]).
+pub(crate) const SLIDE_KEY: &str = "anim_offset";
 /// Property holding a control's resolved `uv` flip-book (a [`FlipBook`]).
 pub(crate) const FLIP_BOOK_KEY: &str = "anim_flip_book";
 /// Longest `next` chain followed; a longer or cyclic chain loops from its start.
@@ -31,7 +33,7 @@ pub enum StepKind {
     Other,
 }
 
-/// One step of a chain: `from`/`to` only matter for alpha steps.
+/// One step of a chain: `from`/`to` only matter for interpolating (alpha) steps.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Step {
     pub kind: StepKind,
@@ -212,7 +214,73 @@ pub(crate) fn resolve_flip_book(catalog: &Catalog, reference: &str, env: &Env) -
 }
 
 pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Option<Chain> {
-    let mut steps = Vec::new();
+    let (links, looping) = chain_links(catalog, reference, env)?;
+    let steps: Vec<Step> = links
+        .iter()
+        .map(|props| {
+            let number = |key: &str| number_or(props, key, 1.0);
+            let kind = match props.get("anim_type").and_then(Value::as_str) {
+                Some("alpha") => StepKind::Alpha,
+                Some("wait") => StepKind::Wait,
+                _ => StepKind::Other,
+            };
+            Step {
+                kind,
+                duration: number_or(props, "duration", 0.0),
+                from: number("from"),
+                to: number("to"),
+                easing: easing(props),
+                destroys: props
+                    .get("destroy_at_end")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| !name.is_empty()),
+            }
+        })
+        .collect();
+    steps
+        .iter()
+        .any(|step| step.kind == StepKind::Alpha)
+        .then_some(Chain { steps, looping })
+}
+
+/// Resolve `@ns.name` (following `next`) to its offset steps, their ends still
+/// length expressions; `None` without an offset step.
+pub(crate) fn resolve_slide(catalog: &Catalog, reference: &str, env: &Env) -> Option<Slide> {
+    let (links, looping) = chain_links(catalog, reference, env)?;
+    let steps: Vec<SlideStep> = links
+        .iter()
+        .map(|props| {
+            let moves = props.get("anim_type").and_then(Value::as_str) == Some("offset");
+            let end = |key: &str| {
+                props
+                    .get(key)
+                    .filter(|value| moves && value.is_array())
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            };
+            SlideStep {
+                moves,
+                duration: number_or(props, "duration", 0.0),
+                from: end("from"),
+                to: end("to"),
+                easing: easing(props),
+            }
+        })
+        .collect();
+    steps
+        .iter()
+        .any(|step| step.moves)
+        .then_some(Slide { steps, looping })
+}
+
+/// The substituted definitions of `reference` and its `next` links, and whether
+/// they loop; `None` for an unknown reference or an event-started chain.
+fn chain_links(
+    catalog: &Catalog,
+    reference: &str,
+    env: &Env,
+) -> Option<(Vec<serde_json::Map<String, Value>>, bool)> {
+    let mut links = Vec::new();
     let mut seen: Vec<ControlRef> = Vec::new();
     let mut owner = String::new();
     let mut next = Some(reference.to_owned());
@@ -228,48 +296,129 @@ pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Op
         }
         let def = catalog.lookup(&target.namespace, &target.name)?;
         let props = Value::Object(def.props.clone());
-        let props = substitute(&props, env, &mut Vec::new());
+        let Value::Object(props) = substitute(&props, env, &mut Vec::new()) else {
+            return None;
+        };
         // An event-started animation (screen transitions) never plays by itself.
-        if steps.is_empty() && props.get("play_event").is_some_and(|event| event != "") {
+        if links.is_empty() && props.get("play_event").is_some_and(|event| event != "") {
             return None;
         }
-        let number = |key: &str, fallback: f64| match props.get(key) {
-            Some(Value::Number(value)) => value.as_f64().unwrap_or(fallback),
-            Some(Value::String(text)) => text.parse().unwrap_or(fallback),
-            _ => fallback,
-        };
-        let kind = match props.get("anim_type").and_then(Value::as_str) {
-            Some("alpha") => StepKind::Alpha,
-            Some("wait") => StepKind::Wait,
-            _ => StepKind::Other,
-        };
-        steps.push(Step {
-            kind,
-            duration: number("duration", 0.0),
-            from: number("from", 1.0),
-            to: number("to", 1.0),
-            easing: props
-                .get("easing")
-                .and_then(Value::as_str)
-                .unwrap_or("linear")
-                .to_owned(),
-            destroys: props
-                .get("destroy_at_end")
-                .and_then(Value::as_str)
-                .is_some_and(|name| !name.is_empty()),
-        });
-        owner = target.namespace.clone();
-        seen.push(target);
         next = props
             .get("next")
             .and_then(Value::as_str)
             .filter(|text| text.starts_with('@'))
             .map(str::to_owned);
+        owner = target.namespace.clone();
+        seen.push(target);
+        links.push(props);
     }
-    steps
-        .iter()
-        .any(|step| step.kind == StepKind::Alpha)
-        .then_some(Chain { steps, looping })
+    Some((links, looping))
+}
+
+fn number_or(props: &serde_json::Map<String, Value>, key: &str, fallback: f64) -> f64 {
+    match props.get(key) {
+        Some(Value::Number(value)) => value.as_f64().unwrap_or(fallback),
+        Some(Value::String(text)) => text.parse().unwrap_or(fallback),
+        _ => fallback,
+    }
+}
+
+fn easing(props: &serde_json::Map<String, Value>) -> String {
+    props
+        .get("easing")
+        .and_then(Value::as_str)
+        .unwrap_or("linear")
+        .to_owned()
+}
+
+/// One step of an unresolved offset chain: `moves` for an `offset` step, whose
+/// `from`/`to` are `[x, y]` offset expressions; any other step holds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SlideStep {
+    pub moves: bool,
+    pub duration: f64,
+    pub from: Value,
+    pub to: Value,
+    pub easing: String,
+}
+
+/// An `offset` animation as resolved, before layout gives its ends pixels.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Slide {
+    pub steps: Vec<SlideStep>,
+    pub looping: bool,
+}
+
+impl Slide {
+    /// The slide in pixels, its ends measured by `pixels` (an offset pair to
+    /// pixels); `rest` is the static offset it replaces.
+    pub(crate) fn motion(
+        &self,
+        rest: [f64; 2],
+        born: f64,
+        clock: Option<String>,
+        pixels: impl Fn(&Value) -> [f64; 2],
+    ) -> Motion {
+        let axis = |index: usize| Chain {
+            steps: self
+                .steps
+                .iter()
+                .map(|step| Step {
+                    kind: if step.moves {
+                        StepKind::Alpha
+                    } else {
+                        StepKind::Wait
+                    },
+                    duration: step.duration,
+                    from: pixels(&step.from)[index],
+                    to: pixels(&step.to)[index],
+                    easing: step.easing.clone(),
+                    destroys: false,
+                })
+                .collect(),
+            looping: self.looping,
+        };
+        Motion {
+            axes: [axis(0), axis(1)],
+            rest,
+            born,
+            clock,
+        }
+    }
+}
+
+/// An `offset` animation in pixels: the control and everything under it draw
+/// displaced by its value less the static offset it replaces, at paint time.
+/// Each axis is a [`Chain`] whose interpolating steps are the offset steps.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Motion {
+    pub axes: [Chain; 2],
+    pub rest: [f64; 2],
+    pub born: f64,
+    #[serde(default)]
+    pub clock: Option<String>,
+}
+
+/// The summed displacement of `motions` at `now`, each motion's creation time
+/// read from `clocks` when it names one.
+pub fn motion_offset(
+    motions: &[Motion],
+    now: f64,
+    clocks: Option<&std::collections::BTreeMap<String, f64>>,
+) -> [f64; 2] {
+    motions.iter().fold([0.0; 2], |sum, motion| {
+        let born = motion
+            .clock
+            .as_ref()
+            .and_then(|clock| clocks?.get(clock))
+            .copied()
+            .unwrap_or(motion.born);
+        let age = now - born;
+        std::array::from_fn(|index| {
+            let rest = motion.rest[index];
+            sum[index] + motion.axes[index].value_at(age, rest) - rest
+        })
+    })
 }
 
 /// What a control takes from its ancestors: the creation time of the nearest
@@ -280,6 +429,8 @@ pub(crate) struct Inherited {
     fades: Vec<Fade>,
     born: f64,
     clock: Option<String>,
+    /// Offset animations moving this control, and those moving its clip.
+    pub(crate) motions: Motions,
 }
 
 impl Inherited {
@@ -323,8 +474,36 @@ impl Inherited {
             },
             born,
             clock,
+            motions: self.motions.clone(),
         };
         (own, fades, children)
+    }
+
+    /// The creation time and clock of the control this was applied for.
+    pub(crate) fn timing(&self) -> (f64, Option<String>) {
+        (self.born, self.clock.clone())
+    }
+}
+
+/// The offset animations displacing a draw at paint time: `own` moves its
+/// rect, `clip` the rect of the ancestor that clips it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Motions {
+    pub own: Vec<Motion>,
+    pub clip: Vec<Motion>,
+}
+
+impl Motions {
+    /// `(dest, clip)` displacements at `now`.
+    pub fn at(
+        &self,
+        now: f64,
+        clocks: Option<&std::collections::BTreeMap<String, f64>>,
+    ) -> ([f64; 2], [f64; 2]) {
+        (
+            motion_offset(&self.own, now, clocks),
+            motion_offset(&self.clip, now, clocks),
+        )
     }
 }
 

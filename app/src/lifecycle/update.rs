@@ -111,22 +111,22 @@ pub(crate) fn check_in_background(layout: &InstallLayout) {
 }
 
 fn run_check(core: &Path, url: &str, platform: &str) -> Option<UpdateNotice> {
-    let mut child = Command::new(core)
-        .args(["check-update", "-manifest-url", url, "-platform", platform])
-        .args(["-current", env!("CARGO_PKG_VERSION")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+    let child = super::children::spawn(
+        Command::new(core)
+            .args(["check-update", "-manifest-url", url, "-platform", platform])
+            .args(["-current", env!("CARGO_PKG_VERSION")])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .ok()?;
     let mut output = Vec::new();
     child
-        .stdout
-        .take()?
+        .take_stdout()?
         .take(MAX_RESULT_BYTES)
         .read_to_end(&mut output)
         .ok()?;
-    child.wait().ok()?.success().then_some(())?;
+    child.wait()?.success().then_some(())?;
     parse_notice(&output)
 }
 
