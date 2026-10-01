@@ -21,7 +21,7 @@ fn shader_for_naga() -> String {
             1,
         )
         .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}",
             &lighting,
             1,
         )
@@ -237,8 +237,9 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
     assert!(SHADER.contains("out.water_tint = blended_biome_tint("));
     assert!(SHADER.contains("let colour = lit_colour("));
-    assert!(SHADER.contains("sampled.rgb * in.water_tint,"));
+    assert!(SHADER.contains("sampled.rgb * in.water_tint.rgb,"));
     assert!(SHADER.contains("apply_distance_fog(colour, in.world_position)"));
+    assert!(SHADER.contains("sampled.a * in.water_tint.a"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
 }
@@ -269,7 +270,7 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
         .nth(1)
         .expect("liquid shader must retain a fragment stage");
 
-    assert!(SHADER.contains("@location(4) @interpolate(flat) water_tint: vec3<f32>"));
+    assert!(SHADER.contains("@location(4) @interpolate(flat) water_tint: vec4<f32>"));
     assert!(vertex.contains("let block_coordinate = vec3<u32>("));
     assert!(vertex.contains("geometry & 15u"));
     assert!(vertex.contains("(geometry >> 4u) & 15u"));
@@ -289,5 +290,5 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
         );
     }
     assert!(fragment.contains("let colour = lit_colour("));
-    assert!(fragment.contains("sampled.rgb * in.water_tint,"));
+    assert!(fragment.contains("sampled.rgb * in.water_tint.rgb,"));
 }

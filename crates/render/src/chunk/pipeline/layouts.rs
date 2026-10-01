@@ -182,7 +182,7 @@ impl FromWorld for ChunkPipeline {
         );
         let descriptor = RenderPipelineDescriptor {
             label: Some("packed chunk pipeline".into()),
-            layout: vec![bind_group_layout.clone()],
+            layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
                 shader: CHUNK_SHADER_HANDLE,
                 buffers: Vec::new(),

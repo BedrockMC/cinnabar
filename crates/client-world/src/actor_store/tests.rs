@@ -1127,3 +1127,29 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     );
     assert_eq!(reset.interpolation_ticks_remaining, 0);
 }
+
+/// Lens 1.26.50.26 0x1c0e520 samples 0.66 of the authoritative body height.
+#[test]
+fn brightness_sample_uses_interpolated_feet_and_body_height() {
+    for height in [0.25, 1.8, 3.6] {
+        let ActorEvent::Spawn(mut event) = spawn(5, 50) else {
+            unreachable!()
+        };
+        event.metadata = Arc::from([
+            ActorMetadata {
+                key: 53,
+                value: ActorMetadataValue::Float(0.6),
+            },
+            ActorMetadata {
+                key: 54,
+                value: ActorMetadataValue::Float(height),
+            },
+        ]);
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, ActorEvent::Spawn(event));
+        let feet = [-0.25, -1.5, 0.5];
+        let sample = store.get(5).unwrap().brightness_sample_position(feet);
+        assert_eq!([sample[0], sample[2]], [feet[0], feet[2]]);
+        assert!((sample[1] - (feet[1] + 0.66 * height)).abs() < 1e-6);
+    }
+}

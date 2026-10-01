@@ -22,6 +22,17 @@ and native visual/performance
 acceptance. Only explicitly selected local developer components are supported;
 do not treat this as admission for untrusted downloaded mods. See
 `docs/modding-spike.md` for the executable sample and offline evidence harness.
+2026-10-01 world lighting (incomplete): the classic RGB table now has the current
+Lens composition, gamma, night-vision normalization and darkness subtraction,
+shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
+the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
+and material color-space conversion remain unverified. The existing sky-darken
+and effect-envelope inputs remain provisional. Offline GPU evidence is not a
+native visual parity gate. AO now uses channel maxima, the conditional diagonal, the opaque-block shade
+curve, emitting/ordinary face factors and inset model planes. Full current
+shade/solid-render property export, component exponents, dimension shading modes
+and box-average interpolation remain incomplete. The full audit work is in
+progress on fix/world-lighting.
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
@@ -3607,3 +3618,37 @@ and replay packets use actual jump initiation. Server flight-off is authoritativ
 Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9
 (Lens `0x4f32090`; `R:l/LocalPlayer.cpp:5095`) while the ledger retains its real type.
 No live or visual acceptance gate is closed by these changes.
+
+### World-lighting follow-up (incomplete parity)
+
+The shared RGB lightmap implements the recovered composition and effect formulas.
+Current dimension ramps/dispatch, ambient flags, sky-darken input and effect envelopes
+remain unverified. AO uses channel maxima and the default shade curve, but registry
+shade/solid-render properties, component exponents and special dimension/unshaded
+routes remain incomplete. Inset sampling does not implement the separate box-average
+route. These corrections do not close RM-01–04 or AO-02–04 in full.
+
+State emission now uses the current trial-spawner, vault, anchor and sensor accessors.
+The light registry and target bindings are rebuilt; complete dynamic-emitter parity
+still needs copper-bulb constructor constants, cauldron identity and sensor vtable binding.
+Default shaded grass uses the reference packed-byte transform. Water surface opacity
+is retained as a vertex byte through the biome carrier and GPU blending. Its final
+texture-alpha multiplication and special neighboring-material side factor remain
+provisional until the material route is resolved. Swamp grass retains row 255 and
+uses the current seed-2345 float simplex sampler at absolute world positions; native
+color/blending comparison remains open. None of these changes closes a native gate.
+
+The star field now draws seed-10842 candidate quads with the reference radius,
+size, alpha and draw consumption. It remains incomplete: float trigonometry is
+used in place of the runtime sine table, and current sky rotation/material blend
+state still need verification. This does not close RM-05's numeric/native gate.
+
+Top-boundary sky seeds now reach known occupied cells and use the solver's destination
+filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
+bounds and initialization before the upper-neighbor readiness gate are still missing.
+
+RM-06 and GEO-01–04 remain open: fog layers/transitions, weighted texture alternatives,
+isotropic face rotation, complete repeater/comparator geometry and per-species offsets
+are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
+RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
+captures are local evidence; they do not close native visual or shader-performance gates.

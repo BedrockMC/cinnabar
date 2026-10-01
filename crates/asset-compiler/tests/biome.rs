@@ -194,7 +194,16 @@ fn live_biomes_resolve_to_one_fallback_prefixed_dense_table() {
     );
     assert_eq!(resolved.records[1].raw_id, 7);
     assert_eq!(resolved.records[1].flags, 1);
-    assert_eq!(resolved.records[1].grass, [1.0, 0.0, 0.0, 1.0]);
+    // Lens 0x1dcd030 shades the palette red to packed RGB 0x931a05.
+    let shaded = [0x93_u8, 0x1a, 0x05, 0xff].map(|channel| {
+        let c = f32::from(channel) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    assert_eq!(resolved.records[1].grass, shaded);
     assert_eq!(resolved.records[1].foliage, [0.0, 1.0, 0.0, 1.0]);
     assert_eq!(resolved.records[1].birch, [0.0, 0.0, 1.0, 1.0]);
     assert_eq!(resolved.records[1].evergreen, [1.0, 1.0, 1.0, 1.0]);
@@ -484,4 +493,22 @@ fn compiler_default_denies_source_biomes_outside_the_registry() {
     .expect("compile projected biome registry");
     assert_eq!(compiled.rules.len(), 1);
     assert_eq!(compiled.rules[0].name.as_ref(), "minecraft:plains");
+}
+
+#[test]
+fn water_surface_opacity_survives_compile_and_resolution() {
+    let directory = tempfile::tempdir().unwrap();
+    write_biome_sources(
+        directory.path(),
+        r##"{"minecraft:water_appearance":{"surface_color":"#617b64","surface_opacity":0.65}}"##,
+        "minecraft:plains",
+    );
+    let compiled = compile_biome_assets(
+        &directory.path().join("resource_pack"),
+        &directory.path().join("behavior_pack"),
+        &plains_registry(),
+    )
+    .unwrap();
+    let resolved = compiled.resolve_live(&[]).unwrap();
+    assert_eq!(resolved.records[1].water[3], 165.0 / 255.0);
 }

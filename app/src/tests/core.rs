@@ -533,7 +533,10 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
     let runtime_assets = Arc::new(RuntimeAssets::diagnostic());
     let mut active = startup_biome_tints(&runtime_assets);
     let initial = runtime_assets.biome_assets().resolve_live(&[]).unwrap();
-    assert_eq!(active.entries().len(), initial.records.len());
+    assert_eq!(
+        active.entries().len(),
+        initial.records.len() + initial.swamp_grass_palette.len()
+    );
     assert_eq!(active.revision(), 0);
 
     let mut stream = WorldStream::new_with_assets(
@@ -578,8 +581,12 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
 
     assert!(synchronize_biome_tints(&stream, &mut active));
     assert_eq!(active.revision(), stream.biome_tint_revision());
-    assert_eq!(active.entries().len(), 3);
     let resolved = stream.resolved_biome_tints_snapshot();
+    assert_eq!(resolved.records.len(), 3);
+    assert_eq!(
+        active.entries().len(),
+        resolved.records.len() + resolved.swamp_grass_palette.len()
+    );
     let cool = usize::try_from(resolved.dense_index(42)).unwrap();
     let warm = usize::try_from(resolved.dense_index(43)).unwrap();
     assert_ne!(cool, warm);

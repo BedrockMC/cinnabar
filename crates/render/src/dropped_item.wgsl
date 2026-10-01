@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_brightness}
+#import cinnabar::lighting::{lit_colour, light_colour}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var sprites: texture_2d_array<f32>;
@@ -67,10 +67,7 @@ fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     let lit = lit_colour(
         color.rgb * input.shade,
-        light_brightness(input.levels.x),
-        light_brightness(input.levels.y),
-        1.0,
-        environment.x,
+        light_colour(input.levels.x | (input.levels.y << 4u)),
     );
     return vec4(mix(lit, input.overlay.rgb, input.overlay.a), color.a);
 }

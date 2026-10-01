@@ -1,4 +1,8 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+mod lighting;
+mod lightmap;
+pub use lighting::WorldLighting;
+pub use lightmap::{LightmapInputs, darkness_pulse};
 
 mod actor;
 mod actor_render;
@@ -195,3 +199,5 @@ pub use weather::{
     average_precipitation, classify_precipitation, column_heights, particle_mesh,
     particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
 };
+
+mod stars;

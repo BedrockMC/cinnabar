@@ -70,12 +70,7 @@ impl Plugin for ChunkRenderPlugin {
 
         install_chunk_extraction(app);
 
-        load_internal_asset!(
-            app,
-            LIGHTING_SHADER_HANDLE,
-            "../lighting.wgsl",
-            Shader::from_wgsl
-        );
+        crate::lighting::install(app);
         load_internal_asset!(
             app,
             BIOME_TINT_SHADER_HANDLE,
