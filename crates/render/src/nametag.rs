@@ -27,6 +27,32 @@ pub struct NametagRecord {
     pub color: [f32; 4],
 }
 
+/// Immutable pixels for one non-overlapping atlas cell.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NametagAtlasRect {
+    /// Atlas x, y, width and height in texels.
+    pub cell: [u32; 4],
+    pub rgba8: Arc<[u8]>,
+}
+
+impl NametagAtlasRect {
+    /// Returns changed cells, including updates missed between render extractions.
+    pub fn updates<'a>(
+        current: &'a [Self],
+        previous: &'a [Self],
+    ) -> impl Iterator<Item = &'a Self> {
+        current
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, rectangle)| {
+                let unchanged = previous.get(index).is_some_and(|old| {
+                    old.cell == rectangle.cell && Arc::ptr_eq(&old.rgba8, &rectangle.rgba8)
+                });
+                (!unchanged).then_some(rectangle)
+            })
+    }
+}
+
 /// This frame's tags for the render world. Records before `see_through` draw over everything;
 /// the rest are depth tested.
 #[derive(
@@ -40,7 +66,7 @@ pub struct NametagRecord {
 pub struct NametagScene {
     pub records: Vec<NametagRecord>,
     pub see_through: usize,
-    /// `NAMETAG_ATLAS_SIDE`² RGBA8 texels, replaced whole when `atlas_revision` changes.
-    pub atlas: Arc<[u8]>,
+    /// All live cells, sharing unchanged pixels across publications.
+    pub atlas: Arc<[NametagAtlasRect]>,
     pub atlas_revision: u64,
 }
