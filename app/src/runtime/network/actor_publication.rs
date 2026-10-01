@@ -920,10 +920,14 @@ mod tests {
             for z in (-60..=60).step_by(3) {
                 for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
                     let feet = [x as f32, y, z as f32];
-                    if render::actor_bounds_are_visible(feet, scale, Some(cull)) {
+                    if render::actor_bounds_are_visible(feet, scale, Default::default(), Some(cull))
+                    {
                         drawn += 1;
-                        assert!(view.admits(feet, scale, false), "{feet:?} x{scale}");
-                    } else if !view.admits(feet, scale, false) {
+                        assert!(
+                            view.admits(feet, scale, false, Default::default()),
+                            "{feet:?} x{scale}"
+                        );
+                    } else if !view.admits(feet, scale, false, Default::default()) {
                         held += 1;
                     }
                 }

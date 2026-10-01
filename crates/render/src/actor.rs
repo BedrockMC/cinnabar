@@ -391,6 +391,7 @@ impl ActorRenderScene {
             let yaw = wrap_degrees(pose.yaw_degrees).to_radians();
             let (sine, cosine) = yaw.sin_cos();
             rig_submissions.push(ActorRigSubmission {
+                culling_bounds: Default::default(),
                 input: ActorRigRenderInput {
                     identity: ActorRenderIdentity {
                         session_id: 0,

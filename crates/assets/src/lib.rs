@@ -44,7 +44,7 @@ pub use hud_extras::{
 };
 pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
-    SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
+    SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
     parse_skin_geometry_layer, skin_geometry_name,
 };
 
