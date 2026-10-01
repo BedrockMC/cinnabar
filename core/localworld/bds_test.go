@@ -25,6 +25,7 @@ func TestServerPropertiesForLocalPlay(t *testing.T) {
 		"server-name=MyWorld 1\n", "gamemode=creative\n", "difficulty=hard\n", "online-mode=false\n", "allow-list=false\n",
 		"max-players=1\n", "server-port=5000\n", "server-portv6=5001\n", "level-name=0123456789abcdef\n",
 		"level-seed=-5\n", "level-type=FLAT\n", "view-distance=32\n", "tick-distance=12\n",
+		"transport=raknet\n", "enable-lan-visibility=false\n",
 	} {
 		if !strings.Contains(props, want) {
 			t.Fatalf("properties missing %q:\n%s", want, props)
@@ -82,6 +83,11 @@ func newFakeMojang(t *testing.T, zipVer string, archive []byte) *fakeMojang {
 	})
 	mux.HandleFunc("/bin-linux/", func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
+		// minecraft.net resets Go's default agent, so downloads must name themselves.
+		if r.UserAgent() != userAgent {
+			http.Error(w, "agent", http.StatusForbidden)
+			return
+		}
 		_, _ = w.Write(f.zip)
 	})
 	f.server = httptest.NewServer(mux)
