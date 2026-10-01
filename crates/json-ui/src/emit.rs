@@ -180,7 +180,14 @@ pub fn emit_gated(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
     let mut nodes = Vec::new();
     let mut order = 0usize;
     let mut gates = Vec::new();
-    collect_gated(root, env, &mut nodes, &mut order, &mut gates, false);
+    collect_gated(
+        root,
+        env,
+        &mut nodes,
+        &mut order,
+        &mut gates,
+        &mut Vec::new(),
+    );
     nodes.sort_by_key(|(layer, index, _)| (*layer, *index));
     nodes.into_iter().map(|(_, _, node)| node).collect()
 }
@@ -191,31 +198,45 @@ fn collect_gated(
     out: &mut Vec<(i32, usize, DrawNode)>,
     order: &mut usize,
     gates: &mut Vec<StateGate>,
-    state_child: bool,
+    pending: &mut Vec<(*const ResolvedControl, StateGate)>,
 ) {
-    // A state child hidden only by the neutral state still emits, gated.
-    let own = state_child && crate::layout::own_visible(node.control);
-    if !(node.visible || own) {
+    let gate = pending
+        .iter()
+        .rev()
+        .find(|(target, _)| std::ptr::eq(*target, node.control))
+        .map(|(_, gate)| gate.clone());
+    // A state control the neutral state hides still emits, gated, if any state shows it.
+    let shows_somewhere = gate.as_ref().is_some_and(|gate| gate.mask != 0);
+    if !(node.visible || shows_somewhere) {
         return;
     }
+    let gated = gate.is_some();
+    gates.extend(gate);
     let first = out.len();
     emit_own(node, env, out, order);
     for (_, _, drawn) in &mut out[first..] {
         drawn.gates.clone_from(gates);
     }
-    let masks = crate::widgets::state_child_masks(node.control);
+    let before = pending.len();
+    pending.extend(
+        crate::widgets::state_targets(node.control, 0)
+            .into_iter()
+            .map(|target| {
+                (
+                    target.control as *const ResolvedControl,
+                    StateGate {
+                        key: node.key.clone(),
+                        mask: target.mask,
+                    },
+                )
+            }),
+    );
     for child in &node.children {
-        match masks.iter().find(|(name, _)| *name == child.control.name) {
-            Some((_, mask)) => {
-                gates.push(StateGate {
-                    key: node.key.clone(),
-                    mask: *mask,
-                });
-                collect_gated(child, env, out, order, gates, true);
-                gates.pop();
-            }
-            None => collect_gated(child, env, out, order, gates, false),
-        }
+        collect_gated(child, env, out, order, gates, pending);
+    }
+    pending.truncate(before);
+    if gated {
+        gates.pop();
     }
 }
 
@@ -445,10 +466,14 @@ fn tiles(rect: Rect, base: [f64; 2], axes: [bool; 2]) -> Vec<(Rect, UvRect)> {
 }
 
 fn text_draw(control: &ResolvedControl) -> Draw {
-    let text = match control.properties.get("text").and_then(Value::as_str) {
+    let mut text = match control.properties.get("text").and_then(Value::as_str) {
         Some(text) => text.to_owned(),
         None => String::new(),
     };
+    // A selected edit box's text target draws its blinking caret after the text.
+    if crate::widgets::bound_bool(control, crate::component::CARET_PROPERTY) == Some(true) {
+        text.push('_');
+    }
     let color = match control.properties.get("#color") {
         Some(value) => color_from_value(value, [255, 255, 255, 255]),
         None => color_of(control, [255, 255, 255, 255]),
