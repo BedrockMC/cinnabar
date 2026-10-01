@@ -883,3 +883,4 @@ mod lenient_decode;
 mod local_abilities;
 mod prediction;
 mod render_distance;
+mod streaming_harness;
