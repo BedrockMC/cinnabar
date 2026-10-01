@@ -1,3 +1,4 @@
+use super::model::PreparedBlockMutations;
 use super::*;
 
 impl WorldStream {
@@ -17,7 +18,9 @@ impl WorldStream {
             self.heavy_sequences.remove(&completion.sequence);
             self.apply_prepared(completion.event);
             self.reapply_deferred_predictions();
-            self.apply_ready();
+            if !self.polling {
+                self.apply_ready();
+            }
             return;
         }
         if self
@@ -59,7 +62,10 @@ impl WorldStream {
     pub(super) fn dispatch_decode_jobs(&mut self) {
         let budget = DECODE_DISPATCH_BUDGET_PER_POLL
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
-        for _ in 0..budget {
+        for index in 0..budget {
+            if index != 0 && self.poll_budget_exhausted() {
+                break;
+            }
             let Some(QueuedDecodeJob { queued_at, job }) = self.pending_decode.pop_front() else {
                 break;
             };
@@ -137,20 +143,7 @@ impl WorldStream {
                         batches,
                         ids,
                     } => {
-                        let result = batches
-                            .into_iter()
-                            .map(|mut batch| {
-                                for update in &mut batch.updates {
-                                    update.runtime_id = BlockIds::resolve(&ids, update.runtime_id);
-                                }
-                                ChunkStore::prepare_sub_chunk_blocks(
-                                    batch.key,
-                                    batch.previous.as_deref(),
-                                    &batch.updates,
-                                    ids.air(),
-                                )
-                            })
-                            .collect();
+                        let result = prepare_block_mutations(batches, &ids);
                         DecodeCompletion {
                             sequence,
                             queue_wait,
@@ -183,6 +176,41 @@ impl WorldStream {
             });
         }
     }
+}
+
+/// Prepares packed mutations and the same light comparison used by direct predictions.
+pub(super) fn prepare_block_mutations(
+    batches: Vec<BlockMutationBatch>,
+    ids: &DecodeIds,
+) -> Result<PreparedBlockMutations, MutationError> {
+    let mut prepared = PreparedBlockMutations {
+        mutations: Vec::with_capacity(batches.len()),
+        relight: BTreeSet::new(),
+    };
+    for mut batch in batches {
+        for update in &mut batch.updates {
+            update.runtime_id = BlockIds::resolve(ids, update.runtime_id);
+        }
+        let mutation = ChunkStore::prepare_sub_chunk_blocks(
+            batch.key,
+            batch.previous.as_deref(),
+            &batch.updates,
+            ids.air(),
+        )?;
+        if mutation.changed()
+            && WorldStream::light_semantics_changed(
+                BlockClassifier::new(ids.air),
+                &ids.assets,
+                ids.mode,
+                batch.previous.as_deref(),
+                mutation.replacement(),
+            )
+        {
+            prepared.relight.insert(mutation.key());
+        }
+        prepared.mutations.push(mutation);
+    }
+    Ok(prepared)
 }
 
 /// Session registries that decode workers resolve raw ids against, as the

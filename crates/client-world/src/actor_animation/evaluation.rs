@@ -402,12 +402,15 @@ impl Evaluator<'_> {
                         .len()
                         .checked_sub(function.arity())
                         .ok_or(EvalError::Invalid)?;
-                    let arguments = stack
-                        .split_off(start)
-                        .iter()
-                        .map(MolangValue::number)
-                        .collect::<Vec<_>>();
-                    let value = molang_call(function, &arguments, &mut || variables.next_random());
+                    let mut arguments = [0.0; 3];
+                    let arguments = arguments
+                        .get_mut(..function.arity())
+                        .ok_or(EvalError::Invalid)?;
+                    for (argument, value) in arguments.iter_mut().zip(&stack[start..]) {
+                        *argument = value.number();
+                    }
+                    stack.truncate(start);
+                    let value = molang_call(function, arguments, &mut || variables.next_random());
                     stack.push(MolangValue::Number(value));
                 }
                 MolangOp::Jump(target) => pc = jump(target)?,

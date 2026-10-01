@@ -1,13 +1,7 @@
 #define_import_path cinnabar::biome_tint
 
-// Bedrock blends over a 4-block lattice: each lattice point averages biomes
-// sampled at its own position and one lattice step either side, and queries
-// interpolate linearly between the two nearest lattice points. Per axis that
-// collapses to four taps at lattice multiples with weights (1-t, 1, 1, t) / 3.
-// The vertical lattice axis is not blended here (needs measurement).
-const BIOME_LATTICE_STEP: i32 = 4;
-const BIOME_DESCRIPTOR_WORDS: u32 = 11u;
-const BIOME_DESCRIPTOR_MAGIC: u32 = 0x42494f31u;
+// The CPU packs vanilla's 27-sample biome counts at each 3D lattice point.
+// BIOME_CONSTANTS
 
 struct BiomeTintGpu {
     grass: u32,
@@ -57,24 +51,13 @@ fn packed_biome_tint_index(record: u32, source_coordinate: vec3<i32>) -> u32 {
     if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) {
         return 0u;
     }
-    let dx = source_coordinate.x >> 4;
-    let dz = source_coordinate.z >> 4;
-    if (dx < -1 || dx > 1 || dz < -1 || dz > 1) {
-        return 0u;
-    }
-    let slot = u32((dz + 1) * 3 + dx + 1);
-    var relative = biome_records[record + 2u + slot];
-    var coordinate = source_coordinate;
-    if (relative == 0u) {
-        relative = biome_records[record + 2u + 4u];
-        coordinate.x = clamp(coordinate.x, 0, 15);
-        coordinate.z = clamp(coordinate.z, 0, 15);
-    } else {
-        coordinate.x -= dx * 16;
-        coordinate.z -= dz * 16;
-    }
-    coordinate.y = clamp(coordinate.y, 0, 15);
-    return packed_payload_tint_index(record + relative, vec3<u32>(coordinate));
+    let offset = source_coordinate >> vec3(4u);
+    if (any(offset < vec3(-1)) || any(offset > vec3(1))) { return 0u; }
+    let layer = select(select(2u, 1u, offset.y < 0), 0u, offset.y == 0);
+    let slot = layer * 9u + u32((offset.z + 1) * 3 + offset.x + 1);
+    let relative = biome_records[record + 2u + slot];
+    if (relative == 0u) { return 0u; }
+    return packed_payload_tint_index(record + relative, vec3<u32>(source_coordinate & vec3(15)));
 }
 
 fn safe_biome_tint(index: u32) -> BiomeTintGpu {
@@ -82,14 +65,14 @@ fn safe_biome_tint(index: u32) -> BiomeTintGpu {
     return biome_tints[safe_index];
 }
 
-fn tint_domain_colour(tint: BiomeTintGpu, tint_kind: u32) -> vec3<f32> {
+fn tint_domain_colour(tint: BiomeTintGpu, tint_kind: u32, material_flags: u32) -> vec3<f32> {
     if (tint_kind == 0x10u) {
         return unpack_linear_rgb10(tint.grass);
     }
     if (tint_kind == 0x30u) {
         return unpack_linear_rgb10(tint.water);
     }
-    return unpack_linear_rgb10(tint.foliage);
+    return special_foliage_tint(tint, material_flags);
 }
 
 fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
@@ -101,8 +84,18 @@ fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
     }
 }
 
-fn lattice_tap_weights(t: f32) -> vec4<f32> {
-    return vec4((1.0 - t) / 3.0, 1.0 / 3.0, 1.0 / 3.0, t / 3.0);
+// Tint tables are linear; vanilla averages normalized palette RGB before lighting.
+fn tint_to_gamma(linear: vec3<f32>) -> vec3<f32> {
+    return select(12.92 * linear, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055, linear > vec3(0.0031308));
+}
+
+fn tint_to_linear(gamma: vec3<f32>) -> vec3<f32> {
+    return select(gamma / 12.92, pow((gamma + 0.055) / 1.055, vec3(2.4)), gamma > vec3(0.04045));
+}
+
+fn lattice_point_index(position: vec3<i32>) -> u32 {
+    let axis = vec3<u32>((position + vec3(BIOME_LATTICE_STEP)) / BIOME_LATTICE_STEP);
+    return (axis.x * BIOME_LATTICE_SIDE + axis.y) * BIOME_LATTICE_SIDE + axis.z;
 }
 
 fn blended_biome_tint(
@@ -112,37 +105,27 @@ fn blended_biome_tint(
     local_position: vec3<f32>,
 ) -> vec3<f32> {
     let coordinate = vec3<i32>(floor(local_position));
-    if (tint_kind == 0x20u && (material_flags & 0x600u) != 0u) {
-        return special_foliage_tint(
-            safe_biome_tint(packed_biome_tint_index(record, coordinate)),
-            material_flags,
-        );
-    }
-
     let uniform_tint = biome_records[record + 1u];
     if (uniform_tint != 0xffffffffu) {
-        return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind);
+        return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags);
     }
-
-    let cell = vec2<i32>(coordinate.x >> 2u, coordinate.z >> 2u);
-    let fraction = vec2<f32>(
-        f32(coordinate.x & 3),
-        f32(coordinate.z & 3),
-    ) / f32(BIOME_LATTICE_STEP);
-    let weights_x = lattice_tap_weights(fraction.x);
-    let weights_z = lattice_tap_weights(fraction.y);
+    let base = (coordinate - vec3(BIOME_CACHE_ORIGIN)) / BIOME_LATTICE_STEP * BIOME_LATTICE_STEP + vec3(BIOME_CACHE_ORIGIN);
+    let residue = vec3<u32>(coordinate - base + vec3(BIOME_RESIDUE_RADIUS));
+    let query = ((residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z) * BIOME_QUERY_POINTS;
     var sum = vec3(0.0);
-    for (var tz = 0; tz < 4; tz += 1) {
-        for (var tx = 0; tx < 4; tx += 1) {
-            let sample_coordinate = vec3(
-                (cell.x - 1 + tx) * BIOME_LATTICE_STEP,
-                coordinate.y,
-                (cell.y - 1 + tz) * BIOME_LATTICE_STEP,
-            );
-            let tint_index = packed_biome_tint_index(record, sample_coordinate);
-            sum += tint_domain_colour(safe_biome_tint(tint_index), tint_kind)
-                * (weights_x[tx] * weights_z[tz]);
+    var denominator = 0.0;
+    for (var point = 0; point < i32(BIOME_QUERY_POINTS); point += 1) {
+        let sample = BIOME_POINTS[query + u32(point)];
+        let weight = sample.w;
+        let position = base + vec3<i32>(sample.xyz);
+        let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * BIOME_POINT_WORDS;
+        var colour = vec3(0.0);
+        for (var i = 0u; i < biome_records[start]; i += 1u) {
+            let tint = safe_biome_tint(biome_records[start + 1u + i]);
+            colour += tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags)) * bitcast<f32>(biome_records[start + 1u + BIOME_BIOME_LIMIT + i]);
         }
+        sum += clamp(colour, vec3(0.0), vec3(1.0)) * weight;
+        denominator += weight;
     }
-    return sum;
+    return tint_to_linear(sum / denominator);
 }

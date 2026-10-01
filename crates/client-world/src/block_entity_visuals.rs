@@ -71,6 +71,11 @@ impl BlockEntityVisualDiagnostics {
         self.retain(|entity| entity.chunk() != key);
     }
 
+    /// Removes visual routes for a retired batch of columns.
+    pub fn remove_chunks(&mut self, keys: &std::collections::BTreeSet<ChunkKey>) {
+        self.retain(|entity| !keys.contains(&entity.chunk()));
+    }
+
     fn retain(&mut self, keep: impl Fn(&BlockEntityKey) -> bool) {
         let counts = &mut self.counts;
         self.routes.retain(|entity, route| {

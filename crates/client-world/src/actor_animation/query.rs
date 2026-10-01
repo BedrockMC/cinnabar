@@ -240,9 +240,11 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         return *idle;
     }
     match name {
-        "anim_time" => evaluator.anim_tick as f32 * 0.05,
-        "life_time" => evaluator.life_tick as f32 * 0.05,
-        "delta_time" => 0.05,
+        "anim_time" => evaluator.anim_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
+        "life_time" => evaluator.life_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
+        "delta_time" => {
+            context.animation_elapsed_ticks.unwrap_or(1) as f32 * ACTOR_TICK_DURATION.as_secs_f32()
+        }
         "modified_distance_moved" => input.distance_moved,
         "modified_move_speed" => input.move_speed,
         "walk_distance" => input.walk_distance,
@@ -288,13 +290,17 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "hurt_time" => f32::from(actor.status.hurt_time),
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
-        "main_hand_item_use_duration" => input.item_use_ticks as f32 * 0.05,
-        "main_hand_item_max_duration" => context.main_hand_max_use_ticks as f32 * 0.05,
+        "main_hand_item_use_duration" => {
+            input.item_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
+        }
+        "main_hand_item_max_duration" => {
+            context.main_hand_max_use_ticks as f32 * ACTOR_TICK_DURATION.as_secs_f32()
+        }
         "item_remaining_use_duration" => {
             context
                 .main_hand_max_use_ticks
                 .saturating_sub(input.item_use_ticks) as f32
-                * 0.05
+                * ACTOR_TICK_DURATION.as_secs_f32()
         }
         "death_ticks" => f32::from(actor.status.death_time),
         // Ticks stand in for the world clock; only the phase between actors differs.
@@ -329,7 +335,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "is_sleeping" => truth(actor.player_is_sleeping()),
         "body_y_rotation" => input.body_yaw,
         "body_x_rotation" | "target_x_rotation" => input.pitch,
-        "target_y_rotation" => head_relative_yaw(input, TARGET_YAW_LIMIT),
+        "target_y_rotation" => {
+            if actor.target_rotation_is_absolute() {
+                actor.yaw
+            } else {
+                head_relative_yaw(input, TARGET_YAW_LIMIT)
+            }
+        }
         // Only the one-argument forms carry a value; the bare forms read as zero.
         "head_y_rotation" => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
         "head_x_rotation" => argument(0).map_or(0.0, |_| input.pitch),

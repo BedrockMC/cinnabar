@@ -407,10 +407,8 @@ mod tests {
             text.iter()
                 .all(|line| line.text == 1 && line.uv[2] > line.uv[0])
         );
-        assert_eq!(
-            scene.atlas.len(),
-            (NAMETAG_ATLAS_SIDE * NAMETAG_ATLAS_SIDE * 4) as usize
-        );
+        assert_eq!(scene.atlas.len(), 2);
+        assert_eq!(scene.atlas[0].cell, wide.cell);
     }
 
     // See-through tags draw first and depth-tested (sneaking) ones after, each farthest first.

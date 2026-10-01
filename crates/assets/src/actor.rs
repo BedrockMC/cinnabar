@@ -277,7 +277,7 @@ fn validate(
             .sources()
             .get(texture.source as usize)
             .ok_or_else(|| invalid("actor texture source is absent"))?;
-        if !source.path.starts_with("textures/entity/")
+        if !source.path.starts_with("textures/")
             || !(source.path.ends_with(".png") || source.path.ends_with(".tga"))
             || texture.rgba8.len() != length
             || texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8))
@@ -301,11 +301,7 @@ fn validate(
             .rig_geometries()
             .get(binding.geometry_candidate as usize)
             .ok_or_else(|| invalid("actor rig geometry is absent"))?;
-        let geometry = entities
-            .geometries()
-            .get(binding.geometry as usize)
-            .ok_or_else(|| invalid("actor geometry is absent"))?;
-        let texture = textures
+        textures
             .get(binding.texture as usize)
             .ok_or_else(|| invalid("actor texture index is absent"))?;
         let key = (binding.rig, binding.geometry_candidate);
@@ -314,8 +310,6 @@ fn validate(
             || !candidates.contains(&binding.geometry_candidate)
             || binding.render_controller != rig.render_controller
             || binding.geometry != geometry_binding.geometry
-            || geometry.texture_width != texture.width
-            || geometry.texture_height != texture.height
             || binding.material.is_empty()
             || !neutral_actor_geometry_uvs_are_supported(
                 entities.geometries(),

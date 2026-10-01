@@ -18,7 +18,9 @@ use client_world::WorldStream;
 use protocol::{ActorKind, BedrockSession, WorldBootstrap, WorldEvent};
 use render::{ActorRenderFrame, RuntimeStage, RuntimeStageProfiler};
 
-use crate::runtime::network::{HandRigBuilder, publish_actor_render_frame};
+use crate::runtime::network::{
+    HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+};
 
 const FRAME: Duration = Duration::from_nanos(16_666_667);
 const COMPILED: &str = "../.local/assets/compiled";
@@ -497,6 +499,7 @@ fn lobby_frame_bench() {
             .update_with_instant(clock);
         let before = crate::tests::alloc_count::thread_allocations();
         let (timer, cpu_timer) = (Instant::now(), thread_cpu_time());
+        world.run_system_cached(prepare_actor_render_frame).unwrap();
         world.run_system_cached(publish_actor_render_frame).unwrap();
         let (elapsed, cpu_elapsed) = (timer.elapsed(), thread_cpu_time() - cpu_timer);
         let allocated = crate::tests::alloc_count::thread_allocations() - before;

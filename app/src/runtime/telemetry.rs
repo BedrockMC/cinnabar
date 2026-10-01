@@ -1,3 +1,4 @@
+use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
 use std::{
     collections::VecDeque,
     fmt::Write as _,
@@ -16,10 +17,7 @@ use bevy::{
     winit::{UpdateMode, WinitSettings},
 };
 use client_world::Phase2PresentationSnapshot;
-use meshing::{
-    BIOME_BLEND_RADIUS, BIOME_BLEND_SAMPLE_COUNT, BIOME_BLEND_WEIGHT_DENOMINATOR, BiomeBlendSample,
-    ChunkBiomeTintIdentity, PackedBiomeRecord,
-};
+use meshing::{BiomeBlendSample, ChunkBiomeTintIdentity, PackedBiomeRecord};
 use render::{
     ChunkRenderInstance, ChunkRenderQueue, ModelWitnessEvidence, ModelWitnessManifestRecord,
     ModelWorkloadMetrics, RenderViewCohort, RuntimeStage, RuntimeStageProfiler,
@@ -209,10 +207,10 @@ pub(crate) struct CommittedBiomeBlendIdentity {
     local: [i32; 3],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CommittedBiomeBlendSnapshot {
     identity: CommittedBiomeBlendIdentity,
-    samples: [BiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT],
+    samples: [BiomeBlendSample; BLEND_SAMPLE_COUNT],
 }
 
 impl CommittedBiomeBlendSnapshot {
@@ -260,7 +258,7 @@ pub(crate) fn biome_blend_diagnostic_marker_if_changed(
     *last_emitted = Some(snapshot.identity);
     let identity = snapshot.identity;
     let mut marker = format!(
-        "BIOME_BLEND_COMMITTED stage=app_committed key={},{},{},{} generation={} tint_stream={} tint_revision={} record_hash={:016x} local={},{},{} radius={} denominator={} samples=",
+        "BIOME_BLEND_COMMITTED stage=app_committed key={},{},{},{} generation={} tint_stream={} tint_revision={} record_hash={:016x} local={},{},{} radius={} samples=",
         identity.key.dimension,
         identity.key.x,
         identity.key.y,
@@ -273,18 +271,13 @@ pub(crate) fn biome_blend_diagnostic_marker_if_changed(
         identity.local[1],
         identity.local[2],
         BIOME_BLEND_RADIUS,
-        BIOME_BLEND_WEIGHT_DENOMINATOR,
     );
     for (index, sample) in snapshot.samples.into_iter().enumerate() {
         if index != 0 {
             marker.push(';');
         }
-        write!(
-            marker,
-            "{},{}:{}:{}",
-            sample.offset[0], sample.offset[1], sample.tint_index, sample.weight_numerator,
-        )
-        .expect("writing to String cannot fail");
+        write!(marker, "{}:{:.8}", sample.tint_index, sample.weight,)
+            .expect("writing to String cannot fail");
     }
     Some(marker)
 }
