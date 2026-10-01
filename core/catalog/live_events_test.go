@@ -68,7 +68,10 @@ func replayPublicConfig(t *testing.T, response string, now time.Time) Home {
 	if err != nil || len(events) == 0 {
 		t.Fatalf("events = %+v, err = %v", events, err)
 	}
-	home := Home{LiveEvents: events}
+	home := Home{
+		Messages: []Message{}, Inbox: Inbox{Categories: []InboxCategory{}},
+		Treatments: []string{}, LiveEvents: events,
+	}
 	images := HomeImages(&home)
 	if len(images) == 0 || home.LiveEvents[0].Badge.URL == "" {
 		t.Fatal("fixture must contain an active event with badge artwork")
