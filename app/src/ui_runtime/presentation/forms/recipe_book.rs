@@ -176,9 +176,22 @@ pub(super) fn book_data(
                 Scalar::Text(background(runtime, entry).to_owned()),
             )
             .with("#recipe_book_total_items", Scalar::Num(total))
+            .with("#container_item_modifier", Scalar::Int(modifier(entry)))
         })
         .collect();
     data.set_collection("recipe_book", items);
+}
+
+/// `#container_item_modifier`: a folded group head shows the expand icon (2),
+/// an unfolded one the collapse icon (1), anything else neither.
+fn modifier(entry: &BookEntry<'_>) -> i64 {
+    match entry {
+        BookEntry::Group {
+            expanded: false, ..
+        } => 2,
+        BookEntry::Group { expanded: true, .. } => 1,
+        _ => 0,
+    }
 }
 
 fn background(runtime: &UiRuntime, entry: &BookEntry<'_>) -> &'static str {

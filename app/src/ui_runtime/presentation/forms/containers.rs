@@ -443,6 +443,9 @@ impl Cells<'_> {
         )
         .with("#hover_text", Scalar::Text(name))
         .with("#is_selected_slot", Scalar::Bool(false))
+        // The classic cell art; the controller always answers the background.
+        .with("#container_item_background", Scalar::Int(0))
+        .with("#container_item_modifier", Scalar::Int(0))
         .with(
             "#item_durability_visible",
             Scalar::Bool(durability.is_some()),
