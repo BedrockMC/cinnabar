@@ -3386,6 +3386,18 @@ gates.
 
 - [ ] **5.8 In-game menu, controls, video settings, and persistence.** `P5.8-SETTINGS`
 
+  Desktop GUI scale modifier and fullscreen/F11 wiring are implemented,
+  including preference persistence. The modifier range and scale rule use the
+  Lens 26.30 desktop reference and the controls use the pinned vanilla JSON UI;
+  see [desktop video settings evidence](docs/evidence/desktop-video-settings.md).
+  **Incomplete parity:** the transferred behavior has not been compared with a
+  version-matched native client. The settings context selects the pinned pack's
+  compact spacing branch; Bedrock's service-controlled spacing treatment is
+  not mirrored. Language-specific minimum-scale dialogs,
+  safe-zone adjustments, and touch/console behavior remain unimplemented in
+  this adapter. Linux rendered-frame and live-input verification validates the
+  local wiring only; it does not close this or any broader UI parity gate.
+
 ## Phase 6 — Online product surface
 
 Scope: main menu + settings (video/controls/audio/account); server browser (saved servers);

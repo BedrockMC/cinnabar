@@ -200,7 +200,8 @@
 
     $vineCoverage = Get-VineCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets
     Assert-Equal 'rust-mcbe-vine-coverage-v1' $vineCoverage.schema 'vine coverage lost strict schema identity'
-    Assert-Equal 2168 ([int]$vineCoverage.registry_protocol) 'vine coverage lost protocol binding'
+    Assert-Equal ([uint32](Get-BedrockTargetManifest -ProjectRoot $ProjectRoot).wire_protocol) `
+        ([int]$vineCoverage.registry_protocol) 'vine coverage lost protocol binding'
     Assert-Equal 'MCBEAS05' $vineCoverage.compiler_schema 'vine coverage lost compiler binding'
     Assert-Equal 16 ([int]$vineCoverage.state_count) 'vine coverage did not contain exactly 16 states'
     Assert-Equal '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15' (@($vineCoverage.entries | ForEach-Object mask) -join ',') 'vine coverage masks were not an exact bijection 0..15'

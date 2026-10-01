@@ -7,6 +7,7 @@ function Get-AcceptanceLibraryPaths {
         'RuntimePaths.ps1',
         'Process.ps1',
         'Bds.ps1',
+        'Gophertunnel.ps1',
         'Markers.ps1',
         'Galleries\Common.ps1',
         'Galleries\Leaves.ps1',

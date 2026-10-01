@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_gophertunnel_commit='b725d82563e93308fd1f92d27da5e97301ad5040'
-expected_gophertunnel_version='v1.25.3-0.20260929084839-b725d82563e9'
 expected_bds_sha256='19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
 expected_bds_release='1.26.52.3'
 pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'
@@ -61,72 +59,90 @@ sha256_file() {
 
 resolve_pinned_gophertunnel_commit() {
     local root=$1
-    python3 - "$root" "$expected_gophertunnel_version" "$expected_gophertunnel_commit" <<'PY'
-import json, re, subprocess, sys
+    python3 - "$root" <<'PYCODE'
+import datetime, json, pathlib, re, subprocess, sys
 
-root, expected_version, expected_commit = sys.argv[1:]
+root = pathlib.Path(sys.argv[1])
+module_path = "github.com/sandertv/gophertunnel"
+fork_path = "github.com/hashimthearab/gophertunnel"
+
+def reject_duplicate_fields(pairs):
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise ValueError("duplicate JSON field")
+    return dict(pairs)
+
+def go_json(arguments, label):
+    try:
+        result = subprocess.run(
+            ["go", *arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=30, check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(f"{label} timed out while verifying gophertunnel") from error
+    if len(result.stdout) > 65536 or len(result.stderr) > 65536:
+        raise SystemExit(f"{label} output exceeds the 64 KiB provenance bound")
+    if result.returncode:
+        raise SystemExit(f"{label} failed: " + result.stderr.decode("utf-8", "replace"))
+    try:
+        value = json.loads(result.stdout, object_pairs_hook=reject_duplicate_fields)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise SystemExit(f"{label} returned malformed gophertunnel JSON: {error}") from error
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} returned a non-object gophertunnel result")
+    return value
+
+manifest = go_json(["-C", str(root / "core"), "mod", "edit", "-json"], "go mod edit")
+replacements = manifest.get("Replace")
+if not isinstance(replacements, list):
+    raise SystemExit("core/go.mod has no pinned gophertunnel replacement")
+matching = [entry for entry in replacements if isinstance(entry, dict)
+            and isinstance(entry.get("Old"), dict) and entry["Old"].get("Path") == module_path]
+if len(matching) != 1 or ("Version" in matching[0]["Old"] and matching[0]["Old"]["Version"] != ""):
+    raise SystemExit("core/go.mod must own one unversioned gophertunnel replacement")
+expected = matching[0].get("New")
+if not isinstance(expected, dict) or expected.get("Path") != fork_path:
+    raise SystemExit("core/go.mod pins a different gophertunnel source")
+expected_version = expected.get("Version")
+match = re.fullmatch(
+    r"v(?:0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)\.(?P<patch>0|[1-9][0-9]*)-"
+    r"(?:(?P<prefix>[0-9A-Za-z.-]+)\.)?(?P<timestamp>[0-9]{14})-(?P<revision>[0-9a-f]{12})(?:\+incompatible)?",
+    expected_version if isinstance(expected_version, str) else "",
+)
+if not match:
+    raise SystemExit("core/go.mod gophertunnel replacement is not pinned to a commit pseudo-version")
+prefix = match.group("prefix")
+valid_prefix = (prefix is None and match.group("minor") == match.group("patch") == "0"
+                or prefix == "0" and match.group("patch") != "0")
+if prefix and prefix.endswith(".0"):
+    identifiers = prefix[:-2].split(".")
+    valid_prefix = all(re.fullmatch(r"[0-9A-Za-z-]+", value)
+                       and not re.fullmatch(r"0[0-9]+", value) for value in identifiers)
+if not valid_prefix:
+    raise SystemExit("core/go.mod gophertunnel replacement is not a valid pinned pseudo-version")
 try:
-    result = subprocess.run(
-        ["go", "-C", root, "list", "-m", "-json", "github.com/sandertv/gophertunnel"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        check=False,
-    )
-except subprocess.TimeoutExpired as error:
-    raise SystemExit("go list -m timed out while resolving gophertunnel") from error
-if len(result.stdout) > 65536 or len(result.stderr) > 65536:
-    raise SystemExit("go list -m gophertunnel output exceeds the 64 KiB provenance bound")
-if result.returncode:
-    raise SystemExit("go list -m failed while resolving gophertunnel: " + result.stderr.decode("utf-8", "replace"))
-try:
-    module = json.loads(result.stdout, object_pairs_hook=lambda pairs: (
-        (_ for _ in ()).throw(ValueError("duplicate JSON field"))
-        if len({key for key, _ in pairs}) != len(pairs) else dict(pairs)
-    ))
-except (UnicodeDecodeError, ValueError) as error:
-    raise SystemExit(f"go list -m returned malformed gophertunnel JSON: {error}") from error
+    datetime.datetime.strptime(match.group("timestamp"), "%Y%m%d%H%M%S")
+except ValueError as error:
+    raise SystemExit("core/go.mod gophertunnel pseudo-version has an invalid timestamp") from error
+revision = match.group("revision")
+module = go_json(["-C", str(root), "list", "-m", "-json", module_path], "go list -m")
 replacement = module.get("Replace")
-if (
-    module.get("Path") != "github.com/sandertv/gophertunnel"
-    or not isinstance(replacement, dict)
-    or replacement.get("Path") != "github.com/hashimthearab/gophertunnel"
-    or replacement.get("Version") != expected_version
-):
+if (module.get("Path") != module_path or not isinstance(replacement, dict)
+    or replacement.get("Path") != expected["Path"] or replacement.get("Version") != expected_version):
     raise SystemExit("go list -m resolved a different gophertunnel module or replacement version")
-match = re.search(r"-([0-9a-f]{12})$", expected_version)
-if not re.fullmatch(r"[0-9a-f]{40}", expected_commit) or not match or match.group(1) != expected_commit[:12]:
-    raise SystemExit("gophertunnel replacement version does not identify the expected exact commit")
-try:
-    download_result = subprocess.run(
-        ["go", "-C", root, "mod", "download", "-json", replacement["Path"] + "@" + replacement["Version"]],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        check=False,
-    )
-except subprocess.TimeoutExpired as error:
-    raise SystemExit("go mod download timed out while verifying gophertunnel origin") from error
-if len(download_result.stdout) > 65536 or len(download_result.stderr) > 65536:
-    raise SystemExit("go mod download gophertunnel output exceeds the 64 KiB provenance bound")
-if download_result.returncode:
-    raise SystemExit("go mod download failed while verifying gophertunnel origin: " + download_result.stderr.decode("utf-8", "replace"))
-try:
-    download = json.loads(download_result.stdout)
-except (UnicodeDecodeError, ValueError) as error:
-    raise SystemExit(f"go mod download returned malformed gophertunnel JSON: {error}") from error
+download = go_json(
+    ["-C", str(root), "mod", "download", "-json", expected["Path"] + "@" + expected_version],
+    "go mod download",
+)
 origin = download.get("Origin")
-if (
-    download.get("Path") != replacement["Path"]
-    or download.get("Version") != replacement["Version"]
-    or not isinstance(origin, dict)
-    or origin.get("VCS") != "git"
-    or origin.get("URL") != "https://github.com/hashimthearab/gophertunnel"
-    or origin.get("Hash") != expected_commit
-):
+commit = origin.get("Hash") if isinstance(origin, dict) else None
+if (download.get("Path") != expected["Path"] or download.get("Version") != expected_version
+    or not isinstance(origin, dict) or origin.get("VCS") != "git"
+    or origin.get("URL") != "https://" + expected["Path"]
+    or not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit)
+    or commit[:12] != revision):
     raise SystemExit("resolved gophertunnel module origin does not match the expected exact commit")
-print(expected_commit)
-PY
+print(commit)
+PYCODE
 }
 
 assert_protocol_dependency_provenance() {
