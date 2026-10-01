@@ -3581,3 +3581,26 @@ Landing and sprint dust are not wired by the current particle adapter. Rain spla
 uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
 defines. Offline tests or previews do not close the target-platform visual gate;
 no live server connection is authorized for this work.
+
+### Zeqa correction audit (2026-10-01, incomplete)
+
+The October 1 trace contains 34 committed corrections. The audit in
+`docs/evidence/2026-10-01-zeqa-movement.md` compares each authoritative position
+with the originally transmitted input, not a prediction already changed by replay.
+Current-client Lens evidence supports these fixes: player corrections preserve look;
+PosDelta carries end-of-tick velocity; zero-stamped SetActorMotion changes live
+velocity without a replay overlay; Jumping follows held processed input and
+StartJumping follows actual initiation; keyboard raw diagonal movement is normalized and analogue axes stay zero;
+MovePlayer teleports acknowledge without an opt-in; teleport snaps preserve raw
+button history and jump cooldown; player collision boxes retain their full width.
+Latency replies preserve native flags and timestamp conversion and follow committed
+motion through the outbound FIFO. Tagged motion remains on the replay timeline.
+
+This does not close movement parity. The capture omits collision volumes/revisions,
+most inbound correction velocity/ground fields, and some motion events. The first
+burst's floor-contact discrepancy and the last burst's exact replay failure need a
+fresh capture. Future/missing correction-frame behavior remains unverified; existing fallback snaps, collision identity policy and teleport
+expiry remain provisional. The simulator still uses its existing f64 arithmetic.
+No live server connection was made. Use RUST_MCBE_MOVEMENT_TRACE=1 for outbound PAI
+and the new unthrottled inbound movement and latency-fence records. Normal MovePlayer acknowledgement
+no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified extra routes.

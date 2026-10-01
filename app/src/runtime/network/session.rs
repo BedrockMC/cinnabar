@@ -2,7 +2,7 @@ use std::{
     io::Write,
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
@@ -322,6 +322,7 @@ pub struct NetworkHandle {
     control_events: mpsc::Receiver<NetworkControlEvent>,
     world_events: mpsc::Receiver<WorldIngress>,
     commands: mpsc::Sender<NetworkCommand>,
+    pending_latency_reply: Mutex<Option<Packet>>,
     physics_reanchor: watch::Sender<u64>,
     shutdown: watch::Sender<bool>,
     thread: Option<JoinHandle<()>>,
@@ -378,6 +379,12 @@ impl NetworkHandle {
         self.commands
             .max_capacity()
             .saturating_sub(self.commands.capacity())
+            .saturating_add(usize::from(
+                self.pending_latency_reply
+                    .lock()
+                    .expect("latency reply lock")
+                    .is_some(),
+            ))
     }
 
     #[must_use]
@@ -439,6 +446,7 @@ impl NetworkHandle {
         if packets.is_empty() {
             return Ok(());
         }
+        self.flush_latency_reply()?;
         let permits =
             self.commands
                 .try_reserve_many(packets.len())
@@ -510,6 +518,12 @@ impl NetworkHandle {
         physics_reanchor: Option<watch::Receiver<u64>>,
         interaction: Option<InteractionPacketGuard>,
     ) -> Result<(), PacketSendError> {
+        if let Err(error) = self.flush_latency_reply() {
+            return Err(match error {
+                BatchSendError::Full => PacketSendError::Full(packet),
+                BatchSendError::Closed => PacketSendError::Closed(packet),
+            });
+        }
         self.commands
             .try_send(NetworkCommand::Send {
                 packet,
@@ -530,6 +544,10 @@ impl NetworkHandle {
     }
 
     pub fn shutdown(&mut self) {
+        *self
+            .pending_latency_reply
+            .lock()
+            .expect("latency reply lock") = None;
         self.shutdown.send_replace(true);
         self.release_thread();
     }
@@ -564,6 +582,7 @@ fn empty_network_channels() -> (NetworkHandle, watch::Receiver<u64>) {
             control_events,
             world_events,
             commands,
+            pending_latency_reply: Mutex::new(None),
             physics_reanchor,
             shutdown,
             thread: None,
@@ -723,6 +742,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         control_events,
         world_events,
         commands,
+        pending_latency_reply: Mutex::new(None),
         physics_reanchor,
         shutdown,
         thread: Some(thread),
@@ -955,6 +975,7 @@ use blob_cache_telemetry::{
 mod bootstrap;
 mod forms;
 mod handle_state;
+mod latency_reply;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 mod pump;
 use pump::*;

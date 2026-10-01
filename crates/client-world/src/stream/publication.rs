@@ -87,6 +87,17 @@ impl WorldStream {
             .mesh_uploads_acknowledged
             .saturating_add(1);
     }
+    /// Returns undelivered controls to the front without changing their order.
+    pub fn restore_committed_controls(
+        &mut self,
+        controls: impl DoubleEndedIterator<Item = CommittedControlEvent>,
+    ) {
+        for control in controls.rev() {
+            assert!(self.committed_controls.len() < COMMITTED_CONTROL_CAPACITY);
+            self.committed_controls.push_front(control);
+        }
+    }
+
     pub fn take_committed_controls(&mut self) -> Vec<CommittedControlEvent> {
         self.committed_controls.drain(..).collect()
     }
