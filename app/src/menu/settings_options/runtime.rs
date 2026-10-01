@@ -43,6 +43,14 @@ impl SettingsOptions {
 }
 
 impl MenuRuntime {
+    /// Publishes normalized glint factors to the shared UI renderer.
+    pub(crate) fn ui_glint_settings(&self) -> render::UiGlintSettings {
+        render::UiGlintSettings {
+            strength: self.settings_options.value("glint_strength") as f32 / 100.0,
+            speed: self.settings_options.value("glint_speed") as f32 / 100.0,
+        }
+    }
+
     /// Reads the desktop scoping option for the device that produced this frame's turn.
     pub(crate) fn spyglass_damping(&self, mode: semantic_input::InputMode) -> f32 {
         let name = match mode {

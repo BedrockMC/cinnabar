@@ -29,6 +29,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
         Option<ResMut<'w, render::NametagScene>>,
+        Option<ResMut<'w, render::UiGlintSettings>>,
     ),
 );
 
@@ -55,7 +56,7 @@ pub(crate) fn publish_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather, nametag_scene),
+        (actor_partial, local_frame, clock, weather, nametag_scene, glint_settings),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -63,6 +64,9 @@ pub(crate) fn publish_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     runtime.toast_display_millis = menu_runtime.settings_snapshot().0.toast_lifetime_millis();
+    if let Some(mut glint_settings) = glint_settings {
+        *glint_settings = menu_runtime.ui_glint_settings();
+    }
     let Ok(window) = windows.single() else {
         hand.clear();
         return;

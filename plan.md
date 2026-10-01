@@ -3585,3 +3585,4 @@ chat coordinate copy/paste header. These changes remain incomplete parity until 
 full gates and rendered evidence pass. Registered provisional defaults remain
 provisional after a reset; a working consumer does not establish a vanilla default.
 
+

@@ -180,7 +180,7 @@ pub use ui::{
     UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats,
     UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
-pub use ui_render::UiRenderPlugin;
+pub use ui_render::{UiGlintSettings, UiRenderPlugin};
 pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
     MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
