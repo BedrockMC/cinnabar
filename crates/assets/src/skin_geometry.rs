@@ -4,7 +4,9 @@
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+mod bounds;
 mod poly_mesh;
+pub use bounds::SkinGeometryBounds;
 pub use poly_mesh::{SkinPolyMesh, SkinPolyVertex};
 
 use crate::{
@@ -31,6 +33,8 @@ pub struct SkinGeometry {
     pub bones: Box<[EntityGeometryBone]>,
     /// Optional polygon meshes in the same order as `bones`.
     pub poly_meshes: Box<[Option<SkinPolyMesh>]>,
+    /// Authored visibility box in the actor coordinate frame, when supplied and finite.
+    pub visible_bounds: Option<SkinGeometryBounds>,
     /// Digest of the model inputs, for caching built meshes.
     pub digest: [u8; 32],
 }
@@ -123,11 +127,13 @@ pub fn parse_skin_geometry_layer(
         current.clone_from(&entry.inherits);
     }
     let (mut texture_width, mut texture_height) = (None, None);
+    let mut visible_bounds = None;
     let mut bones: Vec<EntityGeometryBone> = Vec::new();
     let mut poly_meshes = Vec::new();
     for entry in chain.iter().rev() {
         texture_width = entry.texture_width.or(texture_width);
         texture_height = entry.texture_height.or(texture_height);
+        visible_bounds = entry.visible_bounds.or(visible_bounds);
         for (child, mesh) in entry.bones.iter().zip(&entry.poly_meshes) {
             match bones
                 .iter()
@@ -155,7 +161,10 @@ pub fn parse_skin_geometry_layer(
         resource_patch,
         geometry_data,
     )
-    .map(Some)
+    .map(|mut geometry| {
+        geometry.visible_bounds = visible_bounds;
+        Some(geometry)
+    })
 }
 
 fn finish(
@@ -212,6 +221,7 @@ fn finish(
         texture_height: texture_height.unwrap_or(64),
         bones: bones.into(),
         poly_meshes: poly_meshes.into(),
+        visible_bounds: None,
         digest: digest.finalize().into(),
     })
 }
@@ -223,6 +233,7 @@ struct ParsedGeometry {
     texture_height: Option<u16>,
     bones: Vec<EntityGeometryBone>,
     poly_meshes: Vec<Option<SkinPolyMesh>>,
+    visible_bounds: Option<SkinGeometryBounds>,
 }
 
 fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
@@ -243,6 +254,7 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
                 texture_height: dimension(description.get("texture_height")),
                 bones: bones(geometry.get("bones")),
                 poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
+                visible_bounds: bounds::parse(description),
             });
         }
     }
@@ -261,6 +273,7 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
             texture_height: dimension(geometry.get("textureheight")),
             bones: bones(geometry.get("bones")),
             poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
+            visible_bounds: bounds::parse(geometry),
         });
     }
     Some(parsed)

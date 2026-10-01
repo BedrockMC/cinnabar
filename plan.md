@@ -3018,8 +3018,9 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   named classic models and native skin texels, and apply vanilla classic alpha validation.
   Persona face/body atlases now retain their own geometry and texture and follow the pack
   animation rate and blink controller. Player appearance parity remains incomplete: local
-  piece/tint assembly, repository trust/fallback decisions, geometry version upgrades, persona
-  atlases above the admitted size, and custom-model culling bounds still need validation.
+  piece/tint assembly, repository trust/fallback decisions, geometry version upgrades and persona
+  atlases above the admitted size still need validation. Authored skin visibility bounds now reach
+  render, cave and animation culling; complete transformed-bounds parity still needs evidence.
   Offline capture renders establish coverage; they do not close native visual parity.
   The complete absolute-movement origin correction, regression suite, independent review, and
   post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live

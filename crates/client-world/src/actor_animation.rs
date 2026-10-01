@@ -457,8 +457,12 @@ impl ActorAnimationStore {
             {
                 let scale = model_scale(state, state_assets) * actor.render_scale();
                 let player = matches!(actor.kind, ActorKind::Player { .. });
-                if !view.admits(actor.position, scale, player)
-                    && !view.admits(actor.previous_pose.position, scale, player)
+                let bounds = state
+                    .skin_skeleton()
+                    .and_then(|skin| skin.geometry.visible_bounds)
+                    .unwrap_or_default();
+                if !view.admits(actor.position, scale, player, bounds)
+                    && !view.admits(actor.previous_pose.position, scale, player, bounds)
                 {
                     state.culled = true;
                     state.previous.clone_from(&state.current);

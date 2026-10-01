@@ -1,4 +1,4 @@
-use protocol::{ActorEvent, PlayerSkin, WorldEvent, into_world_event};
+use protocol::{ActorEvent, CLASSIC_SKIN_SIDE, PlayerSkin, WorldEvent, into_world_event};
 use valentine::bedrock::version::v1_26_51::{PlayerSkinPacket, SerializedSkinRef, SkinImage};
 
 #[test]
@@ -7,9 +7,9 @@ fn player_skin_packet_reaches_the_actor_pipeline() {
         uuid: uuid::Uuid::from_bytes([7; 16]),
         serialized_skin: SerializedSkinRef {
             image_data: SkinImage {
-                width: 64,
-                height: 64,
-                image_bytes: vec![255; 64 * 64 * 4],
+                width: CLASSIC_SKIN_SIDE as u32,
+                height: CLASSIC_SKIN_SIDE as u32,
+                image_bytes: vec![255; CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4],
             },
             ..Default::default()
         },

@@ -863,9 +863,9 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
 #[test]
 #[ignore = "requires the installed pinned runtime carriers"]
 fn persona_face_blinks_with_the_pinned_runtime_controller() {
-    let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.local/assets/compiled");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
-        path: compiled.join("vanilla-v2193.mcbea"),
+        path: root.join(crate::asset_startup::DEFAULT_ASSET_PATH),
         source: crate::asset_startup::AssetPathSource::CommandLine,
     })
     .unwrap();

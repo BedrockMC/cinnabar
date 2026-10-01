@@ -29,15 +29,17 @@ impl ActorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::{ActorEvent, PlayerListEntry, PlayerListUpdateEvent, StandardSkin};
+    use protocol::{
+        ActorEvent, CLASSIC_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent, StandardSkin,
+    };
     use std::sync::Arc;
 
     /// A small valid appearance with a recognisable pixel value.
     fn skin(value: u8) -> PlayerSkin {
         PlayerSkin::Standard(StandardSkin {
-            width: 64,
-            height: 64,
-            rgba8: vec![value; 64 * 64 * 4].into(),
+            width: CLASSIC_SKIN_SIDE as u32,
+            height: CLASSIC_SKIN_SIDE as u32,
+            rgba8: vec![value; CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4].into(),
             cape: None,
             geometry: None,
         })
@@ -45,7 +47,8 @@ mod tests {
 
     #[test]
     fn player_skin_updates_preserve_roster_identity_and_account_for_replacement() {
-        let mut store = ActorStore::with_limits(1, 0, 4, 4, 64 * 64 * 4);
+        let mut store =
+            ActorStore::with_limits(1, 0, 4, 4, CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4);
         let uuid = [7; 16];
         let add = ActorEvent::PlayerList(PlayerListUpdateEvent {
             entries: Arc::from([PlayerListEntry::Add {
@@ -73,7 +76,10 @@ mod tests {
         assert_eq!(profile.unique_id, 42);
         assert_eq!(&*profile.username, "fixture");
         assert!(profile.verified);
-        assert_eq!(store.retained_player_skin_bytes, 64 * 64 * 4);
+        assert_eq!(
+            store.retained_player_skin_bytes,
+            CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4
+        );
         assert_eq!(
             store.apply(
                 1,
@@ -120,6 +126,9 @@ mod tests {
             ActorApplyResult::CapacityRejected
         );
         assert_eq!(store.players[&uuid].skin, skin(2));
-        assert_eq!(store.retained_player_skin_bytes, 64 * 64 * 4);
+        assert_eq!(
+            store.retained_player_skin_bytes,
+            CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4
+        );
     }
 }
