@@ -5,8 +5,8 @@
 use std::collections::BTreeMap;
 
 use json_ui::{
-    ControlLibrary, ControlRef, DataSource, LaidOut, LayoutEnv, ResolvedControl, Scalar,
-    TextMeasure, TextureMeta, TextureSource, bind, layout,
+    ControlLibrary, ControlRef, DataSource, EmptyLibrary, LaidOut, LayoutEnv, ResolvedControl,
+    Scalar, TextMeasure, TextureMeta, TextureSource, bind, layout,
 };
 use serde_json::{Value, json};
 
@@ -972,6 +972,19 @@ fn a02_anchored_offset() {
                                                        "#anchored_offset_value_y": 0.1 },
     } }]));
     assert_eq!(rect(&root, "p")[..2], [55.0, 80.0]);
+    // A view-bound value reaches placement through the component property.
+    let bound = bind(
+        &screen(json!([{ "p": {
+            "type": "panel", "size": [20, 10], "anchor_from": "bottom_right",
+            "anchor_to": "top_left", "use_anchored_offset": true,
+            "property_bag": { "#x": 0.25 },
+            "bindings": [{ "binding_type": "view", "source_property_name": "#x",
+                           "target_property_name": "#anchored_offset_value_x" }],
+        } }])),
+        &DataSource::new(),
+        &EmptyLibrary,
+    );
+    assert_eq!(rect(&bound, "p")[..2], [55.0, 90.0]);
 }
 
 // A03/A04: cursor-following controls centre on, or sit beside, the pointer.

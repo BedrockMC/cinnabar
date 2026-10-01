@@ -1,8 +1,9 @@
 //! Where a JSON-UI texture path draws from, in the vanilla lookup's spirit: the
 //! server pack first, then the UI carrier, then the item icon atlas already on
 //! the UI texture array, and last vanilla images from the local pack or remote
-//! URLs, packed on demand into the reserved server pages. Paths match in any
-//! case, as resource paths do.
+//! URLs, packed on demand into the reserved server pages. Paths match exactly,
+//! as the client's preloaded asset index does, so vanilla's `textures/ui/White`
+//! (only `white.png` ships) is unresolved and draws the default white texture.
 
 use std::{
     borrow::Cow,
@@ -18,17 +19,11 @@ use super::super::IconRef;
 use super::remote_images::{RemoteImages, is_remote};
 use super::server_pack::ServerAtlas;
 
-/// Vanilla's debug missing-texture image, drawn for a path no source has
-/// (`SpriteComponent` with `allow_debug_missing_texture`, its default).
-const MISSING_TEXTURE: &str = "textures/misc/missing_texture";
-
 /// Texture sources a form engine owns across frames.
 #[derive(Default)]
 pub(super) struct TextureSet {
     /// A lock only because renders borrow the engine shared.
     atlas: Mutex<ServerAtlas>,
-    /// Carrier texture keys by lowercase spelling.
-    carrier: HashMap<String, String>,
     /// Item icon atlas sprites by lowercase item texture path.
     icons: HashMap<String, IconRef>,
     /// Texture page of carrier atlas page 0.
@@ -42,15 +37,10 @@ pub(super) struct TextureSet {
 }
 
 impl TextureSet {
-    pub(super) fn new(assets: &RuntimeUiAssets, first_page: u16) -> Self {
+    pub(super) fn new(first_page: u16) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
         Self {
             atlas: Mutex::new(ServerAtlas::new(&[], None, pages)),
-            carrier: assets
-                .textures()
-                .iter()
-                .map(|texture| (texture.path.to_ascii_lowercase(), texture.path.to_string()))
-                .collect(),
             first_page,
             ..Self::default()
         }
@@ -80,7 +70,6 @@ impl TextureSet {
         let atlas = ServerAtlas::new(&[], None, pages).with_fallbacks(self.vanilla.clone(), None);
         Self {
             atlas: Mutex::new(atlas),
-            carrier: self.carrier.clone(),
             icons: self.icons.clone(),
             vanilla: self.vanilla.clone(),
             remote: RemoteImages::default(),
@@ -125,21 +114,9 @@ pub(super) struct Textures<'a> {
 }
 
 impl Textures<'_> {
-    /// `path` as its source spells it, without an image extension.
+    /// `path` without an image extension, the key every source uses.
     pub(super) fn canonical<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        let key = texture_key(path);
-        if is_remote(key) || self.atlas.has_image(key) || self.assets.texture(key).is_some() {
-            return Cow::Borrowed(key);
-        }
-        let folded = key.to_ascii_lowercase();
-        match self
-            .atlas
-            .folded(&folded)
-            .or_else(|| self.set.carrier.get(&folded).map(String::as_str))
-        {
-            Some(found) => Cow::Owned(found.to_owned()),
-            None => Cow::Borrowed(key),
-        }
+        Cow::Borrowed(texture_key(path))
     }
 
     fn icon(&self, key: &str) -> Option<IconRef> {
@@ -157,7 +134,7 @@ impl Textures<'_> {
     /// The drawn paths the server atlas must hold: pack textures, and what
     /// neither the carrier nor the icon atlas already has.
     pub(super) fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<String> {
-        let mut keys: Vec<String> = paths
+        paths
             .filter(|path| self.image(path).is_none())
             .map(|path| self.canonical(path))
             .filter(|key| {
@@ -165,17 +142,14 @@ impl Textures<'_> {
                     || (self.assets.texture(key).is_none() && self.icon(key).is_none())
             })
             .map(Cow::into_owned)
-            .collect();
-        if keys.iter().any(|key| self.missing(key)) {
-            keys.push(MISSING_TEXTURE.to_owned());
-        }
-        keys
+            .collect()
     }
 
-    /// Whether no source has `key`; a URL still loading is not missing.
-    fn missing(&self, key: &str) -> bool {
+    /// Whether no source has `path`; a URL still loading is not missing.
+    pub(super) fn missing(&self, path: &str) -> bool {
+        let key = texture_key(path);
         !is_remote(key)
-            && key != MISSING_TEXTURE
+            && self.images.is_none_or(|images| !images.contains_key(path))
             && !self.atlas.has_image(key)
             && self.assets.texture(key).is_none()
             && self.icon(key).is_none()
@@ -208,9 +182,6 @@ impl Textures<'_> {
         if let Some(icon) = self.icon(&key) {
             let [u0, v0, u1, v1] = icon.uv.map(f32::from);
             return Some((icon.page, [u0, v0, u1 - u0, v1 - v0]));
-        }
-        if self.missing(&key) {
-            return self.sprite(MISSING_TEXTURE);
         }
         None
     }

@@ -64,10 +64,12 @@ fn anchored_offset(control: &ResolvedControl) -> Option<[f64; 2]> {
         return None;
     }
     let bag = control.properties.get("property_bag");
+    // The bound component value first, then the bag's.
     let value = |key: &str| {
         control
             .properties
-            .get(key)
+            .get(&key[1..])
+            .or_else(|| control.properties.get(key))
             .or_else(|| bag.and_then(|bag| bag.get(key)))
             .and_then(Value::as_f64)
             .unwrap_or(0.0)

@@ -92,7 +92,7 @@ impl FormEngine {
         let vanilla = Arc::new(catalog);
         let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
         Self {
-            textures: TextureSet::new(&assets, first_page),
+            textures: TextureSet::new(first_page),
             assets,
             catalog: Arc::clone(&base),
             screens: screen_cache::ScreenCache::resolving_settings(&base),
@@ -601,7 +601,13 @@ impl Painter<'_> {
         color: [u8; 4],
         filter: json_ui::SpriteFilter,
     ) -> Option<UiVisual> {
-        let (page, [x, y, w, h]) = self.textures.sprite(path)?;
+        let Some((page, [x, y, w, h])) = self.textures.sprite(path) else {
+            // An unresolved texture draws `mce::TexturePtr`'s default white texture.
+            return self.textures.missing(path).then_some(UiVisual::Solid {
+                texture_page: self.solid_page,
+                color,
+            });
+        };
         let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
         let uv = [
             pixel(x, w, uv.u0),
