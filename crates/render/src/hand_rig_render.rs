@@ -220,7 +220,7 @@ struct HandRigGpu {
     material: Buffer,
     light_uniform: Buffer,
     instances: Option<Buffer>,
-    vertices: Option<Buffer>,
+    vertices: crate::actor::gpu::SegmentedVertexBuffer,
     spans: Option<Buffer>,
     previous_bones: Option<Buffer>,
     current_bones: Option<Buffer>,
@@ -265,7 +265,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         material,
         light_uniform: uniform("first-person rig light", &[0u8; 16]),
         instances: None,
-        vertices: None,
+        vertices: default(),
         spans: None,
         previous_bones: None,
         current_bones: None,
@@ -305,7 +305,7 @@ fn prepare(
         return;
     };
     let size = [viewport.z, viewport.w];
-    upload_geometry(&mut gpu, &device, frame);
+    upload_geometry(&mut gpu, &device, &queue, frame);
     upload_pose(&mut gpu, &device, &queue, frame);
     upload_skin(&mut gpu, &device, &queue, frame);
     upload_atlas(&mut gpu, &device, &queue, frame);
@@ -337,18 +337,24 @@ fn deactivate(gpu: &mut HandRigGpu) {
     gpu.revision = None;
 }
 
-fn upload_geometry(gpu: &mut HandRigGpu, device: &RenderDevice, frame: &HandRigFrame) {
+fn upload_geometry(
+    gpu: &mut HandRigGpu,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    frame: &HandRigFrame,
+) {
     if gpu.geometry_revision == Some(frame.rig.geometry_revision)
-        && gpu.vertices.is_some()
+        && gpu.vertices.buffer().is_some()
         && gpu.spans.is_some()
     {
         return;
     }
-    gpu.vertices = Some(storage(
+    gpu.vertices.sync(
         device,
+        queue,
         "first-person rig vertices",
         &frame.rig.geometry_vertices,
-    ));
+    );
     gpu.spans = Some(storage(
         device,
         "first-person rig spans",
@@ -543,7 +549,7 @@ fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cache: &Pipelin
     }
     let (Some(instances), Some(vertices), Some(spans), Some(previous), Some(current), Some(skin)) = (
         gpu.instances.as_ref(),
-        gpu.vertices.as_ref(),
+        gpu.vertices.buffer(),
         gpu.spans.as_ref(),
         gpu.previous_bones.as_ref(),
         gpu.current_bones.as_ref(),

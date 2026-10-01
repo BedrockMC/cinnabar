@@ -7,6 +7,10 @@ use bytemuck::{Pod, Zeroable};
 #[path = "rig/bone_arena.rs"]
 mod bone_arena;
 use bone_arena::append_pose_matrices;
+#[path = "rig/catalog.rs"]
+mod catalog;
+pub use catalog::ActorRigVertexSegments;
+use catalog::GeometryCatalog;
 #[path = "rig/ids.rs"]
 mod ids;
 use ids::DIAGNOSTIC_RIG_ID;
@@ -340,7 +344,7 @@ pub struct ActorRigRenderFrame {
     pub instances: Arc<[ActorGpuInstance]>,
     pub previous_bones: Arc<[[[f32; 4]; 3]]>,
     pub current_bones: Arc<[[[f32; 4]; 3]]>,
-    pub geometry_vertices: Arc<[ActorRigVertex]>,
+    pub geometry_vertices: ActorRigVertexSegments,
     pub geometry_spans: Arc<[ActorRigGeometrySpan]>,
     pub manifest: Arc<[ActorDrawManifestEntry]>,
     pub maximum_vertex_count: u32,
@@ -355,7 +359,7 @@ impl Default for ActorRigRenderFrame {
             instances: Arc::from([]),
             previous_bones: Arc::from([]),
             current_bones: Arc::from([]),
-            geometry_vertices: Arc::from([]),
+            geometry_vertices: ActorRigVertexSegments::default(),
             geometry_spans: Arc::from([]),
             manifest: Arc::from([]),
             maximum_vertex_count: 0,
@@ -366,12 +370,8 @@ impl Default for ActorRigRenderFrame {
 
 #[derive(Debug)]
 pub struct ActorRigFrameBuilder {
-    geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
-    geometry_indices: BTreeMap<EntityRigId, u32>,
-    geometry_vertices: Arc<[ActorRigVertex]>,
-    geometry_spans: Arc<[ActorRigGeometrySpan]>,
+    catalog: GeometryCatalog,
     frame_generation: u64,
-    geometry_revision: u64,
 }
 
 impl ActorRigFrameBuilder {
@@ -405,7 +405,7 @@ impl ActorRigFrameBuilder {
         let mut builder = Self::from_runtime_assets(assets)?;
         for &geometry_index in equipment_geometries {
             let id = equipment_rig_id(geometry_index);
-            if builder.geometries.contains_key(&id) {
+            if builder.catalog.geometries.contains_key(&id) {
                 continue;
             }
             // Like entity rigs, an unbuildable equipment geometry is omitted, not fatal.
@@ -429,15 +429,9 @@ impl ActorRigFrameBuilder {
             }
         }
         by_id.insert(DIAGNOSTIC_RIG_ID, diagnostic_geometry());
-        let (geometry_indices, vertices, spans) = catalog_layout(&by_id)?;
-        let geometry_revision = geometry_catalog_revision(&vertices, &spans);
         Ok(Self {
-            geometries: by_id,
-            geometry_indices,
-            geometry_vertices: Arc::from(vertices),
-            geometry_spans: Arc::from(spans),
+            catalog: GeometryCatalog::layout(by_id)?,
             frame_generation: 0,
-            geometry_revision,
         })
     }
 
@@ -465,33 +459,13 @@ impl ActorRigFrameBuilder {
         {
             return Err(ActorRigGeometryError::DuplicateRig);
         }
-        let mut revision = self.geometry_revision;
-        let mut previous = Vec::with_capacity(geometries.len());
-        for geometry in geometries {
-            let id = geometry.id;
+        let mut revision = self.catalog.revision;
+        for geometry in &geometries {
             revision = revision
                 .rotate_left(5)
-                .wrapping_add((u64::from(id.0) << 24) | geometry.vertices.len() as u64);
-            previous.push((id, self.geometries.insert(id, geometry)));
+                .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
         }
-        match catalog_layout(&self.geometries) {
-            Ok((geometry_indices, vertices, spans)) => {
-                self.geometry_indices = geometry_indices;
-                self.geometry_vertices = Arc::from(vertices);
-                self.geometry_spans = Arc::from(spans);
-                self.geometry_revision = revision.max(1);
-                Ok(())
-            }
-            Err(error) => {
-                for (id, previous) in previous.into_iter().rev() {
-                    match previous {
-                        Some(previous) => self.geometries.insert(id, previous),
-                        None => self.geometries.remove(&id),
-                    };
-                }
-                Err(error)
-            }
-        }
+        self.catalog.append(geometries, revision.max(1))
     }
 
     /// Replaces every pack-range geometry with `geometries` (empty removes them) and
@@ -516,49 +490,26 @@ impl ActorRigFrameBuilder {
         in_range: fn(EntityRigId) -> bool,
         geometries: Vec<ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
-        let old_ids = self
-            .geometries
-            .keys()
-            .copied()
-            .filter(|id| in_range(*id))
-            .collect::<Vec<_>>();
-        let removed = old_ids
-            .into_iter()
-            .filter_map(|id| self.geometries.remove(&id).map(|geometry| (id, geometry)))
-            .collect::<Vec<_>>();
-        let mut added = Vec::new();
-        for geometry in geometries {
-            if in_range(geometry.id) {
-                added.push(geometry.id);
-                self.geometries.insert(geometry.id, geometry);
-            }
-        }
-        match catalog_layout(&self.geometries) {
-            Ok((geometry_indices, vertices, spans)) => {
-                self.geometry_revision = geometry_catalog_revision(&vertices, &spans);
-                self.geometry_indices = geometry_indices;
-                self.geometry_vertices = Arc::from(vertices);
-                self.geometry_spans = Arc::from(spans);
-                Ok(())
-            }
-            Err(error) => {
-                for id in added {
-                    self.geometries.remove(&id);
-                }
-                self.geometries.extend(removed);
-                Err(error)
-            }
-        }
+        let mut by_id = self.catalog.geometries.clone();
+        by_id.retain(|id, _| !in_range(*id));
+        by_id.extend(
+            geometries
+                .into_iter()
+                .filter(|geometry| in_range(geometry.id))
+                .map(|geometry| (geometry.id, geometry)),
+        );
+        self.catalog = GeometryCatalog::layout(by_id)?;
+        Ok(())
     }
 
     #[must_use]
     pub fn contains_geometry(&self, id: EntityRigId) -> bool {
-        self.geometries.contains_key(&id)
+        self.catalog.geometries.contains_key(&id)
     }
 
     #[must_use]
-    pub fn geometry_vertices(&self) -> &[ActorRigVertex] {
-        &self.geometry_vertices
+    pub const fn geometry_vertices(&self) -> &ActorRigVertexSegments {
+        &self.catalog.vertices
     }
 
     #[must_use]
@@ -574,9 +525,9 @@ impl ActorRigFrameBuilder {
                     generation_exhaustion: 1,
                     ..ActorRigRejects::default()
                 },
-                geometry_vertices: Arc::clone(&self.geometry_vertices),
-                geometry_spans: Arc::clone(&self.geometry_spans),
-                geometry_revision: self.geometry_revision,
+                geometry_vertices: self.catalog.vertices.clone(),
+                geometry_spans: Arc::clone(&self.catalog.published_spans),
+                geometry_revision: self.catalog.revision,
                 ..ActorRigRenderFrame::default()
             };
         };
@@ -671,7 +622,7 @@ impl ActorRigFrameBuilder {
                 ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
                 ActorRigRoute::NoDraw => unreachable!(),
             };
-            let Some(geometry) = self.geometries.get(&geometry_id) else {
+            let Some(geometry) = self.catalog.geometries.get(&geometry_id) else {
                 rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
                 continue;
             };
@@ -700,13 +651,13 @@ impl ActorRigFrameBuilder {
                 rejects.non_finite_pose = rejects.non_finite_pose.saturating_add(1);
                 continue;
             }
-            let Some(&geometry_index) = self.geometry_indices.get(&geometry_id) else {
+            let Some(&geometry_index) = self.catalog.indices.get(&geometry_id) else {
                 previous_bones.truncate(previous_bone_base as usize);
                 current_bones.truncate(current_bone_base as usize);
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             };
-            let span = self.geometry_spans[geometry_index as usize];
+            let span = self.catalog.published_spans[geometry_index as usize];
             maximum_vertex_count = maximum_vertex_count.max(span.vertex_count);
             let Ok(reset_generation) = u32::try_from(submission.input.reset_generation) else {
                 previous_bones.truncate(previous_bone_base as usize);
@@ -747,68 +698,17 @@ impl ActorRigFrameBuilder {
         );
         ActorRigRenderFrame {
             frame_generation,
-            geometry_revision: self.geometry_revision,
+            geometry_revision: self.catalog.revision,
             instances: Arc::from(instances),
             previous_bones: Arc::from(previous_bones),
             current_bones: Arc::from(current_bones),
-            geometry_vertices: Arc::clone(&self.geometry_vertices),
-            geometry_spans: Arc::clone(&self.geometry_spans),
+            geometry_vertices: self.catalog.vertices.clone(),
+            geometry_spans: Arc::clone(&self.catalog.published_spans),
             manifest: Arc::from(manifest),
             maximum_vertex_count,
             rejects,
         }
     }
-}
-
-#[allow(clippy::type_complexity)]
-fn catalog_layout(
-    by_id: &BTreeMap<EntityRigId, ActorRigGeometry>,
-) -> Result<
-    (
-        BTreeMap<EntityRigId, u32>,
-        Vec<ActorRigVertex>,
-        Vec<ActorRigGeometrySpan>,
-    ),
-    ActorRigGeometryError,
-> {
-    let mut geometry_indices = BTreeMap::new();
-    let mut vertices = Vec::new();
-    let mut spans = Vec::with_capacity(by_id.len());
-    for (id, geometry) in by_id {
-        let first_vertex =
-            u32::try_from(vertices.len()).map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
-        let vertex_count = u32::try_from(geometry.vertices.len())
-            .map_err(|_| ActorRigGeometryError::CatalogCapacity)?;
-        if vertices
-            .len()
-            .checked_add(geometry.vertices.len())
-            .is_none_or(|count| count > MAX_ACTOR_RIG_VERTICES)
-        {
-            return Err(ActorRigGeometryError::CatalogCapacity);
-        }
-        geometry_indices.insert(
-            *id,
-            u32::try_from(spans.len()).map_err(|_| ActorRigGeometryError::CatalogCapacity)?,
-        );
-        vertices.extend_from_slice(&geometry.vertices);
-        spans.push(ActorRigGeometrySpan {
-            first_vertex,
-            vertex_count,
-        });
-    }
-    Ok((geometry_indices, vertices, spans))
-}
-
-fn geometry_catalog_revision(vertices: &[ActorRigVertex], spans: &[ActorRigGeometrySpan]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in bytemuck::cast_slice::<ActorRigVertex, u8>(vertices)
-        .iter()
-        .chain(bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(spans))
-    {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash.max(1)
 }
 
 #[must_use]
