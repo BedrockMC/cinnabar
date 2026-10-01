@@ -319,7 +319,7 @@ pub(crate) fn drive_menu_input(
     }
     let press = |menu: &mut MenuRuntime, action| {
         if let Some(sound) = presentation.menu_sound(action) {
-            crate::audio::ui_sound(sound);
+            crate::audio::ui_control_sound(sound);
         }
         menu.activate(action);
     };

@@ -9,7 +9,7 @@ use std::{borrow::Borrow, cell::RefCell, sync::Arc};
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, ViewState, bind_form, render_bound_gated,
+    ResolvedControl, ViewState, bind_form_over, render_bound_gated,
 };
 use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 
@@ -48,10 +48,13 @@ pub(crate) struct FormEngine {
     /// The title splash, picked once per launch.
     splash: std::sync::OnceLock<Option<String>>,
     screens: screen_cache::ScreenCache,
+    /// Animation state of every drawn control, keyed by layout key.
+    animator: std::sync::Mutex<json_ui::Animator>,
 }
 
 pub(super) struct FormCache {
     model: FormModel,
+    components: json_ui::Components,
     catalog: Arc<Catalog>,
     bound: ResolvedControl,
     laid: Option<LaidForm>,
@@ -72,6 +75,7 @@ struct LaidForm {
 struct Art<'a> {
     assets: &'a RuntimeUiAssets,
     set: &'a TextureSet,
+    animator: &'a std::sync::Mutex<json_ui::Animator>,
 }
 
 /// Everything a render borrows from the presentation runtime for one frame.
@@ -104,6 +108,7 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
+            animator: std::sync::Mutex::default(),
         }
     }
 
@@ -111,7 +116,16 @@ impl FormEngine {
         Art {
             assets: &self.assets,
             set: &self.textures,
+            animator: &self.animator,
         }
+    }
+
+    /// The animator every paint ticks: the dispatcher fires button events into
+    /// it, drains its end and destroy events, and ends each presented frame.
+    pub(crate) fn animator(&self) -> std::sync::MutexGuard<'_, json_ui::Animator> {
+        self.animator
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     /// Records `pack` as the applied source; `true` when it differs from the last.
@@ -223,28 +237,36 @@ impl FormEngine {
         &mut self,
         model: &FormModel,
         view: &ViewState,
-        identity: ServerFormIdentity,
+        (identity, now): (ServerFormIdentity, f64),
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let current = self.cache.as_ref().is_some_and(|cache| {
-            cache.model == *model && Arc::ptr_eq(&cache.catalog, &self.catalog)
+            cache.model == *model
+                && cache.components == view.components
+                && Arc::ptr_eq(&cache.catalog, &self.catalog)
         });
         if !current {
             self.passes[0] += 1;
-            self.cache = bind_form(model, &self.catalog, &self.context).map(|bound| FormCache {
-                model: model.clone(),
-                catalog: Arc::clone(&self.catalog),
-                bound,
-                laid: None,
-                screen_cancel: json_ui::form_screen_cancel(&self.catalog),
-            });
+            let components = &view.components;
+            self.cache =
+                bind_form_over(model, &self.catalog, &self.context, components).map(|bound| {
+                    FormCache {
+                        components: components.clone(),
+                        model: model.clone(),
+                        catalog: Arc::clone(&self.catalog),
+                        bound,
+                        laid: None,
+                        screen_cancel: json_ui::form_screen_cancel(&self.catalog),
+                    }
+                });
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
+            animator: &self.animator,
         };
         let screen_cancel = self
             .cache
@@ -253,6 +275,7 @@ impl FormEngine {
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
         let screen_art = ScreenArt {
             view: Some(view),
+            now,
             ..ScreenArt::default()
         };
         let frame = render_with(
@@ -436,6 +459,10 @@ fn render_with<R: Borrow<FormRender>>(
         nodes: out.nodes,
         next: out.next,
         clip: None,
+        animator: textures
+            .animator
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()),
     };
     let view = art.view;
     for node in render.nodes.iter().chain(out.overlay) {
@@ -502,6 +529,7 @@ struct Painter<'a> {
     nodes: &'a mut Vec<UiNode>,
     next: &'a mut u32,
     clip: Option<([f32; 4], UiNodeId)>,
+    animator: std::sync::MutexGuard<'a, json_ui::Animator>,
 }
 
 impl Painter<'_> {
@@ -665,23 +693,22 @@ impl Painter<'_> {
     }
 
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
-        let (dest, clip) = node.animated_rects(self.art.now, self.art.clocks);
-        let clip = self.logical(&clip);
-        let dest = self.logical(&dest);
-        if clip[2] <= clip[0]
+        let drawn = node.animate(
+            &mut self.animator,
+            self.art.now,
+            self.art.clocks,
+            Some(&self.textures),
+        );
+        let clip = self.logical(&drawn.clip);
+        let dest = self.logical(&drawn.dest);
+        let opacity = drawn.opacity;
+        if drawn.hidden
+            || clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]
             || dest[3] <= dest[1]
-            || node.alpha <= 0.0
+            || opacity <= 0.0
         {
-            return Ok(());
-        }
-        let fade = match self.art.clocks {
-            Some(clocks) => json_ui::fade_factor_at(&node.fades, self.art.now, clocks),
-            None => json_ui::fade_factor(&node.fades, self.art.now),
-        };
-        let opacity = node.alpha * fade;
-        if opacity <= 0.0 {
             return Ok(());
         }
         let alpha = |color: [u8; 4]| {
@@ -732,13 +759,9 @@ impl Painter<'_> {
                 color,
                 filter,
             } => {
-                let mut uv = *uv;
-                if let Some(book) = &node.flip_book {
-                    let shift = book.step_u * book.frame(self.art.now) as f32;
-                    uv.u0 += shift;
-                    uv.u1 += shift;
-                }
-                let Some(visual) = self.sprite(texture, uv, alpha(*color), *filter) else {
+                let uv = drawn.uv.unwrap_or(*uv);
+                let color = drawn.color.unwrap_or(*color);
+                let Some(visual) = self.sprite(texture, uv, alpha(color), *filter) else {
                     return Ok(());
                 };
                 (visual, dest)

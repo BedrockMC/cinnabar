@@ -100,11 +100,14 @@ impl BindState {
     pub fn publish_scrolls(&mut self, report: &LayoutReport) -> bool {
         let mut changed = false;
         for (key, metrics) in &report.scrolls {
-            for (name, value) in [
-                ("#scrolled_to_end", metrics.scrolled_to_end),
-                ("#scrollbar_hit_bottom", metrics.hit_bottom),
-                ("#scroll_bar_visible", metrics.bar_visible),
-            ] {
+            let published = [
+                Some(("#scrolled_to_end", metrics.scrolled_to_end)),
+                Some(("#scrollbar_hit_bottom", metrics.hit_bottom)),
+                metrics
+                    .bar_visible
+                    .map(|visible| ("#scroll_bar_visible", visible)),
+            ];
+            for (name, value) in published.into_iter().flatten() {
                 if self.value(key, name) != Some(&Scalar::Bool(value)) {
                     self.publish(key, name, Scalar::Bool(value));
                     changed = true;

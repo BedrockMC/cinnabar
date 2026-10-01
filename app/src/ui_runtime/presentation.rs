@@ -643,6 +643,8 @@ impl UiPresentationRuntime {
             now_millis,
         )?;
         self.sync_server_ui_pages();
+        // Every screen has painted: retire animation state nothing touched.
+        self.end_animation_frame();
         // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
         let built = menu_visible.then(|| BuiltMenu {
             nodes: Vec::new(),

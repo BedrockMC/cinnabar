@@ -16,6 +16,7 @@
 mod anim;
 mod bind;
 mod catalog;
+mod component;
 mod emit;
 mod env;
 mod expr;
@@ -43,14 +44,18 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 pub use anim::{
-    Chain, Fade, FlipBook, Motion, Motions, Step, StepKind, fade_factor, fade_factor_at,
-    motion_offset,
+    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
+    NodeAnim, Written,
 };
 pub use bind::{
     BindState, CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind,
     bind_reporting, bind_shared, bind_stateful, scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
+pub use component::{
+    ButtonEvent, ButtonInput, Components, Dispatch, Dispatcher, EditMeta, PointerInput,
+    ScreenEvent, SliderMeta, SoundMeta, TextEdit, TextType, ToggleManager, ToggleMeta, Widget,
+};
 pub use emit::{
     Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, StateGate, TextAlign, UvRect, color_value,
     emit, emit_gated,
@@ -60,16 +65,22 @@ pub use expr::{AxisContext, Length, Resolved, Term, Unit, length_from_value, par
 pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
-    form_context, form_data_source, form_factory_id, form_screen_cancel, form_template,
-    render_bound, render_bound_gated, render_form, render_form_with,
+    bind_form_over, form_context, form_data_source, form_factory_id, form_screen_cancel,
+    form_template, render_bound, render_bound_gated, render_form, render_form_with,
 };
 pub use hud::{
     BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
     hud_context, hud_data_source,
 };
 pub use input::{
-    ControlSound, HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test,
-    region_rect, scroll_target, wheel_target,
+    ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
+    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, region_rect,
+    scroll_target,
+};
+pub use input::{
+    CustomRoute, FOCUS_OVERRIDE_STOP, FocusContainer, FocusDirection, FocusMeta, FocusMove,
+    NavigationMode, controller_direction_claimed, default_focus, navigate, next_in_order,
+    set_focus,
 };
 pub use label::{LabelShape, TextOptions};
 pub use layout::{
@@ -83,10 +94,13 @@ pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
     screen_settings,
 };
-pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
+pub use sidecar::{
+    AsepriteFrame, NineSlice, TextureMeta, parse_aseprite_frames, parse_texture_meta,
+};
 pub use sprite::nine_slice;
-pub use state::{LayoutReport, ScrollDynamics, ScrollMetrics, ViewState};
+pub use state::{FocusMemory, LayoutReport, ScrollMetrics, ScrollRetained, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
+pub use widgets::{Draggable, ScrollMotion};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
 /// extra variables that gate `ignored`/`variables[]` selection and `$var` values.

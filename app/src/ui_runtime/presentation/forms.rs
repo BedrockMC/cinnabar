@@ -235,7 +235,14 @@ impl UiPresentationRuntime {
         }
     }
 
-    /// The dynamic pages holding the server pack's UI textures.
+    /// Retire animation state no paint touched this frame, so a control that
+    /// comes back starts its animations afresh.
+    pub(super) fn end_animation_frame(&self) {
+        if let Some(engine) = self.form_presentation.engine.as_ref() {
+            engine.animator().end_frame();
+        }
+    }
+
     /// Drawn engine textures too big for a server page, for the art pages.
     pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
         self.form_presentation
@@ -297,6 +304,11 @@ impl UiPresentationRuntime {
     }
 
     /// The engine frame for `identity`, when the engine drew that form.
+    /// The engine forms' animator, which input fires button events into.
+    pub(crate) fn form_animator(&self) -> Option<std::sync::MutexGuard<'_, json_ui::Animator>> {
+        Some(self.form_presentation.engine.as_ref()?.animator())
+    }
+
     pub(crate) fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
         self.form_presentation
             .frame
@@ -449,7 +461,14 @@ impl UiPresentationRuntime {
                             overlay: &[],
                         };
                         let catalog = renderer.catalog_label();
-                        match renderer.render(&form, &state.view, entry.identity, inputs, out) {
+                        let now = self.menu_seconds;
+                        match renderer.render(
+                            &form,
+                            &state.view,
+                            (entry.identity, now),
+                            inputs,
+                            out,
+                        ) {
                             Ok(Some(frame)) => {
                                 self.form_presentation.frame = Some(frame);
                                 log_path(

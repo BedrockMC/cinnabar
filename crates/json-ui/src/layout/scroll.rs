@@ -2,7 +2,9 @@
 //! viewport, content, track, box and bar panel are found breadth-first from the
 //! view (tree order does not matter), the content shifts by the clamped offset
 //! snapped to 1/8 px, the box takes `clamp(viewport / content, 0.1, 1)` of the
-//! track, and the bar panel hides while the content fits.
+//! track, and the bar panel hides while the content fits. A touch motion may
+//! carry the offset a quarter viewport past either end, and a touch-mode box
+//! fades out after its last touch.
 
 use std::cell::RefCell;
 
@@ -10,7 +12,10 @@ use serde_json::Value;
 
 use super::{LayoutEnv, Rect, ResolvedControl, measure, place};
 use crate::state::{ScrollMetrics, ViewState};
-use crate::widgets;
+use crate::widgets::{self, Draggable, OVERSCROLL};
+
+/// `#scrollbar_hit_bottom` latches within this many pixels of the end.
+const HIT_BOTTOM_EPSILON: f64 = 0.1;
 
 /// The named roles, in `ScrollRoles` order.
 const ROLE_KEYS: [&str; 5] = [
@@ -105,7 +110,7 @@ fn address(control: &ResolvedControl) -> usize {
     std::ptr::from_ref(control).addr()
 }
 
-/// Whether `control` scrolls or drags horizontally (`draggable`).
+/// Whether `control` drags horizontally (`draggable`).
 fn horizontal(control: &ResolvedControl) -> bool {
     control.properties.get("draggable").and_then(Value::as_str) == Some("horizontal")
 }
@@ -128,6 +133,8 @@ pub(crate) struct ScrollFrame {
     /// The content's shift from its laid-out rect.
     delta: [f64; 2],
     box_rect: Option<Rect>,
+    /// A touch-mode box's children's alpha while it fades; `Some(0)` hides it.
+    box_fade: Option<f32>,
     /// Whether the bar panel hides because the content fits.
     pub panel_hidden: bool,
     pub metrics: Option<ScrollMetrics>,
@@ -163,14 +170,22 @@ impl ScrollFrame {
             panel: panel.map(|(control, _, _)| address(control)),
             delta: [0.0; 2],
             box_rect: None,
+            box_fade: None,
             panel_hidden: false,
             metrics: None,
         };
-        let (Some((content, content_rect, _)), Some((_, viewport_rect, _))) = (content, viewport)
+        // `_updateScroll` scrolls only with all four references resolved, along
+        // the box's `draggable` axis.
+        let (
+            Some((content, content_rect, _)),
+            Some((_, viewport_rect, _)),
+            Some(_),
+            Some((box_control, _, _)),
+        ) = (content, viewport, track, bar_box)
         else {
             return Some(frame);
         };
-        let axis = usize::from(!horizontal(content));
+        let axis = usize::from(!horizontal(box_control));
         let extent = |rect: Rect| [rect.w, rect.h];
         let content_size = extent(content_rect);
         let viewport_size = extent(viewport_rect);
@@ -179,15 +194,25 @@ impl ScrollFrame {
             (content_size[1] - viewport_size[1]).max(0.0),
         ];
         let max = ext[axis];
-        let jump = widgets::bound_bool(view, "jump_to_bottom_on_update") == Some(true)
-            && state.scroll_max.get(key) != Some(&max);
+        let retained = state.scroll_state.get(key);
+        let jump_to_end = widgets::bound_bool(view, "jump_to_bottom_on_update") == Some(true);
+        // A caller that never settles keeps its own offset once it sets one.
+        let known = retained
+            .and_then(|retained| retained.extent)
+            .or_else(|| state.scroll.contains_key(key).then_some(f64::NAN));
+        let grew = jump_to_end && known.is_none_or(|known| !known.is_nan() && known != max);
         let force = widgets::bound_bool(view, "#force_scroll_to_end") == Some(true);
-        let requested = if jump || force {
+        let moving = retained.is_some_and(|retained| retained.motion.is_some());
+        let slack = if moving {
+            viewport_size[axis] * OVERSCROLL
+        } else {
+            0.0
+        };
+        let position = if grew || force {
             max
         } else {
-            state.scroll_offset(key)
+            state.scroll_offset(key).clamp(-slack, max + slack)
         };
-        let position = requested.clamp(0.0, max);
         let shown = (position * 8.0).trunc() * 0.125;
         let from = place::anchor_from(content);
         let mut delta = [0.0; 2];
@@ -202,56 +227,83 @@ impl ScrollFrame {
         let fits = content_size[axis] <= 0.0 || viewport_size[axis] / content_size[axis] >= 1.0;
         let always = widgets::bound_bool(view, "scrollbar_always_visible") == Some(true);
         let thumb_axis = bar_box.and_then(|(control, _, _)| box_axis(control));
-        frame.panel_hidden = thumb_axis.is_some() && fits && !always;
+        frame.panel_hidden = thumb_axis.is_some() && panel.is_some() && fits && !always;
+        let touch_mode = widgets::bound_bool(view, "touch_mode") == Some(true);
+        frame.box_fade = retained
+            .and_then(|retained| retained.bar_fade)
+            .filter(|_| touch_mode);
+        // The bottom latches: content that fits, the end reached, or the overflow passed.
+        let overflow_y = content_size[1] - viewport_size[1];
+        let hit_bottom = retained.is_some_and(|retained| retained.hit_bottom)
+            || (frame.panel_hidden || (thumb_axis.is_some() && panel.is_some() && fits))
+            || (axis == 1 && (shown - max).abs() < HIT_BOTTOM_EPSILON)
+            || (shown != 0.0 && overflow_y <= shown);
+        let bar_visible = match frame.box_fade {
+            Some(0.0) => Some(false),
+            Some(_) => Some(true),
+            None => panel.is_some().then_some(!frame.panel_hidden),
+        };
+        let name = |key: &str| {
+            view.properties
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let rect_of = |rect: Rect| [rect.x, rect.y, rect.w, rect.h];
         let mut metrics = ScrollMetrics {
             offset: position,
             content: content_size[axis],
             viewport: viewport_size[axis],
             viewport_top: [viewport_rect.x, viewport_rect.y][axis],
-            port: Some([
-                viewport_rect.x,
-                viewport_rect.y,
-                viewport_rect.w,
-                viewport_rect.h,
-            ]),
-            track: track.map(|(_, rect, _)| [rect.x, rect.y, rect.w, rect.h]),
+            viewport_rect: Some(rect_of(viewport_rect)),
+            content_rect: Some(rect_of(content_rect)),
+            track: track.map(|(_, rect, _)| rect_of(rect)),
             thumb: None,
             speed: widgets::bound_number(view, "scroll_speed").unwrap_or(1.0),
             horizontal: axis == 0,
-            scrolled_to_end: max <= position,
-            hit_bottom: fits || (content_size[1] - viewport_size[1]) <= position,
-            bar_visible: !frame.panel_hidden,
-            always_handle: widgets::bound_bool(view, "always_handle_scrolling") == Some(true),
-            touch_mode: widgets::bound_bool(view, "touch_mode") == Some(true),
-            gesture_control: widgets::bound_bool(view, "#gesture_control_enabled")
+            box_drag: bar_box.map_or(Draggable::NotDraggable, |(control, _, _)| {
+                Draggable::of(control)
+            }),
+            gesture: widgets::bound_bool(view, "#gesture_control_enabled")
                 .or_else(|| widgets::bound_bool(view, "gesture_control_enabled"))
                 .unwrap_or(false),
-            scroll_when_fits: widgets::bound_bool(view, "allow_scroll_even_when_content_fits")
-                .unwrap_or(true),
-            track_clicks: routes_to(
-                track.map(|(control, _, _)| control),
+            always_handle_scrolling: widgets::bound_bool(view, "always_handle_scrolling")
+                == Some(true),
+            touch_mode,
+            allow_scroll_when_fits: widgets::bound_bool(
                 view,
-                "scrollbar_track_button",
-            ),
-            touch_drags: routes_to(Some(view), view, "scrollbar_touch_button"),
+                "allow_scroll_even_when_content_fits",
+            )
+            .unwrap_or(true),
+            jump_to_end,
+            track_button: name("scrollbar_track_button"),
+            touch_button: name("scrollbar_touch_button"),
+            bar_visible,
+            hit_bottom,
+            scrolled_to_end: max <= position,
         };
-        if let (Some(thumb_axis), Some((control, box_rect, box_parent)), Some((_, track_rect, _))) =
-            (thumb_axis, bar_box, track)
+        // The box travels the track along the scroll axis; a one-axis box under a
+        // named panel also takes the visible fraction of the track.
+        if let (Some((control, box_rect, box_parent)), Some((_, track_rect, _))) = (bar_box, track)
+            && frame.box_fade != Some(0.0)
+            && !frame.panel_hidden
         {
             let track_size = extent(track_rect);
-            let ratio = if content_size[thumb_axis] > 0.0 {
-                (viewport_size[thumb_axis] / content_size[thumb_axis]).clamp(0.1, 1.0)
-            } else {
-                1.0
-            };
             let mut size = extent(box_rect);
-            size[thumb_axis] = (ratio * track_size[thumb_axis]).ceil();
+            if let Some(thumb_axis) = thumb_axis.filter(|_| panel.is_some()) {
+                let ratio = if content_size[thumb_axis] > 0.0 {
+                    (viewport_size[thumb_axis] / content_size[thumb_axis]).clamp(0.1, 1.0)
+                } else {
+                    1.0
+                };
+                size[thumb_axis] = (ratio * track_size[thumb_axis]).ceil();
+            }
             let base = place::place_by_anchor(control, box_parent, size, [0.0; 2], env);
-            let travel = track_size[thumb_axis] - size[thumb_axis];
-            let span = ext[thumb_axis];
+            let travel = track_size[axis] - size[axis];
+            let span = ext[axis];
             let fraction = if span > 0.5 { shown / span } else { 1.0 };
             let mut at = [base.x, base.y];
-            at[thumb_axis] += travel * fraction;
+            at[axis] += travel * fraction;
             let placed = Rect::new(at[0], at[1], size[0], size[1]);
             metrics.thumb = Some([placed.x, placed.y, placed.w, placed.h]);
             frame.box_rect = Some(placed);
@@ -260,7 +312,7 @@ impl ScrollFrame {
         Some(frame)
     }
 
-    /// The control this view shifts, sizes or hides, and how.
+    /// The control this view shifts, sizes, fades or hides, and how.
     pub fn adjust(&self, child: &ResolvedControl, rect: Rect) -> Adjusted {
         let at = address(child);
         if self.content == Some(at) && self.metrics.is_some() {
@@ -271,10 +323,13 @@ impl ScrollFrame {
                 rect.h,
             ));
         }
-        if self.bar_box == Some(at)
-            && let Some(placed) = self.box_rect
-        {
-            return Adjusted::Moved(placed);
+        if self.bar_box == Some(at) {
+            if self.box_fade == Some(0.0) {
+                return Adjusted::Hidden;
+            }
+            if let Some(placed) = self.box_rect {
+                return Adjusted::Box(placed, self.box_fade);
+            }
         }
         Adjusted::Kept
     }
@@ -285,16 +340,10 @@ impl ScrollFrame {
     }
 }
 
-/// Whether `control`'s `button.menu_select` press routes to the button `view`
-/// names under `key`.
-fn routes_to(control: Option<&ResolvedControl>, view: &ResolvedControl, key: &str) -> bool {
-    let named = view.properties.get(key).and_then(Value::as_str);
-    named.is_some_and(|named| {
-        control.and_then(crate::input::pressed_target).as_deref() == Some(named)
-    })
-}
-
 pub(crate) enum Adjusted {
     Kept,
     Moved(Rect),
+    /// The scrollbar box at its rect, its children faded by a touch-mode fade.
+    Box(Rect, Option<f32>),
+    Hidden,
 }

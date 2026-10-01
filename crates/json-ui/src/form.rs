@@ -470,8 +470,19 @@ pub fn bind_form(
     catalog: &Catalog,
     context: &Context,
 ) -> Option<ResolvedControl> {
+    bind_form_over(model, catalog, context, &crate::Components::default())
+}
+
+/// [`bind_form`] over what the form's components wrote into their bags.
+pub fn bind_form_over(
+    model: &FormModel,
+    catalog: &Catalog,
+    context: &Context,
+    components: &crate::Components,
+) -> Option<ResolvedControl> {
     let context = form_context(model, context);
     let mut data = form_data_source(model);
+    data.set_components(components.clone());
     // Action and custom forms open through the screen's content factory, so a
     // pack's screen override applies; the bare template is the fallback.
     let routed = form_factory_id(model).and_then(|id| {

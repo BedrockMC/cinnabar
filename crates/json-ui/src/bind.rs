@@ -158,6 +158,8 @@ struct Scope {
     parent_key: u64,
     /// The nearest retained ancestor's key hash.
     retained_parent: u64,
+    /// The control's layout key, tracked only while components write bags.
+    layout_key: String,
 }
 
 impl Default for Scope {
@@ -169,6 +171,7 @@ impl Default for Scope {
             for_children: Arc::default(),
             parent_key: state::KEY_ROOT,
             retained_parent: state::KEY_ROOT,
+            layout_key: String::new(),
         }
     }
 }
@@ -203,6 +206,8 @@ struct Node {
     src: Src,
     /// The layout-key hash, made unique among same-named siblings.
     key: u64,
+    /// The layout key, kept only while components write bags.
+    layout_key: String,
     own: Bag,
     native: Native,
     memory: Retained,
@@ -271,6 +276,9 @@ impl<'a> Binder<'a> {
         let mut scope = scope.clone();
         self.attach_item(&src, &mut scope);
         let control = src.get();
+        if !self.data.components.is_empty() {
+            scope.layout_key = crate::layout::child_key(&scope.layout_key, control);
+        }
         let (fresh, for_children) = bag::bags(control, &scope.for_children);
         let retained = self.state.controls.remove(&key);
         let parent = scope.retained_parent;
@@ -299,6 +307,8 @@ impl<'a> Binder<'a> {
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
         }
+        // Component bag writes stand until a binding the screen answers replaces them.
+        crate::component::write_bag(control, &self.data.components, &scope.layout_key, &mut own);
         let published = self.state.published.remove(&key);
         let had_published = published.is_some();
         if let Some(published) = published {
@@ -343,6 +353,7 @@ impl<'a> Binder<'a> {
         let mut node = Node {
             src,
             key,
+            layout_key: scope.layout_key.clone(),
             own,
             native,
             memory,
@@ -402,9 +413,12 @@ impl<'a> Binder<'a> {
                     .map(|resolved| vec![self.build(Src::root(resolved), scope)])
                     .unwrap_or_default(),
             )
+        } else if let Some(items) = self.feed(control) {
+            Some(self.expand_feed(control, items, scope))
         } else {
-            self.feed(control)
-                .map(|items| self.expand_feed(control, items, scope))
+            // `SliderComponent::_createSteps` through the slider's own factory.
+            crate::component::slider_step_marks(control, &node.own)
+                .map(|items| self.expand_feed(control, &items, scope))
         };
         if let Some(factory) = &control.factory {
             // A `control_name` template clears the declaration-time children.
@@ -538,6 +552,11 @@ impl<'a> Binder<'a> {
                 .props
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        crate::component::write_properties(
+            &self.data.components,
+            &node.layout_key,
+            &mut properties,
         );
         if let Some(patch) = &node.src.patch {
             properties.extend(

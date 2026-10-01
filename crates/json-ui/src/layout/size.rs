@@ -57,9 +57,6 @@ pub(super) fn axis_rule(
     if let Some(cells) = super::grid::own_size(control, axis, own, env) {
         return (Resolved::Pixels(cells), ctx);
     }
-    if let Some(animated) = animated(control, axis, &ctx) {
-        return (Resolved::Pixels(animated), ctx);
-    }
     let resolved = memo_length(
         control,
         SIZE_SLOT + axis_index(axis) as u8,
@@ -67,28 +64,6 @@ pub(super) fn axis_rule(
         |length| length.map_or(Resolved::Pixels(0.0), |length| length.eval(&ctx)),
     );
     (resolved, ctx)
-}
-
-/// A `size` animation's value on `axis` at the layout clock, its ends measured
-/// like the size rule; `None` without an animation or a clock.
-fn animated(control: &ResolvedControl, axis: Axis, ctx: &AxisContext) -> Option<f64> {
-    let now = measure::clock()?;
-    let slide: crate::anim::Slide =
-        serde_json::from_value(control.properties.get(crate::anim::RESIZE_KEY)?.clone()).ok()?;
-    let age = now - widgets::bound_number(control, crate::anim::BORN_KEY).unwrap_or(0.0);
-    if slide.running(age) {
-        measure::note_animating();
-    }
-    let index = axis_index(axis);
-    let measure = |vector: &Value| match vector {
-        Value::Array(items) => items
-            .get(index)
-            .map_or(Length::Default, expr::length_from_value)
-            .eval_pixels(ctx),
-        _ => length(control, axis).eval_pixels(ctx),
-    };
-    let rest = length(control, axis).eval_pixels(ctx);
-    Some(slide.axis_at(age, rest, measure))
 }
 
 /// `value` within the control's bounds on `axis`: an over-large value takes the

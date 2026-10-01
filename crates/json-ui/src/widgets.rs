@@ -7,28 +7,23 @@
 use serde_json::Value;
 
 use crate::layout::Rect;
-use crate::state::ViewState;
 use crate::tree::ResolvedControl;
 
-/// Property names that name a state child, per control type.
-const BUTTON_STATES: [&str; 4] = [
-    "default_control",
-    "hover_control",
-    "pressed_control",
-    "locked_control",
-];
-const TOGGLE_STATES: [&str; 8] = [
-    "unchecked_control",
-    "checked_control",
-    "unchecked_hover_control",
-    "checked_hover_control",
-    "unchecked_locked_control",
-    "checked_locked_control",
-    "unchecked_locked_hover_control",
-    "checked_locked_hover_control",
-];
+mod scroll;
+mod scroll_motion;
 
-fn prop_str<'a>(control: &'a ResolvedControl, key: &str) -> Option<&'a str> {
+pub use scroll::Draggable;
+pub(crate) use scroll::OVERSCROLL;
+pub use scroll_motion::ScrollMotion;
+
+mod states;
+
+pub(crate) use states::{rest_hidden_children, state_index, state_targets};
+
+/// The slider bag value holding its box's selected (indent) state.
+pub(crate) use crate::component::SLIDER_BOX_SELECTED;
+
+pub(crate) fn prop_str<'a>(control: &'a ResolvedControl, key: &str) -> Option<&'a str> {
     control
         .properties
         .get(key)
@@ -84,134 +79,10 @@ pub(crate) fn toggle_checked(control: &ResolvedControl) -> bool {
         .unwrap_or(false)
 }
 
-/// Names of state children to hide under `control` this frame; every other child
-/// keeps its own visibility. Non-stateful controls hide nothing.
-pub(crate) fn hidden_state_children(
-    control: &ResolvedControl,
-    key: &str,
-    state: &ViewState,
-    locked: bool,
-) -> Vec<String> {
-    hidden_under(
-        control,
-        state.is_hovered(key),
-        state.is_pressed(key),
-        state.is_focused(key),
-        locked,
-    )
-}
-
-/// State children hidden at rest (no hover, press or focus): the client hides
-/// them, so they add nothing to their parent's `%c`/`%cm`.
-pub(crate) fn rest_hidden_children(control: &ResolvedControl) -> Vec<String> {
-    match control.control_type.as_deref() {
-        Some("button" | "edit_box" | "slider_box" | "slider" | "toggle" | "dropdown") => {
-            hidden_under(control, false, false, false, false)
-        }
-        _ => Vec::new(),
-    }
-}
-
-/// Per state child of a stateful control, the interaction states it shows under,
-/// as a mask over [`state_index`]; empty for controls without state children.
-/// `locked` is an ancestor's lock.
-pub(crate) fn state_child_masks(control: &ResolvedControl, locked: bool) -> Vec<(String, u8)> {
-    let names: &[&str] = match control.control_type.as_deref().unwrap_or("") {
-        "button" | "edit_box" | "slider_box" | "slider" => &BUTTON_STATES,
-        "toggle" | "dropdown" => &TOGGLE_STATES,
-        _ => return Vec::new(),
-    };
-    let mut masks: Vec<(String, u8)> = names
-        .iter()
-        .filter_map(|property| prop_str(control, property))
-        .map(|name| (name.to_owned(), 0))
-        .collect();
-    masks.dedup();
-    for index in 0..8u8 {
-        let hidden = hidden_under(
-            control,
-            index & 1 != 0,
-            index & 2 != 0,
-            index & 4 != 0,
-            locked,
-        );
-        for (name, mask) in &mut masks {
-            if !hidden.contains(name) {
-                *mask |= 1 << index;
-            }
-        }
-    }
-    masks
-}
-
-/// The bit a control's interaction state takes in a [`state_child_masks`] mask.
-pub(crate) fn state_index(state: &ViewState, key: &str) -> u8 {
-    u8::from(state.is_hovered(key))
-        | (u8::from(state.is_pressed(key)) << 1)
-        | (u8::from(state.is_focused(key)) << 2)
-}
-
-/// A lock (own or an ancestor's) shows the locked child and hides hover/press.
-fn hidden_under(
-    control: &ResolvedControl,
-    hovered: bool,
-    pressed: bool,
-    focused: bool,
-    ancestor_locked: bool,
-) -> Vec<String> {
-    let kind = control.control_type.as_deref().unwrap_or("");
-    let locked = ancestor_locked || !enabled(control);
-    let (names, shown): (&[&str], &str) = match kind {
-        "button" | "edit_box" | "slider_box" => {
-            let shown = if locked {
-                "locked_control"
-            } else if pressed || (kind == "edit_box" && focused) {
-                "pressed_control"
-            } else if hovered {
-                "hover_control"
-            } else {
-                "default_control"
-            };
-            (&BUTTON_STATES[..], shown)
-        }
-        "toggle" | "dropdown" => {
-            let checked = toggle_checked(control);
-            let index = usize::from(checked) + 2 * usize::from(hovered) + 4 * usize::from(locked);
-            (&TOGGLE_STATES[..], TOGGLE_STATES[index])
-        }
-        "slider" => {
-            let shown = if hovered || pressed {
-                "hover_control"
-            } else {
-                "default_control"
-            };
-            (&BUTTON_STATES[..2], shown)
-        }
-        _ => return Vec::new(),
-    };
-    let mut hidden = Vec::new();
-    for property in names {
-        let Some(name) = prop_str(control, property) else {
-            continue;
-        };
-        // A state that falls back to the same child (e.g. pressed == hover) keeps it.
-        if *property != shown && Some(name) != prop_str(control, shown) {
-            hidden.push(name.to_owned());
-        }
-    }
-    // An unset locked child means "no locked look": fall back to the default child.
-    if prop_str(control, shown).is_none()
-        && let Some(default) = prop_str(control, "default_control")
-    {
-        hidden.retain(|name| name != default);
-    }
-    hidden
-}
-
 /// A slider's normalized position `0..=1`: a step slider's `#slider_value` is the
 /// step index over `#slider_steps`, a continuous slider's value is already a
 /// fraction.
-pub(crate) fn slider_fraction(control: &ResolvedControl) -> Option<f64> {
+fn slider_fraction(control: &ResolvedControl) -> Option<f64> {
     if control.control_type.as_deref() != Some("slider") {
         return None;
     }
@@ -224,36 +95,81 @@ pub(crate) fn slider_fraction(control: &ResolvedControl) -> Option<f64> {
     } else {
         value
     };
-    Some(fraction.clamp(0.0, 1.0))
+    let fraction = fraction.clamp(0.0, 1.0);
+    Some(if bound_bool(control, "slider_inverted") == Some(true) {
+        1.0 - fraction
+    } else {
+        fraction
+    })
 }
 
-/// The slider box's rect: its centre travels the full track width.
-pub(crate) fn slider_box_rect(track: Rect, box_rect: Rect, fraction: f64) -> Rect {
-    Rect::new(
-        track.x + track.w * fraction - box_rect.w * 0.5,
-        box_rect.y,
-        box_rect.w,
-        box_rect.h,
-    )
+/// A slider being laid out: where its box travels and which children it clips.
+pub(crate) struct SliderFrame {
+    pub fraction: f64,
+    /// `slider_box_control`, `progress_control`, `progress_hover_control`.
+    pub names: [Option<String>; 3],
+    pub rect: Rect,
+    pub vertical: bool,
 }
 
-pub(crate) fn slider_names(control: &ResolvedControl) -> [Option<String>; 3] {
-    [
-        prop_str(control, "slider_box_control").map(str::to_owned),
-        prop_str(control, "progress_control").map(str::to_owned),
-        prop_str(control, "progress_hover_control").map(str::to_owned),
-    ]
+impl SliderFrame {
+    pub fn open(control: &ResolvedControl, rect: Rect) -> Option<Self> {
+        Some(Self {
+            fraction: slider_fraction(control)?,
+            names: [
+                prop_str(control, "slider_box_control").map(str::to_owned),
+                prop_str(control, "progress_control").map(str::to_owned),
+                prop_str(control, "progress_hover_control").map(str::to_owned),
+            ],
+            rect,
+            vertical: prop_str(control, "slider_direction") == Some("vertical"),
+        })
+    }
+
+    /// The box's rect: its centre travels the full slider along its axis.
+    pub fn place_box(&self, box_rect: Rect) -> Rect {
+        let track = self.rect;
+        if self.vertical {
+            return Rect::new(
+                box_rect.x,
+                track.y + track.h * self.fraction - box_rect.h * 0.5,
+                box_rect.w,
+                box_rect.h,
+            );
+        }
+        Rect::new(
+            track.x + track.w * self.fraction - box_rect.w * 0.5,
+            box_rect.y,
+            box_rect.w,
+            box_rect.h,
+        )
+    }
 }
 
-/// A panel holding a `dropdown` toggle: the toggle's `dropdown_area` (the
-/// ancestor its content lays out in) and the content child's name.
-pub(crate) fn dropdown_area(control: &ResolvedControl) -> Option<(String, String)> {
+/// A panel holding a `dropdown`: the dropdown's name, its `dropdown_area` and
+/// its content sibling's name (`DropdownComponent`).
+pub(crate) fn dropdown_area(control: &ResolvedControl) -> Option<(String, String, String)> {
     control.children.iter().find_map(|child| {
         if child.control_type.as_deref() != Some("dropdown") {
             return None;
         }
         let area = prop_str(child, "dropdown_area")?;
         let content = prop_str(child, "dropdown_content_control").unwrap_or("dropdown_content");
-        Some((area.to_owned(), content.to_owned()))
+        Some((child.name.clone(), area.to_owned(), content.to_owned()))
     })
+}
+
+/// The content's top as `DropdownComponent::_positionContent` places it:
+/// level with the dropdown, raised to end inside the area, never above it,
+/// and centred on the area when taller than it.
+pub(crate) fn dropdown_content_top(dropdown: Rect, area: Rect, content_height: f64) -> f64 {
+    if area.h <= content_height {
+        return area.y + area.h * 0.5 - content_height * 0.5;
+    }
+    let raised = if area.h + area.y < content_height + dropdown.y {
+        area.h + area.y - content_height
+    } else {
+        dropdown.y
+    };
+    raised.max(area.y)
 }
