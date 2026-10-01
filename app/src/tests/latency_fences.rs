@@ -18,7 +18,21 @@ impl CollisionWorld for EmptyWorld {
 fn flush_inputs(app: &mut App) {
     let mut ticker = app.world_mut().remove_resource::<MovementTicker>().unwrap();
     let network = app.world().resource::<NetworkHandle>();
-    crate::movement::flush_player_auth_inputs(&mut ticker, 8, None, |identity, packet| {
+    let context = crate::movement::PhysicsTickEvidenceContext {
+        fifo_sequence: 0,
+        pose_generation: 0,
+        dimension: 0,
+        perspective: semantic_input::PerspectiveMode::FirstPerson,
+        camera_blocked: false,
+        camera_fallback: false,
+        local_avatar_visible: false,
+        look_delta: [0.0; 2],
+        outbound_authorized: true,
+        outbox_depth: ticker.pending_count(),
+        outbox_drops: 0,
+        free_camera_packet_count: 0,
+    };
+    crate::movement::flush_player_auth_inputs(&mut ticker, 8, Some(context), |identity, packet| {
         network.send_physics_packet(identity, packet, None)
     })
     .unwrap();
