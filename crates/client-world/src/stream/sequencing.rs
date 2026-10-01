@@ -594,6 +594,7 @@ impl WorldStream {
             WorldEvent::ActorMotion(motion) => {
                 let sequence = sequence.expect("sequenced actor motion commits through submit");
                 if motion.actor_runtime_id != self.local_player_runtime_id {
+                    self.actors.apply_motion(sequence, motion);
                     return;
                 }
                 self.actors.note_local_knockback(sequence, motion.motion);

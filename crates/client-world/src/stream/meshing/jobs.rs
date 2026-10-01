@@ -332,19 +332,24 @@ impl WorldStream {
     }
     pub(in crate::stream) fn biome_neighbourhood(&self, key: SubChunkKey) -> BiomeNeighbourhood {
         let mut biomes = std::array::from_fn(|_| None);
-        for dz in -1_i8..=1 {
-            for dx in -1_i8..=1 {
-                let Some(x) = key.x.checked_add(i32::from(dx)) else {
-                    continue;
-                };
-                let Some(z) = key.z.checked_add(i32::from(dz)) else {
-                    continue;
-                };
-                let slot = biome_neighbour_index(dx, dz)
-                    .expect("bounded biome-neighbour offsets have descriptor slots");
-                biomes[slot] =
-                    self.store
-                        .biome_storage(SubChunkKey::new(key.dimension, x, key.y, z));
+        for dy in -1_i8..=1 {
+            for dz in -1_i8..=1 {
+                for dx in -1_i8..=1 {
+                    let Some(x) = key.x.checked_add(i32::from(dx)) else {
+                        continue;
+                    };
+                    let Some(y) = key.y.checked_add(i32::from(dy)) else {
+                        continue;
+                    };
+                    let Some(z) = key.z.checked_add(i32::from(dz)) else {
+                        continue;
+                    };
+                    let slot =
+                        ::meshing::biome_volume_index(dx, dy, dz).expect("bounded biome halo");
+                    biomes[slot] =
+                        self.store
+                            .biome_storage(SubChunkKey::new(key.dimension, x, y, z));
+                }
             }
         }
         biomes
