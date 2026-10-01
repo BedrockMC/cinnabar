@@ -1,5 +1,5 @@
 [package]
-name = "mod-api"
+name = "experience-sdk"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
