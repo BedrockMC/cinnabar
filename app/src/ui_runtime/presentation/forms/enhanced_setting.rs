@@ -54,16 +54,21 @@ mod tests {
             "ui/general_section.json",
             r#"{"namespace":"general_section","video_section":{"type":"stack_panel","controls":[]}}"#,
         );
+        catalog.overlay_text(
+            "ui/settings_common.json",
+            r#"{"namespace":"settings_common","option_toggle":{"type":"toggle"}}"#,
+        );
         install(&mut catalog);
         assert!(catalog.diagnostics().is_empty());
-        let resolved = json_ui::resolve(
+        let resolution = json_ui::resolve(
             &catalog,
             "general_section.video_section",
             &json_ui::Context::default(),
-        )
-        .control
-        .expect("video section");
+        );
+        assert!(resolution.diagnostics.is_empty());
+        let resolved = resolution.control.expect("video section");
         assert_eq!(resolved.children.len(), 1);
         assert_eq!(resolved.children[0].name, "cinnabar_enhanced");
+        assert_eq!(resolved.children[0].control_type.as_deref(), Some("toggle"));
     }
 }

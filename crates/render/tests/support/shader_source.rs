@@ -127,6 +127,7 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
                 as_name: Some(name.to_owned()),
                 ..Default::default()
             })
+            .map(|_| ())
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
     }
     let fullscreen_source;
