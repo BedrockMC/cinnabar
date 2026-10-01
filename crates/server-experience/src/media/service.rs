@@ -1,7 +1,7 @@
 //! Native declarative playback controller, independent of a downloaded component.
 
 use super::{
-    clock::{Clock, Correction, correction},
+    clock::{Clock, Correction, MAX_PROBE_DELAY_US, correction},
     descriptor::Descriptor,
     frames::{PcmBlock, VideoFrame},
     timeline::{Message, Playback},
@@ -62,7 +62,8 @@ impl Player {
                 .packages
                 .iter()
                 .any(|p| p.id == bundle.manifest.id
-                    && p.publisher_key == bundle.manifest.publisher_key),
+                    && p.publisher_key == bundle.manifest.publisher_key
+                    && p.digest == bundle.digest()),
             "foreign bundle"
         );
         let bytes = bundle
@@ -104,7 +105,11 @@ impl Player {
 
     /// Issues coarse clock probes only on an already negotiated extension channel.
     pub fn ping(&mut self, now_us: u64) -> Option<(u64, u64)> {
-        if now_us.saturating_sub(self.last_ping_us) < 1_000_000 {
+        if self
+            .ping
+            .is_some_and(|(_, sent)| now_us.saturating_sub(sent) <= MAX_PROBE_DELAY_US)
+            || now_us.saturating_sub(self.last_ping_us) < 1_000_000
+        {
             return None;
         }
         self.ping_id = self.ping_id.checked_add(1)?;
@@ -115,10 +120,8 @@ impl Player {
 
     /// Accepts only a response to this player's outstanding probe.
     pub fn clock_reply(&mut self, id: u64, c0: u64, s1: u64, s2: u64, c3: u64) -> Result<()> {
-        ensure!(
-            self.ping.take() == Some((id, c0)),
-            "unsolicited clock reply"
-        );
+        ensure!(self.ping == Some((id, c0)), "unsolicited clock reply");
+        self.ping = None;
         self.clock.observe(c0, s1, s2, c3)
     }
 

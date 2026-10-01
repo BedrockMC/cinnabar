@@ -254,18 +254,27 @@ impl Ingress {
         Ok(())
     }
 
-    /// Publishes only after preceding world events; old dimension work is discarded.
-    pub fn pop(&mut self, committed: u64, world_epoch: u64) -> Option<Envelope> {
+    /// Inspects the next committed event without consuming it while its helper is busy.
+    pub fn peek(&mut self, committed: u64, world_epoch: u64) -> Option<&Envelope> {
         loop {
-            if self.queue.front()?.0 > committed {
+            let (publication, _, message) = self.queue.front()?;
+            if *publication > committed {
                 return None;
             }
-            let (_, bytes, message) = self.queue.pop_front()?;
-            self.bytes -= bytes;
             if message.world_epoch == world_epoch {
-                return Some(message);
+                return self.queue.front().map(|entry| &entry.2);
             }
+            let (_, bytes, _) = self.queue.pop_front()?;
+            self.bytes -= bytes;
             self.skipped = self.skipped.saturating_add(1);
         }
+    }
+
+    /// Publishes only after preceding world events; old dimension work is discarded.
+    pub fn pop(&mut self, committed: u64, world_epoch: u64) -> Option<Envelope> {
+        self.peek(committed, world_epoch)?;
+        let (_, bytes, message) = self.queue.pop_front()?;
+        self.bytes -= bytes;
+        Some(message)
     }
 }

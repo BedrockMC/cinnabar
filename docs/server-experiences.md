@@ -1,8 +1,9 @@
 # Cinnabar server experiences: client preview and wire contract
 
 This is an optional **Cinnabar extension**, not vanilla Bedrock parity. This branch
-contains uncompiled client code and authored, unrun tests. It does not ship a
-production sandbox or an end-to-end cinema implementation. No server SDK,
+contains locally compiled client code and regression tests whose validation is
+recorded in `plan.md`. It does not ship a production sandbox or an end-to-end
+cinema implementation. No server SDK,
 Dragonfly integration, BDS script, or server sidecar is included.
 
 ## Implementation status
@@ -11,9 +12,9 @@ Dragonfly integration, BDS script, or server sidecar is included.
 | --- | --- | --- |
 | Discovery and delivery | Admitted-pack marker, Ed25519 offer and challenge verification, destination/key/scope pins, HTTPS fetch policy, digest cache, indexed ZIP verification | Real vanilla marker compatibility; optional-pack provenance in the Go handoff; CDN and hostile archive fixtures |
 | Consent | Private JSON-UI catalog, once/always/never, changed-key disclosure, persistent settings, running indicator and F9 revocation | Visual/layout/accessibility review; settings editor; controller/touch disable control |
-| Runtime | Versioned WIT, fuel and memory limits, transactional capability checks, per-bundle developer processes, bounded IPC and watchdog, typed channels and JSON-UI label preview | Restricted OS launch and compiler containment; full screen, focus/input, scene, particle and material adapters; robust deferred scheduling and snapshots |
+| Runtime | Versioned WIT, fuel and memory limits, transactional capability checks, per-bundle developer processes, bounded IPC and watchdog, typed channels and JSON-UI label preview | Restricted OS launch and compiler containment; full screen, focus/input, scene, particle and material adapters; snapshot recovery |
 | Media | Signed descriptors, authenticated HTTPS ranges, optional off-thread WebM decode, clock/timeline primitives, frame queue, retained GPU texture, bounded PCM mixer source | Live message routing, surface ownership/binding, production decoder process, device clock, resampling, efficient seeking/looping and underrun recovery |
-| Fallback | No marker means no probe/download/helper/prompt; pre-consent messages dropped before the world FIFO; ordinary session survives extension failure | Run tests and compare real packet captures after compilation is authorized |
+| Fallback | No marker means no probe/download/helper/prompt; pre-consent messages dropped before the world FIFO; ordinary session survives extension failure | Compare real packet captures; verify no-advertisement equivalence |
 
 Production execution deliberately fails closed. `Helper::spawn_restricted` returns
 an error. The app negotiates only after consent, but never downloads or starts a
@@ -263,9 +264,10 @@ Inbound extension events share the existing ordered world publication stream.
 Only committed UI events enter the experience controller. Stale dimension work
 is discarded. Guest callbacks run later on committed state and publish whole
 validated transactions; no callback reads or mutates unpublished world state.
-The preview supervises one pending callback per bundle and fails closed when that
-mailbox or the aggregate dispatch budget is exhausted. Deferred scheduling remains
-incomplete, so servers should keep preview traffic sparse.
+The preview supervises one pending callback per bundle. Accepted events remain
+in the bounded reliable queue until the helper and aggregate callback budget are
+available. Each slice also schedules pending initializers; readiness remains
+pending until all bundles finish initialization.
 
 ## Host capabilities and containment
 
@@ -295,8 +297,9 @@ carry a world epoch. Wrong owners/epochs and invalid operations never partially
 publish. Guest fuel, one linear-memory allowance, stack, instance/table counts,
 output size and host-call counts are bounded. Aggregate session reservations and
 callback fuel prevent multiplying allowances by adding bundles. Startup callbacks
-also consume the aggregate budget; this preview rejects deployments whose parallel
-initialization exceeds it. These are not OS resident-memory or compiler limits.
+also consume the aggregate budget and wait across slices when it is exhausted.
+Readiness waits for every initializer; their bounded sends follow the ready record.
+These are not OS resident-memory or compiler limits.
 
 The developer helper uses a fresh process per component, cleared environment,
 private stdio, bounded length-prefixed JSON IPC, asynchronous IPC workers and a
@@ -418,8 +421,10 @@ MP4/H.264/AAC remains the explicitly unavailable `PlatformDecoder` trait stub.
 Other pinned direct dependencies reuse locked versions: reqwest 0.12.28,
 ring 0.17.14, sha2 0.10.9, url 2.5.8, zip 7.2.0, serde 1.0.228,
 serde_json 1.0.150, tempfile 3.27.0, and crossbeam-queue 0.3.13. Wasmtime remains
-36.0.16; the existing WIT binding generators are reused. `Cargo.lock` has not been
-updated, and optional native transitive dependencies have not been resolved.
+36.0.16; the existing WIT binding generators are reused. The branch already adds
+the optional native decoders and their resolved transitive dependencies to
+`Cargo.lock`. The local validation recorded in `plan.md` used that lockfile
+without a further dependency update.
 
 ## Limits, fallback and verification still required
 

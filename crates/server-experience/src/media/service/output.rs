@@ -4,7 +4,7 @@ use super::super::frames::{FrameQueue, PcmBlock};
 #[cfg(any(feature = "developer-media", test))]
 use super::super::{MAX_FRAMES, frames::VideoFrame};
 #[cfg(any(feature = "developer-media", test))]
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use std::collections::VecDeque;
 
 #[cfg(any(feature = "developer-media", test))]
@@ -45,6 +45,11 @@ impl Queues {
                 Output::Video(frame) => self.frames.push(frame, generation)?,
                 Output::Audio(block) => {
                     block.validate(generation)?;
+                    ensure!(
+                        block.samples.len() / usize::from(block.channels)
+                            <= super::super::OPUS_PACKET_FRAMES,
+                        "PCM block exceeds packet frame limit"
+                    );
                     self.pcm.push_back(block);
                 }
                 Output::End => {}
@@ -57,6 +62,45 @@ impl Queues {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maximum_packet_blocks_cannot_exceed_the_pcm_duration_ceiling() {
+        for channels in [1, 2] {
+            let mut queues = Queues::default();
+            queues
+                .pump(1, || {
+                    Some(Ok(Output::Audio(PcmBlock {
+                        generation: 1,
+                        pts_us: 0,
+                        channels,
+                        samples: vec![
+                            0.0;
+                            super::super::super::OPUS_PACKET_FRAMES
+                                * usize::from(channels)
+                        ],
+                    })))
+                })
+                .unwrap();
+            assert_eq!(queues.pcm.len(), MAX_AUDIO_BLOCKS);
+            let frames: usize = queues
+                .pcm
+                .iter()
+                .map(|block| block.samples.len() / usize::from(block.channels))
+                .sum();
+            assert!(frames <= super::super::super::MAX_PCM_FRAMES);
+            queues.pcm.clear();
+            let block = PcmBlock {
+                generation: 1,
+                pts_us: 0,
+                channels,
+                samples: vec![0.0; super::super::super::MAX_PCM_FRAMES * usize::from(channels)],
+            };
+            block.validate(1).unwrap();
+            let mut output = Some(Ok(Output::Audio(block)));
+            assert!(queues.pump(1, || output.take()).is_err());
+            assert!(queues.pcm.is_empty());
+        }
+    }
 
     #[test]
     fn sixty_hz_pump_sustains_thirty_fps_and_twenty_ms_audio() {

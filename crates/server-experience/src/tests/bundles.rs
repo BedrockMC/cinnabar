@@ -15,15 +15,26 @@ fn archive_files(
     extra: bool,
     method: CompressionMethod,
 ) -> (Vec<u8>, manifest::Offer) {
+    archive_files_with_permissions(assets, extra, method, BTreeSet::new())
+}
+
+/// Produces signed revisions with the declared permissions covered by the manifest signature.
+fn archive_files_with_permissions(
+    assets: &[(&str, &[u8])],
+    extra: bool,
+    method: CompressionMethod,
+    permissions: BTreeSet<manifest::Permission>,
+) -> (Vec<u8>, manifest::Offer) {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let mut deployment = offer(&key);
+    deployment.scope.permissions = permissions.clone();
     let manifest = manifest::Manifest {
         version: policy::WIRE_VERSION,
         api: policy::API_VERSION,
         id: deployment.packages[0].id.clone(),
         publisher_key: deployment.packages[0].publisher_key.clone(),
         package_version: "fixture".into(),
-        permissions: BTreeSet::new(),
+        permissions,
         component: None,
         channels: Vec::new(),
         actions: BTreeSet::new(),
@@ -261,4 +272,124 @@ fn local_and_central_extra_metadata_are_rejected_before_streaming_decode() {
         let error = read_mutated(&bytes, &mut deployment, policy::MAX_EXPANDED_BYTES).unwrap_err();
         assert!(error.to_string().contains("extra metadata"), "{error}");
     }
+}
+
+/// Creates two independently verified signed archive revisions for a declarative media grant.
+fn media_revisions() -> (
+    bundle::VerifiedBundle,
+    bundle::VerifiedBundle,
+    negotiation::Grant,
+) {
+    let descriptor = media::descriptor::Descriptor {
+        id: "cinema".into(),
+        timeline: "cinema".into(),
+        profile: media::descriptor::Profile::WebmAv1OpusBt709,
+        url: "https://example.org/video.webm".into(),
+        bytes: 1,
+        chunk_bytes: 64 * 1024,
+        chunk_hashes: vec![crypto::digest(b"x")],
+        sha256: crypto::digest(b"x"),
+        width: 2,
+        height: 2,
+        fps: 1,
+        duration_us: 1_000_000,
+        audio_channels: 1,
+        poster: "poster.txt".into(),
+    };
+    let descriptor = serde_json::to_vec(&descriptor).unwrap();
+    let read = |poster: &[u8]| {
+        let (bytes, offer) = archive_files_with_permissions(
+            &[("media.json", &descriptor), ("poster.txt", poster)],
+            false,
+            CompressionMethod::Stored,
+            BTreeSet::from([manifest::Permission::Media]),
+        );
+        let bundle = bundle::VerifiedBundle::read(
+            &bytes,
+            &offer.packages[0],
+            &offer.scope,
+            policy::MAX_EXPANDED_BYTES,
+        )
+        .unwrap();
+        (bundle, offer)
+    };
+    let (first, offer) = read(b"first poster");
+    let (second, _) = read(b"second poster");
+    let grant = negotiation::Grant {
+        offer: negotiation::VerifiedOffer {
+            offer,
+            digest: String::new(),
+        },
+        session: "session".into(),
+        connection: "connection".into(),
+        subclient: 0,
+        expires_unix: 1500,
+    };
+    (first, second, grant)
+}
+
+#[test]
+fn media_grant_binds_the_exact_signed_archive_revision() {
+    use std::sync::{Arc, atomic::AtomicU64};
+    let (first, second, grant) = media_revisions();
+    assert_eq!(first.manifest.id, second.manifest.id);
+    assert_eq!(first.manifest.publisher_key, second.manifest.publisher_key);
+    assert_ne!(first.digest(), second.digest());
+    media::service::Player::prepare(
+        &first,
+        "media.json",
+        &grant,
+        1,
+        1000,
+        Arc::new(AtomicU64::new(0)),
+    )
+    .unwrap();
+    let result = media::service::Player::prepare(
+        &second,
+        "media.json",
+        &grant,
+        1,
+        1000,
+        Arc::new(AtomicU64::new(0)),
+    );
+    assert!(result.err().unwrap().to_string().contains("foreign bundle"));
+}
+
+#[test]
+fn delayed_probes_survive_polling_and_unsolicited_replies() {
+    use std::sync::{Arc, atomic::AtomicU64};
+    let (bundle, _, grant) = media_revisions();
+    let mut player = media::service::Player::prepare(
+        &bundle,
+        "media.json",
+        &grant,
+        1,
+        1000,
+        Arc::new(AtomicU64::new(0)),
+    )
+    .unwrap();
+    let (id, c0) = player.ping(1_000_000).unwrap();
+    assert!(player.ping(2_000_000).is_none());
+    assert!(player.clock_reply(id + 1, c0, c0, c0, 2_500_000).is_err());
+    assert!(player.clock_reply(id, c0 + 1, c0, c0, 2_500_000).is_err());
+    player
+        .clock_reply(id, c0, 1_750_000, 1_750_000, 2_500_000)
+        .unwrap();
+    let (next, sent) = player.ping(2_500_000).unwrap();
+    assert!(player.ping(sent + 2_000_000).is_none());
+    let replacement = player.ping(sent + 2_000_001).unwrap();
+    assert!(
+        player
+            .clock_reply(next, sent, sent, sent, replacement.1)
+            .is_err()
+    );
+    player
+        .clock_reply(
+            replacement.0,
+            replacement.1,
+            replacement.1,
+            replacement.1,
+            replacement.1 + 1000,
+        )
+        .unwrap();
 }
