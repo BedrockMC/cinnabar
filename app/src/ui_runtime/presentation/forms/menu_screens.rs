@@ -66,9 +66,6 @@ const VIDEO_SECTION: &str = "video_forced_index";
 /// GUI scale choices the settings slider steps through (1..=4).
 const GUI_SCALE_STEPS: f64 = 4.0;
 
-/// The modal progress screen joining a server shows (bare `progress_screen` has no content).
-const JOIN_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
-
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
@@ -108,17 +105,17 @@ pub(super) struct MenuScreenData {
     pub(super) overlay: Option<Box<MenuScreenData>>,
 }
 
-type Translate<'a> = &'a dyn Fn(&str) -> Option<Arc<str>>;
+pub(super) type Translate<'a> = &'a dyn Fn(&str) -> Option<Arc<str>>;
 
-fn text(value: impl Into<String>) -> Scalar {
+pub(super) fn text(value: impl Into<String>) -> Scalar {
     Scalar::Text(value.into())
 }
 
-fn translated(translate: Translate<'_>, key: &str, fallback: &str) -> String {
+pub(super) fn translated(translate: Translate<'_>, key: &str, fallback: &str) -> String {
     translate(key).map_or_else(|| fallback.to_owned(), |value| value.to_string())
 }
 
-fn flags(data: &mut DataSource, on: &[&str]) {
+pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     for name in on {
         data.set_global(*name, Scalar::Bool(true));
     }
@@ -130,22 +127,13 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
     let mut data = DataSource::new();
     data.set_strict(true);
     let mut context = base_context();
-    let reference = if let Some((received, total)) =
-        view.feeds.pack_download.filter(|_| view.connecting)
-    {
-        pack_download(&mut data, translate, received, total);
-        JOIN_PROGRESS_SCREEN
+    let reference = if let Some(progress) = &view.local.progress {
+        local_world_progress(&mut data, translate, progress);
+        // The world-modal progress panel the overworld loading screen also wraps; its dirt
+        // backdrop needs block textures the menu engine does not carry.
+        LOCAL_WORLD_PROGRESS_SCREEN
     } else if view.connecting {
-        data.set_global(
-            "#title_text",
-            text(translated(translate, "connect.connecting", "Connecting")),
-        );
-        data.set_global(
-            "#progress_text",
-            text(view.message.clone().unwrap_or_default()),
-        );
-        flags(&mut data, &["#bar_animation_visible"]);
-        JOIN_PROGRESS_SCREEN
+        super::join_progress::bind(&view.feeds.join, &mut data, translate)
     } else if let Some(error) = &view.disconnect_message {
         let words = crate::menu::disconnect::describe(error);
         data.set_global(
@@ -229,41 +217,76 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
     })
 }
 
-/// The progress screen while the core downloads the server's packs: the
-/// "Downloading packs" title with the percent and a determinate bar.
-fn pack_download(data: &mut DataSource, translate: Translate<'_>, received: u64, total: u64) {
-    let percent = if total == 0 {
-        0
-    } else {
-        (received.min(total) * 100 / total) as u32
+const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
+
+/// The local-world loading screen: vanilla's "Starting World" title over the current stage,
+/// a determinate bar when the stage knows its total, and Cancel until the join starts.
+fn local_world_progress(
+    data: &mut DataSource,
+    translate: Translate<'_>,
+    progress: &crate::local_worlds::Progress,
+) {
+    use crate::local_worlds::Stage;
+    let (title, message) = match progress.stage {
+        Stage::StartingServer => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.building",
+                "Building terrain",
+            ),
+        ),
+        Stage::Connecting => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.locating",
+                "Locating server",
+            ),
+        ),
+        stage => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            stage.title().to_owned(),
+        ),
     };
-    let title = translated(
-        translate,
-        "progressScreen.title.downloading",
-        "Downloading packs %1",
-    );
-    data.set_global(
-        "#title_text",
-        text(title.replace("%1", &format!("{percent}%"))),
-    );
-    let megabytes = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
-    data.set_global(
-        "#progress_text",
-        text(format!(
-            "{:.1} / {:.1} MB",
-            megabytes(received),
-            megabytes(total)
-        )),
-    );
-    flags(data, &["#loading_bar_visible"]);
-    data.set_global(
-        "#loading_bar_total_amount",
-        Scalar::Num(total.max(1) as f64),
-    );
-    data.set_global(
-        "#loading_bar_current_amount",
-        Scalar::Num(received.min(total) as f64),
-    );
+    data.set_global("#title_text", text(title));
+    let detail = match progress.stage {
+        Stage::StartingServer | Stage::Connecting => message,
+        _ if progress.detail.is_empty() => message,
+        _ => format!("{message}\n{}", progress.detail),
+    };
+    data.set_global("#progress_text", text(detail));
+    match progress.fraction {
+        Some(fraction) => {
+            flags(data, &["#loading_bar_visible"]);
+            data.set_global("#loading_bar_percentage", Scalar::Num(f64::from(fraction)));
+            data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
+            data.set_global(
+                "#loading_bar_current_amount",
+                Scalar::Num((f64::from(fraction) * 1000.0).round()),
+            );
+        }
+        None => flags(data, &["#bar_animation_visible"]),
+    }
+    if progress.stage != Stage::Connecting {
+        flags(data, &["#cancel_visible"]);
+        data.set_global(
+            "#cancel_button_text",
+            text(translated(translate, "gui.cancel", "Cancel")),
+        );
+    }
 }
 
 /// The Marketplace screen (and popup) for the published store state.
@@ -550,6 +573,10 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         };
     }
     Some(match region.pressed.as_deref()? {
+        // The local-world loading screen's Cancel closes the world.
+        "button.menu_exit" if view.local.progress.is_some() => {
+            MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back)
+        }
         "button.menu_continue" if view.screen == MenuScreen::Pause => MenuAction::PauseResume,
         // Acknowledging a disconnect clears it (every action does).
         "button.menu_continue" | "button.menu_leave_screen" | "button.menu_select" => {
@@ -573,6 +600,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_profile" | "button.to_profile_screen" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }
+        // The join progress screen's cancel; the menu drops it where vanilla cannot cancel.
+        "button.menu_exit" if view.connecting => MenuAction::AddBack,
         "button.menu_cancel" if view.auth_state_awaiting_code() => MenuAction::CancelSignIn,
         "button.menu_exit" if view.auth_state_awaiting_code() => MenuAction::CancelSignIn,
         "button.menu_exit" => match view.screen {
@@ -732,7 +761,15 @@ mod tests {
         );
         let mut connecting = view(MenuScreen::Play);
         connecting.connecting = true;
-        assert_eq!(reference(&connecting), Some(JOIN_PROGRESS_SCREEN));
+        assert_eq!(
+            reference(&connecting),
+            Some("progress.world_loading_progress_screen")
+        );
+        connecting.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
+        assert_eq!(
+            reference(&connecting),
+            Some("progress.realms_stories_loading_progress_screen")
+        );
         let mut dropped = view(MenuScreen::Play);
         dropped.disconnect_message = Some("Kicked".into());
         assert_eq!(reference(&dropped), Some("disconnect.disconnect_screen"));
@@ -744,6 +781,20 @@ mod tests {
         assert_eq!(
             reference(&code),
             Some("xbl_console_signin.xbl_console_signin")
+        );
+    }
+
+    /// A local world's loading screen wins over the plain connecting screen and cancels the open.
+    #[test]
+    fn local_world_progress_opens_the_loading_screen_with_cancel() {
+        let mut opening = view(MenuScreen::Play);
+        opening.connecting = true;
+        opening.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
+        assert_eq!(reference(&opening), Some(LOCAL_WORLD_PROGRESS_SCREEN));
+        let cancel = action_for(&opening, &region(HitKind::Button, Some("button.menu_exit")));
+        assert_eq!(
+            cancel,
+            Some(MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back))
         );
     }
 

@@ -198,9 +198,7 @@ fn launcher_command(
         );
     // The core refuses to start local worlds without their server binary.
     if executable.with_file_name(LOCAL_SERVER).is_file() {
-        command
-            .arg("-local-worlds-dir")
-            .arg(layout.local_worlds_dir());
+        command.args(crate::local_worlds::core_args(layout));
     }
     if upstream_client_cache {
         command.arg("-upstream-client-cache");
@@ -231,6 +229,19 @@ pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
 
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
 /// prefixes, else a server that gets the default port when it names none).
+/// The kind of join `address` starts, for its progress titles.
+pub(super) fn join_kind(address: &str, local_world: bool) -> super::view::JoinKind {
+    use super::view::JoinKind;
+    match target_for(address) {
+        _ if local_world => JoinKind::Local,
+        ConnectTarget::Realm(_) => JoinKind::Realm,
+        // Friend worlds and gatherings use the external-server title until vanilla's is confirmed.
+        ConnectTarget::RakNet(_) | ConnectTarget::Friend(_) | ConnectTarget::Gathering(_) => {
+            JoinKind::External
+        }
+    }
+}
+
 fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
     if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
