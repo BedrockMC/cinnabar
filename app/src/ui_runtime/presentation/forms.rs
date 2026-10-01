@@ -214,6 +214,11 @@ impl UiPresentationRuntime {
     }
 
     /// The engine frame for `identity`, when the engine drew that form.
+    /// The engine forms' animator, which input fires button events into.
+    pub(crate) fn form_animator(&self) -> Option<std::sync::MutexGuard<'_, json_ui::Animator>> {
+        Some(self.form_presentation.engine.as_ref()?.animator())
+    }
+
     pub(crate) fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
         self.form_presentation
             .frame

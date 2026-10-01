@@ -20,6 +20,8 @@ use crate::ui_runtime::{PlatformClipboard, UiRuntime};
 
 /// Longest paste accepted into an edit box, before its own `max_length`.
 const MAX_PASTE_BYTES: usize = 4096;
+/// Animation end events one input frame relays at most.
+const MAX_END_EVENTS: usize = 64;
 /// The input button a primary pointer press is.
 const SELECT: &str = "button.menu_select";
 
@@ -41,14 +43,33 @@ pub(super) struct EngineInput<'a> {
     pub(super) typed: Vec<(KeyCode, Option<String>)>,
     /// Seconds on the app clock.
     pub(super) now: f64,
+    /// The form's animator: button events play and reset its animations.
+    pub(super) animator: Option<std::sync::MutexGuard<'a, json_ui::Animator>>,
 }
 
-pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineInput<'_>) {
+pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInput<'_>) {
     let Some(entry) = runtime.server_forms().active() else {
         return;
     };
     let identity = entry.identity;
     let model = entry.model.clone();
+    // Controls `destroy_at_end` removed take no input.
+    let survivors;
+    let frame = match input.animator.as_ref() {
+        Some(animator) if frame.hits.iter().any(|hit| animator.is_destroyed(&hit.key)) => {
+            survivors = EngineFrame {
+                hits: frame
+                    .hits
+                    .iter()
+                    .filter(|hit| !animator.is_destroyed(&hit.key))
+                    .cloned()
+                    .collect(),
+                ..frame.clone()
+            };
+            &survivors
+        }
+        _ => frame,
+    };
     let point = input.cursor.map(|cursor| frame.to_virtual(cursor));
     let control = input.keys.pressed(KeyCode::ControlLeft)
         || input.keys.pressed(KeyCode::ControlRight)
@@ -122,6 +143,9 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
             input.now,
         ));
     }
+    if let Some(animator) = input.animator.as_mut() {
+        animate(animator, &mut events);
+    }
     let mut action = None;
     for (at, event) in events.iter().enumerate() {
         let pressed = release
@@ -134,6 +158,38 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
     }
     if let Some(action) = action {
         let _ = runtime.respond_to_server_form(identity, action);
+    }
+}
+
+/// Fire each button event into the animator; its `end_event`s come back as
+/// button events the controller and other animations receive.
+fn animate(animator: &mut json_ui::Animator, events: &mut Vec<ScreenEvent>) {
+    // Ends that start animations ending at once must not feed back forever.
+    let cap = events.len() + MAX_END_EVENTS;
+    let mut at = 0;
+    while at < events.len() {
+        if let ScreenEvent::Button(button) = &events[at]
+            && button.down
+        {
+            animator.fire(&button.id);
+        }
+        for ended in animator.take_events() {
+            if let json_ui::AnimEvent::End(id) = ended
+                && events.len() < cap
+            {
+                events.push(ScreenEvent::Button(ButtonEvent {
+                    id,
+                    from: String::new(),
+                    key: String::new(),
+                    collection_index: None,
+                    collection: None,
+                    down: true,
+                    interacted: true,
+                    scope: json_ui::MappingScope::Controller,
+                }));
+            }
+        }
+        at += 1;
     }
 }
 
