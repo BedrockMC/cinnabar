@@ -1,6 +1,7 @@
 //! Session-bound form authority and bounded, single-enqueue responses.
 mod engine_focus;
 mod engine_input;
+mod engine_scroll;
 mod interaction;
 mod network;
 mod shape_probe;

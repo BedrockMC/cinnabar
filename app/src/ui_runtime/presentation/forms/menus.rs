@@ -330,13 +330,17 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
             let metrics = frame.report.scrolls.get(&region.key)?;
             Some(ScrollArea {
                 key: region.key.clone(),
-                viewport: window_rect(region, frame.scale, origin)?,
+                viewport: metrics
+                    .viewport_rect
+                    .and_then(window)
+                    .or_else(|| window_rect(region, frame.scale, origin))?,
                 scale: frame.scale,
                 offset: metrics.offset as f32,
                 max: metrics.max_offset() as f32,
                 speed: metrics.speed as f32,
                 track: metrics.track.and_then(window),
                 thumb: metrics.thumb.and_then(window),
+                draggable: metrics.box_drag != json_ui::Draggable::NotDraggable,
             })
         })
         .collect()
