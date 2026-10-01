@@ -66,6 +66,20 @@ pub struct World {
     pub seed: i64,
     pub created_unix: i64,
     pub last_played_unix: i64,
+    /// Bytes on disk.
+    #[serde(default)]
+    pub size_bytes: u64,
+}
+
+/// Settings changes for a saved world; `None` fields are left alone.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct WorldUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_mode: Option<GameMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<Difficulty>,
 }
 
 /// Settings for a new world; a `None` seed is chosen randomly by the core.
@@ -110,10 +124,16 @@ pub enum SetupState {
     Unsupported,
     EulaRequired,
     NotInstalled,
+    /// Container runtime: probing the Docker daemon at open.
+    CheckingRuntime,
+    /// Container runtime: pulling the server image (layer counts only).
+    PullingImage,
     Downloading,
     Unpacking,
     Ready,
     Failed,
+    #[serde(other)]
+    Other,
 }
 
 /// Dedicated-server setup as reported in [`WorldStatus`].
@@ -126,6 +146,10 @@ pub struct Setup {
     pub bytes_done: u64,
     #[serde(default)]
     pub bytes_total: u64,
+    #[serde(default)]
+    pub layers_done: u32,
+    #[serde(default)]
+    pub layers_total: u32,
     #[serde(default)]
     pub eula_accepted: bool,
     #[serde(default)]
@@ -213,9 +237,10 @@ struct IdParams<'a> {
 }
 
 #[derive(Serialize)]
-struct RenameParams<'a> {
+struct UpdateParams<'a> {
     id: &'a str,
-    name: &'a str,
+    #[serde(flatten)]
+    update: &'a WorldUpdate,
 }
 
 #[derive(Serialize)]
@@ -299,13 +324,17 @@ pub async fn create_world(socket_dir: &Path, world: &NewWorld) -> Result<World, 
     require_world(call(socket_dir, "world_create.v1", Some(world)).await?)
 }
 
-/// Renames a world.
-pub async fn rename_world(socket_dir: &Path, id: &str, name: &str) -> Result<World, BridgeError> {
+/// Changes a world's name, game mode or difficulty; the latter two apply on its next open.
+pub async fn update_world(
+    socket_dir: &Path,
+    id: &str,
+    update: &WorldUpdate,
+) -> Result<World, BridgeError> {
     require_world(
         call(
             socket_dir,
-            "world_rename.v1",
-            Some(RenameParams { id, name }),
+            "world_update.v1",
+            Some(UpdateParams { id, update }),
         )
         .await?,
     )
@@ -451,6 +480,23 @@ mod tests {
             Some(UnavailableReason::DockerMissing)
         );
         assert_eq!(status.setup.expect("setup").state, SetupState::Unsupported);
+        let pulling = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "status":{"state":"starting","setup":{"state":"pulling_image","layers_done":2,"layers_total":5}}}}"#;
+        let setup = require_status(parse_world_response(pulling).expect("ok"))
+            .expect("status")
+            .setup
+            .expect("setup");
+        assert_eq!(
+            (setup.state, setup.layers_done, setup.layers_total),
+            (SetupState::PullingImage, 2, 5)
+        );
+        let future = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "status":{"state":"starting","setup":{"state":"verifying"}}}}"#;
+        let setup = require_status(parse_world_response(future).expect("ok"))
+            .expect("status")
+            .setup
+            .expect("setup");
+        assert_eq!(setup.state, SetupState::Other);
         let unknown = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
             "status":{"state":"idle","backend_unavailable_reason":"something_new"}}}"#;
         let status = require_status(parse_world_response(unknown).expect("ok")).expect("status");
@@ -485,6 +531,15 @@ mod tests {
         assert_eq!(empty, "{}");
         let eula = serde_json::to_string(&EulaParams { accepted: true }).expect("encode");
         assert_eq!(eula, r#"{"accepted":true}"#);
+        let update = serde_json::to_string(&UpdateParams {
+            id: "a",
+            update: &WorldUpdate {
+                difficulty: Some(Difficulty::Hard),
+                ..WorldUpdate::default()
+            },
+        })
+        .expect("encode");
+        assert_eq!(update, r#"{"id":"a","difficulty":"hard"}"#);
     }
 
     #[test]

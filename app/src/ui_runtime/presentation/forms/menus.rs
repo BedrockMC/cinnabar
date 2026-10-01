@@ -134,6 +134,10 @@ impl UiPresentationRuntime {
                 key_of(Some(match field {
                     crate::menu::MenuField::Name => MenuAction::AddName,
                     crate::menu::MenuField::Address => MenuAction::AddAddress,
+                    // Drawn by the OreUI create and edit screens, not JSON-UI.
+                    crate::menu::MenuField::WorldName | crate::menu::MenuField::WorldSeed => {
+                        return None;
+                    }
                 }))
             }),
         };

@@ -237,6 +237,8 @@ pub(crate) struct MenuView {
     /// The saved server the add screen is editing.
     pub(crate) editing: Option<usize>,
     pub(crate) local_worlds: Vec<LocalWorldCard>,
+    /// The local-world create, edit and template screens and their modals.
+    pub(crate) local: crate::local_worlds::WorldsView,
     pub(crate) volumes: super::settings_values::Volumes,
     pub(crate) feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
