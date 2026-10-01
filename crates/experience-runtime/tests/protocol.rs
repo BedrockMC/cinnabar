@@ -3,7 +3,19 @@ use std::path::PathBuf;
 
 use experience_runtime::hex;
 use experience_runtime::limits::MAX_FRAME_BYTES;
-use experience_runtime::protocol::{Request, Response, Texture, fixtures, read_frame, write_frame};
+use experience_runtime::protocol::{
+    Cause, Face, FailKind, Mining, Request, Response, Texture, fixtures, read_frame, write_frame,
+};
+use serde::{Deserialize, Serialize};
+
+/// The shape of the `enums` fixture, decoded with the protocol's own enum types.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Enums {
+    faces: Vec<Face>,
+    causes: Vec<Cause>,
+    fail_kinds: Vec<FailKind>,
+}
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -31,8 +43,16 @@ where
 
 #[test]
 fn frame_round_trips_every_fixture() {
+    let mut saw_enums = false;
     for (name, json) in fixtures() {
         if name == "limits" {
+            continue;
+        }
+        if name == "enums" {
+            let enums: Enums = serde_json::from_str(&json).expect("enums fixture decodes");
+            let pretty = serde_json::to_string_pretty(&enums).unwrap() + "\n";
+            assert_eq!(pretty, json, "enums: round trip changed the fixture");
+            saw_enums = true;
             continue;
         }
         if name.starts_with("request_") {
@@ -43,6 +63,7 @@ fn frame_round_trips_every_fixture() {
             panic!("fixture {name} is neither a request nor a response");
         }
     }
+    assert!(saw_enums, "fixtures() must include the enums fixture");
 }
 
 #[test]
@@ -65,7 +86,7 @@ fn oversized_frame_is_rejected() {
 #[test]
 fn truncated_frame_is_an_error() {
     let mut frame = Vec::new();
-    write_frame(&mut frame, &Request::Shutdown).unwrap();
+    write_frame(&mut frame, &Request::Shutdown {}).unwrap();
 
     let partial_length = frame[..2].to_vec();
     let err = read_frame::<Request>(&mut Cursor::new(partial_length)).unwrap_err();
@@ -106,6 +127,13 @@ fn unknown_field_is_rejected() {
 
     let nested = r#"{"slot":"*","path":"/srv/a.png","extra":true}"#;
     assert!(serde_json::from_str::<Texture>(nested).is_err());
+
+    let shutdown = frame_of(r#"{"type":"shutdown","extra":1}"#);
+    let err = read_frame::<Request>(&mut Cursor::new(shutdown)).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+
+    let unbreakable = r#"{"type":"unbreakable","extra":1}"#;
+    assert!(serde_json::from_str::<Mining>(unbreakable).is_err());
 }
 
 #[test]
