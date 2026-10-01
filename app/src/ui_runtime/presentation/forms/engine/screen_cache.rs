@@ -235,7 +235,7 @@ impl ScreenCache {
             view: &ViewState::default(),
             root: screen.root,
             px: screen.px,
-            language: screen.language.clone(),
+            language: screen.language,
         };
         if lock(&self.laid).iter().any(|entry| entry.matches(&key)) {
             return;
@@ -382,7 +382,7 @@ impl Detached {
                 view,
                 root: screen.root,
                 px: screen.px,
-                language: screen.language.clone(),
+                language: screen.language,
                 render: Arc::new(render),
             });
         }
