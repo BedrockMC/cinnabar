@@ -427,10 +427,11 @@ fn find_global(node: &LaidOut, from: &str, found: &mut Option<String>) {
     if !node.visible {
         return;
     }
-    if let Some(mapping) = InputComponent::read(node.control)
-        .mappings
-        .into_iter()
-        .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)
+    if node.control.properties.contains_key("button_mappings")
+        && let Some(mapping) = InputComponent::read(node.control)
+            .mappings
+            .into_iter()
+            .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)
     {
         *found = Some(mapping.to);
     }

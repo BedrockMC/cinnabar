@@ -422,6 +422,12 @@ fn innermost_global_mapping_wins() {
         global_mapping(&laid, "button.menu_cancel").as_deref(),
         Some("popup.escape")
     );
+    root.properties.remove("button_mappings");
+    let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), &ViewState::default());
+    assert_eq!(
+        global_mapping(&laid, "button.menu_cancel").as_deref(),
+        Some("popup.escape")
+    );
 }
 
 struct CellLibrary;
