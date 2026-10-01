@@ -59,7 +59,7 @@ const TICKS_PER_DAY: f64 = 24_000.0;
 /// One screen's resolved tree per catalog and its last layout per model.
 #[derive(Default)]
 pub(super) struct CachedScreen {
-    resolved: Option<(Arc<Catalog>, Option<Arc<ResolvedControl>>)>,
+    resolved: Option<ResolvedScreen>,
     /// Factory and grid resolutions for the resolved catalog, kept across binds.
     library: ResolveCache,
     /// The screen's live bindings across data refreshes.
@@ -70,6 +70,13 @@ pub(super) struct CachedScreen {
     pub(super) passes: usize,
 }
 
+struct ResolvedScreen {
+    reference: String,
+    catalog: Arc<Catalog>,
+    context: Context,
+    tree: Option<Arc<ResolvedControl>>,
+}
+
 struct Laid {
     reference: String,
     catalog: Arc<Catalog>,
@@ -77,6 +84,7 @@ struct Laid {
     view: ViewState,
     root: [f64; 2],
     px: f32,
+    language: [usize; 3],
     render: FormRender,
 }
 
@@ -88,7 +96,7 @@ impl CachedScreen {
         catalog: &Arc<Catalog>,
         context: &Context,
         data: Arc<DataSource>,
-        at: ([f64; 2], f32),
+        at: ([f64; 2], f32, [usize; 3]),
         env: &json_ui::LayoutEnv,
     ) -> Option<&FormRender> {
         self.render_shared_with(
@@ -110,7 +118,7 @@ impl CachedScreen {
         catalog: &Arc<Catalog>,
         context: &Context,
         data: DataSource,
-        (root, px): ([f64; 2], f32),
+        (root, px, language): ([f64; 2], f32, [usize; 3]),
         env: &json_ui::LayoutEnv,
         view: &ViewState,
     ) -> Option<&FormRender> {
@@ -119,7 +127,7 @@ impl CachedScreen {
             catalog,
             context,
             Arc::new(data),
-            (root, px),
+            (root, px, language),
             env,
             view,
         )
@@ -133,7 +141,7 @@ impl CachedScreen {
         catalog: &Arc<Catalog>,
         context: &Context,
         data: Arc<DataSource>,
-        (root, px): ([f64; 2], f32),
+        (root, px, language): ([f64; 2], f32, [usize; 3]),
         env: &json_ui::LayoutEnv,
         view: &ViewState,
     ) -> Option<&FormRender> {
@@ -142,35 +150,41 @@ impl CachedScreen {
                 && Arc::ptr_eq(&laid.catalog, catalog)
                 && laid.root == root
                 && laid.px == px
+                && laid.language == language
+                && self
+                    .resolved
+                    .as_ref()
+                    .is_some_and(|resolved| resolved.context == *context)
                 && (Arc::ptr_eq(&laid.data, &data) || laid.data == data)
                 && laid.view == *view
         });
         if !fresh {
-            let current = self
-                .laid
-                .as_ref()
-                .is_none_or(|laid| laid.reference == reference)
-                && self
-                    .resolved
-                    .as_ref()
-                    .is_some_and(|(resolved_for, _)| Arc::ptr_eq(resolved_for, catalog));
+            let current = self.resolved.as_ref().is_some_and(|resolved| {
+                resolved.reference == reference
+                    && Arc::ptr_eq(&resolved.catalog, catalog)
+                    && resolved.context == *context
+            });
             if !current {
                 let tree = resolve(catalog, reference, context).control.map(Arc::new);
-                self.resolved = Some((Arc::clone(catalog), tree));
+                self.resolved = Some(ResolvedScreen {
+                    reference: reference.to_owned(),
+                    catalog: Arc::clone(catalog),
+                    context: context.clone(),
+                    tree,
+                });
                 self.library = ResolveCache::default();
                 self.binding = BindState::new();
             }
-            let tree = self.resolved.as_ref()?.1.as_ref()?;
+            let tree = self.resolved.as_ref()?.tree.as_ref()?;
             let library = CachedLibrary {
                 library: CatalogLibrary { catalog, context },
                 cache: &self.library,
             };
             let mut bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
             if current
-                && self
-                    .laid
-                    .as_ref()
-                    .is_some_and(|laid| laid.root == root && laid.px == px)
+                && self.laid.as_ref().is_some_and(|laid| {
+                    laid.root == root && laid.px == px && laid.language == language
+                })
             {
                 let mut previous = self.laid.take()?.render.bound;
                 self.measures.update_tree(&mut previous, bound);
@@ -187,6 +201,7 @@ impl CachedScreen {
                 view: view.clone(),
                 root,
                 px,
+                language,
             });
         }
         self.laid.as_ref().map(|laid| &laid.render)
@@ -282,7 +297,14 @@ impl UiPresentationRuntime {
             overlay: &[],
         };
         renderer.draw(art, inputs, out, |env, root| {
-            screen.render(reference, &catalog, &context, data, (root, px), env)
+            screen.render(
+                reference,
+                &catalog,
+                &context,
+                data,
+                (root, px, runtime.text_generation()),
+                env,
+            )
         })?;
         Ok(true)
     }
@@ -578,3 +600,7 @@ impl UiPresentationRuntime {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "hud/cache_tests.rs"]
+mod cache_tests;

@@ -80,7 +80,7 @@ impl UiPresentationRuntime {
                     &catalog,
                     &context,
                     data,
-                    (root, px),
+                    (root, px, runtime.text_generation()),
                     env,
                     &json_ui::ViewState::default(),
                 )

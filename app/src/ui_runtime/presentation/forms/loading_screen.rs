@@ -110,7 +110,15 @@ impl UiPresentationRuntime {
             inputs,
             out,
             |env, root| {
-                screen.render_with(reference, &catalog, &context, data, (root, px), env, &view)
+                screen.render_with(
+                    reference,
+                    &catalog,
+                    &context,
+                    data,
+                    (root, px, runtime.text_generation()),
+                    env,
+                    &view,
+                )
             },
         )?;
         Ok(frame.is_some())
