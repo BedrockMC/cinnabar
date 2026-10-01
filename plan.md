@@ -12,6 +12,16 @@ Lens reconstructed client 1.26.50.26 `LevelBuilder::tryRebuild` (RVA 0x04fb7530)
 uses a radius-16 X/Z availability check (0x0319db50, 0x0319d850, 0x0319d450):
 all nine eligible horizontal columns are required, with no timeout exception.
 No new provisional geometry or lighting path is introduced here.
+2026-10-01 modding: Cinnabar extension, disabled by default. The developer-only
+WASM component spike exposes a bounded JSON-UI label and local demo keybind,
+with fuel/memory limits, trap quarantine and transactional hot reload. This is
+not vanilla behavior and closes no parity gate. Incomplete: process isolation,
+compiler quotas, package permissions/signatures, server policy negotiation,
+multi-mod lifecycle, production API stability, vanilla hide-GUI/alpha propagation,
+and native visual/performance
+acceptance. Only explicitly selected local developer components are supported;
+do not treat this as admission for untrusted downloaded mods. See
+`docs/modding-spike.md` for the executable sample and offline evidence harness.
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
