@@ -195,6 +195,21 @@ fn clipped_rect(direction: ClipDirection, rect: Rect, ratio: [f64; 2]) -> Rect {
     }
 }
 
+/// The part of `rect` a clip `ratio` keeps toward `direction` (a
+/// `clip_direction` name); an unknown name keeps it whole.
+pub(crate) fn clip_visible(rect: Rect, ratio: f32, direction: &str) -> Rect {
+    let ratio = f64::from(ratio).clamp(0.0, 1.0);
+    let (direction, cut) = match direction {
+        "left" => (ClipDirection::Left, [ratio, 0.0]),
+        "right" => (ClipDirection::Right, [ratio, 0.0]),
+        "up" => (ClipDirection::Up, [0.0, ratio]),
+        "down" => (ClipDirection::Down, [0.0, ratio]),
+        "center" => (ClipDirection::Center, [ratio, ratio]),
+        _ => return rect,
+    };
+    clipped_rect(direction, rect, cut)
+}
+
 /// Crop a quad to `visible`, scaling its UVs with its dest.
 pub(crate) fn crop(dest: Rect, uv: UvRect, visible: Rect) -> Option<(Rect, UvRect)> {
     let kept = dest.intersect(visible);

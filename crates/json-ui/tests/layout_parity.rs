@@ -644,7 +644,7 @@ fn scrolled(
         }
     }
     walk(&laid, &mut nodes);
-    (report.scrolls["/root/view"], nodes)
+    (report.scrolls["/root/view"].clone(), nodes)
 }
 
 fn node<'a>(nodes: &'a [(String, [f64; 4], bool)], name: &str) -> &'a (String, [f64; 4], bool) {
@@ -698,7 +698,7 @@ fn v11_track_click_targets_the_clicked_fraction() {
         false,
     );
     let (metrics, _) = scrolled(&root, &at_offset(0.0));
-    assert_eq!(metrics.track_target([94.0, 75.0]), 700.0);
+    assert_eq!(metrics.offset_for_track([94.0, 75.0]), 700.0);
 }
 
 // V06/V17: content that fits hides the bar panel and the `fill` viewport takes its space.
@@ -711,7 +711,7 @@ fn v06_v17_fitting_content_hides_the_bar_panel() {
     );
     let (metrics, nodes) = scrolled(&root, &at_offset(0.0));
     assert!(!node(&nodes, "bar").2);
-    assert!(!metrics.bar_visible);
+    assert_eq!(metrics.bar_visible, Some(false));
     assert_eq!(node(&nodes, "content").1[2], 100.0);
     let always = scroll_view(
         json!({ "scrollbar_always_visible": true }),
@@ -723,14 +723,19 @@ fn v06_v17_fitting_content_hides_the_bar_panel() {
     assert_eq!(node(&nodes, "content").1[2], 92.0);
 }
 
-// V08: horizontal content scrolls along x.
+// V08: a horizontally draggable box scrolls the content along x (`_updateScroll`
+// reads the box's `draggable`).
 #[test]
 fn v08_horizontal_scrolling() {
-    let root = scroll_view(
+    let mut root = scroll_view(
         json!({}),
-        json!({ "type": "panel", "size": [200, 20], "draggable": "horizontal" }),
+        json!({ "type": "panel", "size": [200, 20] }),
         false,
     );
+    let bar_box = &mut root.children[0].children[0].children[1].children[0].children[0];
+    bar_box
+        .properties
+        .insert("draggable".into(), json!("horizontal"));
     let (metrics, nodes) = scrolled(&root, &at_offset(60.0));
     assert!(metrics.horizontal);
     assert_eq!(metrics.max_offset(), 108.0);
@@ -746,9 +751,17 @@ fn v18_jump_to_bottom_when_the_maximum_changes() {
         false,
     );
     let mut state = at_offset(20.0);
-    state.scroll_max.insert("/root/view".to_owned(), 100.0);
+    let extent = |max| json_ui::ScrollRetained {
+        extent: Some(max),
+        ..Default::default()
+    };
+    state
+        .scroll_state
+        .insert("/root/view".to_owned(), extent(100.0));
     assert_eq!(scrolled(&root, &state).0.offset, 200.0);
-    state.scroll_max.insert("/root/view".to_owned(), 200.0);
+    state
+        .scroll_state
+        .insert("/root/view".to_owned(), extent(200.0));
     assert_eq!(scrolled(&root, &state).0.offset, 20.0);
 }
 
@@ -772,7 +785,7 @@ fn v20_scroll_feedback() {
         false,
     );
     let (middle, _) = scrolled(&root, &at_offset(100.0));
-    assert!(!middle.scrolled_to_end && !middle.hit_bottom && middle.bar_visible);
+    assert!(!middle.scrolled_to_end && !middle.hit_bottom && middle.bar_visible == Some(true));
     let (end, _) = scrolled(&root, &at_offset(200.0));
     assert!(end.scrolled_to_end && end.hit_bottom);
 }
@@ -786,8 +799,8 @@ fn v09_wheel_steps_scale_by_speed() {
         false,
     );
     let (metrics, _) = scrolled(&root, &at_offset(100.0));
-    assert!((metrics.wheel_target(-1.0) - (100.0 + 15.0 * 120.0 / 128.0)).abs() < 1e-9);
-    assert!((metrics.wheel_target(1.0) - (100.0 - 15.0 * 120.0 / 127.0)).abs() < 1e-9);
+    assert!((metrics.offset_for_wheel(-1.0) - (100.0 + 15.0 * 120.0 / 128.0)).abs() < 1e-9);
+    assert!((metrics.offset_for_wheel(1.0) - (100.0 - 15.0 * 120.0 / 127.0)).abs() < 1e-9);
 }
 
 fn laid_node<'a>(laid: &'a LaidOut<'a>, name: &str) -> &'a LaidOut<'a> {
@@ -879,7 +892,7 @@ fn v12_configured_button_names_route_presses() {
         false,
     );
     let (metrics, _) = scrolled(&root, &at_offset(0.0));
-    assert!(!metrics.track_clicks, "the track maps no press");
+    assert_eq!(metrics.track_button, None, "no track button configured");
     let mut body = root.clone();
     let view = &mut body.children[0];
     view.properties
@@ -891,29 +904,7 @@ fn v12_configured_button_names_route_presses() {
                  "mapping_type": "pressed" }]),
     );
     let (metrics, _) = scrolled(&body, &at_offset(0.0));
-    assert!(metrics.track_clicks);
-}
-
-// V13: a released fling decays and settles back inside the range.
-#[test]
-fn v13_touch_dynamics_fling_and_settle() {
-    let mut dynamics = json_ui::ScrollDynamics::default();
-    dynamics.press(100.0);
-    for _ in 0..10 {
-        dynamics.drag(-20.0);
-        dynamics.tick(1.0 / 60.0, 500.0, 100.0);
-    }
-    assert!(dynamics.position > 100.0);
-    assert!(!dynamics.release(), "a long drag is not a tap");
-    for _ in 0..600 {
-        dynamics.tick(1.0 / 60.0, 500.0, 100.0);
-    }
-    assert!(!dynamics.active());
-    assert!(
-        (-0.01..=500.01).contains(&dynamics.position),
-        "{}",
-        dynamics.position
-    );
+    assert_eq!(metrics.track_button.as_deref(), Some("button.skip"));
 }
 
 // V15: a view that always handles scrolling takes the wheel outside its viewport.
@@ -926,41 +917,7 @@ fn v15_always_handle_scrolling_routes_the_wheel() {
     );
     let (laid, report) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &Default::default());
     let regions = json_ui::hit_regions(&laid);
-    assert!(json_ui::wheel_target(&regions, &report, [90.0, 90.0]).is_some());
-}
-
-// V16/V14: gestures drag the content only when enabled, fitting content allowed by default.
-#[test]
-fn v14_v16_gesture_drags_follow_their_flags() {
-    let mut metrics = json_ui::ScrollMetrics {
-        content: 50.0,
-        viewport: 100.0,
-        touch_drags: true,
-        scroll_when_fits: true,
-        ..Default::default()
-    };
-    assert!(!metrics.drags_content(), "gestures off");
-    metrics.gesture_control = true;
-    assert!(metrics.drags_content());
-    metrics.scroll_when_fits = false;
-    assert!(!metrics.drags_content());
-}
-
-// G19: a size animation plays against the layout clock and reports it is running.
-#[test]
-fn g19_size_animation_plays_against_the_clock() {
-    let slide = json!({ "steps": [{ "moves": true, "duration": 1.0, "from": [0, 0],
-                                     "to": [40, 20], "easing": "linear" }], "looping": false });
-    let root = screen(json!([{ "p": { "type": "panel", "size": [40, 20], "anim_size": slide } }]));
-    let state = json_ui::ViewState {
-        now: Some(0.5),
-        ..Default::default()
-    };
-    let (laid, report) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &state);
-    let rect = laid_node(&laid, "p").rect;
-    assert_eq!([rect.w, rect.h], [20.0, 10.0]);
-    assert!(report.animating);
-    assert_eq!(size(&root, "p"), [40.0, 20.0]);
+    assert!(json_ui::scroll_target(&regions, &report, [90.0, 90.0]).is_some());
 }
 
 // A02: an anchored offset measures the fraction in from the anchored edge.

@@ -722,7 +722,7 @@ fn scroll_state_publishes_end_and_bar_visibility() {
         thumb: Some([0.0, 0.0, 4.0, 10.0]),
         scrolled_to_end: offset >= 200.0,
         hit_bottom: true,
-        bar_visible: true,
+        bar_visible: Some(true),
         ..ScrollMetrics::default()
     };
     let report = |offset| LayoutReport {

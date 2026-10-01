@@ -49,15 +49,15 @@ pub(crate) fn ui_click() {
     });
 }
 
-/// JSON-UI control press sounds waiting for the audio frame: name, volume, pitch.
+/// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
 static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
     std::sync::Mutex::new(Vec::new());
 /// Bounds one frame's queued control sounds.
 const MAX_PENDING_UI_SOUNDS: usize = 16;
 
-/// Plays a pressed control's sound, holding back a repeat inside its
+/// Plays a pressed launcher control's sound, holding back a repeat inside its
 /// `min_seconds_between_plays` (`SoundComponent`).
-pub(crate) fn ui_sound(sound: &json_ui::ControlSound) {
+pub(crate) fn ui_control_sound(sound: &json_ui::ControlSound) {
     static LAST_PLAYED: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
         std::sync::Mutex::new(Vec::new());
     if sound.min_seconds > 0.0 {
@@ -76,11 +76,16 @@ pub(crate) fn ui_sound(sound: &json_ui::ControlSound) {
             None => {}
         }
     }
+    ui_sound(&sound.name, sound.volume, sound.pitch);
+}
+
+/// Requests an interface sound a UI sound component names, at its volume and pitch.
+pub(crate) fn ui_sound(name: &str, volume: f32, pitch: f32) {
     let mut pending = PENDING_UI_SOUNDS
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     if pending.len() < MAX_PENDING_UI_SOUNDS {
-        pending.push((sound.name.clone(), sound.volume, sound.pitch));
+        pending.push((name.to_owned(), volume, pitch));
     }
 }
 

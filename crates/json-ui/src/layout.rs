@@ -14,7 +14,7 @@
 
 use serde_json::Value;
 
-use crate::anim::{Fade, Inherited, Motions};
+use crate::anim::{Inherited, NodeAnim};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
@@ -31,7 +31,7 @@ pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
 pub use measure::MeasureCache;
 
 pub(crate) use place::draggable_axes;
-use place::{motion, place_by_anchor};
+use place::{control_anims, place_by_anchor};
 use scroll::{Adjusted, ScrollFrame};
 
 /// A virtual-pixel rectangle, top-left origin.
@@ -96,6 +96,11 @@ pub trait TextMeasure {
 /// atlas is bound later; only the metadata is needed to size and slice a sprite.
 pub trait TextureSource {
     fn texture(&self, path: &str) -> Option<TextureMeta>;
+
+    /// An aseprite sheet's frames, for `aseprite_flip_book`.
+    fn aseprite_frames(&self, _path: &str) -> Option<Vec<crate::sidecar::AsepriteFrame>> {
+        None
+    }
 }
 
 /// The measurement backends layout and emit share.
@@ -116,10 +121,8 @@ pub struct LaidOut<'a> {
     /// Absolute draw layer (the parent's plus this control's own).
     pub layer: i32,
     pub alpha: f32,
-    /// Animations scaling `alpha` at paint time, own and propagated.
-    pub fades: Vec<Fade>,
-    /// Offset animations displacing this control and its clip at paint time.
-    pub motions: Motions,
+    /// Animations reaching this control's draws, evaluated at paint time.
+    pub anim: Option<std::sync::Arc<NodeAnim>>,
     pub visible: bool,
     /// False when this control or an ancestor is disabled (locked styling, no input).
     pub enabled: bool,
@@ -177,7 +180,6 @@ fn lay_out<'a>(
     if !cull {
         measure::reset();
     }
-    measure::start_clock(state.now);
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = size::resolve_size(root, [Some(screen.w), Some(screen.h)], [0.0; 2], env);
     let rect = place_by_anchor(root, screen, own, [0.0; 2], env);
@@ -189,6 +191,7 @@ fn lay_out<'a>(
         scrolls: Vec::new(),
         sliders: Vec::new(),
         ancestors: Vec::new(),
+        overrides: Vec::new(),
         disabled: 0,
         hidden_names: Vec::new(),
         screen,
@@ -203,7 +206,6 @@ fn lay_out<'a>(
         &Inherited::default(),
         &mut ctx,
     );
-    ctx.report.animating = measure::animating();
     (laid, ctx.report)
 }
 
@@ -214,10 +216,12 @@ struct PlaceCtx<'e, 'x> {
     cull: bool,
     report: LayoutReport,
     scrolls: Vec<ScrollFrame>,
-    /// Enclosing sliders: their fraction plus progress child names.
-    sliders: Vec<(f64, [Option<String>; 3])>,
+    /// Enclosing sliders: fraction, box and progress names, rect, and axis.
+    sliders: Vec<widgets::SliderFrame>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
     ancestors: Vec<(String, Rect, Rect)>,
+    /// State controls enclosing stateful controls show or hide: target, shown, state mask.
+    overrides: Vec<(*const ResolvedControl, bool, u8)>,
     /// Enclosing disabled controls; their descendants are locked.
     disabled: usize,
     /// Descendant names an enclosing edit box hides (its placeholder).
@@ -227,7 +231,7 @@ struct PlaceCtx<'e, 'x> {
 }
 
 /// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
-fn child_key(parent: &str, control: &ResolvedControl) -> String {
+pub(crate) fn child_key(parent: &str, control: &ResolvedControl) -> String {
     let mut key = String::with_capacity(parent.len() + control.name.len() + 6);
     key.push_str(parent);
     key.push('/');
@@ -254,7 +258,14 @@ fn place_subtree<'a>(
     inherited: &Inherited,
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
-    let (own_alpha, fades, mut inherit) = inherited.apply(control, alpha(control));
+    // A state control a stateful ancestor shows or hides overrides its own `visible`.
+    let forced = ctx
+        .overrides
+        .iter()
+        .rev()
+        .find(|(target, _, _)| std::ptr::eq(*target, control))
+        .map(|(_, shown, mask)| (*shown, *mask));
+    let own_visible = forced.map_or(visible(control), |(shown, _)| shown);
     let clips = clip_children(control);
     let child_clip = if clips {
         inset_clip(rect, clip_offset(control), parent_clip)
@@ -277,25 +288,11 @@ fn place_subtree<'a>(
         .ancestors
         .last()
         .map_or(parent_clip, |(_, parent, _)| *parent);
-    let mut motions = inherited.motions.clone();
-    // A stack item or grid cell has no offset term, so its offset animation is inert.
-    if !packed {
-        motions.own.extend(motion(
-            control,
-            parent_rect,
-            [rect.w, rect.h],
-            &inherit,
-            ctx.env,
-        ));
-    }
-    inherit.motions = Motions {
-        clip: if clips {
-            motions.own.clone()
-        } else {
-            motions.clip.clone()
-        },
-        own: motions.own.clone(),
-    };
+    let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
+    let (own_alpha, anim, inherit) =
+        inherited.apply(control, alpha(control), own_anims, clips, |node| {
+            place::sprite_rest(control, node)
+        });
     let absolute_layer = parent_layer.saturating_add(layer(control));
     let mut scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
     // A bar panel hidden or shown again frees or takes back its space: solve again.
@@ -309,12 +306,24 @@ fn place_subtree<'a>(
     if let Some(frame) = scroll {
         ctx.scrolls.push(frame);
     }
-    let slider = widgets::slider_fraction(control).map(|f| (f, widgets::slider_names(control)));
+    let slider = widgets::SliderFrame::open(control, rect);
     let opened_slider = slider.is_some();
     if let Some(entry) = slider {
         ctx.sliders.push(entry);
     }
-    let hidden = widgets::hidden_state_children(control, &key, ctx.state, !enabled);
+    let overrides_len = ctx.overrides.len();
+    let bits = widgets::state_index(ctx.state, &key);
+    ctx.overrides.extend(
+        widgets::state_targets(control, bits, !enabled)
+            .into_iter()
+            .map(|target| {
+                (
+                    target.control as *const ResolvedControl,
+                    target.shown,
+                    target.mask,
+                )
+            }),
+    );
     let placeholder = widgets::hidden_placeholder(control);
     if let Some(name) = placeholder {
         ctx.hidden_names.push(name.to_owned());
@@ -322,38 +331,49 @@ fn place_subtree<'a>(
     let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
-    let placed = if ctx.cull && !visible(control) {
+    let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
         measure::placed_children(control, rect, ctx.env)
+    };
+    let placed_rects: Vec<(&str, Rect)> = match &dropdown {
+        Some(_) => placed
+            .iter()
+            .map(|(child, rect)| (child.name.as_str(), *rect))
+            .collect(),
+        None => Vec::new(),
     };
     let priority = stack::hidden_by_priority(control, rect, ctx.env);
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
     for (child, mut child_rect) in placed {
-        let child_shown = !hidden.contains(&child.name)
-            && !ctx.hidden_names.contains(&child.name)
+        let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
                 .get(measure::child_index(control, child))
                 .copied()
                 .unwrap_or(false);
         let mut clip_for_child = child_clip;
-        // A dropdown's content lays out inside its named area, not its parent.
-        if let Some((area, content)) = &dropdown
+        // A dropdown's content drops from the dropdown, kept inside its named area.
+        if let Some((drop, area, content)) = &dropdown
             && *content == child.name
             && let Some((_, area_rect, area_clip)) =
                 ctx.ancestors.iter().rev().find(|(name, _, _)| name == area)
+            && let Some((_, drop_rect)) =
+                placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
-            let area = [Some(area_rect.w), Some(area_rect.h)];
-            let size = size::resolve_size(child, area, [0.0; 2], ctx.env);
-            child_rect = place_by_anchor(child, *area_rect, size, [0.0; 2], ctx.env);
+            child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
             clip_for_child = *area_clip;
         }
+        let mut child_shown = child_shown;
+        let mut box_fade = None;
         for frame in ctx.scrolls.iter().rev() {
-            if let Adjusted::Moved(moved) = frame.adjust(child, child_rect) {
-                child_rect = moved;
-                break;
+            match frame.adjust(child, child_rect) {
+                Adjusted::Kept => continue,
+                Adjusted::Moved(moved) => child_rect = moved,
+                Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
+                Adjusted::Hidden => child_shown = false,
             }
+            break;
         }
         let next_key = child_key(&key, child);
         // Stack items and grid cells have no offset delta term.
@@ -368,11 +388,11 @@ fn place_subtree<'a>(
                 child_rect = moved;
             }
         }
-        if opened_slider
-            && let Some((fraction, names)) = ctx.sliders.last()
-            && names[0].as_deref() == Some(child.name.as_str())
+        // The named slider box travels the slider however deep it sits.
+        if let Some(frame) = ctx.sliders.last()
+            && frame.names[0].as_deref() == Some(child.name.as_str())
         {
-            child_rect = widgets::slider_box_rect(rect, child_rect, *fraction);
+            child_rect = frame.place_box(child_rect);
         }
         // Scroll content wholly outside its viewport neither draws nor takes input.
         if ctx.cull
@@ -384,7 +404,7 @@ fn place_subtree<'a>(
         {
             continue;
         }
-        children.push(place_subtree(
+        let mut laid = place_subtree(
             child,
             next_key,
             child_rect,
@@ -392,9 +412,17 @@ fn place_subtree<'a>(
             (absolute_layer, child_shown, packs, allows),
             &inherit,
             ctx,
-        ));
+        );
+        // A fading touch box dims its children, as vanilla writes their alpha.
+        if let Some(fade) = box_fade {
+            for child in &mut laid.children {
+                child.alpha *= fade;
+            }
+        }
+        children.push(laid);
     }
     ctx.ancestors.pop();
+    ctx.overrides.truncate(overrides_len);
     if placeholder.is_some() {
         ctx.hidden_names.pop();
     }
@@ -428,9 +456,8 @@ fn place_subtree<'a>(
         clip: own_clip,
         layer: absolute_layer,
         alpha: own_alpha,
-        fades,
-        motions,
-        visible: shown && visible(control),
+        anim,
+        visible: shown && own_visible,
         enabled,
         children,
     }
@@ -480,8 +507,10 @@ fn disjoint(rect: Rect, clip: Rect) -> bool {
 }
 
 /// A bound `clip_ratio`, or a slider progress image revealing its fraction.
-fn progress_clip(control: &ResolvedControl, sliders: &[(f64, [Option<String>; 3])]) -> Option<f32> {
-    if let Some((fraction, names)) = sliders.last()
+fn progress_clip(control: &ResolvedControl, sliders: &[widgets::SliderFrame]) -> Option<f32> {
+    if let Some(widgets::SliderFrame {
+        fraction, names, ..
+    }) = sliders.last()
         && (names[1].as_deref() == Some(control.name.as_str())
             || names[2].as_deref() == Some(control.name.as_str()))
     {
@@ -551,7 +580,7 @@ fn alpha(control: &ResolvedControl) -> f32 {
 
 /// `visible` honours a literal bool or `"true"`/`"false"`; an undecidable binding
 /// stays visible, matching the lenient-remote-data rule.
-pub(crate) fn own_visible(control: &ResolvedControl) -> bool {
+fn own_visible(control: &ResolvedControl) -> bool {
     match control.properties.get("visible") {
         Some(Value::Bool(flag)) => *flag,
         Some(Value::String(text)) => text != "false",

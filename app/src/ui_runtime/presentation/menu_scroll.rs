@@ -1,5 +1,5 @@
 //! Menu scroll views: offsets kept across frames, the areas the last frame
-//! drew (window-logical), and wheel, scrollbar-drag and track-page input.
+//! drew (window-logical), and wheel, scrollbar-drag and track-press input.
 
 use std::collections::HashMap;
 
@@ -21,15 +21,17 @@ pub(crate) struct ScrollArea {
     /// A JSON-UI view's metrics and the window point of its virtual origin: its
     /// input follows the client's scroll rules.
     pub(crate) engine: Option<(json_ui::ScrollMetrics, [f32; 2])>,
+    /// Whether the box can be grabbed (its `draggable` is not `not_draggable`).
+    pub(crate) draggable: bool,
 }
 
 impl ScrollArea {
     /// The engine metrics at the current offset, and `point` in virtual pixels.
     fn engine_at(&self, point: UiPoint) -> Option<(json_ui::ScrollMetrics, [f64; 2])> {
-        let (metrics, origin) = self.engine?;
+        let (metrics, origin) = self.engine.as_ref()?;
         let metrics = json_ui::ScrollMetrics {
             offset: f64::from(self.offset),
-            ..metrics
+            ..metrics.clone()
         };
         let virtual_at = |value: f32, axis: usize| f64::from((value - origin[axis]) / self.scale);
         Some((
@@ -99,7 +101,7 @@ impl MenuScrolls {
             return false;
         };
         let offset = match area.engine_at(point) {
-            Some((metrics, _)) if !pixels => metrics.wheel_target(f64::from(notches)) as f32,
+            Some((metrics, _)) if !pixels => metrics.offset_for_wheel(f64::from(notches)) as f32,
             _ if pixels => area.offset - notches / area.scale,
             _ => area.offset - notches * area.speed,
         };
@@ -108,8 +110,8 @@ impl MenuScrolls {
         true
     }
 
-    /// A press on a scrollbar: grabs its thumb, or pages toward the press on
-    /// its track. `true` when the press belonged to a scrollbar.
+    /// A press on a scrollbar: grabs a draggable thumb, or centres the view on
+    /// the track fraction pressed. `true` when the press belonged to a scrollbar.
     pub(crate) fn press(&mut self, point: UiPoint) -> bool {
         let Some(area) = self
             .areas
@@ -123,25 +125,35 @@ impl MenuScrolls {
         if let Some((metrics, at)) = area.engine_at(point) {
             let along = at[usize::from(!metrics.horizontal)] as f32;
             match area.thumb {
-                Some(thumb) if thumb.contains(point) => self.drag = Some((key, along)),
-                // A track press jumps only when it routes to the view's track button.
-                _ if metrics.track_clicks => {
-                    self.set(&key, metrics.track_target(at) as f32);
+                Some(thumb) if thumb.contains(point) => {
+                    if area.draggable {
+                        self.drag = Some((key, along));
+                    }
+                }
+                // A track press jumps only when the view names its track button.
+                _ if metrics.track_button.is_some() => {
+                    self.set(&key, metrics.offset_for_track(at) as f32);
                 }
                 _ => {}
             }
             return true;
         }
-        match area.thumb {
-            Some(thumb) if thumb.contains(point) => {
-                self.drag = Some((key, point.y() - thumb.min().y()));
+        match (area.thumb, area.track) {
+            (Some(thumb), _) if thumb.contains(point) => {
+                if area.draggable {
+                    self.drag = Some((key, point.y() - thumb.min().y()));
+                }
             }
-            thumb => {
-                let page = area.viewport.height() / area.scale;
-                let up = thumb.is_some_and(|thumb| point.y() < thumb.min().y());
-                let offset = area.offset + if up { -page } else { page };
-                self.set(&key, offset);
+            (_, Some(track)) => {
+                let view = area.viewport.height() / area.scale;
+                let fraction = if track.height() > 0.5 * area.scale {
+                    (point.y() - track.min().y()) / track.height()
+                } else {
+                    1.0
+                };
+                self.set(&key, view * -0.5 + fraction * (area.max + view));
             }
+            _ => {}
         }
         true
     }
@@ -208,6 +220,7 @@ mod tests {
             track: Some(rect(95.0, 0.0, 100.0, 100.0)),
             thumb: Some(rect(95.0, 0.0, 100.0, 25.0)),
             engine: None,
+            draggable: true,
         }
     }
 
@@ -215,8 +228,8 @@ mod tests {
         UiPoint::new(x, y).unwrap()
     }
 
-    // Wheel, track page and thumb drag each move the view under the pointer,
-    // clamped to its content.
+    // Wheel, track press and thumb drag each move the view under the pointer,
+    // clamped to its content; a track press centres on its fraction.
     #[test]
     fn wheel_track_and_thumb_scroll_the_view() {
         let mut scrolls = MenuScrolls::default();
@@ -225,7 +238,7 @@ mod tests {
         assert_eq!(scrolls.offsets()["list"], 20.0);
         assert!(!scrolls.wheel(point(150.0, 50.0), -2.0, false));
         assert!(scrolls.press(point(97.0, 80.0)));
-        assert_eq!(scrolls.offsets()["list"], 70.0);
+        assert_eq!(scrolls.offsets()["list"], 135.0);
         scrolls.set_areas(vec![area()]);
         assert!(scrolls.press(point(97.0, 10.0)));
         scrolls.drag(Some(point(97.0, 85.0)), true);

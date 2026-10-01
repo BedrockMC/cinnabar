@@ -118,15 +118,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
-    /// Animations scaling `alpha`, evaluated by the caller at paint time.
-    #[serde(default)]
-    pub fades: Vec<crate::anim::Fade>,
-    /// A sprite's `uv` flip-book, stepped by the caller at paint time.
-    #[serde(default)]
-    pub flip_book: Option<crate::anim::FlipBook>,
-    /// Offset animations shifting `dest` and `clip`, evaluated at paint time.
-    #[serde(default)]
-    pub motions: crate::anim::Motions,
+    /// Animations reaching this draw; see [`DrawNode::animate`].
+    #[serde(skip)]
+    pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
     pub draw: Draw,
     /// State children this node sits under, from [`emit_gated`]; see [`DrawNode::shown`].
     #[serde(default)]
@@ -151,26 +145,6 @@ impl DrawNode {
     }
 }
 
-impl DrawNode {
-    /// `dest` and `clip` displaced by this node's offset animations at `now`.
-    pub fn animated_rects(
-        &self,
-        now: f64,
-        clocks: Option<&BTreeMap<String, f64>>,
-    ) -> (RectOut, RectOut) {
-        if self.motions.own.is_empty() && self.motions.clip.is_empty() {
-            return (self.dest, self.clip);
-        }
-        let (own, clip) = self.motions.at(now, clocks);
-        let shift = |rect: RectOut, by: [f64; 2]| RectOut {
-            x: rect.x + by[0],
-            y: rect.y + by[1],
-            ..rect
-        };
-        (shift(self.dest, own), shift(self.clip, clip))
-    }
-}
-
 /// Flatten a laid-out tree to draw commands, ordered by `layer` then document order.
 /// Invisible controls and their descendants are dropped.
 pub fn emit(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
@@ -188,7 +162,14 @@ pub fn emit_gated(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
     let mut nodes = Vec::new();
     let mut order = 0usize;
     let mut gates = Vec::new();
-    collect_gated(root, env, &mut nodes, &mut order, &mut gates, false);
+    collect_gated(
+        root,
+        env,
+        &mut nodes,
+        &mut order,
+        &mut gates,
+        &mut Vec::new(),
+    );
     nodes.sort_by_key(|(layer, index, _)| (*layer, *index));
     nodes.into_iter().map(|(_, _, node)| node).collect()
 }
@@ -199,31 +180,45 @@ fn collect_gated(
     out: &mut Vec<(i32, usize, DrawNode)>,
     order: &mut usize,
     gates: &mut Vec<StateGate>,
-    state_child: bool,
+    pending: &mut Vec<(*const ResolvedControl, StateGate)>,
 ) {
-    // A state child hidden only by the neutral state still emits, gated.
-    let own = state_child && crate::layout::own_visible(node.control);
-    if !(node.visible || own) {
+    let gate = pending
+        .iter()
+        .rev()
+        .find(|(target, _)| std::ptr::eq(*target, node.control))
+        .map(|(_, gate)| gate.clone());
+    // A state control the neutral state hides still emits, gated, if any state shows it.
+    let shows_somewhere = gate.as_ref().is_some_and(|gate| gate.mask != 0);
+    if !(node.visible || shows_somewhere) {
         return;
     }
+    let gated = gate.is_some();
+    gates.extend(gate);
     let first = out.len();
     emit_own(node, env, out, order);
     for (_, _, drawn) in &mut out[first..] {
         drawn.gates.clone_from(gates);
     }
-    let masks = crate::widgets::state_child_masks(node.control, !node.enabled);
+    let before = pending.len();
+    pending.extend(
+        crate::widgets::state_targets(node.control, 0, !node.enabled)
+            .into_iter()
+            .map(|target| {
+                (
+                    target.control as *const ResolvedControl,
+                    StateGate {
+                        key: node.key.clone(),
+                        mask: target.mask,
+                    },
+                )
+            }),
+    );
     for child in &node.children {
-        match masks.iter().find(|(name, _)| *name == child.control.name) {
-            Some((_, mask)) => {
-                gates.push(StateGate {
-                    key: node.key.clone(),
-                    mask: *mask,
-                });
-                collect_gated(child, env, out, order, gates, true);
-                gates.pop();
-            }
-            None => collect_gated(child, env, out, order, gates, false),
-        }
+        collect_gated(child, env, out, order, gates, pending);
+    }
+    pending.truncate(before);
+    if gated {
+        gates.pop();
     }
 }
 
@@ -271,12 +266,7 @@ fn emit_own(
                 clip: node.clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
-                fades: node.fades.clone(),
-                motions: node.motions.clone(),
-                flip_book: match &draw {
-                    Draw::Sprite { texture, .. } => flip_book(node.control, texture, env),
-                    _ => None,
-                },
+                anim: node.anim.clone(),
                 draw,
                 gates: Vec::new(),
             },
@@ -289,11 +279,17 @@ fn emit_own(
 /// draws its texture and only a `label` its text, whatever else it declares.
 fn draws_for(node: &LaidOut, env: &LayoutEnv) -> Vec<(Rect, Draw)> {
     let (control, rect) = (node.control, node.rect);
+    // A clip animation crops at paint time instead.
+    let clip_ratio = node.clip_ratio.filter(|_| {
+        node.anim
+            .as_ref()
+            .is_none_or(|anim| anim.clip_direction.is_none())
+    });
     match control.control_type.as_deref() {
         Some("image") => match control.properties.get("texture").and_then(Value::as_str) {
             // An empty texture (an unset binding) draws nothing, as in vanilla.
             Some("") => Vec::new(),
-            Some(path) => sprite_draws(control, rect, path, node.clip_ratio, env),
+            Some(path) => sprite_draws(control, rect, path, clip_ratio, env),
             None => solid_or_empty(control, rect),
         },
         // An `image_cycler` shows its first `images` entry until it cycles.
@@ -303,7 +299,7 @@ fn draws_for(node: &LaidOut, env: &LayoutEnv) -> Vec<(Rect, Draw)> {
             .and_then(Value::as_array)
             .and_then(|images| images.first()?.get("texture_path")?.as_str())
             .filter(|path| !path.is_empty())
-            .map(|path| sprite_draws(control, rect, path, node.clip_ratio, env))
+            .map(|path| sprite_draws(control, rect, path, clip_ratio, env))
             .unwrap_or_default(),
         _ if crate::label::is_label(control) => vec![(rect, text_draw(control, node.enabled))],
         Some("custom") => custom_draw(control)
@@ -357,25 +353,14 @@ fn image_color(control: &ResolvedControl) -> [u8; 4] {
     }
 }
 
-/// The control's flip-book with its frame step normalised to `texture`'s width.
-fn flip_book(
-    control: &ResolvedControl,
-    texture: &str,
-    env: &LayoutEnv,
-) -> Option<crate::anim::FlipBook> {
-    let value = control.properties.get(crate::anim::FLIP_BOOK_KEY)?;
-    let mut book: crate::anim::FlipBook = serde_json::from_value(value.clone()).ok()?;
-    let width = env.textures.texture(texture)?.pixels[0];
-    if book.frame_count <= 1 || width <= 0.0 {
-        return None;
-    }
-    book.step_u = (book.frame_step / width) as f32;
-    Some(book)
-}
-
 fn text_draw(control: &ResolvedControl, enabled: bool) -> Draw {
+    let mut text = crate::label::text(control);
+    // A selected edit box's text target draws its blinking caret after the text.
+    if crate::widgets::bound_bool(control, crate::component::CARET_PROPERTY) == Some(true) {
+        text.push('_');
+    }
     Draw::Text {
-        text: crate::label::text(control),
+        text,
         color: crate::label::color(control, enabled),
         shadow: matches!(control.properties.get("shadow"), Some(Value::Bool(true))),
         align: alignment(control),

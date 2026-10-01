@@ -69,6 +69,7 @@ fn unbound(src: Src) -> Node {
     Node {
         src,
         key: 0,
+        layout_key: String::new(),
         own: BTreeMap::new(),
         native: Default::default(),
         memory: Default::default(),

@@ -443,6 +443,7 @@ impl<'a> Canvas<'a> {
             track,
             thumb,
             engine: None,
+            draggable: true,
         });
         Ok(())
     }

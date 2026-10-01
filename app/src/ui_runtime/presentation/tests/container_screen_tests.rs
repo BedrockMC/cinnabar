@@ -591,7 +591,7 @@ fn scrolling_the_creative_catalog_stays_interactive() {
         .scrolls
         .iter()
         .max_by(|a, b| a.1.content.total_cmp(&b.1.content))
-        .map(|(key, metrics)| (key.clone(), *metrics))
+        .map(|(key, metrics)| (key.clone(), metrics.clone()))
         .unwrap();
     assert!(metrics.max_offset() > 700.0, "{metrics:?}");
     let mut frames = Vec::new();

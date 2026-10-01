@@ -158,25 +158,35 @@ fn scroll_view(content_height: f64) -> ResolvedControl {
         vec![content],
     );
     let bar = ctrl(
-        "bar",
+        "bar_and_track",
         "panel",
         json!({ "size": [5, 50], "anchor_from": "top_right", "anchor_to": "top_right" }),
-        vec![ctrl(
-            "box",
-            "scrollbar_box",
-            json!({ "size": [5, "100%"], "anchor_from": "top_left", "anchor_to": "top_left",
-                    "draggable": "vertical" }),
-            vec![],
-        )],
+        vec![
+            ctrl(
+                "track",
+                "scroll_track",
+                json!({ "size": [5, "100%"] }),
+                vec![],
+            ),
+            ctrl(
+                "box",
+                "scrollbar_box",
+                json!({
+                    "size": [5, "100%"], "anchor_from": "top_left", "anchor_to": "top_left",
+                    "draggable": "vertical", "contained": true
+                }),
+                vec![],
+            ),
+        ],
     );
     ctrl(
         "scroll",
         "scroll_view",
         json!({
             "size": [100, 50], "anchor_from": "top_left", "anchor_to": "top_left",
-            "scroll_view_port": "scrolling_view_port", "scroll_content": "scrolling_content",
-            "scrollbar_track": "bar", "scrollbar_box": "box",
-            "scroll_box_and_track_panel": "bar", "scroll_speed": 15
+            "scroll_content": "scrolling_content", "scroll_view_port": "scrolling_view_port",
+            "scrollbar_track": "track", "scrollbar_box": "box",
+            "scroll_box_and_track_panel": "bar_and_track", "scroll_speed": 15
         }),
         vec![viewport, bar],
     )
@@ -190,13 +200,13 @@ fn scroll_view_offsets_content_and_sizes_its_box() {
         ..ViewState::default()
     };
     let (laid, report) = layout_with(&root, [200.0, 100.0], &env(), &state);
-    let metrics = report.scrolls["/root/scroll"];
+    let metrics = &report.scrolls["/root/scroll"];
     assert_eq!(metrics.offset, 150.0, "clamped to content - viewport");
     assert_eq!(find(&laid, "scrolling_content").rect.y, -150.0);
     let thumb = metrics.thumb.expect("overflow shows the box");
     assert_eq!(
         thumb[3], 13.0,
-        "box height is the visible fraction of the track, rounded up"
+        "the visible fraction of the track, rounded up"
     );
     assert_eq!(thumb[1], 37.0, "fully scrolled puts the box at the bottom");
     assert_eq!(metrics.thumb_drag_target(-50.0), 0.0);
@@ -205,13 +215,13 @@ fn scroll_view_offsets_content_and_sizes_its_box() {
 
     let fits = screen(vec![scroll_view(20.0)]);
     let (laid, report) = layout_with(&fits, [200.0, 100.0], &env(), &ViewState::default());
-    assert!(!report.scrolls["/root/scroll"].bar_visible);
+    assert_eq!(report.scrolls["/root/scroll"].bar_visible, Some(false));
     assert!(
-        !find(&laid, "bar").visible,
-        "content that fits hides the bar panel"
+        !find(&laid, "bar_and_track").visible,
+        "content that fits hides the bar and track"
     );
     let regions = hit_regions(&laid);
-    assert!(scroll_target(&regions, [10.0, 10.0]).is_some());
+    assert!(scroll_target(&regions, &report, [10.0, 10.0]).is_some());
 }
 
 // A gated render lays out only the scroll content its viewport shows.

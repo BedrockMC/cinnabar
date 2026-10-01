@@ -1,22 +1,29 @@
-//! Input for a form drawn by the JSON-UI engine. Pointer, wheel, and keyboard
-//! events resolve against the last frame's hit regions; the template's mapping
-//! names (`button.form_button_click`, `button.submit_custom_form`,
-//! `button.menu_exit`, `popup_dialog.*`, toggle/slider/dropdown/edit-box names)
-//! decide what happens. Buttons fire on release over the pressed control.
+//! Input for a form drawn by the JSON-UI engine. Raw pointer and keyboard
+//! edges become vanilla input buttons (`button.menu_select`, `button.menu_ok`,
+//! …) that the engine's dispatcher routes through the template's button
+//! mappings to its components; this module is the form's screen controller,
+//! turning the resulting screen events into form values and answers.
 
 use bevy::input::{ButtonInput, keyboard::KeyCode, mouse::MouseScrollUnit};
-use json_ui::{HitKind, HitRegion, focus_order, hit_test, wheel_target};
+use json_ui::{
+    ButtonEvent, ButtonInput as EngineButton, Dispatch, HitKind, HitRegion, InputMode,
+    PointerInput, ScreenEvent, hit_test,
+};
 use protocol::{CustomFormElement, MenuElement, ServerFormModel};
 use ui::{ChatClipboard, UiPoint};
 
-use super::values::{EngineFrame, FormDrag, slider_value_at};
+use super::engine_focus;
+use super::engine_scroll;
+use super::values::{EngineFrame, slider_value_at};
 use super::{FormValue, LocalFormAction};
 use crate::ui_runtime::{PlatformClipboard, UiRuntime};
 
 /// Longest paste accepted into an edit box, before its own `max_length`.
 const MAX_PASTE_BYTES: usize = 4096;
-/// The custom input template's `max_length` when a region reports none.
-const DEFAULT_INPUT_LENGTH: usize = 100;
+/// Animation end events one input frame relays at most.
+const MAX_END_EVENTS: usize = 64;
+/// The input button a primary pointer press is.
+const SELECT: &str = "button.menu_select";
 
 /// The primary pointer button's edges this frame and whether it is down.
 #[derive(Clone, Copy, Debug, Default)]
@@ -34,74 +41,118 @@ pub(super) struct EngineInput<'a> {
     pub(super) wheel: Vec<(f32, MouseScrollUnit)>,
     /// Pressed keys this frame with their produced text.
     pub(super) typed: Vec<(KeyCode, Option<String>)>,
+    /// Seconds on the app clock.
+    pub(super) now: f64,
+    /// The form's animator: button events play and reset its animations.
+    pub(super) animator: Option<std::sync::MutexGuard<'a, json_ui::Animator>>,
 }
 
-pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineInput<'_>) {
+pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInput<'_>) {
     let Some(entry) = runtime.server_forms().active() else {
         return;
     };
     let identity = entry.identity;
     let model = entry.model.clone();
-    // `jump_to_bottom_on_update` compares each view's maximum with last frame's.
-    runtime
-        .server_forms_mut()
-        .engine_mut()
-        .view
-        .remember(&frame.report);
+    // Controls `destroy_at_end` removed take no input.
+    let survivors;
+    let frame = match input.animator.as_ref() {
+        Some(animator) if frame.hits.iter().any(|hit| animator.is_destroyed(&hit.key)) => {
+            survivors = EngineFrame {
+                hits: frame
+                    .hits
+                    .iter()
+                    .filter(|hit| !animator.is_destroyed(&hit.key))
+                    .cloned()
+                    .collect(),
+                ..frame.clone()
+            };
+            &survivors
+        }
+        _ => frame,
+    };
     let point = input.cursor.map(|cursor| frame.to_virtual(cursor));
-    let hovered = point.and_then(|point| hit_test(&frame.hits, point));
     let control = input.keys.pressed(KeyCode::ControlLeft)
         || input.keys.pressed(KeyCode::ControlRight)
         || input.keys.pressed(KeyCode::SuperLeft)
         || input.keys.pressed(KeyCode::SuperRight);
-
+    let mut events = Vec::new();
     {
         let engine = runtime.server_forms_mut().engine_mut();
-        engine.view.hovered = hovered
-            .filter(|region| region.kind.focusable() && region.enabled)
-            .map(|region| region.key.clone())
-            .or_else(|| engine.view.focused.clone());
+        let delta = (input.now - engine.clock).max(0.0);
+        engine.clock = input.now;
+        engine.dispatcher.tick(&frame.hits, &mut engine.view, delta);
+        let pointer = PointerInput {
+            point,
+            held: input.pointer.held,
+            mode: InputMode::Mouse,
+            now: input.now,
+        };
+        events.extend(
+            engine
+                .dispatcher
+                .pointer(&frame.hits, &mut engine.view, pointer)
+                .events,
+        );
+        // Keyboard focus shows as hover while the pointer rests on nothing.
+        if engine.view.hovered.is_none() {
+            engine.view.hovered = engine.view.focused.clone();
+        }
     }
-    if let Some(point) = point {
-        drag(runtime, frame, &model, point, input.pointer.held);
+    engine_scroll::step(runtime, frame);
+    if let Some(point) = point
+        && input.pointer.held
+    {
+        engine_scroll::drag(runtime, frame, point);
     }
-    let mut action = None;
+    // Each release answers only for the control its press went down on.
+    let mut release = None;
     if input.pointer.pressed
         && let Some(point) = point
     {
-        if let Some(sound) = hovered
-            .filter(|region| region.enabled)
-            .and_then(|region| region.sound.as_ref())
-        {
-            crate::audio::ui_sound(sound);
-        }
-        press(runtime, frame, &model, hovered, point);
+        let region = hit_test(&frame.hits, point);
+        engine_scroll::press(runtime, frame, region, point);
+        events.extend(button(runtime, frame, SELECT, true, Some(point), input.now).events);
     }
     if input.pointer.released {
-        let engine = runtime.server_forms_mut().engine_mut();
-        let pressed = engine.view.pressed.take();
-        engine.drag = None;
-        if let Some(region) = hovered
-            && pressed.as_deref() == Some(region.key.as_str())
-        {
-            action = activate(runtime, &model, region);
-        }
+        runtime.server_forms_mut().engine_mut().drag = None;
+        // A touch pan past the tap slop presses nothing.
+        let tapped = engine_scroll::release(runtime);
+        let pressed = runtime
+            .server_forms()
+            .engine()
+            .view
+            .pressed
+            .clone()
+            .filter(|_| tapped);
+        let up = button(runtime, frame, SELECT, false, point, input.now).events;
+        release = Some((events.len()..events.len() + up.len(), pressed));
+        events.extend(up);
     }
-    for (notches, unit) in &input.wheel {
-        if let Some(point) = point
-            && let Some(view) = wheel_target(&frame.hits, &frame.report, point)
-            && let Some(metrics) = frame.report.scrolls.get(&view.key)
-        {
-            let offset = match unit {
-                MouseScrollUnit::Line => metrics.wheel_target(f64::from(*notches)),
-                MouseScrollUnit::Pixel => (metrics.offset - f64::from(notches / frame.scale))
-                    .clamp(0.0, metrics.max_offset()),
-            };
-            set_scroll(runtime, &view.key, offset);
-        }
+    if let Some(point) = point
+        && !input.wheel.is_empty()
+    {
+        engine_scroll::wheel(runtime, frame, point, &input.wheel);
     }
     for (key, text) in input.typed {
-        if let Some(found) = keyboard(runtime, frame, &model, key, text.as_deref(), control) {
+        events.extend(keyboard(
+            runtime,
+            frame,
+            key,
+            text.as_deref(),
+            control,
+            input.now,
+        ));
+    }
+    if let Some(animator) = input.animator.as_mut() {
+        animate(animator, &mut events);
+    }
+    let mut action = None;
+    for (at, event) in events.iter().enumerate() {
+        let pressed = release
+            .as_ref()
+            .filter(|(range, _)| range.contains(&at))
+            .and_then(|(_, pressed)| pressed.as_deref());
+        if let Some(found) = controller(runtime, frame, &model, event, pressed) {
             action = Some(found);
         }
     }
@@ -110,166 +161,202 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
     }
 }
 
-/// Continue a slider or scrollbar drag while the button is held.
-fn drag(
+/// Fire each button event into the animator; its `end_event`s come back as
+/// button events the controller and other animations receive.
+fn animate(animator: &mut json_ui::Animator, events: &mut Vec<ScreenEvent>) {
+    // Ends that start animations ending at once must not feed back forever.
+    let cap = events.len() + MAX_END_EVENTS;
+    let mut at = 0;
+    while at < events.len() {
+        if let ScreenEvent::Button(button) = &events[at]
+            && button.down
+        {
+            animator.fire(&button.id);
+        }
+        for ended in animator.take_events() {
+            if let json_ui::AnimEvent::End(id) = ended
+                && events.len() < cap
+            {
+                events.push(ScreenEvent::Button(ButtonEvent {
+                    id,
+                    from: String::new(),
+                    key: String::new(),
+                    collection_index: None,
+                    collection: None,
+                    down: true,
+                    interacted: true,
+                    scope: json_ui::MappingScope::Controller,
+                }));
+            }
+        }
+        at += 1;
+    }
+}
+
+/// One input button edge through the dispatcher.
+fn button(
+    runtime: &mut UiRuntime,
+    frame: &EngineFrame,
+    id: &str,
+    down: bool,
+    point: Option<[f64; 2]>,
+    now: f64,
+) -> Dispatch {
+    let engine = runtime.server_forms_mut().engine_mut();
+    let input = EngineButton {
+        id,
+        down,
+        point,
+        mode: InputMode::Mouse,
+        now,
+    };
+    engine
+        .dispatcher
+        .button(&frame.hits, &mut engine.view, input)
+}
+
+/// A key as the input buttons vanilla's keyboard mapping raises, or typed text
+/// for the selected edit box.
+fn keyboard(
+    runtime: &mut UiRuntime,
+    frame: &EngineFrame,
+    key: KeyCode,
+    text: Option<&str>,
+    control: bool,
+    now: f64,
+) -> Vec<ScreenEvent> {
+    let editing = runtime
+        .server_forms()
+        .engine()
+        .view
+        .components
+        .selected()
+        .is_some_and(|key| edit_region(frame, key).is_some());
+    let typed = match key {
+        KeyCode::Backspace if editing => Some("\u{8}".to_owned()),
+        KeyCode::Enter | KeyCode::NumpadEnter if editing => Some("\r".to_owned()),
+        KeyCode::KeyV if control && editing => PlatformClipboard
+            .read_text_bounded(MAX_PASTE_BYTES)
+            .ok()
+            .flatten()
+            .map(|text| text.to_string()),
+        _ if editing && !control => text
+            .filter(|text| !text.chars().any(char::is_control))
+            .map(str::to_owned),
+        _ => None,
+    };
+    if let Some(typed) = typed {
+        let engine = runtime.server_forms_mut().engine_mut();
+        return engine
+            .dispatcher
+            .text(&frame.hits, &mut engine.view, &typed, None)
+            .events;
+    }
+    let id = match key {
+        KeyCode::Escape => "button.menu_cancel",
+        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => "button.menu_ok",
+        KeyCode::ArrowUp => "button.menu_up",
+        KeyCode::ArrowDown => "button.menu_down",
+        KeyCode::ArrowLeft => "button.menu_left",
+        KeyCode::ArrowRight => "button.menu_right",
+        KeyCode::Tab => {
+            engine_focus::tab(runtime, frame);
+            return Vec::new();
+        }
+        _ => return Vec::new(),
+    };
+    let down = button(runtime, frame, id, true, None, now);
+    let consumed = down.consumed;
+    let mut events = down.events;
+    events.extend(button(runtime, frame, id, false, None, now).events);
+    // An unconsumed direction moves focus.
+    if !consumed && let Some(direction) = engine_focus::direction_of(key) {
+        engine_focus::step(runtime, frame, direction);
+    }
+    events
+}
+
+/// The form's screen controller: what each screen event does to its values.
+fn controller(
     runtime: &mut UiRuntime,
     frame: &EngineFrame,
     model: &ServerFormModel,
-    point: [f64; 2],
-    held: bool,
-) {
-    if !held {
-        return;
-    }
-    match runtime.server_forms().engine().drag.clone() {
-        Some(FormDrag::Slider(index)) => {
-            if let Some(region) = element_region(frame, HitKind::Slider, index) {
-                set_slider(runtime, model, index, region.fraction_at(point[0]));
+    event: &ScreenEvent,
+    pressed: Option<&str>,
+) -> Option<LocalFormAction> {
+    match event {
+        ScreenEvent::Button(button) => {
+            // A pointer press answers on release over the control it went down on.
+            let answers = if button.from == SELECT {
+                !button.down && pressed == Some(button.key.as_str())
+            } else {
+                button.down && button.interacted
+            };
+            if button.id == "button.dropdown_exit" && button.down {
+                close_dropdown(runtime, frame);
             }
+            answers.then(|| mapped_action(model, button)).flatten()
         }
-        Some(FormDrag::ScrollBox { view, last }) => {
-            if let Some(metrics) = frame.report.scrolls.get(&view) {
-                let along = point[usize::from(!metrics.horizontal)];
-                let offset = metrics.thumb_drag_target(along - last);
-                let engine = runtime.server_forms_mut().engine_mut();
-                engine.view.scroll.insert(view.clone(), offset);
-                engine.drag = Some(FormDrag::ScrollBox { view, last: along });
-            }
-        }
-        Some(FormDrag::Control { key, last }) => {
-            let axes = frame
+        ScreenEvent::Toggle {
+            name,
+            key,
+            index,
+            checked,
+            ..
+        } => {
+            let index = (*index)?;
+            let engine = runtime.server_forms_mut().engine_mut();
+            let dropdown = frame
                 .hits
                 .iter()
-                .find(|region| region.key == key)
-                .map_or([false; 2], |region| region.drag_axes);
-            let engine = runtime.server_forms_mut().engine_mut();
-            let moved = engine.view.drags.entry(key.clone()).or_insert([0.0; 2]);
-            for axis in 0..2 {
-                if axes[axis] {
-                    moved[axis] += point[axis] - last[axis];
+                .any(|region| region.key == *key && region.kind == HitKind::Dropdown);
+            if dropdown {
+                engine.open_dropdown = checked.then_some(index);
+            } else if name == "custom_dropdown_radio_toggle" {
+                // Choosing an option answers the open dropdown and closes it.
+                if *checked
+                    && let Some(open) = engine.open_dropdown
+                    && let Some(value) = engine.values.get_mut(open)
+                {
+                    *value = FormValue::Dropdown(index);
+                    close_dropdown(runtime, frame);
                 }
-            }
-            engine.drag = Some(FormDrag::Control { key, last: point });
-        }
-        None => {}
-    }
-}
-
-fn press(
-    runtime: &mut UiRuntime,
-    frame: &EngineFrame,
-    model: &ServerFormModel,
-    hovered: Option<&HitRegion>,
-    point: [f64; 2],
-) {
-    let engine = runtime.server_forms_mut().engine_mut();
-    let on_edit_box = hovered.is_some_and(|region| region.kind == HitKind::EditBox);
-    if !on_edit_box {
-        engine.editing = None;
-    }
-    let on_radio = hovered.is_some_and(|region| {
-        region.control_name.as_deref() == Some("custom_dropdown_radio_toggle")
-    });
-    let on_dropdown = hovered.is_some_and(|region| region.kind == HitKind::Dropdown);
-    // Any click that is not choosing an option dismisses an open dropdown.
-    if !on_radio && !on_dropdown {
-        engine.open_dropdown = None;
-    }
-    let Some(region) = hovered.filter(|region| region.enabled) else {
-        return;
-    };
-    match region.kind {
-        HitKind::ScrollBox => {
-            if let Some(view) = owning_view(frame, region)
-                && let Some(metrics) = frame.report.scrolls.get(&view.key)
-            {
-                engine.drag = Some(FormDrag::ScrollBox {
-                    view: view.key.clone(),
-                    last: point[usize::from(!metrics.horizontal)],
-                });
-            }
-        }
-        // A track press jumps only when it routes to the view's track button.
-        HitKind::ScrollTrack => {
-            if let Some(view) = owning_view(frame, region)
-                && let Some(metrics) = frame.report.scrolls.get(&view.key)
-                && metrics.track_clicks
-            {
-                let key = view.key.clone();
-                set_scroll(runtime, &key, metrics.track_target(point));
-            }
-        }
-        HitKind::Draggable => {
-            engine.drag = Some(FormDrag::Control {
-                key: region.key.clone(),
-                last: point,
-            });
-        }
-        HitKind::Slider => {
-            if let Some(index) = region.collection_index {
-                engine.drag = Some(FormDrag::Slider(index));
-                engine.view.pressed = Some(region.key.clone());
-                set_slider(runtime, model, index, region.fraction_at(point[0]));
-            }
-        }
-        HitKind::EditBox => {
-            engine.editing = region.collection_index;
-            engine.view.focused = Some(region.key.clone());
-        }
-        HitKind::Button | HitKind::Toggle | HitKind::Dropdown => {
-            engine.view.pressed = Some(region.key.clone());
-        }
-        HitKind::ScrollView | HitKind::Modal | HitKind::Panel | HitKind::Custom => {}
-    }
-}
-
-/// What releasing over (or keyboard-activating) `region` does.
-fn activate(
-    runtime: &mut UiRuntime,
-    model: &ServerFormModel,
-    region: &HitRegion,
-) -> Option<LocalFormAction> {
-    match region.kind {
-        HitKind::Button => region
-            .pressed
-            .as_deref()
-            .and_then(|pressed| mapped_action(runtime, model, pressed, region.collection_index)),
-        HitKind::Toggle => {
-            let index = region.collection_index?;
-            let engine = runtime.server_forms_mut().engine_mut();
-            match region.control_name.as_deref() {
-                Some("custom_dropdown_radio_toggle") => {
-                    let dropdown = engine.open_dropdown.take()?;
-                    if let Some(value) = engine.values.get_mut(dropdown) {
-                        *value = FormValue::Dropdown(index);
-                    }
-                }
-                _ => {
-                    if let Some(FormValue::Toggle(on)) = engine.values.get_mut(index) {
-                        *on = !*on;
-                    }
-                }
+            } else if let Some(FormValue::Toggle(on)) = engine.values.get_mut(index) {
+                *on = *checked;
             }
             None
         }
-        HitKind::Dropdown => {
-            let index = region.collection_index?;
-            let engine = runtime.server_forms_mut().engine_mut();
-            engine.open_dropdown = (engine.open_dropdown != Some(index)).then_some(index);
+        ScreenEvent::Slider {
+            index, value, step, ..
+        } => {
+            set_slider(runtime, model, (*index)?, *value, *step);
             None
         }
-        _ => None,
+        ScreenEvent::TextEdit { index, text, .. } => {
+            let engine = runtime.server_forms_mut().engine_mut();
+            if let Some(FormValue::Text(value)) =
+                index.and_then(|index| engine.values.get_mut(index))
+            {
+                value.clone_from(text);
+            }
+            None
+        }
+        ScreenEvent::Sound {
+            name,
+            volume,
+            pitch,
+        } => {
+            crate::audio::ui_sound(name, *volume, *pitch);
+            None
+        }
+        ScreenEvent::TextEditSelected { .. } => None,
     }
 }
 
 /// A button id (from a press or a `global` mapping) as a form answer.
-fn mapped_action(
-    runtime: &mut UiRuntime,
-    model: &ServerFormModel,
-    pressed: &str,
-    index: Option<usize>,
-) -> Option<LocalFormAction> {
-    match pressed {
+fn mapped_action(model: &ServerFormModel, button: &ButtonEvent) -> Option<LocalFormAction> {
+    let index = button.collection_index;
+    match button.id.as_str() {
         "button.form_button_click" => {
             let index = index?;
             let ordinal = match model {
@@ -290,207 +377,51 @@ fn mapped_action(
         "popup_dialog.left_button" => Some(LocalFormAction::SubmitButton(0)),
         "popup_dialog.rightcancel_button" => Some(LocalFormAction::SubmitButton(1)),
         "button.menu_exit" | "popup_dialog.escape" => Some(LocalFormAction::Dismiss),
-        "button.dropdown_exit" => {
-            runtime.server_forms_mut().engine_mut().open_dropdown = None;
-            None
-        }
         _ => None,
     }
 }
 
-fn keyboard(
-    runtime: &mut UiRuntime,
-    frame: &EngineFrame,
-    model: &ServerFormModel,
-    key: KeyCode,
-    text: Option<&str>,
-    control: bool,
-) -> Option<LocalFormAction> {
-    if let Some(index) = runtime.server_forms().engine().editing {
-        edit_text(runtime, frame, index, key, text, control);
-        return None;
-    }
-    match key {
-        KeyCode::Escape => {
-            let target = frame.cancel_target.clone()?;
-            mapped_action(runtime, model, &target, None)
-        }
-        KeyCode::Tab | KeyCode::ArrowDown | KeyCode::ArrowUp => {
-            let backwards = key == KeyCode::ArrowUp;
-            move_focus(runtime, frame, backwards);
-            None
-        }
-        KeyCode::ArrowLeft | KeyCode::ArrowRight => {
-            let focused = focused_region(runtime, frame)?;
-            let index = focused.collection_index?;
-            if focused.kind == HitKind::Slider {
-                step_slider(runtime, model, index, key == KeyCode::ArrowRight);
-            }
-            None
-        }
-        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
-            let focused = focused_region(runtime, frame)?.clone();
-            if focused.kind == HitKind::EditBox {
-                runtime.server_forms_mut().engine_mut().editing = focused.collection_index;
-                return None;
-            }
-            activate(runtime, model, &focused)
-        }
-        _ => None,
-    }
-}
-
-fn edit_text(
-    runtime: &mut UiRuntime,
-    frame: &EngineFrame,
-    index: usize,
-    key: KeyCode,
-    text: Option<&str>,
-    control: bool,
-) {
-    let limit = element_region(frame, HitKind::EditBox, index)
-        .and_then(|region| region.max_length)
-        .unwrap_or(DEFAULT_INPUT_LENGTH);
-    let pasted = (control && key == KeyCode::KeyV)
-        .then(|| {
-            PlatformClipboard
-                .read_text_bounded(MAX_PASTE_BYTES)
-                .ok()
-                .flatten()
-        })
-        .flatten();
+/// `button.dropdown_exit`: the controller closes its dropdown and the dropdown
+/// toggles drop what they wrote, so their bound state shows again.
+fn close_dropdown(runtime: &mut UiRuntime, frame: &EngineFrame) {
     let engine = runtime.server_forms_mut().engine_mut();
-    let Some(FormValue::Text(value)) = engine.values.get_mut(index) else {
-        engine.editing = None;
-        return;
-    };
-    let mut insert = |addition: &str| {
-        for character in addition.chars().filter(|c| !c.is_control()) {
-            if value.chars().count() >= limit {
-                break;
-            }
-            value.push(character);
-        }
-    };
-    match key {
-        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Escape | KeyCode::Tab => {
-            engine.editing = None;
-        }
-        KeyCode::Backspace => {
-            value.pop();
-        }
-        _ if pasted.is_some() => insert(pasted.as_deref().unwrap_or("")),
-        _ if !control => {
-            if let Some(text) = text {
-                insert(text);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn move_focus(runtime: &mut UiRuntime, frame: &EngineFrame, backwards: bool) {
-    let order = focus_order(&frame.hits);
-    if order.is_empty() {
-        return;
-    }
-    let engine = runtime.server_forms_mut().engine_mut();
-    let current = engine
-        .view
-        .focused
-        .as_deref()
-        .and_then(|key| order.iter().position(|region| region.key == key));
-    let next = match (current, backwards) {
-        (None, false) => 0,
-        (None, true) => order.len() - 1,
-        (Some(at), false) => (at + 1) % order.len(),
-        (Some(at), true) => (at + order.len() - 1) % order.len(),
-    };
-    engine.view.focused = Some(order[next].key.clone());
-    engine.view.hovered = engine.view.focused.clone();
-    // Keep the focused control inside its scroll view.
-    let region = order[next];
-    if let Some(view) = owning_view(frame, region)
-        && let Some(metrics) = frame.report.scrolls.get(&view.key)
+    engine.open_dropdown = None;
+    for region in frame
+        .hits
+        .iter()
+        .filter(|region| region.kind == HitKind::Dropdown)
     {
-        let offset = metrics.offset_revealing(region.rect.y, region.rect.y + region.rect.h);
-        engine.view.scroll.insert(view.key.clone(), offset);
+        engine.view.components.forget(&region.key);
     }
 }
 
-fn focused_region<'a>(runtime: &UiRuntime, frame: &'a EngineFrame) -> Option<&'a HitRegion> {
-    let key = runtime.server_forms().engine().view.focused.as_deref()?;
-    frame.hits.iter().find(|region| region.key == key)
-}
-
-fn element_region(frame: &EngineFrame, kind: HitKind, index: usize) -> Option<&HitRegion> {
+fn edit_region<'a>(frame: &'a EngineFrame, key: &str) -> Option<&'a HitRegion> {
     frame
         .hits
         .iter()
-        .find(|region| region.kind == kind && region.collection_index == Some(index))
+        .find(|region| region.key == key && region.kind == HitKind::EditBox)
 }
 
-/// The innermost scroll view whose key prefixes `region`'s key.
-fn owning_view<'a>(frame: &'a EngineFrame, region: &HitRegion) -> Option<&'a HitRegion> {
-    frame
-        .hits
-        .iter()
-        .filter(|view| view.kind == HitKind::ScrollView && region.key.starts_with(&view.key))
-        .max_by_key(|view| view.key.len())
-}
-
-fn set_scroll(runtime: &mut UiRuntime, key: &str, offset: f64) {
-    runtime
-        .server_forms_mut()
-        .engine_mut()
-        .view
-        .scroll
-        .insert(key.to_owned(), offset);
-}
-
-fn set_slider(runtime: &mut UiRuntime, model: &ServerFormModel, index: usize, fraction: f64) {
+/// A slider event's `#slider_value` (a percentage, or a step index) as the element's value.
+fn set_slider(
+    runtime: &mut UiRuntime,
+    model: &ServerFormModel,
+    index: usize,
+    value: f64,
+    step: Option<usize>,
+) {
     let ServerFormModel::Custom(form) = model else {
         return;
     };
     let value = match form.elements.get(index) {
-        Some(CustomFormElement::Slider { min, max, step, .. }) => {
-            FormValue::Slider(slider_value_at(min.get(), max.get(), step.get(), fraction))
-        }
+        Some(CustomFormElement::Slider {
+            min,
+            max,
+            step: size,
+            ..
+        }) => FormValue::Slider(slider_value_at(min.get(), max.get(), size.get(), value)),
         Some(CustomFormElement::StepSlider { steps, .. }) if !steps.is_empty() => {
-            FormValue::Step((fraction * (steps.len() - 1) as f64).round() as usize)
-        }
-        _ => return,
-    };
-    if let Some(slot) = runtime
-        .server_forms_mut()
-        .engine_mut()
-        .values
-        .get_mut(index)
-    {
-        *slot = value;
-    }
-}
-
-fn step_slider(runtime: &mut UiRuntime, model: &ServerFormModel, index: usize, up: bool) {
-    let ServerFormModel::Custom(form) = model else {
-        return;
-    };
-    let current = runtime.server_forms().engine().values.get(index).cloned();
-    let value = match (form.elements.get(index), current) {
-        (
-            Some(CustomFormElement::Slider { min, max, step, .. }),
-            Some(FormValue::Slider(value)),
-        ) => {
-            let delta = if up { step.get() } else { -step.get() };
-            FormValue::Slider((value + delta).clamp(min.get(), max.get()))
-        }
-        (Some(CustomFormElement::StepSlider { steps, .. }), Some(FormValue::Step(at))) => {
-            let last = steps.len().saturating_sub(1);
-            FormValue::Step(if up {
-                (at + 1).min(last)
-            } else {
-                at.saturating_sub(1)
-            })
+            FormValue::Step(step.unwrap_or(value.max(0.0) as usize).min(steps.len() - 1))
         }
         _ => return,
     };

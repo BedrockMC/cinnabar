@@ -52,8 +52,6 @@ pub(crate) enum FormValue {
 /// A pointer drag the engine path is tracking.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FormDrag {
-    /// A slider at this element index.
-    Slider(usize),
     /// A scrollbar box: the scroll view key and the pointer's last position along its axis.
     ScrollBox { view: String, last: f64 },
     /// A `draggable` control: its key and the pointer's last position.
@@ -64,10 +62,17 @@ pub(crate) enum FormDrag {
 pub(crate) struct FormEngineState {
     pub(crate) view: ViewState,
     pub(crate) values: Vec<FormValue>,
+    /// The dropdown whose options the controller lists.
     pub(crate) open_dropdown: Option<usize>,
-    /// The input element receiving typed text.
-    pub(crate) editing: Option<usize>,
     pub(crate) drag: Option<FormDrag>,
+    /// A touch pan on this scroll view key, with the pointer's last position.
+    pub(crate) scroll_touch: Option<(String, [f64; 2])>,
+    /// When scroll dynamics last stepped.
+    pub(crate) scroll_clock: Option<std::time::Instant>,
+    /// The template's input components (mappings, hover, slider tracks).
+    pub(crate) dispatcher: json_ui::Dispatcher,
+    /// App-clock seconds at the last input frame, for caret blinks.
+    pub(crate) clock: f64,
 }
 
 impl FormEngineState {

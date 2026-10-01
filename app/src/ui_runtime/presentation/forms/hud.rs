@@ -522,8 +522,17 @@ impl UiPresentationRuntime {
         missing
     }
 
-    /// A draw node's fade multiplier at `now`, under this frame's clocks.
+    /// A draw node's fade multiplier at `now`, under this frame's clocks,
+    /// sampled by a fresh animator so it runs from the node's creation clock.
     pub(crate) fn hud_fade(&self, node: &json_ui::DrawNode, now: f64) -> f32 {
-        json_ui::fade_factor_at(&node.fades, now, &self.form_presentation.hud.clocks)
+        let clocks = Some(&self.form_presentation.hud.clocks);
+        let opacity = node
+            .animate(&mut json_ui::Animator::new(), now, clocks, None)
+            .opacity;
+        if node.alpha > 0.0 {
+            opacity / node.alpha
+        } else {
+            opacity
+        }
     }
 }

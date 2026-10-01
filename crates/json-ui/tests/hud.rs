@@ -147,6 +147,10 @@ fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
 }
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
+    render_full(model, java).map(|render| render.nodes)
+}
+
+fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
     let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
     if java {
@@ -175,7 +179,53 @@ fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
         &ViewState::default(),
     )
     .expect("hud renders");
-    Some(render.nodes)
+    Some(render)
+}
+
+// The HUD never takes a gameplay click: a press at the crosshair reaches no control.
+#[test]
+fn hud_leaves_gameplay_clicks_alone() {
+    for java in [false, true] {
+        let Some(render) = render_full(&model(), java) else {
+            return;
+        };
+        let mut view = ViewState::default();
+        let mut dispatcher = json_ui::Dispatcher::default();
+        let center = [240.0, 135.0];
+        let hover = dispatcher.pointer(
+            &render.hits,
+            &mut view,
+            json_ui::PointerInput {
+                point: Some(center),
+                held: false,
+                mode: json_ui::InputMode::Mouse,
+                now: 0.0,
+            },
+        );
+        assert!(
+            !hover.consumed,
+            "java {java}: hover taken by {:?}",
+            view.hovered
+        );
+        for down in [true, false] {
+            let press = dispatcher.button(
+                &render.hits,
+                &mut view,
+                json_ui::ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point: Some(center),
+                    mode: json_ui::InputMode::Mouse,
+                    now: 0.0,
+                },
+            );
+            assert!(
+                !press.consumed,
+                "java {java}: press consumed: {:?}",
+                press.events
+            );
+        }
+    }
 }
 
 fn named<'a>(nodes: &'a [DrawNode], name: &str) -> Vec<&'a DrawNode> {
@@ -193,7 +243,7 @@ fn dump(nodes: &[DrawNode]) {
                 node.dest.w,
                 node.dest.h,
                 node.alpha,
-                node.fades.len(),
+                node.anim.is_some(),
                 match &node.draw {
                     Draw::Text { text, .. } => format!("text {text:?}"),
                     Draw::Sprite { texture, .. } => texture.clone(),
@@ -255,11 +305,11 @@ fn vanilla_hud_draws_its_bound_surfaces() {
     let selected = named(&nodes, "hotbar_slot_selected_image");
     assert_eq!(selected.len(), 1);
     // Title and chat carry their fades.
-    assert!(
-        named(&nodes, "title")
-            .iter()
-            .all(|node| !node.fades.is_empty())
-    );
+    assert!(named(&nodes, "title").iter().all(|node| {
+        node.anim
+            .as_ref()
+            .is_some_and(|anim| !anim.alpha.is_empty())
+    }));
 }
 
 fn text_node<'a>(nodes: &'a [DrawNode], text: &str) -> &'a DrawNode {

@@ -46,11 +46,18 @@ pub struct DataSource {
     pub(super) strict: bool,
     /// The control id a screen's collection-less `factory` instantiates.
     pub(super) factory_id: Option<String>,
+    /// What the screen's components wrote into their controls' bags.
+    pub(super) components: crate::component::Components,
 }
 
 impl DataSource {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bind over what the screen's components wrote into their bags.
+    pub fn set_components(&mut self, components: crate::component::Components) {
+        self.components = components;
     }
 
     /// Set a `global` binding value, keyed with its leading `#`.
@@ -78,6 +85,16 @@ impl DataSource {
     pub fn select_radio(&mut self, toggle_name: &str, index: usize) {
         self.globals
             .insert(format!("#radio:{toggle_name}"), Scalar::Num(index as f64));
+    }
+
+    /// Publish `values` in the bag of controls named `name`, as their components
+    /// do (a scroll view's `#scrolled_to_end`), for `view` bindings to read.
+    pub fn set_control_values(
+        &mut self,
+        name: impl Into<String>,
+        values: BTreeMap<String, Scalar>,
+    ) {
+        self.controls.entry(name.into()).or_default().extend(values);
     }
 
     /// Select the `control_ids` entry a collection-less factory instantiates, as a

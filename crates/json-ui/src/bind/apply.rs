@@ -182,13 +182,21 @@ fn details(collection: &str, prefix: &str, scope: &Scope, own: &mut Bag) {
 
 /// Bag values a widget component publishes when created, before any binding.
 pub(super) fn widget_defaults(control: &ResolvedControl, own: &mut Bag) {
+    if control.control_type.as_deref() == Some("scroll_view") {
+        own.entry("#scrollbar_hit_bottom".to_owned())
+            .or_insert(Scalar::Bool(false));
+        own.entry("#scrolled_to_end".to_owned())
+            .or_insert(Scalar::Bool(true));
+    }
     if control.control_type.as_deref() == Some("scrollbar_box") {
         own.insert("#is_scroll_bar_box".to_owned(), Scalar::Bool(true));
     }
     if control.control_type.as_deref() == Some("toggle") {
+        // An authored `#toggle_state` is the toggle's starting state.
         let checked = control
             .properties
-            .get("toggle_default_state")
+            .get("#toggle_state")
+            .or_else(|| control.properties.get("toggle_default_state"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
         own.entry("#toggle_state".to_owned())

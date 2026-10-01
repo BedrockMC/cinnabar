@@ -1,10 +1,14 @@
 //! Per-screen interaction state the caller keeps between frames and the layout
 //! reads back: which control the pointer hovers or holds, which has focus, and
-//! each scroll view's offset. Controls are addressed by their layout key — the
-//! `/`-joined instance-name path with a `[index]` suffix on factory instances —
-//! so a key survives a re-bind as long as the tree's shape does.
+//! each scroll view's offset and retained dynamics. Controls are addressed by
+//! their layout key — the `/`-joined instance-name path with a `[index]` suffix
+//! on factory instances — so a key survives a re-bind as long as the tree's
+//! shape does.
 
 use std::collections::BTreeMap;
+
+use crate::predicate::Scalar;
+use crate::widgets::{Draggable, ScrollMotion};
 
 /// What the caller tells layout about the live pointer/focus/scroll state.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -14,22 +18,43 @@ pub struct ViewState {
     pub focused: Option<String>,
     /// Scroll view key → requested offset in virtual pixels (clamped by layout).
     pub scroll: BTreeMap<String, f64>,
-    /// Scroll view key → its maximum offset last layout, which
-    /// `jump_to_bottom_on_update` compares against (see [`ViewState::remember`]).
-    pub scroll_max: BTreeMap<String, f64>,
+    pub focus_memory: FocusMemory,
+    /// What the screen's components wrote into their bags; binding reads it.
+    pub components: crate::component::Components,
+    /// Scroll view key → what its component keeps between layouts.
+    pub scroll_state: BTreeMap<String, ScrollRetained>,
     /// The pointer in virtual pixels, for `follows_cursor` controls; feed it only
     /// while [`LayoutReport::tracks_pointer`], or pointer moves relayout.
     pub pointer: Option<[f64; 2]>,
     /// `draggable` control key → its accumulated drag offset.
     pub drags: BTreeMap<String, [f64; 2]>,
-    /// The animation clock (seconds) `size` animations play against; without it
-    /// they hold their final value.
-    pub now: Option<f64>,
+}
+
+/// A scroll view's retained component state beyond its offset.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ScrollRetained {
+    /// The extent last laid out, for `jump_to_bottom_on_update`.
+    pub extent: Option<f64>,
+    /// `#scrollbar_hit_bottom` latches once reached.
+    pub hit_bottom: bool,
+    /// A touch drag or fling in progress.
+    pub motion: Option<ScrollMotion>,
+    /// A touch-mode box fading after its last touch; `Some(0)` once hidden.
+    pub bar_fade: Option<f32>,
+}
+
+/// Focus history navigation keeps between frames.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FocusMemory {
+    /// Focus container key → the control last focused inside it (`use_last_focus`).
+    pub last: BTreeMap<String, String>,
+    /// The control focus left that keeps its hover look (`reset_on_focus_lost: false`).
+    pub held: Option<String>,
 }
 
 impl ViewState {
     pub fn is_hovered(&self, key: &str) -> bool {
-        self.hovered.as_deref() == Some(key)
+        self.hovered.as_deref() == Some(key) || self.focus_memory.held.as_deref() == Some(key)
     }
 
     pub fn is_pressed(&self, key: &str) -> bool {
@@ -44,40 +69,56 @@ impl ViewState {
         self.scroll.get(key).copied().unwrap_or(0.0)
     }
 
-    /// Whether `other` lays out the same: hover, press and focus only gate what
-    /// draws.
+    /// Whether `other` lays out the same: hover, press, focus and component
+    /// writes only gate what draws or binds.
     pub fn same_layout(&self, other: &ViewState) -> bool {
         self.scroll == other.scroll
-            && self.scroll_max == other.scroll_max
+            && self.scroll_state == other.scroll_state
             && self.pointer == other.pointer
             && self.drags == other.drags
-            && self.now == other.now
     }
 
     /// The parts of this state layout reads (see [`ViewState::same_layout`]).
     pub fn layout_part(&self) -> ViewState {
         ViewState {
             scroll: self.scroll.clone(),
-            scroll_max: self.scroll_max.clone(),
+            scroll_state: self.scroll_state.clone(),
             pointer: self.pointer,
             drags: self.drags.clone(),
-            now: self.now,
             ..ViewState::default()
         }
     }
 
-    /// Keep each scroll view's applied offset and maximum from `report` for the
-    /// next layout.
-    pub fn remember(&mut self, report: &LayoutReport) {
+    /// Adopt what the last layout decided for scroll views that retain it: a
+    /// jump to a new end and the latched `#scrollbar_hit_bottom`. `true` when
+    /// anything changed, so the caller lays out again.
+    pub fn settle(&mut self, report: &LayoutReport) -> bool {
+        let mut changed = false;
         for (key, metrics) in &report.scrolls {
-            self.scroll.insert(key.clone(), metrics.offset);
-            self.scroll_max.insert(key.clone(), metrics.max_offset());
+            let wants = metrics.jump_to_end || metrics.hit_bottom;
+            if !wants && !self.scroll_state.contains_key(key) {
+                continue;
+            }
+            let retained = self.scroll_state.entry(key.clone()).or_default();
+            if metrics.jump_to_end {
+                let max = metrics.max_offset();
+                if retained.extent != Some(max) {
+                    retained.extent = Some(max);
+                    self.scroll.insert(key.clone(), metrics.offset);
+                    changed = true;
+                }
+            }
+            if metrics.hit_bottom && !retained.hit_bottom {
+                retained.hit_bottom = true;
+                changed = true;
+            }
         }
+        changed
     }
 }
 
 /// A scroll view's measured extents after layout, along its scrolling axis.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScrollMetrics {
     /// The clamped offset actually applied.
     pub offset: f64,
@@ -85,33 +126,33 @@ pub struct ScrollMetrics {
     pub viewport: f64,
     /// The viewport's leading edge (virtual px), for scrolling a control into view.
     pub viewport_top: f64,
-    /// The viewport rect `[x, y, w, h]`, where the wheel reaches the view.
-    pub port: Option<[f64; 4]>,
-    /// The scrollbar track rect `[x, y, w, h]`, when the template has one.
+    /// The named viewport rect `[x, y, w, h]`, which takes the wheel.
+    pub viewport_rect: Option<[f64; 4]>,
+    /// The content rect before scrolling.
+    pub content_rect: Option<[f64; 4]>,
+    /// The named scrollbar track rect `[x, y, w, h]`.
     pub track: Option<[f64; 4]>,
-    /// The drawn scrollbar box rect `[x, y, w, h]`, when it is sized.
+    /// The drawn scrollbar box rect `[x, y, w, h]`, when it is shown.
     pub thumb: Option<[f64; 4]>,
-    /// `scroll_speed`: pixels per wheel step (1 when unset).
+    /// Pixels scrolled per wheel notch (`scroll_speed`).
     pub speed: f64,
-    /// Whether the content scrolls along x (its `draggable` is horizontal).
+    /// A horizontally draggable box scrolls along x.
     pub horizontal: bool,
-    /// `#scrolled_to_end`: the offset reaches the maximum.
-    pub scrolled_to_end: bool,
-    /// `#scrollbar_hit_bottom`: the content fits or its bottom is reached.
-    pub hit_bottom: bool,
-    /// `#scroll_bar_visible`: the bar panel shows.
-    pub bar_visible: bool,
-    /// `always_handle_scrolling`: wheel input reaches the view wherever the pointer is.
-    pub always_handle: bool,
+    /// The box's `draggable`, which also sets whether it can be grabbed.
+    pub box_drag: Draggable,
+    pub gesture: bool,
+    pub always_handle_scrolling: bool,
     pub touch_mode: bool,
-    /// `gesture_control_enabled`: pressing and dragging the content scrolls it.
-    pub gesture_control: bool,
-    /// `allow_scroll_even_when_content_fits`.
-    pub scroll_when_fits: bool,
-    /// The track's `button.menu_select` press routes to `scrollbar_track_button`.
-    pub track_clicks: bool,
-    /// The view's own press routes to `scrollbar_touch_button`, starting a drag.
-    pub touch_drags: bool,
+    pub allow_scroll_when_fits: bool,
+    pub jump_to_end: bool,
+    pub track_button: Option<String>,
+    pub touch_button: Option<String>,
+    /// `#scroll_bar_visible`, once the view decided it.
+    pub bar_visible: Option<bool>,
+    /// `#scrollbar_hit_bottom`.
+    pub hit_bottom: bool,
+    /// `#scrolled_to_end`.
+    pub scrolled_to_end: bool,
 }
 
 /// The client reads its wheel sensitivity once, from the first view scrolled.
@@ -120,75 +161,6 @@ static WHEEL_SENSITIVITY: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
 impl ScrollMetrics {
     pub fn max_offset(&self) -> f64 {
         (self.content - self.viewport).max(0.0)
-    }
-
-    fn clamp(&self, offset: f64) -> f64 {
-        offset.clamp(0.0, self.max_offset())
-    }
-
-    /// The offset after `notches` wheel steps (positive scrolls toward the top):
-    /// the first view scrolled fixes the sensitivity, and a step up is 120/127 of
-    /// one down is 120/128, the client's mouse byte scaling. A horizontal view
-    /// ignores the vertical wheel.
-    pub fn wheel_target(&self, notches: f64) -> f64 {
-        if self.horizontal {
-            return self.offset;
-        }
-        let sensitivity = *WHEEL_SENSITIVITY.get_or_init(|| self.speed);
-        let byte = if notches > 0.0 {
-            120.0 / 127.0
-        } else {
-            120.0 / 128.0
-        };
-        self.clamp(self.offset - sensitivity * notches * byte)
-    }
-
-    /// The offset after the pointer moves `delta` along the axis while holding the
-    /// box: content pixels per track pixel.
-    pub fn thumb_drag_target(&self, delta: f64) -> f64 {
-        let track = self.track_extent();
-        if track <= 0.0 {
-            return self.offset;
-        }
-        self.clamp(self.offset + delta * self.content / track)
-    }
-
-    /// The offset a click at `point` on the track jumps to: the clicked fraction
-    /// of the content, less half a viewport.
-    pub fn track_target(&self, point: [f64; 2]) -> f64 {
-        let Some(track) = self.track else {
-            return self.offset;
-        };
-        let (start, length, at) = if self.horizontal {
-            (track[0], track[2], point[0])
-        } else {
-            (track[1], track[3], point[1])
-        };
-        let fraction = if length <= 0.5 {
-            1.0
-        } else {
-            (at - start) / length
-        };
-        self.clamp(fraction * self.content - 0.5 * self.viewport)
-    }
-
-    /// Whether pressing and moving over the content drags it: the touch button
-    /// is mapped, gestures are on, and the content overflows vertically (the
-    /// client compares heights whatever the axis) unless it may scroll anyway.
-    pub fn drags_content(&self) -> bool {
-        let overflows = if self.horizontal {
-            self.port.is_some_and(|port| port[3] < self.content)
-        } else {
-            self.viewport < self.content
-        };
-        self.touch_drags && self.gesture_control && (overflows || self.scroll_when_fits)
-    }
-
-    fn track_extent(&self) -> f64 {
-        self.track.map_or(
-            0.0,
-            |track| if self.horizontal { track[2] } else { track[3] },
-        )
     }
 
     /// The offset that brings the span `[top, bottom)` (current coordinates)
@@ -202,7 +174,97 @@ impl ScrollMetrics {
         } else {
             0.0
         };
-        self.clamp(self.offset + shift)
+        (self.offset + shift).clamp(0.0, self.max_offset())
+    }
+
+    fn along(&self, rect: [f64; 4]) -> (f64, f64) {
+        if self.horizontal {
+            (rect[0], rect[2])
+        } else {
+            (rect[1], rect[3])
+        }
+    }
+
+    /// The offset after the pointer moves `delta` along the axis while holding the
+    /// box: content pixels per track pixel.
+    pub fn thumb_drag_target(&self, delta: f64) -> f64 {
+        let Some(track) = self.track else {
+            return self.offset;
+        };
+        let length = self.along(track).1;
+        if length <= 0.0 {
+            return self.offset;
+        }
+        (self.offset + delta * self.content / length).clamp(0.0, self.max_offset())
+    }
+
+    /// A press on the track at `point` centres the viewport on that fraction of
+    /// the content (the `scrollbar_track_button` event).
+    pub fn offset_for_track(&self, point: [f64; 2]) -> f64 {
+        let Some(track) = self.track else {
+            return self.offset;
+        };
+        // The fraction reads y only for a vertical box, x otherwise.
+        let (start, length, at) = if self.box_drag == Draggable::Vertical {
+            (track[1], track[3], point[1])
+        } else {
+            (track[0], track[2], point[0])
+        };
+        let fraction = if length > 0.5 {
+            (at - start) / length
+        } else {
+            1.0
+        };
+        (self.viewport * -0.5 + fraction * self.content).clamp(0.0, self.max_offset())
+    }
+
+    /// The offset after `notches` wheel steps (positive scrolls toward the top):
+    /// the first view scrolled fixes the sensitivity, and a step up is 120/127 of
+    /// one down is 120/128, the client's mouse byte scaling. A horizontal view
+    /// ignores the vertical wheel.
+    pub fn offset_for_wheel(&self, notches: f64) -> f64 {
+        if self.horizontal {
+            return self.offset;
+        }
+        let sensitivity = *WHEEL_SENSITIVITY.get_or_init(|| self.speed);
+        let byte = if notches > 0.0 {
+            120.0 / 127.0
+        } else {
+            120.0 / 128.0
+        };
+        (self.offset - sensitivity * notches * byte).clamp(0.0, self.max_offset())
+    }
+
+    /// Whether the wheel at `point` reaches this view: over its viewport or
+    /// track, or anywhere under `always_handle_scrolling`.
+    pub fn takes_wheel(&self, point: [f64; 2]) -> bool {
+        let inside = |rect: Option<[f64; 4]>| {
+            rect.is_some_and(|r| {
+                point[0] >= r[0]
+                    && point[0] <= r[0] + r[2]
+                    && point[1] >= r[1]
+                    && point[1] <= r[1] + r[3]
+            })
+        };
+        self.always_handle_scrolling || inside(self.viewport_rect) || inside(self.track)
+    }
+
+    /// The property-bag values this view publishes to `view` bindings.
+    pub fn feedback(&self) -> BTreeMap<String, Scalar> {
+        let mut values = BTreeMap::from([
+            (
+                "#scrollbar_hit_bottom".to_owned(),
+                Scalar::Bool(self.hit_bottom),
+            ),
+            (
+                "#scrolled_to_end".to_owned(),
+                Scalar::Bool(self.scrolled_to_end),
+            ),
+        ]);
+        if let Some(visible) = self.bar_visible {
+            values.insert("#scroll_bar_visible".to_owned(), Scalar::Bool(visible));
+        }
+        values
     }
 }
 
@@ -215,115 +277,21 @@ pub struct LayoutReport {
     pub clip_states: BTreeMap<String, (String, bool)>,
     /// Whether a laid-out control follows the pointer ([`ViewState::pointer`]).
     pub tracks_pointer: bool,
-    /// Whether a `size` animation is still playing: lay out again next frame,
-    /// without reusing measurements.
-    pub animating: bool,
 }
 
-/// A content drag under the client's scroll dynamics: while held the offset
-/// springs toward the dragged target (velocity sampled over 0.05 s windows);
-/// released, it flings, decays, and springs back inside `[0, max]`, never
-/// travelling more than a quarter viewport past either end.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ScrollDynamics {
-    pub position: f64,
-    velocity: f64,
-    target: f64,
-    target_velocity: f64,
-    dragging: bool,
-    /// Pointer travel in the current and previous sample windows.
-    window: [f64; 2],
-    window_age: f64,
-    /// Total pointer travel this drag; a short one is a tap.
-    distance: f64,
+impl LayoutReport {
+    /// Each scroll view's published values by control name, for the data
+    /// source's `view` binding lookups ([`crate::DataSource::set_control_values`]).
+    pub fn scroll_feedback(&self) -> BTreeMap<String, BTreeMap<String, Scalar>> {
+        self.scrolls
+            .iter()
+            .map(|(key, metrics)| (control_name(key).to_owned(), metrics.feedback()))
+            .collect()
+    }
 }
 
-/// A drag shorter than this is a tap that passes through to the content.
-const TAP_DISTANCE: f64 = 5.0;
-const WINDOW: f64 = 0.05;
-const STEP: f64 = 0.01;
-
-impl ScrollDynamics {
-    /// Start a drag at `offset`.
-    pub fn press(&mut self, offset: f64) {
-        if !self.dragging {
-            self.position = offset;
-            self.target = offset;
-            self.window = [0.0; 2];
-            self.window_age = 0.0;
-            self.distance = 0.0;
-        }
-        self.dragging = true;
-    }
-
-    /// The pointer moved `delta` along the axis; the content follows it.
-    pub fn drag(&mut self, delta: f64) {
-        self.target -= delta;
-        self.window[0] -= delta;
-        self.distance += delta.abs();
-    }
-
-    /// Let go, flinging at the faster of the tracked and the last window's
-    /// velocity. Returns whether it was a tap.
-    pub fn release(&mut self) -> bool {
-        if self.dragging {
-            let recent = self.window[0] / WINDOW;
-            self.velocity = if recent.abs() > self.target_velocity.abs() {
-                recent
-            } else {
-                self.target_velocity
-            };
-            self.dragging = false;
-        }
-        self.distance <= TAP_DISTANCE
-    }
-
-    /// Whether the offset still moves.
-    pub fn active(&self) -> bool {
-        self.dragging || self.velocity.abs() > 1.0
-    }
-
-    /// Advance `dt` seconds (at most a quarter second) within `[0, max]`, with
-    /// `viewport` bounding the overscroll; returns the new offset.
-    pub fn tick(&mut self, dt: f64, max: f64, viewport: f64) -> f64 {
-        let mut remaining = dt.clamp(0.0, 0.25);
-        let over = (viewport * 0.25).max(0.0);
-        if self.dragging {
-            self.window_age += remaining;
-            if self.window_age >= WINDOW {
-                self.target_velocity = (self.window[0] + self.window[1]) / (2.0 * WINDOW);
-                self.window = [0.0, self.window[0]];
-                self.window_age = 0.0;
-            }
-        } else {
-            self.target = self.position;
-        }
-        while remaining > 0.0 {
-            let h = remaining.min(STEP);
-            let mut accel = if (0.0..=max).contains(&self.position) {
-                -self.velocity.signum() * (self.velocity.abs() / h).min(200.0)
-            } else {
-                0.0
-            };
-            if self.position < 0.0 || self.position > max {
-                let bound = if self.position < 0.0 { 0.0 } else { max };
-                accel = -34.641 * self.velocity + 300.0 * (bound - self.position);
-            }
-            if self.dragging {
-                accel += 63.2456 * (self.target_velocity - self.velocity)
-                    + 1000.0 * (self.target - self.position);
-            }
-            self.velocity = (self.velocity + h * accel).clamp(-2000.0, 2000.0);
-            self.position += h * self.velocity;
-            if self.position < -over {
-                self.position = -over;
-                self.velocity = self.velocity.max(0.0);
-            } else if self.position > max + over {
-                self.position = max + over;
-                self.velocity = self.velocity.min(0.0);
-            }
-            remaining -= h;
-        }
-        self.position
-    }
+/// The instance name at the end of a layout key, less any `[index]`.
+fn control_name(key: &str) -> &str {
+    let last = key.rsplit('/').next().unwrap_or(key);
+    last.split('[').next().unwrap_or(last)
 }
