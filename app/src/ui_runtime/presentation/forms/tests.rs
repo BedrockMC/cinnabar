@@ -542,10 +542,16 @@ fn retail_settings_keep_navigation_and_video_options_compact() {
             assert!((0.0..=2.0).contains(&gap), "{above} to {below}: {gap}");
         }
         let video = layout_section(&layout, "video_section").unwrap();
-        let graphics = rect(video, "graphics_mode").unwrap();
-        let brightness = rect(video, "brightness_slider").unwrap();
-        let gap = brightness.y - graphics.y - graphics.h;
-        assert!((0.0..=8.0).contains(&gap), "graphics to brightness: {gap}");
+        for (above, below) in [
+            ("graphics_mode", "advanced_graphics_options_button"),
+            ("advanced_graphics_options_button", "render_distance_slider"),
+            ("render_distance_slider", "brightness_slider"),
+        ] {
+            let upper = rect(video, above).expect(above);
+            let lower = rect(video, below).expect(below);
+            let gap = lower.y - upper.y - upper.h;
+            assert!((0.0..=8.0).contains(&gap), "{above} to {below}: {gap}");
+        }
     }
 }
 

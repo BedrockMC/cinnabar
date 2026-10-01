@@ -8,6 +8,19 @@ use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
 use crate::ui_runtime::presentation::ChatHit;
 
+/// Selects vanilla chat above the built-in Java pack for native control checks.
+fn native_chat_presentation() -> Option<UiPresentationRuntime> {
+    let mut presentation = engine_presentation_with(super::super::forms::pack_harness::font())?;
+    presentation.set_server_ui_pack(&super::super::forms::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/chat_screen.json".into(),
+            br#"{"namespace":"chat"}"#.to_vec(),
+        )]],
+        ..Default::default()
+    });
+    Some(presentation)
+}
+
 /// Visible text in a rendered screen.
 fn texts(nodes: &[DrawNode]) -> Vec<&str> {
     nodes
@@ -226,6 +239,10 @@ fn wheel_input_system_scrolls_the_open_chat() {
     assert!(text_node(presentation.chat_draw_nodes(), "line 1").is_none());
     let mut app = App::new();
     app.init_resource::<Time<Real>>()
+        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
+        .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .init_resource::<crate::runtime::world::ClientWorld>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
         .insert_resource(AccumulatedMouseScroll {
@@ -356,9 +373,7 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
         MenuAction,
         settings_options::{SETTINGS_OPTIONS, SettingsOptions},
     };
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
+    let Some(mut presentation) = native_chat_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -417,9 +432,7 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
 #[test]
 fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
-    let Some(mut presentation) =
-        engine_presentation_with(super::super::forms::pack_harness::font())
-    else {
+    let Some(mut presentation) = native_chat_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
