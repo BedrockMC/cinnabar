@@ -123,7 +123,7 @@ async fn login_reaches_start_game_through_bds() {
 /// Exercises the actual Rust login across both production Go relay legs without a game server.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn offline_core_preserves_spawn_order_and_startup_transfer() {
-    for scenario in ["spawn", "transfer"] {
+    for scenario in ["spawn", "transfer", "transfer-batch"] {
         let socket_dir = TestSocketDir::new().expect("socket directory");
         let mut harness =
             GoHarness::spawn_mode(socket_dir.path(), None, Some(scenario)).expect("offline core");
@@ -136,12 +136,14 @@ async fn offline_core_preserves_spawn_order_and_startup_transfer() {
         )
         .await
         .expect("login timeout");
-        if scenario == "transfer" {
+        if scenario.starts_with("transfer") {
             let error = match login {
                 Err(error) => error,
                 Ok(_) => panic!("startup transfer became a spawned session"),
             };
-            let target = error.server_transfer().unwrap_or_else(|| panic!("{error}"));
+            let target = error
+                .server_transfer()
+                .unwrap_or_else(|| panic!("{scenario}: {error}\n{}", harness.output()));
             assert_eq!(
                 (target.host.as_str(), target.port),
                 ("next.example.test", 19133)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	}
 	defer upstream.Close()
 	serverDone := make(chan error, 1)
+	upstreamConnection := make(chan *minecraft.Conn, 1)
 	go func() {
 		accepted, err := upstream.Accept()
 		if err != nil {
@@ -42,15 +44,20 @@ func TestProxyRustStartupHarness(t *testing.T) {
 			return
 		}
 		conn := accepted.(*minecraft.Conn)
-		defer conn.Close()
-		serverDone <- runRustStartupScript(conn, scenario)
+		err = runRustStartupScript(conn, scenario)
+		_ = conn.Close()
+		serverDone <- err
 	}()
 	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
 	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
 		return &resolvedUpstreamTarget{network: upstreamNetwork}, nil
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
-		return dialer.DialContextNetwork(ctx, target.network, "")
+		conn, err := dialer.DialContextNetwork(ctx, target.network, "")
+		if err == nil {
+			upstreamConnection <- conn
+		}
+		return conn, err
 	}
 	listener, err := localListenConfig(connections.prepare).ListenNetwork(streamnet.New(socketDir), "")
 	if err != nil {
@@ -68,6 +75,14 @@ func TestProxyRustStartupHarness(t *testing.T) {
 		if err != nil || prepared == nil {
 			_ = downstream.Close()
 			return
+		}
+		if strings.HasPrefix(scenario, "transfer") {
+			// All upstream frames and EOF must be queued before either relay pump starts.
+			conn := <-upstreamConnection
+			select {
+			case <-conn.Context().Done():
+			case <-ctx.Done():
+			}
 		}
 		_ = servePreparedConnection(ctx, downstream, prepared)
 	}()
@@ -89,11 +104,15 @@ func TestProxyRustStartupHarness(t *testing.T) {
 // runRustStartupScript asserts each client message at the upstream end of both relay legs.
 func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
 	startup := relayFixtureStartup()
+	transfer := &packet.Transfer{Address: "next.example.test", Port: 19133}
+	if scenario == "transfer-batch" {
+		return conn.WritePacketImmediate(startup[0], transfer)
+	}
 	if err := conn.WritePacketImmediate(startup[0]); err != nil {
 		return err
 	}
 	if scenario == "transfer" {
-		return conn.WritePacketImmediate(&packet.Transfer{Address: "next.example.test", Port: 19133})
+		return conn.WritePacketImmediate(transfer)
 	}
 	for _, expected := range []packet.Packet{&packet.RequestChunkRadius{ChunkRadius: 16, MaxChunkRadius: 16}, &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}} {
 		if err := expectStartupPacket(conn, expected); err != nil {

@@ -50,6 +50,7 @@ use crate::valentine::{
 // Backstop only: the local core cancels a join whose resource-pack download stalls, and slow
 // servers can take several minutes to stream their packs on a first join.
 const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+const START_GAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
 const EXEMPTED_RESOURCE_PACKS: &[(&str, &str)] = &[
     ("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"),
@@ -481,6 +482,33 @@ async fn recv_login_packet<T: Transport>(
     }
 }
 
+/// Drains terminal input after a failed startup write within the remaining startup deadline.
+async fn startup_write_failure<T: Transport>(
+    transport: &mut BedrockTransport<T>,
+    write_error: JolyneError,
+    remaining: std::time::Duration,
+) -> JolyneError {
+    let deadline = tokio::time::Instant::now() + remaining;
+    loop {
+        match tokio::time::timeout_at(deadline, recv_login_packet(transport)).await {
+            Ok(Err(error @ JolyneError::Protocol(ProtocolError::ServerTransfer(_)))) => {
+                return error;
+            }
+            Err(_) | Ok(Err(_)) => return write_error,
+            Ok(Ok(raw)) if raw.id == McpePacketName::DisconnectPacket => {
+                return match raw.decode(&transport.session) {
+                    Ok(McpePacket {
+                        data: McpePacketData::DisconnectPacket(dc),
+                        ..
+                    }) => server_disconnect("StartGame", &dc),
+                    _ => write_error,
+                };
+            }
+            Ok(Ok(_)) => {}
+        }
+    }
+}
+
 /// The error a join-time Disconnect ends with, keeping the server's texts.
 fn server_disconnect(stage: &'static str, disconnect: &DisconnectPacket) -> JolyneError {
     ProtocolError::ServerDisconnect {
@@ -776,6 +804,7 @@ mod tests {
     struct ScriptedTransport {
         inbound: VecDeque<TransportRecvMessage>,
         sent: Arc<Mutex<Vec<TransportMessage>>>,
+        fail_send: bool,
     }
 
     impl ScriptedTransport {
@@ -786,6 +815,7 @@ mod tests {
                     .map(TransportRecvMessage::Contiguous)
                     .collect(),
                 sent,
+                fail_send: false,
             }
         }
     }
@@ -800,6 +830,9 @@ mod tests {
             _cx: &mut Context<'_>,
             msg: TransportMessage,
         ) -> Poll<Result<(), Self::Error>> {
+            if self.fail_send {
+                return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+            }
             self.sent.lock().expect("sent lock").push(msg);
             Poll::Ready(Ok(()))
         }
@@ -1016,28 +1049,97 @@ mod tests {
 
     #[tokio::test]
     async fn startup_transfer_precedes_spawn_and_transport_closure() {
-        for same_batch in [false, true] {
-            let frames = if same_batch {
-                vec![uncompressed_frame(&[
-                    start_game_packet(),
-                    startup_transfer(),
-                ])]
-            } else {
-                vec![
-                    uncompressed_frame(&[start_game_packet()]),
-                    uncompressed_frame(&[startup_transfer()]),
-                ]
-            };
-            // The scripted transport closes immediately after its final frame.
-            let error = match start_game_stream(frames).await_start_game().await {
-                Ok(_) => panic!("transfer must terminate startup without spawn prerequisites"),
-                Err(error) => error,
-            };
-            assert!(
-                matches!(error, JolyneError::Protocol(ProtocolError::ServerTransfer(target))
+        for fail_send in [false, true] {
+            for same_batch in [false, true] {
+                let frames = if same_batch {
+                    vec![uncompressed_frame(&[
+                        start_game_packet(),
+                        startup_transfer(),
+                    ])]
+                } else {
+                    vec![
+                        uncompressed_frame(&[start_game_packet()]),
+                        uncompressed_frame(&[startup_transfer()]),
+                    ]
+                };
+                // The scripted transport closes immediately after its final frame.
+                let mut transport =
+                    ScriptedTransport::new(frames, Arc::new(Mutex::new(Vec::new())));
+                transport.fail_send = fail_send;
+                let stream = BedrockStream {
+                    transport: BedrockTransport::new(transport),
+                    state: StartGame::with_resource_pack_handoff(ResourcePackHandoff::default()),
+                    _role: PhantomData::<Client>,
+                };
+                let error = match stream.await_start_game().await {
+                    Ok(_) => panic!("transfer must terminate startup without spawn prerequisites"),
+                    Err(error) => error,
+                };
+                assert!(
+                    matches!(error, JolyneError::Protocol(ProtocolError::ServerTransfer(target))
                 if target.host == "next.example.test" && target.port == 19133)
-            );
+                );
+            }
         }
+    }
+
+    #[tokio::test]
+    async fn startup_write_failure_without_transfer_keeps_original_error() {
+        let mut packets = vec![start_game_packet()];
+        packets.extend(spawn_completion_packets());
+        let mut transport = ScriptedTransport::new(
+            vec![uncompressed_frame(&packets)],
+            Arc::new(Mutex::new(Vec::new())),
+        );
+        transport.fail_send = true;
+        let stream = BedrockStream {
+            transport: BedrockTransport::new(transport),
+            state: StartGame::with_resource_pack_handoff(ResourcePackHandoff::default()),
+            _role: PhantomData::<Client>,
+        };
+        assert!(matches!(
+            stream.await_start_game().await,
+            Err(JolyneError::Transport(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn startup_write_failure_preserves_disconnect() {
+        let mut transport = BedrockTransport::new(ScriptedTransport::new(
+            vec![uncompressed_frame(&[DisconnectPacket::default().into()])],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        assert!(matches!(
+            startup_write_failure(
+                &mut transport,
+                JolyneError::ConnectionClosed,
+                START_GAME_TIMEOUT
+            )
+            .await,
+            JolyneError::Protocol(ProtocolError::ServerDisconnect { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn startup_write_failure_drain_obeys_deadline_and_cancellation() {
+        let mut transport = BedrockTransport::new(PendingTransport);
+        let error = startup_write_failure(
+            &mut transport,
+            JolyneError::ConnectionClosed,
+            std::time::Duration::ZERO,
+        )
+        .await;
+        assert!(matches!(error, JolyneError::ConnectionClosed));
+        let mut drain = std::pin::pin!(startup_write_failure(
+            &mut transport,
+            JolyneError::ConnectionClosed,
+            START_GAME_TIMEOUT,
+        ));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(drain.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
     }
 
     #[tokio::test]
@@ -2107,7 +2209,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 
         let start_time = std::time::Instant::now();
         loop {
-            if start_time.elapsed() > std::time::Duration::from_secs(120) {
+            if start_time.elapsed() > START_GAME_TIMEOUT {
                 return Err(ProtocolError::UnexpectedHandshake(
                     "Timeout waiting for PlayerSpawn during StartGame".into(),
                 )
@@ -2202,7 +2304,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
             }
 
             if !sent_chunk_radius && start_game.is_some() {
-                self.transport
+                if let Err(error) = self.transport
                     .send_batch(&[
                         McpePacket::from(RequestChunkRadiusPacket {
                             chunk_radius: 16,
@@ -2214,7 +2316,14 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                             loading_screen_id: None,
                         }),
                     ])
-                    .await?;
+                    .await
+                {
+                    return Err(startup_write_failure(
+                        &mut self.transport,
+                        error,
+                        START_GAME_TIMEOUT.saturating_sub(start_time.elapsed()),
+                    ).await);
+                }
                 sent_chunk_radius = true;
             }
 

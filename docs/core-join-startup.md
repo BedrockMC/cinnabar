@@ -35,6 +35,14 @@ Lens references below use the source-backed raw view of artifact 6, version **1.
   `full/resource_pack/texts/en_US.lang:8242`–`:8245`, has distinct optional, required and
   server-required download prompts. `ui/progress_screen.json:1209` defines the world-loading
   screen independently. Neither the language strings nor UI JSON establish packet order.
+- **Transfer destination:** Lens artifact 6, raw RVA `0x014c8e10`, identifies itself as the
+  `ClientNetworkHandler::handle(..., TransferPacket const&)` handler and calls server-transfer
+  initiator RVA `0x001899f0` on its ordinary destination path. The named reconstruction passes
+  the packet's address and port to `WorldTransferInitiator::initiateTransferToServer` at
+  `R:c/ClientNetworkHandler.cpp:16616`; `R:w/WorldTransferInitiator.cpp:4` builds that server
+  connection. The vanilla pack's `texts/en_US.lang:1546` describes transfer as moving a player
+  to another server, and `:8237` labels the world-transfer screen “Loading World”. These sources
+  establish destination handoff, not a bridge shutdown algorithm or a spawn prerequisite.
 
 ## Implementation and regression coverage
 
@@ -47,9 +55,18 @@ completion command. That command sends loading-end followed by initialized once.
 against a local scripted upstream and runs the actual Rust socket login. The upstream
 asserts every relevant outbound packet in order, with a round-trip barrier proving that
 completion cannot precede explicit presentation readiness. A second completion call must
-not send duplicates. The transfer case sends StartGame then Transfer and closes without
-ever supplying spawn prerequisites. The destination reaches Rust as a typed terminal event,
-which the app routes to its existing reconnect owner.
+not send duplicates. The transfer cases send StartGame then Transfer, in separate frames or
+one batch, and immediately close without supplying spawn prerequisites. A connection-context
+barrier waits for upstream EOF before starting either relay pump; no sleep controls the race.
+The destination reaches Rust as a typed terminal event, which the app routes to its existing
+reconnect owner.
+
+The relay drains queued upstream batches before teardown when the reverse writer observes
+an ordinary upstream close. Rust also reads terminal input if its startup response write
+fails: Transfer or Disconnect takes precedence over that write failure. Without either
+terminal packet it retains the original write error; the existing startup deadline and
+owner cancellation still bound the drain. Scripted tests force write failure with both batch
+layouts, and relay tests cover queued delivery and cancellation.
 
 This verifies the startup packet contract. It does not certify all terrain-readiness
 thresholds, dimension transitions, consent dialogs, or live-server/visual parity. The existing
