@@ -624,18 +624,27 @@ fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
 fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance() {
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
     // Vanilla's uncapped 0.75 restitution intentionally differs from this old Go capture.
-    assert!(matches!(
-        audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-6),
-        Err(ConformanceError::Mismatch {
-            field: "velocity.y",
-            expected: 0.37436,
-            ..
-        })
-    ));
+    let divergence = audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-6);
+    assert!(
+        matches!(
+            divergence,
+            Err(ConformanceError::Mismatch {
+                field: "velocity.y",
+                expected,
+                ..
+            }) if (expected - 0.37436).abs() < 1.0e-12
+        ),
+        "{divergence:?}"
+    );
     let retained = trace.lines().map(|line| {
         let mut record: serde_json::Value = serde_json::from_str(line).unwrap();
-        if record["scenario"] == "bed_bounce" {
-            record["evidence"] = serde_json::json!({"status": "unsupported_non_conformance", "reason": "Vanilla differs from Go: bed restitution is 0.75 without a cap"});
+        let reason = match record["scenario"].as_str() {
+            Some("bed_bounce") => Some("Vanilla differs from Go: bed restitution is 0.75 without a cap"),
+            Some("soul_sand") => Some("Vanilla differs from Go: soul sand multiplies acceleration friction by 1.225"),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            record["evidence"] = serde_json::json!({"status": "unsupported_non_conformance", "reason": reason});
             for step in record["steps"].as_array_mut().unwrap() {
                 step.as_object_mut().unwrap().remove("expected");
             }
@@ -644,15 +653,15 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
     }).collect::<Vec<_>>().join("\n");
     let audit = audit_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-6).unwrap();
     assert_eq!(audit.scripts, 31);
-    assert_eq!(audit.observed_steps, 36);
+    assert_eq!(audit.observed_steps, 34);
     // Only the strata bedsim v0.1.3 genuinely implements are observed. Fluids,
     // bubble columns, scaffolding, honey, cobweb sensing, the step-correction
     // divergence, and the unloaded-chunk error contract have no bedsim oracle,
     // so they stay an explicit coverage ledger rather than a parity claim.
-    assert_eq!(audit.unsupported_scripts, 13);
+    assert_eq!(audit.unsupported_scripts, 14);
     assert!(matches!(
         verify_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-6),
-        Err(ConformanceError::UnsupportedEvidence { count: 13 })
+        Err(ConformanceError::UnsupportedEvidence { count: 14 })
     ));
 
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
