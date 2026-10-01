@@ -2484,6 +2484,12 @@ store it only under the user's temporary directory, inspect that file, and never
     remain capped at 32 and the result channel at 128. The deterministic
     regression, all 284 client unit tests (two ignored), strict Clippy,
     formatting, and CI are green.
+  - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
+    mesh waits while any of its 26 neighbours is owed (requested, or unsent in
+    the announced Euclidean disk while the server delivered data within 1 s).
+    Vanilla instead builds against absent chunks at the default brightness and
+    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
+    no native reference. `streaming_harness` measures it.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate
@@ -3360,6 +3366,11 @@ system from Phase 2 must have been built pack-stack-aware); disconnect screens w
 reasons; auth/device-code UX polish. Optional stretch: Lunar module toggles surfaced in-client
 via control channel (v1.x, not v1).
 
+- **Marketplace rows — provisional, incomplete.** Layout rows carry catalog queries, not offers;
+  core fills each from its first query via `marketplace.Query.SearchFilter` onto PlayFab
+  `Catalog/Search`, whose vanilla request body is unconfirmed, and rows have no continuation
+  source yet (no "See All"). Does not close the store parity gate (`docs/marketplace-services.md`).
+
 ## Phase 7 — Local worlds on dragonfly
 
 Scope: core embeds/spawns dragonfly (`platform/pc-server` and dragonfly-server skill patterns
@@ -3368,7 +3379,7 @@ LevelDB world persistence via dragonfly; pause/resume semantics on window focus;
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
-Status: provisional implementation landed (see `docs/local-worlds.md`): BDS (native, or container on macOS) for vanilla worldgen and mobs, dragonfly as the superflat-only fallback; uncompiled and unmeasured, so no acceptance gate is closed.
+Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the manifest-pinned container on macOS) for default worlds, dragonfly for Flat worlds; menu create/edit/delete/templates and staged loading are built. Live-verified on macOS through the core's control channel (create, staged open, spawn, server-side teleport and client fall, pause, close with no orphan); the menu click-through and on-screen input were not exercised (locked screen), and the create screen lacks vanilla's Multiplayer, Cheats and pack tabs, so no acceptance gate is closed.
 
 ## Phase 8 — Audio, polish, packaging
 

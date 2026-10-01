@@ -1,89 +1,151 @@
 //! First-run preparation of the Mojang-derived asset carriers, which installers never ship.
 //!
-//! Runs before the window opens: consent, then fetch of the pinned public pack, then `assetc`.
-//! Progress is mirrored to `logs/first-run-status.json`.
+//! Runs before the game window: consent, a download of the pinned public pack, then `assetc`. A
+//! setup window in a child process shows it; without one, native dialogs do. Progress is mirrored
+//! to `logs/first-run-status.json`.
 
+mod download;
 mod plan;
+mod prepare;
 mod runner;
+mod screen;
+mod stamp;
 mod status;
 #[cfg(test)]
 mod test_support;
+mod window;
 
-use std::fs::{self, OpenOptions};
+use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
 
 use crate::{
     install_layout::InstallLayout,
     native_dialog::{NativePrompter, Prompter},
 };
+use prepare::prepare;
 use status::{Phase, Status};
+pub(crate) use window::{SETUP_FLAG, run_setup_process};
 
 const CONSENT_ENV: &str = "CINNABAR_ACCEPT_MOJANG_EULA";
 const TITLE: &str = "Cinnabar first-time setup";
 const CONSENT_BODY: &str = "Cinnabar needs Minecraft's official sample resource pack. It is downloaded from Mojang's public release (a large one-time download), converted on this computer, and never redistributed by Cinnabar.\n\nContinuing confirms you accept the Minecraft EULA (https://www.minecraft.net/eula). Setup runs once and takes a few minutes.";
+const EULA_URL: &str = "https://www.minecraft.net/eula";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Outcome {
     NotNeeded,
     Prepared,
+    /// The user declined or cancelled; the client should exit quietly.
+    Quit,
 }
 
-/// Prepares the per-user carriers when a packaged install has none; a no-op for development checkouts.
+/// Prepares the per-user carriers when a packaged install has none or they predate the pins this
+/// build carries; a no-op for development checkouts.
 pub(crate) fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
-    ensure_with(
-        layout,
-        &NativePrompter,
-        std::env::var_os(CONSENT_ENV).is_some_and(|v| v == "1"),
+    if !needs_preparation(layout) {
+        return Ok(Outcome::NotNeeded);
+    }
+    match window::run_in_child() {
+        window::ChildOutcome::Prepared => Ok(Outcome::Prepared),
+        window::ChildOutcome::Quit => Ok(Outcome::Quit),
+        window::ChildOutcome::Failed(code) => bail!(
+            "first-time setup failed (exit {code}); details: {}",
+            layout.log_dir().join("first-run.log").display()
+        ),
+        window::ChildOutcome::Unavailable => ensure_with(layout, &NativePrompter, env_consent()),
+    }
+}
+
+/// An unreadable kit counts as needing preparation, which then reports it.
+fn needs_preparation(layout: &InstallLayout) -> bool {
+    layout.is_installed()
+        && !prepare::selection(layout).is_ok_and(|(_, selection)| selection.is_current())
+}
+
+/// An earlier set exists, so this run updates rather than sets up.
+fn updating(layout: &InstallLayout) -> bool {
+    layout.prepared_assets_dir().is_dir()
+}
+
+fn env_consent() -> bool {
+    std::env::var_os(CONSENT_ENV).is_some_and(|v| v == "1")
+}
+
+fn consent_marker(layout: &InstallLayout) -> PathBuf {
+    layout.prepare_workspace().join("eula-accepted")
+}
+
+/// What the user agreed to; new consent text or a new EULA link asks again.
+fn consent_identity() -> String {
+    format!(
+        "{:x}\n",
+        Sha256::digest(format!("{CONSENT_BODY}\n{EULA_URL}"))
     )
 }
 
+fn consent_recorded(layout: &InstallLayout) -> bool {
+    fs::read_to_string(consent_marker(layout)).is_ok_and(|marker| marker == consent_identity())
+}
+
+fn record_consent(layout: &InstallLayout) -> Result<()> {
+    let marker = consent_marker(layout);
+    if let Some(parent) = marker.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&marker, consent_identity()).context("record consent")
+}
+
+/// Mirrors each report to the status file, then hands it to `forward`.
+fn reporter<'a>(
+    layout: &InstallLayout,
+    mut forward: impl FnMut(&Status) + 'a,
+) -> impl FnMut(Status) + 'a {
+    let path = layout.log_dir().join("first-run-status.json");
+    move |status| {
+        let _ = status::write(&path, &status);
+        forward(&status);
+    }
+}
+
+/// The native-dialog flow, used when no setup window can open.
 fn ensure_with(
     layout: &InstallLayout,
     prompter: &dyn Prompter,
     env_consent: bool,
 ) -> Result<Outcome> {
-    if !layout.is_installed() || plan::carriers_present(&layout.compiled_assets) {
+    if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
-    let status_path = layout.log_dir().join("first-run-status.json");
-    let report = |phase, step, total, label: &str, error: Option<&str>| {
-        let _ = status::write(
-            &status_path,
-            &Status {
-                phase,
-                step,
-                total,
-                label,
-                error,
-            },
-        );
-    };
-    report(Phase::AwaitingConsent, 0, 0, "Waiting for consent", None);
-    let marker = layout.prepare_workspace().join("eula-accepted");
-    if !env_consent && !marker.is_file() && !prompter.confirm(TITLE, CONSENT_BODY) {
-        report(Phase::Failed, 0, 0, "Declined", Some("setup declined"));
-        bail!("first-time setup was declined; Cinnabar cannot start without its game assets");
+    let mut report = reporter(layout, |_| {});
+    report(Status::new(
+        Phase::AwaitingConsent,
+        0,
+        0,
+        "Waiting for consent",
+    ));
+    if !env_consent && !consent_recorded(layout) && !prompter.confirm(TITLE, CONSENT_BODY) {
+        report(Status::failed("Declined", "setup declined"));
+        return Ok(Outcome::Quit);
     }
-    if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&marker, b"accepted\n").context("record consent")?;
+    let is_update = updating(layout);
+    record_consent(layout)?;
     prompter.info(
         TITLE,
-        "Preparing game assets. This happens once and takes a few minutes.",
+        if is_update {
+            "Updating game assets for this version of Cinnabar. This takes a few minutes."
+        } else {
+            "Preparing game assets. This happens once and takes a few minutes."
+        },
     );
-    match prepare(layout, |step, total, label| {
-        report(Phase::Running, step, total, label, None)
-    }) {
+    match prepare(layout, &AtomicBool::new(false), &mut report) {
         Ok(()) => {
-            report(Phase::Done, 0, 0, "Ready", None);
             prompter.info(TITLE, "Setup finished. Starting Cinnabar.");
             Ok(Outcome::Prepared)
         }
         Err(error) => {
             let message = format!("{error:#}");
-            report(Phase::Failed, 0, 0, "Failed", Some(message.as_str()));
             prompter.alert(
                 TITLE,
                 &format!(
@@ -94,54 +156,6 @@ fn ensure_with(
             Err(error)
         }
     }
-}
-
-fn prepare(layout: &InstallLayout, mut progress: impl FnMut(usize, usize, &str)) -> Result<()> {
-    let kit = layout.prep_kit();
-    if !kit.is_dir() {
-        bail!(
-            "installer preparation kit is missing at {}; reinstall Cinnabar",
-            kit.display()
-        );
-    }
-    let workspace = layout.prepare_workspace();
-    runner::stage_kit(&kit, &workspace)?;
-    let steps = plan::steps(&workspace)?;
-    let staged = workspace.join(".local/assets/compiled");
-    if staged.exists() {
-        fs::remove_dir_all(&staged)?;
-    }
-    fs::create_dir_all(&staged)?;
-    fs::create_dir_all(layout.log_dir())?;
-    let log_path = layout.log_dir().join("first-run.log");
-    let log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .with_context(|| format!("open {}", log_path.display()))?;
-    let exec = runner::ProcessExec {
-        workspace: workspace.clone(),
-        kit,
-        log,
-    };
-    let total = steps.len();
-    runner::execute_steps(
-        &steps,
-        |step| exec.run(step),
-        |index, step| progress(index + 1, total, step.label),
-    )?;
-    if !plan::carriers_present(&staged) {
-        bail!(
-            "preparation finished but required carriers are missing under {}",
-            staged.display()
-        );
-    }
-    runner::publish(&staged, &layout.prepared_assets_dir())?;
-    // The extracted pack and its archive are only compile inputs; carriers are all that persist.
-    for scratch in ["bedrock-samples", "downloads"] {
-        let _ = fs::remove_dir_all(workspace.join(".local/assets").join(scratch));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -166,7 +180,7 @@ mod tests {
         fn alert(&self, _: &str, _: &str) {}
     }
 
-    fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
+    pub(super) fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
         InstallLayout::resolve(
             Platform::Linux,
             &InstallEnvironment {
@@ -198,16 +212,32 @@ mod tests {
     }
 
     #[test]
-    fn declined_consent_fails_closed_without_running_anything() {
+    fn declined_consent_quits_without_running_anything() {
         let data = Dir::new("decline");
         let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
         let fake = Fake {
             accept: false,
             asked: Cell::new(0),
         };
-        let error = ensure_with(&layout, &fake, false).unwrap_err();
-        assert!(error.to_string().contains("declined"));
-        assert!(!layout.prepare_workspace().join("eula-accepted").exists());
+        assert_eq!(ensure_with(&layout, &fake, false).unwrap(), Outcome::Quit);
+        assert!(!consent_marker(&layout).exists());
+    }
+
+    #[test]
+    fn recorded_consent_to_the_same_terms_is_not_asked_again() {
+        let data = Dir::new("consent");
+        let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+        let fake = Fake {
+            accept: false,
+            asked: Cell::new(0),
+        };
+        record_consent(&layout).unwrap();
+        let _ = ensure_with(&layout, &fake, false);
+        assert_eq!(fake.asked.get(), 0);
+        // Consent recorded for other terms (or by an older build) asks again.
+        fs::write(consent_marker(&layout), b"accepted\n").unwrap();
+        assert_eq!(ensure_with(&layout, &fake, false).unwrap(), Outcome::Quit);
+        assert_eq!(fake.asked.get(), 1);
     }
 
     #[test]
@@ -220,6 +250,8 @@ mod tests {
         };
         let error = ensure_with(&layout, &fake, false).unwrap_err();
         assert!(format!("{error:#}").contains("preparation kit"));
+        let status = fs::read_to_string(layout.log_dir().join("first-run-status.json")).unwrap();
+        assert!(status.contains("\"failed\"") && status.contains("preparation kit"));
         // Consent is remembered, so the retry does not prompt again.
         let _ = ensure_with(&layout, &fake, false);
         assert_eq!(fake.asked.get(), 1);

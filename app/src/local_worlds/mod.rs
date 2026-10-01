@@ -1,4 +1,4 @@
-//! World management for local single-player worlds served by the core's dragonfly host.
+//! Local single-player worlds served by the core (BDS, or dragonfly for Flat worlds).
 //!
 //! [`WorldsMenu`] is a pure screen model; [`LocalWorlds`] wires it to the core's control
 //! channel. The menu module embeds it by calling `attach`, `input`, `menu` and `take_ready`.
@@ -7,6 +7,7 @@ mod client;
 mod form;
 mod launch;
 mod model;
+mod progress;
 mod prompt;
 
 use std::{io, path::PathBuf};
@@ -16,19 +17,40 @@ use bevy::{
     window::WindowFocused,
 };
 
-pub(crate) use form::{difficulty_label, game_mode_label, generator_label};
-pub(crate) use launch::spawn_core_for_local_worlds;
-pub(crate) use model::{Effect, Event, Input, Screen, WorldsMenu};
-pub(crate) use prompt::{PromptButton, PromptKind};
+pub(crate) use form::{
+    MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS, difficulty_description, difficulty_label,
+    game_mode_description, game_mode_label,
+};
+pub(crate) use launch::core_args;
+pub(crate) use model::{Effect, Event, Input, Screen, Tab, WorldsMenu, WorldsView};
+pub(crate) use progress::{Progress, Stage};
+pub(crate) use prompt::{Prompt, PromptButton, PromptFor};
 
 use client::WorldsClient;
 
 /// Menu model plus the control-channel worker that serves it.
-#[derive(Default, Resource)]
+#[derive(Resource)]
 pub(crate) struct LocalWorlds {
     menu: WorldsMenu,
     client: Option<WorldsClient>,
     playing: bool,
+    focused: bool,
+    pause_menu: bool,
+    /// The pause last sent to the core.
+    paused: bool,
+}
+
+impl Default for LocalWorlds {
+    fn default() -> Self {
+        Self {
+            menu: WorldsMenu::default(),
+            client: None,
+            playing: false,
+            focused: true,
+            pause_menu: false,
+            paused: false,
+        }
+    }
 }
 
 impl LocalWorlds {
@@ -71,21 +93,37 @@ impl LocalWorlds {
         self.menu.take_ready()
     }
 
-    /// Records whether the player is in the local world; only then does focus loss pause it.
+    /// Records whether the player is in the local world; only then does the world pause.
     pub(crate) fn set_playing(&mut self, playing: bool) {
         self.playing = playing;
+        self.sync_pause();
     }
 
     /// Leaves the local world: the core saves and stops it.
     pub(crate) fn leave_world(&mut self) {
         self.playing = false;
+        self.paused = false;
         self.dispatch(vec![Effect::Close]);
+    }
+
+    /// The pause menu is open over the world; single-player pauses the game behind it.
+    pub(crate) fn set_pause_menu(&mut self, open: bool) {
+        self.pause_menu = open;
+        self.sync_pause();
     }
 
     /// Pauses the world when the window loses focus and resumes it on regain.
     pub(crate) fn focus_changed(&mut self, focused: bool) {
-        if self.playing {
-            self.dispatch(vec![Effect::SetPaused(!focused)]);
+        self.focused = focused;
+        self.sync_pause();
+    }
+
+    /// Sends a pause change when playing and the wanted state moved; the core ignores it for BDS.
+    fn sync_pause(&mut self) {
+        let wanted = self.playing && (self.pause_menu || !self.focused);
+        if wanted != self.paused {
+            self.paused = wanted;
+            self.dispatch(vec![Effect::SetPaused(wanted)]);
         }
     }
 
@@ -101,7 +139,7 @@ impl LocalWorlds {
 }
 
 /// Opens a fixed https URL in the system browser; failures are ignored.
-fn open_url(url: &str) {
+pub(crate) fn open_url(url: &str) {
     let mut command = if cfg!(target_os = "macos") {
         std::process::Command::new("open")
     } else if cfg!(target_os = "windows") {
@@ -148,10 +186,30 @@ mod tests {
         let mut worlds = LocalWorlds::default();
         worlds.focus_changed(false);
         worlds.pump();
+        assert!(!worlds.paused, "not in a world");
         worlds.set_playing(true);
+        assert!(worlds.paused, "joined while unfocused");
         worlds.focus_changed(true);
+        assert!(!worlds.paused);
         worlds.leave_world();
         assert!(!worlds.playing);
+    }
+
+    /// The pause menu pauses a single-player world and closing it resumes, as in vanilla.
+    #[test]
+    fn the_pause_menu_pauses_and_resumes_the_world() {
+        let mut worlds = LocalWorlds::default();
+        worlds.set_pause_menu(true);
+        assert!(!worlds.paused, "online play never pauses");
+        worlds.set_pause_menu(false);
+        worlds.set_playing(true);
+        worlds.set_pause_menu(true);
+        assert!(worlds.paused);
+        worlds.focus_changed(false);
+        worlds.set_pause_menu(false);
+        assert!(worlds.paused, "still unfocused");
+        worlds.focus_changed(true);
+        assert!(!worlds.paused);
     }
 
     #[test]

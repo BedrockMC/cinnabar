@@ -105,6 +105,50 @@ impl EquipmentRuntime {
         true
     }
 
+    /// The held item's generated mesh and artwork, and whether the mesh is a block cube. A
+    /// server pack's icon replaces the vanilla one, as it does in the inventory. With
+    /// `icon_fallback`, a block with no plain cube sheet takes its icon sprite instead.
+    pub(super) fn held_mesh(
+        &mut self,
+        item: &WornItem,
+        icon_fallback: bool,
+    ) -> Option<(EntityRigId, ActorArtworkLocation, bool)> {
+        let session = match item.kind {
+            HeldKind::Sprite | HeldKind::Other => self.session_sprite(&item.identifier),
+            HeldKind::Block(_) => None,
+        };
+        let (index, key, placement, location) = if let Some((index, placement, location)) = session
+        {
+            (index, MeshKey::Session(index), placement, location)
+        } else {
+            let sheet = match item.kind {
+                HeldKind::Block(visual) => self
+                    .block_sheets
+                    .get(&visual)
+                    .map(|index| (*index, MeshKey::Block(visual))),
+                _ => None,
+            };
+            let (index, key) = match (sheet, item.kind) {
+                (Some(sheet), _) => sheet,
+                (None, HeldKind::Other) => return None,
+                (None, HeldKind::Block(_)) if !icon_fallback => return None,
+                (None, _) => {
+                    let index = self.icons.lookup_index(&item.identifier, item.metadata)?;
+                    (index, MeshKey::Sprite(index))
+                }
+            };
+            let placement = self.placements.get(index).copied().flatten()?;
+            let location = self
+                .atlas_locations
+                .get(placement.layer)
+                .copied()
+                .flatten()?;
+            (index, key, placement, location)
+        };
+        let mesh = self.mesh_for(key, index, placement)?;
+        Some((mesh, location, matches!(key, MeshKey::Block(_))))
+    }
+
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
     pub(super) fn push_attached(
         &mut self,
@@ -115,55 +159,19 @@ impl EquipmentRuntime {
         override_display: Option<ItemDisplay>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        let hand = bone;
-        let Some(hand) = hand else {
+        let Some(hand) = bone else {
             return;
         };
-        let sprite_display = || held_sprite_display(self.hand_equipped(&item.identifier));
-        // A server pack's icon replaces the vanilla one, as it does in the inventory.
-        let session = match item.kind {
-            HeldKind::Sprite | HeldKind::Other => self.session_sprite(&item.identifier),
-            HeldKind::Block(_) => None,
+        let Some((mesh, location, block)) = self.held_mesh(item, override_display.is_none()) else {
+            return;
         };
-        let (sprite_index, key, display, placement, location) =
-            if let Some((index, placement, location)) = session {
-                (
-                    index,
-                    MeshKey::Session(index),
-                    sprite_display(),
-                    placement,
-                    location,
-                )
+        let display = override_display.unwrap_or_else(|| {
+            if block {
+                held_block_display()
             } else {
-                let (sprite_index, key, display) = match item.kind {
-                    HeldKind::Sprite => {
-                        let Some(index) = self.icons.lookup_index(&item.identifier, item.metadata)
-                        else {
-                            return;
-                        };
-                        (index, MeshKey::Sprite(index), sprite_display())
-                    }
-                    HeldKind::Block(visual) => {
-                        let Some(index) = self.block_sheets.get(&visual).copied() else {
-                            return;
-                        };
-                        (index, MeshKey::Block(visual), held_block_display())
-                    }
-                    HeldKind::Other => return,
-                };
-                let Some(placement) = self.placements.get(sprite_index).copied().flatten() else {
-                    return;
-                };
-                let Some(location) = self.atlas_locations.get(placement.layer).copied().flatten()
-                else {
-                    return;
-                };
-                (sprite_index, key, display, placement, location)
-            };
-        let display = override_display.unwrap_or(display);
-        let Some(mesh) = self.mesh_for(key, sprite_index, placement) else {
-            return;
-        };
+                held_sprite_display(self.hand_equipped(&item.identifier))
+            }
+        });
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),

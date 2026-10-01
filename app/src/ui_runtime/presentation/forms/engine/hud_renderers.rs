@@ -226,3 +226,26 @@ fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
     };
     let _ = painter.push(visual, [x, y, x + side, y + side]);
 }
+
+/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
+/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
+pub(super) fn with_java_hud(
+    vanilla: &json_ui::Catalog,
+    withdrawn: &std::collections::BTreeSet<String>,
+) -> json_ui::Catalog {
+    let mut catalog = vanilla.clone();
+    let kept = super::super::hud::JAVA_HUD_PACK
+        .iter()
+        .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
+        .map(|(path, _, bytes)| (*path, *bytes));
+    catalog.apply_pack(kept);
+    catalog.apply_pack(
+        [(
+            "ui/ui_art_assets_common.json",
+            super::menu_renderers::TITLE_PANEL_OVERLAY,
+        )]
+        .into_iter()
+        .chain(super::menu_renderers::NO_COPYRIGHT_OVERLAYS),
+    );
+    catalog
+}

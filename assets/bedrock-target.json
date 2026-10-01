@@ -2,6 +2,7 @@
   "schema": "cinnabar.bedrock-target.v1",
   "game_version": "1.26.50",
   "server_version": "1.26.52.3",
+  "bds_container_image": "itzg/minecraft-bedrock-server:2026.9.2@sha256:244e72a36a3e3d69c588cbeefe6d8f6f97c48869b801718a4023570654e3b3d9",
   "wire_protocol": 2193,
   "codec_feature": "bedrock_1_26_51",
   "hashes": {

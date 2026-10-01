@@ -283,3 +283,34 @@ func (t *trickleWriter) Write(p []byte) (int, error) {
 	}
 	return t.w.Write(p[:1])
 }
+
+// A peer that leaves while nothing reads is noticed; a frame read ahead is still returned in order.
+func TestPeerDoneNoticesCloseAndKeepsReadAheadFramesInOrder(t *testing.T) {
+	server, client := net.Pipe()
+	tracked := newTrackedFramedConn(server, func() {})
+	peer := NewFramedConn(client)
+	watcher, ok := tracked.RemoteAddr().(PeerWatcher)
+	if !ok {
+		t.Fatal("tracked connection address carries no PeerWatcher")
+	}
+	done := watcher.PeerDone()
+	go func() { _, _ = peer.Write([]byte{1}) }()
+	if got, err := tracked.ReadPacket(); err != nil || !bytes.Equal(got, []byte{1}) {
+		t.Fatalf("read-ahead frame = %x, %v", got, err)
+	}
+	select {
+	case <-done:
+		t.Fatal("a delivered frame reported the peer gone")
+	default:
+	}
+	done = watcher.PeerDone()
+	_ = peer.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("peer close went unnoticed")
+	}
+	if _, err := tracked.ReadPacket(); err == nil {
+		t.Fatal("ReadPacket after the peer left returned no error")
+	}
+}

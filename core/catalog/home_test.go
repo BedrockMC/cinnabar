@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
+	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
 )
 
 // Authored to the reconstruction's field names; not a captured payload.
@@ -26,12 +29,12 @@ const messagingFixture = `{"result":{
 
 func TestMessagesKeepWellFormedEntriesOnce(t *testing.T) {
 	var envelope struct {
-		Result messagingResult `json:"result"`
+		Result playermessaging.Session `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(messagingFixture), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	messages, inbox := envelope.Result.flatten()
+	messages, inbox := flatten(&envelope.Result)
 	if len(messages) != 2 || messages[0].ID != "m1" || messages[1].Surface != "InboxMessage" {
 		t.Fatalf("messages = %+v", messages)
 	}
@@ -43,30 +46,27 @@ func TestMessagesKeepWellFormedEntriesOnce(t *testing.T) {
 	}
 }
 
-func TestLiveEventsAreFoundAnywhereAndEndedOnesDropped(t *testing.T) {
-	data := []byte(`{"result":{"gatherings":[
+// Ended events are dropped and the running segment dresses the button.
+func TestLiveEventsKeepRunningOnes(t *testing.T) {
+	var configs []gatherings.GatheringConfig
+	data := []byte(`[
 		{"gatheringId":"g1","title":"Live","startTimeUtc":"2026-09-01T00:00:00Z","endTimeUtc":"2026-12-01T00:00:00Z",
-		 "externalVenue":{"serverIpAddress":"1.2.3.4","serverPort":"19132"},
-		 "segments":[{"startTimeUtc":"2026-09-01T00:00:00Z","ui":{"startScreenButtonText":"Watch",
+		 "externalVenue":{"serverIpAddress":"1.2.3.4","serverPort":19132},
+		 "segments":[{"startTimeUtc":"2026-08-01T00:00:00Z","endTimeUtc":"2026-08-02T00:00:00Z","ui":{"startScreenButtonText":"Soon"}},
+		             {"startTimeUtc":"2026-09-01T00:00:00Z","ui":{"startScreenButtonText":"Watch",
 		   "captionText":"Live now","captionIncludesCountdown":true,"badgeImage":"https://cdn.test/b.png"}}]},
 		{"gatheringId":"old","endTimeUtc":"2020-01-01T00:00:00Z"}
-	]}}`)
-	now := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
-	events, err := parseLiveEvents(data, now)
-	if err != nil || len(events) != 1 {
-		t.Fatalf("events = %+v, err = %v", events, err)
+	]`)
+	if err := json.Unmarshal(data, &configs); err != nil {
+		t.Fatal(err)
+	}
+	events := liveEventsFrom(configs, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
+	if len(events) != 1 {
+		t.Fatalf("events = %+v", events)
 	}
 	event := events[0]
 	if event.Address != "1.2.3.4:19132" || event.ButtonText != "Watch" || !event.CaptionCountdown || event.Badge.URL == "" {
 		t.Fatalf("event = %+v", event)
-	}
-}
-
-func TestPortsReadFromNumbersOrStrings(t *testing.T) {
-	for raw, want := range map[string]int{`19132`: 19132, `"19133"`: 19133, `0`: 0, `"x"`: 0} {
-		if got := portOf(json.RawMessage(raw)); got != want {
-			t.Fatalf("portOf(%s) = %d", raw, got)
-		}
 	}
 }
 
