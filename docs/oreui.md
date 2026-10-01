@@ -57,7 +57,7 @@ per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
 - Inbox: category menu, card layout, the Recent/History split.
 - Friends drawer: search field (not interactive), tab icons, the People list (only friends
   currently in worlds are known).
-- Create / edit world and templates: text field, segmented control and switch art (approximated
+- Create / edit world and templates: text field and segmented control art (approximated
   from `baseTextField*` facts), the side-menu tab icons, the world preview image, the missing
   Multiplayer, Cheats, pack and experiment tabs, Hardcore, and the "Leave Create New World?" prompt.
 - Play: tab bar bevels, world rows (thumbnails are placeholders; no pager or grid mode), the

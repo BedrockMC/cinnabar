@@ -20,7 +20,7 @@ use super::{
 use crate::{
     melee::SwingTracker,
     presentation::actors::{
-        ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
+        ActorRigPresentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
         update_actor_rig_scene,
     },
@@ -141,6 +141,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
     skin_pack: Local<'s, crate::presentation::actors::SkinLayerPack>,
+    poses: Local<'s, crate::presentation::actors::PoseConversions>,
+    layer_poses: Local<'s, crate::presentation::entity_layers::LayerPoseCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -154,6 +156,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
+    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -170,6 +173,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut cape_state,
         mut skin_rigs,
         mut skin_pack,
+        mut poses,
+        mut layer_poses,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -183,6 +188,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut dropped_items,
         profiler,
         mut partial_tick,
+        cave,
     } = params;
     let _timer = profiler
         .as_deref()
@@ -231,6 +237,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     let step = actor_clock.advance(time.delta());
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
+    poses.begin_frame();
+    if let Some(equipment) = equipment.as_deref_mut() {
+        equipment.begin_frame();
+    }
+    layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let item_use = client_world
         .stream
@@ -274,6 +285,15 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
+        stream.set_actor_animation_view(
+            camera
+                .single()
+                .ok()
+                .and_then(|(transform, projection)| animation_view(transform, projection)),
+        );
+        let _animation = profiler
+            .as_deref()
+            .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
         // Fluid and bed state is tick state; a frame without a tick would resample the same.
         if step.ticks > 0
             && let Some(collisions) = collisions.as_deref()
@@ -296,6 +316,15 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         view.rotation(),
         &mut local_visibility,
     );
+    // Vanilla projects the hand with its own fixed FOV, ignoring the FOV option and modifiers.
+    let hand_camera_fov = camera
+        .single()
+        .ok()
+        .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
+        .map(|_| HAND_FOV_DEGREES.to_radians());
+    let preparation = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
     let cull_view = camera
         .single()
         .ok()
@@ -304,12 +333,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    // Vanilla projects the hand with its own fixed FOV, ignoring the FOV option and modifiers.
-    let hand_camera_fov = camera
-        .single()
-        .ok()
-        .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
-        .map(|_| HAND_FOV_DEGREES.to_radians());
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
@@ -318,49 +341,77 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             .as_ref()
             .map(|stream| {
                 let local_runtime_id = stream.local_player_runtime_id();
-                let mut remotes = Vec::new();
+                let mut remotes = Vec::with_capacity(stream.actor_count());
                 let mut canonical_local = None;
-                let rigs = stream.actor_rigs();
-                let unrigged_actors = stream.actor_count().saturating_sub(rigs.len());
-                for rig in rigs {
+                let mut rigged = 0;
+                for rig in stream.actor_rigs() {
+                    rigged += 1;
                     let Some(actor) = stream.actor(rig.actor.runtime_id) else {
                         continue;
                     };
-                    let profile = stream.actor_player_profile(rig.actor.runtime_id);
-                    let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
-                        actor_rig_presentation(&rig, actor, profile, step.partial_tick).map(
-                            |mut presentation| {
-                                if let Some(geometry) = rig.skin_geometry {
-                                    // The pose drives the skin's own bones, so only its model fits.
-                                    match skin_rigs.rig(geometry, |built| {
-                                        if let Some(equipment) = equipment.as_deref_mut() {
-                                            equipment.register_skin_rig(
-                                                built.id,
-                                                geometry
-                                                    .bones
-                                                    .iter()
-                                                    .map(|bone| bone.name.clone())
-                                                    .collect(),
-                                            );
-                                        }
-                                        new_geometries.push(built);
-                                    }) {
-                                        Some(id) => presentation.submission.input.rig = id,
-                                        None => {
-                                            presentation.submission.route =
-                                                render::ActorRigRoute::NoDraw;
-                                        }
-                                    }
-                                }
-                                presentation
+                    // Culled before any per-actor work; the local rig also drives the hand.
+                    if rig.actor.runtime_id != local_runtime_id
+                        && !crate::presentation::actors::rig_may_be_visible(
+                            &rig,
+                            actor,
+                            step.partial_tick,
+                            cull_view,
+                            |low, high| {
+                                cave.as_deref().is_some_and(|cave| {
+                                    cave.hides_box(
+                                        stream.current_dimension(),
+                                        stream.connectivity_generation(),
+                                        |key| stream.has_sub_chunk_connectivity(key),
+                                        low,
+                                        high,
+                                    )
+                                })
                             },
                         )
+                    {
+                        continue;
+                    }
+                    let profile = stream.actor_player_profile(rig.actor.runtime_id);
+                    let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
+                        crate::presentation::actors::actor_rig_presentation_cached(
+                            &rig,
+                            actor,
+                            profile,
+                            step.partial_tick,
+                            &mut poses,
+                        )
+                        .map(|mut presentation| {
+                            if let Some(geometry) = rig.skin_geometry {
+                                // The pose drives the skin's own bones, so only its model fits.
+                                match skin_rigs.rig(geometry, |built| {
+                                    if let Some(equipment) = equipment.as_deref_mut() {
+                                        equipment.register_skin_rig(
+                                            built.id,
+                                            geometry
+                                                .bones
+                                                .iter()
+                                                .map(|bone| bone.name.clone())
+                                                .collect(),
+                                        );
+                                    }
+                                    new_geometries.push(built);
+                                }) {
+                                    Some(id) => presentation.submission.input.rig = id,
+                                    None => {
+                                        presentation.submission.route =
+                                            render::ActorRigRoute::NoDraw;
+                                    }
+                                }
+                            }
+                            presentation
+                        })
                     } else {
-                        crate::presentation::actors::entity_rig_presentation(
+                        crate::presentation::actors::entity_rig_presentation_cached(
                             &rig,
                             actor,
                             artwork,
                             step.partial_tick,
+                            Some(&mut poses),
                         )
                     };
                     let Some(presentation) = presentation else {
@@ -378,7 +429,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                     stream.current_dimension(),
                     remotes,
                     canonical_local,
-                    unrigged_actors,
+                    stream.actor_count().saturating_sub(rigged),
                 )
             })
             .unwrap_or((0, 0, 0, Vec::new(), None, 0));
@@ -533,10 +584,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     // After equipment, which rides the rig's own model even when a controller draws another.
     if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::entity_layers::apply_render_layers(
+        crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| stream.actor_rig(runtime_id),
             artwork,
+            &mut layer_poses,
         );
     }
     // Layers were built above from the visible body, so hiding the body keeps armor and held items.
@@ -557,8 +609,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if let Some(equipment) = equipment.as_deref_mut() {
         new_geometries.extend(equipment.take_pending_geometries());
     }
+    drop(preparation);
+    let rig_build = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::ActorRigBuild));
     register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch, &mut skin_pack).clone();
+    drop(rig_build);
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
         local_visible,
@@ -611,6 +668,44 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         hand_light,
         step.partial_tick,
     );
+}
+
+/// Rigs this far outside the view on every side still animate, so only a turn faster than this
+/// in one tick shows a rig its held pose for that tick.
+const ANIMATION_GUARD_DEGREES: f32 = 30.0;
+
+/// The camera's frustum widened by the guard band, with the render distances.
+fn animation_view(
+    transform: &bevy::prelude::Transform,
+    projection: &Projection,
+) -> Option<client_world::ActorAnimationView> {
+    let Projection::Perspective(perspective) = projection else {
+        return None;
+    };
+    let (guard, limit) = (ANIMATION_GUARD_DEGREES.to_radians(), 85f32.to_radians());
+    let half_vertical = perspective.fov * 0.5;
+    let half_horizontal = (half_vertical.tan() * perspective.aspect_ratio).atan();
+    let (half_vertical, half_horizontal) = (
+        (half_vertical + guard).min(limit),
+        (half_horizontal + guard).min(limit),
+    );
+    let clip = Mat4::perspective_infinite_reverse_rh(
+        half_vertical * 2.0,
+        half_horizontal.tan() / half_vertical.tan(),
+        perspective.near,
+    ) * transform.to_matrix().inverse();
+    let [x, y, z, w] = [0, 1, 2, 3].map(|row| clip.row(row));
+    let planes = [w + x, w - x, w + y, w - y, z, w - z].map(|plane| plane.to_array());
+    planes
+        .iter()
+        .flatten()
+        .all(|value| value.is_finite())
+        .then(|| client_world::ActorAnimationView {
+            planes,
+            camera: transform.translation.to_array(),
+            player_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+            entity_radius: render::ACTOR_CANDIDATE_RADIUS_BLOCKS,
+        })
 }
 
 /// Registers new skin models and item meshes in both rig catalogs with one rebuild each; if a
@@ -787,6 +882,41 @@ fn build_local_player_feed(
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::{PerspectiveProjection, Projection, Transform, Vec3};
+
+    /// Every actor the renderer can draw is animated: the guard-banded view admits a superset.
+    #[test]
+    fn the_animation_view_admits_everything_the_render_cull_draws() {
+        let camera =
+            Transform::from_xyz(3.0, 70.0, -2.0).looking_at(Vec3::new(20.0, 64.0, 9.0), Vec3::Y);
+        let projection = Projection::Perspective(PerspectiveProjection {
+            fov: 70f32.to_radians(),
+            aspect_ratio: 16.0 / 9.0,
+            ..Default::default()
+        });
+        let view = super::animation_view(&camera, &projection).unwrap();
+        let cull = render::ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * camera.to_matrix().inverse(),
+            camera_position: camera.translation,
+            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        };
+        let (mut drawn, mut held) = (0, 0);
+        for x in (-60..=60).step_by(3) {
+            for z in (-60..=60).step_by(3) {
+                for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
+                    let feet = [x as f32, y, z as f32];
+                    if render::actor_bounds_are_visible(feet, scale, Some(cull)) {
+                        drawn += 1;
+                        assert!(view.admits(feet, scale, false), "{feet:?} x{scale}");
+                    } else if !view.admits(feet, scale, false) {
+                        held += 1;
+                    }
+                }
+            }
+        }
+        assert!(drawn > 100 && held > 100, "drawn={drawn} held={held}");
+    }
+
     use client_world::HandPhase;
 
     // The swing wraps forward from its last tick to rest, and an eat use counts from its first

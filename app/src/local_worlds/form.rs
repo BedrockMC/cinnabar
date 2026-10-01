@@ -112,6 +112,17 @@ impl CreateForm {
     }
 }
 
+/// Owner-chosen world type names (not vanilla strings): default terrain runs on BDS, Flat on dragonfly.
+pub(crate) const NORMAL_WORLD_LABEL: &str = "Normal (BDS)";
+pub(crate) const FLAT_WORLD_LABEL: &str = "Flat (Dragonfly)";
+
+pub(crate) fn world_type_label(generator: Generator) -> &'static str {
+    match generator {
+        Generator::Normal => NORMAL_WORLD_LABEL,
+        Generator::Flat => FLAT_WORLD_LABEL,
+    }
+}
+
 pub(crate) fn game_mode_label(mode: GameMode) -> &'static str {
     match mode {
         GameMode::Survival => "Survival",

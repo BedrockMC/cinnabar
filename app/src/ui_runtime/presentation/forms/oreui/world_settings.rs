@@ -11,12 +11,10 @@ use super::paint::{Bounds, Canvas};
 use super::theme::{
     BODY, CAPTION, DESTRUCTIVE, EDGE, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
-use super::widgets::{
-    Variant, button, header, panel, row, screen_overlay, segmented, switch, text_field,
-};
+use super::widgets::{Variant, button, header, panel, row, screen_overlay, segmented, text_field};
 use crate::local_worlds::{
     Screen, Tab, WorldsView, difficulty_description, difficulty_label, game_mode_description,
-    game_mode_label,
+    game_mode_label, world_type_label,
 };
 use crate::menu::{LocalWorldAction as A, MenuAction, MenuField, MenuView};
 
@@ -369,30 +367,42 @@ fn create_advanced(
         area,
         field[3] + space(canvas, 1),
     )?;
-    let flat = form.generator == Generator::Flat;
-    let switch_width = canvas.r(8.0);
-    let text_width = area[2] - area[0] - switch_width - space(canvas, 2);
-    let title_height = canvas.text("Flat world", [area[0], y], text_width, BODY, TEXT, false)?;
-    let description = if local_view.bds_can_run {
-        "A flat world to build up or mine down into"
-    } else {
-        "A flat world to build up or mine down into. Default worlds need Docker on this computer."
-    };
-    canvas.text(
-        description,
-        [area[0], y + title_height + space(canvas, 1)],
-        text_width,
-        CAPTION,
-        TEXT_DIMMEST,
-        false,
-    )?;
-    switch(
+    // Vanilla's World type control (Infinite / Flat / Void for editor projects) sits here; the two
+    // types this build creates carry the owner's labels naming their server.
+    let y = label(canvas, "World type", area, y)?;
+    let options: Vec<_> = [Generator::Normal, Generator::Flat]
+        .iter()
+        .map(|generator| {
+            (
+                world_type_label(*generator),
+                local(A::Flat(*generator == Generator::Flat)),
+                form.generator == *generator,
+            )
+        })
+        .collect();
+    segmented(
         canvas,
         view,
-        [area[2] - switch_width, y, area[2], y + canvas.r(4.0)],
-        flat,
-        local(A::Flat(!flat)),
-    )
+        [area[0], y, area[2], y + canvas.r(5.2)],
+        &options,
+    )?;
+    let description = match (form.generator, local_view.bds_can_run) {
+        (Generator::Flat, _) => "A flat world to build up or mine down into",
+        (Generator::Normal, true) => {
+            "Vanilla terrain and mobs on the official Bedrock Dedicated Server"
+        }
+        (Generator::Normal, false) => {
+            "Vanilla terrain and mobs on the official Bedrock Dedicated Server, which needs Docker on \
+             this computer"
+        }
+    };
+    caption(
+        canvas,
+        description,
+        area,
+        y + canvas.r(5.2) + space(canvas, 2),
+    )?;
+    Ok(())
 }
 
 fn edit_general(
@@ -414,6 +424,22 @@ fn edit_general(
         y,
     )?;
     let y = difficulties(canvas, view, edit.difficulty, area, y)?;
+    let y = match &local_view.edited {
+        // Fixed when the world was created.
+        Some(world) => {
+            let y = label(canvas, "World type", area, y)?;
+            let height = canvas.text(
+                world_type_label(world.generator),
+                [area[0], y],
+                area[2] - area[0],
+                BODY,
+                TEXT_DIMMER,
+                false,
+            )?;
+            y + height + space(canvas, 4)
+        }
+        None => y,
+    };
     let y = label(canvas, "File management", area, y)?;
     let half = (area[2] - area[0] - space(canvas, 2)) * 0.5;
     button(
