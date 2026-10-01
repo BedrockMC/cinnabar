@@ -10,6 +10,7 @@ use crate::emit::RectOut;
 use crate::layout::{LaidOut, Rect};
 use crate::widgets;
 
+mod cache;
 mod focus;
 mod mapping;
 mod navigate;
@@ -430,12 +431,9 @@ fn find_global(node: &LaidOut, from: &str, found: &mut Option<String>) {
         return;
     }
     if node.control.properties.contains_key("button_mappings")
-        && let Some(mapping) = InputComponent::read_mappings(node.control)
-            .mappings
-            .into_iter()
-            .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)
+        && let Some(target) = InputComponent::global_target(node.control, from)
     {
-        *found = Some(mapping.to);
+        *found = Some(target);
     }
     for child in &node.children {
         find_global(child, from, found);
