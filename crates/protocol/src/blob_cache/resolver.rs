@@ -57,8 +57,16 @@ impl BlobCacheResolver {
     }
 
     #[must_use]
-    pub const fn stats(&self) -> BlobCacheStats {
-        self.stats
+    pub fn stats(&self) -> BlobCacheStats {
+        let store = self.cache.lock();
+        BlobCacheStats {
+            cache_pinned_bytes: store.pinned_bytes,
+            cache_payload_bytes: store.total_bytes,
+            cache_metadata_capacity_bytes: store.entries.capacity()
+                * size_of::<(u64, CacheEntry)>()
+                + store.pins.capacity() * size_of::<(u64, usize)>(),
+            ..self.stats
+        }
     }
 
     /// Arms one bounded, one-shot fast-transfer rotation. No transaction is
@@ -344,7 +352,9 @@ impl BlobCacheResolver {
         }
         let mut status = self.classify_status(&packet, pressure_recovery, true);
         let staged_bytes = status.staged_bytes();
-        if staged_bytes > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION {
+        if staged_bytes > MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION
+            || self.cache.lock().pinned_bytes > MAX_CLIENT_BLOB_PINNED_BYTES
+        {
             self.cache.unpin_all(&unique_hashes);
             self.record_staged_skip();
             self.stats.abandoned_cached_transactions =
@@ -420,6 +430,13 @@ impl BlobCacheResolver {
             self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
             return Ok(());
         }
+        let response_bytes = response.missing_blobs.iter().fold(
+            response.missing_blobs.capacity()
+                * size_of::<valentine::bedrock::version::v1_26_51::MissingBlobData>(),
+            |bytes, blob| bytes.saturating_add(blob.blob_data.capacity()),
+        );
+        self.stats.miss_response_peak_bytes =
+            self.stats.miss_response_peak_bytes.max(response_bytes);
         let response_hashes = response
             .missing_blobs
             .iter()
@@ -439,6 +456,11 @@ impl BlobCacheResolver {
                     .miss_response_integrity_rejection
                     .saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
+                self.recover_skipped_miss_response(&response_hashes)
+            }
+            Err(BlobCacheError::PinnedPayloadPressure) => {
+                self.stats.miss_response_cache_pressure =
+                    self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)
             }
             Err(error) => {

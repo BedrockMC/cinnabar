@@ -531,11 +531,18 @@ fn cache_pressure_never_refuses_a_requested_blob() {
     assert_eq!(resolver.stats().pending_transactions, 0);
     assert_eq!(resolver.stats().miss_response_cache_pressure, 0);
     assert_eq!(resolver.stats().admitted_blobs, 1);
-    assert!(cache.contains(hash));
-    assert!(matches!(
-        resolver.pop_ready(),
-        Some(BlobCacheReady::Packet(_))
-    ));
+    assert!(
+        !cache.contains(hash),
+        "released payload obeys the zero-byte cache limit"
+    );
+    let packet = pop_packet(
+        &mut resolver,
+        "pressure still reconstructs the requested packet",
+    );
+    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
+        panic!("expected LevelChunk")
+    };
+    assert_eq!(packet.serialized_chunk_data, payload.repeat(3));
 }
 
 #[test]

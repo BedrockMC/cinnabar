@@ -393,6 +393,7 @@ fn trimming_many_small_blobs_examines_each_entry_once() {
         pins: HashMap::new(),
         total_bytes: 0,
         clock: 0,
+        ..Default::default()
     };
     for index in 0..ENTRIES as u64 {
         store.clock += 1;
@@ -435,6 +436,7 @@ fn blob_trim_cost_for_small_blobs() {
             pins: HashMap::new(),
             total_bytes: 1,
             clock: 0,
+            ..Default::default()
         };
         for index in 0..ENTRIES as u64 {
             store.clock += 1;
