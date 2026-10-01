@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
@@ -32,7 +32,7 @@ pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
     /// One standard-size RGBA8 layer per texture layer index.
     pub(crate) skin_layers: Vec<Arc<[u8]>>,
-    pub(crate) artwork: BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
+    pub(crate) artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
 /// The packed skin payload, rebuilt only when the layer list changes so an
@@ -116,11 +116,23 @@ pub(crate) fn rig_may_be_visible(
     !occluded(low, high)
 }
 
+#[cfg(test)]
 pub(crate) fn entity_rig_presentation(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     artwork: &ActorArtworkPages,
     partial_tick: f32,
+) -> Option<ActorRigPresentation> {
+    entity_rig_presentation_cached(rig, actor, artwork, partial_tick, None)
+}
+
+/// [`entity_rig_presentation`] converting poses through `poses`, so frames of one tick share them.
+pub(crate) fn entity_rig_presentation_cached(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    artwork: &ActorArtworkPages,
+    partial_tick: f32,
+    poses: Option<&mut PoseConversions>,
 ) -> Option<ActorRigPresentation> {
     let location = matches!(actor.kind, ActorKind::Entity { .. })
         .then(|| artwork.route(EntityRigId(rig.rig.0)))
@@ -151,7 +163,7 @@ pub(crate) fn entity_rig_presentation(
         *rig
     };
     let mut presentation =
-        actor_rig_presentation_inner(&selected, actor, None, partial_tick, bad_rest)?;
+        actor_rig_presentation_inner(&selected, actor, None, partial_tick, bad_rest, poses)?;
     if matches!(actor.kind, ActorKind::Entity { .. })
         && let Some(location) = location
     {
@@ -174,13 +186,25 @@ pub(crate) fn entity_rig_presentation(
     Some(presentation)
 }
 
+#[cfg(test)]
 pub(crate) fn actor_rig_presentation(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
     partial_tick: f32,
 ) -> Option<ActorRigPresentation> {
-    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false)
+    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false, None)
+}
+
+/// [`actor_rig_presentation`] converting poses through `poses`.
+pub(crate) fn actor_rig_presentation_cached(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    profile: Option<&PlayerProfile>,
+    partial_tick: f32,
+    poses: &mut PoseConversions,
+) -> Option<ActorRigPresentation> {
+    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false, Some(poses))
 }
 
 fn actor_rig_presentation_inner(
@@ -189,6 +213,7 @@ fn actor_rig_presentation_inner(
     profile: Option<&PlayerProfile>,
     partial_tick: f32,
     rejected_pose: bool,
+    poses: Option<&mut PoseConversions>,
 ) -> Option<ActorRigPresentation> {
     if rig.actor.runtime_id != actor.runtime_id
         || rig.actor.spawn_revision != actor.spawn_revision
@@ -205,15 +230,12 @@ fn actor_rig_presentation_inner(
 
     // A rejected submission retains exact ownership for observable NoDraw counts,
     // but contains no substitute pose and can never reach a GPU draw.
-    let previous_bones = if rejected_pose {
-        Arc::from([])
+    let (previous_bones, current_bones) = if rejected_pose {
+        (Arc::from([]), Arc::from([]))
+    } else if let Some(poses) = poses {
+        poses.convert(rig)?
     } else {
-        convert_bones(rig.previous)?
-    };
-    let current_bones = if rejected_pose {
-        Arc::from([])
-    } else {
-        convert_bones(rig.current)?
+        (convert_bones(rig.previous)?, convert_bones(rig.current)?)
     };
     let alpha = partial_tick.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
@@ -392,23 +414,19 @@ pub(crate) fn select_actor_presentations_for_view(
     remotes: impl IntoIterator<Item = ActorRigPresentation>,
     view: Option<ActorCullView>,
 ) -> ActorPresentationBatch {
-    let mut latest = BTreeMap::<u64, ActorRigPresentation>::new();
-    for remote in remotes {
-        let identity = remote.submission.input.identity;
-        if identity.runtime_id == 0 || identity.runtime_id == local_runtime_id {
-            continue;
-        }
-        match latest.entry(identity.runtime_id) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(remote);
-            }
-            std::collections::btree_map::Entry::Occupied(mut entry) => {
-                if identity > entry.get().submission.input.identity {
-                    entry.insert(remote);
-                }
-            }
-        }
-    }
+    // The newest identity of each remote actor wins; equal identities keep the first.
+    let mut latest: Vec<ActorRigPresentation> = remotes
+        .into_iter()
+        .filter(|remote| {
+            let runtime_id = remote.submission.input.identity.runtime_id;
+            runtime_id != 0 && runtime_id != local_runtime_id
+        })
+        .collect();
+    latest.sort_by(|a, b| {
+        let (a, b) = (a.submission.input.identity, b.submission.input.identity);
+        a.runtime_id.cmp(&b.runtime_id).then(b.cmp(&a))
+    });
+    latest.dedup_by_key(|remote| remote.submission.input.identity.runtime_id);
 
     let local = local_visible
         .then_some(local)
@@ -420,7 +438,7 @@ pub(crate) fn select_actor_presentations_for_view(
         drawable_count = 1;
         selected.push(local);
     }
-    for remote in latest.into_values() {
+    for remote in latest {
         if remote.submission.route == ActorRigRoute::NoDraw {
             selected.push(remote);
             continue;
@@ -434,7 +452,7 @@ pub(crate) fn select_actor_presentations_for_view(
         selected.push(remote);
     }
 
-    let mut artwork = BTreeMap::new();
+    let mut artwork = HashMap::with_capacity(selected.len());
     let mut skin_families = Vec::<Arc<[u8]>>::new();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
@@ -479,6 +497,93 @@ pub(crate) fn light_bodies(
         if let Some((block, sky)) = stream.solved_light_at(feet) {
             submission.light = render::pack_actor_light(block, sky, daylight);
         }
+    }
+}
+
+/// Render-space poses of each rig's latest tick, kept across frames: every frame of a tick shares
+/// one conversion, and an unchanged pose keeps its allocation so its bone matrices are reused.
+#[derive(Debug, Default)]
+pub(crate) struct PoseConversions {
+    entries: std::collections::HashMap<u64, PoseEntry>,
+    scratch: Vec<RenderBoneTransform>,
+    frame: u64,
+}
+
+#[derive(Debug)]
+struct PoseEntry {
+    /// Spawn revision, completed tick, reset generation and pose storage of the conversion.
+    stamp: (u64, u64, u64, usize, usize),
+    previous: Arc<[RenderBoneTransform]>,
+    current: Arc<[RenderBoneTransform]>,
+    used: u64,
+}
+
+type RenderPose = Arc<[RenderBoneTransform]>;
+
+/// Frames a rig may go undrawn before its conversions are released.
+const POSE_RETENTION_FRAMES: u64 = 120;
+
+impl PoseConversions {
+    pub(crate) fn begin_frame(&mut self) {
+        self.frame += 1;
+        let frame = self.frame;
+        self.entries
+            .retain(|_, entry| entry.used + POSE_RETENTION_FRAMES >= frame);
+    }
+
+    fn convert(&mut self, rig: &ActorRigSnapshot<'_>) -> Option<(RenderPose, RenderPose)> {
+        let stamp = (
+            rig.actor.spawn_revision,
+            rig.completed_tick,
+            rig.reset_generation,
+            rig.previous.as_ptr() as usize,
+            rig.current.as_ptr() as usize,
+        );
+        let frame = self.frame;
+        if let Some(entry) = self.entries.get_mut(&rig.actor.runtime_id)
+            && entry.stamp == stamp
+        {
+            entry.used = frame;
+            return Some((Arc::clone(&entry.previous), Arc::clone(&entry.current)));
+        }
+        let old = self
+            .entries
+            .get(&rig.actor.runtime_id)
+            .map(|entry| (Arc::clone(&entry.previous), Arc::clone(&entry.current)));
+        let mut reuse = |bones: &[client_world::BoneTransform]| {
+            self.scratch.clear();
+            for bone in bones {
+                self.scratch
+                    .push(RenderBoneTransform::from_model_space_scaled(
+                        bone.rotation,
+                        bone.translation_scale,
+                        bone.axis_scale,
+                    )?);
+            }
+            // The new tick's previous pose is usually the last tick's current one.
+            Some(
+                old.iter()
+                    .flat_map(|(previous, current)| [current, previous])
+                    .find(|pose| ***pose == *self.scratch)
+                    .map_or_else(|| Arc::from(self.scratch.as_slice()), Arc::clone),
+            )
+        };
+        let previous = reuse(rig.previous)?;
+        let current = if rig.current == rig.previous {
+            Arc::clone(&previous)
+        } else {
+            reuse(rig.current)?
+        };
+        self.entries.insert(
+            rig.actor.runtime_id,
+            PoseEntry {
+                stamp,
+                previous: Arc::clone(&previous),
+                current: Arc::clone(&current),
+                used: frame,
+            },
+        );
+        Some((previous, current))
     }
 }
 

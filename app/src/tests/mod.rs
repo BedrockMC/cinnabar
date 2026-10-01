@@ -264,6 +264,7 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
+pub(crate) mod actor_frame_allocations;
 mod actor_rest_presentation;
 pub(crate) mod alloc_count;
 mod audio;

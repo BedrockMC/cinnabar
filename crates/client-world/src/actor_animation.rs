@@ -430,6 +430,7 @@ impl ActorAnimationStore {
                 {
                     state.culled = true;
                     state.previous.clone_from(&state.current);
+                    state.completed_tick = self.completed_tick;
                     continue;
                 }
             }
@@ -532,11 +533,10 @@ impl ActorAnimationStore {
         self.snapshot(lifetime, self.rigs.get(&lifetime)?)
     }
 
-    pub(crate) fn snapshots(&self) -> Vec<ActorRigSnapshot<'_>> {
+    pub(crate) fn snapshots(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.rigs
             .iter()
             .filter_map(|(&lifetime, state)| self.snapshot(lifetime, state))
-            .collect()
     }
 
     pub(crate) const fn stats(&self) -> ActorAnimationStats {

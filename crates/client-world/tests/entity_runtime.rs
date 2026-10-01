@@ -465,7 +465,7 @@ fn missing_required_rig_produces_no_stale_snapshot() {
         .submit(1, WorldEvent::Actor(ActorEvent::Spawn(missing)))
         .unwrap();
     assert!(stream.actor_rig(77).is_none());
-    assert!(stream.actor_rigs().is_empty());
+    assert!(stream.actor_rigs().next().is_none());
     assert_eq!(stream.actor_animation_stats().unrigged_spawns, 1);
 }
 
@@ -559,7 +559,7 @@ fn dimension_change_drops_rig_palettes_without_stale_publication() {
         .unwrap();
 
     assert!(stream.actor_rig(42).is_none());
-    assert!(stream.actor_rigs().is_empty());
+    assert!(stream.actor_rigs().next().is_none());
 }
 
 #[test]
