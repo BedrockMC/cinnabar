@@ -1,28 +1,12 @@
-//! Bounded HandledTeleport acknowledgement (PROVISIONAL, opt-in only).
+//! Acknowledges local MovePlayer teleports on the next transmitted input.
 //!
-//! Vanilla Bedrock asserts the `HandledTeleport` input flag on outbound
-//! `PlayerAuthInput` after it has accepted a server-driven teleport, so the
-//! server can stop re-sending the anchor. Cinnabar learns qualifying server
-//! teleports from exactly three production sites, all inside the authorized
-//! world-stream reconciliation (`runtime::world`): a committed correction
-//! classified [`super::CorrectionShape::TeleportSnap`] dispatches by
-//! reconciliation outcome, a local-player `MovePlayer` whose event carries
-//! `teleported == true` marks on event admission, and a committed respawn
-//! marks on event admission through [`ServerTeleportKind::Respawn`].
-//! Dimension changes, StartGame resets, client-derived surface-spawn
-//! resolves, and Replay/Confirmed corrections never arm the assertion; a
-//! dimension change explicitly clears any armed assertion instead of leaking
-//! it across the boundary.
+//! Bedrock 1.26.50.26 Player::handleMovePlayerPacket (0x00215860), mode 2,
+//! sets the action that setFromComponent (0x0435a250) maps to HandledTeleport.
+//! Correction-snap and respawn routes remain provisional and require the
+//! opt-in marker [`markers::TELEPORT_ACK`] with value exactly `1`.
 //!
-//! The whole feature is gated behind the registered opt-in environment
-//! marker [`markers::TELEPORT_ACK`] (value exactly `1`), evaluated once per
-//! ticker construction (the production ticker is built once per session).
-//! With any other value, or unset, every method here is a complete no-op: no
-//! state is armed, no counter advances, no flag bit is ever projected, and
-//! the outbound stream stays byte-identical to the un-gated build. Nothing
-//! here is measured against a version-matched native client, so both the
-//! 40-admitted-tick expiry budget and the single-shot consume policy are
-//! explicitly provisional, not vanilla parity claims.
+//! Failed writes preserve the assertion for retry. The 40-admitted-tick
+//! expiry remains provisional. Queue-clearing boundaries clear pending state.
 
 use std::ffi::OsStr;
 
@@ -33,8 +17,7 @@ use super::{
 };
 use crate::acceptance::markers;
 
-/// The exact value of the registered opt-in marker that enables the feature;
-/// every other value, or an unset variable, keeps today's exact bytes.
+/// Enables the provisional correction-snap and respawn acknowledgement routes.
 const ENABLED_VALUE: &str = "1";
 
 /// Pure enablement rule for one environment-variable observation.
@@ -42,7 +25,7 @@ pub(super) fn enabled_for_env_value(value: Option<&OsStr>) -> bool {
     value == Some(OsStr::new(ENABLED_VALUE))
 }
 
-/// Whether this session arms teleport acknowledgements at all.
+/// Whether this session enables provisional teleport acknowledgement routes.
 pub(crate) fn enabled_from_env() -> bool {
     enabled_for_env_value(std::env::var_os(markers::TELEPORT_ACK).as_deref())
 }
@@ -64,9 +47,7 @@ const SCHEMA_TAG: &str = "rust-mcbe-movement-teleport-ack-v1";
 pub(super) const TELEPORT_ACK_ADMITTED_TICK_BUDGET: u64 = 40;
 /// Which observed event reached the acknowledgement state machine.
 ///
-/// The discriminator exists so call sites stay auditable and a future
-/// per-kind policy can land without another signature change; today's
-/// provisional policy treats every qualifying server teleport identically.
+/// MovePlayer is verified; correction-snap and respawn remain opt-in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerTeleportKind {
     /// A committed correction classified beyond the teleport displacement
@@ -98,10 +79,11 @@ impl MovementTicker {
     /// reconciliation; arming while already armed is a bounded no-op so a
     /// burst of teleports cannot queue multiple assertions.
     pub(crate) fn note_server_teleport(&mut self, kind: ServerTeleportKind) {
-        if !self.teleport_ack_enabled || self.pending_teleport_ack.is_some() {
+        if (!self.teleport_ack_enabled && kind != ServerTeleportKind::MovePlayer)
+            || self.pending_teleport_ack.is_some()
+        {
             return;
         }
-        let _ = kind;
         self.pending_teleport_ack = Some(TeleportAckPending {
             remaining_admitted_ticks: TELEPORT_ACK_ADMITTED_TICK_BUDGET,
         });
@@ -153,9 +135,6 @@ impl MovementTicker {
     /// transmission expires on the next admission: cleared, counted, and
     /// reported through one bounded stdout marker.
     pub(super) fn observe_admitted_tick_for_teleport_ack(&mut self) {
-        if !self.teleport_ack_enabled {
-            return;
-        }
         let Some(pending) = self.pending_teleport_ack.as_mut() else {
             return;
         };
@@ -176,7 +155,7 @@ impl MovementTicker {
     /// whether this sample carries the assertion; the caller must consume the
     /// pending state only after the transport accepts the packet.
     pub(super) fn project_pending_teleport_ack(&self, sample: &mut QueuedPhysicsSample) -> bool {
-        if !self.teleport_ack_enabled || self.pending_teleport_ack.is_none() {
+        if self.pending_teleport_ack.is_none() {
             return false;
         }
         sample.snapshot.flags |= PlayerInputFlags::HANDLED_TELEPORT;

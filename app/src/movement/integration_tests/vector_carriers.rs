@@ -134,7 +134,7 @@ fn tick_snapshots_map_each_device_carrier_to_its_wire_field() {
     let keyboard_style = PhysicsMovementSample {
         move_vector: [1.0, 1.0],
         raw_move_vector: [1.0, 1.0],
-        analogue_move_vector: [1.0, 1.0],
+        analogue_move_vector: [0.0, 0.0],
         ..completed_sample(41, [1.0, 64.0, 2.0])
     };
     let gamepad_style = PhysicsMovementSample {
@@ -164,14 +164,14 @@ fn tick_snapshots_map_each_device_carrier_to_its_wire_field() {
             std::f32::consts::FRAC_1_SQRT_2
         ]
     );
-    assert_eq!(keyboard_snapshot.raw_move_vector, [-1.0, 1.0]);
-    assert_eq!(keyboard_snapshot.analogue_move_vector, [-1.0, 1.0]);
+    assert_eq!(keyboard_snapshot.raw_move_vector, keyboard_snapshot.move_vector);
+    assert_eq!(keyboard_snapshot.analogue_move_vector, [0.0, 0.0]);
 
     let gamepad_snapshot = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(gamepad_snapshot.tick, 42);
     assert!((gamepad_snapshot.move_vector[0] + gamepad_style.move_vector[0]).abs() < 1e-6);
     assert!((gamepad_snapshot.move_vector[1] - gamepad_style.move_vector[1]).abs() < 1e-6);
-    assert_eq!(gamepad_snapshot.raw_move_vector, [-1.0, 0.8]);
+    assert_eq!(gamepad_snapshot.raw_move_vector, [-0.6, 0.8]);
     assert_eq!(gamepad_snapshot.analogue_move_vector, [-0.6, 0.8]);
 }
 
@@ -219,5 +219,46 @@ fn non_finite_device_carriers_fail_physics_authority_closed() {
         );
         assert_eq!(ticker.source(), MovementSource::FreeCamera);
         assert_eq!(ticker.pending_count(), 0);
+    }
+}
+
+
+#[test]
+fn digital_gamepad_direction_uses_the_normalized_raw_fallback() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 40, [0.0, 64.0, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(PhysicsMovementSample {
+        raw_move_vector: [1.0, 1.0],
+        analogue_move_vector: [0.0, 0.0],
+        input_mode: PlayerInputMode::GamePad,
+        ..completed_sample(41, [0.0, 64.0, 0.0])
+    }).unwrap();
+    let snapshot = ticker.pop_pending().unwrap().snapshot;
+    assert_eq!(snapshot.analogue_move_vector, [0.0, 0.0]);
+    assert_eq!(snapshot.raw_move_vector,
+        [-std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]);
+}
+
+#[test]
+fn keyboard_neutral_vectors_preserve_positive_zero_on_the_wire() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 40, [0.0, 64.0, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(PhysicsMovementSample {
+            move_vector: [0.0; 2],
+            raw_move_vector: [0.0; 2],
+            analogue_move_vector: [0.0; 2],
+            ..completed_sample(41, [0.0, 64.0, 0.0])
+        })
+        .unwrap();
+    let snapshot = ticker.pop_pending().unwrap().snapshot;
+    for vector in [
+        snapshot.move_vector,
+        snapshot.raw_move_vector,
+        snapshot.analogue_move_vector,
+    ] {
+        assert_eq!(vector.map(f32::to_bits), [0.0_f32.to_bits(); 2]);
     }
 }

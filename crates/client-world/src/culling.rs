@@ -11,13 +11,40 @@ pub fn cave_visible_sub_chunks(
     camera: SubChunkKey,
     connectivity: &HashMap<SubChunkKey, FaceConnectivity>,
 ) -> HashSet<SubChunkKey> {
+    let mut visible = HashSet::new();
+    let mut scratch = CaveVisibilityScratch {
+        visited: HashMap::with_capacity(connectivity.len()),
+        queue: VecDeque::with_capacity(connectivity.len()),
+    };
+    fill_visible(camera, connectivity, &mut scratch, &mut visible);
+    visible
+}
+
+/// Reusable BFS storage; visibility remains conservative and computed atomically.
+#[derive(Default)]
+pub struct CaveVisibilityScratch {
+    visited: HashMap<SubChunkKey, u8>,
+    queue: VecDeque<(SubChunkKey, Option<Face>)>,
+}
+
+/// Reuses traversal and output storage without changing portal or support-shell rules.
+pub(crate) fn fill_visible(
+    camera: SubChunkKey,
+    connectivity: &HashMap<SubChunkKey, FaceConnectivity>,
+    scratch: &mut CaveVisibilityScratch,
+    visible: &mut HashSet<SubChunkKey>,
+) {
+    visible.clear();
+    scratch.visited.clear();
+    scratch.queue.clear();
     if !connectivity.contains_key(&camera) {
-        return connectivity.keys().copied().collect();
+        visible.extend(connectivity.keys().copied());
+        return;
     }
 
-    let mut visited = HashMap::<SubChunkKey, u8>::with_capacity(connectivity.len());
+    let visited = &mut scratch.visited;
     visited.insert(camera, 1 << 6);
-    let mut queue = VecDeque::with_capacity(connectivity.len());
+    let queue = &mut scratch.queue;
     queue.push_back((camera, None));
     while let Some((key, entered_from)) = queue.pop_front() {
         let Some(connections) = connectivity.get(&key).copied() else {
@@ -50,7 +77,7 @@ pub fn cave_visible_sub_chunks(
     // are drawn too. Keep exactly one loaded neighbour shell visible so those
     // models cannot float over support geometry hidden in an adjacent entity.
     // Snapshot first: newly added shell nodes must not recursively expand.
-    let mut visible = visited.keys().copied().collect::<HashSet<_>>();
+    visible.extend(visited.keys().copied());
     for &key in visited.keys() {
         for face in Face::ALL {
             let Some(neighbour) = adjacent(key, face) else {
@@ -61,7 +88,6 @@ pub fn cave_visible_sub_chunks(
             }
         }
     }
-    visible
 }
 
 fn adjacent(key: SubChunkKey, face: Face) -> Option<SubChunkKey> {
@@ -233,5 +259,53 @@ mod tests {
             "crossing an outdoor sub-chunk boundary must not hide a loaded entity for one frame"
         );
         assert_eq!(before, graph.keys().copied().collect());
+    }
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    /// Compares cold allocations with repeated traversal through retained buffers.
+    #[test]
+    #[ignore = "offline cave traversal timing fixture"]
+    fn cave_visibility_buffer_timing() {
+        use std::{hint::black_box, time::Instant};
+        let graph = (0..4_096)
+            .map(|x| (SubChunkKey::new(0, x, 0, 0), FaceConnectivity::all()))
+            .collect::<HashMap<_, _>>();
+        let camera = SubChunkKey::new(0, 0, 0, 0);
+        let expected = cave_visible_sub_chunks(camera, &graph);
+        let mut scratch = CaveVisibilityScratch::default();
+        let mut visible = HashSet::new();
+        for reuse in [false, true] {
+            let mut times = Vec::new();
+            for _ in 0..31 {
+                let start = Instant::now();
+                if reuse {
+                    fill_visible(camera, &graph, &mut scratch, &mut visible);
+                    black_box(&visible);
+                } else {
+                    black_box(cave_visible_sub_chunks(camera, &graph));
+                }
+                times.push(start.elapsed().as_micros());
+            }
+            times.remove(0);
+            times.sort_unstable();
+            println!(
+                "cave_buffers reuse={reuse} median_us={} p95_us={}",
+                times[15], times[28]
+            );
+        }
+        assert_eq!(visible, expected);
+        let capacity = scratch.visited.capacity();
+        fill_visible(
+            SubChunkKey::new(1, 0, 0, 0),
+            &graph,
+            &mut scratch,
+            &mut visible,
+        );
+        assert_eq!(visible, expected);
+        assert_eq!(scratch.visited.capacity(), capacity);
     }
 }

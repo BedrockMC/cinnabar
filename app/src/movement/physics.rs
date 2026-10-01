@@ -109,14 +109,12 @@ pub struct PhysicsSampleContext {
 pub struct PhysicsMovementSample {
     pub tick: u64,
     pub position: [f32; 3],
-    /// This tick's resolved displacement (new position minus old), carried
-    /// verbatim as PlayerAuthInput.PosDelta.
+    /// This tick's resolved displacement, used by local movement evidence.
     pub movement: [f32; 3],
-    /// Predicted end-of-tick velocity retained for prediction and correction
-    /// replay. It is post-gravity/friction state, not the reported PosDelta.
+    /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
     pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
-    /// Pre-normalization device sample carried to PlayerAuthInput raw input.
+    /// Pre-normalization device sample used for the digital raw-input fallback.
     pub raw_move_vector: [f32; 2],
     /// Analog-axis sample carried to PlayerAuthInput analog input.
     pub analogue_move_vector: [f32; 2],

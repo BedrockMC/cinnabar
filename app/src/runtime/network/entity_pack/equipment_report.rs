@@ -24,6 +24,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
     };
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| rest).collect();
     ActorRigSubmission {
+        culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
                 session_id: 1,

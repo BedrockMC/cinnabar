@@ -51,7 +51,7 @@ fn correction_session_and_dimension_resets_invalidate_the_frozen_frame_generatio
 }
 
 #[test]
-fn committed_movement_correction_applies_server_rotation_to_the_view_pose() {
+fn committed_movement_correction_preserves_local_rotation() {
     let correction = PlayerMovementCorrectionEvent {
         position: [27.5, 111.0, 91.5],
         delta: [0.25, -0.5, 0.75],
@@ -81,12 +81,7 @@ fn committed_movement_correction_applies_server_rotation_to_the_view_pose() {
     );
 
     assert_eq!(view.eye_translation(), Vec3::new(27.5, 111.0, 91.5));
-    // The wire's rotation is authoritative for every admitted correction
-    // shape; the view pose must consume it instead of only position/ground.
-    assert!(
-        view.rotation()
-            .abs_diff_eq(bedrock_camera_rotation(90.0, -15.0), 0.0001)
-    );
+    assert!(view.rotation().abs_diff_eq(local_rotation, 0.0001));
     assert_eq!(pending_surface_spawn, None);
 }
 
@@ -1118,3 +1113,5 @@ fn phase3_evidence_producer_stays_bounded_after_record_limits() {
     }
     assert_eq!(emitted_events, MAX_PHASE3_EVENT_RECORDS);
 }
+
+include!("zeqa_corrections.rs");

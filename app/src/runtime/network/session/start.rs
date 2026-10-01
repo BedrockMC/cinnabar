@@ -143,6 +143,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         control_events,
         world_events,
         commands,
+        pending_latency_reply: Mutex::new(None),
         physics_reanchor,
         shutdown,
         thread: Some(thread),

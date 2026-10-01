@@ -2,6 +2,41 @@ use super::*;
 
 const PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
 
+#[test]
+fn modern_and_inherited_legacy_models_keep_authored_visibility_bounds() {
+    let modern = r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.npc","visible_bounds_width":3,"visible_bounds_height":4,"visible_bounds_offset":[0,2,0]},"bones":[{"name":"body"}]}]}"#;
+    let legacy = r#"{"format_version":"1.8.0","geometry.base":{"visible_bounds_width":3,"visible_bounds_height":4,"visible_bounds_offset":[0,2,0],"bones":[{"name":"body"}]},"geometry.npc:geometry.base":{"bones":[{"name":"head"}]}}"#;
+    for source in [modern, legacy] {
+        let model = parse_skin_geometry(PATCH, source).unwrap().unwrap();
+        assert_eq!(
+            model.visible_bounds,
+            Some(SkinGeometryBounds {
+                center: [0.0, 2.0, 0.0],
+                half_extents: [1.5, 2.0, 1.5]
+            })
+        );
+    }
+}
+
+#[test]
+fn animated_geometry_alias_selects_its_model_and_has_a_distinct_mesh_digest() {
+    let patch = r#"{"geometry":{"default":"geometry.body","animated_face":"geometry.face"}}"#;
+    let data = r#"{"format_version":"1.14.0","minecraft:geometry":[
+        {"description":{"identifier":"geometry.body","texture_width":256,"texture_height":256},"bones":[{"name":"body"}]},
+        {"description":{"identifier":"geometry.face","texture_width":32,"texture_height":64},"bones":[{"name":"head"}]}
+    ]}"#;
+    let body = parse_skin_geometry(patch, data).unwrap().unwrap();
+    let face = parse_skin_geometry_layer(patch, data, "animated_face")
+        .unwrap()
+        .unwrap();
+    assert_eq!(face.bones[0].name.as_ref(), "head");
+    assert_eq!((face.texture_width, face.texture_height), (32, 64));
+    assert_ne!(
+        body.digest, face.digest,
+        "different layer models cannot share a cached mesh"
+    );
+}
+
 // Remote skin JSON carries editor fields and odd cubes; they are ignored or dropped, not fatal.
 #[test]
 fn modern_geometry_ignores_unknown_fields_and_drops_malformed_cubes() {
