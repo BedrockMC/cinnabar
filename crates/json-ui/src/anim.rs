@@ -290,13 +290,12 @@ pub(crate) fn resolve_slide(catalog: &Catalog, reference: &str, env: &Env) -> Op
         .then_some(Slide { steps, looping })
 }
 
+/// A chain's substituted link definitions, whether it loops, and its `play_event`.
+type ChainLinks = (Vec<serde_json::Map<String, Value>>, bool, Option<String>);
+
 /// The substituted definitions of `reference` and its `next` links, whether
 /// they loop, and the `play_event` that starts them; `None` for an unknown reference.
-fn chain_links(
-    catalog: &Catalog,
-    reference: &str,
-    env: &Env,
-) -> Option<(Vec<serde_json::Map<String, Value>>, bool, Option<String>)> {
+fn chain_links(catalog: &Catalog, reference: &str, env: &Env) -> Option<ChainLinks> {
     let mut links = Vec::new();
     let mut seen: Vec<ControlRef> = Vec::new();
     let mut owner = String::new();

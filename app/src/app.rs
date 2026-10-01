@@ -780,7 +780,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ))
         .insert_resource({
             let mut ui_runtime = UiRuntime::new(0);
-            ui_runtime.set_screen_settings(ui_presentation.screen_settings());
             ui_runtime.set_lang_catalog(lang_assets.into_runtime());
             ui_runtime.set_active_language(active_lang);
             ui_runtime
