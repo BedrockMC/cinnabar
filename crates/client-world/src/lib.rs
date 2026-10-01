@@ -12,8 +12,8 @@ pub use action::{
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
 };
 pub use actor_animation::{
-    ACTOR_SWING_TICKS, ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform,
-    EntityRigId, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
+    ACTOR_SWING_TICKS, ActorAnimationStats, ActorAnimationView, ActorLifetimeId, ActorRigSnapshot,
+    BoneTransform, EntityRigId, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
     MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
     MAX_RUNTIME_BONES_PER_RIG, RenderTextureLayer,
 };

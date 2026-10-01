@@ -140,6 +140,8 @@ struct ActorRigState {
     skin: Option<skin::SkinModel>,
     variables: MolangVariables,
     initialized: bool,
+    /// Outside the animation view at its last tick, holding its pose.
+    culled: bool,
     motion: MotionState,
 }
 
@@ -338,9 +340,12 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Advances every rig one tick; rigs outside `view` (other than `exempt`) hold their pose.
     pub(crate) fn advance_tick(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
+        view: Option<&ActorAnimationView>,
+        exempt: Option<u64>,
         context: impl Fn(&ActorSnapshot) -> ActorTickContext,
     ) {
         self.completed_tick = self.completed_tick.saturating_add(1);
@@ -407,6 +412,27 @@ impl ActorAnimationStore {
                 state.completed_tick = self.completed_tick;
                 continue;
             }
+            let (state_assets, state_layout) = if state.pack {
+                match &self.pack {
+                    Some(pack) => (&pack.assets, &pack.layout),
+                    None => continue,
+                }
+            } else {
+                (&assets, &self.layout)
+            };
+            if let Some(view) = view
+                && exempt != Some(actor.runtime_id)
+            {
+                let scale = model_scale(state, state_assets) * actor.render_scale();
+                let player = matches!(actor.kind, ActorKind::Player { .. });
+                if !view.admits(actor.position, scale, player)
+                    && !view.admits(actor.previous_pose.position, scale, player)
+                {
+                    state.culled = true;
+                    state.previous.clone_from(&state.current);
+                    continue;
+                }
+            }
             if world_left == 0 {
                 self.stats.world_budget_exhaustions =
                     self.stats.world_budget_exhaustions.saturating_add(1);
@@ -422,14 +448,6 @@ impl ActorAnimationStore {
                 work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
                 transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
                 used: 0,
-            };
-            let (state_assets, state_layout) = if state.pack {
-                match &self.pack {
-                    Some(pack) => (&pack.assets, &pack.layout),
-                    None => continue,
-                }
-            } else {
-                (&assets, &self.layout)
             };
             if state.fallback != EntityRigFallback::GeometryOnly {
                 render::cache_layer_skeletons(state_assets, state);
@@ -458,11 +476,17 @@ impl ActorAnimationStore {
                 .saturating_add(budget.used as u64);
             match result {
                 Ok(evaluated) => {
+                    // A rig back in view starts from its new pose, not the one it held.
+                    let resumed = std::mem::take(&mut state.culled);
                     state.controllers = evaluated.controllers;
                     state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
                     if let Some(mut render) = evaluated.render {
-                        render::carry_layer_poses(&state.render, &mut render, state.reset_pending);
+                        render::carry_layer_poses(
+                            &state.render,
+                            &mut render,
+                            state.reset_pending || resumed,
+                        );
                         state.render = render;
                     }
                     state.initialized = true;
@@ -473,6 +497,9 @@ impl ActorAnimationStore {
                         state.reset_generation = self.next_reset_generation;
                         self.next_reset_generation = self.next_reset_generation.saturating_add(1);
                         state.animation_epoch = self.completed_tick;
+                    } else if resumed {
+                        state.previous.clone_from(&evaluated.pose);
+                        state.current = evaluated.pose;
                     } else {
                         state.previous = std::mem::replace(&mut state.current, evaluated.pose);
                     }
@@ -572,6 +599,26 @@ impl ActorAnimationStore {
         self.next_rest_reset_generation = next;
         Some(generation)
     }
+}
+
+/// The rig's authored scale times its largest per-axis scale, bounding its culling box.
+fn model_scale(state: &ActorRigState, assets: &RuntimeEntityAssets) -> f32 {
+    let scale = state.scale.map_or_else(
+        || {
+            assets
+                .rig_bindings()
+                .get(state.rig_binding)
+                .map_or(1.0, |rig| rig.scale.get())
+        },
+        |scale| scale[0],
+    );
+    let axes = state
+        .scale
+        .map_or([1.0; 3], |scale| [scale[1], scale[2], scale[3]]);
+    scale
+        * axes
+            .iter()
+            .fold(1.0_f32, |largest, axis| largest.max(axis.abs()))
 }
 
 fn resolve_rig(
@@ -693,6 +740,7 @@ fn resolve_rig(
         skin: None,
         variables,
         initialized: false,
+        culled: false,
         motion: MotionState::spawn(actor.body_yaw, actor.head_yaw),
     })
 }
@@ -852,6 +900,7 @@ mod query;
 mod render;
 mod skin;
 mod tick;
+mod view;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};
@@ -859,6 +908,7 @@ use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
 pub(crate) use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
+pub use view::ActorAnimationView;
 
 #[cfg(test)]
 mod tests;
