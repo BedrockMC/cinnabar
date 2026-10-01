@@ -574,10 +574,14 @@ fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
     assert_eq!(parsed["schema"], "rust-mcbe-anchor-probe-v2");
     assert_eq!(parsed["phase"], "failed");
     assert_eq!(parsed["feet"], serde_json::json!([0.5, 65.5, 0.5]));
-    assert_eq!(
-        parsed["player_extents"],
-        serde_json::json!([sim::PLAYER_WIDTH, sim::PLAYER_HEIGHT, sim::PLAYER_WIDTH])
-    );
+    let player = Aabb::player_at(SHAFT_FEET);
+    let extents = player.max - player.min;
+    let expected: serde_json::Value = serde_json::from_str(&format!(
+        "[{:.6},{:.6},{:.6}]",
+        extents.x, extents.y, extents.z
+    ))
+    .unwrap();
+    assert_eq!(parsed["player_extents"], expected);
     assert_eq!(
         parsed["iterations"],
         super::anchor_probe::ANCHOR_PROBE_MAX_ITERATIONS

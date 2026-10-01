@@ -38,7 +38,7 @@ impl CollisionWorld for StaticWorld {
 
 fn assert_close(actual: f64, expected: f64) {
     assert!(
-        (actual - expected).abs() <= 1.0e-10,
+        (actual - expected).abs() <= f64::from(f32::EPSILON) * expected.abs().max(1.0),
         "{actual} != {expected}"
     );
 }

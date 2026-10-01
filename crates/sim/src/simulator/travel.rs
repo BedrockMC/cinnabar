@@ -118,7 +118,7 @@ pub(super) fn tick_mode(
                 super::water_travel_speed(
                     &input,
                     sampled.movement.horizontal_speed_factor,
-                    super::depth_strider_blend(input.depth_strider, grounded_at_start),
+                    super::depth_strider_level(input.depth_strider, grounded_at_start),
                 ),
             );
             let target = -minecraft_sin(input.pitch_degrees.to_radians());
@@ -135,7 +135,11 @@ pub(super) fn tick_mode(
         _ => {}
     }
 
-    let view = ScaffoldingView::new(world, next.position.y, input.sneaking);
+    let view = ScaffoldingView::new(
+        world,
+        crate::Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
+        input.sneaking,
+    );
     let height = input.mode.hitbox_height(input.sneaking);
     let motion = resolve_motion(
         &view,
@@ -146,7 +150,7 @@ pub(super) fn tick_mode(
     )?;
     let identity = sampled.identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
-    next.position += motion.resolved;
+    next.position = motion.position;
     next.on_ground = motion.stepped
         || (motion.collisions.y && pre_collision_velocity.y < 0.0)
         || (grounded_at_start

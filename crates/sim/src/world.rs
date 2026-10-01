@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use thiserror::Error;
@@ -6,7 +6,11 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod door;
+mod snapshot;
+pub use snapshot::CollisionSnapshot;
 mod raycast;
+pub use door::{DoorFacing, DoorState};
 mod validate;
 
 pub use raycast::BlockHit;
@@ -258,16 +262,17 @@ impl BlockPhysicsSample {
 }
 
 /// Runtime-ID keyed authoritative movement facts in local block coordinates.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CollisionRegistry {
     identity: CollisionRegistryIdentity,
-    blocks: BTreeMap<u32, BlockPhysics>,
+    blocks: Arc<BTreeMap<u32, BlockPhysics>>,
     air_runtime_id: u32,
     collision_halo: [(i32, i32); 3],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct BlockPhysics {
+    door: Option<DoorState>,
     shapes: Box<[Aabb]>,
     /// Shapes the interaction ray targets instead of `shapes` (selection boxes).
     pick_shapes: Option<Box<[Aabb]>>,
@@ -320,7 +325,7 @@ impl CollisionRegistry {
     pub fn with_identity(identity: CollisionRegistryIdentity) -> Self {
         Self {
             identity,
-            blocks: BTreeMap::new(),
+            blocks: Arc::new(BTreeMap::new()),
             air_runtime_id: 0,
             collision_halo: [(0, 0); 3],
         }
@@ -411,9 +416,10 @@ impl CollisionRegistry {
                 }
             }
         }
-        self.blocks.insert(
+        Arc::make_mut(&mut self.blocks).insert(
             runtime_id,
             BlockPhysics {
+                door: None,
                 shapes: shapes.into_boxed_slice(),
                 pick_shapes: None,
                 friction,
@@ -463,7 +469,7 @@ impl CollisionRegistry {
 
     /// Drops every registration at or above `first_runtime_id`.
     pub fn remove_runtime_ids_from(&mut self, first_runtime_id: u32) {
-        self.blocks.split_off(&first_runtime_id);
+        Arc::make_mut(&mut self.blocks).split_off(&first_runtime_id);
     }
 
     /// Makes the interaction ray target `boxes` (empty: untargetable) instead of the
@@ -473,7 +479,7 @@ impl CollisionRegistry {
         runtime_id: u32,
         boxes: impl IntoIterator<Item = Aabb>,
     ) -> bool {
-        let Some(block) = self.blocks.get_mut(&runtime_id) else {
+        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
             return false;
         };
         block.pick_shapes = Some(boxes.into_iter().collect());
@@ -482,7 +488,9 @@ impl CollisionRegistry {
 
     /// Drops one registration; returns whether it existed.
     pub fn remove_runtime_id(&mut self, runtime_id: u32) -> bool {
-        self.blocks.remove(&runtime_id).is_some()
+        Arc::make_mut(&mut self.blocks)
+            .remove(&runtime_id)
+            .is_some()
     }
 
     #[must_use]
@@ -572,6 +580,11 @@ pub struct LenientCollisionBoxes {
 }
 
 pub trait CollisionWorld {
+    /// Retains the world read by this tick when the adapter supports historical replay.
+    fn snapshot(&self) -> Option<CollisionSnapshot> {
+        None
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError>;
 
     /// Camera-only lenient companion to [`Self::collision_boxes`]: a cell with an
@@ -778,7 +791,7 @@ impl<'a> PaletteWorld<'a> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        for shape in physics.shapes.iter().copied() {
+                        for shape in self.block_collision_shapes(block, physics)?.iter().copied() {
                             let shape = shape.translated(block_offset);
                             if shape.intersects(query) {
                                 instances.push(CollisionInstance {
@@ -800,6 +813,10 @@ impl<'a> PaletteWorld<'a> {
 }
 
 impl CollisionWorld for PaletteWorld<'_> {
+    fn snapshot(&self) -> Option<CollisionSnapshot> {
+        Some(CollisionSnapshot::capture(self))
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let instances = self.collision_instances(query)?;
         Ok(CollisionQuery {
@@ -863,7 +880,15 @@ impl CollisionWorld for PaletteWorld<'_> {
                                 skipped.unknown_runtime_id.saturating_add(1);
                             continue;
                         };
-                        for shape in physics.shapes.iter().copied() {
+                        let shapes = match self.block_collision_shapes(block, physics) {
+                            Ok(shapes) => shapes,
+                            Err(WorldQueryError::UnloadedChunk(_)) => {
+                                skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
+                                continue;
+                            }
+                            Err(other) => return Err(other),
+                        };
+                        for shape in shapes.iter().copied() {
                             let shape = shape.translated(block_offset);
                             if shape.intersects(query) {
                                 value.push(shape);
