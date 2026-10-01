@@ -29,13 +29,13 @@ fn material_class(material_id: u32) -> u32 {
 }
 
 // Displace classified foliage only when wind is enabled.
-fn waved_position(world: vec3<f32>, class: u32, weight: f32) -> vec3<f32> {
+fn waved_position(world: vec3<f32>, surface_class: u32, weight: f32) -> vec3<f32> {
     if ((enhanced_frame.flags.x & FEATURE_WAVING) == 0u) {
         return world;
     }
     return world + wave_offset(
         world,
-        class,
+        surface_class,
         weight,
         enhanced_frame.camera_time.w,
         enhanced_frame.ambient_colour.w,
@@ -70,6 +70,7 @@ fn filtered_shadow(uv: vec2<f32>, depth: f32, cascade: u32, noise: f32) -> f32 {
     return sum / f32(SHADOW_TAPS);
 }
 
+// Select a containing cascade and fade its PCF visibility at the far edge.
 fn shadow_visibility(world: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> f32 {
     if ((enhanced_frame.flags.x & FEATURE_SHADOWS) == 0u) {
         return 1.0;
@@ -98,8 +99,8 @@ fn shadow_visibility(world: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> f
 }
 
 // Boost bright texels of materials whose block states all emit light.
-fn emissive_light(albedo: vec3<f32>, class: u32) -> vec3<f32> {
-    let level = f32(class & CLASS_EMISSION_MASK) / 15.0;
+fn emissive_light(albedo: vec3<f32>, surface_class: u32) -> vec3<f32> {
+    let level = f32(surface_class & CLASS_EMISSION_MASK) / 15.0;
     if (level <= 0.0) {
         return vec3(0.0);
     }
@@ -118,10 +119,10 @@ fn shade_surface(
     block_light: f32,
     sky_light: f32,
     ambient_occlusion: f32,
-    class: u32,
+    surface_class: u32,
 ) -> vec3<f32> {
     let light = enhanced_frame.light_direction.xyz;
-    let foliage = (class & (CLASS_LEAVES | CLASS_PLANT)) != 0u;
+    let foliage = (surface_class & (CLASS_LEAVES | CLASS_PLANT)) != 0u;
     let facing = dot(normal, light);
     // Foliage transmits light, so it is lit from both sides.
     let diffuse = select(max(facing, 0.0), 0.4 + 0.6 * abs(facing), foliage);
@@ -138,7 +139,7 @@ fn shade_surface(
     let block = TORCH_COLOUR * block_light * block_light * 1.6;
     let ao = clamp(ambient_occlusion, 0.0, 1.0);
     let lit = direct * mix(1.0, ao, 0.5) + (ambient + block + vec3(DARK_FLOOR)) * ao;
-    return albedo * lit + emissive_light(albedo, class);
+    return albedo * lit + emissive_light(albedo, surface_class);
 }
 
 // Directional ripples from four analytic sine waves.

@@ -37,13 +37,13 @@ fn interleaved_gradient_noise(pixel: vec2<f32>) -> f32 {
 
 // Wind displacement as a pure function of world position, so vertices shared
 // by neighbouring quads move together and never open cracks.
-fn wave_offset(world: vec3<f32>, class: u32, weight: f32, seconds: f32, rain: f32) -> vec3<f32> {
-    if ((class & (CLASS_LEAVES | CLASS_PLANT)) == 0u || weight <= 0.0) {
+fn wave_offset(world: vec3<f32>, surface_class: u32, weight: f32, seconds: f32, rain: f32) -> vec3<f32> {
+    if ((surface_class & (CLASS_LEAVES | CLASS_PLANT)) == 0u || weight <= 0.0) {
         return vec3(0.0);
     }
     let phase = dot(world, vec3(0.61, 0.23, 0.37));
     let gust = 0.65 + 0.35 * sin(seconds * 0.45 + world.x * 0.031 + world.z * 0.027);
-    let base = select(0.03, 0.065, (class & CLASS_PLANT) != 0u);
+    let base = select(0.03, 0.065, (surface_class & CLASS_PLANT) != 0u);
     let amplitude = base * gust * (1.0 + rain) * weight;
     return vec3(
         sin(seconds * 1.9 + phase * 2.3),
