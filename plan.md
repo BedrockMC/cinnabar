@@ -9,7 +9,8 @@ match exactly as the client's asset index does; an unresolved one draws the
 default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
 live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
 the top of their grid because the client answers no `#get_grid_size` (absent
-from the 1.26.50 binary), so whatever pads them is unidentified.
+from the 1.26.50 binary), so whatever pads them is unidentified; `size`
+animations scale draws at paint time instead of relaying out each tick.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
