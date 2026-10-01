@@ -1,8 +1,38 @@
 //! Subscriber fingerprints preserve unchanged compiled resources across stack edits.
 
 use super::resource_packs::PackApplication;
-use resource_pack::{PackAdmission, ValidatedPackStack};
+use resource_pack::{PackAdmission, PackDependency, ValidatedPackStack};
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Subscriber {
+    Blocks,
+    Atmosphere,
+    Particles,
+    Icons,
+    Glyphs,
+    Entities,
+    Ui,
+    Sounds,
+    Language,
+}
+
+pub(super) type Dependencies = BTreeMap<Subscriber, BTreeSet<PackDependency>>;
+
+/// Runs one compiler with an independent record of its successful and missing reads.
+pub(super) fn compile<T>(
+    subscriber: Subscriber,
+    stack: &std::sync::Arc<ValidatedPackStack>,
+    dependencies: &mut Dependencies,
+    build: impl FnOnce(&resource_pack::LayeredPackView) -> T,
+) -> T {
+    let view = resource_pack::LayeredPackView::tracked(stack.clone());
+    let output = build(&view);
+    let inputs = view.dependencies().expect("tracked view").snapshot();
+    dependencies.insert(subscriber, inputs);
+    output
+}
 
 pub(super) struct Changes {
     pub(super) blocks: bool,
@@ -23,49 +53,71 @@ impl Changes {
             PackAdmission::Validated(stack) => Some(stack.as_ref()),
             PackAdmission::None => None,
         });
-        let changed = |prefixes: &[&str]| {
-            prior.is_none_or(|old| fingerprint(old, prefixes) != fingerprint(stack, prefixes))
+        let changed = |subscriber| {
+            prior.is_none_or(|old| {
+                let recorded = previous.and_then(|previous| previous.dependencies.get(&subscriber));
+                let fallback;
+                let inputs = if let Some(recorded) = recorded {
+                    recorded
+                } else {
+                    fallback = old
+                        .packs()
+                        .iter()
+                        .chain(stack.packs())
+                        .flat_map(|pack| pack.files_under("").into_vec())
+                        .filter(|path| *path != "manifest.json")
+                        .map(|path| PackDependency::File {
+                            path: path.to_owned(),
+                            limit: resource_pack::MAX_FILE_BYTES,
+                        })
+                        .collect();
+                    &fallback
+                };
+                dependency_fingerprint(old, inputs) != dependency_fingerprint(stack, inputs)
+            })
         };
+        let blocks = changed(Subscriber::Blocks);
         Self {
-            blocks: changed(&["textures/", "models/", "blocks/", "biomes/"]),
-            atmosphere: changed(&["textures/environment/", "biomes/", "fogs/"]),
-            particles: changed(&["particles/", "textures/"]),
-            icons: changed(&["textures/", "models/", "blocks/", "items/"]),
-            glyphs: changed(&["font/"]),
-            entities: changed(&[
-                "entity/",
-                "attachables/",
-                "animations/",
-                "animation_controllers/",
-                "render_controllers/",
-                "models/",
-                "materials/",
-                "textures/",
-            ]),
-            ui: changed(&["ui/", "textures/"]),
-            sounds: changed(&["sounds/", "sounds.json"]),
-            language: changed(&["texts/"]),
+            blocks,
+            atmosphere: changed(Subscriber::Atmosphere),
+            particles: changed(Subscriber::Particles),
+            icons: blocks || changed(Subscriber::Icons),
+            glyphs: changed(Subscriber::Glyphs),
+            entities: changed(Subscriber::Entities),
+            ui: changed(Subscriber::Ui),
+            sounds: changed(Subscriber::Sounds),
+            language: changed(Subscriber::Language),
         }
     }
 }
 
-/// Empty layers do not affect a subscriber, while file-bearing layer order does.
-fn fingerprint(stack: &ValidatedPackStack, prefixes: &[&str]) -> [u8; 32] {
+/// Replays consumed reads; listing an unrelated texture does not consume its pixels.
+fn dependency_fingerprint(
+    stack: &ValidatedPackStack,
+    inputs: &BTreeSet<PackDependency>,
+) -> [u8; 32] {
     let mut hash = Sha256::new();
     for pack in stack.packs() {
         let mut layer = Sha256::new();
         let mut populated = false;
-        let mut paths = std::collections::BTreeSet::new();
-        for prefix in prefixes {
-            paths.extend(pack.files_under(prefix));
-        }
-        for path in paths {
-            if let Ok(Some(bytes)) = pack.read_file(path) {
-                layer.update((path.len() as u64).to_le_bytes());
-                layer.update(path.as_bytes());
-                layer.update((bytes.len() as u64).to_le_bytes());
-                layer.update(bytes);
-                populated = true;
+        for input in inputs {
+            match input {
+                PackDependency::File { path, limit } => {
+                    if let Ok(Some(bytes)) = pack.read_file_with_limit(path, *limit) {
+                        layer.update([0]);
+                        hash_part(&mut layer, path.as_bytes());
+                        hash_part(&mut layer, &bytes);
+                        populated = true;
+                    }
+                }
+                PackDependency::Directory(prefix) => {
+                    for path in pack.files_under(prefix) {
+                        layer.update([1]);
+                        hash_part(&mut layer, prefix.as_bytes());
+                        hash_part(&mut layer, path.as_bytes());
+                        populated = true;
+                    }
+                }
             }
         }
         if populated {
@@ -73,6 +125,12 @@ fn fingerprint(stack: &ValidatedPackStack, prefixes: &[&str]) -> [u8; 32] {
         }
     }
     hash.finalize().into()
+}
+
+/// Length framing prevents two adjacent names or payloads from aliasing one input.
+fn hash_part(hash: &mut Sha256, bytes: &[u8]) {
+    hash.update((bytes.len() as u64).to_le_bytes());
+    hash.update(bytes);
 }
 
 #[cfg(test)]

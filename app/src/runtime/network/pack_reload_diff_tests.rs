@@ -101,3 +101,83 @@ fn selected_subpack_logical_content_changes_the_fingerprint() {
     };
     assert!(Changes::between(&high, Some(&previous)).ui);
 }
+
+#[test]
+fn consumed_texture_changes_only_its_subscriber() {
+    let before = stack(&[
+        ("textures/shared.png", b"old"),
+        ("textures/unrelated.png", b"old"),
+    ]);
+    let unrelated = stack(&[
+        ("textures/shared.png", b"old"),
+        ("textures/unrelated.png", b"new"),
+    ]);
+    let consumed = stack(&[
+        ("textures/shared.png", b"new"),
+        ("textures/unrelated.png", b"old"),
+    ]);
+    let mut dependencies = Dependencies::default();
+    compile(Subscriber::Entities, &before, &mut dependencies, |view| {
+        assert_eq!(view.read("textures/shared.png").unwrap().as_ref(), b"old");
+    });
+    let previous = PackApplication {
+        dependencies,
+        admission: PackAdmission::Validated(before),
+        ..Default::default()
+    };
+    assert!(!Changes::between(&unrelated, Some(&previous)).entities);
+    assert!(Changes::between(&consumed, Some(&previous)).entities);
+}
+
+#[test]
+fn absent_fallback_read_detects_a_new_override() {
+    let before = stack(&[]);
+    let after = stack(&[("textures/custom/skin.png", b"new")]);
+    let mut dependencies = Dependencies::default();
+    compile(Subscriber::Entities, &before, &mut dependencies, |view| {
+        assert!(view.read("textures/custom/skin.png").is_none());
+    });
+    let previous = PackApplication {
+        dependencies,
+        admission: PackAdmission::Validated(before),
+        ..Default::default()
+    };
+    assert!(Changes::between(&after, Some(&previous)).entities);
+}
+
+#[test]
+fn directory_discovery_tracks_names_without_consuming_unread_pixels() {
+    let before = stack(&[("textures/unread.png", b"old")]);
+    let bytes_only = stack(&[("textures/unread.png", b"new")]);
+    let added = stack(&[
+        ("textures/unread.png", b"old"),
+        ("textures/new.png", b"new"),
+    ]);
+    let mut dependencies = Dependencies::default();
+    compile(Subscriber::Ui, &before, &mut dependencies, |view| {
+        assert_eq!(view.list("textures/"), ["textures/unread.png"]);
+    });
+    let previous = PackApplication {
+        dependencies,
+        admission: PackAdmission::Validated(before),
+        ..Default::default()
+    };
+    assert!(!Changes::between(&bytes_only, Some(&previous)).ui);
+    assert!(Changes::between(&added, Some(&previous)).ui);
+}
+
+#[test]
+fn missing_layer_read_on_empty_stack_is_still_a_dependency() {
+    let before = stack(&[]);
+    let after = stack(&[("textures/terrain_texture.json", b"{}")]);
+    let mut dependencies = Dependencies::default();
+    compile(Subscriber::Blocks, &before, &mut dependencies, |view| {
+        assert!(view.read_layers("textures/terrain_texture.json").is_empty());
+    });
+    let previous = PackApplication {
+        dependencies,
+        admission: PackAdmission::Validated(before),
+        ..Default::default()
+    };
+    assert!(Changes::between(&after, Some(&previous)).blocks);
+}

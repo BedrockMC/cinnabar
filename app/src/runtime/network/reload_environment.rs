@@ -37,6 +37,7 @@ impl EnvironmentBase {
 pub(super) struct PreparedEnvironment {
     pub(super) atmosphere: Option<render::AtmosphereTextureAssets>,
     pub(super) particles: Option<render::ParticleSystem>,
+    pub(super) dependencies: super::pack_reload_diff::Dependencies,
 }
 
 /// Decodes and builds environment resources entirely on the pack reload worker.
@@ -46,10 +47,23 @@ pub(super) fn prepare_environment(
     atmosphere_changed: bool,
     particles_changed: bool,
 ) -> PreparedEnvironment {
+    use super::pack_reload_diff::{Subscriber, compile};
+    let stack = view.shared_stack();
+    let mut dependencies = Default::default();
+    let atmosphere = atmosphere_changed.then(|| {
+        compile(Subscriber::Atmosphere, &stack, &mut dependencies, |view| {
+            prepare_atmosphere(view, &base.atmosphere)
+        })
+    });
+    let particles = particles_changed.then(|| {
+        compile(Subscriber::Particles, &stack, &mut dependencies, |view| {
+            particles::prepare_particles(view, base.particles.as_deref())
+        })
+    });
     PreparedEnvironment {
-        atmosphere: atmosphere_changed.then(|| prepare_atmosphere(view, &base.atmosphere)),
-        particles: particles_changed
-            .then(|| particles::prepare_particles(view, base.particles.as_deref())),
+        atmosphere,
+        particles,
+        dependencies,
     }
 }
 
