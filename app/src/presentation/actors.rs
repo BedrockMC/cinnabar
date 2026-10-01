@@ -4,10 +4,11 @@ use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
-    ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
-    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
-    default_actor_skin_rgba8, pack_overlay_rgba8,
+    ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorArtworkLocation, ActorArtworkPages, ActorCullView,
+    ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    actor_bounds_are_visible, actor_rig_submission_is_visible, default_actor_skin_rgba8,
+    pack_overlay_rgba8,
 };
 
 /// Damage tint blended over a hurt or dying actor.
@@ -75,6 +76,38 @@ pub(crate) fn update_actor_rig_scene<'a>(
         batch.submissions,
         skins.pack(batch.skin_layers),
         &batch.artwork,
+    )
+}
+
+/// Whether a rig can pass this frame's culling, judged before its presentation is built; non-player
+/// actors must also lie within vanilla's candidate cube around the camera.
+pub(crate) fn rig_may_be_visible(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    partial_tick: f32,
+    view: Option<ActorCullView>,
+) -> bool {
+    let (Some(view), Some(feet)) = (
+        view,
+        interpolated_position(actor, partial_tick.clamp(0.0, 1.0)),
+    ) else {
+        return true;
+    };
+    let camera = view.camera_position.to_array();
+    if matches!(actor.kind, ActorKind::Entity { .. })
+        && (0..3).any(|axis| (feet[axis] - camera[axis]).abs() > ACTOR_CANDIDATE_RADIUS_BLOCKS)
+    {
+        return false;
+    }
+    // Per-axis scale and the death tilt never lengthen the up axis past the largest axis scale.
+    let largest_axis = rig
+        .axis_scale
+        .iter()
+        .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
+    actor_bounds_are_visible(
+        feet,
+        rig.scale * actor.render_scale() * largest_axis,
+        Some(view),
     )
 }
 

@@ -44,8 +44,9 @@ pub use rig::{
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
     IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
     MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, layer_geometry_rig_id,
-    pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skin_rig_id,
+    actor_bounds_are_visible, actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id,
+    layer_geometry_rig_id, pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8,
+    pack_rig_id, skin_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -54,6 +55,9 @@ pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 
 pub const MAX_RENDERED_PLAYERS: usize = 128;
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
+/// Vanilla gathers non-player render candidates no farther than this from the camera on any
+/// axis (`LevelRendererCamera::queueRenderEntities`, `min(radius, 72)`); players are added apart.
+pub const ACTOR_CANDIDATE_RADIUS_BLOCKS: f32 = 72.0;
 pub const STANDARD_SKIN_SIDE: usize = 64;
 pub const STANDARD_SKIN_BYTES: usize = STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE * 4;
 pub const STANDARD_BIPED_VERTEX_COUNT: usize = 6 * 6 * 6;
