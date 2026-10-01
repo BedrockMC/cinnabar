@@ -6,24 +6,20 @@ const HEADER_WORDS: usize = 1;
 const BITS_MASK: u32 = 0xff;
 const PALETTE_LEN_SHIFT: u32 = 8;
 const PALETTE_LEN_MASK: u32 = 0x1fff;
-const DESCRIPTOR_MAGIC: u32 = 0x4249_4f31;
-const DESCRIPTOR_WORDS: usize = 2 + BIOME_NEIGHBOUR_SLOT_COUNT;
+pub(crate) const DESCRIPTOR_MAGIC: u32 = 0x4249_4f31;
+use super::biome_lattice::DESCRIPTOR_WORDS;
 const NO_UNIFORM_TINT: u32 = u32::MAX;
-const FALLBACK_WORDS: [u32; 13] = [
-    DESCRIPTOR_MAGIC,
-    0,
-    0,
-    0,
-    0,
-    0,
-    DESCRIPTOR_WORDS as u32,
-    0,
-    0,
-    0,
-    0,
-    1 << PALETTE_LEN_SHIFT,
-    0,
-];
+/// Shared GPU fallback, also used to reserve the render arena prefix.
+pub const FALLBACK_BIOME_WORDS: [u32; DESCRIPTOR_WORDS + 2] = fallback_words();
+
+/// Constructs a uniform descriptor without restating its layout.
+const fn fallback_words() -> [u32; DESCRIPTOR_WORDS + 2] {
+    let mut words = [0; DESCRIPTOR_WORDS + 2];
+    words[0] = DESCRIPTOR_MAGIC;
+    words[2 + CENTER_SLOT] = DESCRIPTOR_WORDS as u32;
+    words[DESCRIPTOR_WORDS] = 1 << PALETTE_LEN_SHIFT;
+    words
+}
 
 /// Immutable identity for the biome tint table referenced by packed records.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -49,29 +45,20 @@ impl ChunkBiomeTintIdentity {
     }
 }
 
-/// Number of horizontal biome storages retained by one render record.
-pub const BIOME_NEIGHBOUR_SLOT_COUNT: usize = 9;
+/// Horizontal center layer followed by the lower and upper layers.
+pub const BIOME_NEIGHBOUR_SLOT_COUNT: usize = 27;
 
-/// Radius of the CPU reference box kernel; the shader blends on a 4-block lattice instead.
-pub const BIOME_BLEND_RADIUS: i32 = 1;
-
-/// Number of samples in the fixed radius-one horizontal tint kernel.
-pub const BIOME_BLEND_SAMPLE_COUNT: usize = BIOME_NEIGHBOUR_SLOT_COUNT;
-
-/// Exact denominator for the equal-weight provisional kernel.
-pub const BIOME_BLEND_WEIGHT_DENOMINATOR: u16 = BIOME_BLEND_SAMPLE_COUNT as u16;
-
-/// One allocation-free palette lookup contributing to a biome tint blend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One palette entry contributing to the eight nearest lattice points.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BiomeBlendSample {
-    pub offset: [i8; 2],
     pub tint_index: u32,
-    pub weight_numerator: u8,
+    pub weight: f32,
 }
 
 /// Absolute encoded-word ceiling for one self-contained halo record.
-pub const MAX_PACKED_BIOME_RECORD_WORDS: usize =
-    DESCRIPTOR_WORDS + BIOME_NEIGHBOUR_SLOT_COUNT * (1 + 2_048 + BLOCKS_PER_SUB_CHUNK);
+pub const MAX_PACKED_BIOME_RECORD_WORDS: usize = DESCRIPTOR_WORDS
+    + super::biome_lattice::LATTICE_WORDS
+    + BIOME_NEIGHBOUR_SLOT_COUNT * (1 + 2_048 + BLOCKS_PER_SUB_CHUNK);
 
 /// Maps a horizontal subchunk offset in `-1..=1` to the stable descriptor slot.
 #[must_use]
@@ -84,18 +71,33 @@ pub const fn biome_neighbour_index(dx: i8, dz: i8) -> Option<usize> {
 
 const CENTER_SLOT: usize = 4;
 
+/// Maps a 3D neighbour offset while retaining the horizontal descriptor order.
+#[must_use]
+pub const fn biome_volume_index(dx: i8, dy: i8, dz: i8) -> Option<usize> {
+    let layer = match dy {
+        0 => 0,
+        -1 => 1,
+        1 => 2,
+        _ => return None,
+    };
+    match biome_neighbour_index(dx, dz) {
+        Some(slot) => Some(layer * 9 + slot),
+        None => None,
+    }
+}
+
 /// Palette-native biome data prepared for one GPU sub-chunk record.
 ///
-/// A fixed 3x3 horizontal descriptor precedes deduplicated Bedrock packed
+/// A fixed 3D descriptor and lattice cache precede deduplicated Bedrock packed
 /// storages. Only palette entries are remapped from wire biome IDs to dense
 /// tint indices; no 4,096-entry biome or colour array is materialized.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackedBiomeRecord {
-    words: Arc<[u32]>,
+    pub(crate) words: Arc<[u32]>,
 }
 
 impl PackedBiomeRecord {
-    /// Builds a center-only record. Missing neighbours clamp to its nearest edge.
+    /// Builds a center-only record; absent neighbours use biome zero.
     #[must_use]
     pub fn from_storage(
         storage: &BiomeStorage,
@@ -106,7 +108,7 @@ impl PackedBiomeRecord {
         Self::from_neighbourhood(&halo, resolve_tint_index)
     }
 
-    /// Builds a self-contained 3x3 horizontal record from immutable snapshots.
+    /// Builds a self-contained 3x3x3 record from immutable snapshots.
     ///
     /// Identical packed payloads are emitted once and referenced by relative
     /// descriptor offsets. The center slot is required; an absent center yields
@@ -120,9 +122,15 @@ impl PackedBiomeRecord {
             return Self::fallback();
         }
 
-        let mut payloads = Vec::<Vec<u32>>::new();
-        let mut slots = [None; BIOME_NEIGHBOUR_SLOT_COUNT];
-        let mut uniform_tint = None;
+        let has_missing = storages.iter().any(Option::is_none);
+        let missing_tint = resolve_tint_index(0);
+        let mut payloads = if has_missing {
+            vec![vec![1 << PALETTE_LEN_SHIFT, missing_tint]]
+        } else {
+            Vec::new()
+        };
+        let mut slots = [has_missing.then_some(0); BIOME_NEIGHBOUR_SLOT_COUNT];
+        let mut uniform_tint = has_missing.then_some(missing_tint);
         let mut all_uniform = true;
         for (slot, storage) in storages.iter().enumerate() {
             let Some(storage) = storage else {
@@ -146,7 +154,12 @@ impl PackedBiomeRecord {
         }
 
         let mut payload_offsets = Vec::with_capacity(payloads.len());
-        let mut next_offset = DESCRIPTOR_WORDS;
+        let lattice_words = if all_uniform {
+            0
+        } else {
+            super::biome_lattice::LATTICE_WORDS
+        };
+        let mut next_offset = DESCRIPTOR_WORDS + lattice_words;
         for payload in &payloads {
             payload_offsets.push(
                 u32::try_from(next_offset).expect("bounded biome records fit relative u32 offsets"),
@@ -164,26 +177,31 @@ impl PackedBiomeRecord {
             NO_UNIFORM_TINT
         });
         words.extend(slots.map(|slot| slot.map_or(0, |index| payload_offsets[index])));
+        words.resize(DESCRIPTOR_WORDS + lattice_words, 0);
         for payload in payloads {
             words.extend(payload);
         }
         debug_assert!(words.len() <= MAX_PACKED_BIOME_RECORD_WORDS);
-        Self {
+        let mut record = Self {
             words: words.into(),
+        };
+        if lattice_words != 0 {
+            record.build_lattice();
         }
+        record
     }
 
     /// Uniform fallback record referencing tint-table entry zero.
     #[must_use]
     pub fn fallback() -> Self {
         Self {
-            words: Arc::from(FALLBACK_WORDS),
+            words: Arc::from(FALLBACK_BIOME_WORDS),
         }
     }
 
     #[must_use]
     pub fn is_fallback(&self) -> bool {
-        self.words.as_ref() == FALLBACK_WORDS
+        self.words.as_ref() == FALLBACK_BIOME_WORDS
     }
 
     /// Exact storage-buffer words: descriptor then deduplicated packed records.
@@ -214,70 +232,27 @@ impl PackedBiomeRecord {
     }
 
     /// CPU mirror of the shader's packed lookup at a center-local coordinate.
-    /// Coordinates may extend into one horizontal neighbour. Missing slots
-    /// clamp to the nearest center edge rather than introducing fallback seams.
+    /// Coordinates may extend into one neighbour on each axis.
+    /// Missing slots use the zero-initialized vanilla biome sample.
     #[must_use]
     pub fn tint_index_at(&self, coordinate: [i32; 3]) -> Option<u32> {
-        if !(0..16).contains(&coordinate[1]) {
-            return None;
-        }
         let dx = coordinate[0].div_euclid(16);
+        let dy = coordinate[1].div_euclid(16);
         let dz = coordinate[2].div_euclid(16);
-        let slot = biome_neighbour_index(i8::try_from(dx).ok()?, i8::try_from(dz).ok()?)?;
+        let slot = biome_volume_index(
+            i8::try_from(dx).ok()?,
+            i8::try_from(dy).ok()?,
+            i8::try_from(dz).ok()?,
+        )?;
         let relative = self.words[2 + slot];
-        let (payload, x, z) = if relative == 0 {
-            (
-                self.center_payload(),
-                coordinate[0].clamp(0, 15) as u8,
-                coordinate[2].clamp(0, 15) as u8,
-            )
-        } else {
-            (
-                self.payload_at(relative)?,
-                coordinate[0].rem_euclid(16) as u8,
-                coordinate[2].rem_euclid(16) as u8,
-            )
-        };
-        packed_payload_tint_index(payload, x, coordinate[1] as u8, z)
-    }
-
-    /// Exact fixed-size kernel samples in stable Z-major order.
-    #[must_use]
-    pub fn blend_samples(
-        &self,
-        coordinate: [i32; 3],
-    ) -> Option<[BiomeBlendSample; BIOME_BLEND_SAMPLE_COUNT]> {
-        let mut samples = [BiomeBlendSample {
-            offset: [0, 0],
-            tint_index: 0,
-            weight_numerator: 1,
-        }; BIOME_BLEND_SAMPLE_COUNT];
-        for dz in -BIOME_BLEND_RADIUS..=BIOME_BLEND_RADIUS {
-            for dx in -BIOME_BLEND_RADIUS..=BIOME_BLEND_RADIUS {
-                let dx = i8::try_from(dx).ok()?;
-                let dz = i8::try_from(dz).ok()?;
-                let slot = biome_neighbour_index(dx, dz)?;
-                samples[slot] = BiomeBlendSample {
-                    offset: [dx, dz],
-                    tint_index: self.tint_index_at([
-                        coordinate[0] + i32::from(dx),
-                        coordinate[1],
-                        coordinate[2] + i32::from(dz),
-                    ])?,
-                    weight_numerator: 1,
-                };
-            }
+        if relative == 0 {
+            return Some(0);
         }
-        Some(samples)
-    }
-
-    /// Nine radius-1 box-kernel tint indices in stable Z-major order.
-    #[must_use]
-    pub fn blend_tint_indices(&self, coordinate: [i32; 3]) -> Option<[u32; 9]> {
-        Some(
-            self.blend_samples(coordinate)?
-                .map(|sample| sample.tint_index),
-        )
+        let payload = self.payload_at(relative)?;
+        let x = coordinate[0].rem_euclid(16) as u8;
+        let y = coordinate[1].rem_euclid(16) as u8;
+        let z = coordinate[2].rem_euclid(16) as u8;
+        packed_payload_tint_index(payload, x, y, z)
     }
 
     /// Center-local lookup retained for existing validation callers.

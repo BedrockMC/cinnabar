@@ -190,3 +190,12 @@ fn truncated_and_overlong_biome_varints_read_as_zero() {
         assert_eq!(column.bytes_consumed(), bytes.len());
     }
 }
+
+#[test]
+fn biome_neighbour_arrival_invalidates_vertical_and_diagonal_consumers() {
+    let source = world::SubChunkKey::new(0, 0, 4, 0);
+    let dependents = source.biome_mesh_dependents().collect::<Vec<_>>();
+    assert_eq!(dependents.len(), 27);
+    assert!(dependents.contains(&world::SubChunkKey::new(0, -1, 3, 1)));
+    assert!(dependents.contains(&world::SubChunkKey::new(0, 1, 5, -1)));
+}

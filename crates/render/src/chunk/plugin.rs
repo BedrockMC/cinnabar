@@ -81,7 +81,7 @@ impl Plugin for ChunkRenderPlugin {
             app,
             BIOME_TINT_SHADER_HANDLE,
             "../biome_tint.wgsl",
-            Shader::from_wgsl
+            |source, path| Shader::from_wgsl(meshing::biome_lattice::shader_source(source), path)
         );
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wgsl", Shader::from_wgsl);
