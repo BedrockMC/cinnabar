@@ -109,7 +109,7 @@ func (c *ImageCache) Fetch(ctx context.Context, rawURL string) (Image, error) {
 	if err != nil {
 		return Image{}, ErrImageRejected
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", "libhttpclient/1.0.0.0")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return Image{}, fmt.Errorf("store: fetch image: %w", err)
