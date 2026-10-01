@@ -113,6 +113,14 @@ impl Default for InputComponent {
 impl InputComponent {
     /// The component `control` carries; the factory reads the same keys for every type.
     pub(crate) fn read(control: &ResolvedControl) -> Self {
+        super::cache::entry(&control.properties)
+            .input
+            .get_or_init(|| Self::parse(control))
+            .clone()
+    }
+
+    /// Parse flags once for this version of the property map.
+    fn parse(control: &ResolvedControl) -> Self {
         let flag = |key: &str, fallback: bool| bound_bool(control, key).unwrap_or(fallback);
         Self {
             modal: flag("modal", false),
@@ -129,7 +137,27 @@ impl InputComponent {
     }
 
     /// Read routing declarations without the unrelated pointer and modal flags.
-    pub(crate) fn read_mappings(control: &ResolvedControl) -> Self {
+    fn read_mappings(control: &ResolvedControl) -> Self {
+        super::cache::entry(&control.properties)
+            .mappings
+            .get_or_init(|| Self::parse_mappings(control))
+            .clone()
+    }
+
+    /// Look up one global route without copying every mapping into a temporary component.
+    pub(super) fn global_target(control: &ResolvedControl, from: &str) -> Option<String> {
+        let cached = super::cache::entry(&control.properties);
+        cached
+            .mappings
+            .get_or_init(|| Self::parse_mappings(control))
+            .mappings
+            .iter()
+            .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)
+            .map(|mapping| mapping.to.clone())
+    }
+
+    /// Apply the factory's mapping defaults without reading pointer flags.
+    fn parse_mappings(control: &ResolvedControl) -> Self {
         let mut component = Self::default();
         let items: &[Value] = match control.properties.get("button_mappings") {
             Some(Value::Array(items)) => items,

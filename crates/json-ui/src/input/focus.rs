@@ -63,8 +63,16 @@ impl FocusMeta {
         if !has_component {
             return None;
         }
+        let cached = super::cache::entry(&control.properties);
+        let mut focus = cached.focus.get_or_init(|| Self::parse(control)).clone();
+        focus.containers.extend_from_slice(containers);
+        Some(focus)
+    }
+
+    /// Cache authored focus rules; ancestor geometry belongs to the current layout.
+    fn parse(control: &ResolvedControl) -> Self {
         let flag = |key: &str, fallback: bool| bound_bool(control, key).unwrap_or(fallback);
-        Some(Self {
+        Self {
             enabled: bound_bool(control, "#focus_enabled").unwrap_or(flag("focus_enabled", false)),
             // A non-integer precedence reads as zero, as `Json::Value::isInt` gates it.
             precedence: bound_number(control, "default_focus_precedence")
@@ -89,8 +97,8 @@ impl FocusMeta {
                     .collect(),
                 _ => Vec::new(),
             },
-            containers: containers.to_vec(),
-        })
+            containers: Vec::new(),
+        }
     }
 
     /// This control's own override toward `direction`.
