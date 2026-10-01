@@ -91,6 +91,8 @@ pub(super) struct EngineInputs<'a> {
     pub(super) safe_area: SafeArea,
     pub(super) content: [f32; 2],
     pub(super) translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
+    /// The active language tables, so a language change relays out text.
+    pub(super) language: crate::ui_runtime::LanguageIdentity,
 }
 
 impl FormEngine {
@@ -338,7 +340,7 @@ impl FormEngine {
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let language = (inputs.translate)("menu.play");
+        let language = inputs.language;
         render_with(self.art(), inputs, out, art, None, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,

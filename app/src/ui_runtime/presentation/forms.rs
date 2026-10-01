@@ -344,6 +344,7 @@ impl UiPresentationRuntime {
                             safe_area: self.safe_area,
                             content: [width, height],
                             translate: &translate,
+                            language: runtime.language_identity(),
                         };
                         let out = engine::EngineOutput {
                             nodes: &mut *nodes,
