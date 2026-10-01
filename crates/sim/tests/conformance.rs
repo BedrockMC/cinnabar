@@ -636,21 +636,30 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
         ),
         "{divergence:?}"
     );
-    let retained = trace.lines().map(|line| {
-        let mut record: serde_json::Value = serde_json::from_str(line).unwrap();
-        let reason = match record["scenario"].as_str() {
-            Some("bed_bounce") => Some("Vanilla differs from Go: bed restitution is 0.75 without a cap"),
-            Some("soul_sand") => Some("Vanilla differs from Go: soul sand multiplies acceleration friction by 1.225"),
-            _ => None,
-        };
-        if let Some(reason) = reason {
-            record["evidence"] = serde_json::json!({"status": "unsupported_non_conformance", "reason": reason});
-            for step in record["steps"].as_array_mut().unwrap() {
-                step.as_object_mut().unwrap().remove("expected");
+    let retained = trace
+        .lines()
+        .map(|line| {
+            let mut record: serde_json::Value = serde_json::from_str(line).unwrap();
+            let reason = match record["scenario"].as_str() {
+                Some("bed_bounce") => {
+                    Some("Vanilla differs from Go: bed restitution is 0.75 without a cap")
+                }
+                Some("soul_sand") => Some(
+                    "Vanilla differs from Go: soul sand multiplies acceleration friction by 1.225",
+                ),
+                _ => None,
+            };
+            if let Some(reason) = reason {
+                record["evidence"] =
+                    serde_json::json!({"status": "unsupported_non_conformance", "reason": reason});
+                for step in record["steps"].as_array_mut().unwrap() {
+                    step.as_object_mut().unwrap().remove("expected");
+                }
             }
-        }
-        record.to_string()
-    }).collect::<Vec<_>>().join("\n");
+            record.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let audit = audit_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-6).unwrap();
     assert_eq!(audit.scripts, 31);
     assert_eq!(audit.observed_steps, 34);
