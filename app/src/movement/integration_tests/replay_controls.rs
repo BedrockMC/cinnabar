@@ -1,3 +1,12 @@
+/// UI input suppression leaves the independently controlled view intact.
+#[test]
+fn inactive_movement_preserves_view_yaw() {
+    let input = physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, None);
+    assert_eq!(input.yaw_degrees, 90.0);
+    assert_eq!([input.strafe, input.forward], [0.0; 2]);
+    assert!(!input.jumping && !input.sneaking && !input.sprinting);
+}
+
 /// Replayed controls must reach unsent packets and the next tick's edge detector.
 #[test]
 fn replayed_sneak_rebuilds_outbound_controls_and_following_edges() {

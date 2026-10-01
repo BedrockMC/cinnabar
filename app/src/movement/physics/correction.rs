@@ -33,10 +33,12 @@ impl LocalPhysicsController {
             let jump_delay = self.state.as_ref().map_or(0, |state| state.jump_delay);
             let previous_jump_held = self.previous_jump_held;
             let jump_edge_pending = self.jump_edge_pending;
+            let fly_toggle_pending = self.fly_toggle_pending;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // MovePlayer changes spatial state without resetting jump input.
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
+            self.fly_toggle_pending = fly_toggle_pending;
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
             }

@@ -667,7 +667,7 @@ fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
 
     assert_eq!(
         physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
-        MovementInput::default()
+        MovementInput { yaw_degrees: 90.0, ..MovementInput::default() }
     );
 }
 
