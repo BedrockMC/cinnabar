@@ -2484,6 +2484,12 @@ store it only under the user's temporary directory, inspect that file, and never
     remain capped at 32 and the result channel at 128. The deterministic
     regression, all 284 client unit tests (two ignored), strict Clippy,
     formatting, and CI are green.
+  - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
+    mesh waits while any of its 26 neighbours is owed (requested, or unsent in
+    the announced Euclidean disk while the server delivered data within 1 s).
+    Vanilla instead builds against absent chunks at the default brightness and
+    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
+    no native reference. `streaming_harness` measures it.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate
