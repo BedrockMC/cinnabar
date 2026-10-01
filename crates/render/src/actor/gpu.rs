@@ -270,6 +270,8 @@ pub(crate) struct ActorDrawSpan {
     pub page: u8,
     pub first: u32,
     pub count: u32,
+    /// Vertices of the geometry every instance of the span draws.
+    pub vertex_count: u32,
 }
 
 impl ActorDrawTracker {
@@ -380,6 +382,7 @@ mod tests {
             page: 0,
             first: 0,
             count: 1,
+            vertex_count: 3,
         };
         assert!(tracker.begin(draw(1), 9, &[span]));
         assert!(tracker.take_drawn().is_none());
@@ -400,11 +403,13 @@ mod tests {
                 page: 0,
                 first: 0,
                 count: 1,
+                vertex_count: 3,
             },
             ActorDrawSpan {
                 page: 1,
                 first: 1,
                 count: 1,
+                vertex_count: 3,
             },
         ];
         assert!(tracker.begin(frame.clone(), 8, &spans));

@@ -519,6 +519,19 @@ impl ActorRigFrameBuilder {
         view: Option<ActorCullView>,
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
     ) -> ActorRigRenderFrame {
+        self.build_paged(partial_tick, view, submissions, |_| 0)
+    }
+
+    /// [`Self::build`] with instances grouped by layer, then `page_of` texture page, then
+    /// geometry, so each group draws once with its geometry's own vertex count.
+    #[must_use]
+    pub fn build_paged(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+        page_of: impl Fn(&ActorRenderIdentity) -> u8,
+    ) -> ActorRigRenderFrame {
         let Some(frame_generation) = self.frame_generation.checked_add(1) else {
             return ActorRigRenderFrame {
                 rejects: ActorRigRejects {
@@ -563,9 +576,13 @@ impl ActorRigFrameBuilder {
         let mut maximum_vertex_count = 0;
         let mut rejects = ActorRigRejects::default();
 
-        // Bodies first so equipment can never crowd a body out of the instance arena.
+        // Bodies first so equipment can never crowd a body out of the instance arena; layers in
+        // ascending order so a coplanar overlay draws after the layers beneath it.
         let mut ordered = latest.into_values().collect::<Vec<_>>();
-        ordered.sort_by_key(|submission| submission.input.identity.layer != ACTOR_LAYER_BODY);
+        ordered.sort_by_key(|submission| {
+            let identity = submission.input.identity;
+            (identity.layer, page_of(&identity), submission.input.rig)
+        });
         let mut body_count = 0usize;
         for submission in ordered {
             if submission.route == ActorRigRoute::NoDraw {
