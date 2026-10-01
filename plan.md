@@ -3,6 +3,7 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
@@ -2492,10 +2493,11 @@ store it only under the user's temporary directory, inspect that file, and never
     formatting, and CI are green.
   - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
     mesh waits while any of its 26 neighbours is owed (requested, or unsent in
-    the announced Euclidean disk while the server delivered data within 1 s).
-    Vanilla instead builds against absent chunks at the default brightness and
-    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
-    no native reference. `streaming_harness` measures it.
+    the announced Euclidean disk while its cohort made new progress within 1 s).
+    Current Lens 1.26.50.26 evidence instead requires eligible horizontal columns
+    before rebuilding; the historical missing-column claim is superseded. The
+    1 s quiet fallback remains provisional, with no native reference.
+    `streaming_harness` checks slow delivery for transient geometry and dark seams.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate

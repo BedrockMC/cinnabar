@@ -71,7 +71,7 @@ impl WorldStream {
                 // above and the submit-time supported-dimension
                 // admission.
                 self.record_required_level_chunk(&event);
-                self.last_column_arrival = Some(Instant::now());
+                self.record_column_arrival(key, Instant::now());
                 let range = vanilla_dimension_range(event.dimension)
                     .expect("inline events are range-checked before decode");
                 let stored_keys = decoded
@@ -256,6 +256,7 @@ impl WorldStream {
                     };
                     committed_any |= committed;
                     if committed {
+                        self.record_sub_chunk_arrival(key, Instant::now());
                         self.stats.phase2_stages.subchunks_committed = self
                             .stats
                             .phase2_stages
@@ -273,7 +274,6 @@ impl WorldStream {
                 if committed_any {
                     let now = Instant::now();
                     self.stats.last_chunk_commit_at = Some(now);
-                    self.last_column_arrival = Some(now);
                 }
             }
             PreparedWorldEvent::BlockUpdates { result, duration } => {
@@ -437,6 +437,7 @@ impl WorldStream {
                     self.publisher_epoch = next_epoch;
                 }
                 self.committed_view_cohort = Some(cohort);
+                self.prune_column_deadlines();
                 if consumes_local_reset {
                     self.local_resets_consumed = self.local_resets_consumed.saturating_add(1);
                 }
@@ -824,7 +825,7 @@ impl WorldStream {
             return;
         };
         self.record_required_level_chunk(&event);
-        self.last_column_arrival = Some(Instant::now());
+        self.record_column_arrival(key, Instant::now());
         let (count, has_authoritative_upper_air) = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
                 (usize::from(highest).min(range.sub_chunk_count), true)

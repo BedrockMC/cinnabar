@@ -34,6 +34,7 @@ impl WorldStream {
             );
         }
         if completed {
+            self.requests.clear_mesh_blocker(chunk);
             self.requested_sub_chunks.remove(&chunk);
             if self.request_collision_failures.contains(&chunk) {
                 self.loaded_columns.remove(&chunk);
