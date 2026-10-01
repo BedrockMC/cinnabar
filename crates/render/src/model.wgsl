@@ -234,6 +234,7 @@ fn vertex(
 }
 
 #ifdef ENHANCED
+// Decode a rotated model corner for its geometric normal.
 fn template_corner(template_quad_base: u32, corner: u32, transform: u32) -> vec3<f32> {
     let component = corner * 3u;
     return rotate_cross(vec3<f32>(

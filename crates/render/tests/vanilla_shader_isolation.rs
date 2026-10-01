@@ -56,3 +56,24 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
         );
     }
 }
+
+/// Freeze the real base descriptors as well as testing specialization mutations.
+#[test]
+fn vanilla_base_pipeline_construction_matches_baseline() {
+    let source = include_str!("../src/chunk/pipeline/layouts.rs");
+    let start = source
+        .find("        let descriptor = RenderPipelineDescriptor")
+        .unwrap();
+    let end = source[start..]
+        .find("\n#[derive(Clone, Copy, PartialEq")
+        .unwrap()
+        + start;
+    let construction: String = source[start..end]
+        .chars()
+        .filter(|value| !value.is_whitespace())
+        .collect();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(construction)),
+        "af768050494548329b5ced7f2e903a14a70f0faa1273afd096be8fbeb46b1c6e"
+    );
+}

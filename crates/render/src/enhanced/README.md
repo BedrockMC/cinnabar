@@ -21,5 +21,13 @@ classes, so resource packs need native inspection.
 Default target: two 1024-square cascades over 96 blocks, half-resolution shafts,
 20 SSR steps with five refinement steps. These are quality choices, not measured
 performance claims. GPU/CPU diagnostic spans use Bevy's recorder when installed;
-GPU times require adapter timestamp-query support. Native Metal, DX12 and Vulkan
+Bevy 0.18 GPU diagnostics require Vulkan/DX12 timestamp support; its Metal
+recorder reports CPU times only. Use Xcode GPU capture for Metal GPU cost.
+Native Metal, DX12 and Vulkan
 visual/performance checks remain required.
+
+Camera scope currently assumes the gameplay camera fills its render target.
+Custom split-screen viewports need snapshot UV transforms and post-pass bounds.
+Actors and world nametags are HDR-compatible, but actors retain vanilla lighting
+and do not cast into the terrain cascades. No temporal history, GTAO or TAA is
+implemented. SSR cannot reflect offscreen objects or transparent geometry.
