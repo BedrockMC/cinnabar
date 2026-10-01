@@ -329,7 +329,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "is_sleeping" => truth(actor.player_is_sleeping()),
         "body_y_rotation" => input.body_yaw,
         "body_x_rotation" | "target_x_rotation" => input.pitch,
-        "target_y_rotation" => head_relative_yaw(input, TARGET_YAW_LIMIT),
+        "target_y_rotation" => {
+            if actor.target_rotation_is_absolute() {
+                actor.yaw
+            } else {
+                head_relative_yaw(input, TARGET_YAW_LIMIT)
+            }
+        }
         // Only the one-argument forms carry a value; the bare forms read as zero.
         "head_y_rotation" => argument(0).map_or(0.0, |limit| head_relative_yaw(input, limit.abs())),
         "head_x_rotation" => argument(0).map_or(0.0, |_| input.pitch),

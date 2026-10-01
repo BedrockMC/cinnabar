@@ -746,3 +746,20 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
     assert_eq!(pivot("rightArm", 1.0), 22.0);
     assert_eq!(pivot("missing", 1.0), 0.0);
 }
+
+#[test]
+fn arrow_target_yaw_uses_actor_rotation_without_the_mob_head_limit() {
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:arrow".into(),
+    };
+    actor.yaw = 135.0;
+    let input = ActorTickInput {
+        body_yaw: 25.0,
+        head_yaw: -40.0,
+        ..ActorTickInput::default()
+    };
+    assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), 135.0);
+    actor.yaw = -170.0;
+    assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), -170.0);
+}

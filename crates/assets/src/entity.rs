@@ -159,6 +159,15 @@ pub struct EntityGeometryCube {
     pub mirror: bool,
 }
 
+impl EntityGeometryCube {
+    /// Default UV sizes for north, south, east, west, up and down faces.
+    #[must_use]
+    pub fn face_uv_dimensions(&self) -> [[f32; 2]; 6] {
+        let [x, y, z] = self.size.map(EntityGeometryScalar::get);
+        [[x, y], [x, y], [z, y], [z, y], [x, z], [x, z]]
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "mapping", content = "value")]
 pub enum EntityGeometryUv {
