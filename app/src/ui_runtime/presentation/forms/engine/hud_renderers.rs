@@ -226,3 +226,11 @@ fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
     };
     let _ = painter.push(visual, [x, y, x + side, y + side]);
 }
+
+/// Durability colour: hue from green (full) to red (worn); needs native measurement.
+pub(in super::super) fn durability_color(fraction: f64) -> [u8; 4] {
+    let hue = (fraction / 3.0) * 6.0;
+    let x = (1.0 - (hue % 2.0 - 1.0).abs()) as f32;
+    let (r, g) = if hue < 1.0 { (1.0, x) } else { (x, 1.0) };
+    [(r * 255.0) as u8, (g * 255.0) as u8, 0, 255]
+}

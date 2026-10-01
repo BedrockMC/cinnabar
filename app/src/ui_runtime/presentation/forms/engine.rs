@@ -13,7 +13,7 @@ use std::{
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form_over, render_bound,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -61,6 +61,7 @@ pub(crate) struct FormEngine {
 
 pub(super) struct FormCache {
     model: FormModel,
+    components: json_ui::Components,
     catalog: Arc<Catalog>,
     bound: ResolvedControl,
     laid: Option<LaidForm>,
@@ -236,17 +237,24 @@ impl FormEngine {
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let current = self.cache.as_ref().is_some_and(|cache| {
-            cache.model == *model && Arc::ptr_eq(&cache.catalog, &self.catalog)
+            cache.model == *model
+                && cache.components == view.components
+                && Arc::ptr_eq(&cache.catalog, &self.catalog)
         });
         if !current {
             self.passes[0] += 1;
-            self.cache = bind_form(model, &self.catalog, &self.context).map(|bound| FormCache {
-                model: model.clone(),
-                catalog: Arc::clone(&self.catalog),
-                bound,
-                laid: None,
-                screen_cancel: json_ui::form_screen_cancel(&self.catalog),
-            });
+            let components = &view.components;
+            self.cache =
+                bind_form_over(model, &self.catalog, &self.context, components).map(|bound| {
+                    FormCache {
+                        components: components.clone(),
+                        model: model.clone(),
+                        catalog: Arc::clone(&self.catalog),
+                        bound,
+                        laid: None,
+                        screen_cancel: json_ui::form_screen_cancel(&self.catalog),
+                    }
+                });
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let art = Art {
@@ -667,7 +675,7 @@ impl Painter<'_> {
                 let color = data
                     .get("primary_color")
                     .and_then(json_ui::color_value)
-                    .unwrap_or_else(|| durability_color(fraction));
+                    .unwrap_or_else(|| hud_renderers::durability_color(fraction));
                 Some((
                     UiVisual::Solid {
                         texture_page: self.solid_page,
@@ -774,7 +782,7 @@ impl Painter<'_> {
         let mut carry = String::new();
         for (index, line) in text.split('\n').enumerate() {
             let source = format!("{carry}{line}");
-            carry = active_codes(&source);
+            carry = super::fallback::active_codes(&source);
             if line.is_empty() {
                 continue;
             }
@@ -969,32 +977,4 @@ struct TextPaint {
     align: TextAlign,
     scale: f32,
     localize: bool,
-}
-
-/// The format codes in force at the end of `text`, to open the next line with.
-pub(super) fn active_codes(text: &str) -> String {
-    let mut codes = String::new();
-    let mut characters = text.chars();
-    while let Some(character) = characters.next() {
-        if character != '§' {
-            continue;
-        }
-        match characters.next() {
-            Some('r') => codes.clear(),
-            Some(code @ ('0'..='9' | 'a'..='w')) => {
-                codes.push('§');
-                codes.push(code);
-            }
-            _ => {}
-        }
-    }
-    codes
-}
-
-/// Durability colour: hue from green (full) to red (worn); needs native measurement.
-fn durability_color(fraction: f64) -> [u8; 4] {
-    let hue = (fraction / 3.0) * 6.0;
-    let x = (1.0 - (hue % 2.0 - 1.0).abs()) as f32;
-    let (r, g) = if hue < 1.0 { (1.0, x) } else { (x, 1.0) };
-    [(r * 255.0) as u8, (g * 255.0) as u8, 0, 255]
 }

@@ -239,7 +239,7 @@ impl UiPresentationRuntime {
             let label_lines = label.split('\n').filter(|line| !line.is_empty());
             for (row, line) in label_lines.take(MAX_LABEL_LINES).enumerate() {
                 let source = format!("{carry}{line}");
-                carry = super::engine::active_codes(&source);
+                carry = active_codes(&source);
                 let layout = fit_line(self, metrics, &source, (text_width - 24.0).max(1.0))?;
                 let top = y + 10.0 + row as f32 * line_height;
                 text(
@@ -409,4 +409,24 @@ pub(super) fn window_rect(bounds: UiRect, safe: SafeArea) -> Result<UiRect, UiPr
         bounds.max().x() + safe.left(),
         bounds.max().y() + safe.top(),
     )
+}
+
+/// The format codes in force at the end of `text`, to open the next line with.
+pub(super) fn active_codes(text: &str) -> String {
+    let mut codes = String::new();
+    let mut characters = text.chars();
+    while let Some(character) = characters.next() {
+        if character != '§' {
+            continue;
+        }
+        match characters.next() {
+            Some('r') => codes.clear(),
+            Some(code @ ('0'..='9' | 'a'..='w')) => {
+                codes.push('§');
+                codes.push(code);
+            }
+            _ => {}
+        }
+    }
+    codes
 }

@@ -434,3 +434,172 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         .unwrap()
     );
 }
+
+// With no form open, a left click stays gameplay's: the form input system never swallows it.
+#[test]
+fn a_click_without_a_form_reaches_gameplay() {
+    use bevy::input::mouse::MouseButtonInput;
+    let mut app = App::new();
+    let runtime = UiRuntime::new(1);
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    presentation
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_server_form_input);
+    let entity = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Pressed,
+        window: entity,
+    });
+    app.update();
+    assert!(
+        app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .just_pressed(MouseButton::Left),
+        "the swing click must survive the form input system"
+    );
+}
+
+// A custom form's toggle and edit box keep their values through the mapping dispatcher.
+#[test]
+fn custom_form_toggle_and_input_edit_their_values() {
+    use crate::ui_runtime::forms::FormValue;
+    use crate::ui_runtime::presentation::forms::pack_harness;
+    use bevy::input::mouse::MouseButtonInput;
+    use json_ui::HitKind;
+    use protocol::{CustomForm, CustomFormElement, FormRequestEvent, ServerFormModel, UiEvent};
+    use std::sync::Arc;
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(crate::ui_runtime::SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 0,
+            server_tick: None,
+            event: UiEvent::Form(FormRequestEvent {
+                form_id: 3,
+                kind: protocol::FormKind::Custom,
+                title: Some(Arc::from("T")),
+                json: Arc::from("{}"),
+                model: ServerFormModel::Custom(CustomForm {
+                    title: Arc::from("T"),
+                    elements: vec![
+                        CustomFormElement::Toggle {
+                            text: Arc::from("On"),
+                            default: false,
+                            tooltip: None,
+                        },
+                        CustomFormElement::Input {
+                            text: Arc::from("Name"),
+                            placeholder: Arc::from(""),
+                            default: Arc::from(""),
+                            tooltip: None,
+                        },
+                    ]
+                    .into(),
+                    submit: None,
+                }),
+            }),
+        })
+        .unwrap();
+    let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
+    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let centre = |kind: HitKind| {
+        let hit = frame.hits.iter().find(|hit| hit.kind == kind).unwrap();
+        Vec2::new(
+            frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+            frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+        )
+    };
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_server_form_input);
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window.resolution.set_scale_factor_override(Some(2.0));
+    window
+        .resolution
+        .set_physical_resolution(physical[0], physical[1]);
+    let entity = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    let click = |app: &mut App, at: Vec2| {
+        let mut windows = app.world_mut().query::<&mut Window>();
+        windows
+            .single_mut(app.world_mut())
+            .unwrap()
+            .set_cursor_position(Some(at));
+        app.update();
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            if state == ButtonState::Pressed {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<MouseButton>>()
+                    .press(MouseButton::Left);
+            }
+            app.world_mut().write_message(MouseButtonInput {
+                button: MouseButton::Left,
+                state,
+                window: entity,
+            });
+            app.update();
+        }
+    };
+    click(&mut app, centre(HitKind::Toggle));
+    let values = |app: &App| {
+        app.world()
+            .resource::<UiRuntime>()
+            .server_forms()
+            .engine()
+            .values
+            .clone()
+    };
+    assert_eq!(values(&app)[0], FormValue::Toggle(true));
+    click(&mut app, centre(HitKind::EditBox));
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::KeyX,
+        logical_key: Key::Character("x".into()),
+        state: ButtonState::Pressed,
+        text: Some("x".into()),
+        repeat: false,
+        window: entity,
+    });
+    app.update();
+    assert_eq!(values(&app)[1], FormValue::Text("x".into()));
+}

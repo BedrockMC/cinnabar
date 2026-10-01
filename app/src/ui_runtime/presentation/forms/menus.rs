@@ -136,6 +136,7 @@ impl UiPresentationRuntime {
                     crate::menu::MenuField::Address => MenuAction::AddAddress,
                 }))
             }),
+            ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.

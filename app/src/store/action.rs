@@ -139,6 +139,11 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            input: Default::default(),
+            focus: None,
+            widget: Default::default(),
+            collections: Vec::new(),
+            modal_root: None,
         }
     }
 

@@ -11,8 +11,10 @@ use bevy::{
         mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::{
-        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
+        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Time, Window,
+        With,
     },
+    time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
 
@@ -31,6 +33,7 @@ pub(crate) fn drive_server_form_input(
     presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut owned_last_frame: Local<bool>,
+    time: Option<Res<Time<Real>>>,
 ) {
     let (window, mut cursor) = window.into_inner();
     // Buttons are reset every owned frame, so a physical release never surfaces
@@ -106,6 +109,7 @@ pub(crate) fn drive_server_form_input(
                     )
                 })
                 .collect(),
+            now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
         };
         engine_input::drive(&mut runtime, &frame, input);
     } else if window.focused
