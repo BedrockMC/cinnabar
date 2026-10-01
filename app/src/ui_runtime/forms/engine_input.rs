@@ -7,11 +7,12 @@
 use bevy::input::{ButtonInput, keyboard::KeyCode, mouse::MouseScrollUnit};
 use json_ui::{
     ButtonEvent, ButtonInput as EngineButton, Dispatch, HitKind, HitRegion, InputMode,
-    PointerInput, ScreenEvent, focus_order, hit_test, scroll_target,
+    PointerInput, ScreenEvent, hit_test, scroll_target,
 };
 use protocol::{CustomFormElement, MenuElement, ServerFormModel};
 use ui::{ChatClipboard, UiPoint};
 
+use super::engine_focus;
 use super::values::{EngineFrame, FormDrag, slider_value_at};
 use super::{FormValue, LocalFormAction};
 use crate::ui_runtime::{PlatformClipboard, UiRuntime};
@@ -203,7 +204,7 @@ fn keyboard(
         KeyCode::ArrowLeft => "button.menu_left",
         KeyCode::ArrowRight => "button.menu_right",
         KeyCode::Tab => {
-            move_focus(runtime, frame, false);
+            engine_focus::tab(runtime, frame);
             return Vec::new();
         }
         _ => return Vec::new(),
@@ -213,8 +214,8 @@ fn keyboard(
     let mut events = down.events;
     events.extend(button(runtime, frame, id, false, None, now).events);
     // An unconsumed direction moves focus.
-    if !consumed && matches!(key, KeyCode::ArrowUp | KeyCode::ArrowDown) {
-        move_focus(runtime, frame, key == KeyCode::ArrowUp);
+    if !consumed && let Some(direction) = engine_focus::direction_of(key) {
+        engine_focus::step(runtime, frame, direction);
     }
     events
 }
@@ -386,35 +387,6 @@ fn press_scroll(runtime: &mut UiRuntime, frame: &EngineFrame, point: [f64; 2]) {
             }
         }
         _ => {}
-    }
-}
-
-fn move_focus(runtime: &mut UiRuntime, frame: &EngineFrame, backwards: bool) {
-    let order = focus_order(&frame.hits);
-    if order.is_empty() {
-        return;
-    }
-    let engine = runtime.server_forms_mut().engine_mut();
-    let current = engine
-        .view
-        .focused
-        .as_deref()
-        .and_then(|key| order.iter().position(|region| region.key == key));
-    let next = match (current, backwards) {
-        (None, false) => 0,
-        (None, true) => order.len() - 1,
-        (Some(at), false) => (at + 1) % order.len(),
-        (Some(at), true) => (at + order.len() - 1) % order.len(),
-    };
-    engine.view.focused = Some(order[next].key.clone());
-    engine.view.hovered = engine.view.focused.clone();
-    // Keep the focused control inside its scroll view.
-    let region = order[next];
-    if let Some(view) = owning_view(frame, region)
-        && let Some(metrics) = frame.report.scrolls.get(&view.key)
-    {
-        let offset = metrics.offset_revealing(region.rect.y, region.rect.y + region.rect.h);
-        engine.view.scroll.insert(view.key.clone(), offset);
     }
 }
 

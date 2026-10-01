@@ -12,10 +12,16 @@ use crate::widgets;
 
 mod focus;
 mod mapping;
+mod navigate;
 
-pub use focus::FocusMeta;
+pub use focus::{
+    CustomRoute, FOCUS_OVERRIDE_STOP, FocusContainer, FocusDirection, FocusMeta, NavigationMode,
+};
 pub use mapping::{
     InputComponent, InputMode, InputModeCondition, Mapping, MappingScope, MappingType,
+};
+pub use navigate::{
+    FocusMove, controller_direction_claimed, default_focus, navigate, next_in_order, set_focus,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +103,11 @@ impl HitRegion {
         inside(&self.rect) && inside(&self.clip)
     }
 
+    /// Whether focus may land here: an enabled control with an enabled focus component.
+    pub fn takes_focus(&self) -> bool {
+        self.enabled && self.focus.as_ref().is_some_and(|focus| focus.enabled)
+    }
+
     /// `0..=1` position of `x` across the region, for slider drags.
     pub fn fraction_at(&self, x: f64) -> f64 {
         if self.rect.w <= 0.0 {
@@ -114,7 +125,7 @@ pub fn hit_regions(root: &LaidOut) -> Vec<HitRegion> {
         root,
         (None, None, None),
         None,
-        &mut Vec::new(),
+        (&mut Vec::new(), &mut Vec::new()),
         &mut out,
         &mut order,
     );
@@ -126,7 +137,7 @@ fn collect(
     node: &LaidOut,
     (index, collection, modal_root): (Option<usize>, Option<&str>, Option<&str>),
     panel: Option<&str>,
-    chain: &mut Vec<(String, usize)>,
+    (chain, containers): (&mut Vec<(String, usize)>, &mut Vec<FocusContainer>),
     out: &mut Vec<HitRegion>,
     order: &mut usize,
 ) {
@@ -231,7 +242,7 @@ fn collect(
             renderer: (kind == HitKind::Custom)
                 .then(|| text("renderer"))
                 .flatten(),
-            focus: FocusMeta::read(control),
+            focus: FocusMeta::read(control, containers),
             widget: crate::component::Widget::read(node),
             collections: chain.clone(),
             input,
@@ -244,15 +255,22 @@ fn collect(
         .get("collection_name")
         .and_then(Value::as_str)
         .or(panel);
+    let container = FocusContainer::read(control, &node.key, node.rect.into());
+    let opened = container.is_some();
+    containers.extend(container);
     for child in &node.children {
+        let stacks = (&mut *chain, &mut *containers);
         collect(
             child,
             (index, collection, modal_root),
             panel,
-            chain,
+            stacks,
             out,
             order,
         );
+    }
+    if opened {
+        containers.pop();
     }
     chain.truncate(entered);
 }
@@ -302,11 +320,18 @@ pub fn scroll_target(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegio
     None
 }
 
-/// Focusable, enabled regions in document order (the Tab/arrow sequence).
+/// Regions focus can land on, in document order: enabled focus components,
+/// inside the topmost modal panel when one is open.
 pub fn focus_order(regions: &[HitRegion]) -> Vec<&HitRegion> {
+    let modal = regions
+        .iter()
+        .rev()
+        .find(|region| region.kind == HitKind::Modal)
+        .map(|region| region.key.as_str());
     let mut focusable: Vec<&HitRegion> = regions
         .iter()
-        .filter(|region| region.kind.focusable() && region.enabled)
+        .filter(|region| region.takes_focus())
+        .filter(|region| modal.is_none_or(|root| region.modal_root.as_deref() == Some(root)))
         .collect();
     focusable.sort_by_key(|region| region.order);
     focusable
