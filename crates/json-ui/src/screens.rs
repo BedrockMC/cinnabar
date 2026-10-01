@@ -1,7 +1,7 @@
 //! The screens the engine is allowed to draw, and the generic renderer for them;
 //! [`render_screen`] refuses anything not on the allow-list.
 
-use crate::bind::{DataSource, bind};
+use crate::bind::{BindState, DataSource, bind_stateful};
 use crate::catalog::Catalog;
 use crate::form::{CatalogLibrary, FormRender, finish};
 use crate::layout::LayoutEnv;
@@ -77,7 +77,7 @@ pub fn render_screen(
     state: &ViewState,
 ) -> Option<ScreenRender> {
     let root = resolve_screen(reference, catalog, context)?;
-    let bound = bind_screen(&root, catalog, context, data);
+    let bound = bind_screen(&root, catalog, context, data, &mut BindState::new());
     Some(finish(bound, root_size, env, state))
 }
 
@@ -95,14 +95,17 @@ pub fn resolve_screen(
     resolve(catalog, reference, context).control
 }
 
-/// Bind a resolved screen against `data`, ready for [`crate::render_bound`].
+/// One data refresh of a resolved screen whose live bindings `state` keeps,
+/// ready for [`crate::render_bound`].
 pub fn bind_screen(
     root: &ResolvedControl,
     catalog: &Catalog,
     context: &Context,
     data: &DataSource,
+    state: &mut BindState,
 ) -> ResolvedControl {
-    bind(root, data, &CatalogLibrary { catalog, context })
+    let library = CatalogLibrary { catalog, context };
+    bind_stateful(&std::sync::Arc::new(root.clone()), data, &library, state).0
 }
 
 #[cfg(test)]
