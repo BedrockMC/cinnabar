@@ -78,10 +78,9 @@ pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
         );
         all.extend(files);
     }
-    let wanted = ServerUiPack::referenced_texture_dirs(&pack.ui_layers);
     let mut textures = BTreeMap::new();
     for (path, bytes) in all {
-        if ServerUiPack::wants_texture(&wanted, &path) {
+        if path.starts_with("textures/") {
             textures.insert(path, bytes);
         }
     }

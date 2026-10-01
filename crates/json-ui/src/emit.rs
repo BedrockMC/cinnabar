@@ -262,13 +262,10 @@ fn emit_own(
 /// The primitives a single control contributes at `rect`.
 fn draws_for(control: &ResolvedControl, rect: Rect, env: &LayoutEnv) -> Vec<(Rect, Draw)> {
     // An empty texture (an unset binding) draws nothing, as in vanilla.
-    if let Some(path) = control
-        .properties
-        .get("texture")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-    {
-        return sprite_draws(control, rect, path, env);
+    match control.properties.get("texture").and_then(Value::as_str) {
+        Some("") => return Vec::new(),
+        Some(path) => return sprite_draws(control, rect, path, env),
+        None => {}
     }
     match control.control_type.as_deref() {
         Some("label") => vec![(rect, text_draw(control))],
@@ -289,6 +286,15 @@ fn sprite_draws(
 ) -> Vec<(Rect, Draw)> {
     let color = color_of(control, [255, 255, 255, 255]);
     let meta = env.textures.texture(path);
+    // Without `allow_debug_missing_texture` an unresolved image draws nothing
+    // rather than the host's missing-texture image.
+    let allow_missing = !matches!(
+        control.properties.get("allow_debug_missing_texture"),
+        Some(Value::Bool(false))
+    );
+    if meta.is_none() && !allow_missing {
+        return Vec::new();
+    }
     if let Some(source) = uv_rect(control, meta.as_ref()) {
         return vec![(
             rect,
@@ -300,7 +306,17 @@ fn sprite_draws(
         )];
     }
     if let (Some(axes), Some(meta)) = (tiled_axes(control), meta.as_ref()) {
-        return tiles(rect, meta.base_size, axes)
+        // `tiled_scale` sizes each repeat relative to the texture (default 1, 1).
+        let scale = control
+            .properties
+            .get("tiled_scale")
+            .and_then(Value::as_array)
+            .filter(|pair| pair.len() == 2)
+            .and_then(|pair| Some([pair[0].as_f64()?, pair[1].as_f64()?]))
+            .filter(|scale| scale.iter().all(|axis| *axis > 1e-6))
+            .unwrap_or([1.0, 1.0]);
+        let tile = [meta.base_size[0] * scale[0], meta.base_size[1] * scale[1]];
+        return tiles(rect, tile, axes)
             .into_iter()
             .map(|(dest, uv)| {
                 (
@@ -381,7 +397,7 @@ fn tiled_axes(control: &ResolvedControl) -> Option<[bool; 2]> {
         Value::Bool(true) => Some([true, true]),
         Value::String(axes) if axes == "x" => Some([true, false]),
         Value::String(axes) if axes == "y" => Some([false, true]),
-        Value::String(axes) if axes == "xy" || axes == "true" => Some([true, true]),
+        Value::String(axes) if axes == "xy" || axes == "yx" || axes == "true" => Some([true, true]),
         _ => None,
     }
 }
@@ -440,21 +456,30 @@ fn text_draw(control: &ResolvedControl) -> Draw {
 }
 
 /// Plain properties a custom renderer reads besides its `#` bindings.
-const CUSTOM_PROPERTIES: [&str; 4] = [
+const CUSTOM_PROPERTIES: [&str; 7] = [
     "collection_index",
     "primary_color",
     "starting_rotation",
     "camera_tilt_degrees",
+    "color1",
+    "color2",
+    "gradient_direction",
 ];
 
 fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
     let renderer = control.properties.get("renderer")?.as_str()?.to_owned();
-    let data = control
+    let mut data: BTreeMap<String, Value> = control
         .properties
         .iter()
         .filter(|(key, _)| key.starts_with('#') || CUSTOM_PROPERTIES.contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+    // The renderer also reads its `property_bag` options (`is_durability`, …).
+    if let Some(Value::Object(bag)) = control.properties.get("property_bag") {
+        for (key, value) in bag.iter().filter(|(key, _)| !key.starts_with('#')) {
+            data.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
     Some(Draw::Custom { renderer, data })
 }
 
@@ -752,5 +777,60 @@ mod tests {
     fn color_floats_round_to_bytes() {
         let color = color_from_value(&serde_json::json!([0.3, 0.3, 0.3]), [1, 1, 1, 1]);
         assert_eq!(color, [77, 77, 77, 255]);
+    }
+
+    struct SixteenSquare;
+    impl crate::layout::TextureSource for SixteenSquare {
+        fn texture(&self, _: &str) -> Option<TextureMeta> {
+            Some(TextureMeta {
+                base_size: [16.0, 16.0],
+                nineslice: None,
+            })
+        }
+    }
+
+    struct NoText;
+    impl crate::layout::TextMeasure for NoText {
+        fn extent(&self, _: &str) -> [f64; 2] {
+            [0.0, 0.0]
+        }
+    }
+
+    fn image(properties: serde_json::Value) -> ResolvedControl {
+        ResolvedControl {
+            name: "image".to_owned(),
+            control_type: Some("image".to_owned()),
+            base: None,
+            unresolved_base: None,
+            properties: serde_json::from_value(properties).unwrap(),
+            children: Vec::new(),
+            factory: None,
+        }
+    }
+
+    // `tiled_scale` repeats the texture at that multiple of its size; `yx` tiles both axes.
+    #[test]
+    fn tiled_scale_sizes_each_repeat() {
+        let env = LayoutEnv {
+            text: &NoText,
+            textures: &SixteenSquare,
+        };
+        let control = image(serde_json::json!({
+            "texture": "textures/blocks/dirt", "tiled": "yx", "tiled_scale": [2, 2]
+        }));
+        let draws = draws_for(&control, Rect::new(0.0, 0.0, 64.0, 40.0), &env);
+        assert_eq!(draws.len(), 4);
+        assert_eq!([draws[0].0.w, draws[0].0.h], [32.0, 32.0]);
+    }
+
+    // An empty texture draws nothing, even with a colour.
+    #[test]
+    fn empty_texture_draws_nothing() {
+        let env = LayoutEnv {
+            text: &NoText,
+            textures: &SixteenSquare,
+        };
+        let control = image(serde_json::json!({ "texture": "", "color": [1, 0, 0] }));
+        assert!(draws_for(&control, Rect::new(0.0, 0.0, 8.0, 8.0), &env).is_empty());
     }
 }

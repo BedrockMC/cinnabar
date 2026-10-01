@@ -653,7 +653,15 @@ impl Painter<'_> {
                 Some((icon.visual(alpha([255; 4])), dest))
             }
             "progress_bar_renderer" => {
-                if data.get("#touch_progress_bar_visible") != Some(&serde_json::Value::Bool(true)) {
+                // `ProgressBarRenderer`: a durability bar (not a storage one) shows
+                // under its touch flag on desktop too; the rest under the general one.
+                let flag = |key: &str| data.get(key) == Some(&serde_json::Value::Bool(true));
+                let visible = if !flag("is_storage_bar") && flag("is_durability") {
+                    "#touch_progress_bar_visible"
+                } else {
+                    "#progress_bar_visible"
+                };
+                if !flag(visible) {
                     return None;
                 }
                 let total = number("#progress_bar_total_amount").filter(|total| *total > 0.0)?;
@@ -676,21 +684,8 @@ impl Painter<'_> {
                     fill,
                 ))
             }
-            // Messaging art is drawn as its first frame.
-            "animated_gif_renderer" => {
-                let path = data.get("#gif_path")?.as_str()?;
-                let image = self.art.images?.get(path)?;
-                let opacity = number("#alpha").unwrap_or(1.0).clamp(0.0, 1.0);
-                let tint = alpha([255, 255, 255, (255.0 * opacity) as u8]);
-                Some((
-                    UiVisual::Sprite {
-                        texture_page: image.page,
-                        uv: image.uv,
-                        color: tint,
-                    },
-                    dest,
-                ))
-            }
+            "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
+            "gradient_renderer" => self.gradient(data, dest, &alpha),
             "profile_image_renderer" => {
                 let portrait = self.art.portrait?;
                 Some((

@@ -77,3 +77,50 @@ fn loading_screen_snapshot() {
         .unwrap();
     super::super::forms::snapshot::write(&input, "loading_screen");
 }
+
+// The overworld backdrop carries vanilla's darkening gradient and its colours.
+#[test]
+fn overworld_backdrop_draws_its_gradient() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    presentation
+        .build(
+            &UiRuntime::new(1),
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let nodes = presentation.loading_draw_nodes();
+    assert!(nodes.iter().any(|node| matches!(
+        &node.draw,
+        Draw::Custom { renderer, data } if renderer == "gradient_renderer"
+            && data.contains_key("color1") && data.contains_key("color2")
+    )));
+}
+
+/// Local-only: `loading_screen_pack.png` under the pack `CINNABAR_FORM_PACK_DIR` names.
+#[test]
+fn loading_screen_pack_snapshot() {
+    let Some(pack) = super::super::forms::pack_harness::env_pack() else {
+        return;
+    };
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    presentation.set_server_ui_pack(&pack);
+    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    let input = presentation
+        .build(
+            &UiRuntime::new(1),
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "loading_screen_pack");
+}

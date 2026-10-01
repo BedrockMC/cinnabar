@@ -18,6 +18,10 @@ use super::super::IconRef;
 use super::remote_images::{RemoteImages, is_remote};
 use super::server_pack::ServerAtlas;
 
+/// Vanilla's debug missing-texture image, drawn for a path no source has
+/// (`SpriteComponent` with `allow_debug_missing_texture`, its default).
+const MISSING_TEXTURE: &str = "textures/misc/missing_texture";
+
 /// Texture sources a form engine owns across frames.
 #[derive(Default)]
 pub(super) struct TextureSet {
@@ -39,7 +43,7 @@ impl TextureSet {
     pub(super) fn new(assets: &RuntimeUiAssets, first_page: u16) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
         Self {
-            atlas: Mutex::new(ServerAtlas::new(&[], pages)),
+            atlas: Mutex::new(ServerAtlas::new(&[], None, pages)),
             carrier: assets
                 .textures()
                 .iter()
@@ -101,7 +105,7 @@ impl Textures<'_> {
     /// `path` as its source spells it, without an image extension.
     pub(super) fn canonical<'p>(&self, path: &'p str) -> Cow<'p, str> {
         let key = texture_key(path);
-        if is_remote(key) || self.atlas.meta(key).is_some() || self.assets.texture(key).is_some() {
+        if is_remote(key) || self.atlas.has_image(key) || self.assets.texture(key).is_some() {
             return Cow::Borrowed(key);
         }
         let folded = key.to_ascii_lowercase();
@@ -130,15 +134,29 @@ impl Textures<'_> {
     /// The drawn paths the server atlas must hold: pack textures, and what
     /// neither the carrier nor the icon atlas already has.
     pub(super) fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<String> {
-        paths
+        let mut keys: Vec<String> = paths
             .filter(|path| self.image(path).is_none())
             .map(|path| self.canonical(path))
             .filter(|key| {
-                self.atlas.meta(key).is_some()
+                self.atlas.has_image(key)
                     || (self.assets.texture(key).is_none() && self.icon(key).is_none())
             })
             .map(Cow::into_owned)
-            .collect()
+            .collect();
+        if keys.iter().any(|key| self.missing(key)) {
+            keys.push(MISSING_TEXTURE.to_owned());
+        }
+        keys
+    }
+
+    /// Whether no source has `key`; a URL still loading is not missing.
+    fn missing(&self, key: &str) -> bool {
+        !is_remote(key)
+            && key != MISSING_TEXTURE
+            && !self.atlas.has_image(key)
+            && self.assets.texture(key).is_none()
+            && self.icon(key).is_none()
+            && self.atlas.fallback_size(key).is_none()
     }
 
     /// The texture page and pixel rect `path` draws from.
@@ -160,28 +178,43 @@ impl Textures<'_> {
                 [placement.x, placement.y, placement.width, placement.height].map(f32::from),
             ));
         }
-        let icon = self.icon(&key)?;
-        let [u0, v0, u1, v1] = icon.uv.map(f32::from);
-        Some((icon.page, [u0, v0, u1 - u0, v1 - v0]))
+        if let Some(icon) = self.icon(&key) {
+            let [u0, v0, u1, v1] = icon.uv.map(f32::from);
+            return Some((icon.page, [u0, v0, u1 - u0, v1 - v0]));
+        }
+        if self.missing(&key) {
+            return self.sprite(MISSING_TEXTURE);
+        }
+        None
     }
 }
 
 impl TextureSource for Textures<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
-        if let Some(image) = self.image(path) {
-            let [u0, v0, u1, v1] = image.uv.map(f64::from);
-            return Some(TextureMeta {
-                base_size: [u1 - u0, v1 - v0],
-                nineslice: None,
-            });
-        }
         let key = self.canonical(path);
         let key = key.as_ref();
-        if let Some(meta) = self.atlas.meta(key) {
-            return Some(meta);
-        }
-        if let Some(sidecar) = self.assets.sidecar(key) {
-            return Some(TextureMeta {
+        // The image and its sidecar each come from the highest layer that has
+        // them: the server pack, then the carrier. An image promoted to the art
+        // pages keeps its source size and sidecar.
+        let size = self
+            .atlas
+            .image_size(key)
+            .or_else(|| {
+                let [u0, v0, u1, v1] = self.image(path)?.uv.map(f64::from);
+                Some([u1 - u0, v1 - v0])
+            })
+            .or_else(|| {
+                let placement = self.assets.texture(key)?;
+                Some([f64::from(placement.width), f64::from(placement.height)])
+            })
+            .or_else(|| {
+                let [u0, v0, u1, v1] = self.icon(key)?.uv.map(f64::from);
+                Some([u1 - u0, v1 - v0])
+            })
+            .or_else(|| self.atlas.fallback_size(key))?;
+        let sidecar = self.atlas.sidecar(key).or_else(|| {
+            let sidecar = self.assets.sidecar(key)?;
+            Some(TextureMeta {
                 base_size: sidecar.base_size.map(f64::from),
                 nineslice: sidecar.nineslice.map(|inset| NineSlice {
                     left: f64::from(inset.left),
@@ -189,22 +222,12 @@ impl TextureSource for Textures<'_> {
                     right: f64::from(inset.right),
                     bottom: f64::from(inset.bottom),
                 }),
-            });
-        }
-        if let Some(placement) = self.assets.texture(key) {
-            return Some(TextureMeta {
-                base_size: [f64::from(placement.width), f64::from(placement.height)],
-                nineslice: None,
-            });
-        }
-        if let Some(icon) = self.icon(key) {
-            let [u0, v0, u1, v1] = icon.uv.map(f64::from);
-            return Some(TextureMeta {
-                base_size: [u1 - u0, v1 - v0],
-                nineslice: None,
-            });
-        }
-        self.atlas.fallback_meta(key)
+            })
+        });
+        Some(sidecar.unwrap_or(TextureMeta {
+            base_size: size,
+            nineslice: None,
+        }))
     }
 }
 
