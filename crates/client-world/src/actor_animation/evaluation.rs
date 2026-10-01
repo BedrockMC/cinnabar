@@ -272,6 +272,21 @@ impl Evaluator<'_> {
         this: f32,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
+        let mut stack = std::mem::take(&mut budget.stack);
+        stack.clear();
+        let result = self.run_on(&mut stack, expression_index, variables, this, budget);
+        budget.stack = stack;
+        result
+    }
+
+    fn run_on(
+        &self,
+        stack: &mut Vec<MolangValue>,
+        expression_index: usize,
+        variables: &mut MolangVariables,
+        this: f32,
+        budget: &mut EvalBudget<'_>,
+    ) -> Result<MolangValue, EvalError> {
         let expression = self
             .assets
             .molang_expressions()
@@ -288,7 +303,7 @@ impl Evaluator<'_> {
             .ok_or(EvalError::Invalid)?;
         // Temporaries last for one evaluation.
         variables.clear_temporaries();
-        let mut stack = Vec::with_capacity(expression.max_stack as usize);
+        stack.reserve(expression.max_stack as usize);
         let mut loops = Vec::new();
         let mut pc = 0;
         while let Some(op) = ops.get(pc) {
@@ -314,8 +329,9 @@ impl Evaluator<'_> {
                         .len()
                         .checked_sub(call.arguments as usize)
                         .ok_or(EvalError::Invalid)?;
-                    let arguments = stack.split_off(start);
-                    stack.push(self.query(call.symbol, &arguments));
+                    let value = self.query(call.symbol, &stack[start..]);
+                    stack.truncate(start);
+                    stack.push(value);
                 }
                 MolangOp::LoadVariable(symbol) => {
                     let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
@@ -326,7 +342,7 @@ impl Evaluator<'_> {
                     stack.push(value);
                 }
                 MolangOp::StoreVariable(symbol) => {
-                    let value = pop(&mut stack)?;
+                    let value = pop(stack)?;
                     let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
                     *variables.entry(place).ok_or(EvalError::Invalid)? = Some(value);
                 }
@@ -338,30 +354,30 @@ impl Evaluator<'_> {
                     }
                 }
                 MolangOp::SelectCollection(collection) => {
-                    let index = pop(&mut stack)?.number();
+                    let index = pop(stack)?.number();
                     stack.push(MolangValue::Number(self.collection(collection, index)?));
                 }
                 MolangOp::Pop => {
-                    pop(&mut stack)?;
+                    pop(stack)?;
                 }
                 MolangOp::Negate => {
-                    let value = pop(&mut stack)?.number();
+                    let value = pop(stack)?.number();
                     stack.push(MolangValue::Number(-value));
                 }
                 MolangOp::Not => {
-                    let value = match pop(&mut stack)? {
+                    let value = match pop(stack)? {
                         MolangValue::Number(value) => value == 0.0,
                         MolangValue::String(_) => false,
                     };
                     stack.push(bool_value(value));
                 }
                 MolangOp::Truthy => {
-                    let value = pop(&mut stack)?.truthy();
+                    let value = pop(stack)?.truthy();
                     stack.push(bool_value(value));
                 }
                 MolangOp::Equal | MolangOp::NotEqual => {
-                    let right = pop(&mut stack)?;
-                    let left = pop(&mut stack)?;
+                    let right = pop(stack)?;
+                    let left = pop(stack)?;
                     let equal = match (&left, &right) {
                         (MolangValue::Number(left), MolangValue::Number(right)) => left == right,
                         (MolangValue::String(left), MolangValue::String(right)) => left == right,
@@ -377,8 +393,8 @@ impl Evaluator<'_> {
                 | MolangOp::LessEqual
                 | MolangOp::Greater
                 | MolangOp::GreaterEqual => {
-                    let right = pop(&mut stack)?.number();
-                    let left = pop(&mut stack)?.number();
+                    let right = pop(stack)?.number();
+                    let left = pop(stack)?.number();
                     stack.push(MolangValue::Number(arithmetic(op, left, right)));
                 }
                 MolangOp::Call(function) => {
@@ -396,17 +412,17 @@ impl Evaluator<'_> {
                 }
                 MolangOp::Jump(target) => pc = jump(target)?,
                 MolangOp::JumpIfFalse(target) => {
-                    if !pop(&mut stack)?.truthy() {
+                    if !pop(stack)?.truthy() {
                         pc = jump(target)?;
                     }
                 }
                 MolangOp::JumpIfTrue(target) => {
-                    if pop(&mut stack)?.truthy() {
+                    if pop(stack)?.truthy() {
                         pc = jump(target)?;
                     }
                 }
-                MolangOp::Return => return pop(&mut stack),
-                MolangOp::LoopStart(target) => match loop_iterations(pop(&mut stack)?.number()) {
+                MolangOp::Return => return pop(stack),
+                MolangOp::LoopStart(target) => match loop_iterations(pop(stack)?.number()) {
                     Some(_) if loops.len() == MAX_MOLANG_LOOP_DEPTH => {
                         return Err(EvalError::Invalid);
                     }
@@ -429,12 +445,12 @@ impl Evaluator<'_> {
                 }
                 MolangOp::ForEachStart(branch) => {
                     // No value is an actor array, so the body never runs.
-                    pop(&mut stack)?;
+                    pop(stack)?;
                     pc = jump(branch.target)?;
                 }
                 MolangOp::Arrow(target) => {
                     // No value is an actor reference: the right side is skipped.
-                    pop(&mut stack)?;
+                    pop(stack)?;
                     stack.push(MolangValue::Number(0.0));
                     pc = jump(target)?;
                 }
@@ -443,7 +459,7 @@ impl Evaluator<'_> {
         if stack.len() != 1 {
             return Err(EvalError::Invalid);
         }
-        pop(&mut stack)
+        pop(stack)
     }
 
     fn string(&self, symbol: u32) -> Result<Arc<str>, EvalError> {
