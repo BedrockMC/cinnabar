@@ -358,6 +358,25 @@ mod tests {
     }
 
     #[test]
+    fn arrow_face_without_uv_size_samples_the_whole_shaft() {
+        let mut shaft = cube([0.0, -2.5, -3.0], [0.0, 5.0, 16.0], false);
+        shaft.uv = EntityGeometryUv::Faces(assets::EntityGeometryFaceUvs {
+            east: Some(EntityGeometryFaceUv {
+                uv: [scalar(0.0); 2],
+                uv_size: None,
+            }),
+            north: None,
+            south: None,
+            west: None,
+            up: None,
+            down: None,
+        });
+        let vertices = build(&shaft);
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(region(&vertices).0, [0.0, 0.0, 16.0, 5.0]);
+    }
+
+    #[test]
     fn box_uv_faces_follow_the_skin_layout_in_the_mirrored_rig_frame() {
         let vertices = build(&cube([-4.0, 24.0, -4.0], [8.0; 3], false));
         assert_eq!(vertices.len(), 36);

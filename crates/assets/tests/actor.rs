@@ -4,6 +4,77 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+/// Builds a single-cube geometry for UV eligibility checks.
+fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeometry {
+    use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar as Scalar};
+    assets::EntityGeometry {
+        identifier: "geometry.projectile".into(),
+        inherits: None,
+        source_index: 0,
+        texture_width: 8,
+        texture_height: 8,
+        bones: vec![EntityGeometryBone {
+            name: "body".into(),
+            parent: None,
+            pivot: None,
+            rotation: None,
+            mirror: None,
+            inflate: None,
+            never_render: None,
+            reset: None,
+            cubes: vec![EntityGeometryCube {
+                origin: [Scalar::ZERO; 3],
+                size: size.map(|v| Scalar::new(v).unwrap()),
+                pivot: [Scalar::ZERO; 3],
+                rotation: [Scalar::ZERO; 3],
+                uv,
+                inflate: Scalar::ZERO,
+                mirror: false,
+            }]
+            .into(),
+        }]
+        .into(),
+    }
+}
+
+#[test]
+fn item_sprite_plane_does_not_require_the_unused_box_uv_envelope() {
+    let geometry = geometry(
+        [8.0, 8.0, 0.0],
+        assets::EntityGeometryUv::Box([assets::EntityGeometryScalar::ZERO; 2]),
+    );
+    assert!(assets::neutral_actor_geometry_uvs_are_supported(
+        &[geometry],
+        0
+    ));
+}
+
+#[test]
+fn omitted_face_uv_size_uses_cube_dimensions_for_bounds() {
+    use assets::{
+        EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryScalar as Scalar,
+        EntityGeometryUv,
+    };
+    let geometry = geometry(
+        [0.0, 5.0, 16.0],
+        EntityGeometryUv::Faces(EntityGeometryFaceUvs {
+            north: None,
+            south: None,
+            east: Some(EntityGeometryFaceUv {
+                uv: [Scalar::ZERO; 2],
+                uv_size: None,
+            }),
+            west: None,
+            up: None,
+            down: None,
+        }),
+    );
+    assert!(!assets::neutral_actor_geometry_uvs_are_supported(
+        &[geometry],
+        0
+    ));
+}
+
 fn entities() -> Box<[u8]> {
     encode_entity_blob(&CompiledEntityAssets {
         source_manifest_sha256: [1; 32],
