@@ -476,7 +476,11 @@ fn settings_screen(view: &MenuView, data: &mut DataSource) {
     for ((slider, _), percent) in VOLUME_SLIDERS.iter().zip(view.volumes) {
         let shown = percent.unwrap_or(100);
         data.set_global(format!("#{slider}"), Scalar::Num(f64::from(shown) / 100.0));
-        data.set_global(format!("#{slider}_slider_label"), text(format!("{shown}%")));
+        // The label localizes again, where `%%` keeps one `%`.
+        data.set_global(
+            format!("#{slider}_slider_label"),
+            text(format!("{shown}%%")),
+        );
         data.set_global(
             format!("#{slider}_enabled"),
             Scalar::Bool(percent.is_some()),
