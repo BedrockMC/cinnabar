@@ -8,7 +8,7 @@ use render::UiTexturePage;
 
 use super::{UiPresentationRuntime, dynamic_textures};
 
-const PAGE_SIDE: u32 = 1024;
+use render::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
 /// Dynamic-page offset of the first glyph page, after the ten general pages.
 const FIRST_GLYPH_PAGE: usize = 10;
 
