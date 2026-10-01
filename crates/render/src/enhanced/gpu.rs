@@ -532,13 +532,17 @@ pub(crate) fn prepare_enhanced_views(
                 sampled,
             )
         });
+        let scene_size = [
+            target.main_texture().width(),
+            target.main_texture().height(),
+        ];
         let snapshot = TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
         state.scene_colour = settings.water_reflections.then(|| {
             cached(
                 &mut texture_cache,
                 &device,
                 "enhanced opaque colour snapshot",
-                size,
+                scene_size,
                 1,
                 target.main_texture_format(),
                 snapshot,
@@ -549,7 +553,7 @@ pub(crate) fn prepare_enhanced_views(
                 &mut texture_cache,
                 &device,
                 "enhanced opaque depth snapshot",
-                size,
+                scene_size,
                 1,
                 SHADOW_FORMAT,
                 snapshot,
@@ -627,7 +631,7 @@ pub(crate) fn prepare_enhanced_views(
 pub(crate) struct SetEnhancedViewBindGroup<const I: usize>;
 
 impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetEnhancedViewBindGroup<I> {
-    type Param = SRes<EnhancedViews>;
+    type Param = Option<SRes<EnhancedViews>>;
     type ViewQuery = (Entity, Has<EnhancedRendering>);
     type ItemQuery = ();
 
@@ -641,6 +645,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetEnhancedViewBindGroup
         if !enhanced {
             return RenderCommandResult::Success;
         }
+        let Some(views) = views else { return RenderCommandResult::Skip; };
         let Some(bind_group) = views
             .into_inner()
             .0

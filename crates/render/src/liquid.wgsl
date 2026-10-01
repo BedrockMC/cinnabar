@@ -3,7 +3,7 @@
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_common::CLASS_WATER
-#import cinnabar::enhanced_view::{material_class, shade_surface, waved_water_position}
+#import cinnabar::enhanced_view::{material_class, shade_surface, shade_water, waved_water_position}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
@@ -237,7 +237,8 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.normal = face_normal(face);
     out.material_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
     if ((out.material_class & CLASS_WATER) != 0u) {
-        out.world_position = waved_water_position(world_position, out.normal.y > 0.5);
+        out.world_position = waved_water_position(world_position, out.normal.y > 0.5
+            || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
         out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
     }
 #endif
@@ -275,6 +276,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
 #ifdef ENHANCED
+    if ((in.material_class & CLASS_WATER) != 0u) {
+        let water = shade_water(sampled.rgb * in.water_tint, sampled.a, in.normal,
+            in.world_position, in.clip_position, in.block_light, in.sky_light,
+            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
+        return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
+    }
     let colour = shade_surface(
         sampled.rgb * in.water_tint,
         in.normal,
