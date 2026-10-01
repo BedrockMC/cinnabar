@@ -2098,3 +2098,39 @@ func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
 		t.Fatalf("stages = %q, want %q", stages, want)
 	}
 }
+
+// With gophertunnel's flush ticker off, a chunk-downloaded pack must still complete: the
+// download's own requests and completion reach the server.
+func TestUnflushedDialerCompletesChunkPackDownload(t *testing.T) {
+	pack := testAdmissionPack(t)
+	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
+	})
+	go func() {
+		accepted, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_ = accepted.(*minecraft.Conn).WritePacketImmediate(&packet.StartGame{EntityRuntimeID: 1, EntityUniqueID: 1})
+	}()
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{network: network}, nil
+	}
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		if dialer.FlushRate >= 0 {
+			t.Errorf("production dialer FlushRate = %v, want the ticker disabled", dialer.FlushRate)
+		}
+		return dialer.DialContextNetwork(ctx, target.network, "")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	prepared, err := connections.connect(ctx, dialerTestDownstream{protocol: minecraft.DefaultProtocol, identity: login.IdentityData{DisplayName: "Unflushed"}})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer prepared.close()
+	if len(prepared.packStack.packs) != 1 {
+		t.Fatalf("acquired %d packs, want the chunk-downloaded pack", len(prepared.packStack.packs))
+	}
+}

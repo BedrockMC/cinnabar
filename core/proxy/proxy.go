@@ -11,6 +11,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -100,6 +101,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.dialTarget = consumeTransferOnDial(prepared.dialTarget, transfers)
 	prepared.resolveTarget = withPendingTransfer(transfers, dial, withSelectedTarget(cfg.Selector, dial, withLocalTarget(cfg.LocalTarget, online)))
 	listener, err := (minecraft.ListenConfig{
+		FlushRate:              -1, // the relay's packet readers own flushing
 		AuthenticationDisabled: true,
 		AcceptedProtocols:      []minecraft.Protocol{minecraft.DefaultProtocol},
 		AllowUnknownPackets:    true,
@@ -443,6 +445,7 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
+		FlushRate:            -1, // the relay's packet readers own flushing
 		// The Rust client owns the spawn sequence; the server's startup reaches it unchanged.
 		RelayStartup: true,
 		// A static opt-in, not the downstream status: the upstream login completes before it arrives.
@@ -530,7 +533,8 @@ func finishDialFailure(downstream packetSession, dialErr error) error {
 
 type packetSession interface {
 	ReadBatch() ([]packet.Packet, error)
-	WritePacketImmediate(...packet.Packet) error
+	WritePacket(packet.Packet) error
+	WritePacketImmediate(...packet.Packet) error // only the final Disconnect, which bypasses deferral
 	Flush() error
 	Abort() error
 	Close() error
@@ -683,29 +687,17 @@ func pumpPacketsWithCacheTelemetry(
 			upstreamIdentity = identitySession.IdentityData()
 		}
 	}
-	if err := destination.Flush(); err != nil {
-		return attributeRelayError(err, fromDownstream)
-	}
-	// One source batch becomes one write; the library splits it at the per-batch packet limit.
-	var outputBatch []packet.Packet
-	flushOutputBatch := func() error {
-		if len(outputBatch) == 0 {
-			return nil
-		}
-		err := destination.WritePacketImmediate(outputBatch...)
-		// Drop references so relayed packets are collectable while the batch idles.
-		clear(outputBatch)
-		outputBatch = outputBatch[:0]
-		return attributeRelayError(err, fromDownstream)
-	}
-	writePacket := func(value packet.Packet) error {
-		outputBatch = append(outputBatch, value)
-		return nil
+	reader := newPacketReader(source, destination, !fromDownstream, relayIdleFlush)
+	defer reader.Close()
+	// Packets buffered before the relay began leave as their own batch.
+	if err := reader.Flush(); err != nil {
+		return err
 	}
 	for {
-		batch, err := source.ReadBatch()
+		// One network batch in, one network batch out: see docs/relay-batch-boundaries.md.
+		batch, err := reader.Read()
 		if err != nil {
-			return attributeRelayError(err, !fromDownstream)
+			return err
 		}
 		for _, value := range batch {
 			if fromDownstream {
@@ -714,14 +706,113 @@ func pumpPacketsWithCacheTelemetry(
 			if !fromDownstream && cacheTelemetry != nil {
 				cacheTelemetry.observeRelayPacket(value)
 			}
-			if err := writePacket(value); err != nil {
-				return err
+			if err := destination.WritePacket(value); err != nil {
+				return attributeRelayError(err, fromDownstream)
 			}
 		}
-		if err := flushOutputBatch(); err != nil {
+		if err := reader.Flush(); err != nil {
 			return err
 		}
 	}
+}
+
+// relayIdleFlush bounds how long a packet written outside a forwarded batch stays buffered;
+// it is gophertunnel's default flush rate, which both relay legs disable.
+const relayIdleFlush = time.Second / 20
+
+type batchReadResult struct {
+	packets []packet.Packet
+	err     error
+}
+
+// packetReader returns source's network batches one at a time and owns every flush of
+// destination, so a batch is never cut by a timer or a write inside packet handling.
+type packetReader struct {
+	destination   packetSession
+	upstream      bool // the source is upstream, which attributes its errors
+	results       <-chan batchReadResult
+	flushRequests chan struct{}
+	idle          *time.Ticker
+	done          chan struct{}
+}
+
+func newPacketReader(source, destination packetSession, upstream bool, idle time.Duration) *packetReader {
+	// Unbuffered: a stalled destination holds at most one batch read ahead.
+	results, done := make(chan batchReadResult), make(chan struct{})
+	go func() {
+		defer close(results)
+		for {
+			packets, err := callBatchRead(source)
+			select {
+			case results <- batchReadResult{packets: packets, err: err}:
+			case <-done:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return &packetReader{destination: destination, upstream: upstream, results: results, flushRequests: make(chan struct{}, 1), idle: time.NewTicker(idle), done: done}
+}
+
+func callBatchRead(source packetSession) (packets []packet.Packet, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic while reading packets: %v", recovered)
+		}
+	}()
+	return source.ReadBatch()
+}
+
+// Read returns the next source batch, serving flush requests and the idle flush while it waits.
+func (reader *packetReader) Read() ([]packet.Packet, error) {
+	for {
+		select {
+		case result, ok := <-reader.results:
+			if !ok {
+				return nil, net.ErrClosed
+			}
+			if result.err != nil {
+				return nil, attributeRelayError(result.err, reader.upstream)
+			}
+			return result.packets, nil
+		case <-reader.idle.C:
+			if err := reader.flushDestination(); err != nil {
+				return nil, err
+			}
+		case <-reader.flushRequests:
+			if err := reader.flushDestination(); err != nil {
+				return nil, err
+			}
+		}
+	}
+}
+
+// Flush ends the forwarded batch, satisfying any pending flush request.
+func (reader *packetReader) Flush() error {
+	select {
+	case <-reader.flushRequests:
+	default:
+	}
+	return reader.flushDestination()
+}
+
+// RequestFlush asks for a flush at the next boundary; requests coalesce.
+func (reader *packetReader) RequestFlush() {
+	select {
+	case reader.flushRequests <- struct{}{}:
+	default:
+	}
+}
+
+func (reader *packetReader) Close() {
+	reader.idle.Stop()
+	close(reader.done)
+}
+
+func (reader *packetReader) flushDestination() error {
+	return attributeRelayError(reader.destination.Flush(), !reader.upstream)
 }
 
 func normalizeUpstreamChatIdentity(value packet.Packet, identity login.IdentityData) packet.Packet {

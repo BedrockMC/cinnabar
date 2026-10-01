@@ -28,6 +28,7 @@ func (s *replaySource) ReadBatch() ([]packet.Packet, error) {
 	s.next++
 	return s.batches[s.next-1], nil
 }
+func (*replaySource) WritePacket(packet.Packet) error             { return nil }
 func (*replaySource) WritePacketImmediate(...packet.Packet) error { return nil }
 func (*replaySource) Flush() error                                { return nil }
 func (*replaySource) Abort() error                                { return nil }
@@ -52,17 +53,20 @@ func (s *discardSink) ReadBatch() ([]packet.Packet, error) {
 	return nil, net.ErrClosed
 }
 
-func (s *discardSink) WritePacketImmediate(packets ...packet.Packet) error {
+func (s *discardSink) WritePacket(packet.Packet) error {
 	s.firstOnce.Do(func() { close(s.firstWrite) })
 	if s.stall {
 		<-s.closed
 		return net.ErrClosed
 	}
-	s.flushes.Add(1)
-	s.packets.Add(int64(len(packets)))
+	s.packets.Add(1)
 	return nil
 }
-func (*discardSink) Flush() error { return nil }
+func (*discardSink) WritePacketImmediate(...packet.Packet) error { return nil }
+func (s *discardSink) Flush() error {
+	s.flushes.Add(1)
+	return nil
+}
 func (s *discardSink) Abort() error {
 	s.closeOnce.Do(func() { close(s.closed) })
 	return nil
