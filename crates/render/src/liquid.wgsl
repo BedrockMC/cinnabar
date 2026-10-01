@@ -2,7 +2,8 @@
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{material_class, shade_surface}
+#import cinnabar::enhanced_common::CLASS_WATER
+#import cinnabar::enhanced_view::{material_class, shade_surface, waved_water_position}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
@@ -235,6 +236,10 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
 #ifdef ENHANCED
     out.normal = face_normal(face);
     out.material_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
+    if ((out.material_class & CLASS_WATER) != 0u) {
+        out.world_position = waved_water_position(world_position, out.normal.y > 0.5);
+        out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    }
 #endif
     return out;
 }

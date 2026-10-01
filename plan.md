@@ -7,7 +7,9 @@ subsequent effect/performance gates remain incomplete. T1 adds HDR, Bevy bloom,
 sun-driven grading, an ACES-fit curve and palette-derived emissive surfaces.
 T2 adds two default texel-snapped shadow cascades with alpha-tested terrain/model
 casters and sky-light-gated PCF receivers. Actors do not cast/receive yet.
-T3-T4 GPU scaffolding is inactive until its pass integration lands.
+T3 enables half-resolution, 16-step shadow-map shafts and matching main/caster
+foliage wind plus surface water displacement. T4 reflection scaffolding remains
+inactive. Visual calibration and performance remain incomplete.
 
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
