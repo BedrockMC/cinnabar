@@ -54,11 +54,12 @@ const CLIMB_SPEED: f64 = 0.2;
 const HONEY_JUMP_FACTOR: f64 = 0.5;
 const HONEY_SLIDE_TRIGGER: f64 = -0.13;
 const HONEY_SLIDE_SPEED: f64 = -0.05;
-const SOUL_SPEED_PER_LEVEL: f64 = 0.105;
+const SOUL_SAND_ACCELERATION_FRICTION: f32 = 1.225;
+const GROUND_BASE_FRICTION: f32 = 0.546_000_06;
 const DEPTH_STRIDER_MAX_LEVEL: u8 = 3;
 const WATER_DRAG: f64 = 0.8;
 /// Ground drag depth strider blends water drag toward (default ground friction times air friction).
-const DEPTH_STRIDER_TARGET_DRAG: f64 = 0.546;
+const DEPTH_STRIDER_TARGET_DRAG: f64 = GROUND_BASE_FRICTION as f64;
 /// Provisional scaffolding sneak-descent speed; needs independent measurement.
 const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 /// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
@@ -148,26 +149,8 @@ impl Simulator {
         } else {
             DEFAULT_AIR_FRICTION
         };
-        let ground_factor = if input.soul_speed > 0
-            && sampled.movement.surface_response == crate::SurfaceResponse::SoulSand
-        {
-            sampled
-                .movement
-                .horizontal_speed_factor
-                .max(1.0 + SOUL_SPEED_PER_LEVEL * f64::from(input.soul_speed))
-        } else {
-            sampled.movement.horizontal_speed_factor
-        };
         let depth_strider = depth_strider_blend(input.depth_strider, grounded_at_start);
-        let relative_speed = if grounded_at_start {
-            let speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED)
-                * if input.sprinting {
-                    SPRINT_SPEED_MULTIPLIER
-                } else {
-                    1.0
-                };
-            speed * ground_factor * (0.162_771_36 / (friction * friction * friction))
-        } else if sampled.movement.in_water {
+        let relative_speed = if sampled.movement.in_water {
             water_travel_speed(
                 &input,
                 sampled.movement.horizontal_speed_factor,
@@ -175,6 +158,8 @@ impl Simulator {
             )
         } else if sampled.movement.in_lava {
             DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor
+        } else if grounded_at_start {
+            ground_relative_speed(input, &sampled)
         } else if input.sprinting {
             SPRINT_AIR_SPEED
         } else {
@@ -183,13 +168,18 @@ impl Simulator {
 
         apply_relative_movement(
             &mut next.velocity,
-            controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
-            controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
+            movement_impulse(controls.move_vector[0]),
+            movement_impulse(controls.move_vector[1]),
             input.yaw_degrees,
             relative_speed,
         );
 
-        if input.jump_pressed && next.on_ground && next.jump_delay == 0 {
+        let jump_initiated = input.jump_pressed
+            && next.on_ground
+            && next.jump_delay == 0
+            && !sampled.movement.in_water
+            && !sampled.movement.in_lava;
+        if jump_initiated {
             let honey = if sampled.movement.surface_response == crate::SurfaceResponse::Honey {
                 HONEY_JUMP_FACTOR
             } else {
@@ -412,6 +402,7 @@ impl Simulator {
         Ok(ControlledTickResult {
             tick_result: result,
             controls,
+            jump_initiated,
         })
     }
 }
@@ -454,4 +445,33 @@ fn apply_relative_movement(
     let cos = yaw.cos();
     velocity.x = f64::from((strafe * force * cos - sin * forward * force) + velocity.x as f32);
     velocity.z = f64::from((strafe * force * sin + forward * force * cos) + velocity.z as f32);
+}
+
+/// Uses the current ground-speed ratio; Soul Speed removes only the terrain penalty here.
+fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnvironment) -> f64 {
+    let soul_sand = sampled.movement.surface_response == crate::SurfaceResponse::SoulSand;
+    let mut acceleration_friction = sampled.friction as f32;
+    if soul_sand && input.soul_speed == 0 {
+        acceleration_friction *= SOUL_SAND_ACCELERATION_FRICTION;
+    }
+    let drag = acceleration_friction * DEFAULT_AIR_FRICTION as f32;
+    let ratio = if drag == 0.0 {
+        1.0
+    } else {
+        GROUND_BASE_FRICTION / drag
+    };
+    let mut speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED) as f32;
+    if input.sprinting {
+        speed *= SPRINT_SPEED_MULTIPLIER as f32;
+    }
+    speed = speed * ratio * ratio * ratio;
+    if !soul_sand {
+        speed *= sampled.movement.horizontal_speed_factor as f32;
+    }
+    f64::from(speed)
+}
+
+/// Rounds the control impulse before the relative-movement calculation.
+fn movement_impulse(axis: f64) -> f64 {
+    f64::from(axis as f32 * INPUT_IMPULSE_MULTIPLIER as f32)
 }
