@@ -45,7 +45,6 @@ pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
 use std::{
     fs,
     path::PathBuf,
-    process::Child,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -201,7 +200,7 @@ pub(crate) struct MenuRuntime {
     catalog_message: Option<String>,
     catalog_started: bool,
     catalog_path: PathBuf,
-    catalog_process: Option<Child>,
+    catalog_process: Option<crate::lifecycle::children::Spawned>,
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,

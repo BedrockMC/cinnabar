@@ -421,6 +421,9 @@ fn render_plugin() -> RenderPlugin {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
+    let _children = crate::lifecycle::children::StopOnDrop;
+    crate::lifecycle::children::install_exit_hooks();
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;

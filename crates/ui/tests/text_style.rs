@@ -114,6 +114,18 @@ fn bold_glyph_emits_a_second_offset_copy() {
     assert!((offset - 1.0).abs() < 1e-4, "bold offset was {offset}");
 }
 
+// Styled glyphs never set the glint bit, so bold text draws no enchantment sheen.
+#[test]
+fn styled_glyphs_carry_no_vertex_style_bits() {
+    let font = font();
+    let styled = draw_with(
+        layout("\u{a7}l\u{a7}oA\u{a7}kB", TextStyle::default(), &font),
+        TextEffects::default(),
+    );
+    assert!(!styled.vertices.is_empty());
+    assert!(styled.vertices.iter().all(|vertex| vertex.style_flags == 0));
+}
+
 #[test]
 fn italic_glyph_shears_its_top_edge_right() {
     let font = font();

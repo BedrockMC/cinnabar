@@ -443,3 +443,40 @@ fn custom_toggle_reports_its_name_and_index() {
             .any(|hit| hit.pressed.as_deref() == Some("button.submit_custom_form"))
     );
 }
+
+// A pack's gamepad focus outline, bound to `#is_using_gamepad`, stays hidden in a
+// pointer-driven form instead of framing every hovered button.
+#[test]
+fn gamepad_only_chrome_stays_hidden_in_forms() {
+    let screen = br##"{
+        "namespace": "s",
+        "card": { "type": "panel", "size": [20, 20], "controls": [
+            { "outline": { "type": "image", "texture": "textures/ui/outline",
+                "bindings": [ { "binding_type": "global", "binding_name": "#is_using_gamepad",
+                    "binding_name_override": "#visible" } ] } } ] }
+    }"##;
+    let catalog = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/s.json"]}"#.as_slice(),
+        ),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let card = json_ui::resolve(&catalog, "s.card", &Context::desktop())
+        .control
+        .unwrap();
+    let model = FormModel::Action(ActionForm {
+        title: "Menu".into(),
+        body: String::new(),
+        elements: Vec::new(),
+    });
+    let data = json_ui::form_data_source(&model);
+    let bound = json_ui::bind(&card, &data, &json_ui::EmptyLibrary);
+    let outline = find(&bound, "outline").unwrap();
+    assert_eq!(
+        outline.properties.get("visible"),
+        Some(&serde_json::Value::Bool(false))
+    );
+}

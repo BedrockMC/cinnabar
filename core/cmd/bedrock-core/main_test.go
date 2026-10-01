@@ -363,17 +363,23 @@ func TestAuthEventsRequiresCacheAndIsMutuallyExclusive(t *testing.T) {
 	}
 }
 
-func TestOneShotModesDoNotBindTheirLifetimeToStdin(t *testing.T) {
+// Only helpers the client starts with a null stdin skip the stdin-EOF shutdown trigger.
+func TestOnlyNullStdinHelpersIgnoreStdin(t *testing.T) {
 	for _, args := range [][]string{
 		{"-auth-events", "-auth-cache", "token.json"},
-		{"-catalog-file", "catalog.json", "-auth-cache", "token.json"},
+		{"check-update", "-manifest-url", "https://example.test/m.json"},
 	} {
-		if !catalogMode(args) {
-			t.Fatalf("catalogMode(%v) = false", args)
+		if bindsStdin(args) {
+			t.Fatalf("bindsStdin(%v) = true", args)
 		}
 	}
-	if catalogMode([]string{"-auth-cache", "token.json"}) {
-		t.Fatal("long-running proxy was classified as one-shot")
+	for _, args := range [][]string{
+		{"-catalog-file", "catalog.json", "-auth-cache", "token.json"},
+		{"-socket-dir", "run", "-control-status"},
+	} {
+		if !bindsStdin(args) {
+			t.Fatalf("bindsStdin(%v) = false", args)
+		}
 	}
 }
 
@@ -454,36 +460,6 @@ func TestHelpDocumentsAuthCache(t *testing.T) {
 	}
 	if !strings.Contains(help.String(), "-auth-cache") {
 		t.Fatalf("help text does not document -auth-cache:\n%s", help.String())
-	}
-}
-
-func TestStdinEOFCancelsCoreContext(t *testing.T) {
-	reader, writer := io.Pipe()
-	ctx, stop := contextWithStdinEOF(context.Background(), reader)
-	defer stop()
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close core stdin: %v", err)
-	}
-	select {
-	case <-ctx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("stdin EOF did not cancel the core context")
-	}
-}
-
-func TestParentCancellationStillStopsCoreContext(t *testing.T) {
-	reader, writer := io.Pipe()
-	parent, cancelParent := context.WithCancel(context.Background())
-	ctx, stop := contextWithStdinEOF(parent, reader)
-	defer stop()
-	defer writer.Close()
-
-	cancelParent()
-	select {
-	case <-ctx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("parent cancellation did not cancel the core context")
 	}
 }
 

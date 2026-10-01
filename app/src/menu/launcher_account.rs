@@ -449,11 +449,15 @@ impl AccountControl for LauncherAccount {
         Some(
             gatherings
                 .iter()
-                .filter(|gathering| !gathering.address.is_empty())
+                .filter(|gathering| !gathering.id.is_empty())
                 .map(|gathering| {
                     let card = MenuServerCard {
                         name: gathering.name.clone(),
-                        address: gathering.address.clone(),
+                        address: format!(
+                            "{}{}",
+                            super::launcher_core::GATHERING_ADDRESS_PREFIX,
+                            gathering.id
+                        ),
                         caption: gathering.caption.clone(),
                         image_path: gathering.image.path.clone(),
                         icon: None,
