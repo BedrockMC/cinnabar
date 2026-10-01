@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use super::FactoryItem;
 use crate::predicate::Scalar;
+use crate::tree::ResolvedControl;
 
 /// One entry of a bound collection: the factory role that selects which control to
 /// instantiate for this index, plus the `#name` values readable at it.
@@ -46,6 +47,8 @@ pub struct DataSource {
     pub(super) strict: bool,
     /// The control id a screen's collection-less `factory` instantiates.
     pub(super) factory_id: Option<String>,
+    /// Bag values components published on named controls last frame.
+    pub(super) control_values: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// What the screen's components wrote into their controls' bags.
     pub(super) components: crate::component::Components,
 }
@@ -76,6 +79,16 @@ impl DataSource {
     pub fn select_radio(&mut self, toggle_name: &str, index: usize) {
         self.globals
             .insert(format!("#radio:{toggle_name}"), Scalar::Num(index as f64));
+    }
+
+    /// Publish `values` in the bag of controls named `name`, as their components
+    /// do (a scroll view's `#scrolled_to_end`), for `view` bindings to read.
+    pub fn set_control_values(
+        &mut self,
+        name: impl Into<String>,
+        values: BTreeMap<String, Scalar>,
+    ) {
+        self.control_values.insert(name.into(), values);
     }
 
     /// Select the `control_ids` entry a collection-less factory instantiates, as a
@@ -120,4 +133,28 @@ impl DataSource {
 /// The data key of collection `name` inside item `index` of the list at `parent_key`.
 pub fn scoped_key(parent_key: &str, index: usize, name: &str) -> String {
     format!("{parent_key}[{index}].{name}")
+}
+
+impl DataSource {
+    /// What components published in the bag of controls named `name`.
+    pub(super) fn control_values(&self, name: &str) -> impl Iterator<Item = (String, Scalar)> + '_ {
+        self.control_values
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|(key, value)| (key.clone(), value.clone()))
+    }
+}
+
+/// What a control's components write into their bag on creation: a scroll
+/// view's end flags and a scrollbar box's marker.
+pub(super) fn component_bag(control: &ResolvedControl) -> Vec<(String, Scalar)> {
+    match control.control_type.as_deref() {
+        Some("scroll_view") => vec![
+            ("#scrollbar_hit_bottom".to_owned(), Scalar::Bool(false)),
+            ("#scrolled_to_end".to_owned(), Scalar::Bool(true)),
+        ],
+        Some("scrollbar_box") => vec![("#is_scroll_bar_box".to_owned(), Scalar::Bool(true))],
+        _ => Vec::new(),
+    }
 }

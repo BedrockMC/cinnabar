@@ -407,13 +407,25 @@ fn inline_modals_keep_neighbouring_views_scrolling() {
     let view = ctrl(
         "list",
         "scroll_view",
-        json!({ "size": [100, 100], "scroll_content": "content" }),
-        vec![ctrl(
-            "content",
-            "panel",
-            json!({ "size": [100, 300] }),
-            vec![],
-        )],
+        json!({
+            "size": [100, 100], "scroll_content": "content", "scroll_view_port": "port",
+            "scrollbar_track": "track", "scrollbar_box": "box"
+        }),
+        vec![
+            ctrl(
+                "port",
+                "panel",
+                json!({ "size": [100, 100] }),
+                vec![ctrl(
+                    "content",
+                    "panel",
+                    json!({ "size": [100, 300] }),
+                    vec![],
+                )],
+            ),
+            ctrl("track", "scroll_track", json!({ "size": [4, 100] }), vec![]),
+            ctrl("box", "scrollbar_box", json!({ "size": [4, 10] }), vec![]),
+        ],
     );
     let popup = |inline: bool| {
         ctrl(
@@ -424,10 +436,12 @@ fn inline_modals_keep_neighbouring_views_scrolling() {
         )
     };
     for inline in [false, true] {
-        let screen = Screen::new(page(vec![view.clone(), popup(inline)]));
-        let regions = screen.regions();
+        let bound = Screen::new(page(vec![view.clone(), popup(inline)])).bound();
+        let state = json_ui::ViewState::default();
+        let (laid, report) = json_ui::layout_with(&bound, [200.0, 200.0], &env(), &state);
+        let regions = json_ui::hit_regions(&laid);
         assert_eq!(
-            json_ui::scroll_target(&regions, [5.0, 5.0]).is_some(),
+            json_ui::scroll_target(&regions, &report, [5.0, 5.0]).is_some(),
             inline
         );
     }
