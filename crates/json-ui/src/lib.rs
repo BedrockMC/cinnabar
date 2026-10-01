@@ -149,12 +149,21 @@ impl Context {
             ("requires_xbl_signin_to_play", false),
             ("is_editor_mode_enabled", false),
         ];
-        platform
+        let context = platform
             .iter()
             .chain(constant)
             .fold(Self::desktop(), |context, (name, value)| {
                 context.with_flag(name, *value)
-            })
+            });
+        // `SceneFactory::_createSafeZoneSizeVar` at the desktop defaults (safe
+        // zone 1, screen position 0) sizes every buffer zero along its axis.
+        let vertical = || serde_json::json!(["100%", 0]);
+        let horizontal = || serde_json::json!([0, "100%"]);
+        context
+            .with_var("top_vertical_safezone_size", vertical())
+            .with_var("bottom_vertical_safezone_size", vertical())
+            .with_var("left_horizontal_safezone_size", horizontal())
+            .with_var("right_horizontal_safezone_size", horizontal())
     }
 
     /// The variables set so far, keyed without `$`.
