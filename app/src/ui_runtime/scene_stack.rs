@@ -134,17 +134,17 @@ const fn gameplay_settings() -> ScreenSettings {
 }
 
 impl UiRuntime {
-    /// Binds the catalog's screen settings; the scene stack reads them from now on.
+    #[cfg(test)]
     pub(crate) fn set_screen_settings(&mut self, table: Arc<ScreenSettingsTable>) {
         self.screen_settings = table;
     }
 
-    pub(crate) fn screen_settings(&self) -> &Arc<ScreenSettingsTable> {
-        &self.screen_settings
-    }
-
-    pub(crate) fn set_loading_screen(&mut self, shown: bool) {
-        self.loading_screen = shown;
+    /// Takes this frame's loading cover and the presentation catalog's settings.
+    pub(crate) fn observe_presentation(&mut self, loading: bool, table: Arc<ScreenSettingsTable>) {
+        self.loading_screen = loading;
+        if !Arc::ptr_eq(&table, &self.screen_settings) {
+            self.screen_settings = table;
+        }
     }
 
     /// The screens up this frame, bottom first.

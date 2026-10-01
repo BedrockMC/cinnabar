@@ -309,11 +309,7 @@ pub(crate) fn publish_ui_runtime(
     presentation.set_menu_view(menu_view);
     presentation
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
-    runtime.set_loading_screen(presentation.loading_stage.is_some());
-    let settings = presentation.screen_settings();
-    if !Arc::ptr_eq(&settings, runtime.screen_settings()) {
-        runtime.set_screen_settings(settings);
-    }
+    presentation.publish_scene_inputs(&mut runtime);
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {
