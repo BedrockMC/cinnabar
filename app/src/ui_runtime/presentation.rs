@@ -124,6 +124,8 @@ pub struct UiPresentationRuntime {
     obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
+    /// What the last menu frame was built from, while time cannot change its output.
+    last_menu: Option<BuiltMenu>,
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
@@ -240,6 +242,7 @@ impl UiPresentationRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             last_input: None,
+            last_menu: None,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
@@ -598,6 +601,24 @@ impl UiPresentationRuntime {
             )?;
         }
         self.sync_server_ui_pages();
+        // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
+        let built = menu_visible.then(|| BuiltMenu {
+            nodes: Vec::new(),
+            frame: (physical_size, dpi_scale.get(), safe_area),
+            textures: Arc::clone(&self.textures),
+        });
+        if let (Some(last), Some(now), Some(input)) = (&self.last_menu, &built, &self.last_input)
+            && last.same(now, &nodes)
+        {
+            self.menu_hit_targets = menu_hit_targets;
+            return Ok(input.clone());
+        }
+        self.last_menu = built
+            .filter(|_| !obfuscated(&nodes))
+            .map(|built| BuiltMenu {
+                nodes: nodes.clone(),
+                ..built
+            });
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
@@ -621,6 +642,29 @@ impl UiPresentationRuntime {
         self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }
+}
+
+/// A menu frame's inputs: its nodes, viewport and texture array.
+struct BuiltMenu {
+    nodes: Vec<UiNode>,
+    frame: ([u32; 2], f32, SafeArea),
+    textures: Arc<UiRenderTextureArray>,
+}
+
+impl BuiltMenu {
+    fn same(&self, now: &Self, nodes: &[UiNode]) -> bool {
+        self.frame == now.frame && Arc::ptr_eq(&self.textures, &now.textures) && self.nodes == nodes
+    }
+}
+
+/// Whether any text carries `§k`, whose glyphs change every frame.
+fn obfuscated(nodes: &[UiNode]) -> bool {
+    nodes.iter().any(|node| match node.visual() {
+        UiVisual::Text { layout, .. } | UiVisual::RotatedText { layout, .. } => {
+            layout.glyphs().iter().any(|glyph| glyph.style.obfuscated)
+        }
+        _ => false,
+    })
 }
 
 #[cfg(test)]
