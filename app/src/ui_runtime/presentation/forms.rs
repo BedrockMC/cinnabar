@@ -248,6 +248,11 @@ impl UiPresentationRuntime {
         Arc::clone(&self.form_presentation.screen_settings)
     }
 
+    /// Hands the runtime this frame's loading cover and the catalog's screen settings.
+    pub(crate) fn publish_scene_inputs(&self, runtime: &mut UiRuntime) {
+        runtime.observe_presentation(self.loading_stage.is_some(), self.screen_settings());
+    }
+
     fn refresh_screen_settings(&mut self) {
         if let Some(engine) = self.form_presentation.engine.as_deref() {
             self.form_presentation.screen_settings = Arc::new(ScreenSettingsTable::for_catalog(
