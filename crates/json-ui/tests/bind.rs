@@ -263,38 +263,40 @@ fn view_binding_over_a_sibling_drives_visibility() {
         (Scalar::Text("loading".into()), false, true),
     ];
     for (texture, image_visible, gate_visible) in cases {
-        let image = ctrl(
-            "image",
-            Some("image"),
-            json!({
-                "bindings": [
-                    { "binding_name": "#tex", "binding_name_override": "#texture" },
-                    { "binding_type": "view",
-                      "source_property_name": "(not ((#texture = '') or (#texture = 'loading')))",
-                      "target_property_name": "#visible" }
-                ],
-            }),
-        );
-        let gate = ctrl(
-            "gate",
-            Some("panel"),
-            json!({
-                "bindings": [
-                    { "binding_type": "view", "source_control_name": "image", "resolve_sibling_scope": true,
-                      "source_property_name": "(not (#texture = ''))", "target_property_name": "#visible" }
-                ],
-            }),
-        );
-        let parent = ctrl_children("row", Some("stack_panel"), json!({}), vec![image, gate]);
+        for source in ["image", "('im' + 'age')"] {
+            let image = ctrl(
+                "image",
+                Some("image"),
+                json!({
+                    "bindings": [
+                        { "binding_name": "#tex", "binding_name_override": "#texture" },
+                        { "binding_type": "view",
+                          "source_property_name": "(not ((#texture = '') or (#texture = 'loading')))",
+                          "target_property_name": "#visible" }
+                    ],
+                }),
+            );
+            let gate = ctrl(
+                "gate",
+                Some("panel"),
+                json!({
+                    "bindings": [
+                        { "binding_type": "view", "source_control_name": source, "resolve_sibling_scope": true,
+                          "source_property_name": "(not (#texture = ''))", "target_property_name": "#visible" }
+                    ],
+                }),
+            );
+            let parent = ctrl_children("row", Some("stack_panel"), json!({}), vec![image, gate]);
 
-        let mut data = DataSource::new();
-        data.set_global("#tex", texture);
+            let mut data = DataSource::new();
+            data.set_global("#tex", texture.clone());
 
-        let bound = bind(&parent, &data, &EmptyLibrary);
-        let img = bound.child("image").unwrap();
-        let gt = bound.child("gate").unwrap();
-        assert_eq!(img.properties.get("visible"), Some(&json!(image_visible)));
-        assert_eq!(gt.properties.get("visible"), Some(&json!(gate_visible)));
+            let bound = bind(&parent, &data, &EmptyLibrary);
+            let img = bound.child("image").unwrap();
+            let gt = bound.child("gate").unwrap();
+            assert_eq!(img.properties.get("visible"), Some(&json!(image_visible)));
+            assert_eq!(gt.properties.get("visible"), Some(&json!(gate_visible)));
+        }
     }
 }
 
@@ -524,4 +526,26 @@ fn listed_grid_cells_index_their_collection_by_position() {
     let bound = bind(&grid, &data, &EmptyLibrary);
     assert_eq!(prop(&bound.children[0], "text"), &json!("d"));
     assert_eq!(prop(&bound.children[1], "text"), &json!("b"));
+}
+
+#[test]
+fn hash_prefixed_toggle_names_remain_identifiers() {
+    let toggle = ctrl(
+        "choice",
+        Some("toggle"),
+        json!({
+            "toggle_name": "#coordinate_type_position",
+            "property_bag": { "#coordinate_type_position": true },
+            "bindings": [{"binding_name": "#coordinate_type_position",
+                "binding_name_override": "#toggle_state"}]
+        }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#coordinate_type_position", Scalar::Bool(false));
+    let bound = bind(&toggle, &data, &EmptyLibrary);
+    assert_eq!(
+        prop(&bound, "toggle_name"),
+        &json!("#coordinate_type_position")
+    );
+    assert_eq!(prop(&bound, "#toggle_state"), &json!(false));
 }

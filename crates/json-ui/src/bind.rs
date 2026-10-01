@@ -625,6 +625,15 @@ impl<'a> Binder<'a> {
                 .get("source_control_name")
                 .and_then(Value::as_str)
                 .filter(|name| !name.is_empty());
+            let evaluated_source = source
+                .filter(|name| name.starts_with('('))
+                .and_then(|name| {
+                    match predicate::eval_scalar(name, &self.env, &predicate::NoBindings) {
+                        Some(Scalar::Text(name)) => Some(name),
+                        _ => None,
+                    }
+                });
+            let source = evaluated_source.as_deref().or(source);
             let flag = |key: &str| binding.get(key).and_then(Value::as_bool) == Some(true);
             let snapshot;
             let mut layers: Vec<&BTreeMap<String, Scalar>> = Vec::new();
@@ -768,15 +777,17 @@ fn bake_properties(
             continue;
         }
         match value {
-            Value::String(reference) if reference.starts_with('#') => match own.get(reference) {
-                Some(scalar) => {
-                    out.insert(key.clone(), scalar_to_value(scalar));
+            Value::String(reference) if reference.starts_with('#') && key != "toggle_name" => {
+                match own.get(reference) {
+                    Some(scalar) => {
+                        out.insert(key.clone(), scalar_to_value(scalar));
+                    }
+                    None if key == "text" => {
+                        out.insert(key.clone(), Value::String(String::new()));
+                    }
+                    None => {}
                 }
-                None if key == "text" => {
-                    out.insert(key.clone(), Value::String(String::new()));
-                }
-                None => {}
-            },
+            }
             _ => {
                 out.insert(key.clone(), value.clone());
             }
