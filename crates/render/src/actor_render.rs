@@ -66,6 +66,7 @@ fn install_actor_render(app: &mut App) {
     app.init_resource::<ActorRenderFrame>()
         .init_resource::<ActorPresentationGate>()
         .init_resource::<ActorRuntimeWitness>();
+    crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -530,7 +531,7 @@ fn actor_pipeline_descriptor(
 ) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("bounded shared actor pipeline".into()),
-        layout: vec![bind_group_layout],
+        layout: vec![bind_group_layout, crate::lighting::layout()],
         vertex: VertexState {
             shader: ACTOR_SHADER_HANDLE,
             entry_point: Some("actor_vertex".into()),
@@ -822,7 +823,11 @@ fn queue_actors(
     });
 }
 
-type DrawActorCommands = (SetItemPipeline, DrawActors);
+type DrawActorCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawActors,
+);
 
 struct DrawActors;
 

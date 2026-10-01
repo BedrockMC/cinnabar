@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_brightness}
+#import cinnabar::lighting::{lit_colour, light_colour}
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -173,16 +173,12 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (input.tint != 0u && color.a > 0.99) {
         color = vec4(color.rgb * pow(unpack4x8unorm(input.tint).rgb, vec3(2.2)), color.a);
     }
-    // World light (packed block, sky and daylight); zero draws unlit for `ignore_lighting`.
+    // Zero retains the explicit unlit material override.
     if ((input.light & 0x80000000u) != 0u) {
-        let daylight = f32((input.light >> 8u) & 0xffu) / 255.0;
         color = vec4(
             lit_colour(
                 color.rgb,
-                light_brightness(input.light & 0xfu),
-                light_brightness((input.light >> 4u) & 0xfu),
-                1.0,
-                daylight,
+                light_colour(input.light),
             ),
             color.a,
         );

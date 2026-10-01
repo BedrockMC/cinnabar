@@ -92,6 +92,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         "atmosphere.wgsl",
         Shader::from_wgsl
     );
+    crate::lighting::install(app);
     install_cloud_render(app);
     install_weather_render(app);
     install_lightning_render(app);

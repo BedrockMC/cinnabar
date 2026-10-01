@@ -129,10 +129,15 @@ pub(crate) fn update_atmosphere_frame(
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
     vision: Res<crate::camera::VisionEffects>,
-    outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
+    outputs: (
+        ResMut<AtmosphereFrame>,
+        ResMut<EnvironmentProfileRoute>,
+        ResMut<render::WorldLighting>,
+    ),
+    settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
 ) {
-    let (mut frame, mut route) = outputs;
+    let (mut frame, mut route, mut lighting) = outputs;
     let elapsed = time.elapsed_secs_f64();
     let shown = display.advance(*weather, elapsed);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
@@ -157,6 +162,30 @@ pub(crate) fn update_atmosphere_frame(
         .with_lightning_flash(flash.level(elapsed))
         .with_vision_effects(vision.blindness, vision.darkness, vision.night_vision);
     *frame = apply_boss_environment(next_frame, medium.0, state);
+    let mut sunrise = frame.sunrise_band();
+    for c in &mut sunrise[..3] {
+        *c = if *c <= 0.0031308 {
+            *c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
+    }
+    lighting.0 = render::LightmapInputs {
+        sky_darken: frame.daylight(),
+        sunrise,
+        lightning: frame.lightning_flash() > 0.0,
+        brightness: settings.user_settings_update().1.video.brightness,
+        night_vision: vision.night_vision,
+        darkness: vision.darkness,
+        darkness_pulse: render::darkness_pulse(
+            visual_world_time(*clock, elapsed) as f32,
+            0.0,
+            vision.darkness,
+            vision.darkness,
+            0.45,
+        ),
+        ..Default::default()
+    };
     *route = next_route;
 }
 
