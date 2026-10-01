@@ -1,5 +1,5 @@
 //! Validate every Enhanced shader and create its pipeline on an available real adapter.
-#[path = "support/shader_source.rs"]
+#[path = "../../tests/support/shader_source.rs"]
 mod shader_source;
 
 type Variant = (&'static str, String, &'static str, &'static str, bool);
@@ -8,9 +8,9 @@ type Variant = (&'static str, String, &'static str, &'static str, bool);
 fn variants() -> Vec<Variant> {
     let mut result = Vec::new();
     for (name, source) in [
-        ("chunk", include_str!("../src/chunk.wgsl")),
-        ("model", include_str!("../src/model.wgsl")),
-        ("liquid", include_str!("../src/liquid.wgsl")),
+        ("chunk", include_str!("../chunk.wgsl")),
+        ("model", include_str!("../model.wgsl")),
+        ("liquid", include_str!("../liquid.wgsl")),
     ] {
         result.push((
             name,
@@ -50,7 +50,7 @@ fn variants() -> Vec<Variant> {
     for fragment in ["light_shafts", "composite"] {
         result.push((
             fragment,
-            shader_source::composed(include_str!("../src/enhanced/post.wgsl"), &[]),
+            shader_source::composed(include_str!("../enhanced/post.wgsl"), &[]),
             "fullscreen",
             fragment,
             false,
@@ -93,7 +93,33 @@ fn enhanced_pipelines_build_on_native_adapter() {
     }))
     .expect("Enhanced smoke device");
     for (name, source, vertex, fragment, shadow) in variants() {
+        let descriptors = if vertex == "fullscreen" {
+            vec![super::gpu::enhanced_post_layout()]
+        } else {
+            vec![
+                crate::chunk::enhanced::chunk_bind_group_layout(),
+                if shadow {
+                    super::gpu::enhanced_caster_layout()
+                } else {
+                    super::gpu::enhanced_view_layout()
+                },
+            ]
+        };
         device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let groups: Vec<_> = descriptors
+            .iter()
+            .map(|descriptor| {
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some(descriptor.label.as_ref()),
+                    entries: &descriptor.entries,
+                })
+            })
+            .collect();
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("production Enhanced layout"),
+            bind_group_layouts: &groups.iter().collect::<Vec<_>>(),
+            push_constant_ranges: &[],
+        });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(name),
             source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -105,7 +131,7 @@ fn enhanced_pipelines_build_on_native_adapter() {
         })];
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(name),
-            layout: None,
+            layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some(vertex),

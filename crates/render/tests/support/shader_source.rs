@@ -1,5 +1,8 @@
 //! Resolve the project's small WGSL import graph for standalone validation.
-#![allow(dead_code, reason = "shared helpers serve different shader test targets")]
+#![allow(
+    dead_code,
+    reason = "shared helpers serve different shader test targets"
+)]
 use std::collections::BTreeSet;
 
 const VIEW: &str = "struct View { clip_from_world: mat4x4<f32>, unjittered_clip_from_world: mat4x4<f32>, view_from_world: mat4x4<f32>, world_from_view: mat4x4<f32>, clip_from_view: mat4x4<f32>, view_from_clip: mat4x4<f32>, world_position: vec3<f32>, exposure: f32, viewport: vec4<f32>, }";
@@ -86,20 +89,45 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
 
 /// Compose with the same imported-symbol pruning and preprocessor Bevy uses.
 pub fn composed(source: &str, definitions: &[&str]) -> String {
-    use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue};
+    use naga_oil::compose::{
+        ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
+    };
     let mut composer = Composer::default();
     for (name, body) in [
         ("bevy_render::view", VIEW.to_owned()),
-        ("bevy_core_pipeline::fullscreen_vertex_shader", FULLSCREEN.to_owned()),
-        ("cinnabar::lighting", include_str!("../../src/lighting.wgsl").to_owned()),
-        ("cinnabar::biome_tint", include_str!("../../src/biome_tint.wgsl").to_owned()),
-        ("cinnabar::enhanced_common", include_str!("../../src/enhanced/common.wgsl").to_owned()),
-        ("cinnabar::enhanced_view", include_str!("../../src/enhanced/view.wgsl").to_owned()),
-        ("cinnabar::enhanced_caster", include_str!("../../src/enhanced/caster.wgsl").to_owned()),
+        (
+            "bevy_core_pipeline::fullscreen_vertex_shader",
+            FULLSCREEN.to_owned(),
+        ),
+        (
+            "cinnabar::lighting",
+            include_str!("../../src/lighting.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::biome_tint",
+            include_str!("../../src/biome_tint.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_common",
+            include_str!("../../src/enhanced/common.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_view",
+            include_str!("../../src/enhanced/view.wgsl").to_owned(),
+        ),
+        (
+            "cinnabar::enhanced_caster",
+            include_str!("../../src/enhanced/caster.wgsl").to_owned(),
+        ),
     ] {
-        composer.add_composable_module(ComposableModuleDescriptor {
-            source: &body, file_path: name, as_name: Some(name.to_owned()), ..Default::default()
-        }).unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
+        composer
+            .add_composable_module(ComposableModuleDescriptor {
+                source: &body,
+                file_path: name,
+                as_name: Some(name.to_owned()),
+                ..Default::default()
+            })
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
     }
     let fullscreen_source;
     let source = if source.contains("#import bevy_core_pipeline::fullscreen_vertex_shader") {
@@ -108,12 +136,23 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
     } else {
         source
     };
-    let module = composer.make_naga_module(NagaModuleDescriptor {
-        source, file_path: "enhanced_validation.wgsl",
-        shader_defs: definitions.iter().map(|name| ((*name).to_owned(), ShaderDefValue::Bool(true))).collect(),
-        ..Default::default()
-    }).unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
-    let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
-        .validate(&module).expect("composed module validates");
-    naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty()).expect("write composed WGSL")
+    let module = composer
+        .make_naga_module(NagaModuleDescriptor {
+            source,
+            file_path: "enhanced_validation.wgsl",
+            shader_defs: definitions
+                .iter()
+                .map(|name| ((*name).to_owned(), ShaderDefValue::Bool(true)))
+                .collect(),
+            ..Default::default()
+        })
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&composer)));
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("composed module validates");
+    naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
+        .expect("write composed WGSL")
 }

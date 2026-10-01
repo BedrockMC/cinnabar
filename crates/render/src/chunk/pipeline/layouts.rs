@@ -19,7 +19,7 @@ pub(in crate::chunk) struct ChunkPipeline {
 
 impl FromWorld for ChunkPipeline {
     fn from_world(_world: &mut World) -> Self {
-        let bind_group_layout = chunk_bind_group_layout();
+        let bind_group_layout = crate::chunk::enhanced::chunk_bind_group_layout();
         let descriptor = RenderPipelineDescriptor {
             label: Some("packed chunk pipeline".into()),
             layout: vec![bind_group_layout.clone()],
@@ -229,7 +229,7 @@ mod enhanced_tests {
 
 /// Shared vertex-pulling bindings used by world rendering and shadow casters.
 pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
-BindGroupLayoutDescriptor::new(
+    BindGroupLayoutDescriptor::new(
         "chunk vertex-pulling bind group layout",
         &[
             BindGroupLayoutEntry {
