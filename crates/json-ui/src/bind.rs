@@ -153,6 +153,8 @@ struct Scope {
     for_children: Arc<Bag>,
     /// The parent's layout-key hash.
     parent_key: u64,
+    /// The nearest retained ancestor's key hash.
+    retained_parent: u64,
 }
 
 impl Default for Scope {
@@ -163,6 +165,7 @@ impl Default for Scope {
             values: Arc::default(),
             for_children: Arc::default(),
             parent_key: state::KEY_ROOT,
+            retained_parent: state::KEY_ROOT,
         }
     }
 }
@@ -204,6 +207,8 @@ struct Node {
     children: Vec<Node>,
     /// A hidden control's scope, kept to build its subtree once shown.
     deferred: Option<Scope>,
+    /// Whether its state outlives the refresh.
+    retained: bool,
 }
 
 struct Binder<'a> {
@@ -265,7 +270,7 @@ impl<'a> Binder<'a> {
         let control = src.get();
         let (fresh, for_children) = bag::bags(control, &scope.for_children);
         let retained = self.state.controls.remove(&key);
-        let parent = scope.parent_key;
+        let parent = scope.retained_parent;
         let created = retained.is_none();
         let mut memory = retained.unwrap_or_default();
         memory.parent = parent;
@@ -291,7 +296,9 @@ impl<'a> Binder<'a> {
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
         }
-        if let Some(published) = self.state.published.remove(&key) {
+        let published = self.state.published.remove(&key);
+        let had_published = published.is_some();
+        if let Some(published) = published {
             own.extend(published);
         }
         let mut native = Native {
@@ -315,6 +322,14 @@ impl<'a> Binder<'a> {
         }
         let mut child_scope = scope.clone();
         child_scope.parent_key = key;
+        // Only state a refresh cannot rebuild from literals is retained.
+        let retained = !bindings.is_empty()
+            || !native.props.is_empty()
+            || !native.visible(control)
+            || had_published;
+        if retained {
+            child_scope.retained_parent = key;
+        }
         child_scope.for_children = for_children;
         child_scope.parent_collection = control
             .properties
@@ -336,6 +351,7 @@ impl<'a> Binder<'a> {
             bindings,
             children: Vec::new(),
             deferred: None,
+            retained,
         };
         // A hidden control's subtree builds only once shown or named, so a
         // pack's many title-selected layouts cost only the one on screen.
@@ -655,16 +671,20 @@ impl<'a> Binder<'a> {
             mut memory,
             children,
             deferred,
+            retained,
             ..
         } = node;
+        for child in children {
+            self.keep(child, generation);
+        }
+        if !retained {
+            return;
+        }
         memory.bag = own;
         memory.native = native.props;
         memory.generation = generation;
         memory.deferred = deferred.is_some();
         self.state.controls.insert(key, memory);
-        for child in children {
-            self.keep(child, generation);
-        }
     }
 }
 
