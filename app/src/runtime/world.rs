@@ -220,6 +220,7 @@ pub(crate) fn update_camera_medium(
         });
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
+        fog_biomes: environment::fog_biome_samples(stream, &client_world.runtime_assets, position),
         camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
         camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
         render_distance_blocks: Some(stream.render_distance_blocks()),

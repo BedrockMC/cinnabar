@@ -92,6 +92,8 @@ impl WeatherDisplay {
         });
         if self.generation != Some(target.session_generation) {
             self.generation = Some(target.session_generation);
+            self.submerged = 0.0;
+            self.step_seconds = 0.0;
             self.rain = target.rain_level;
             self.thunder = target.lightning_level;
         } else {
@@ -348,6 +350,16 @@ mod tests {
         display.advance(target(0.0, 0.0, 1), 2.0);
         assert_eq!(display.submerged_seconds(CameraMedium::Water), 2.0);
         assert_eq!(display.submerged_seconds(CameraMedium::Air), 0.0);
+    }
+
+    #[test]
+    fn new_session_restarts_the_water_transition() {
+        let mut display = WeatherDisplay::default();
+        display.advance(target(0.0, 0.0, 1), 0.0);
+        display.advance(target(0.0, 0.0, 1), 1.0);
+        assert_eq!(display.submerged_seconds(CameraMedium::Water), 1.0);
+        display.advance(target(0.0, 0.0, 2), 2.0);
+        assert_eq!(display.submerged_seconds(CameraMedium::Water), 0.0);
     }
 
     #[test]

@@ -3652,3 +3652,12 @@ and replay packets use actual jump initiation. Server flight-off is authoritativ
 Web slowdown applies once and honors Weaving. Client ContainerClose sends type -9
 (Lens `0x4f32090`; `R:l/LocalPlayer.cpp:5095`) while the ledger retains its real type.
 No live or visual acceptance gate is closed by these changes.
+
+2026-10-02 RM-06 continuation (incomplete): atmosphere carriers retain initial
+fog and transition timing. The current 27-position biome layer blends distance,
+RGB and transition fields with missing-entry coverage. Water transitions blend
+initial color/start/end using the minimum-clamped two-stage timeline, replacing
+the fixed endpoint multiplier. Server-directed layers, frame smoothing and depth
+adjustments remain incomplete. Lens current client 0xfded80, 0xfde760, 0xfdf140,
+0x4e429e0 (sample table 0x1501eeff0), 0x1011890; R:f/FogManager.cpp:599,
+R:l/LevelRendererCamera.cpp:10493; pinned fogs/default_fog_setting.json.
