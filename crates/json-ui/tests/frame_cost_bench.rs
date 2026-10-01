@@ -171,12 +171,8 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
         let bound = bind_shared(&tree, &data, &library);
         let bind_elapsed = started.elapsed();
         let started = Instant::now();
-        let updated = if incremental {
-            Some(black_box(bind_stateful(&tree, &data, &library, &mut state)).0)
-        } else {
-            black_box(bind_stateful(&tree, &data, &library, &mut state));
-            None
-        };
+        let updated =
+            incremental.then(|| black_box(bind_stateful(&tree, &data, &library, &mut state)).0);
         let stateful_elapsed = started.elapsed();
         let started = Instant::now();
         black_box(render_bound(
@@ -211,16 +207,16 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
         }
     }
     eprintln!(
-        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms stateful_bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
+        "FRAME_COST {name}: cold_resolve={:.3}ms bind={:.3}ms layout_emit={:.3}ms total={:.3}ms",
         cold_resolve.as_secs_f64() * 1e3,
         (bind_time / frames).as_secs_f64() * 1e3,
-        (stateful_time / frames).as_secs_f64() * 1e3,
         (layout_time / frames).as_secs_f64() * 1e3,
         ((bind_time + layout_time) / frames).as_secs_f64() * 1e3
     );
     if incremental {
         eprintln!(
-            "FRAME_INCREMENTAL {name}: layout={:.3}ms total={:.3}ms",
+            "FRAME_INCREMENTAL {name}: bind={:.3}ms layout={:.3}ms total={:.3}ms",
+            (stateful_time / frames).as_secs_f64() * 1e3,
             (incremental_time / frames).as_secs_f64() * 1e3,
             ((stateful_time + incremental_time) / frames).as_secs_f64() * 1e3
         );
