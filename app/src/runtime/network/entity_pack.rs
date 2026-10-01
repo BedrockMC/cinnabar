@@ -9,7 +9,7 @@ use resource_pack::LayeredPackView;
 mod collect;
 use collect::collect_files;
 
-use super::resource_packs::{StackFingerprint, parse_pack_json, stack_fingerprint};
+use super::resource_packs::{StackFingerprint, parse_pack_json};
 
 /// The pack's entity catalog with the artwork of its eligible rigs.
 #[derive(Debug)]
@@ -43,20 +43,19 @@ static ENTITY_CACHE: std::sync::Mutex<Option<CachedEntities>> = std::sync::Mutex
 
 /// Compiles the stack's entity files; `None` when it defines no usable entity.
 pub(super) fn compile_session_entities(
-    stack: &resource_pack::ValidatedPackStack,
+    fingerprint: &StackFingerprint,
     view: &LayeredPackView,
 ) -> Option<Arc<SessionEntityPack>> {
-    let fingerprint = stack_fingerprint(stack);
     let mut cache = ENTITY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     if let Some((cached, pack)) = cache.as_ref()
-        && *cached == fingerprint
+        && cached == fingerprint
     {
         return pack.clone();
     }
     let pack = compile(view);
-    *cache = Some((fingerprint, pack.clone()));
+    *cache = Some((fingerprint.clone(), pack.clone()));
     pack
 }
 
