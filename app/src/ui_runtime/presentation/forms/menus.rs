@@ -9,7 +9,7 @@ use ui::{UiNode, UiRect};
 use super::super::menu_scroll::ScrollArea;
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
 use super::{engine, menu_screens};
-use crate::menu::{MenuAction, MenuView};
+use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
@@ -106,10 +106,24 @@ impl UiPresentationRuntime {
         let Some(screen) = menu_screens::screen_data(view, &translate) else {
             return Ok(None);
         };
-        // Settings resolves for hundreds of milliseconds; do it while the start screen idles.
-        if view.screen == crate::menu::MenuScreen::Home {
-            let (reference, context) = menu_screens::settings_prewarm();
-            renderer.prewarm(reference, context);
+        // Settings lays out for tens of milliseconds; do it while a screen that opens it idles.
+        if matches!(view.screen, MenuScreen::Home | MenuScreen::Pause) {
+            let mut settings = view.clone();
+            settings.screen = MenuScreen::Settings;
+            if let Some(prepared) = menu_screens::screen_data(&settings, &translate) {
+                let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+                renderer.prepare(engine::screen_cache::Prepared {
+                    reference: prepared.reference,
+                    context: prepared.context,
+                    data: prepared.data,
+                    root: [f64::from(width / px), f64::from(height / px)],
+                    px,
+                    language: translate("menu.play"),
+                    font: std::sync::Arc::clone(&self.font),
+                    metrics,
+                    translator: runtime.translator(),
+                });
+            }
         }
         // Last frame's region keys carry the launcher's hover/press/focus.
         let key_of = |action: Option<MenuAction>| {
