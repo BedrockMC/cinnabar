@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/df-mc/go-nethernet"
+	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
@@ -60,6 +61,7 @@ type resolvedUpstreamTarget struct {
 	network    minecraft.Network
 	clientData func(*login.ClientData) // applies a joined session's login fields
 	friend     interface{ Close() error }
+	xbox       interface{ Close() error }
 	realm      bool // vanilla words a failed Realm join as its own
 }
 
@@ -69,6 +71,7 @@ type realmJoinError struct{ err error }
 func (e *realmJoinError) Error() string { return e.err.Error() }
 func (e *realmJoinError) Unwrap() error { return e.err }
 
+// close leaves the joined session before shutting down its Xbox services.
 func (target *resolvedUpstreamTarget) close() error {
 	if target == nil {
 		return nil
@@ -76,6 +79,9 @@ func (target *resolvedUpstreamTarget) close() error {
 	var joined error
 	if target.friend != nil {
 		joined = errors.Join(joined, target.friend.Close())
+	}
+	if target.xbox != nil {
+		joined = errors.Join(joined, target.xbox.Close())
 	}
 	return joined
 }
@@ -167,7 +173,17 @@ func resolveFriendTarget(ctx context.Context, address string, account *authcache
 	if err != nil {
 		return nil, err
 	}
-	defer xbl.Close() // the joined session outlives the listing client
+	return resolveFriendWorld(ctx, xuid, xbl, account, logger)
+}
+
+// resolveFriendWorld owns the Xbox client, handing it to the target only after a successful join.
+func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+	retained := false
+	defer func() {
+		if !retained {
+			_ = xbl.Close()
+		}
+	}()
 	worlds, err := p2p.NewClient(xbl).Worlds(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("request friend worlds: %w", err)
@@ -188,6 +204,8 @@ func resolveFriendTarget(ctx context.Context, address string, account *authcache
 	target := newNetherNetTarget(joined.DialAddress(), joined.ConnectionType(), account, logger)
 	target.clientData = joined.ApplyClientData
 	target.friend = joined
+	target.xbox = xbl
+	retained = true
 	return target, nil
 }
 
