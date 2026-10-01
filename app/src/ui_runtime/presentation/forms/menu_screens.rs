@@ -448,6 +448,7 @@ fn split_address(address: &str) -> (String, String) {
 }
 
 fn settings_screen(view: &MenuView, data: &mut DataSource) {
+    super::enhanced_setting::bind(view, data);
     let section = match view.settings_section {
         0 => section_index(VIDEO_SECTION),
         picked => picked,
@@ -629,6 +630,9 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
 }
 
 fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if let Some(action) = super::enhanced_setting::action(view, region) {
+        return Some(action);
+    }
     match region.control_name.as_deref()? {
         "navigation_tab" if view.screen == MenuScreen::Settings => Some(
             MenuAction::SettingsSection(u8::try_from(region.group_index?).ok()?),

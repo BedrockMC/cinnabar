@@ -157,6 +157,7 @@ impl MenuRuntime {
                     MenuAction::SettingsScale(2),
                     MenuAction::SettingsScale(3),
                     MenuAction::SettingsScale(4),
+                    MenuAction::ToggleRenderMode,
                 ]);
                 actions
             }

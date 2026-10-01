@@ -284,6 +284,7 @@ pub(crate) struct MenuView {
     pub(crate) address: String,
     pub(crate) message: Option<String>,
     pub(crate) gui_scale: u8,
+    pub(crate) render_mode: ui::RenderMode,
     pub(crate) display_name: String,
     pub(crate) servers: Vec<SavedServer>,
     pub(crate) featured: Vec<MenuServerCard>,

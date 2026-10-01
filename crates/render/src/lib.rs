@@ -10,6 +10,8 @@ mod chunk;
 mod cloud_config;
 mod cloud_render;
 mod dropped_item;
+mod enhanced;
+pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
 mod dropped_item_render;
 mod hand_rig_render;
 mod item_geometry;

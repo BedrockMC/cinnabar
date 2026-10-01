@@ -1,5 +1,10 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
+persisted default. This work never closes a vanilla parity gate. T0 adds the
+setting, camera marker and pipeline key isolation. Visual acceptance and all
+subsequent effect/performance gates remain incomplete.
+
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
