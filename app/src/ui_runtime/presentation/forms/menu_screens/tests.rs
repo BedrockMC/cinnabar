@@ -192,7 +192,7 @@ fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
     let mut view = view(MenuScreen::Settings);
     view.fullscreen = false;
     let mut toggle = region(HitKind::Toggle, None);
-    toggle.control_name = Some("full_screen".into());
+    toggle.control_name = Some("#full_screen".into());
     assert_eq!(
         action_for(&view, &toggle),
         Some(MenuAction::SettingsFullscreen(true))
