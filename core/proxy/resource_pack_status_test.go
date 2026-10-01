@@ -262,13 +262,19 @@ func testAdmissionPack(t *testing.T) *resource.Pack {
 
 func testAdmissionPackArchive(t *testing.T) []byte {
 	t.Helper()
+	return admissionPackArchiveWithID(t, "00112233-4455-6677-8899-aabbccddeeff")
+}
+
+// admissionPackArchiveWithID gives selection fixtures distinct pack identities.
+func admissionPackArchiveWithID(t *testing.T, id string) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	manifest, err := writer.Create("manifest.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fmt.Fprint(manifest, `{"format_version":2,"header":{"name":"test","description":"test","uuid":"00112233-4455-6677-8899-aabbccddeeff","version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`)
+	_, err = fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"test","description":"test","uuid":%q,"version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id)
 	if err != nil {
 		t.Fatal(err)
 	}

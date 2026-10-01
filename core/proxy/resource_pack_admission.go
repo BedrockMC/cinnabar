@@ -333,7 +333,7 @@ type selectedResourcePackStack struct {
 
 // captureSelectedResourcePackStack admits the stack's downloaded packs within the bounds, less
 // those excluded, and projects the upstream offer and stack onto them. A server that requires its
-// packs gets all of them or the join is refused, as vanilla cannot join without them.
+// packs must acquire the required offer and retain every selected offered identity.
 func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
 	source, ok := upstream.(resourcePackStackSource)
 	if !ok {
@@ -352,12 +352,25 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 		admitted[packIdentity(pack)] = true
 	}
 	offered, required := len(offer.TexturePacks()), offer.TexturePackRequired() || snapshot.Required()
+	offerIDs := map[string]bool{}
+	for _, entry := range offer.TexturePacks() {
+		info := entry.Info()
+		offerIDs[info.UUID.String()+"_"+info.Version] = true
+		if offer.TexturePackRequired() && entry.Pack() == nil {
+			return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+		}
+	}
+	if required {
+		for _, entry := range snapshot.Entries() {
+			id := entry.UUID() + "_" + entry.Version()
+			if offerIDs[id] && !admitted[id] {
+				return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+			}
+		}
+	}
 	offer, snapshot = minecraft.ProjectResourcePacks(offer, snapshot, func(pack *resource.Pack) bool {
 		return admitted[packIdentity(pack)]
 	})
-	if required && len(offer.TexturePacks()) != offered {
-		return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
-	}
 	return &selectedResourcePackStack{packs: offer.Packs(), required: required, offer: offer, snapshot: snapshot}, nil
 }
 

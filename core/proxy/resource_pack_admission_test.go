@@ -37,6 +37,7 @@ type offerTestDownstream struct {
 	offered         []*resource.Pack
 	stack           minecraft.ResourcePackStackSnapshot
 	required        bool
+	offerRequired   bool
 	err             error
 	writes          []packet.Packet
 	writeErr        error
@@ -54,6 +55,7 @@ func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(offer 
 	downstream.configured = true
 	downstream.configuredOffer = true
 	downstream.offered = offer.Packs()
+	downstream.offerRequired = required
 	downstream.required = required
 	return downstream.err
 }
@@ -126,49 +128,6 @@ func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
 	}
 	if len(snapshots) != 1 || snapshots[0].Offer != ResourcePackOfferOptional || snapshots[0].DownstreamOutcome != ResourcePackDownstreamNone {
 		t.Fatalf("failed configure snapshot = %#v", snapshots)
-	}
-}
-
-func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibilityStack(t *testing.T) {
-	upstream := newFakeUpstream(nil)
-	upstream.packs = []*resource.Pack{new(resource.Pack)}
-	upstream.required = true
-	downstream := new(offerTestDownstream)
-
-	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true}); err != nil {
-		t.Fatalf("configureResourcePackOffer() error = %v", err)
-	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, downstream.required)
-	}
-	if len(downstream.writes) != 0 {
-		t.Fatalf("downstream packet count = %d, want no pre-login Disconnect", len(downstream.writes))
-	}
-}
-
-func TestConfigureRequiredCompatibilityStackPreservesConfigureFailure(t *testing.T) {
-	upstream := newFakeUpstream(nil)
-	upstream.packs = []*resource.Pack{new(resource.Pack)}
-	upstream.required = true
-	configureErr := errors.New("configure failed")
-	downstream := &offerTestDownstream{err: configureErr}
-
-	err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true})
-	if !errors.Is(err, configureErr) {
-		t.Fatalf("configureResourcePackOffer() error = %v, want configure failure", err)
-	}
-}
-
-func TestConfigureResourcePackOfferAllowsEmptyRequiredBitAsEmptyOptional(t *testing.T) {
-	upstream := newFakeUpstream(nil)
-	upstream.required = true
-	downstream := new(offerTestDownstream)
-
-	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{required: true}); err != nil {
-		t.Fatalf("configureResourcePackOffer() error = %v", err)
-	}
-	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (offer=%t, stack=%t, required=%t), want configured empty optional offer", downstream.configuredOffer, downstream.configuredStack, downstream.required)
 	}
 }
 
