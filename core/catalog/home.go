@@ -156,8 +156,14 @@ type LiveEvent struct {
 
 // MessagingSession holds the account's messaging session across home refreshes and reports.
 type MessagingSession struct {
-	mu     sync.Mutex
-	client *playermessaging.Client
+	mu       sync.Mutex
+	client   *playermessaging.Client
+	language string
+}
+
+// NewMessagingSession keeps the active UI language for refreshes and reports.
+func NewMessagingSession(language string) *MessagingSession {
+	return &MessagingSession{language: language}
 }
 
 // get returns the session's client, opening it on the discovered endpoint on first use.
@@ -169,6 +175,7 @@ func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.
 		if err := discovery.Environment(env); err != nil {
 			return nil, fmt.Errorf("resolve messaging service: %w", err)
 		}
+		env.HTTPClient = messagingHTTPClient(env.HTTPClient, s.language)
 		s.client = env.New(account)
 	}
 	return s.client, nil

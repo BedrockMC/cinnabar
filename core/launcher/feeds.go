@@ -83,7 +83,7 @@ var homeFeed = feedSpec[catalog.Home]{
 	name: "home", index: 2, ttl: homeTTL,
 	slot: func(snap *snapshot) *feed[catalog.Home] { return &snap.Home },
 	fetch: func(s *Service, ctx context.Context, src *authcache.Account, previous *catalog.Home) (catalog.Home, error) {
-		home, err := s.cfg.Home(ctx, src, &s.messaging, s.cfg.ArtworkDir)
+		home, err := s.cfg.Home(ctx, src, s.messaging, s.cfg.ArtworkDir)
 		if err != nil {
 			return home, err
 		}
