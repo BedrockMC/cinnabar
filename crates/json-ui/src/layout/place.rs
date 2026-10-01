@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::{Axis, AxisContext, LayoutEnv, Rect, ResolvedControl, axis_index, axis_of, pixels_or};
+use super::{Axis, AxisContext, LayoutEnv, Rect, ResolvedControl, axis_index, axis_of};
 use crate::anim::{Inherited, Motion, SLIDE_KEY, Slide};
 use crate::expr;
 
@@ -50,9 +50,11 @@ fn offset_pixels(pair: &Value, parent_rect: Rect, size: [f64; 2]) -> [f64; 2] {
             own_height: Some(size[1]),
             ..AxisContext::default()
         };
-        expr::length_from_value(&items[index])
-            .map(|len| pixels_or(len.eval(&ctx), 0.0))
-            .unwrap_or(0.0)
+        // An axis that is not an expression (`default`, `fill`) adds no offset.
+        match expr::length_from_value(&items[index]) {
+            expr::Length::Terms(terms) => expr::Length::Terms(terms).eval_pixels(&ctx),
+            _ => 0.0,
+        }
     };
     [axis_value(0, Axis::X), axis_value(1, Axis::Y)]
 }

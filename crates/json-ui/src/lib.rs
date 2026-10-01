@@ -53,9 +53,7 @@ pub use emit::{
     emit_gated, nine_slice,
 };
 pub use env::Env;
-pub use expr::{
-    AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,
-};
+pub use expr::{AxisContext, Length, Resolved, Term, Unit, length_from_value, parse_length};
 pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
