@@ -108,7 +108,7 @@ forbidden_dependencies = ["asset-compiler"]
 name = "app"
 path = "app"
 # asset-compiler is allowed only for the session-time in-memory server-pack entity compile.
-allowed_dependencies = ["asset-compiler", "assets", "client-world", "json-ui", "meshing", "protocol", "render", "resource-pack", "semantic-input", "sim", "ui", "world"]
+allowed_dependencies = ["asset-compiler", "assets", "client-world", "json-ui", "meshing", "mod-host", "protocol", "render", "resource-pack", "semantic-input", "sim", "ui", "world"]
 forbidden_dependencies = []
 
 [[crates]]
@@ -116,6 +116,24 @@ name = "sim"
 path = "crates/sim"
 allowed_dependencies = ["world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "mod-api"
+path = "crates/mod-api"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "mod-host"
+path = "crates/mod-host"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "hello-mod"
+path = "examples/mods/hello"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
 name = "ui"
