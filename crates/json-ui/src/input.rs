@@ -424,12 +424,13 @@ pub fn global_mapping(root: &LaidOut, from: &str) -> Option<String> {
     found
 }
 
+/// Visit visible controls in declaration order for global routing.
 fn find_global(node: &LaidOut, from: &str, found: &mut Option<String>) {
     if !node.visible {
         return;
     }
     if node.control.properties.contains_key("button_mappings")
-        && let Some(mapping) = InputComponent::read(node.control)
+        && let Some(mapping) = InputComponent::read_mappings(node.control)
             .mappings
             .into_iter()
             .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)

@@ -134,50 +134,31 @@ impl Animator {
             .or(anims.born)
             .or(self.origin);
         // A re-laid control keeps its instances while its program is the same.
-        let keep = match self.components.get_mut(anims.key.as_str()) {
-            Some(component) if !Arc::ptr_eq(&component.anims, anims) => {
-                let same = component.born == born && component.anims.same_program(anims);
-                if same {
-                    component.anims = Arc::clone(anims);
-                }
-                same
+        if let Some(component) = self.components.get_mut(anims.key.as_str())
+            && component.born == born
+            && (Arc::ptr_eq(&component.anims, anims) || component.anims.same_program(anims))
+        {
+            if !Arc::ptr_eq(&component.anims, anims) {
+                component.anims = Arc::clone(anims);
             }
-            Some(component) => component.born == born,
-            None => true,
-        };
-        if !keep {
-            self.components.remove(anims.key.as_str());
+            return component.sample(now, &mut self.events, &mut self.destroyed);
         }
-        if !self.components.contains_key(anims.key.as_str()) {
-            let mut component = Component::new(Arc::clone(anims), born, now);
-            for event in &self.fired {
-                component.fire(event);
-            }
-            // Fast-forward to the caller's creation time, unless disabled; nodes
-            // waiting to render start from their first paint.
-            if !anims.disable_fast_forward
-                && let Some(born) = born
-                && now > born
-            {
-                component.tick((now - born) as f32, &mut self.events, &mut self.destroyed);
-            }
-            component.render();
-            component.tick(0.0, &mut self.events, &mut self.destroyed);
-            self.components.insert(anims.key.clone(), component);
+        let mut component = Component::new(Arc::clone(anims), born, now);
+        for event in &self.fired {
+            component.fire(event);
         }
-        let component = self
-            .components
-            .get_mut(anims.key.as_str())
-            .expect("component inserted above");
-        component.touched = true;
-        let dt = now - component.last;
-        if dt > 0.0 {
-            component.last = now;
-            component.tick(dt as f32, &mut self.events, &mut self.destroyed);
-        } else if dt < 0.0 {
-            component.last = now;
+        // Waiting nodes start at their first paint; other nodes may fast-forward.
+        if !anims.disable_fast_forward
+            && let Some(born) = born
+            && now > born
+        {
+            component.tick((now - born) as f32, &mut self.events, &mut self.destroyed);
         }
-        component.written
+        component.render();
+        component.tick(0.0, &mut self.events, &mut self.destroyed);
+        let written = component.sample(now, &mut self.events, &mut self.destroyed);
+        self.components.insert(anims.key.clone(), component);
+        written
     }
 
     /// Deliver button event `id`: plays or resets matching animations and
@@ -247,6 +228,24 @@ impl Component {
             touched: true,
             destroyed: false,
         }
+    }
+
+    /// Tick once per clock value, even when several draw nodes share this component.
+    fn sample(
+        &mut self,
+        now: f64,
+        events: &mut Vec<AnimEvent>,
+        destroyed: &mut BTreeMap<String, bool>,
+    ) -> Written {
+        self.touched = true;
+        let dt = now - self.last;
+        if dt > 0.0 {
+            self.last = now;
+            self.tick(dt as f32, events, destroyed);
+        } else if dt < 0.0 {
+            self.last = now;
+        }
+        self.written
     }
 
     /// Resources are ready at the first paint (`onResourcesLoaded`).
