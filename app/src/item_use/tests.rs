@@ -173,3 +173,16 @@ fn an_active_use_slows_movement_until_it_ends() {
     runtime.step(&frame(110, false));
     assert_eq!(runtime.movement_modifier(), None);
 }
+
+/// An ender pearl press sends its click-air transaction and starts no held use.
+#[test]
+fn an_ender_pearl_press_sends_click_air() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let outcome = runtime.step(&UseFrame {
+        air_use: classify("minecraft:ender_pearl", false, 0),
+        ..frame(100, true)
+    });
+    assert_eq!(kinds(&outcome), ["use"]);
+    assert!(!outcome.started && !runtime.is_using());
+}

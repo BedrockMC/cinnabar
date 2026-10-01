@@ -53,7 +53,7 @@ pub(crate) enum AirUse {
     Instant,
 }
 
-/// The air use of the handled ranged and scoped items; `None` for everything else.
+/// The air use of the handled ranged, scoped and thrown items; `None` for everything else.
 pub(crate) fn classify(identifier: &str, charged: bool, quick_charge: u8) -> Option<AirUse> {
     let name = identifier.strip_prefix("minecraft:")?;
     Some(match name {
@@ -69,6 +69,9 @@ pub(crate) fn classify(identifier: &str, charged: bool, quick_charge: u8) -> Opt
             max_ticks: SPYGLASS_USE_TICKS,
             ammo: Ammo::None,
         },
+        // Thrown on the press; the server spawns the projectile.
+        "ender_pearl" | "snowball" | "egg" | "splash_potion" | "lingering_potion"
+        | "experience_bottle" | "wind_charge" | "ender_eye" | "fishing_rod" => AirUse::Instant,
         "crossbow" if charged => AirUse::Instant,
         "crossbow" => AirUse::Hold {
             max_ticks: CROSSBOW_CHARGE_TICKS
@@ -285,15 +288,26 @@ pub(crate) fn produce_item_use(
     runtime.synchronize(context.ui.session_id());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let admitted = context.input.snapshot().is_some()
-        && focused
-        && !context.ui.ui_focused()
-        && context
-            .ui
-            .game_mode_capabilities()
-            .is_some_and(|caps| caps.can_use_items)
-        && movement.accepts_block_interactions();
     let use_phase = context.input.phase(Action::Use);
+    let admitted = if context.input.snapshot().is_none() {
+        false
+    } else if !focused || context.ui.ui_focused() {
+        use_phase
+            .pressed
+            .then(|| crate::movement::note_click_drop("use", "screen_open"));
+        false
+    } else if context
+        .ui
+        .game_mode_capabilities()
+        .is_some_and(|caps| !caps.can_use_items)
+    {
+        use_phase
+            .pressed
+            .then(|| crate::movement::note_click_drop("use", "spectator"));
+        false
+    } else {
+        true
+    };
     runtime.observe_press(admitted && use_phase.pressed);
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
@@ -321,6 +335,20 @@ pub(crate) fn produce_item_use(
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
     };
+    if runtime.latched_press && !runtime.is_using() {
+        let reason = if frame.selection.is_none() {
+            Some("selection_unverified")
+        } else if frame.air_use.is_none() {
+            Some("no_air_use_for_item")
+        } else if frame.press_consumed {
+            Some("consumed_by_block_or_attack")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            crate::movement::note_click_drop("use", reason);
+        }
+    }
     let outcome = runtime.step(&frame);
     for packet in outcome.packets {
         let _ = context.network.send_inventory_packet(packet);
