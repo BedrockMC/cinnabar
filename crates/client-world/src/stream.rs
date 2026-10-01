@@ -114,6 +114,9 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
+/// How long the server may go without delivering chunk data before announced columns it has
+/// not sent stop holding back neighbouring meshes.
+const UNSENT_COLUMN_GRACE: Duration = Duration::from_secs(1);
 /// Completed meshes held for a publication permit rather than remeshed.
 const MAX_STAGED_MESH_COMPLETIONS: usize = 256;
 const MAX_STAGED_MESH_BYTES: u64 = 32 * 1024 * 1024;
@@ -168,9 +171,9 @@ struct PendingSchedulerCandidate {
 }
 
 impl PendingSchedulerCandidate {
-    fn new(key: SubChunkKey, revision: u64, camera_position: [f32; 3], urgent: bool) -> Self {
+    fn new(key: SubChunkKey, revision: u64, view: SchedulerView, urgent: bool) -> Self {
         Self {
-            distance_squared: distance_squared(key, camera_position),
+            distance_squared: view.rank(key),
             key,
             revision,
             urgent,
@@ -210,8 +213,43 @@ impl Ord for PendingSchedulerCandidate {
     }
 }
 
-fn scheduler_camera_cell(camera_position: [f32; 3]) -> [i32; 3] {
-    camera_position.map(|value| floor_to_i32(value).div_euclid(16))
+/// Camera the work schedulers order by: nearest first, sub-chunks in front of the view ahead of
+/// those behind it, as vanilla queues render-chunk builds from the visible set.
+#[derive(Debug, Clone, Copy)]
+struct SchedulerView {
+    position: [f32; 3],
+    forward: Option<[f32; 3]>,
+}
+
+impl SchedulerView {
+    /// Squared distance, quadrupled (twice the distance) behind the view plane.
+    fn rank(self, key: SubChunkKey) -> f32 {
+        let distance = distance_squared(key, self.position);
+        let behind = self.forward.is_some_and(|forward| {
+            let offset = [
+                key.x as f32 * 16.0 + 8.0 - self.position[0],
+                key.y as f32 * 16.0 + 8.0 - self.position[1],
+                key.z as f32 * 16.0 + 8.0 - self.position[2],
+            ];
+            offset[0].mul_add(
+                forward[0],
+                offset[1].mul_add(forward[1], offset[2] * forward[2]),
+            ) < -8.0
+        });
+        if behind { distance * 4.0 } else { distance }
+    }
+
+    /// Changes when the camera crosses a sub-chunk or turns into another eighth of the compass.
+    fn cell(self) -> [i32; 4] {
+        let [x, y, z] = self
+            .position
+            .map(|value| floor_to_i32(value).div_euclid(16));
+        let sector = self.forward.map_or(-1, |forward| {
+            ((forward[2].atan2(forward[0]) / std::f32::consts::TAU * 8.0).floor() as i32)
+                .rem_euclid(8)
+        });
+        [x, y, z, sector]
+    }
 }
 
 use model::{
@@ -283,7 +321,7 @@ pub struct WorldStream {
     pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_light_deferred: BinaryHeap<PendingSchedulerCandidate>,
     light_priority_wakeups: HashMap<SubChunkKey, u64>,
-    light_scheduler_camera_cell: Option<[i32; 3]>,
+    light_scheduler_camera_cell: Option<[i32; 4]>,
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     next_light_batch_id: u64,
     in_flight_light_batches: HashMap<u64, usize>,
@@ -302,7 +340,9 @@ pub struct WorldStream {
     pending_resident_mesh_ready: BinaryHeap<PendingSchedulerCandidate>,
     pending_mesh_removal_deferred: BinaryHeap<PendingSchedulerCandidate>,
     pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
-    mesh_scheduler_camera_cell: Option<[i32; 3]>,
+    mesh_scheduler_camera_cell: Option<[i32; 4]>,
+    /// Unit view direction the schedulers favour; `None` orders by distance alone.
+    view_forward: Option<[f32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
@@ -323,6 +363,8 @@ pub struct WorldStream {
     requests: RequestQueue,
     transport_pending_requests: usize,
     last_request_player_chunk: Option<ChunkKey>,
+    /// When the server last delivered column or sub-chunk data; a quiet stream has sent all it will.
+    last_column_arrival: Option<Instant>,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
     committed_controls: VecDeque<CommittedControlEvent>,

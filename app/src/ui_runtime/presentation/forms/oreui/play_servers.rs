@@ -55,7 +55,13 @@ pub(super) fn draw(
     )?;
     let item_height = canvas.r(4.8);
     let selection = selection(view, featured.len());
+    // Only rows the viewport shows are built; the rest just advance the offset.
+    let shown = |y: f32| y + item_height > body[1] && y < body[3];
     for (index, server) in featured.iter().enumerate() {
+        if !shown(y) {
+            y += item_height;
+            continue;
+        }
         let selected = selection == Some(Selection::Featured(index));
         let bounds = [
             menu_left + canvas.r(0.2),
@@ -99,6 +105,10 @@ pub(super) fn draw(
         y,
     )?;
     for (index, server) in view.servers.iter().enumerate() {
+        if !shown(y) {
+            y += item_height;
+            continue;
+        }
         let bounds = [
             menu_left + canvas.r(0.2),
             y,

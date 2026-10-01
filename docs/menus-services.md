@@ -21,7 +21,7 @@ also send `Session-Id` and, for messaging, `Accept-Language`.
 | Realms invites | `GET .../invites/count/pending` (bare integer) | XSTS(realms) | `home.v1` `realm_invites` |
 | Friend worlds | `sessiondirectory.xboxlive.com` activity handles | XSTS(`http://xboxlive.com`) | `friends_list.v1` |
 | Profile | `peoplehub.xboxlive.com` (gamertag, gamerpic, gamerscore, presence), social friends/followers | XSTS(xboxlive) | `profile.v1` |
-| Persona head | `GET {persona}/api/v1.0/profile/xuid/<xuid>/image/head` | MCToken | `home.v1` `persona_head` |
+| Persona head | `GET {persona}/api/v1.0/profile/xuid/<xuid>/image/head` (image bytes) | MCToken | `home.v1` `persona_head` |
 | Server rows | RakNet unconnected ping (players, max, round trip) | none | `ping.v1` |
 
 Message placement follows each message's `surface`: `PlayButton`/`MarketplaceButton` (start

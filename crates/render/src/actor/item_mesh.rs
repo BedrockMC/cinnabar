@@ -1,6 +1,6 @@
 //! Item geometry as actor rig vertices on bone 0.
 use super::ActorRigVertex;
-use crate::item_geometry::{ItemVertex, cube_vertices, extruded_sprite_vertices as extrude};
+use crate::item_geometry::{ItemVertex, cube_vertices, held_sprite_vertices as held};
 
 fn on_bone_zero(vertices: Vec<ItemVertex>) -> Vec<ActorRigVertex> {
     vertices
@@ -15,15 +15,16 @@ fn on_bone_zero(vertices: Vec<ItemVertex>) -> Vec<ActorRigVertex> {
         .collect()
 }
 
-/// A sprite slab (see `item_geometry`); `None` for a malformed pixel buffer.
+/// A sprite slab in vanilla's held-item layout (see `item_geometry`); `None` for a malformed
+/// pixel buffer.
 #[must_use]
-pub fn extruded_sprite_vertices(
+pub fn held_sprite_vertices(
     width: usize,
     height: usize,
     rgba8: &[u8],
     uv_rect: [f32; 4],
 ) -> Option<Vec<ActorRigVertex>> {
-    extrude(width, height, rgba8, uv_rect).map(on_bone_zero)
+    held(width, height, rgba8, uv_rect).map(on_bone_zero)
 }
 
 /// A unit block cube; face `f` samples `face_rects[f]`.
