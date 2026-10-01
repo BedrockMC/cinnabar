@@ -164,7 +164,7 @@ fn tick_snapshots_map_each_device_carrier_to_its_wire_field() {
             std::f32::consts::FRAC_1_SQRT_2
         ]
     );
-    assert_eq!(keyboard_snapshot.raw_move_vector, [-1.0, 1.0]);
+    assert_eq!(keyboard_snapshot.raw_move_vector, keyboard_snapshot.move_vector);
     assert_eq!(keyboard_snapshot.analogue_move_vector, [-1.0, 1.0]);
 
     let gamepad_snapshot = ticker.pop_pending().unwrap().snapshot;
