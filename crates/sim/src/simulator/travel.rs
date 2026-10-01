@@ -118,7 +118,7 @@ pub(super) fn tick_mode(
                 super::water_travel_speed(
                     &input,
                     sampled.movement.horizontal_speed_factor,
-                    super::depth_strider_blend(input.depth_strider, grounded_at_start),
+                    super::depth_strider_level(input.depth_strider, grounded_at_start),
                 ),
             );
             let target = -minecraft_sin(input.pitch_degrees.to_radians());

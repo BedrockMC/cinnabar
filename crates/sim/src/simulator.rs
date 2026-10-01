@@ -151,7 +151,7 @@ impl Simulator {
         } else {
             DEFAULT_AIR_FRICTION
         };
-        let depth_strider = depth_strider_blend(input.depth_strider, grounded_at_start);
+        let depth_strider = depth_strider_level(input.depth_strider, grounded_at_start);
         let relative_speed = if sampled.movement.in_water {
             water_travel_speed(
                 &input,
@@ -353,7 +353,7 @@ impl Simulator {
                 f64::from(
                     WATER_DRAG as f32
                         + (DEPTH_STRIDER_TARGET_DRAG as f32 - WATER_DRAG as f32)
-                            * depth_strider as f32,
+                            * (depth_strider as f32 / f32::from(DEPTH_STRIDER_MAX_LEVEL)),
                 )
             } else {
                 0.5
@@ -435,7 +435,7 @@ impl Simulator {
 }
 
 /// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
-/// movement speed by the Depth Strider share `depth_strider`.
+/// movement speed, multiplying the effective enchantment level before division.
 fn water_travel_speed(
     input: &MovementInput,
     horizontal_speed_factor: f64,
@@ -443,13 +443,14 @@ fn water_travel_speed(
 ) -> f64 {
     let base = DEFAULT_AIR_SPEED as f32 * horizontal_speed_factor as f32;
     let ground = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED) as f32;
-    f64::from(base + (ground - base) * depth_strider as f32)
+    // Lens 0xdc3eeb0; R:w/WaterTravelSystem.cpp:73.
+    f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
 }
 
-/// Depth Strider's travel share, halved while airborne.
-fn depth_strider_blend(level: u8, grounded: bool) -> f64 {
-    let blend = f32::from(level.min(DEPTH_STRIDER_MAX_LEVEL)) / f32::from(DEPTH_STRIDER_MAX_LEVEL);
-    f64::from(if grounded { blend } else { blend * 0.5 })
+/// Caps Depth Strider's level and halves it while airborne, before interpolation.
+fn depth_strider_level(level: u8, grounded: bool) -> f64 {
+    let level = f32::from(level.min(DEPTH_STRIDER_MAX_LEVEL));
+    f64::from(if grounded { level } else { level * 0.5 })
 }
 
 /// Applies the current client's f32 steering products before widening retained motion.
