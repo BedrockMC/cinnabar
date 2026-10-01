@@ -416,6 +416,11 @@ pub enum CommittedControlEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommittedUiEvent {
+    Experience {
+        sequence: u64,
+        dimension_epoch: u64,
+        event: protocol::ExperienceMessage,
+    },
     /// Evidence addressed to the bootstrap's persistent local actor identity.
     LocalAbilities {
         sequence: u64,

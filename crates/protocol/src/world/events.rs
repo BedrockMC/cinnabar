@@ -405,6 +405,7 @@ pub struct ActorPropertySyncEvent {
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
+    Experience(crate::ExperienceMessage),
     Abilities(crate::AbilitiesUpdate),
     BiomeDefinitions(BiomeDefinitionsEvent),
     LevelChunk(LevelChunkEvent),
