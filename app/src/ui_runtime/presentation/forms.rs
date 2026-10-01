@@ -190,6 +190,14 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// Reads vanilla images the carrier lacks from the local pack at `vanilla`.
+    #[cfg(test)]
+    pub(crate) fn set_vanilla_texture_root(&mut self, vanilla: std::path::PathBuf) {
+        if let Some(engine) = self.form_presentation.engine.as_mut() {
+            engine.textures.set_fallbacks(Default::default(), vanilla);
+        }
+    }
+
     /// The dynamic pages holding the server pack's UI textures.
     /// Drawn engine textures too big for a server page, for the art pages.
     pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
