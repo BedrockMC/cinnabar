@@ -44,7 +44,8 @@ pub(crate) fn configure(app: &mut App) {
         (drive, super::input::consume)
             .chain()
             .before(ClientFrameSet::SemanticSample)
-            .after(ClientFrameSet::RawInput),
+            .after(ClientFrameSet::RawInput)
+            .after(crate::runtime::world::drain_committed_ui_before_authority),
     );
 }
 
@@ -355,7 +356,7 @@ fn can_disable(state: &State) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+mod status_tests {
     use super::*;
 
     #[test]
@@ -367,3 +368,6 @@ mod tests {
         assert!(!can_disable(&State::Disabled));
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -3633,3 +3633,30 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
   - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
 - `cargo fmt --all`, the formatting check and `git diff --check` passed. Production
   containment, media integration and vanilla parity gates remain open.
+
+### PR #34 review fixes and local validation (2026-10-02)
+
+- Fixed all ten review findings: consent clears raw mouse-button messages through
+  dismissal; the controller follows the committed UI drain; initializers share
+  callback slices, retain bounded sends and publish readiness before those sends;
+  reliable events wait for idle helpers and available callback fuel.
+- Media grants now bind the verified archive digest. Applied controls retain their
+  accepted timestamp frontier, clock probes survive delayed or unsolicited replies,
+  and the PCM presentation queue enforces the decoder packet frame ceiling.
+- Added regressions for next-frame input replay, schedule ordering, same-frame
+  dimension revocation, staggered initialization, four-component startup, burst
+  delivery, signed revision substitution, timestamp reversal, delayed probes and
+  maximum-sized PCM blocks. Reconciled the preview documentation with the branch's
+  recorded validation and existing lockfile additions.
+- Local checks passed through the owner's `cslot` limiter:
+  - `cargo check --workspace --all-targets --locked`
+  - `cargo test -p server-experience -p bedrock-client --locked` (35 server-experience
+    tests; 1,879 client unit tests passed and 16 were ignored; client integration
+    and documentation tests passed)
+  - `cargo test -p server-experience --features developer-media --locked` (38 tests)
+  - `cargo clippy --workspace --all-targets --features server-experience/developer-media --locked -- -D warnings`
+  - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
+- `cargo fmt --all`, the formatting check and `git diff --check` passed. No new
+  dependency or lockfile update was needed. Production containment, live media,
+  visual, performance and vanilla parity gates remain open. No remote build or
+  live client/server session was used.

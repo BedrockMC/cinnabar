@@ -3,6 +3,8 @@
 use anyhow::{Result, ensure};
 use std::collections::VecDeque;
 
+pub(super) const MAX_PROBE_DELAY_US: u64 = 2_000_000;
+
 #[derive(Clone, Copy, Debug)]
 struct Sample {
     offset_us: i64,
@@ -23,7 +25,7 @@ impl Clock {
             "invalid clock sample"
         );
         let delay_us = (c3 - c0) - (s2 - s1);
-        ensure!(delay_us <= 2_000_000, "clock sample too delayed");
+        ensure!(delay_us <= MAX_PROBE_DELAY_US, "clock sample too delayed");
         let offset = ((i128::from(s1) - i128::from(c0)) + (i128::from(s2) - i128::from(c3))) / 2;
         let offset_us = i64::try_from(offset)?;
         if self

@@ -19,6 +19,7 @@ pub const MANIFEST_PATH: &str = "manifest.signed.json";
 pub struct VerifiedBundle {
     pub manifest: Manifest,
     files: BTreeMap<String, Vec<u8>>,
+    digest: String,
 }
 
 impl VerifiedBundle {
@@ -129,7 +130,16 @@ impl VerifiedBundle {
                 "only portable WebAssembly is accepted"
             );
         }
-        Ok(Self { manifest, files })
+        Ok(Self {
+            manifest,
+            files,
+            digest: offer.digest.clone(),
+        })
+    }
+
+    /// Returns the verified archive digest selected by the signed package offer.
+    pub fn digest(&self) -> &str {
+        &self.digest
     }
 
     /// Reads only an immutable, already verified bundle asset.

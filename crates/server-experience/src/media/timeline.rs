@@ -62,6 +62,7 @@ pub struct Playback {
     pub surface: Option<Surface>,
     pub decode_generation: u64,
     revision: u64,
+    last_effective_us: Option<u64>,
     pending: VecDeque<Message>,
 }
 
@@ -92,9 +93,8 @@ impl Playback {
             "media schedule too distant"
         );
         ensure!(
-            self.pending
-                .back()
-                .is_none_or(|last| last.effective_server_us <= message.effective_server_us),
+            self.last_effective_us
+                .is_none_or(|last| last <= message.effective_server_us),
             "media controls reordered"
         );
         match &message.operation {
@@ -110,6 +110,7 @@ impl Playback {
             _ => {}
         }
         self.revision = message.revision;
+        self.last_effective_us = Some(message.effective_server_us);
         self.pending.push_back(message);
         Ok(())
     }
@@ -208,6 +209,51 @@ mod tests {
             effective_server_us: at,
             operation,
         }
+    }
+
+    #[test]
+    fn applied_controls_keep_the_last_accepted_timestamp() {
+        let owner = Principal {
+            session: "session".into(),
+            bundle: "cinema".into(),
+            generation: 1,
+        };
+        let mut playback = Playback::default();
+        playback
+            .enqueue(
+                message(&owner, 1, 100, Operation::Play { position_us: 10 }),
+                &owner,
+                1,
+                "cinema",
+                100,
+            )
+            .unwrap();
+        playback.advance(200, 1000).unwrap();
+        assert!(playback.pending.is_empty());
+        assert!(
+            playback
+                .enqueue(
+                    message(&owner, 2, 99, Operation::SetVolume { per_mille: 500 }),
+                    &owner,
+                    1,
+                    "cinema",
+                    200
+                )
+                .is_err()
+        );
+        assert_eq!(playback.position(200, 1000), 110);
+        playback
+            .enqueue(
+                message(&owner, 2, 100, Operation::SetVolume { per_mille: 500 }),
+                &owner,
+                1,
+                "cinema",
+                200,
+            )
+            .unwrap();
+        playback.advance(200, 1000).unwrap();
+        assert_eq!(playback.position(200, 1000), 110);
+        assert_eq!(playback.volume, 500);
     }
 
     #[test]

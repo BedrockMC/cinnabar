@@ -300,12 +300,14 @@ impl Budget {
         self.fuel = SESSION_FUEL;
     }
 
+    /// Reports whether a reserved guest can run without exceeding this slice.
+    pub fn can_dispatch(&self, owner: &Principal) -> bool {
+        self.reservations.contains_key(owner) && self.fuel >= CALLBACK_FUEL
+    }
+
     /// Charges the full callback allowance before scheduling guest work.
     pub fn dispatch(&mut self, owner: &Principal) -> Result<u64> {
-        ensure!(
-            self.reservations.contains_key(owner) && self.fuel >= CALLBACK_FUEL,
-            "callback deferred"
-        );
+        ensure!(self.can_dispatch(owner), "callback deferred");
         self.fuel -= CALLBACK_FUEL;
         Ok(CALLBACK_FUEL)
     }

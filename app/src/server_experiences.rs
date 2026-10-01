@@ -3,6 +3,7 @@
 mod driver;
 pub(crate) mod input;
 mod live;
+mod worker;
 
 use server_experience::session::Session;
 use std::sync::Arc;

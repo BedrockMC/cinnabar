@@ -1,5 +1,6 @@
 //! Developer helper supervision; only implemented adapters receive grants.
 
+use super::worker::Worker;
 use anyhow::{Result, ensure};
 use mod_host::helper::{Dispatch, Helper};
 use server_experience::{
@@ -12,21 +13,25 @@ use server_experience::{
     wire::{Envelope, Ingress, RateLimit},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    path::{Path, PathBuf},
 };
 
-struct Instance {
-    helper: Option<Helper>,
+struct Instance<H> {
+    helper: Option<H>,
+    component: Option<Vec<u8>>,
     capabilities: Capabilities,
     owner: Principal,
     contributions: Contributions,
     busy: bool,
 }
 
-pub(super) struct Live {
+pub(super) struct Live<H = Helper> {
     grant: Grant,
-    instances: BTreeMap<String, Instance>,
+    instances: BTreeMap<String, Instance<H>>,
+    executable: PathBuf,
+    pending_sends: VecDeque<Vec<u8>>,
+    pending_send_bytes: usize,
     budget: Budget,
     ingress: Ingress,
     egress: RateLimit,
@@ -36,7 +41,7 @@ pub(super) struct Live {
     epoch: u64,
 }
 
-impl Live {
+impl<H: Worker> Live<H> {
     /// Launches only developer helpers; unsupported required presentation remains denied.
     pub(super) fn start(
         grant: Grant,
@@ -81,23 +86,13 @@ impl Live {
                 capabilities.scope.memory_bytes,
                 capabilities.scope.gpu_bytes,
             )?;
-            let helper = if let Some(bytes) = bundle.component() {
-                budget.dispatch(&owner)?;
-                Some(Helper::spawn_developer(
-                    executable,
-                    bytes,
-                    owner.clone(),
-                    capabilities.clone(),
-                    epoch,
-                )?)
-            } else {
-                None
-            };
-            let busy = helper.is_some();
+            let component = bundle.component().map(<[u8]>::to_vec);
+            let busy = component.is_some();
             instances.insert(
                 owner.bundle.clone(),
                 Instance {
-                    helper,
+                    helper: None,
+                    component,
                     capabilities,
                     owner,
                     contributions: Contributions::default(),
@@ -105,9 +100,12 @@ impl Live {
                 },
             );
         }
-        Ok(Self {
+        let mut live = Self {
             grant,
             instances,
+            executable: executable.to_owned(),
+            pending_sends: VecDeque::new(),
+            pending_send_bytes: 0,
             budget,
             ingress: Ingress::new(now_ms),
             egress: RateLimit::new(now_ms),
@@ -115,7 +113,9 @@ impl Live {
             slice_ms: now_ms,
             ready: false,
             epoch,
-        })
+        };
+        live.initialize()?;
+        Ok(live)
     }
 
     /// Publishes complete transactions only; failure revokes every contribution in this preview.
@@ -124,7 +124,12 @@ impl Live {
             epoch == self.epoch,
             "world epoch changed; extension snapshot required"
         );
-        let mut sends = Vec::new();
+        if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
+            self.slice_ms = now_ms;
+            self.budget.begin_slice();
+        }
+        self.initialize()?;
+
         for instance in self.instances.values_mut() {
             let Some(helper) = &mut instance.helper else {
                 continue;
@@ -154,7 +159,7 @@ impl Live {
                     record,
                 } = command
                 {
-                    sends.push(Envelope {
+                    let send = Envelope {
                         version: WIRE_VERSION,
                         session: self.grant.session.clone(),
                         connection: self.grant.connection.clone(),
@@ -166,7 +171,15 @@ impl Live {
                         sequence: self.sequence,
                         world_epoch: epoch,
                         payload: record,
-                    });
+                    };
+                    let bytes = serde_json::to_vec(&send)?;
+                    ensure!(
+                        self.pending_sends.len() < MAX_QUEUE_MESSAGES
+                            && bytes.len() <= MAX_QUEUE_BYTES - self.pending_send_bytes,
+                        "outbound initialization queue overflow"
+                    );
+                    self.pending_send_bytes += bytes.len();
+                    self.pending_sends.push_back(bytes);
                     self.sequence = self
                         .sequence
                         .checked_add(1)
@@ -198,27 +211,21 @@ impl Live {
                 world_epoch: self.epoch,
             })?);
         }
-        ensure!(
-            self.ready || sends.is_empty(),
-            "guest sent before all bundles were ready"
-        );
-        for send in sends {
-            let bytes = serde_json::to_vec(&send)?;
-            self.egress.charge(bytes.len(), now_ms)?;
-            packets.push(bytes);
-        }
-        if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
-            self.slice_ms = now_ms;
-            self.budget.begin_slice();
-            while let Some(message) = self.ingress.pop(u64::MAX, epoch) {
+        if self.ready {
+            while let Some(bytes) = self.pending_sends.pop_front() {
+                self.pending_send_bytes -= bytes.len();
+                self.egress.charge(bytes.len(), now_ms)?;
+                packets.push(bytes);
+            }
+            while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
                 let instance = self
                     .instances
                     .get_mut(&message.bundle)
                     .ok_or_else(|| anyhow::anyhow!("unknown bundle"))?;
-                ensure!(
-                    !instance.busy,
-                    "bundle event queue requires resynchronization"
-                );
+                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
+                    break;
+                }
+                let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
                 self.budget.dispatch(&instance.owner)?;
                 if let Some(helper) = &mut instance.helper {
                     helper.dispatch(Dispatch {
@@ -232,6 +239,25 @@ impl Live {
             }
         }
         Ok(packets)
+    }
+
+    /// Starts pending initializers only when the aggregate callback slice has room.
+    fn initialize(&mut self) -> Result<()> {
+        for instance in self.instances.values_mut() {
+            if instance.component.is_none() || !self.budget.can_dispatch(&instance.owner) {
+                continue;
+            }
+            self.budget.dispatch(&instance.owner)?;
+            let component = instance.component.take().expect("component checked");
+            instance.helper = Some(H::spawn(
+                &self.executable,
+                &component,
+                instance.owner.clone(),
+                instance.capabilities.clone(),
+                self.epoch,
+            )?);
+        }
+        Ok(())
     }
 
     /// Applies aggregate limits and signed schemas before guest dispatch.
@@ -267,3 +293,6 @@ impl Live {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;
