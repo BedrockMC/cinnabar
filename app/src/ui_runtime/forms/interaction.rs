@@ -114,6 +114,7 @@ pub(crate) fn drive_server_form_input(
                 .chain(engine_focus::gamepad_keys(pads.iter(), &mut stick))
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
+            animator: presentation.form_animator(),
         };
         engine_input::drive(&mut runtime, &frame, input);
     } else if window.focused
