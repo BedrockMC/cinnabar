@@ -387,18 +387,19 @@ fn complete_trace_schema_requires_environment_and_world_identity() {
 
 #[test]
 fn pinned_bedsim_v0_1_3_walk_sprint_jump_trace_matches() {
+    // The historical f64 trace predates native f32 steering.
     let replayed = verify_legacy_trace_jsonl(
         include_str!("../fixtures/bedsim-v0.1.3-basic.jsonl"),
         initial_state(),
         &Simulator::default(),
         &Floor,
-        1.0e-12,
+        1.0e-6,
     )
     .unwrap();
 
     assert_eq!(replayed.tick, 5);
-    assert!((replayed.position.y - 2.001_336).abs() <= 1.0e-12);
-    assert!((replayed.position.z - 1.155_599_523_633_092_5).abs() <= 1.0e-12);
+    assert!((replayed.position.y - 2.001_336).abs() <= 1.0e-6);
+    assert!((replayed.position.z - 1.155_599_523_633_092_5).abs() <= 1.0e-6);
 }
 
 #[test]
@@ -624,7 +625,7 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
     let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
     // Vanilla's uncapped 0.75 restitution intentionally differs from this old Go capture.
     assert!(matches!(
-        audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-12),
+        audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-6),
         Err(ConformanceError::Mismatch {
             field: "velocity.y",
             expected: 0.37436,
@@ -641,7 +642,7 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
         }
         record.to_string()
     }).collect::<Vec<_>>().join("\n");
-    let audit = audit_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-12).unwrap();
+    let audit = audit_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-6).unwrap();
     assert_eq!(audit.scripts, 31);
     assert_eq!(audit.observed_steps, 36);
     // Only the strata bedsim v0.1.3 genuinely implements are observed. Fluids,
@@ -650,7 +651,7 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
     // so they stay an explicit coverage ledger rather than a parity claim.
     assert_eq!(audit.unsupported_scripts, 13);
     assert!(matches!(
-        verify_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-12),
+        verify_scenario_trace_jsonl(&retained, &Simulator::default(), 1.0e-6),
         Err(ConformanceError::UnsupportedEvidence { count: 13 })
     ));
 
@@ -717,7 +718,7 @@ fn terrain_scenario_audit_detects_environment_and_content_identity_mutations() {
         .join("\n")
         + "\n";
     assert!(matches!(
-        audit_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
+        audit_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-6),
         Err(ConformanceError::DiscreteMismatch {
             field: "environment",
             ..
@@ -755,7 +756,7 @@ fn terrain_scenario_audit_detects_environment_and_content_identity_mutations() {
             + "\n";
         assert!(
             matches!(
-                audit_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-12),
+                audit_scenario_trace_jsonl(&mutated, &Simulator::default(), 1.0e-6),
                 Err(ConformanceError::DiscreteMismatch {
                     field: "world_identity",
                     ..

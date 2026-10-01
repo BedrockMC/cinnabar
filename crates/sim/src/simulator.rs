@@ -4,6 +4,8 @@ mod effects;
 mod environment;
 mod input;
 mod mode;
+#[cfg(test)]
+mod numeric_tests;
 mod scaffolding;
 mod state;
 mod travel;
@@ -433,6 +435,7 @@ fn depth_strider_blend(level: u8, grounded: bool) -> f64 {
     if grounded { blend } else { blend * 0.5 }
 }
 
+/// Applies the current client's f32 steering products before widening retained motion.
 fn apply_relative_movement(
     velocity: &mut Vec3,
     strafe: f64,
@@ -440,16 +443,16 @@ fn apply_relative_movement(
     yaw_degrees: f64,
     relative_speed: f64,
 ) {
-    let force_squared = forward.mul_add(forward, strafe * strafe);
+    let strafe = strafe as f32;
+    let forward = forward as f32;
+    let force_squared = forward * forward + strafe * strafe;
     if force_squared < 1.0e-4 {
         return;
     }
-    let force = relative_speed / force_squared.sqrt().max(1.0);
-    let forward = forward * force;
-    let strafe = strafe * force;
-    let yaw = yaw_degrees.to_radians();
-    let sin = minecraft_sin(yaw);
-    let cos = minecraft_cos(yaw);
-    velocity.x += strafe * cos - forward * sin;
-    velocity.z += forward * cos + strafe * sin;
+    let force = relative_speed as f32 / force_squared.sqrt().max(1.0);
+    let yaw = (yaw_degrees as f32).to_radians();
+    let sin = yaw.sin();
+    let cos = yaw.cos();
+    velocity.x = f64::from((strafe * force * cos - sin * forward * force) + velocity.x as f32);
+    velocity.z = f64::from((strafe * force * sin + forward * force * cos) + velocity.z as f32);
 }
