@@ -1011,7 +1011,7 @@ Phase status at this audit:
 
 | Gate | Accurate state |
 |---|---|
-| Phase 2.5 biome blending | Open: the provisional 3x3 blend kernel still needs an abrupt native biome-boundary comparison and live acceptance |
+| Phase 2.5 biome blending | Open: source-backed 3D lattice cache port is local; graphics dispatch, native boundary comparison and live acceptance remain incomplete |
 | Phase 2.6 visual coverage | Open: the production carrier has zero diagnostic states, but 2,397 non-air states across 487 names use an explicitly provisional vanilla fallback. This removes pink vanilla blocks without claiming exact geometry/UV parity; each fallback remains an open acceptance item |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
 | Phase 3 movement | Packet/simulation foundations plus the reviewed PR #6 input-parity and correction/acceptance lanes are integrated through merge `a9593e7`. Implementation and deterministic verification are complete, but native/live, performance, and touch-parity acceptance remain open. By owner decision touch is deprioritized and does not gate Phase 3 acceptance; the scenario records it as deferred rather than satisfied. Production outbound `Physics` transmission remains intentionally disabled pending a separate reviewed change |
@@ -2166,6 +2166,12 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       history), only after the applicable deterministic tests, native/GPU
       acceptance, zero-diagnostic state gate, and block-entity manifest gate
       are green.
+  - [ ] Render-invisible blocks. Barrier, structure void, light blocks 0–15, invisible bedrock
+    and moving block compile to non-occluding `Invisible` terrain ahead of the fallback
+    inventory (`literal::is_default_invisible`). Incomplete: vanilla also tessellates barriers
+    and light blocks as camera-facing sprites (`materials/barrier.material`) and structure voids
+    as cube faces into their own terrain layers, drawn only while a creative local player's
+    selected item is that block (`LevelRendererCamera::render`); those layers are not built.
 - [ ] **2.7 Client lighting and atmosphere.** `P2.7-ATMOSPHERE` Block/sky flood fill, baked vertex
   light and day/night, then sky, fog, and clouds; finish the Phase 2 parity and
   teleport-remesh acceptance gates.
@@ -3527,3 +3533,23 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 `ChunkRadiusUpdated` + `SubChunk` request flow. Custom block-entity renderers remain
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
+
+### Projectile rendering fixes (incomplete parity)
+
+The `fix/projectile-render` investigation fixes item-icon carrier admission and
+resolution, sprite UV eligibility, arrow face UV defaults and neutral-profile plane
+backs, projectile world yaw, and remote motion retention/initial arrow orientation.
+See `docs/projectile-rendering.md` for Lens citations and failing-first regressions.
+Offline frame coverage does not close the native projectile gate. Exact projectile
+lerp steps, stuck-state/shake runtime, tipped-arrow behavior, target materials and
+lighting, and AddActor velocity-only launch remain open. No live connection was used.
+
+## Biome boundary cache port (2026-10-01)
+
+Incomplete parity work on `fix/biome-blend`: the reconstructed 1.26.50.26
+lattice cache replaces the provisional CPU box/shader separable kernels,
+including vertical neighbours and inverse-distance weights. Evidence and
+remaining questions are in `docs/biome-blending.md`. This does not close
+P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
+neighbour-arrival remeshing and the owner's live screenshot attribution remain
+unverified. CPU palette previews are not native or GPU acceptance.
