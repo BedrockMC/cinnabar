@@ -3,6 +3,7 @@
 //! in virtual UI pixels, and their draw nodes become retained UI nodes over the
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
+mod scene_policy;
 
 use std::{
     borrow::{Borrow, Cow},

@@ -284,12 +284,17 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
 
 fn prepare(
     scene: Res<HandRigScene>,
+    background: Option<Res<crate::panorama::PanoramaScene>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     mut gpu: ResMut<HandRigGpu>,
     views: Query<(&ExtractedView, &Msaa)>,
 ) {
+    if background.is_some_and(|background| !background.game_visible()) {
+        deactivate(&mut gpu);
+        return;
+    }
     let Some(frame) = &scene.frame else {
         deactivate(&mut gpu);
         return;

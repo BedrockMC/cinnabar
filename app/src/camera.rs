@@ -714,6 +714,7 @@ fn clear_controller_input(
     mouse_motion.delta = Vec2::ZERO;
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -721,6 +722,8 @@ pub(crate) fn update_cursor_capture(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
     ui: Option<Res<crate::ui_runtime::UiRuntime>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
 ) {
     let (window, mut cursor) = window.into_inner();
 
@@ -732,9 +735,7 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    if ui
-        .as_deref()
-        .is_some_and(crate::ui_runtime::UiRuntime::ui_focused)
+    if crate::screen_policy::absorbs_input(ui.as_deref(), menu.as_deref(), presentation.as_deref())
     {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
