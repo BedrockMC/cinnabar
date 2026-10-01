@@ -146,6 +146,10 @@ fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
 }
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
+    render_full(model, java).map(|render| render.nodes)
+}
+
+fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
     let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
     if java {
@@ -174,7 +178,53 @@ fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
         &ViewState::default(),
     )
     .expect("hud renders");
-    Some(render.nodes)
+    Some(render)
+}
+
+// The HUD never takes a gameplay click: a press at the crosshair reaches no control.
+#[test]
+fn hud_leaves_gameplay_clicks_alone() {
+    for java in [false, true] {
+        let Some(render) = render_full(&model(), java) else {
+            return;
+        };
+        let mut view = ViewState::default();
+        let mut dispatcher = json_ui::Dispatcher::default();
+        let center = [240.0, 135.0];
+        let hover = dispatcher.pointer(
+            &render.hits,
+            &mut view,
+            json_ui::PointerInput {
+                point: Some(center),
+                held: false,
+                mode: json_ui::InputMode::Mouse,
+                now: 0.0,
+            },
+        );
+        assert!(
+            !hover.consumed,
+            "java {java}: hover taken by {:?}",
+            view.hovered
+        );
+        for down in [true, false] {
+            let press = dispatcher.button(
+                &render.hits,
+                &mut view,
+                json_ui::ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point: Some(center),
+                    mode: json_ui::InputMode::Mouse,
+                    now: 0.0,
+                },
+            );
+            assert!(
+                !press.consumed,
+                "java {java}: press consumed: {:?}",
+                press.events
+            );
+        }
+    }
 }
 
 fn named<'a>(nodes: &'a [DrawNode], name: &str) -> Vec<&'a DrawNode> {

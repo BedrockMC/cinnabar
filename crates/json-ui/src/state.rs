@@ -14,6 +14,8 @@ pub struct ViewState {
     pub focused: Option<String>,
     /// Scroll view key → requested offset in virtual pixels (clamped by layout).
     pub scroll: BTreeMap<String, f64>,
+    /// What the screen's components wrote into their bags; binding reads it.
+    pub components: crate::component::Components,
 }
 
 impl ViewState {

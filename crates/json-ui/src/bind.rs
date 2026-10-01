@@ -136,6 +136,8 @@ struct Scope {
     keys: BTreeMap<String, String>,
     /// Entered collections, outermost first: `(data key, index)`.
     path: Vec<(String, usize)>,
+    /// The layout key of the control being built, while components write bags.
+    key: String,
 }
 
 impl Scope {
@@ -153,6 +155,8 @@ impl Scope {
 /// resolution and property baking (pass two).
 struct Node {
     src: Src,
+    /// Layout key, kept only while components write bags.
+    key: String,
     own: BTreeMap<String, Scalar>,
     children: Vec<Node>,
     /// A hidden control's scope, kept to build its subtree once shown.
@@ -184,6 +188,9 @@ impl<'a> Binder<'a> {
         };
         let control = src.get();
         let mut scope = scope.clone();
+        if !self.data.components.is_empty() {
+            scope.key = crate::layout::child_key(&scope.key, control);
+        }
         if let (Some(panel), Some(index)) = (
             scope.panel.clone(),
             src.prop("collection_index").and_then(Value::as_u64),
@@ -203,6 +210,7 @@ impl<'a> Binder<'a> {
         if hidden(control, &own) {
             return Node {
                 src,
+                key: scope.key.clone(),
                 own,
                 children: Vec::new(),
                 deferred: Some(scope),
@@ -211,6 +219,7 @@ impl<'a> Binder<'a> {
         let children = self.children_of(&src, &own, &scope);
         Node {
             src,
+            key: scope.key.clone(),
             own,
             children,
             deferred: None,
@@ -232,6 +241,8 @@ impl<'a> Binder<'a> {
                 .unwrap_or_default()
         } else if let Some(items) = self.feed(control) {
             self.expand_feed(control, items, scope)
+        } else if let Some(items) = crate::component::slider_step_marks(control, own) {
+            self.expand_feed(control, &items, scope)
         } else if let Some(template) = grid_template(control) {
             let cells = src
                 .prop("grid_dimensions")
@@ -292,6 +303,8 @@ impl<'a> Binder<'a> {
     fn gather_own(&self, control: &ResolvedControl, scope: &Scope) -> BTreeMap<String, Scalar> {
         let mut own = (*scope.values).clone();
         own.extend(property_bag(control));
+        // Component bag writes stand until a binding the screen answers replaces them.
+        crate::component::write_bag(control, &self.data.components, &scope.key, &mut own);
         for binding in bindings_of(control) {
             let Some(binding) = binding.as_object() else {
                 continue;
@@ -577,6 +590,7 @@ impl<'a> Binder<'a> {
     fn bake(&self, node: &Node) -> ResolvedControl {
         let control = node.src.get();
         let mut properties = bake_properties(&control.properties, &node.own);
+        crate::component::write_properties(&self.data.components, &node.key, &mut properties);
         if let Some(patch) = &node.src.patch {
             properties.extend(
                 patch

@@ -46,11 +46,18 @@ pub struct DataSource {
     pub(super) strict: bool,
     /// The control id a screen's collection-less `factory` instantiates.
     pub(super) factory_id: Option<String>,
+    /// What the screen's components wrote into their controls' bags.
+    pub(super) components: crate::component::Components,
 }
 
 impl DataSource {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bind over what the screen's components wrote into their bags.
+    pub fn set_components(&mut self, components: crate::component::Components) {
+        self.components = components;
     }
 
     /// Set a `global` binding value, keyed with its leading `#`.

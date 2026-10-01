@@ -78,6 +78,10 @@ pub struct HitRegion {
     pub renderer: Option<String>,
     pub input: InputComponent,
     pub focus: Option<FocusMeta>,
+    /// Enclosing collection instances, outermost first: `(collection, index)`.
+    pub collections: Vec<(String, usize)>,
+    /// The control's own components (toggle, slider, edit box, sounds, …).
+    pub widget: crate::component::Widget,
     /// Key of the nearest enclosing `modal` input panel (itself included).
     pub modal_root: Option<String>,
 }
@@ -106,22 +110,30 @@ impl HitRegion {
 pub fn hit_regions(root: &LaidOut) -> Vec<HitRegion> {
     let mut out = Vec::new();
     let mut order = 0usize;
-    collect(root, None, None, None, &mut out, &mut order);
+    collect(
+        root,
+        (None, None, None),
+        None,
+        &mut Vec::new(),
+        &mut out,
+        &mut order,
+    );
     out.sort_by_key(|region| (region.layer, region.order));
     out
 }
 
 fn collect(
     node: &LaidOut,
-    index: Option<usize>,
-    collection: Option<&str>,
-    modal_root: Option<&str>,
+    (index, collection, modal_root): (Option<usize>, Option<&str>, Option<&str>),
+    panel: Option<&str>,
+    chain: &mut Vec<(String, usize)>,
     out: &mut Vec<HitRegion>,
     order: &mut usize,
 ) {
     if !node.visible {
         return;
     }
+    let entered = chain.len();
     let control = node.control;
     let index = control
         .properties
@@ -145,6 +157,23 @@ fn collect(
                 .get("#collection_index")
                 .and_then(Value::as_f64),
         );
+    let own_index = control
+        .properties
+        .get("collection_index")
+        .and_then(Value::as_u64)
+        .zip(
+            control
+                .properties
+                .get("collection_scope")
+                .and_then(Value::as_str)
+                .or(panel),
+        );
+    if let Some((at, name)) = own_index {
+        chain.push((name.to_owned(), at as usize));
+    }
+    if let Some((name, at)) = details {
+        chain.push((name.to_owned(), at as usize));
+    }
     let (index, collection) = match details {
         Some((name, at)) => (Some(at as usize), Some(name)),
         None => (index, collection),
@@ -179,7 +208,9 @@ fn collect(
             clip: node.clip.into(),
             layer: node.layer,
             order: *order,
-            pressed: input.pressed_target("button.menu_select").map(str::to_owned),
+            pressed: input
+                .pressed_target("button.menu_select")
+                .map(str::to_owned),
             control_name,
             collection_index: index,
             collection: collection.map(str::to_owned),
@@ -201,14 +232,29 @@ fn collect(
                 .then(|| text("renderer"))
                 .flatten(),
             focus: FocusMeta::read(control),
+            widget: crate::component::Widget::read(node),
+            collections: chain.clone(),
             input,
             modal_root: modal_root.map(str::to_owned),
         });
         *order += 1;
     }
+    let panel = control
+        .properties
+        .get("collection_name")
+        .and_then(Value::as_str)
+        .or(panel);
     for child in &node.children {
-        collect(child, index, collection, modal_root, out, order);
+        collect(
+            child,
+            (index, collection, modal_root),
+            panel,
+            chain,
+            out,
+            order,
+        );
     }
+    chain.truncate(entered);
 }
 
 fn kind_of(node: &LaidOut, input: &InputComponent) -> Option<HitKind> {
@@ -248,7 +294,8 @@ pub fn scroll_target(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegio
         }
         match region.kind {
             HitKind::ScrollView => return Some(region),
-            HitKind::Modal => return None,
+            // An inline modal leaves the views around it scrolling.
+            HitKind::Modal if !region.input.inline_modal => return None,
             _ => {}
         }
     }
