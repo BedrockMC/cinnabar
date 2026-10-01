@@ -312,3 +312,17 @@ fn fluid_contact_samples_the_current_pose_box() {
         "a 0.6-high crawler stays below it"
     );
 }
+
+/// The native scaffold support tolerance does not catch feet already below its top.
+#[test]
+fn scaffold_support_does_not_extend_a_millimetre_below_the_top() {
+    let world = Solids {
+        boxes: vec![(unit_block(), [0, 0, 0])],
+        flags: BlockPhysicsFlags::SCAFFOLDING,
+    };
+    let mut state = PlayerState::new(Vec3::new(0.5, f64::from(1.0_f32 - 0.000_01), 0.5));
+    state.velocity.y = -0.03;
+    let result = tick(&mut state, MovementInput::default(), &world);
+    assert!(!result.collisions.y);
+    assert_eq!(result.movement.y, f64::from(-0.03_f32));
+}

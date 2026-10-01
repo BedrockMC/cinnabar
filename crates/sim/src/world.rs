@@ -6,7 +6,9 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 
 use crate::{Aabb, Vec3};
 
+mod door;
 mod raycast;
+pub use door::{DoorFacing, DoorState};
 mod validate;
 
 pub use raycast::BlockHit;
@@ -268,6 +270,7 @@ pub struct CollisionRegistry {
 
 #[derive(Debug)]
 struct BlockPhysics {
+    door: Option<DoorState>,
     shapes: Box<[Aabb]>,
     /// Shapes the interaction ray targets instead of `shapes` (selection boxes).
     pick_shapes: Option<Box<[Aabb]>>,
@@ -414,6 +417,7 @@ impl CollisionRegistry {
         self.blocks.insert(
             runtime_id,
             BlockPhysics {
+                door: None,
                 shapes: shapes.into_boxed_slice(),
                 pick_shapes: None,
                 friction,
@@ -778,7 +782,7 @@ impl<'a> PaletteWorld<'a> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        for shape in physics.shapes.iter().copied() {
+                        for shape in self.block_collision_shapes(block, physics)?.iter().copied() {
                             let shape = shape.translated(block_offset);
                             if shape.intersects(query) {
                                 instances.push(CollisionInstance {
@@ -863,7 +867,15 @@ impl CollisionWorld for PaletteWorld<'_> {
                                 skipped.unknown_runtime_id.saturating_add(1);
                             continue;
                         };
-                        for shape in physics.shapes.iter().copied() {
+                        let shapes = match self.block_collision_shapes(block, physics) {
+                            Ok(shapes) => shapes,
+                            Err(WorldQueryError::UnloadedChunk(_)) => {
+                                skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
+                                continue;
+                            }
+                            Err(other) => return Err(other),
+                        };
+                        for shape in shapes.iter().copied() {
                             let shape = shape.translated(block_offset);
                             if shape.intersects(query) {
                                 value.push(shape);

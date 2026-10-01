@@ -273,7 +273,14 @@ impl Simulator {
 
         let pre_collision_velocity = next.velocity;
         let motion = resolve_motion(
-            &scaffolding::ScaffoldingView::new(world, next.position.y, input.sneaking),
+            &scaffolding::ScaffoldingView::new(
+                world,
+                Aabb::player_with_height_at(
+                    next.position,
+                    input.mode.hitbox_height(input.sneaking),
+                ),
+                input.sneaking,
+            ),
             next.position,
             next.velocity,
             grounded_at_start,

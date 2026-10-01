@@ -3631,3 +3631,15 @@ indices and table initialization by `sinf(index / 10430.378f)` (Lens `0x296ccd0`
 `0xa5dacf0`; `R:m/MobJumpFromGroundSystemImpl.cpp:233`). Exact angle and distant-position
 witnesses cover these changes. D01 remains incomplete: the non-walking travel models
 and exhaustive Windows-versus-host sinf bit equivalence still need validation.
+
+### Registry collision continuation (2026-10-02)
+
+Doors now resolve facing/open from the lower half and hinge from the upper half;
+missing pairs use the native default plane. Current planes are 0.1825 blocks thick
+(Lens `0xa7bdb60`, `0xa7bdbf0`; `R:d/DoorBlock.cpp:647`). Stair collision reads the
+current registry corner state (Lens `0xa5b5090`, `0xa5b5460`, `0xa5b57f0`); the older
+neighbor-derived algorithm in `R:s/StairBlock.cpp:1110` is not substituted for it.
+Scaffold support uses the stable registry unit cube and the native pre-move top/contact
+conditions (Lens `0x8eff050`, `0x8eff210`; `R:s/ScaffoldingBlock.cpp:189`). Registry
+coverage includes both runtime-ID modes and all stair corners/halves. Scaffold movement
+coefficients, powder-snow equipment behavior and broader interaction parity remain open.

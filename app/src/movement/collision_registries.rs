@@ -15,6 +15,9 @@ use sim::{
 use thiserror::Error;
 
 mod connected;
+mod doors;
+mod scaffolding;
+mod stairs;
 
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
 const FULL_CUBE: assets::CollisionBox = assets::CollisionBox {
@@ -161,13 +164,16 @@ impl PhysicsCollisionRegistries {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
                 .expect("strict PREG decoder covers every supplied BREG record");
-            let boxes = connected::shapes(record).unwrap_or_else(|| {
-                fact.boxes
-                    .iter()
-                    .copied()
-                    .map(collision_box_to_aabb)
-                    .collect::<Vec<_>>()
-            });
+            let boxes = connected::shapes(record)
+                .or_else(|| stairs::shapes(record))
+                .or_else(|| scaffolding::shapes(record))
+                .unwrap_or_else(|| {
+                    fact.boxes
+                        .iter()
+                        .copied()
+                        .map(collision_box_to_aabb)
+                        .collect::<Vec<_>>()
+                });
             let full_cube = record.model_family == assets::ModelFamily::Cube
                 && fact.boxes.len() == 1
                 && fact.boxes[0] == FULL_CUBE;
@@ -191,6 +197,10 @@ impl PhysicsCollisionRegistries {
             };
             register(&mut sequential, record.sequential_id, boxes.clone())?;
             register(&mut hashed, record.network_hash, boxes)?;
+            if let Some(door) = doors::state(record) {
+                sequential.set_door_state(record.sequential_id, door.clone());
+                hashed.set_door_state(record.network_hash, door);
+            }
             if record.name.as_ref() == "minecraft:air" {
                 sequential.set_air_runtime_id(record.sequential_id);
                 hashed.set_air_runtime_id(record.network_hash);
