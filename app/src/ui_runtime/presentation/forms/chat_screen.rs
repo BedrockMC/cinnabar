@@ -75,7 +75,13 @@ impl UiPresentationRuntime {
         }
         chat.open = true;
         chat.messages = messages;
-        let data = chat_data(runtime, now_millis);
+        let mut data = chat_data(runtime, now_millis);
+        // The view's bag (`#scrolled_to_end`) as it stood last frame, for its view bindings.
+        if let Some((key, metrics)) = &chat.scroll
+            && let Some(name) = key.rsplit('/').next()
+        {
+            data.set_control_values(name, metrics.feedback());
+        }
         let view = chat.view_state(runtime.chat_selected_suggestion());
         let context = renderer.context().clone();
         let catalog = Arc::clone(renderer.catalog());
@@ -122,7 +128,7 @@ impl UiPresentationRuntime {
             .scrolls
             .iter()
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
-            .map(|(key, metrics)| (key.clone(), *metrics));
+            .map(|(key, metrics)| (key.clone(), metrics.clone()));
         for region in frame.hits.iter().filter(|region| region.enabled) {
             if region.kind == HitKind::EditBox {
                 chat.edit_box = Some(region.key.clone());
@@ -165,15 +171,19 @@ impl UiPresentationRuntime {
     /// `pixels`; positive scrolls toward older messages.
     pub(crate) fn scroll_chat(&mut self, delta: f32, pixels: bool) {
         let chat = &mut self.form_presentation.chat;
-        let Some((_, metrics)) = chat.scroll else {
+        let Some((max, speed)) = chat
+            .scroll
+            .as_ref()
+            .map(|(_, metrics)| (metrics.max_offset(), metrics.speed))
+        else {
             return;
         };
         let step = if pixels {
             f64::from(delta / chat.scale.max(f32::EPSILON))
         } else {
-            f64::from(delta) * metrics.speed
+            f64::from(delta) * speed
         };
-        chat.from_bottom = (chat.from_bottom + step).clamp(0.0, metrics.max_offset());
+        chat.from_bottom = (chat.from_bottom + step).clamp(0.0, max);
     }
 }
 

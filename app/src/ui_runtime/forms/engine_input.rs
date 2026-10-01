@@ -7,13 +7,14 @@
 use bevy::input::{ButtonInput, keyboard::KeyCode, mouse::MouseScrollUnit};
 use json_ui::{
     ButtonEvent, ButtonInput as EngineButton, Dispatch, HitKind, HitRegion, InputMode,
-    PointerInput, ScreenEvent, hit_test, scroll_target,
+    PointerInput, ScreenEvent, hit_test,
 };
 use protocol::{CustomFormElement, MenuElement, ServerFormModel};
 use ui::{ChatClipboard, UiPoint};
 
 use super::engine_focus;
-use super::values::{EngineFrame, FormDrag, slider_value_at};
+use super::engine_scroll;
+use super::values::{EngineFrame, slider_value_at};
 use super::{FormValue, LocalFormAction};
 use crate::ui_runtime::{PlatformClipboard, UiRuntime};
 
@@ -76,41 +77,40 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
             engine.view.hovered = engine.view.focused.clone();
         }
     }
-    if let Some(point) = point {
-        drag(runtime, frame, point, input.pointer.held);
+    engine_scroll::step(runtime, frame);
+    if let Some(point) = point
+        && input.pointer.held
+    {
+        engine_scroll::drag(runtime, frame, point);
     }
     // Each release answers only for the control its press went down on.
     let mut release = None;
     if input.pointer.pressed
         && let Some(point) = point
     {
-        press_scroll(runtime, frame, point);
+        let region = hit_test(&frame.hits, point);
+        engine_scroll::press(runtime, frame, region, point);
         events.extend(button(runtime, frame, SELECT, true, Some(point), input.now).events);
     }
     if input.pointer.released {
         runtime.server_forms_mut().engine_mut().drag = None;
-        let pressed = runtime.server_forms().engine().view.pressed.clone();
+        // A touch pan past the tap slop presses nothing.
+        let tapped = engine_scroll::release(runtime);
+        let pressed = runtime
+            .server_forms()
+            .engine()
+            .view
+            .pressed
+            .clone()
+            .filter(|_| tapped);
         let up = button(runtime, frame, SELECT, false, point, input.now).events;
         release = Some((events.len()..events.len() + up.len(), pressed));
         events.extend(up);
     }
-    for (notches, unit) in &input.wheel {
-        if let Some(point) = point
-            && let Some(view) = scroll_target(&frame.hits, point)
-        {
-            let delta = match unit {
-                MouseScrollUnit::Line => {
-                    f64::from(-notches)
-                        * frame
-                            .report
-                            .scrolls
-                            .get(&view.key)
-                            .map_or(15.0, |m| m.speed)
-                }
-                MouseScrollUnit::Pixel => f64::from(-notches / frame.scale),
-            };
-            scroll_by(runtime, frame, &view.key, delta);
-        }
+    if let Some(point) = point
+        && !input.wheel.is_empty()
+    {
+        engine_scroll::wheel(runtime, frame, point, &input.wheel);
     }
     for (key, text) in input.typed {
         events.extend(keyboard(
@@ -339,84 +339,11 @@ fn close_dropdown(runtime: &mut UiRuntime, frame: &EngineFrame) {
     }
 }
 
-/// Continue a scrollbar drag while the button is held.
-fn drag(runtime: &mut UiRuntime, frame: &EngineFrame, point: [f64; 2], held: bool) {
-    if !held {
-        return;
-    }
-    if let Some(FormDrag::ScrollBox { view, grab }) = runtime.server_forms().engine().drag.clone()
-        && let Some(metrics) = frame.report.scrolls.get(&view)
-    {
-        let offset = metrics.offset_for_thumb(point[1] - grab);
-        runtime
-            .server_forms_mut()
-            .engine_mut()
-            .view
-            .scroll
-            .insert(view, offset);
-    }
-}
-
-/// Start a scrollbar drag or page the track under a primary press.
-fn press_scroll(runtime: &mut UiRuntime, frame: &EngineFrame, point: [f64; 2]) {
-    let Some(region) = hit_test(&frame.hits, point).filter(|region| region.enabled) else {
-        return;
-    };
-    match region.kind {
-        HitKind::ScrollBox => {
-            if let Some(view) = owning_view(frame, region)
-                && let Some(thumb) = frame.report.scrolls.get(&view.key).and_then(|m| m.thumb)
-            {
-                runtime.server_forms_mut().engine_mut().drag = Some(FormDrag::ScrollBox {
-                    view: view.key.clone(),
-                    grab: point[1] - thumb[1],
-                });
-            }
-        }
-        HitKind::ScrollTrack => {
-            if let Some(view) = owning_view(frame, region)
-                && let Some(metrics) = frame.report.scrolls.get(&view.key)
-            {
-                let page = if metrics.thumb.is_some_and(|thumb| point[1] < thumb[1]) {
-                    -metrics.viewport
-                } else {
-                    metrics.viewport
-                };
-                let key = view.key.clone();
-                scroll_by(runtime, frame, &key, page);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn edit_region<'a>(frame: &'a EngineFrame, key: &str) -> Option<&'a HitRegion> {
     frame
         .hits
         .iter()
         .find(|region| region.key == key && region.kind == HitKind::EditBox)
-}
-
-/// The innermost scroll view whose key prefixes `region`'s key.
-fn owning_view<'a>(frame: &'a EngineFrame, region: &HitRegion) -> Option<&'a HitRegion> {
-    frame
-        .hits
-        .iter()
-        .filter(|view| view.kind == HitKind::ScrollView && region.key.starts_with(&view.key))
-        .max_by_key(|view| view.key.len())
-}
-
-fn scroll_by(runtime: &mut UiRuntime, frame: &EngineFrame, key: &str, delta: f64) {
-    let Some(metrics) = frame.report.scrolls.get(key) else {
-        return;
-    };
-    let offset = (metrics.offset + delta).clamp(0.0, metrics.max_offset());
-    runtime
-        .server_forms_mut()
-        .engine_mut()
-        .view
-        .scroll
-        .insert(key.to_owned(), offset);
 }
 
 /// A slider event's `#slider_value` (a percentage, or a step index) as the element's value.

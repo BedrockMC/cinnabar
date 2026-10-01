@@ -510,7 +510,7 @@ fn scroll_container(
     notches: &[(f32, MouseScrollUnit)],
 ) {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
-    let Some(view) = json_ui::scroll_target(&frame.hits, point) else {
+    let Some(view) = json_ui::scroll_target(&frame.hits, &frame.report, point) else {
         return;
     };
     let Some(metrics) = frame.report.scrolls.get(&view.key) else {
