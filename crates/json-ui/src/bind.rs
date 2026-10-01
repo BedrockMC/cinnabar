@@ -296,6 +296,14 @@ impl<'a> Binder<'a> {
             let Some(binding) = binding.as_object() else {
                 continue;
             };
+            // A constant expression the resolver already folded is the bound value.
+            if let (Some(value), Some(target)) = (
+                binding.get("binding_name").and_then(constant),
+                binding.get("binding_name_override").and_then(Value::as_str),
+            ) {
+                own.insert(target.to_owned(), value);
+                continue;
+            }
             match binding.get("binding_type").and_then(Value::as_str) {
                 Some("collection") => {
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
@@ -371,10 +379,16 @@ impl<'a> Binder<'a> {
                         Some(value) => {
                             own.insert(target_name(binding, source), value);
                         }
-                        // A controller answers a visibility flag it does not know
-                        // with `false`; text and other values stay unbound.
-                        None if self.data.strict && target_name(binding, source) == "#visible" => {
-                            own.insert("#visible".to_owned(), Scalar::Bool(false));
+                        // A controller answers a visibility or toggle flag it does
+                        // not know (a closed dropdown) with `false`; text and other
+                        // values stay unbound.
+                        None if self.data.strict
+                            && matches!(
+                                target_name(binding, source).as_str(),
+                                "#visible" | "#toggle_state"
+                            ) =>
+                        {
+                            own.insert(target_name(binding, source), Scalar::Bool(false));
                         }
                         None => {}
                     }
@@ -936,6 +950,14 @@ fn grid_template(control: &ResolvedControl) -> Option<ControlRef> {
 fn nonempty_text(scalar: Option<&Scalar>) -> Option<String> {
     match scalar {
         Some(Scalar::Text(text)) if !text.is_empty() => Some(text.clone()),
+        _ => None,
+    }
+}
+
+fn constant(value: &Value) -> Option<Scalar> {
+    match value {
+        Value::Bool(flag) => Some(Scalar::Bool(*flag)),
+        Value::Number(number) => number.as_f64().map(Scalar::Num),
         _ => None,
     }
 }

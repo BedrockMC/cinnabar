@@ -88,8 +88,9 @@ pub struct Context {
 }
 
 impl Context {
-    /// An empty context; every conditional depending on an unset flag is treated
-    /// leniently (kept for `ignored`, skipped for `requires`).
+    /// An empty context. As in the vanilla client, an unset `$flag` reads as its
+    /// literal text: `ignored` keeps the control and a `requires` block applies,
+    /// while inside an expression it is null.
     pub fn empty() -> Self {
         Self::default()
     }
@@ -145,6 +146,50 @@ impl Context {
             ("is_secondary_client", false),
             ("requires_xbl_signin_to_play", false),
             ("is_editor_mode_enabled", false),
+            ("can_quit", true),
+            ("world_archive_support", true),
+            ("is_dynamic_textures_platform_supported", true),
+            ("is_pregame", false),
+            ("screen_transitions_enabled", false),
+            ("use_normalized_font_size", false),
+            ("image_picking_not_supported", false),
+            ("vibration_supported", false),
+            ("supports_share", false),
+            ("hide_xbox_live_icon", false),
+            ("disable_gamertag_controls", false),
+            ("multiplayer_requires_live_gold", false),
+            ("device_must_be_removed_for_xbl_signin", false),
+            ("is_low_memory_device", false),
+            ("ignore_3rd_party_servers", false),
+            ("ignore_add_servers", false),
+            ("is_on_3p_server", false),
+            ("is_editor_playtest_roundtrip", false),
+            ("edu_save_to_cloud_on", false),
+            ("edu_save_to_cloud_general_toggle_on", false),
+            ("built_with_ore_ui_docs_and_tests", false),
+            // Other platforms and devices.
+            ("build_platform_UWP", false),
+            ("google_os", false),
+            ("is_ios", false),
+            ("is_android", false),
+            ("is_chromebook", false),
+            ("fire_tv", false),
+            ("nx_os", false),
+            ("is_ps4", false),
+            ("is_ps5", false),
+            ("xbox_one", false),
+            ("thirdpartyconsole", false),
+            ("is_settopbox", false),
+            ("is_win10_arm", false),
+            ("is_windows_10_mobile", false),
+            ("is_mobile_vr", false),
+            ("gear_vr", false),
+            ("oculus_rift", false),
+            ("psvr", false),
+            ("is_holographic", false),
+            ("supports_hand_controllers", false),
+            ("is_living_room_mode", false),
+            ("is_reality_mode", false),
         ];
         platform
             .iter()
