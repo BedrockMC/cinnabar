@@ -47,7 +47,7 @@
     # Exercise structural rejection independently of the manifest integrity gate.
     $selectorEntries = (Get-SlabStairCoverageEvidence -RegistryPath $BlockRegistry -AssetsPath $SlabStairAssets).entries
     foreach ($case in @('missing corner', 'duplicate corner', 'unknown corner', 'corner type', 'direction mismatch', 'half mismatch', 'model mask')) {
-        $changedEntries = @($selectorEntries | ConvertTo-Json -Depth 12 | ConvertFrom-Json)
+        $changedEntries = @($selectorEntries | ForEach-Object { $_ | ConvertTo-Json -Depth 12 | ConvertFrom-Json })
         $stair = @($changedEntries | Where-Object family -CEQ 'Stair')[0]
         $state = $stair.canonical_state | ConvertFrom-Json
         switch ($case) {
@@ -64,7 +64,7 @@
             Assert-SlabStairSelectorCoverage -Entries $changedEntries
         } 'stair selector*' "slab/stair accepted $case"
     }
-    $changedEntries = @($selectorEntries | ConvertTo-Json -Depth 12 | ConvertFrom-Json)
+    $changedEntries = @($selectorEntries | ForEach-Object { $_ | ConvertTo-Json -Depth 12 | ConvertFrom-Json })
     @($changedEntries | Where-Object { $_.family -ceq 'Slab' -and $_.half -eq 0 })[0].half = 1
     Assert-ThrowsLike {
         Assert-SlabStairSelectorCoverage -Entries $changedEntries
