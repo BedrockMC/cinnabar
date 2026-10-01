@@ -6,6 +6,7 @@ pub mod crypto;
 pub mod download;
 pub mod fetch;
 pub mod manifest;
+pub mod media;
 pub mod negotiation;
 pub mod policy;
 pub mod runtime;

@@ -5,6 +5,8 @@ mod bank;
 mod echo;
 mod engine;
 mod local;
+#[allow(dead_code, reason = "media device-clock and surface integration is incomplete")]
+pub(crate) mod media;
 mod predicted;
 mod route;
 mod server;
