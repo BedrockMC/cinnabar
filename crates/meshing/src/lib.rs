@@ -3,6 +3,8 @@
 pub mod biome;
 mod chunk;
 mod classifier;
+mod output_memory;
+pub use output_memory::{MeshOutputBounds, mesh_output_byte_len};
 pub mod cloud;
 pub mod color;
 mod connectivity;

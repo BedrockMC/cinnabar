@@ -347,6 +347,7 @@ pub struct WorldStream {
     view_forward: Option<[f32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
     admitted_mesh_jobs: Arc<AtomicUsize>,
+    mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,

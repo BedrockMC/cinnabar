@@ -115,6 +115,7 @@ impl WorldStream {
             actor_session_id,
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
+            mesh_memory: meshing::memory::MeshMemoryBudget::new(&runtime_assets),
             runtime_assets,
             custom_block_ids: 0..0,
             id_remap: Arc::default(),

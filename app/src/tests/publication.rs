@@ -444,6 +444,7 @@ fn drive_unified_publication_fixture(
     while let Some(change) = fixture.stream.pop_mesh_change() {
         match change {
             client_world::WorldMeshChange::Upsert {
+                output_permit: _,
                 key,
                 mesh,
                 biome,
