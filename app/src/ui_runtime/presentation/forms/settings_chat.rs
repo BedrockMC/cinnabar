@@ -46,6 +46,7 @@ pub(super) fn bind(
         return;
     }
     data.set_factory_id("chat_setting_popup");
+    data.set_global("#close_button_visible", Scalar::Bool(true));
     super::settings_controls::bind_values(&settings.options, settings.dropdown, data, translate);
     let options = &settings.options;
     let smooth = options.chat_smooth_available() && options.value("chat_typeface") != 0;
