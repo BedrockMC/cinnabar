@@ -56,8 +56,9 @@ pub use screen_actions::ScreenCraft;
 use helpers::valid_raw_window_id;
 
 use protocol::{
-    ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NetworkItemStack, Packet,
-    container_close_packet, item_stack_request_packet_filtered, open_inventory_packet,
+    ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NO_CONTAINER_WINDOW_TYPE,
+    NetworkItemStack, Packet, container_close_packet, item_stack_request_packet_filtered,
+    open_inventory_packet,
 };
 use thiserror::Error;
 
@@ -73,8 +74,6 @@ pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
 /// The crafting-table window; its 3x3 grid lives in UI slots 32..=40.
 pub const WORKBENCH_WINDOW_TYPE: i8 = 1;
 pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
-/// A close acknowledgement sent after the addressed window no longer exists.
-const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 /// Maximum opt-in storage-content identity diagnostics emitted per ledger
