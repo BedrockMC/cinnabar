@@ -87,3 +87,39 @@ fn cache_revalidates_corruption_and_never_uses_a_url_as_a_path() {
     assert!(cache.read("../../token").is_err());
     assert!(cache.publish(&hash, b"modified").is_err());
 }
+
+#[test]
+fn aggregate_budget_and_trap_quarantine_cannot_be_multiplied() {
+    let mut budget = runtime::Budget::default();
+    let owner = runtime::Principal { session: crypto::hex(&[1; 32]), bundle: "test:one".into(), generation: 1 };
+    budget.reserve(owner.clone(), policy::MAX_GUEST_MEMORY, 0).unwrap();
+    let mut other = owner.clone();
+    other.bundle = "test:two".into();
+    budget.reserve(other, policy::MAX_GUEST_MEMORY, 0).unwrap();
+    let mut third = owner.clone();
+    third.bundle = "test:three".into();
+    assert!(budget.reserve(third, 1, 0).is_err());
+    budget.begin_slice();
+    budget.dispatch(&owner).unwrap();
+    budget.dispatch(&owner).unwrap();
+    assert!(budget.dispatch(&owner).is_err());
+    budget.quarantine(&owner);
+    assert!(budget.reserve(owner, 1, 0).is_err());
+}
+
+#[test]
+fn stale_and_partially_invalid_transactions_never_publish() {
+    let owner = runtime::Principal { session: crypto::hex(&[1; 32]), bundle: "test:one".into(), generation: 1 };
+    let capabilities = runtime::Capabilities {
+        scope: manifest::Scope { permissions: BTreeSet::from([manifest::Permission::Ui]), origins: BTreeSet::new(), memory_bytes: 0, gpu_bytes: 0 },
+        assets: BTreeSet::new(), channels: Vec::new(), actions: BTreeSet::new(),
+    };
+    let transaction = runtime::Transaction { owner: owner.clone(), epoch: 1, commands: vec![
+        runtime::Command::Widget { id: "status".into(), text: "valid".into() },
+        runtime::Command::Widget { id: "other".into(), text: "invalid\0".into() },
+    ] };
+    let mut contributions = runtime::Contributions::default();
+    assert!(contributions.apply(&transaction, &owner, 1, &capabilities).is_err());
+    assert!(contributions.widgets.is_empty());
+    assert!(contributions.apply(&transaction, &owner, 2, &capabilities).is_err());
+}

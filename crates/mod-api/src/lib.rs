@@ -7,3 +7,13 @@ pub mod bindings {
         pub_export_macro: true,
     });
 }
+
+/// Versioned SDK for consented server components, separate from personal mods.
+pub mod server_bundle {
+    wit_bindgen::generate!({
+        path: "wit",
+        world: "server-bundle",
+        pub_export_macro: true,
+        export_macro_name: "export_server_bundle",
+    });
+}

@@ -42,6 +42,7 @@ pub(crate) fn drain_committed_ui_before_authority(
     };
     ui_runtime.note_stream_dimension(stream.current_dimension());
     let dimension_epoch = stream.form_dimension_epoch();
+    ui_runtime.experiences.epoch = dimension_epoch;
     ui_runtime
         .server_forms_mut()
         .synchronize_epoch(session, dimension_epoch);
