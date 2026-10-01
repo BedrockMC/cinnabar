@@ -18,6 +18,7 @@ pub(super) struct SkinSkeleton {
     pub(super) geometry: Arc<SkinGeometry>,
     pub(super) bones: Vec<RuntimeBone>,
     pub(super) names: Vec<Box<str>>,
+    pub(super) layers: Vec<super::skin_layers::SkinLayerSkeleton>,
     /// Default-rig bone whose animation each skin bone takes, matched by name.
     driver: Vec<Option<usize>>,
     /// Geometry binding `driver` was matched against.
@@ -111,6 +112,7 @@ fn drivers(skin: &[Box<str>], rig: &[Box<str>]) -> Vec<Option<usize>> {
 pub(super) fn sync_skin(
     state: &mut ActorRigState,
     source: Option<&Arc<SkinGeometrySource>>,
+    assets: &RuntimeEntityAssets,
 ) -> bool {
     let unchanged = match (&state.skin, source) {
         (None, None) => true,
@@ -125,13 +127,25 @@ pub(super) fn sync_skin(
     let had_skeleton = state.skin_skeleton().is_some();
     let mut rejected = false;
     state.skin = source.map(|source| {
-        match parse_skin_geometry(&source.resource_patch, &source.geometry_data) {
+        let parsed =
+            parse_skin_geometry(&source.resource_patch, &source.geometry_data).map(|geometry| {
+                geometry.or_else(|| {
+                    let name = assets::skin_geometry_name(&source.resource_patch)?;
+                    let geometry = assets
+                        .geometries()
+                        .iter()
+                        .find(|geometry| geometry.identifier.eq_ignore_ascii_case(&name))?;
+                    SkinGeometry::from_catalog(geometry)
+                })
+            });
+        match parsed {
             Ok(Some(geometry)) => match skeleton(&geometry.bones) {
                 Some((bones, names)) => SkinModel::Parsed(SkinSkeleton {
                     source: Arc::clone(source),
                     driver: drivers(&names, &state.bone_names),
                     driver_binding: state.geometry_binding,
                     geometry: Arc::new(geometry),
+                    layers: super::skin_layers::parse(source),
                     bones,
                     names,
                 }),
