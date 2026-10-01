@@ -142,6 +142,8 @@ impl PublicationController {
         self.diagnostics.frame_sequence = self.diagnostics.frame_sequence.saturating_add(1);
         self.diagnostics.observed_frame_time = elapsed;
         self.update_pressure_state();
+        // Frames without a world must not repeat the retired session's backlog.
+        self.diagnostics.last_work = PublicationFrameWork::default();
 
         let (items, item_remainder) = accrue_tokens(
             u128::from(self.item_rate_per_second),

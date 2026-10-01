@@ -297,3 +297,23 @@ fn controller_credits_shared_allowance_and_only_admitted_work_spends_it() {
     assert_eq!(allowance.remaining_items(), 2_047);
     assert_eq!(allowance.frame_remaining_items(), 512);
 }
+
+/// A disconnected frame reports no old work after pressure consumes the previous sample.
+#[test]
+fn publication_frame_does_not_repeat_retired_world_backlog() {
+    let mut controller = PublicationController::default();
+    controller.finish_frame(PublicationFrameWork {
+        pending_mesh_jobs: 8_931,
+        in_flight_mesh_jobs: 6,
+        mesh_jobs_dispatched: 1,
+        mesh_changes_published: 1,
+        ..PublicationFrameWork::default()
+    });
+    for _ in 0..38 {
+        controller.begin_frame(Duration::from_millis(16));
+        assert_eq!(
+            controller.diagnostics().last_work,
+            PublicationFrameWork::default()
+        );
+    }
+}
