@@ -1,18 +1,16 @@
 //! Sends `ClientMovementPredictionSync` after the server corrected the local player.
 
-use std::{collections::HashMap, time::Duration};
+mod countdown;
 
-use bevy::{
-    prelude::{Local, Res},
-    time::{Real, Time},
-};
+pub(super) use countdown::PredictionSyncCountdown;
+
+use std::collections::HashMap;
+
+use bevy::prelude::{Local, Res, ResMut};
 use protocol::{ActorMetadataValue, MovementPredictionSync, client_movement_prediction_sync};
 
 use super::LocalPhysicsController;
 use crate::runtime::{network::NetworkHandle, world::ClientWorld};
-
-/// Provisional minimum spacing between syncs; the vanilla timer interval is unmeasured.
-const MIN_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 
 const FLAGS_KEY: u32 = 0;
 const EXTENDED_FLAGS_KEY: u32 = 92;
@@ -33,37 +31,21 @@ const ATTRIBUTE_NAMES: [&str; 6] = [
 const DEFAULT_FRICTION_MODIFIER: f32 = 1.0;
 const DEFAULT_BOUNCINESS: f32 = 0.0;
 const DEFAULT_AIR_DRAG_MODIFIER: f32 = 1.0;
-const PLAYER_WIDTH: f32 = 0.6;
-const PLAYER_HEIGHT: f32 = 1.8;
 
 #[derive(Default)]
 pub(crate) struct PredictionSyncState {
-    seen_corrections: u64,
-    pending: bool,
-    last_sent: Option<Duration>,
     /// Syncs withheld because a required attribute was unset.
     skipped: u64,
     skip_logged: bool,
 }
 
 pub(crate) fn send_movement_prediction_sync(
-    time: Res<Time<Real>>,
-    physics: Res<LocalPhysicsController>,
+    mut physics: ResMut<LocalPhysicsController>,
     client_world: Res<ClientWorld>,
     network: Option<Res<NetworkHandle>>,
     mut state: Local<PredictionSyncState>,
 ) {
-    let applied = physics.corrections_applied();
-    if applied != state.seen_corrections {
-        state.seen_corrections = applied;
-        state.pending = true;
-    }
-    let now = time.elapsed();
-    if !state.pending
-        || state
-            .last_sent
-            .is_some_and(|last| now.saturating_sub(last) < MIN_SYNC_INTERVAL)
-    {
+    if !physics.prediction_sync.due() {
         return;
     }
     let (Some(network), Some(stream)) = (network.as_deref(), client_world.stream.as_ref()) else {
@@ -101,8 +83,7 @@ pub(crate) fn send_movement_prediction_sync(
         .send_movement_packet(client_movement_prediction_sync(sync))
         .is_ok()
     {
-        state.pending = false;
-        state.last_sent = Some(now);
+        physics.prediction_sync.clear();
     }
 }
 
@@ -121,8 +102,8 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
     };
     [
         float(SCALE_KEY, 1.0),
-        float(WIDTH_KEY, PLAYER_WIDTH),
-        float(HEIGHT_KEY, PLAYER_HEIGHT),
+        float(WIDTH_KEY, sim::PLAYER_WIDTH as f32),
+        float(HEIGHT_KEY, sim::PLAYER_HEIGHT as f32),
     ]
 }
 
