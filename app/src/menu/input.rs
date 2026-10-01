@@ -4,12 +4,12 @@ use bevy::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
         keyboard::KeyboardInput,
-        mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
+        mouse::{MouseScrollUnit, MouseWheel},
         touch::Touches,
     },
     prelude::{
-        ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
-        Resource, Single, With,
+        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut, Resource,
+        Single, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
@@ -63,15 +63,6 @@ impl Default for MenuClipboard {
 
 #[derive(Default)]
 pub(crate) struct MenuModifiers(u8);
-
-/// Retains physical button state because menu input clears Bevy's buttons
-/// after consumption, and retains slider capture across UI scale relayout.
-#[derive(Default)]
-pub(crate) struct GuiScaleDrag {
-    mouse_cursor: MessageCursor<MouseButtonInput>,
-    left_held: bool,
-    captured: bool,
-}
 
 impl MenuModifiers {
     const CONTROL_LEFT: u8 = 1 << 0;
@@ -243,7 +234,7 @@ pub(crate) fn drive_menu_input(
     mut keyboard_messages: MessageReader<KeyboardInput>,
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
-    window: Single<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
+    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
@@ -253,22 +244,8 @@ pub(crate) fn drive_menu_input(
     mut menu: ResMut<MenuRuntime>,
     runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
-    mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
-    mut gui_scale_drag: Local<GuiScaleDrag>,
 ) {
-    let (window_entity, window, mut cursor) = window.into_inner();
-    if let Some(messages) = mouse_messages.as_deref() {
-        let GuiScaleDrag {
-            mouse_cursor,
-            left_held,
-            ..
-        } = &mut *gui_scale_drag;
-        for input in mouse_cursor.read(messages) {
-            if input.window == window_entity && input.button == MouseButton::Left {
-                *left_held = input.state == ButtonState::Pressed;
-            }
-        }
-    }
+    let (window, mut cursor) = window.into_inner();
     let wheel: Vec<(f32, bool)> = wheel_messages
         .as_deref()
         .map(|messages| {
@@ -282,15 +259,11 @@ pub(crate) fn drive_menu_input(
         runtime.server_forms().owns_input()
             && (!menu.is_visible() || runtime.server_forms().settings_form_active())
     }) {
-        gui_scale_drag.captured = false;
-        gui_scale_drag.left_held = false;
         keyboard_messages.clear();
         return;
     }
     menu.pressed = None;
     if !window.focused {
-        gui_scale_drag.captured = false;
-        gui_scale_drag.left_held = false;
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
         menu.pointer_down = false;
@@ -305,7 +278,6 @@ pub(crate) fn drive_menu_input(
         }
     }
     if !menu.is_visible() {
-        gui_scale_drag.captured = false;
         // Gameplay/chat handled these messages already. In particular, do not
         // replay the Escape that opens pause as "back" on the following frame.
         *modifiers = MenuModifiers::default();
@@ -329,13 +301,10 @@ pub(crate) fn drive_menu_input(
         .cursor_position()
         .and_then(|position| UiPoint::new(position.x, position.y).ok());
     menu.hovered = pointer.and_then(|position| presentation.hit_test_menu(position));
-    let pointer_pressed = mouse_buttons.pressed(MouseButton::Left) || gui_scale_drag.left_held;
+    let pointer_pressed = mouse_buttons.pressed(MouseButton::Left);
     let pointer_just_pressed =
         mouse_buttons.just_pressed(MouseButton::Left) || (pointer_pressed && !menu.pointer_down);
     menu.pointer_down = pointer_pressed;
-    if !pointer_pressed || menu.screen() != super::MenuScreen::Settings {
-        gui_scale_drag.captured = false;
-    }
     if let Some(point) = pointer {
         for (notches, pixels) in wheel {
             presentation.scroll_menu(point, notches, pixels);
@@ -350,25 +319,6 @@ pub(crate) fn drive_menu_input(
     }
     if pointer_just_pressed
         && !on_scrollbar
-        && matches!(menu.hovered, Some(super::MenuAction::SettingsScale(_)))
-    {
-        gui_scale_drag.captured = pointer_pressed;
-    }
-    if gui_scale_drag.captured
-        && pointer_pressed
-        && let Some(action @ super::MenuAction::SettingsScale(offset)) =
-            pointer.and_then(|point| presentation.gui_scale_drag_action(point))
-    {
-        menu.hovered = Some(action);
-        if pointer_just_pressed || offset != menu.gui_scale_offset() {
-            menu.activate(action);
-        } else {
-            menu.pressed = Some(action);
-        }
-    }
-    if pointer_just_pressed
-        && !on_scrollbar
-        && !gui_scale_drag.captured
         && let Some(action) = menu.hovered
     {
         menu.activate(action);
@@ -456,6 +406,3 @@ impl MenuRuntime {
         self.go_back();
     }
 }
-
-#[cfg(test)]
-mod gui_scale_drag_tests;

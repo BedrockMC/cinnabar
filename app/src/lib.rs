@@ -7,7 +7,6 @@ mod block_use;
 pub mod camera;
 mod environment;
 mod first_run;
-mod fullscreen;
 mod game_mode_capabilities;
 mod hotbar;
 mod hud_tools;

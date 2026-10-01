@@ -549,7 +549,7 @@ fn menu_runtime_binding_replaces_releases_and_drops_cleanly() {
     let layout = development_layout_in(root.path());
     let mut menu = crate::menu::MenuRuntime::new_with_layout(
         true,
-        Some(2),
+        2,
         "Player".to_owned(),
         layout.clone(),
         crate::player_skin::LocalPlayerSkin::generated_default("Player"),

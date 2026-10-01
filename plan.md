@@ -3,6 +3,16 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 chunk streaming: missing-column deadlines are local. New data in the
+current publisher cohort keeps its quiet deadline active; duplicate and foreign
+traffic cannot renew it. Requested neighbours still block and receive priority.
+Provisional, labeled incomplete: the existing one-second fallback for unannounced
+missing columns remains a Cinnabar approximation, not a vanilla parity gate.
+Lens reconstructed client 1.26.50.26 `LevelBuilder::tryRebuild` (RVA 0x04fb7530)
+uses a radius-16 X/Z availability check (0x0319db50, 0x0319d850, 0x0319d450):
+all nine eligible horizontal columns are required, with no timeout exception.
+No new provisional geometry or lighting path is introduced here.
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
@@ -2492,10 +2502,11 @@ store it only under the user's temporary directory, inspect that file, and never
     formatting, and CI are green.
   - [ ] Mesh neighbourhood gate, provisional and labeled incomplete: a resident
     mesh waits while any of its 26 neighbours is owed (requested, or unsent in
-    the announced Euclidean disk while the server delivered data within 1 s).
-    Vanilla instead builds against absent chunks at the default brightness and
-    rebuilds; the gate and its 1 s quiet grace are owner-requested policy with
-    no native reference. `streaming_harness` measures it.
+    the announced Euclidean disk while its cohort made new progress within 1 s).
+    Current Lens 1.26.50.26 evidence instead requires eligible horizontal columns
+    before rebuilding; the historical missing-column claim is superseded. The
+    1 s quiet fallback remains provisional, with no native reference.
+    `streaming_harness` checks slow delivery for transient geometry and dark seams.
   - [ ] Replace the provisional universal Euclidean publisher-disk rule with
     per-publisher-epoch membership from unique FIFO-committed request-mode
     `LevelChunk` announcements. The raw block radius remains a separate
@@ -3361,16 +3372,6 @@ gates.
   inventory, and forms active together.
 
 - [ ] **5.8 In-game menu, controls, video settings, and persistence.** `P5.8-SETTINGS`
-
-  Desktop GUI scale modifier and fullscreen/F11 wiring are implemented,
-  including preference persistence. The modifier range and scale rule use the
-  Lens 26.30 desktop reference and the controls use the pinned vanilla JSON UI;
-  see [desktop video settings evidence](docs/evidence/desktop-video-settings.md).
-  **Incomplete parity:** the transferred behavior has not been compared with a
-  version-matched native client. Language-specific minimum-scale dialogs,
-  safe-zone adjustments, and touch/console behavior remain unimplemented in
-  this adapter. Linux rendered-frame and live-input verification validates the
-  local wiring only; it does not close this or any broader UI parity gate.
 
 ## Phase 6 — Online product surface
 

@@ -296,9 +296,8 @@ impl<'a> HudLayout<'a> {
 
     fn text_scale(&self, gui_px: f32) -> UiScale {
         let target_logical = gui_px * self.geometry.scale;
-        let ratio = (target_logical / self.text_line_logical)
-            .clamp(UiScale::DISPLAY_MIN, UiScale::DISPLAY_MAX);
-        UiScale::new_display(ratio).unwrap_or_default()
+        let ratio = (target_logical / self.text_line_logical).clamp(0.5, 4.0);
+        UiScale::new(ratio).unwrap_or_default()
     }
 
     fn sprite_gui(

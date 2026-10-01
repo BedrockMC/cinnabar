@@ -152,13 +152,12 @@ impl MenuRuntime {
             }
             MenuScreen::Settings => {
                 let mut actions = nav();
-                actions.push(MenuAction::SettingsFullscreen(!self.fullscreen));
-                actions.extend(
-                    self.gui_scale_choices
-                        .iter()
-                        .copied()
-                        .map(MenuAction::SettingsScale),
-                );
+                actions.extend([
+                    MenuAction::SettingsScale(1),
+                    MenuAction::SettingsScale(2),
+                    MenuAction::SettingsScale(3),
+                    MenuAction::SettingsScale(4),
+                ]);
                 actions
             }
             MenuScreen::AddServer => vec![

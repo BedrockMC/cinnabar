@@ -33,21 +33,6 @@ fn scale_and_geometry_reject_non_finite_or_inverted_values() {
 }
 
 #[test]
-fn derived_display_scale_covers_dpi_without_expanding_user_preferences() {
-    let minimum = UiScale::DISPLAY_MIN;
-    assert_eq!(UiScale::new_display(minimum).unwrap().get(), minimum);
-    assert!(UiScale::new(minimum).is_err());
-    assert!(UiScale::new_display(minimum / 2.0).is_err());
-    assert!(UiScale::new_display(f32::NAN).is_err());
-    assert!(UiScale::new_display(f32::INFINITY).is_err());
-    assert!(UiScale::new(UiScale::MAX * 2.0).is_err());
-    assert_eq!(
-        UiScale::new_display(UiScale::MAX * 2.0).unwrap().get(),
-        UiScale::MAX * 2.0
-    );
-}
-
-#[test]
 fn actions_are_device_neutral_and_limits_are_fixed() {
     assert_eq!(UiAction::Accept, UiAction::Accept);
     let point = UiPoint::new(10.0, 20.0).unwrap();

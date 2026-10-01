@@ -14,9 +14,11 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
             ClientFrameSet::Camera,
             ClientFrameSet::Interaction,
             ClientFrameSet::WorldPublication,
+            ClientFrameSet::ActorPreparation,
+            ClientFrameSet::UiPreparation,
+            ClientFrameSet::NetworkSend,
             ClientFrameSet::ActorPublication,
             ClientFrameSet::UiPublication,
-            ClientFrameSet::NetworkSend,
         )
             .chain(),
     );
@@ -27,6 +29,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
         .init_resource::<crate::runtime::network::ActorFramePartialTick>()
+        .init_resource::<crate::runtime::network::PreparedActorPublication>()
+        .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)
@@ -45,11 +49,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 drive_chat_ui_actions,
                 drain_inventory_authority,
                 drive_chat_keyboard_input,
-                crate::fullscreen::toggle_fullscreen_hotkey,
                 drive_menu_input,
-                crate::fullscreen::apply_runtime_fullscreen_setting,
-                crate::ui_runtime::presentation::apply_gui_scale_setting,
-                crate::menu::persist_video_settings,
                 drive_inventory_ui_actions,
                 drive_menu_connection,
                 crate::store::drive_store,
