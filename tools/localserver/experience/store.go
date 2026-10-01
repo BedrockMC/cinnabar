@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -19,8 +20,12 @@ import (
 // storeSchema is the schema number of every file the store writes and accepts.
 const storeSchema = 1
 
-// installedFile records the ids of every Experience ever installed in the world.
-const installedFile = "installed.json"
+// installedFile records the ids of every Experience ever installed in the world. Its leading
+// underscore keeps it apart from every Experience data file.
+const installedFile = "_installed.json"
+
+// dataFileName matches the file of one Experience's data: its id followed by ".json".
+var dataFileName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}\.json$`)
 
 // ErrQuota is returned by SetData when the write would exceed the Experience's data quota.
 var ErrQuota = errors.New("experience data quota exceeded")
@@ -84,9 +89,9 @@ type installedRecord struct {
 	IDs    []string `json:"ids"`
 }
 
-// OpenStore loads every <id>.json file and installed.json in dir (normally
+// OpenStore loads every <id>.json file and _installed.json in dir (normally
 // <world dir>/experience-data), creating dir if needed and deleting temp files left by an
-// interrupted flush. A corrupt file fails the open, naming the file.
+// interrupted flush. A corrupt or unexpected file fails the open, naming the file.
 func OpenStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create experience data dir: %w", err)
@@ -100,7 +105,6 @@ func OpenStore(dir string) (*Store, error) {
 		name := d.Name()
 		path := filepath.Join(dir, name)
 		switch {
-		case d.IsDir():
 		case strings.HasSuffix(name, ".tmp"):
 			if err := os.Remove(path); err != nil {
 				return nil, fmt.Errorf("remove stray temp file %s: %w", path, err)
@@ -109,10 +113,12 @@ func OpenStore(dir string) (*Store, error) {
 			if err := s.loadInstalled(path); err != nil {
 				return nil, fmt.Errorf("load %s: %w", path, err)
 			}
-		case strings.HasSuffix(name, ".json"):
+		case dataFileName.MatchString(name):
 			if err := s.loadExperience(strings.TrimSuffix(name, ".json"), path); err != nil {
 				return nil, fmt.Errorf("load %s: %w", path, err)
 			}
+		default:
+			return nil, fmt.Errorf("unexpected file %s in experience data dir", path)
 		}
 	}
 	return s, nil
@@ -163,8 +169,13 @@ func (s *Store) loadInstalled(path string) error {
 	if rec.Schema != storeSchema {
 		return fmt.Errorf("schema %d, want %d", rec.Schema, storeSchema)
 	}
-	s.installed = rec.IDs
+	s.installed = sortedUnique(rec.IDs)
 	return nil
+}
+
+// sortedUnique returns a sorted copy of ids without duplicates.
+func sortedUnique(ids []string) []string {
+	return slices.Compact(slices.Sorted(slices.Values(ids)))
 }
 
 // experience returns the Experience's data, creating it when create is set. Callers hold s.mu.
@@ -365,9 +376,9 @@ func (s *Store) Installed() []string {
 	return slices.Clone(s.installed)
 }
 
-// SetInstalled records ids, sorted and deduplicated, and writes installed.json immediately.
+// SetInstalled records ids, sorted and deduplicated, and writes _installed.json immediately.
 func (s *Store) SetInstalled(ids []string) error {
-	sorted := slices.Compact(slices.Sorted(slices.Values(ids)))
+	sorted := sortedUnique(ids)
 	s.flushMu.Lock()
 	defer s.flushMu.Unlock()
 	if err := s.writeJSON(installedFile, installedRecord{Schema: storeSchema, IDs: sorted}); err != nil {
