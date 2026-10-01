@@ -53,7 +53,11 @@ fn empty_stack_records_missing_sheets_for_later_activation() {
     let view = LayeredPackView::tracked(view(vec![]).shared_stack());
     assert!(compile_session_glyphs(&view).is_none());
     let inputs = view.dependencies().unwrap().snapshot();
-    for path in ["font/default8.png", "font/ascii_sga.png", "font/glyph_E0.png"] {
+    for path in [
+        "font/default8.png",
+        "font/ascii_sga.png",
+        "font/glyph_E0.png",
+    ] {
         assert!(inputs.contains(&resource_pack::PackDependency::File {
             path: path.into(),
             limit: super::MAX_SHEET_SOURCE_BYTES,

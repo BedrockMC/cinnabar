@@ -130,7 +130,7 @@ fn outline(view: &LayeredPackView, entry: &Value) -> Option<Vec<CellGlyph>> {
                 .collect(),
             bearing: [
                 (metrics.xmin as f32 * scale / 64.0).round() as i16,
-                ((metrics.ymin as f32 + metrics.height as f32) * scale / 64.0).round() as i16,
+                (-(metrics.ymin as f32 + metrics.height as f32) * scale / 64.0).round() as i16,
             ],
             advance_64: (metrics.advance_width * scale)
                 .round()
