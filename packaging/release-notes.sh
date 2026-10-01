@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Prints release notes for HEAD. Usage: release-notes.sh <nightly|release> [previous_nightly_commit]
 # Env: MACOS_SIGNED, WINDOWS_SIGNED ("true" when that platform's artifacts are signed).
+# Markdown backticks in single-quoted prose are literal.
+# shellcheck disable=SC2016
 set -euo pipefail
 kind="${1:?usage: release-notes.sh <nightly|release> [previous_commit]}"
 previous="${2:-}"
@@ -26,6 +28,9 @@ if [[ "$kind" == nightly ]]; then
 fi
 
 printf '## Installing\n\n'
+printf 'Install the latest stable release with one command (scripts verify the release checksum):\n\n'
+printf 'macOS and Linux:\n\n```sh\ncurl -fsSL https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | bash\n```\n\n'
+printf 'Windows (PowerShell):\n\n```powershell\nirm https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.ps1 | iex\n```\n\n'
 printf 'First launch asks you to accept the Minecraft EULA, then downloads Mojang'"'"'s public sample resource pack and converts it locally; the installers themselves contain no Mojang assets.\n\n'
 printf -- '- Linux: `chmod +x Cinnabar-x86_64.AppImage`, then run it.\n'
 if [[ "${MACOS_SIGNED:-}" != true ]]; then

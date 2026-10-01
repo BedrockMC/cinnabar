@@ -20,10 +20,32 @@ sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per la
 Installers also ship the pinned OFL Monocraft font at `<resources>/fonts/`, fetched by `package-*`
 via `scripts/fetch-ui-font.sh`, so first-run setup can draw before any download.
 
-CI: `.github/workflows/package.yml`. Pushes to `main` replace the `nightly` prerelease (tag moved,
-assets replaced); `v*` tags draft a release. Version comes from `[workspace.package]`. Every
-installer is extracted and checked by `packaging/check-payload.sh`, which fails on any file outside
-the payload allowlist (shared with `stage-payload.sh`).
+Releases are manual: run `.github/workflows/release.yml` on `main` and choose `patch`, `minor` or
+`major`. The workflow increments `[workspace.package].version`, updates inherited workspace
+versions in `Cargo.lock`, commits the bump to `main`, and creates the matching `v` tag. It then
+calls `.github/workflows/package.yml` to build macOS arm64 and Intel DMGs, a Windows x64 MSI and
+a Linux x86_64 AppImage. Every installer is extracted and checked by
+`packaging/check-payload.sh`, which fails on any file outside the payload allowlist (shared with
+`stage-payload.sh`). Once all builds pass, it publishes a stable GitHub release with
+`SHA256SUMS.txt`. Pushes alone do not publish packages.
+
+```sh
+gh workflow run release.yml --ref main -f bump=patch
+```
+
+Release runs are serialized and never cancel each other. If a build fails after the version and
+tag were pushed, rerun the failed jobs; a fresh dispatch also finishes an unpublished tag on the
+tip of `main` without incrementing again.
+
+The one-liner commands in the [root README](../README.md#download) run `packaging/install.sh`
+(macOS/Linux) or `packaging/install.ps1` (Windows). Each script resolves the latest stable release
+once and checks the downloaded installer against that release's checksum file. macOS installs to
+`~/Applications/Cinnabar.app`; Linux uses `~/.local/lib/cinnabar` and a `~/.local/bin/cinnabar`
+launcher that works without FUSE; Windows uses the system MSI installer. Run the same command
+again to update.
+
+Linux needs the distribution's ALSA, Wayland and Xkbcommon runtime libraries, plus `curl` and
+`unzip` for first-run asset acquisition.
 
 Signing is optional; each missing secret yields unsigned output instead of a failure:
 
@@ -32,7 +54,7 @@ Signing is optional; each missing secret yields unsigned output instead of a fai
 | `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `CODESIGN_IDENTITY` | Developer ID signing (else ad-hoc) |
 | `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarization; required once `CODESIGN_IDENTITY` is set |
 | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes and MSI |
-| `CINNABAR_UPDATE_SIGNING_KEY` | Signed `update-stable.json` on `v*` releases (else none is published) |
+| `CINNABAR_UPDATE_SIGNING_KEY` | Signed `update-stable.json` on stable releases (else none is published) |
 | `UPDATE_TRUSTED_KEYS` (variable) | Keys the core trusts for update manifests |
 
 Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks

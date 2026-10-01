@@ -11,9 +11,33 @@ networking.
 
 ## Download
 
-Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
-Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
-the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
+Download the [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest) for macOS,
+Windows or Linux, or install it with one command:
+
+macOS (Apple silicon or Intel):
+
+```sh
+curl -fsSL https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | bash
+```
+
+Windows (x64, PowerShell):
+
+```powershell
+irm https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.ps1 | iex
+```
+
+Linux (x86_64):
+
+```sh
+curl -fsSL https://github.com/bedrock-mc/cinnabar/releases/latest/download/install.sh | bash
+```
+
+The scripts verify the release checksum before installing. macOS installs to `~/Applications`;
+Linux installs the `cinnabar` command to `~/.local/bin` and adds a desktop entry; Windows runs the
+MSI installer. First launch fetches the vanilla resource pack after you accept the Minecraft EULA.
+The release notes cover unsigned builds. Maintainers can publish a release from the
+[Release workflow](https://github.com/bedrock-mc/cinnabar/actions/workflows/release.yml), choosing
+`patch`, `minor` or `major`; see [packaging](packaging/README.md).
 
 ## Play
 

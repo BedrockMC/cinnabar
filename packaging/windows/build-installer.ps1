@@ -3,6 +3,8 @@
 param([string]$Out = ".local/dist/windows-release")
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "../..")
+# WiX resolves relative harvest paths beneath INSTALLFOLDER, so its inputs must be absolute.
+$Out = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
 $release = Join-Path $root "target/release"
 foreach ($name in "bedrock-client.exe", "bedrock-core.exe", "bedrock-local-server.exe", "assetc.exe") {
     if (-not (Test-Path (Join-Path $release $name))) { throw "missing $release\$name; run make package-binaries" }
