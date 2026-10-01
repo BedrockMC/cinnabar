@@ -157,11 +157,22 @@ impl UiPresentationRuntime {
         };
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
-        let mut layers = vec![&screen];
-        layers.extend(screen.overlay.as_deref());
+        let mut layers = Vec::new();
+        let mut layer = Some(&screen);
+        while let Some(current) = layer {
+            layers.push(current);
+            layer = current.overlay.as_deref();
+        }
         let mut drawn = None;
         let preview_view = std::cell::Cell::new(None);
-        for layer in layers {
+        let top = layers.len() - 1;
+        for (index, layer) in layers.into_iter().enumerate() {
+            if !renderer
+                .scene_settings(layer.reference, &layer.context)
+                .renders(index == top && view.dialog.is_none())
+            {
+                continue;
+            }
             let inputs = engine::EngineInputs {
                 layouts: &mut self.layouts,
                 font: &self.font,
@@ -214,6 +225,12 @@ impl UiPresentationRuntime {
             self.player_preview_view = view.quantized();
         }
         let Some(frame) = drawn else {
+            if let Some((hits, keys)) =
+                self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
+            {
+                self.form_presentation.menu_keys = keys;
+                return Ok(Some(hits));
+            }
             return Ok(None);
         };
         let mut hits = Vec::new();
