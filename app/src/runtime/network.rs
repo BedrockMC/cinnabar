@@ -251,6 +251,9 @@ pub(crate) fn receive_network_events(
         mut ui_runtime,
         time,
     } = state;
+    if let Some(stream) = client_world.stream.as_mut() {
+        stream.begin_frame_work();
+    }
     let controls =
         drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME);
     for control in controls {
@@ -407,6 +410,7 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.begin_frame_work();
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {

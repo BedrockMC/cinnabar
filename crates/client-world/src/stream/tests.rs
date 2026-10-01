@@ -85,7 +85,9 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
 }
 
 mod block_cracks;
+mod commit_budget;
 mod light_scheduler;
+mod neighbour_deadlines;
 
 mod mesh_dependency;
 
@@ -482,6 +484,7 @@ fn requested_block_entity_sub_chunk_event(
     })
 }
 
+/// Finishes fixture decoding and every sliced ordered commit it releases.
 fn complete_pending_decode_jobs(stream: &mut WorldStream) {
     while let Some(job) = stream.pending_decode.pop_front() {
         let (sequence, event) = match job.job {
@@ -541,21 +544,7 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
             } => (
                 sequence,
                 super::PreparedWorldEvent::BlockUpdates {
-                    result: batches
-                        .into_iter()
-                        .map(|mut batch| {
-                            for update in &mut batch.updates {
-                                update.runtime_id =
-                                    world::BlockIds::resolve(&ids, update.runtime_id);
-                            }
-                            ChunkStore::prepare_sub_chunk_blocks(
-                                batch.key,
-                                batch.previous.as_deref(),
-                                &batch.updates,
-                                world::BlockIds::air(&ids),
-                            )
-                        })
-                        .collect(),
+                    result: super::decode::prepare_block_mutations(batches, &ids),
                     duration: std::time::Duration::ZERO,
                 },
             ),
@@ -582,7 +571,20 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
             queue_wait: std::time::Duration::ZERO,
         });
     }
-    stream.apply_ready();
+    loop {
+        let before = (
+            stream.ordered.next_sequence(),
+            stream.pending_sub_chunk_commit.is_some(),
+        );
+        stream.apply_ready();
+        let after = (
+            stream.ordered.next_sequence(),
+            stream.pending_sub_chunk_commit.is_some(),
+        );
+        if before == after && stream.pending_sub_chunk_commit.is_none() {
+            break;
+        }
+    }
 }
 
 fn cave_test_assets() -> RuntimeAssets {

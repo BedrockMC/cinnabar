@@ -450,6 +450,7 @@ fn drive_unified_publication_fixture(
         fixture.ingestion_frames = frame_number;
     }
 
+    fixture.stream.service_publication_fixture_completions();
     let poll = fixture
         .stream
         .poll([1_048.0, 64.0, 1_048.0], budget.max_per_frame);
@@ -459,6 +460,7 @@ fn drive_unified_publication_fixture(
     while let Some(change) = fixture.stream.pop_mesh_change() {
         match change {
             client_world::WorldMeshChange::Upsert {
+                output_permit: _,
                 key,
                 mesh,
                 biome,
