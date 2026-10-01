@@ -480,7 +480,7 @@ fn bound_grid(body: Value, data: &DataSource) -> ResolvedControl {
 fn instances(grid: &ResolvedControl) -> usize {
     grid.children
         .iter()
-        .filter(|child| child.properties.get("grid_template_node").is_none())
+        .filter(|child| !child.properties.contains_key("grid_template_node"))
         .count()
 }
 
@@ -506,7 +506,7 @@ fn d02_template_is_kept_without_a_collection() {
     assert!(
         grid.children
             .iter()
-            .any(|child| child.properties.get("grid_template_node").is_some())
+            .any(|child| child.properties.contains_key("grid_template_node"))
     );
 }
 

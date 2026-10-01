@@ -191,10 +191,7 @@ pub(super) fn child_sizes(
 ) -> Vec<[f64; 2]> {
     let layout = Layout::of(parent, extent, env);
     let mut sizes = vec![[0.0; 2]; parent.children.len()];
-    for (index, child) in cells(parent)
-        .take(layout.limit)
-        .map(|(index, child)| (index, child))
-    {
+    for (index, child) in cells(parent).take(layout.limit) {
         sizes[index] = layout.cell_size(child, extent, env);
     }
     sizes
