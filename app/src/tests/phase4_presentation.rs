@@ -569,3 +569,31 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
         crate::presentation::actors::rig_world_from_actor([4.0, 64.0, 2.0], 60.0, 1.0)
     );
 }
+
+#[test]
+fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
+    let bones = [model_bone([0.0; 3])];
+    for identifier in [
+        "minecraft:arrow",
+        "minecraft:ender_pearl",
+        "minecraft:snowball",
+    ] {
+        let mut actor = actor(42, 1);
+        actor.kind = ActorKind::Entity {
+            identifier: identifier.into(),
+        };
+        let rig = ActorRigSnapshot {
+            previous_body_yaw: 90.0,
+            body_yaw: 90.0,
+            ..rig(42, &bones, &bones)
+        };
+        let presentation =
+            entity_rig_presentation(&rig, &actor, &render::ActorArtworkPages::default(), 1.0)
+                .unwrap();
+        let rows = presentation.submission.world_from_actor;
+        assert_eq!(rows[0][0], 1.0, "{identifier}");
+        assert_eq!(rows[0][2], 0.0, "{identifier}");
+        assert_eq!(rows[2][0], 0.0, "{identifier}");
+        assert_eq!(rows[2][2], 1.0, "{identifier}");
+    }
+}
