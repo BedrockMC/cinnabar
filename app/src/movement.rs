@@ -887,3 +887,6 @@ mod state_tests;
 mod teleport_ack_tests;
 #[cfg(test)]
 mod teleport_ack_wiring_tests;
+
+#[cfg(test)]
+mod zeqa_tests;
