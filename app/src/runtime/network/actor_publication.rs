@@ -274,6 +274,12 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
+        stream.set_actor_animation_view(
+            camera
+                .single()
+                .ok()
+                .and_then(|(transform, projection)| animation_view(transform, projection)),
+        );
         let _animation = profiler
             .as_deref()
             .map(|profiler| profiler.time(render::RuntimeStage::ActorAnimation));
@@ -623,6 +629,44 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     );
 }
 
+/// Rigs this far outside the view on every side still animate, so only a turn faster than this
+/// in one tick shows a rig its held pose for that tick.
+const ANIMATION_GUARD_DEGREES: f32 = 30.0;
+
+/// The camera's frustum widened by the guard band, with the render distances.
+fn animation_view(
+    transform: &bevy::prelude::Transform,
+    projection: &Projection,
+) -> Option<client_world::ActorAnimationView> {
+    let Projection::Perspective(perspective) = projection else {
+        return None;
+    };
+    let (guard, limit) = (ANIMATION_GUARD_DEGREES.to_radians(), 85f32.to_radians());
+    let half_vertical = perspective.fov * 0.5;
+    let half_horizontal = (half_vertical.tan() * perspective.aspect_ratio).atan();
+    let (half_vertical, half_horizontal) = (
+        (half_vertical + guard).min(limit),
+        (half_horizontal + guard).min(limit),
+    );
+    let clip = Mat4::perspective_infinite_reverse_rh(
+        half_vertical * 2.0,
+        half_horizontal.tan() / half_vertical.tan(),
+        perspective.near,
+    ) * transform.to_matrix().inverse();
+    let [x, y, z, w] = [0, 1, 2, 3].map(|row| clip.row(row));
+    let planes = [w + x, w - x, w + y, w - y, z, w - z].map(|plane| plane.to_array());
+    planes
+        .iter()
+        .flatten()
+        .all(|value| value.is_finite())
+        .then(|| client_world::ActorAnimationView {
+            planes,
+            camera: transform.translation.to_array(),
+            player_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+            entity_radius: render::ACTOR_CANDIDATE_RADIUS_BLOCKS,
+        })
+}
+
 /// Registers new skin models and item meshes in both rig catalogs with one rebuild each; if a
 /// batch is refused, each is tried alone so a rejected mesh only leaves that model undrawn.
 fn register_geometries(
@@ -764,6 +808,41 @@ fn build_local_player_feed(
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::{PerspectiveProjection, Projection, Transform, Vec3};
+
+    /// Every actor the renderer can draw is animated: the guard-banded view admits a superset.
+    #[test]
+    fn the_animation_view_admits_everything_the_render_cull_draws() {
+        let camera =
+            Transform::from_xyz(3.0, 70.0, -2.0).looking_at(Vec3::new(20.0, 64.0, 9.0), Vec3::Y);
+        let projection = Projection::Perspective(PerspectiveProjection {
+            fov: 70f32.to_radians(),
+            aspect_ratio: 16.0 / 9.0,
+            ..Default::default()
+        });
+        let view = super::animation_view(&camera, &projection).unwrap();
+        let cull = render::ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * camera.to_matrix().inverse(),
+            camera_position: camera.translation,
+            max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        };
+        let (mut drawn, mut held) = (0, 0);
+        for x in (-60..=60).step_by(3) {
+            for z in (-60..=60).step_by(3) {
+                for (y, scale) in [(60.0, 1.0), (64.0, 0.01), (75.0, 3.0)] {
+                    let feet = [x as f32, y, z as f32];
+                    if render::actor_bounds_are_visible(feet, scale, Some(cull)) {
+                        drawn += 1;
+                        assert!(view.admits(feet, scale, false), "{feet:?} x{scale}");
+                    } else if !view.admits(feet, scale, false) {
+                        held += 1;
+                    }
+                }
+            }
+        }
+        assert!(drawn > 100 && held > 100, "drawn={drawn} held={held}");
+    }
+
     // The pack's first-person arm offset sits behind the model's left side; vanilla's facing puts
     // that ahead of the view and to its right.
     #[test]

@@ -295,6 +295,13 @@ impl ActorStore {
         }
     }
 
+    pub(crate) fn set_animation_view(
+        &mut self,
+        view: Option<crate::actor_animation::ActorAnimationView>,
+    ) {
+        self.animation_view = view;
+    }
+
     /// Records the view's world position for camera-relative animation queries.
     pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
         if position.iter().all(|value| value.is_finite()) {
