@@ -2,7 +2,10 @@ use super::*;
 
 #[test]
 fn urgent_scheduler_work_preempts_nearer_ordinary_work() {
-    let camera = [0.0, 0.0, 0.0];
+    let camera = super::SchedulerView {
+        position: [0.0; 3],
+        forward: None,
+    };
     let near = SubChunkKey::new(0, 0, 0, 0);
     let far = SubChunkKey::new(0, 16, 0, 0);
     let mut candidates = BinaryHeap::from([

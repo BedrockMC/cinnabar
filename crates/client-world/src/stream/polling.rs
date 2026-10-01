@@ -24,6 +24,17 @@ impl WorldStream {
     /// join forever.
     const STARVED_MESH_DISPATCH_FLOOR_PER_POLL: usize = 4;
 
+    /// Sets the view direction light and mesh work favour; a zero or non-finite one clears it.
+    pub fn set_view_forward(&mut self, forward: [f32; 3]) {
+        let length = forward
+            .iter()
+            .map(|value| value * value)
+            .sum::<f32>()
+            .sqrt();
+        self.view_forward = (length.is_finite() && length > f32::EPSILON)
+            .then(|| forward.map(|value| value / length));
+    }
+
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_request_player_chunk = Some(ChunkKey::new(

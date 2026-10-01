@@ -10,7 +10,11 @@ impl WorldStream {
             return 0;
         }
 
-        let camera_cell = scheduler_camera_cell(camera_position);
+        let view = SchedulerView {
+            position: camera_position,
+            forward: self.view_forward,
+        };
+        let camera_cell = view.cell();
         if self.mesh_scheduler_camera_cell != Some(camera_cell) {
             let mut deferred = std::mem::take(&mut self.pending_resident_mesh_deferred)
                 .into_iter()
@@ -28,12 +32,8 @@ impl WorldStream {
             let mut resident_deferred = Vec::new();
             let mut removals_deferred = Vec::new();
             for (&key, pending) in &self.pending_mesh {
-                let candidate = PendingSchedulerCandidate::new(
-                    key,
-                    pending.revision,
-                    camera_position,
-                    pending.urgent,
-                );
+                let candidate =
+                    PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent);
                 let (ready, next_round) =
                     if self.resident.contains(&key) && !self.known_air.contains(&key) {
                         (&mut resident, &mut resident_deferred)
@@ -79,12 +79,8 @@ impl WorldStream {
                 else {
                     continue;
                 };
-                let candidate = PendingSchedulerCandidate::new(
-                    key,
-                    queued_revision,
-                    camera_position,
-                    pending.urgent,
-                );
+                let candidate =
+                    PendingSchedulerCandidate::new(key, queued_revision, view, pending.urgent);
                 let (ready, deferred) =
                     if self.resident.contains(&key) && !self.known_air.contains(&key) {
                         (
