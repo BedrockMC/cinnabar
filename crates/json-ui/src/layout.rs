@@ -817,31 +817,35 @@ fn axis_context(
 /// panel's children along its axis, else the parent's full extent.
 fn length(control: &ResolvedControl, axis: Axis) -> Length {
     let index = axis_index(axis);
-    let explicit = match control.properties.get("size") {
-        Some(Value::Array(items)) if items.len() >= 2 => {
-            Some(expr::length_from_value(&items[index]).unwrap_or_else(|_| Length::percent(100.0)))
-        }
-        Some(scalar @ (Value::String(_) | Value::Number(_))) => {
-            Some(expr::length_from_value(scalar).unwrap_or_else(|_| Length::percent(100.0)))
-        }
-        _ => None,
-    };
+    // A missing or non-scalar element is `default`, as the client parses it.
+    let explicit = control.properties.get("size").map(|size| match size {
+        Value::Array(items) => items
+            .get(index)
+            .map_or(Length::Default, expr::length_from_value),
+        _ => Length::Default,
+    });
     // A grid sizes to its cells, except one listing them with no size, which fills.
     let is_grid = control.control_type.as_deref() == Some("grid")
         && (explicit.is_some() || control.properties.contains_key("grid_item_template"));
     match explicit {
         Some(Length::Default) | None if stack_axis(control) == Some(axis) || is_grid => {
-            expr::parse_length("100%c").unwrap_or(Length::Default)
+            expr::parse_length("100%c")
         }
         Some(length) => length,
         None => Length::Default,
     }
 }
 
+/// A bound rule on `index`, present only as an expression with a live term:
+/// `default` and `fill` bounds install no rule.
 fn bound_length(control: &ResolvedControl, key: &str, index: usize) -> Option<Length> {
-    match control.properties.get(key)? {
-        Value::Array(items) if items.len() >= 2 => expr::length_from_value(&items[index]).ok(),
-        scalar @ (Value::String(_) | Value::Number(_)) => expr::length_from_value(scalar).ok(),
+    let Value::Array(items) = control.properties.get(key)? else {
+        return None;
+    };
+    match expr::length_from_value(items.get(index)?) {
+        Length::Terms(terms) if terms.iter().any(|term| term.coeff != 0.0) => {
+            Some(Length::Terms(terms))
+        }
         _ => None,
     }
 }
