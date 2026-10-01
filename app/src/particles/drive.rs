@@ -405,7 +405,7 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     system.set_camera(view.position);
-    system.daylight = (atmosphere.sun_direction()[1] * 0.8 + 0.2).clamp(0.0, 1.0);
+    system.daylight = atmosphere.daylight();
 
     for committed in inbox.events.drain(..) {
         match &committed.event {

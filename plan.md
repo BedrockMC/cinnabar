@@ -3545,7 +3545,9 @@ R:l/LevelRendererPlayer.cpp:24894; R:b/BlockDestructionParticlesComponent.cpp:32
 the pinned pack's `particles/block_destruct.json`.
 
 The exact particle parity gate stays open for destruction texture/count overrides,
-weighted texture variations, non-cube crack AABBs, seasonal tint and native lighting.
+weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
+and native ambient lighting. Particles now consume the shared atmosphere daylight
+state rather than deriving a separate sun-angle value.
 Landing and sprint dust are not wired by the current particle adapter. Rain splash
 uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
 defines. Offline tests or previews do not close the target-platform visual gate;
