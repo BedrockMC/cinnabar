@@ -330,7 +330,7 @@ mod tests {
             br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.projectile","texture_width":32,"texture_height":32},"bones":[{"name":"body","cubes":[{"origin":[0,-2.5,-3],"size":[0,5,16],"uv":{"east":{"uv":[0,0]}}}]}]}]}"#).unwrap();
         let compiled = asset_compiler::compile_entity_assets(
             temporary.path(),
-            include_bytes!("../../../../../assets/vanilla-source.json"),
+            include_bytes!("../../../../assets/vanilla-source.json"),
         )
         .unwrap();
         let runtime =
