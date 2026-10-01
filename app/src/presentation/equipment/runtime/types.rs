@@ -47,6 +47,13 @@ pub(crate) struct EquipmentPresentation {
     pub(crate) location: ActorArtworkLocation,
 }
 
+/// The first-person main-hand layer; a `view_space` bone is placed in camera space rather than
+/// on the rig.
+pub(crate) struct FirstPersonItem {
+    pub(crate) layer: EquipmentPresentation,
+    pub(crate) view_space: bool,
+}
+
 /// Which first-person arms the player render controller shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FirstPersonArms {
