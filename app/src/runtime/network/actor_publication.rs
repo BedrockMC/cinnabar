@@ -680,7 +680,10 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         &mut hand_builder.0,
         &mut hand_scene,
         &mut hand_revision,
-        hand_source,
+        hand_source.filter(|_| {
+            menu.as_ref()
+                .is_none_or(|menu| menu.settings_snapshot().0.value("hide_hand") == 0)
+        }),
         hand_camera_fov,
         hand_light,
         step.partial_tick,

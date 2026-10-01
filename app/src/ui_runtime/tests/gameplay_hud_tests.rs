@@ -999,3 +999,37 @@ fn non_forcing_server_selection_does_not_override_local_prediction() {
 
     assert_eq!(runtime.selected_hotbar_slot(), Some(2));
 }
+
+/// New toasts keep their configured duration and queue behind the preceding toast.
+#[test]
+fn toast_duration_setting_reaches_the_notification_queue() {
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    let mut options = SettingsOptions::default();
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "toast_notification_duration")
+        .unwrap();
+    options.set(index, SETTINGS_OPTIONS[index].max);
+    let mut runtime = UiRuntime::new(1);
+    runtime.toast_display_millis = options.toast_lifetime_millis();
+    assert!(runtime.toast_display_millis > ui::TOAST_DISPLAY_MILLIS);
+    for sequence in 1..=2 {
+        runtime
+            .apply(envelope(
+                1,
+                sequence,
+                UiEvent::Hud(HudEvent::Toast {
+                    title: Arc::from("Notice"),
+                    message: Arc::from("Message"),
+                }),
+            ))
+            .unwrap();
+    }
+    let toasts = runtime.hud().toasts();
+    assert_eq!(
+        toasts[0].expires_millis - toasts[0].started_millis,
+        runtime.toast_display_millis + ui::TOAST_SLIDE_OUT_MILLIS
+    );
+    assert_eq!(toasts[1].started_millis, toasts[0].expires_millis);
+    assert!(toasts[0].visible_at(toasts[0].started_millis + ui::TOAST_DISPLAY_MILLIS));
+}

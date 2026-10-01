@@ -1,3 +1,5 @@
+mod remapping;
+
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
@@ -291,6 +293,11 @@ pub(crate) fn drive_menu_input(
     if !window.focused {
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
+        if !menu.is_visible() && menu.settings_options.value("pause_menu_on_focus_lost") != 0 {
+            menu.open_pause();
+            cursor.grab_mode = CursorGrabMode::None;
+            cursor.visible = true;
+        }
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
         menu.pointer_down = false;
@@ -302,6 +309,15 @@ pub(crate) fn drive_menu_input(
             menu.open_death();
         } else {
             menu.note_player_alive();
+        }
+    }
+    if !menu.is_visible() && runtime.as_ref().is_none_or(|runtime| !runtime.ui_focused()) {
+        // R:v/VanillaClientInputMappingFactory.cpp:10994,11010 uses fixed F1/F8 shortcuts.
+        for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
+            if keys.just_pressed(key) {
+                let value = 1 - menu.settings_options.value(option);
+                menu.set_named_option(option, value);
+            }
         }
     }
     if !menu.is_visible() {
@@ -319,6 +335,17 @@ pub(crate) fn drive_menu_input(
             cursor.visible = true;
             keys.reset_all();
         }
+        return;
+    }
+
+    if menu.key_remap.is_some() {
+        remapping::capture(
+            &mut menu,
+            &mut keyboard_messages,
+            &mut keys,
+            &mut mouse_buttons,
+            &gamepads,
+        );
         return;
     }
 
@@ -354,6 +381,29 @@ pub(crate) fn drive_menu_input(
         }
         menu.activate(action);
     };
+    if !pointer_pressed {
+        menu.settings_slider_drag = None;
+    }
+    if pointer_just_pressed {
+        menu.settings_slider_drag = match menu.hovered {
+            Some(super::MenuAction::SettingsOption(index, _))
+                if matches!(
+                    super::settings_options::SETTINGS_OPTIONS[usize::from(index)].kind,
+                    super::settings_options::SettingKind::Slider
+                ) =>
+            {
+                Some(index)
+            }
+            _ => None,
+        };
+    }
+    if pointer_pressed
+        && !pointer_just_pressed
+        && let Some(super::MenuAction::SettingsOption(index, value)) = menu.hovered
+        && menu.settings_slider_drag == Some(index)
+    {
+        menu.set_option(index, value);
+    }
     if pointer_just_pressed
         && !on_scrollbar
         && matches!(menu.hovered, Some(super::MenuAction::SettingsScale(_)))
@@ -398,10 +448,10 @@ pub(crate) fn drive_menu_input(
         {
             menu.move_focus(1);
         }
-        if gamepad.just_pressed(GamepadButton::South) {
+        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::South)) {
             menu.activate_focused();
         }
-        if gamepad.just_pressed(GamepadButton::East) {
+        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::East)) {
             menu.go_back_from_input();
         }
     }

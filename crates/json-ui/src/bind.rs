@@ -692,6 +692,7 @@ fn bake_properties(properties: &BTreeMap<String, Value>, own: &Bag) -> BTreeMap<
             let value = match value {
                 Value::String(reference)
                     if reference.starts_with('#')
+                        && key != "toggle_name"
                         && !(key == "text" && reference.starts_with("##")) =>
                 {
                     match own.get(reference) {

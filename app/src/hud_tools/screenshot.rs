@@ -91,11 +91,20 @@ fn capture_from_env(
 }
 
 fn capture_on_key(
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     channel: Res<ScreenshotChannel>,
     mut commands: Commands,
 ) {
-    if !keys.just_pressed(KeyCode::F2) {
+    if menu.as_ref().is_some_and(|menu| menu.is_visible())
+        || !crate::menu::settings_options::binding_pressed(
+            menu.as_deref(),
+            "key.screenshot",
+            &keys,
+            &mouse,
+        )
+    {
         return;
     }
     let path = unique_path(&channel.dir, SystemTime::now());

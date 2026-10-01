@@ -42,7 +42,38 @@ material not inspected); placeholder hiding ignores focus; `font_type` and
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
 Provisional, labeled incomplete: the OreUI scroll thumb's look and shrinking a
 long side-menu label to fit are approximations (no OreUI stylesheet on hand), and
-unbacked settings show fixed vanilla defaults.
+unbacked settings originally showed fixed host values; their vanilla defaults were
+not established by the pack binding names. See the settings audit below.
+
+2026-10-01 settings audit — incomplete (the Settings completion gate remains open):
+
+- The legacy desktop host includes migrated JSON tabs. Selector controls use the
+  pack's 30px height, without its optional 25px spatial-pattern spacer. The current
+  controller derives this flag from realm state and `mc-disable-settings-spatial-pattern-fix`;
+  the retail flight assignment is unverified. Compact spacing is provisional.
+- Persisted controller-name options now feed camera/input, ten mixer categories,
+  GUI scale, fullscreen/FPS pacing, language and live chunk-radius requests. Keyboard
+  capture covers the existing semantic gameplay actions; raw inventory/chat/drop
+  keys and controller rebinding are incomplete. Duplicate-key rejection and key
+  display strings are not established vanilla behavior.
+- UI only, system missing: gamma, smooth lighting, leaves, fancy skies,
+  particle toggles, most advanced graphics, paperdoll toggles, screen
+  animation, auto-jump, spyglass dampening, controller cursor
+  options, narration/subtitles, glint settings, Creator diagnostics and
+  script options, tutorial/profile preferences and several chat presentation options.
+  These values persist but do not close runtime parity gates.
+- Global Resources provides empty pack collections as a clean integration hook;
+  the pack-list controller belongs to the resource-pack work. Storage actions,
+  world-edit/Experiments, Party, several account/help submenus, reset flows and
+  hardware/flight-dependent controls remain incomplete.
+- Numeric defaults/ranges are provisional unless a source explicitly states them.
+  The pack confirms chat notification 10s and toast notification 3s defaults. The
+  reconstructed current OptionRegistry registration body could not be read from
+  Lens. FOV, gamma, sensitivities, FPS limits and added boolean defaults therefore
+  require further current-client evidence; they must not be described as vanilla.
+- Offline carrier gallery, geometry and option-family tests provide local evidence,
+  not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
+  runtime option effects and flight/platform visibility still need full acceptance.
 
 2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
 (pipelined in-order requests, prediction groups, vanilla container addressing),
@@ -3556,7 +3587,9 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
 
-### Projectile rendering fixes (incomplete parity)
+
+### Settings chat popup follow-up (incomplete)
+
 
 The `fix/projectile-render` investigation fixes item-icon carrier admission and
 resolution, sprite UV eligibility, arrow face UV defaults and neutral-profile plane
@@ -3575,6 +3608,25 @@ remaining questions are in `docs/biome-blending.md`. This does not close
 P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
+
+
+### Settings desktop continuation (incomplete parity)
+
+The desktop host now consumes Hide HUD, Hide Hand (animated and fallback paths),
+player-name visibility, panorama speed, cloud visibility, darkness strength, HUD
+opacity and HUD text-background opacity. Focus-loss pause reads its saved setting;
+explicit pause-menu state remains authoritative. These are runtime adapters, not a
+closed visual or numeric-default parity gate.
+
+
+Desktop continuation also wires section reset confirmations (Video, Accessibility and
+Audio), each using the existing option registry; spyglass turn scaling, secondary
+Enter for Chat until that binding is remapped, notification duration and the Creator
+chat coordinate copy/paste header. These changes remain incomplete parity until the
+full gates and rendered evidence pass. Registered provisional defaults remain
+provisional after a reset; a working consumer does not establish a vanilla default.
+
+
 
 ## Terrain particle texture repair (2026-10-01)
 

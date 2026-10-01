@@ -5,7 +5,7 @@
 
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput},
-    prelude::{Entity, KeyCode, Local, MessageReader, Query, ResMut, With},
+    prelude::{Entity, Local, MessageReader, Query, ResMut, With},
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
 
@@ -27,7 +27,11 @@ pub(crate) fn toggle_fullscreen_hotkey(
         .read()
         .filter(|input| {
             input.window == entity
-                && input.key_code == KeyCode::F11
+                && crate::menu::settings_options::binding_key(
+                    Some(&menu),
+                    "key.fullscreen",
+                    input.key_code,
+                )
                 && input.state == ButtonState::Pressed
                 && !input.repeat
         })

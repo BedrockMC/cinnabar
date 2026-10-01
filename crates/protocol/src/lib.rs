@@ -19,6 +19,7 @@ mod packet;
 mod particle;
 mod permissions;
 mod raw_text;
+mod settings;
 mod socket_transport;
 pub mod store_control;
 mod transfer;
@@ -164,6 +165,7 @@ pub use raw_text::{
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
+pub use settings::request_chunk_radius_packet;
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use ui::{

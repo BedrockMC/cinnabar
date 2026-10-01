@@ -1,7 +1,7 @@
 struct UiViewport {
     viewport_size: vec2<f32>,
     time_seconds: f32,
-    _padding: f32,
+    glint_strength: f32,
 };
 
 // Vertex style bits (`ui::UI_STYLE_GLINT`, `UI_STYLE_GRAYSCALE`, `UI_STYLE_BILINEAR`).
@@ -70,7 +70,8 @@ fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
     let alpha = sample.a * straight_color.a;
     var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a;
     if (input.style_flags & STYLE_GLINT) != 0u {
-        premultiplied_rgb += glint(input.clip_position.xy) * alpha;
+        // L:1.26.50.26:0x213ce90 scales glint RGB without changing alpha.
+        premultiplied_rgb += glint(input.clip_position.xy) * viewport.glint_strength * alpha;
     }
     return vec4<f32>(premultiplied_rgb, alpha);
 }

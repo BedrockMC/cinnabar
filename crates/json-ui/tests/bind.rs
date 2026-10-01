@@ -554,3 +554,25 @@ fn texture_file_system_is_not_a_texture() {
     let bound = bind(&image, &data, &EmptyLibrary);
     assert!(!bound.properties.contains_key("texture"));
 }
+
+#[test]
+fn hash_prefixed_toggle_names_remain_identifiers() {
+    let toggle = ctrl(
+        "choice",
+        Some("toggle"),
+        json!({
+            "toggle_name": "#coordinate_type_position",
+            "property_bag": { "#coordinate_type_position": true },
+            "bindings": [{"binding_name": "#coordinate_type_position",
+                "binding_name_override": "#toggle_state"}]
+        }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#coordinate_type_position", Scalar::Bool(false));
+    let bound = bind(&toggle, &data, &EmptyLibrary);
+    assert_eq!(
+        prop(&bound, "toggle_name"),
+        &json!("#coordinate_type_position")
+    );
+    assert_eq!(prop(&bound, "#toggle_state"), &json!(false));
+}

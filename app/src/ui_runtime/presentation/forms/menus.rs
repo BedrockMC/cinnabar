@@ -294,6 +294,7 @@ impl UiPresentationRuntime {
                 }
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
+                    keys.push((actions[step], region.key.clone()));
                 }
                 continue;
             }
@@ -337,7 +338,16 @@ impl UiPresentationRuntime {
         let translate = |key: &str| runtime.translation(key);
         let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
-        let data = json_ui::form_data_source(&model);
+        let mut data = json_ui::form_data_source(&model);
+        let reference = if dialog
+            == crate::menu::MenuDialog::SettingsSupport(
+                crate::menu::settings_support::SupportDialog::Help,
+            ) {
+            super::settings_support::help_data(&mut data, &translate);
+            "rating_prompt.rating_prompt_screen"
+        } else {
+            MODAL_POPUP
+        };
         let inputs = engine::EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -355,7 +365,7 @@ impl UiPresentationRuntime {
         };
         let popup = renderer
             .render_screen(
-                MODAL_POPUP,
+                reference,
                 &data,
                 &context,
                 state,
@@ -368,14 +378,18 @@ impl UiPresentationRuntime {
             )
             .ok()??;
         let origin = [self.safe_area.left(), self.safe_area.top()];
+        self.menu_scrolls.set_areas(scroll_areas(&popup, origin));
         let mut hits = Vec::new();
         let mut keys = Vec::new();
         let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
             let action = match region.pressed.as_deref() {
-                Some("popup_dialog.left_button") => confirm,
+                Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
                 Some(
-                    "popup_dialog.rightcancel_button" | "popup_dialog.escape" | "button.menu_exit",
+                    "popup_dialog.rightcancel_button"
+                    | "popup_dialog.escape"
+                    | "button.menu_exit"
+                    | "button.rating_no_button",
                 ) => MenuAction::DismissDialog,
                 _ => continue,
             };
@@ -454,7 +468,7 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
 
 /// Regions select the nearest slider anchor, including anchors at both ends
 /// of the track. The end values therefore occupy half an interior interval.
-fn segments(
+pub(super) fn segments(
     region: &HitRegion,
     steps: usize,
     scale: f32,

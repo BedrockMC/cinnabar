@@ -14,6 +14,7 @@ use render::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScen
 use ui::{FONT_DESIGN_PIXEL_TEXELS, SafeArea, TextLayoutCache};
 
 use super::nametag_atlas::{GlyphPage, NametagAtlas};
+use super::retained_hud::{self, BelowNameAnchor};
 use assets::RuntimeFontCatalog;
 
 /// Vanilla's default nameplate render distance, used until an actor streams its own.
@@ -264,6 +265,7 @@ pub(crate) fn build_nametag_scene<'p>(
 
 /// Tags for remote players and flagged mobs, nearest first; players with a below-name score get
 /// the combined plate instead.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
     stream: &client_world::WorldStream,
@@ -272,6 +274,7 @@ pub(super) fn project_nametags(
     logical_size: [f32; 2],
     safe_area: SafeArea,
     partial_tick: f32,
+    show_players: bool,
 ) -> Vec<NametagAnchor> {
     let content_size = [
         (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0),
@@ -279,6 +282,7 @@ pub(super) fn project_nametags(
     ];
     let mut anchors: Vec<NametagAnchor> = stream
         .remote_actors()
+        .filter(|actor| show_players || !matches!(actor.kind, ActorKind::Player { .. }))
         .filter(|actor| {
             scoreboards
                 .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
@@ -301,6 +305,51 @@ pub(super) fn project_nametags(
     anchors.sort_by(|a, b| a.distance.total_cmp(&b.distance));
     anchors.truncate(MAX_PRESENTED_NAMETAGS);
     anchors
+}
+
+/// Projects player names and their below-name scoreboard rows into the HUD.
+pub(super) fn project_below_name_anchors(
+    scoreboards: &ui::ScoreboardStore,
+    stream: &client_world::WorldStream,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    logical_size: [f32; 2],
+    safe_area: SafeArea,
+    partial_tick: f32,
+) -> Vec<BelowNameAnchor> {
+    let content_width = (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0);
+    let content_height = (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0);
+    stream
+        .render_players()
+        .into_iter()
+        .filter_map(|(actor, _profile)| {
+            let below_name = scoreboards
+                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
+                .or_else(|| {
+                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
+                })?;
+            let name = stream.actor_display_name(actor.unique_id)?;
+            let position =
+                Vec3::from_array(actor.interpolated_position(partial_tick)?) + Vec3::Y * 2.35;
+            let viewport = camera.world_to_viewport(camera_transform, position).ok()?;
+            let x = viewport.x - safe_area.left();
+            let y = viewport.y - safe_area.top();
+            (x.is_finite()
+                && y.is_finite()
+                && x >= 0.0
+                && x <= content_width
+                && y >= 0.0
+                && y <= content_height)
+                .then_some(BelowNameAnchor {
+                    x,
+                    y,
+                    name,
+                    score: below_name.0,
+                    objective: below_name.1,
+                })
+        })
+        .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
+        .collect()
 }
 
 #[cfg(test)]
