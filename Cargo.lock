@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "architecture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "serde",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "assets"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags 2.13.0",
  "lewton",
@@ -506,7 +506,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bedrock-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1628,7 +1628,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-world"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assets",
  "bytes",
@@ -2044,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2100,7 +2100,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "same-file",
  "serde",
@@ -3198,7 +3198,7 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3207,7 +3207,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assets",
  "image",
@@ -3221,7 +3221,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "json-ui",
@@ -3391,7 +3391,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "asset-compiler",
  "assets",
@@ -4295,7 +4295,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -4608,7 +4608,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "asset-compiler",
  "assets",
@@ -4672,7 +4672,7 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "protocol",
@@ -4885,7 +4885,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "semver"
@@ -5007,7 +5007,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5670,7 +5670,7 @@ checksum = "214ca0b2191785cbc06209b9ca1861e048e39b5ba33574b3cedd58363d5bb5f6"
 
 [[package]]
 name = "ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assets",
  "semantic-input",
@@ -5809,7 +5809,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "visualcoverage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assets",
  "clap",
@@ -6637,7 +6637,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "world"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hashbrown 0.16.1",
  "rayon",
