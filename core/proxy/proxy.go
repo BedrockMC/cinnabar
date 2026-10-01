@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -23,10 +24,10 @@ import (
 
 // Config configures a local bridge listener and its upstream Bedrock server.
 type Config struct {
-	SocketDir   string
-	Upstream    string
-	TokenSource oauth2.TokenSource
-	Logger      *slog.Logger
+	SocketDir string
+	Upstream  string
+	Account   *authcache.Account // nil runs offline
+	Logger    *slog.Logger
 	// UpstreamClientCache advertises blob-cache support upstream; set it only when the downstream
 	// client owns a verified blob cache, since there is no runtime negotiation.
 	UpstreamClientCache bool
@@ -80,7 +81,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sessionErr := make(chan error, 1)
-	prepared := newPreparedConnections(cfg.Upstream, cfg.TokenSource, logger)
+	prepared := newPreparedConnections(cfg.Upstream, cfg.Account, logger)
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
@@ -91,7 +92,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		transfers = new(TransferState)
 	}
 	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, address, cfg.TokenSource, logger)
+		return resolveUpstreamTarget(ctx, address, cfg.Account, logger)
 	}
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
