@@ -63,18 +63,32 @@ pub(crate) fn rasterize(input: &UiRenderInput) -> RgbaImage {
 }
 
 /// Fill one triangle, sampling `shade(uv, color, x, y)` at each covered pixel
-/// centre and blending the result over the image.
+/// centre and blending the result over the image. A centre on an edge belongs
+/// only to the triangle that edge is a top or left edge of, as GPUs rasterize,
+/// so a quad's shared diagonal is never blended twice.
 fn fill(
     image: &mut RgbaImage,
-    corners: [UiRenderVertex; 3],
+    mut corners: [UiRenderVertex; 3],
     shade: impl Fn([f32; 2], [u8; 4], u32, u32) -> Option<[u8; 4]>,
     invert: bool,
 ) {
     let [a, b, c] = corners.map(|corner| corner.position);
-    let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    let mut area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
     if area.abs() < f32::EPSILON {
         return;
     }
+    if area < 0.0 {
+        corners.swap(1, 2);
+        area = -area;
+    }
+    let [a, b, c] = corners.map(|corner| corner.position);
+    let top_left = |from: [f32; 2], to: [f32; 2]| {
+        let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+        dy < 0.0 || (dy == 0.0 && dx > 0.0)
+    };
+    let owns = |weight: f32, from: [f32; 2], to: [f32; 2]| {
+        weight > 0.0 || (weight == 0.0 && top_left(from, to))
+    };
     let min_x = a[0].min(b[0]).min(c[0]).floor().max(0.0) as u32;
     let min_y = a[1].min(b[1]).min(c[1]).floor().max(0.0) as u32;
     let max_x = (a[0].max(b[0]).max(c[0]).ceil() as u32).min(image.width());
@@ -86,7 +100,7 @@ fn fill(
                 ((to[0] - from[0]) * (p[1] - from[1]) - (to[1] - from[1]) * (p[0] - from[0])) / area
             };
             let (wa, wb, wc) = (weight(b, c), weight(c, a), weight(a, b));
-            if wa < 0.0 || wb < 0.0 || wc < 0.0 {
+            if !(owns(wa, b, c) && owns(wb, c, a) && owns(wc, a, b)) {
                 continue;
             }
             let uv = std::array::from_fn(|axis| {
@@ -121,4 +135,53 @@ pub(crate) fn write(input: &UiRenderInput, name: &str) {
     let path = Path::new(&dir).join(format!("{name}.png"));
     rasterize(input).save(&path).unwrap();
     eprintln!("snapshot: {}", path.display());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vertex(x: f32, y: f32) -> UiRenderVertex {
+        UiRenderVertex {
+            position: [x, y],
+            uv: [0, 0],
+            color: [0, 0, 0, 153],
+            style_flags: 0,
+        }
+    }
+
+    // A translucent nine-slice corner cell (two triangles sharing a diagonal)
+    // blends every pixel exactly once, whether or not it sits on pixel edges.
+    #[test]
+    fn a_translucent_quad_has_uniform_alpha_across_its_diagonal() {
+        for (x0, y0, side) in [(0.0, 0.0, 16.0), (2.5, 3.25, 11.0)] {
+            let mut image = RgbaImage::from_pixel(32, 32, Rgba([255, 255, 255, 255]));
+            let quad = [
+                vertex(x0, y0),
+                vertex(x0 + side, y0),
+                vertex(x0 + side, y0 + side),
+                vertex(x0, y0 + side),
+            ];
+            for triangle in [[0, 1, 2], [0, 2, 3]] {
+                fill(
+                    &mut image,
+                    triangle.map(|index| quad[index]),
+                    |_, color, _, _| Some(color),
+                    false,
+                );
+            }
+            let inside: std::collections::BTreeSet<u8> = image
+                .enumerate_pixels()
+                .filter(|(x, y, _)| {
+                    let centre = [*x as f32 + 0.5, *y as f32 + 0.5];
+                    centre[0] > x0
+                        && centre[0] < x0 + side
+                        && centre[1] > y0
+                        && centre[1] < y0 + side
+                })
+                .map(|(_, _, pixel)| pixel[0])
+                .collect();
+            assert_eq!(inside.len(), 1, "{inside:?}");
+        }
+    }
 }

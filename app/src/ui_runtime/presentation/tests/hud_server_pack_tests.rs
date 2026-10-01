@@ -193,9 +193,10 @@ fn server_pack_stack_hud_dump() {
     presentation.set_server_ui_pack(&dir_pack(&stack));
     let runtime = session("Objective");
     for now in [500, 516] {
-        presentation
+        let input = presentation
             .build(&runtime, now, [1920, 1080], DpiScale::new(1.0).unwrap())
             .unwrap();
+        super::super::forms::snapshot::write(&input, "hud_pack_stack");
     }
     for node in presentation.hud_draw_nodes() {
         if node.alpha <= 0.0 {
@@ -223,5 +224,75 @@ fn server_pack_stack_hud_dump() {
                 Draw::Solid { color } => format!("solid {color:?}"),
             }
         );
+    }
+}
+
+/// Local diagnosis: Zeqa's glyph-built sidebar entries under `CINNABAR_HUD_PACK_STACK`
+/// with that pack's `font/glyph_XX.png` sheets, painted to `zeqa_top_bar.png`.
+#[test]
+fn zeqa_top_bar_snapshot() {
+    let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
+        return;
+    };
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    presentation.set_server_ui_pack(&dir_pack(&stack));
+    let mut cells = Vec::new();
+    for high_byte in 0..=u8::MAX {
+        let path = std::path::Path::new(&stack).join(format!("font/glyph_{high_byte:02X}.png"));
+        let Ok(image) = image::open(&path) else {
+            continue;
+        };
+        let image = image.into_rgba8();
+        cells.extend(assets::extract_cells(&assets::GlyphSheet {
+            high_byte,
+            width: image.width(),
+            height: image.height(),
+            rgba8: image.into_raw().into_boxed_slice(),
+        }));
+    }
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_session_glyphs(Some(Arc::new(
+        crate::ui_runtime::presentation::SessionGlyphSheets { cells },
+    )));
+    let names = [
+        "\u{e15e}\u{e700}\u{e38e}\u{e391}\u{e384}\u{e381}\u{e388}\u{e393}\u{e392}\u{ea39}\u{e700}\u{eaa3}",
+        "\u{e107}\u{e700}\u{e38a}\u{e383}\u{e391}\u{ea39}\u{e700}\u{eaa3}\u{eabe}\u{ea9d}\u{eaa2}",
+        "\u{e149}\u{e700}\u{e38b}\u{e384}\u{e395}\u{e384}\u{e38b}\u{ea39}\u{e700}\u{ea9a}",
+        "\u{e143}\u{e700}\u{e38b}\u{e38e}\u{e381}\u{e381}\u{e398}\u{ea39}\u{e700}\u{ea84}\u{ea94}\u{ea9e}",
+        "\u{e00f}\u{e700}",
+    ];
+    let rows: Vec<_> = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            (
+                index as i64,
+                ProtocolScoreIdentity::FakePlayer(Arc::from(*name)),
+                index as i32,
+            )
+        })
+        .collect();
+    super::retained_hud_tests::install_mixed_scoreboard_slot(&mut runtime, "sidebar", &rows);
+    for now in [500, 516] {
+        let input = presentation
+            .build(&runtime, now, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        super::super::forms::snapshot::write(&input, "zeqa_top_bar");
+    }
+    for node in presentation.hud_draw_nodes() {
+        if node.dest.y < 40.0 && node.alpha > 0.0 {
+            eprintln!(
+                "{:40} {:7.1} {:7.1} {:6.1} {:6.1} a={:.2} {:?}",
+                node.name,
+                node.dest.x,
+                node.dest.y,
+                node.dest.w,
+                node.dest.h,
+                node.alpha,
+                node.draw
+            );
+        }
     }
 }

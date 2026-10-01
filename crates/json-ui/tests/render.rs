@@ -225,3 +225,39 @@ fn empty_and_missing_textures() {
         json!({ "texture": "missing", "allow_debug_missing_texture": false, "size": [8, 8] });
     assert!(image(hidden).is_empty());
 }
+
+/// Zeqa's sidebar box: a 6x6 rounded `Black_sb` with no sidecar.
+struct RoundedBox;
+impl TextureSource for RoundedBox {
+    fn texture(&self, _path: &str) -> Option<TextureMeta> {
+        Some(TextureMeta::plain([6.0, 6.0]))
+    }
+}
+
+// A control `nineslice_size` slices a sidecar-less texture: stretching the whole
+// 6x6 drew its transparent corner texels as a stepped double box (Zeqa's top bar).
+#[test]
+fn control_nineslice_keeps_a_rounded_box_one_box() {
+    let entry = ctrl(
+        "entry",
+        "image",
+        json!({
+            "texture": "textures/ui/zeqa/sb/Black_sb",
+            "nineslice_size": 4,
+            "alpha": 0.6,
+            "size": [47, 15]
+        }),
+        vec![],
+    );
+    let env = LayoutEnv {
+        text: &MonoText,
+        textures: &RoundedBox,
+    };
+    let nodes = emit(&layout(&entry, [100.0, 100.0], &env), &env);
+    assert_eq!(nodes.len(), 9);
+    let corner = nodes[0].dest;
+    assert_eq!([corner.w, corner.h], [4.0, 4.0]);
+    let centre = nodes[4].dest;
+    assert_eq!([centre.w, centre.h], [39.0, 7.0]);
+    assert!(nodes.iter().all(|node| node.alpha == 0.6));
+}
