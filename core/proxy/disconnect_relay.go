@@ -17,10 +17,19 @@ type upstreamRelayDisconnect struct {
 func (e *upstreamRelayDisconnect) Error() string { return e.cause.Error() }
 func (e *upstreamRelayDisconnect) Unwrap() error { return e.cause }
 
+// upstreamRelayClose leaves queued upstream batches readable after its writer sees EOF.
+type upstreamRelayClose struct{ error }
+
+// Unwrap preserves the transport's close classification.
+func (e *upstreamRelayClose) Unwrap() error { return e.error }
+
 func attributeRelayError(err error, fromUpstream bool) error {
 	var disconnect *minecraft.DisconnectPacketError
 	if fromUpstream && errors.As(err, &disconnect) && disconnect != nil {
 		return &upstreamRelayDisconnect{cause: err, value: *disconnect.Packet()}
+	}
+	if fromUpstream && isOrdinaryClose(err) {
+		return &upstreamRelayClose{error: err}
 	}
 	return err
 }

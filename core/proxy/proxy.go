@@ -602,6 +602,18 @@ func relayPacketsWithCacheTelemetry(
 	case <-ctx.Done():
 		first = result{direction: "relay context", err: ctx.Err()}
 	}
+	var second result
+	var receivedBoth bool
+	var upstreamClose *upstreamRelayClose
+	if first.direction == "downstream to upstream" && errors.As(first.err, &upstreamClose) {
+		// A closed upstream writer does not consume its queued inbound batches.
+		select {
+		case second = <-results:
+			first, second = second, first
+			receivedBoth = true
+		case <-ctx.Done():
+		}
+	}
 	var delivery <-chan error
 	var deliveryErr error
 	var disconnect *upstreamRelayDisconnect
@@ -625,12 +637,11 @@ func relayPacketsWithCacheTelemetry(
 		closeErr = errors.Join(closeErr, <-delivery)
 	}
 
-	var second result
 	if first.direction == "relay context" {
 		one := <-results
 		two := <-results
 		second = result{direction: one.direction + " and " + two.direction, err: errors.Join(one.err, two.err)}
-	} else {
+	} else if !receivedBoth {
 		second = <-results
 	}
 
