@@ -9,12 +9,15 @@ use bevy::{
     window::PrimaryWindow,
 };
 use client_world::ActorSnapshot;
-use protocol::{ActorUseAction, ActorUseRequest, BedrockSession, PlayerInputMode, SwingSource};
+use protocol::{
+    ActorUseAction, ActorUseRequest, BedrockSession, PlayerGameMode, PlayerInputMode, SwingSource,
+};
 use semantic_input::Action;
 
 use crate::{
+    game_mode_capabilities::SURVIVAL_ATTACK_REACH,
     interaction_authority::{
-        BlockRayUnavailable, MAX_PENDING_INTERACTION_FRAMES, observe_block_ray,
+        BlockRayUnavailable, MAX_PENDING_INTERACTION_FRAMES, observe_block_ray, ray_is_current,
     },
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
@@ -400,7 +403,25 @@ pub(crate) struct MeleeContext<'w, 's> {
     time: Res<'w, Time<Real>>,
 }
 
+/// Whether the attack button acts at all: only an open screen or spectator mode stops it,
+/// whatever the game mode or abilities otherwise allow.
+pub(crate) fn press_admission(
+    gameplay_screen: bool,
+    game_mode: Option<PlayerGameMode>,
+) -> Result<(), &'static str> {
+    if !gameplay_screen {
+        Err("screen_open")
+    } else if game_mode == Some(PlayerGameMode::Spectator) {
+        Err("spectator")
+    } else {
+        Ok(())
+    }
+}
+
 /// Runs before the mining producers so they can defer to a targeted actor.
+///
+/// Like vanilla's build-action handler, only an open screen or spectator mode ignores the
+/// press; everything else swings.
 pub(crate) fn produce_melee(
     context: MeleeContext,
     mut runtime: ResMut<MeleeRuntime>,
@@ -408,41 +429,50 @@ pub(crate) fn produce_melee(
     mut movement: ResMut<MovementTicker>,
 ) {
     runtime.synchronize(movement.interaction_authority_identity());
-    let focused =
-        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let caps = context.ui.game_mode_capabilities();
-    let attack_reach = caps.map_or(0.0, |caps| caps.attack_reach);
-    let Some(input) = context.input.snapshot().filter(|_| {
-        focused
-            && caps.is_some_and(|caps| caps.can_attack)
-            && !context.ui.ui_focused()
-            && movement.accepts_block_interactions()
-    }) else {
+    let attack = context.input.phase(Action::Attack);
+    let drop = |reason| {
+        if attack.pressed {
+            crate::movement::note_click_drop("attack", reason);
+        }
+    };
+    let Some(input) = context.input.snapshot() else {
         runtime.cancel();
         return;
     };
-    let attack = context.input.phase(Action::Attack);
+    let focused =
+        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+    if let Err(reason) = press_admission(
+        focused && !context.ui.ui_focused(),
+        context.ui.player_game_mode(),
+    ) {
+        drop(reason);
+        runtime.cancel();
+        return;
+    }
     if !runtime.observe_input(attack.pressed, attack.held) {
         runtime.cancel();
         return;
     }
+    // A position-authority change is resolving; the press waits for it.
+    if !movement.accepts_block_interactions() {
+        drop("position_authority_pending");
+        runtime.defer(input.frame_sequence);
+        return;
+    }
+    let caps = context.ui.game_mode_capabilities();
     let input_mode = protocol_input_mode(input.input_mode);
-    let (Some(observation), Some(stream)) = (
+    let (Some(crosshair), Some(stream)) = (
         resolve_crosshair(
             &context,
             input_mode,
-            attack_reach,
+            caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach),
             caps.is_some_and(|caps| caps.creative_reach),
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
         ),
         context.client_world.stream.as_ref(),
     ) else {
-        runtime.cancel();
-        return;
-    };
-    // Unverified occlusion never admits an attack; the press waits for fresh evidence.
-    let Ok(crosshair) = observation else {
+        drop("no_interaction_ray");
         runtime.defer(input.frame_sequence);
         return;
     };
@@ -480,12 +510,10 @@ fn resolve_crosshair(
     creative_pick_reach: bool,
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
-) -> Option<Result<Crosshair, BlockRayUnavailable>> {
+) -> Option<Crosshair> {
     let ray = context.origin.outbound_ray()?;
     let stream = context.client_world.stream.as_ref()?;
-    if ray.session_generation() != context.ui.session_id()
-        || ray.session_generation() != stream.actor_session_id()
-    {
+    if !ray_is_current(ray, context.ui.session_id(), stream) {
         return None;
     }
     let reach = if creative_pick_reach {
@@ -494,25 +522,29 @@ fn resolve_crosshair(
         survival_reach(input_mode)
     };
     let origin = ray.origin().to_array();
-    let Some(selection) = hand_interaction_selection(&context.ui) else {
-        return Some(Err(BlockRayUnavailable));
-    };
-    let observed = match observe_block_ray(
-        &context.origin,
-        &context.ui,
-        &context.client_world,
-        &context.collisions,
-        selection,
-        (
-            input_mode,
-            reach,
-            input_authority,
-            position_authority_generation,
-        ),
-    ) {
-        Ok(observed) => observed,
-        Err(unavailable) => return Some(Err(unavailable)),
-    };
+    // Vanilla picks against the world it holds, where unreadable space is empty; an
+    // unreadable block ray therefore neither blocks the swing nor occludes a target.
+    let observed = hand_interaction_selection(&context.ui).and_then(|selection| {
+        match observe_block_ray(
+            &context.origin,
+            &context.ui,
+            &context.client_world,
+            &context.collisions,
+            selection,
+            (
+                input_mode,
+                reach,
+                input_authority,
+                position_authority_generation,
+            ),
+        ) {
+            Ok(observed) => observed,
+            Err(BlockRayUnavailable) => {
+                crate::movement::note_click_drop("attack", "block_ray_unreadable_treated_as_clear");
+                None
+            }
+        }
+    });
     let block_distance = observed.map(|observed| {
         let hit = observed.target.position;
         let offset = observed.target.relative_hit;
@@ -530,7 +562,7 @@ fn resolve_crosshair(
         ray.direction().to_array(),
         reach,
     );
-    Some(Ok(classify(actor, block_distance, attack_reach)))
+    Some(classify(actor, block_distance, attack_reach))
 }
 
 #[cfg(test)]

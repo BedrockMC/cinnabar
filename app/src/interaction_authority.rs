@@ -91,18 +91,18 @@ impl FrozenBlockObservation {
     }
 }
 
-/// Whether a frozen ray still belongs to the live session and stream.
+/// Whether a frozen ray still belongs to the live network session.
 ///
 /// Events committed after the freeze (actor movement, chat) do not stale it: the ray is cast
-/// against the current world, whose inspected revisions the observation records.
+/// against the current world, whose inspected revisions the observation records. The stream's
+/// actor-session id is a process-wide counter, not the network session generation, so it is
+/// never compared with the ray's.
 pub(crate) fn ray_is_current(
     ray: &crate::local_player::FrozenInteractionOrigin,
     ui_session: u64,
     stream: &client_world::WorldStream,
 ) -> bool {
-    ray.session_generation() == ui_session
-        && ray.session_generation() == stream.actor_session_id()
-        && ray.fifo_sequence() <= stream.committed_sequence()
+    ray.session_generation() == ui_session && ray.fifo_sequence() <= stream.committed_sequence()
 }
 
 /// The ray or world evidence behind a block observation is stale or unreadable.
@@ -225,12 +225,14 @@ mod tests {
         origin.outbound_ray().unwrap().clone()
     }
 
-    /// World events committed between the ray freeze and the interaction producers (every
-    /// frame on a busy server) must not stale the ray; another session does.
+    /// World events committed after the ray freeze (every frame on a busy server) must not
+    /// stale it, nor may the stream's process-wide actor-session counter differing from the
+    /// network session generation (every reconnect); another network session does.
     #[test]
-    fn a_ray_survives_later_commits_but_not_a_session_change() {
+    fn a_ray_survives_later_commits_and_reconnects_but_not_a_session_change() {
+        let _earlier = stream();
         let mut stream = stream();
-        let session = stream.actor_session_id();
+        let session = stream.actor_session_id() + 5;
         let frozen = ray(session, stream.committed_sequence());
         stream
             .submit(
@@ -244,9 +246,9 @@ mod tests {
             )
             .unwrap();
         assert!(stream.committed_sequence() > frozen.fifo_sequence());
+        assert_ne!(stream.actor_session_id(), session);
         assert!(ray_is_current(&frozen, session, &stream));
         assert!(!ray_is_current(&frozen, session + 1, &stream));
-        assert!(!ray_is_current(&ray(session + 1, 0), session + 1, &stream));
     }
 
     fn at(position: [i32; 3], input_mode: PlayerInputMode, reach: f64) -> FrozenBlockObservation {
