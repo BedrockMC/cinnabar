@@ -24,6 +24,8 @@ make play
 This downloads and compiles the vanilla assets on first run (and whenever they're stale), builds
 the Go core, and opens the launcher menu. The first sign-in prints a Microsoft device code; the
 token is cached in `.local/auth/`, which holds private credentials, so never share or commit it.
+`make play` builds with the fast `play` profile (parallel codegen, incremental rebuilds, sccache when
+installed); `make play PROFILE=release` builds the fully optimised shipped binary.
 
 To join one server directly without the menu, run the core and client in two terminals:
 
