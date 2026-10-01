@@ -171,10 +171,12 @@ fn teleport_preserves_jump_cooldown_until_the_next_allowed_takeoff() {
     super::reconcile_move_player_teleport(&mut ticker, &mut physics, anchor, 0, true, &world)
         .unwrap();
     assert_eq!(physics.state().unwrap().jump_delay, cooldown);
-    assert!(physics
-        .advance(Duration::from_millis(50), input, &world)
-        .samples
-        .is_empty());
+    assert!(
+        physics
+            .advance(Duration::from_millis(50), input, &world)
+            .samples
+            .is_empty()
+    );
     for _ in 0..cooldown {
         let frame = physics.advance(Duration::from_millis(50), input, &world);
         assert_eq!(frame.samples.len(), 1);
