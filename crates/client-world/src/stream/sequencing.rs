@@ -615,7 +615,8 @@ impl WorldStream {
                     event,
                 });
             }
-            WorldEvent::Particle(event) => {
+            WorldEvent::Particle(mut event) => {
+                self.remap_particle_block_ids(&mut event);
                 let sequence = sequence.expect("sequenced particle events commit through submit");
                 self.push_committed_particle(CommittedParticleEvent {
                     sequence,
