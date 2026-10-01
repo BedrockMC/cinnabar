@@ -104,6 +104,21 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	c := &Client{cfg: cfg, sessionID: uuid.NewString()}
 	c.guard = newPurchaseGuard(cfg.Now)
+	httpClient := *cfg.HTTP
+	next := httpClient.CheckRedirect
+	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !c.sameOrigin(req.URL) {
+			return ErrInvalidRequest
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("store: stopped after 10 redirects")
+		}
+		return nil
+	}
+	c.cfg.HTTP = &httpClient
 	return c, nil
 }
 
@@ -124,24 +139,27 @@ type response struct {
 	body   []byte
 }
 
-// resolve joins a service-relative path (query allowed) onto the base URL, or accepts an https URL
-// on the same host.
+// resolve joins a service-relative path (query allowed) or an absolute URL onto the base URL; the
+// result must stay on the base origin, since the request carries the service token.
 func (c *Client) resolve(path string) (string, error) {
-	if strings.HasPrefix(path, "https://") {
-		u, err := url.Parse(path)
-		if err != nil || !strings.EqualFold(u.Host, c.cfg.BaseURL.Host) {
-			return "", ErrInvalidRequest
-		}
-		return u.String(), nil
-	}
-	if !strings.HasPrefix(path, "/") {
+	if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "https://") {
 		path = "/" + path
 	}
 	ref, err := url.Parse(path)
 	if err != nil {
 		return "", ErrInvalidRequest
 	}
-	return c.cfg.BaseURL.ResolveReference(ref).String(), nil
+	u := c.cfg.BaseURL.ResolveReference(ref)
+	if !c.sameOrigin(u) {
+		return "", ErrInvalidRequest
+	}
+	return u.String(), nil
+}
+
+// sameOrigin reports whether u has the base URL's scheme and authority and no userinfo.
+func (c *Client) sameOrigin(u *url.URL) bool {
+	base := c.cfg.BaseURL
+	return u.User == nil && strings.EqualFold(u.Scheme, base.Scheme) && strings.EqualFold(u.Host, base.Host)
 }
 
 // do sends one authenticated request; it never retries, so a POST is sent at most once.
