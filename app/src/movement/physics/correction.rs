@@ -276,6 +276,9 @@ impl LocalPhysicsController {
             let Some(frame_input) = self.history.input_at(result.tick) else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
+            if frame_input.mode == sim::MovementMode::Riding {
+                jump_fold = ReplayJumpArcFold::seed(true, false, false);
+            }
             let (initiated, arc_active) = jump_fold.step(output.jump_initiated, result.on_ground);
             retained.sneaking = frame_input.sneaking;
             retained.sprinting = frame_input.sprinting;
@@ -289,6 +292,7 @@ impl LocalPhysicsController {
                 retained.grounded_before_tick = frame.grounded_before_tick;
                 retained.jump_repeated = frame.jump_repeated;
                 retained.processed.forced_sneak = frame.forced_sneak;
+                retained.processed.ride = frame.intent.ride;
                 if let Some(delta) = frame.ride_delta {
                     retained.movement = delta;
                 }
