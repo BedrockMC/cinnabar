@@ -1,6 +1,9 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#ifdef ENHANCED
+#import cinnabar::enhanced_view::{material_class, shade_surface}
+#endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
@@ -71,6 +74,10 @@ struct VertexOutput {
     @location(7) ambient_occlusion: f32,
     @location(8) @interpolate(flat) depth_write_route: u32,
     @location(9) world_position: vec3<f32>,
+#ifdef ENHANCED
+    @location(10) normal: vec3<f32>,
+    @location(11) @interpolate(flat) material_class: u32,
+#endif
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -225,6 +232,10 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.ambient_occlusion = light_ao_factor(u32(ao));
     out.depth_write_route = packed_material >> 31u;
     out.world_position = world_position;
+#ifdef ENHANCED
+    out.normal = face_normal(face);
+    out.material_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
+#endif
     return out;
 }
 
@@ -258,6 +269,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
+#ifdef ENHANCED
+    let colour = shade_surface(
+        sampled.rgb * in.water_tint,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.material_class,
+    );
+#else
     let colour = lit_colour(
         sampled.rgb * in.water_tint,
         in.block_light,
@@ -265,6 +288,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.ambient_occlusion,
         atmosphere.sun_direction_daylight.w,
     );
+#endif
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
     return vec4(apply_distance_fog(colour, in.world_position), sampled.a);
@@ -281,6 +305,18 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
+#ifdef ENHANCED
+    let lit = shade_surface(
+        sampled.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.material_class,
+    );
+#else
     let lit = lit_colour(
         sampled.rgb,
         in.block_light,
@@ -288,5 +324,6 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         in.ambient_occlusion,
         atmosphere.sun_direction_daylight.w,
     );
+#endif
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 }

@@ -9,7 +9,12 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use bevy::prelude::*;
+use bevy::{
+    camera::Camera3dDepthTextureUsage,
+    post_process::bloom::Bloom,
+    prelude::*,
+    render::{render_resource::TextureUsages, view::Hdr},
+};
 use render::{EnhancedRenderPlugin, EnhancedRendering};
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
@@ -157,19 +162,49 @@ fn apply_menu_render_mode(
     menu.sync_render_mode(settings.user_settings_update().1.video.render_mode);
 }
 
-/// Keep the opt-in marker on gameplay cameras only.
+/// Original depth usage, restored when opting out of Enhanced.
+#[derive(Component)]
+struct VanillaDepthUsage(Camera3dDepthTextureUsage);
+
+/// Keep the opt-in effects on gameplay cameras only.
 fn apply_render_mode_to_cameras(
     mut commands: Commands,
     settings: Res<RuntimeSettings>,
-    cameras: Query<(Entity, Has<EnhancedRendering>), With<FlyCamera>>,
+    mut cameras: Query<
+        (
+            Entity,
+            &mut Camera3d,
+            Has<EnhancedRendering>,
+            Option<&VanillaDepthUsage>,
+        ),
+        With<FlyCamera>,
+    >,
 ) {
     let enhanced = settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
-    for (entity, has_enhanced) in &cameras {
+    for (entity, mut camera, has_enhanced, vanilla_depth) in &mut cameras {
         if enhanced != has_enhanced {
             if enhanced {
-                commands.entity(entity).insert(EnhancedRendering::default());
+                let original = camera.depth_texture_usages;
+                camera.depth_texture_usages = (TextureUsages::from(original)
+                    | TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_SRC)
+                    .into();
+                commands.entity(entity).insert((
+                    EnhancedRendering::default(),
+                    Hdr,
+                    Bloom {
+                        intensity: 0.12,
+                        ..default()
+                    },
+                    VanillaDepthUsage(original),
+                ));
             } else {
-                commands.entity(entity).remove::<EnhancedRendering>();
+                if let Some(VanillaDepthUsage(original)) = vanilla_depth {
+                    camera.depth_texture_usages = *original;
+                }
+                commands
+                    .entity(entity)
+                    .remove::<(EnhancedRendering, Hdr, Bloom, VanillaDepthUsage)>();
             }
         }
     }
@@ -260,11 +295,31 @@ mod tests {
         );
         app.update();
         assert!(app.world().get::<EnhancedRendering>(camera).is_some());
+        assert!(app.world().get::<Hdr>(camera).is_some());
+        assert!(app.world().get::<Bloom>(camera).is_some());
+        let usage = TextureUsages::from(
+            app.world()
+                .get::<Camera3d>(camera)
+                .unwrap()
+                .depth_texture_usages,
+        );
+        assert!(usage.contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC));
         set_render_mode(
             &mut app.world_mut().resource_mut::<RuntimeSettings>(),
             RenderMode::Vanilla,
         );
         app.update();
         assert!(app.world().get::<EnhancedRendering>(camera).is_none());
+        assert!(app.world().get::<Hdr>(camera).is_none());
+        assert!(app.world().get::<Bloom>(camera).is_none());
+        assert_eq!(
+            TextureUsages::from(
+                app.world()
+                    .get::<Camera3d>(camera)
+                    .unwrap()
+                    .depth_texture_usages
+            ),
+            TextureUsages::from(Camera3d::default().depth_texture_usages),
+        );
     }
 }

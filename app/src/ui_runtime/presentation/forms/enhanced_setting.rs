@@ -57,8 +57,12 @@ mod tests {
         install(&mut catalog);
         assert!(catalog.diagnostics().is_empty());
         let resolved = json_ui::resolve(
-            &catalog, "general_section.video_section", &json_ui::Context::default(),
-        ).control.expect("video section");
+            &catalog,
+            "general_section.video_section",
+            &json_ui::Context::default(),
+        )
+        .control
+        .expect("video section");
         assert_eq!(resolved.children.len(), 1);
         assert_eq!(resolved.children[0].name, "cinnabar_enhanced");
     }

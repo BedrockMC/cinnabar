@@ -22,6 +22,7 @@ pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
 pub(crate) use panorama::{built_in_faces, launcher_view};
+mod enhanced_setting;
 #[cfg(test)]
 mod play_flow_snapshots;
 mod play_screen;
@@ -29,7 +30,6 @@ mod recipe_book;
 mod remote_images;
 mod server_pack;
 mod settings_defaults;
-mod enhanced_setting;
 mod sign_editor;
 #[cfg(test)]
 pub(crate) mod snapshot;

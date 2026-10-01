@@ -1,6 +1,9 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#ifdef ENHANCED
+#import cinnabar::enhanced_view::{material_class, shade_surface}
+#endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
@@ -43,6 +46,9 @@ struct VertexOutput {
     @location(11) ambient_occlusion: f32,
     @location(12) @interpolate(flat) two_sided: u32,
     @location(13) world_position: vec3<f32>,
+#ifdef ENHANCED
+    @location(14) @interpolate(flat) material_class: u32,
+#endif
 }
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
@@ -212,9 +218,37 @@ fn vertex(
     out.ambient_occlusion = light_ao_factor(u32(ao));
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
+#ifdef ENHANCED
+    out.material_class = material_class(material_id);
+    out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
+#endif
     return out;
 }
 
+#ifdef ENHANCED
+fn template_corner(template_quad_base: u32, corner: u32, transform: u32) -> vec3<f32> {
+    let component = corner * 3u;
+    return rotate_cross(vec3<f32>(
+        f32(packed_i16(template_quad_base, component)),
+        f32(packed_i16(template_quad_base, component + 1u)),
+        f32(packed_i16(template_quad_base, component + 2u)),
+    ) / 256.0, transform);
+}
+
+// Counter-clockwise front faces make this cross product point outward.
+fn template_quad_normal(template_quad_base: u32, transform: u32) -> vec3<f32> {
+    let origin = template_corner(template_quad_base, 0u, transform);
+    let face = cross(
+        template_corner(template_quad_base, 1u, transform) - origin,
+        template_corner(template_quad_base, 3u, transform) - origin,
+    );
+    if (dot(face, face) < 1.0e-10) {
+        return vec3(0.0, 1.0, 0.0);
+    }
+    return normalize(face);
+}
+
+#endif
 fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>) -> vec4<f32> {
     let tint_kind = flags & 0x30u;
     if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
@@ -255,6 +289,19 @@ fn fragment(
     }
     if (sampled.a < 0.5) { discard; }
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
+#ifdef ENHANCED
+    let shaded = shade_surface(
+        colour.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.material_class,
+    );
+    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+#else
     let lit = lit_colour(
         colour.rgb,
         in.block_light,
@@ -263,6 +310,7 @@ fn fragment(
         atmosphere.sun_direction_daylight.w,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+#endif
 }
 
 @fragment
@@ -281,6 +329,19 @@ fn fragment_blend(
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
+#ifdef ENHANCED
+    let shaded = shade_surface(
+        colour.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.material_class,
+    );
+    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+#else
     let lit = lit_colour(
         colour.rgb,
         in.block_light,
@@ -289,4 +350,5 @@ fn fragment_blend(
         atmosphere.sun_direction_daylight.w,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+#endif
 }
