@@ -147,6 +147,7 @@ fn worlds_tab(
             title: friend.world_name.clone(),
             subtitle: format!("{}'s world", friend.gamertag),
             tag: "Friend's world",
+            world_type: String::new(),
             meta: [friend.members.clone(), String::new()],
             action: MenuAction::PlayFriend(index),
             edit: None,
@@ -159,6 +160,7 @@ fn worlds_tab(
                     title: world.name.clone(),
                     subtitle: String::new(),
                     tag: game_mode_tag(&world.game_mode),
+                    world_type: world.world_type.clone(),
                     meta: [world.size.clone(), world.date.clone()],
                     action: MenuAction::PlayLocalWorld(index),
                     edit: Some(MenuAction::LocalWorld(LocalWorldAction::Edit(index))),
@@ -179,6 +181,8 @@ struct WorldEntry {
     title: String,
     subtitle: String,
     tag: &'static str,
+    /// A local world's type tag, beside its game mode.
+    world_type: String,
     meta: [String; 2],
     action: MenuAction,
     /// The trailing pencil-and-"Edit" action of an owned world.
@@ -231,13 +235,22 @@ fn world_row(
             false,
         )?;
     }
-    tag(
+    let tag_right = tag(
         canvas,
         entry.tag,
         [text_left, y + canvas.r(0.4)],
         NEUTRAL80.fill,
         TEXT,
     )?;
+    if !entry.world_type.is_empty() {
+        tag(
+            canvas,
+            &entry.world_type,
+            [tag_right + canvas.r(0.4), y + canvas.r(0.4)],
+            NEUTRAL80.fill,
+            TEXT,
+        )?;
+    }
     let meta_right = b[2] - pad - edit_width;
     let mut meta_top = b[1] + pad;
     for line in entry.meta.iter().filter(|line| !line.is_empty()) {

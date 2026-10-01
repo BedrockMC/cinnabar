@@ -1,6 +1,6 @@
 //! OreUI components drawn from the theme: the screen overlay and header bar,
 //! solid buttons (elevated, dropping 0.4rem when pressed), panels, dividers,
-//! list rows, solid tabs, text fields, segmented controls and the switch.
+//! list rows, solid tabs, text fields and segmented controls.
 
 use super::super::super::UiPresentationError;
 use super::icons::{self, Icon};
@@ -534,54 +534,4 @@ pub(super) fn segmented(
         .position(|(_, _, on)| *on)
         .unwrap_or(usize::MAX);
     tabs(canvas, view, b, &labels, selected)
-}
-
-/// A switch: a track with the knob right (green) when on, left (grey) when off.
-pub(super) fn switch(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    b: Bounds,
-    on: bool,
-    action: MenuAction,
-) -> Result<(), UiPresentationError> {
-    let state = Interaction::of(view, Some(action));
-    canvas.fill(b, BORDER)?;
-    let edge = canvas.r(EDGE);
-    let track = [b[0] + edge, b[1] + edge, b[2] - edge, b[3] - edge];
-    canvas.fill(
-        track,
-        if on {
-            PRIMARY_ROLE.fill
-        } else {
-            NEUTRAL80.fill
-        },
-    )?;
-    let knob_width = (track[3] - track[1]).min((track[2] - track[0]) * 0.5);
-    let knob_left = if on { track[2] - knob_width } else { track[0] };
-    let knob = [knob_left, track[1], knob_left + knob_width, track[3]];
-    canvas.fill(knob, BORDER)?;
-    let face = [
-        knob[0] + edge,
-        knob[1] + edge,
-        knob[2] - edge,
-        knob[3] - edge,
-    ];
-    canvas.fill(
-        face,
-        if state.hovered {
-            SECONDARY.fill
-        } else {
-            SECONDARY.hovered
-        },
-    )?;
-    canvas.specular(face, SECONDARY.specular_top, SECONDARY.specular_bottom)?;
-    if state.focused {
-        let ring = canvas.r(0.4);
-        canvas.frame(
-            [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
-            EDGE,
-            OUTLINE,
-        )?;
-    }
-    canvas.hit(action, b)
 }

@@ -18,8 +18,9 @@ use bevy::{
 };
 
 pub(crate) use form::{
-    MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS, difficulty_description, difficulty_label,
-    game_mode_description, game_mode_label,
+    FLAT_WORLD_LABEL, MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS, NORMAL_WORLD_LABEL,
+    difficulty_description, difficulty_label, game_mode_description, game_mode_label,
+    world_type_label,
 };
 pub(crate) use launch::core_args;
 pub(crate) use model::{Effect, Event, Input, Screen, Tab, WorldsMenu, WorldsView};

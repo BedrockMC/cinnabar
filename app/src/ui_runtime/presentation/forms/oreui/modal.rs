@@ -2,6 +2,8 @@
 //! an X close button, caption text, and a vertical stack of full-width buttons. The local-world
 //! dialogs (delete, unsaved changes, Docker, EULA, errors, the create spinner) are built on it.
 
+use std::borrow::Cow;
+
 use super::super::super::UiPresentationError;
 use super::grid::space;
 use super::icons::{self, Icon};
@@ -14,8 +16,8 @@ use crate::menu::{LocalWorldAction, MenuAction, MenuView};
 /// One modal: title, body and buttons, with the header X bound to `close`.
 pub(super) struct Modal<'a> {
     pub(super) title: &'a str,
-    pub(super) body: &'a str,
-    pub(super) buttons: Vec<(&'a str, Variant, MenuAction)>,
+    pub(super) body: Cow<'a, str>,
+    pub(super) buttons: Vec<(Cow<'a, str>, Variant, MenuAction)>,
     pub(super) close: Option<MenuAction>,
 }
 
@@ -38,7 +40,7 @@ pub(super) fn draw(
     let body_height = if modal.body.is_empty() {
         0.0
     } else {
-        canvas.measure_height(modal.body, inner, CAPTION)? + space(canvas, 3)
+        canvas.measure_height(&modal.body, inner, CAPTION)? + space(canvas, 3)
     };
     let buttons = modal.buttons.len() as f32;
     let buttons_height = buttons * canvas.r(BUTTON) + (buttons - 1.0).max(0.0) * space(canvas, 1);
@@ -65,7 +67,7 @@ pub(super) fn draw(
     let mut y = top + header + pad;
     if !modal.body.is_empty() {
         canvas.text(
-            modal.body,
+            &modal.body,
             [left + pad, y],
             inner,
             CAPTION,
@@ -112,15 +114,15 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
     Some(match view.screen {
         Screen::ConfirmDelete => Modal {
             title: "Are you sure?",
-            body: "If you delete this world it will be gone forever.",
+            body: "If you delete this world it will be gone forever.".into(),
             buttons: vec![
                 (
-                    "Continue editing",
+                    "Continue editing".into(),
                     Variant::Secondary,
                     local(LocalWorldAction::Back),
                 ),
                 (
-                    "Delete world",
+                    "Delete world".into(),
                     Variant::Destructive,
                     local(LocalWorldAction::ConfirmDelete),
                 ),
@@ -129,15 +131,15 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
         },
         Screen::ConfirmLeaveEdit => Modal {
             title: "Do you want to save your changes?",
-            body: "You have unsaved changes. Make sure to save or discard your changes.",
+            body: "You have unsaved changes. Make sure to save or discard your changes.".into(),
             buttons: vec![
                 (
-                    "Save changes",
+                    "Save changes".into(),
                     Variant::Primary,
                     local(LocalWorldAction::Save),
                 ),
                 (
-                    "Discard changes",
+                    "Discard changes".into(),
                     Variant::Secondary,
                     local(LocalWorldAction::Discard),
                 ),
@@ -148,7 +150,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
             let prompt = view.prompt?;
             Modal {
                 title: prompt.title(),
-                body: prompt.text(),
+                body: prompt.text().into(),
                 buttons: prompt
                     .buttons()
                     .iter()
@@ -158,7 +160,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
                             _ => Variant::Secondary,
                         };
                         (
-                            button.label(),
+                            button.label().into(),
                             variant,
                             local(LocalWorldAction::Prompt(*button)),
                         )
@@ -171,31 +173,36 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
             title: "Minecraft End User License Agreement",
             body: "Default worlds run on Mojang's official Bedrock Dedicated Server, downloaded \
                    from minecraft.net the first time you play. Accept the Minecraft EULA and \
-                   Privacy Policy to continue.",
+                   Privacy Policy to continue."
+                .into(),
             buttons: vec![
                 (
-                    "Accept",
+                    "Accept".into(),
                     Variant::Primary,
                     local(LocalWorldAction::AcceptEula),
                 ),
                 (
-                    "View EULA",
+                    "View EULA".into(),
                     Variant::Secondary,
                     local(LocalWorldAction::ViewEula),
                 ),
-                ("Cancel", Variant::Secondary, local(LocalWorldAction::Back)),
+                (
+                    "Cancel".into(),
+                    Variant::Secondary,
+                    local(LocalWorldAction::Back),
+                ),
             ],
             close: back,
         },
         Screen::Error => Modal {
             title: "Something went wrong",
-            body: view.error.as_deref().unwrap_or_default(),
-            buttons: vec![("OK", Variant::Primary, local(LocalWorldAction::Back))],
+            body: view.error.as_deref().unwrap_or_default().into(),
+            buttons: vec![("OK".into(), Variant::Primary, local(LocalWorldAction::Back))],
             close: back,
         },
         Screen::Create if view.busy => Modal {
             title: "Creating new world...",
-            body: "",
+            body: "".into(),
             buttons: Vec::new(),
             close: None,
         },
