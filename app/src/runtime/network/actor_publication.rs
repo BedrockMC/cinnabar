@@ -25,8 +25,8 @@ use crate::{
         update_actor_rig_scene,
     },
     presentation::equipment::{
-        EquipmentPresentation, EquipmentRuntime, FirstPersonArms, StagedSessionIcons, local_input,
-        remote_input,
+        EquipmentPresentation, EquipmentRuntime, FirstPersonArms, FirstPersonHand, FirstPersonItem,
+        StagedSessionIcons, local_input, remote_input,
     },
     runtime::world::ClientWorld,
 };
@@ -52,7 +52,7 @@ impl HandRigBuilder {
 }
 
 /// Vertical FOV of the first-person pass; underwater and death-camera narrowing are not modelled.
-const HAND_FOV_DEGREES: f32 = 70.0;
+pub(crate) const HAND_FOV_DEGREES: f32 = 70.0;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
 /// below the camera; the pack's first-person arm offsets are authored for that facing.
@@ -390,8 +390,20 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
             let input = local_input(stream, ui.as_deref(), local_runtime_id);
+            let consume_ticks = ui
+                .as_deref()
+                .and_then(|ui| crate::item_use::consume_ticks(stream, ui));
+            let hand = stream.actor_rig(local_runtime_id).map_or(
+                FirstPersonHand {
+                    swing: 0.0,
+                    equip: 1.0,
+                    consume: None,
+                },
+                |rig| hand_progress(rig.hand, consume_ticks, step.partial_tick),
+            );
             let item = input.main.as_ref().and_then(|item| {
-                let layer = equipment.first_person_item(&presentation.submission, item)?;
+                let FirstPersonItem { layer, view_space } =
+                    equipment.first_person_item(&presentation.submission, item, hand)?;
                 let page = usize::from(layer.location.page()).checked_sub(1)?;
                 let page = artwork.pages().get(page)?;
                 let (width, height) = page.dimensions();
@@ -401,7 +413,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                     layers: page.layers(),
                     rgba8: page.shared_pixels(),
                 };
-                Some((layer, atlas))
+                Some((layer, atlas, view_space))
             });
             // Provisional: vanilla draws every held item; an undrawable one shows the bare arm.
             let arms = FirstPersonArms::for_hands(
@@ -651,9 +663,13 @@ fn publish_hand_rig(
         submissions.push(body);
     }
     let mut atlas = None;
-    if let Some((layer, item_atlas)) = source.item {
+    if let Some((layer, item_atlas, view_space)) = source.item {
         let mut item = layer.submission;
-        item.world_from_actor = placement;
+        item.world_from_actor = if view_space {
+            view_placement(source.motion)
+        } else {
+            placement
+        };
         item.texture_layer = layer.location.layer() | HAND_ITEM_LAYER_FLAG;
         submissions.push(item);
         atlas = Some(item_atlas);
@@ -665,11 +681,40 @@ fn publish_hand_rig(
     }
 }
 
-/// What the first-person pass draws: arm-masked body pose and/or a held item with its atlas page.
+/// Camera-space rows for a first-person item placed by its own view transform under `motion`.
+fn view_placement(motion: Mat4) -> [[f32; 4]; 3] {
+    let rows = motion.transpose().to_cols_array_2d();
+    [rows[0], rows[1], rows[2]]
+}
+
+/// The arm's state at `partial_tick` between the rig's last two ticks, as `renderFirstPerson`
+/// interpolates it: the swing wraps forward past its end, and an eat or drink use of
+/// `consume_ticks` counts from its first using tick.
+fn hand_progress(
+    hand: [client_world::HandPhase; 2],
+    consume_ticks: Option<u32>,
+    partial_tick: f32,
+) -> FirstPersonHand {
+    let [previous, current] = hand;
+    let mut swing = current.attack_time - previous.attack_time;
+    if swing < 0.0 {
+        swing += 1.0;
+    }
+    FirstPersonHand {
+        swing: previous.attack_time + swing * partial_tick,
+        equip: previous.arm_height + (current.arm_height - previous.arm_height) * partial_tick,
+        consume: consume_ticks
+            .filter(|_| current.use_ticks > 0)
+            .map(|ticks| (current.use_ticks as f32 - 1.0 + partial_tick, ticks as f32)),
+    }
+}
+
+/// What the first-person pass draws: arm-masked body pose and/or a held item with its atlas page
+/// and whether its bone is in camera space.
 struct HandSource {
     presentation: ActorRigPresentation,
     body: Option<ActorRigSubmission>,
-    item: Option<(EquipmentPresentation, HandItemAtlas)>,
+    item: Option<(EquipmentPresentation, HandItemAtlas, bool)>,
     /// View-space hurt tilt, walk bob and sway applied before the rig placement.
     motion: Mat4,
 }
@@ -742,6 +787,27 @@ fn build_local_player_feed(
 
 #[cfg(test)]
 mod tests {
+    use client_world::HandPhase;
+
+    // The swing wraps forward from its last tick to rest, and an eat use counts from its first
+    // using tick only while the rig reports the use.
+    #[test]
+    fn hand_progress_interpolates_the_swing_forward_and_counts_the_use() {
+        let phase = |attack_time, arm_height, use_ticks| HandPhase {
+            attack_time,
+            arm_height,
+            use_ticks,
+        };
+        let hand = super::hand_progress([phase(5.0 / 6.0, 0.6, 0), phase(0.0, 1.0, 0)], None, 0.5);
+        assert!((hand.swing - 11.0 / 12.0).abs() < 1e-6);
+        assert!((hand.equip - 0.8).abs() < 1e-6);
+        assert_eq!(hand.consume, None);
+        let eating = super::hand_progress([phase(0.0, 1.0, 3), phase(0.0, 1.0, 4)], Some(32), 0.25);
+        assert_eq!(eating.consume, Some((3.25, 32.0)));
+        let idle = super::hand_progress([phase(0.0, 1.0, 0), phase(0.0, 1.0, 0)], Some(32), 0.25);
+        assert_eq!(idle.consume, None);
+    }
+
     // The pack's first-person arm offset sits behind the model's left side; vanilla's facing puts
     // that ahead of the view and to its right.
     #[test]

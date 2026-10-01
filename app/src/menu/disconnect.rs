@@ -78,9 +78,20 @@ pub(crate) fn describe(error: &str) -> DisconnectText {
     text(DISCONNECTED, DisconnectBody::Key(body))
 }
 
+/// Lang keys a server (the core, on a failed join) may send as its whole message.
+const SERVER_SENT_KEYS: &[&str] = &[
+    "disconnectionScreen.cantConnect",
+    "disconnectionScreen.cantConnectToRealm",
+    "disconnectionScreen.resourcePack",
+];
+
 /// A server's disconnect text: a known `DisconnectFailReason` name reads as
-/// vanilla's line for it; any other text is the server's own message.
+/// vanilla's line for it, a known lang key is localized as vanilla does, and
+/// any other text is the server's own message.
 fn server_reason(reason: &str) -> DisconnectBody {
+    if let Some(key) = SERVER_SENT_KEYS.iter().find(|key| **key == reason) {
+        return DisconnectBody::Key(key);
+    }
     let key = match reason {
         "" | "Unknown" | "NoReason" => "disconnectionScreen.noReason",
         "TimedOut" | "Timeout" => "disconnect.timeout",
@@ -144,6 +155,17 @@ mod tests {
         assert_eq!(unreachable.title, "connect.failed");
         assert_eq!(unreachable.body, key("disconnectionScreen.cantConnect"));
         assert_eq!(body("something odd"), key("disconnectionScreen.noReason"));
+        for sent in SERVER_SENT_KEYS {
+            let error = crate::runtime::network::session_failure_display(
+                "Bedrock session failed: Server disconnected during login: Unknown",
+                Some(&protocol::ServerDisconnectEvent {
+                    reason: "Unknown".to_owned(),
+                    message: Some((*sent).to_owned()),
+                    filtered_message: None,
+                }),
+            );
+            assert_eq!(describe(&error).body, key(sent));
+        }
         assert_eq!(describe("closed").title, DISCONNECTED);
     }
 }

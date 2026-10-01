@@ -173,7 +173,14 @@ fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
         vertices.dedup();
         vertices.len()
     };
-    assert_eq!(carriers(&mut presentation), 2, "hand and item quads");
+    assert_eq!(carriers(&mut presentation), 1, "a held item hides the arm");
+    presentation.hud_frame_mut().held_item_icon = None;
+    assert_eq!(
+        carriers(&mut presentation),
+        1,
+        "the empty hand shows the arm"
+    );
+    presentation.hud_frame_mut().held_item_icon = Some(hand);
     presentation.hud_frame_mut().hand_rig_active = true;
     assert_eq!(carriers(&mut presentation), 0);
 }

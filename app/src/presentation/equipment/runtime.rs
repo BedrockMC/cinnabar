@@ -10,8 +10,8 @@ use bevy::prelude::Resource;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, BlockEntityAtlas, EntityRigId,
-    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, extruded_sprite_vertices,
-    find_geometry_index, geometry_bone_names, geometry_bone_pivots, item_mesh_rig_id,
+    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, find_geometry_index,
+    geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, item_mesh_rig_id,
     skull_geometry, textured_cube_vertices,
 };
 
@@ -23,7 +23,8 @@ mod types;
 pub(crate) use pack::PackEquipment;
 pub(crate) use session::StagedSessionIcons;
 pub(crate) use types::{
-    ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, HeldKind, WornItem,
+    ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, FirstPersonItem, HeldKind,
+    WornItem,
 };
 use types::{ArmorGeometry, BodyBones, ElytraStance, MeshKey};
 
@@ -33,9 +34,10 @@ use super::{
     attachable::{self, BoneChannels},
     blocks::{self, BlockSheets},
     display::{
-        ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
-        LAYER_OFF_HAND, attach_to_bone, head_block_display, held_block_display,
-        held_sprite_display, is_hand_equipped,
+        FirstPersonHand, FirstPersonShape, ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE,
+        LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, attach_to_bone,
+        first_person_display, head_block_display, held_block_display, held_sprite_display,
+        is_hand_equipped, is_mirrored_art, view_bone,
     },
     elytra,
 };
@@ -367,13 +369,15 @@ impl EquipmentRuntime {
         Some(masked)
     }
 
-    /// The main-hand item as a first-person layer on the posed `rightItem` bone, when it is
-    /// drawable.
+    /// The main-hand item as a first-person layer, when it is drawable. An attachable rides the
+    /// posed `rightItem` bone; any other item carries a camera-space bone (`view_space`), placed
+    /// by `renderFirstPerson`'s own transforms for the arm's `hand` state.
     pub(crate) fn first_person_item(
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
-    ) -> Option<EquipmentPresentation> {
+        hand: FirstPersonHand,
+    ) -> Option<FirstPersonItem> {
         let (_, bones) = self.body_bones_for(body.input.rig)?;
         let pose_len = bones.names.len();
         if body.input.previous_bones.len() != pose_len || body.input.current_bones.len() != pose_len
@@ -381,8 +385,40 @@ impl EquipmentRuntime {
             return None;
         }
         let mut layers = Vec::new();
-        self.push_held(body, item, LAYER_MAIN_HAND, bones.right_item, &mut layers);
-        layers.pop()
+        if self.push_attachable(
+            body,
+            item,
+            LAYER_MAIN_HAND,
+            bones.right_item,
+            false,
+            &mut layers,
+        ) {
+            return layers.pop().map(|layer| FirstPersonItem {
+                layer,
+                view_space: false,
+            });
+        }
+        let (mesh, location, block) = self.held_mesh(item, true)?;
+        let shape = if block {
+            FirstPersonShape::Block
+        } else {
+            FirstPersonShape::Sprite {
+                mirrored_art: is_mirrored_art(&item.identifier),
+            }
+        };
+        let bone = view_bone(first_person_display(shape, hand))?;
+        Some(FirstPersonItem {
+            layer: layer_presentation(
+                body,
+                LAYER_MAIN_HAND,
+                mesh,
+                vec![bone],
+                vec![bone],
+                location,
+                0,
+            ),
+            view_space: true,
+        })
     }
 
     /// Records the bones of a skin model registered under `rig`, replacing any earlier model.
@@ -465,7 +501,7 @@ impl EquipmentRuntime {
             (MeshKey::Block(_), _) => {
                 textured_cube_vertices(blocks::face_rects(placement.uv_rect()))
             }
-            (_, Some(sprite)) => extruded_sprite_vertices(
+            (_, Some(sprite)) => held_sprite_vertices(
                 usize::from(sprite.width),
                 usize::from(sprite.height),
                 &sprite.rgba8,

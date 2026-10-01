@@ -1,6 +1,7 @@
 //! Joining a world through vanilla's world-loading progress screen for the
 //! dimension (dirt, netherrack or end-stone backdrop): "Locating server" until
-//! the world starts, then "Building terrain" until the first view settles.
+//! the world starts, then "Generating World" / "Building terrain" until the
+//! first view settles.
 
 use std::sync::Arc;
 
@@ -47,12 +48,18 @@ impl UiPresentationRuntime {
         };
         let mut data = DataSource::new();
         data.set_strict(true);
+        // Vanilla's world generation handler titles the terrain wait.
         data.set_global(
             "#title_text",
-            text(
-                "progressScreen.title.connectingExternal",
-                "Connecting to external server",
-            ),
+            match stage {
+                LoadingStage::Connecting => text(
+                    "progressScreen.title.connectingExternal",
+                    "Connecting to external server",
+                ),
+                LoadingStage::BuildingTerrain => {
+                    text("progressScreen.generating", "Generating World")
+                }
+            },
         );
         data.set_global(
             "#progress_text",

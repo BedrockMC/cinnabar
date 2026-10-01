@@ -44,6 +44,28 @@ impl ViewState {
         self.scroll.get(key).copied().unwrap_or(0.0)
     }
 
+    /// Whether `other` lays out the same: hover, press and focus only gate what
+    /// draws.
+    pub fn same_layout(&self, other: &ViewState) -> bool {
+        self.scroll == other.scroll
+            && self.scroll_max == other.scroll_max
+            && self.pointer == other.pointer
+            && self.drags == other.drags
+            && self.now == other.now
+    }
+
+    /// The parts of this state layout reads (see [`ViewState::same_layout`]).
+    pub fn layout_part(&self) -> ViewState {
+        ViewState {
+            scroll: self.scroll.clone(),
+            scroll_max: self.scroll_max.clone(),
+            pointer: self.pointer,
+            drags: self.drags.clone(),
+            now: self.now,
+            ..ViewState::default()
+        }
+    }
+
     /// Keep each scroll view's applied offset and maximum from `report` for the
     /// next layout.
     pub fn remember(&mut self, report: &LayoutReport) {

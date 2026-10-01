@@ -1,9 +1,10 @@
 use protocol::world_control::{
-    Backend, Difficulty, GameMode, Generator, Prefs, UnavailableReason, World, WorldState,
-    WorldStatus,
+    Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason, World,
+    WorldState, WorldStatus, WorldUpdate,
 };
 
-use super::super::prompt::{DOCKER_URL, PromptButton, PromptKind};
+use super::super::progress::Stage;
+use super::super::prompt::{DOCKER_URL, Prompt, PromptButton, PromptFor, PromptKind};
 use super::*;
 
 fn world(id: &str, name: &str) -> World {
@@ -11,12 +12,13 @@ fn world(id: &str, name: &str) -> World {
         id: id.to_owned(),
         name: name.to_owned(),
         game_mode: GameMode::Survival,
-        generator: Generator::Normal,
+        generator: Generator::Flat,
         difficulty: Difficulty::Normal,
         backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        size_bytes: 0,
     }
 }
 
@@ -30,6 +32,21 @@ fn status(state: WorldState, id: &str) -> WorldStatus {
         error: None,
         setup: None,
         backend_unavailable_reason: None,
+    }
+}
+
+fn setup(state: SetupState) -> Setup {
+    Setup {
+        state,
+        version: None,
+        bytes_done: 0,
+        bytes_total: 0,
+        layers_done: 0,
+        layers_total: 0,
+        eula_accepted: true,
+        error: None,
+        runtime: "container".to_owned(),
+        reason: None,
     }
 }
 
@@ -61,21 +78,13 @@ fn empty_list_has_no_selection_and_ignores_actions() {
     let mut menu = loaded(&[]);
     assert!(menu.selected().is_none());
     assert!(menu.update(Input::Play).is_empty());
-    assert!(menu.update(Input::RequestDelete).is_empty());
+    assert!(menu.update(Input::BeginEdit(0)).is_empty());
     assert_eq!(menu.screen(), Screen::List);
 }
 
+/// The whole mock-core path: create, the list gains the world, and it opens, polls and hands off.
 #[test]
-fn selection_movement_clamps() {
-    let mut menu = loaded(&["a", "b"]);
-    menu.update(Input::MoveSelection(5));
-    assert_eq!(menu.selected_index(), Some(1));
-    menu.update(Input::MoveSelection(-9));
-    assert_eq!(menu.selected_index(), Some(0));
-}
-
-#[test]
-fn create_validates_then_submits_and_lists_new_world_first() {
+fn create_lists_the_world_then_launches_it_through_every_stage() {
     let mut menu = loaded(&["a"]);
     menu.update(Input::BeginCreate);
     assert_eq!(menu.screen(), Screen::Create);
@@ -84,98 +93,139 @@ fn create_validates_then_submits_and_lists_new_world_first() {
     assert!(menu.form_error().is_some());
     menu.update(Input::SetName("Fresh".to_owned()));
     menu.update(Input::SetSeed("0".to_owned()));
-    menu.update(Input::CycleGameMode);
+    menu.update(Input::SetGameMode(GameMode::Creative));
     let effects = menu.update(Input::SubmitCreate);
     let [Effect::Create(new_world)] = effects.as_slice() else {
         panic!("expected one create effect, got {effects:?}");
     };
-    assert_eq!(new_world.name, "Fresh");
-    assert_eq!(new_world.seed, Some(0));
-    assert_eq!(new_world.game_mode, GameMode::Creative);
-    assert!(menu.busy());
+    assert_eq!(
+        (new_world.name.as_str(), new_world.seed, new_world.game_mode),
+        ("Fresh", Some(0), GameMode::Creative)
+    );
     assert!(
         menu.update(Input::SubmitCreate).is_empty(),
         "busy blocks double submit"
     );
-    menu.apply(Event::Created(world("fresh", "Fresh")));
-    assert_eq!(menu.screen(), Screen::List);
-    assert_eq!(menu.selected().map(|w| w.id.as_str()), Some("fresh"));
+
+    let mut created = world("fresh", "Fresh");
+    created.backend = Backend::Bds;
+    assert_eq!(
+        menu.apply(Event::Created(created)),
+        vec![Effect::Open("fresh".to_owned())],
+        "a new world is entered at once"
+    );
     assert_eq!(menu.worlds().len(), 2);
-    assert!(!menu.busy());
+    assert_eq!(menu.worlds()[0].id, "fresh");
+    assert_eq!(menu.screen(), Screen::Opening);
+
+    let mut stages = vec![menu.progress().expect("progress").stage];
+    for state in [
+        SetupState::CheckingRuntime,
+        SetupState::PullingImage,
+        SetupState::Downloading,
+        SetupState::Unpacking,
+        SetupState::Ready,
+    ] {
+        let mut starting = status(WorldState::Starting, "fresh");
+        starting.backend = Some(Backend::Bds);
+        starting.setup = Some(setup(state));
+        assert_eq!(
+            menu.apply(Event::Status(starting)),
+            vec![Effect::PollStatus]
+        );
+        stages.push(menu.progress().expect("progress").stage);
+    }
+    assert_eq!(
+        stages,
+        [
+            Stage::StartingServer,
+            Stage::CheckingDocker,
+            Stage::PullingImage,
+            Stage::DownloadingServer,
+            Stage::InstallingServer,
+            Stage::StartingServer,
+        ]
+    );
+    assert!(menu.take_ready().is_none());
+    assert!(
+        menu.apply(Event::Status(status(WorldState::Running, "fresh")))
+            .is_empty()
+    );
+    assert_eq!(menu.take_ready().as_deref(), Some("fresh"));
+    assert!(menu.take_ready().is_none());
+    assert_eq!((menu.screen(), menu.progress()), (Screen::List, None));
 }
 
 #[test]
-fn delete_requires_confirmation_and_back_cancels() {
+fn delete_lives_behind_edit_and_needs_confirmation() {
     let mut menu = loaded(&["a", "b"]);
+    assert!(menu.update(Input::RequestDelete).is_empty());
     assert!(
         menu.update(Input::ConfirmDelete).is_empty(),
         "no delete without the confirm screen"
     );
+    menu.update(Input::BeginEdit(1));
+    assert_eq!(menu.screen(), Screen::Edit);
     menu.update(Input::RequestDelete);
     assert_eq!(menu.screen(), Screen::ConfirmDelete);
     menu.update(Input::Back);
-    assert_eq!((menu.screen(), menu.worlds().len()), (Screen::List, 2));
+    assert_eq!(
+        (menu.screen(), menu.worlds().len()),
+        (Screen::Edit, 2),
+        "cancel returns to the settings"
+    );
     menu.update(Input::RequestDelete);
     assert_eq!(
         menu.update(Input::ConfirmDelete),
-        vec![Effect::Delete("id0".to_owned())]
+        vec![Effect::Delete("id1".to_owned())]
     );
-    menu.apply(Event::Deleted("id0".to_owned()));
+    menu.apply(Event::Deleted("id1".to_owned()));
     assert_eq!(menu.worlds().len(), 1);
-    assert_eq!(menu.selected().map(|w| w.id.as_str()), Some("id1"));
+    assert_eq!(menu.selected().map(|w| w.id.as_str()), Some("id0"));
     assert_eq!(menu.screen(), Screen::List);
 }
 
 #[test]
-fn deleting_the_last_world_clears_selection() {
-    let mut menu = loaded(&["only"]);
-    menu.update(Input::RequestDelete);
-    menu.update(Input::ConfirmDelete);
-    menu.apply(Event::Deleted("id0".to_owned()));
-    assert!(menu.selected().is_none());
-}
-
-#[test]
-fn rename_prefills_validates_and_applies() {
+fn edit_prefills_validates_and_sends_only_changes() {
     let mut menu = loaded(&["Old"]);
-    menu.update(Input::BeginRename);
-    assert_eq!(menu.rename_text(), "Old");
-    menu.update(Input::SetRenameText(String::new()));
-    assert!(menu.update(Input::SubmitRename).is_empty());
+    menu.update(Input::BeginEdit(0));
+    assert_eq!(menu.edit_form().map(|e| e.name.as_str()), Some("Old"));
+    menu.update(Input::SetEditName(String::new()));
+    assert!(menu.update(Input::SubmitEdit).is_empty());
     assert!(menu.form_error().is_some());
-    menu.update(Input::SetRenameText(" New ".to_owned()));
+    menu.update(Input::SetEditName(" New ".to_owned()));
+    menu.update(Input::SetDifficulty(Difficulty::Hard));
     assert_eq!(
-        menu.update(Input::SubmitRename),
-        vec![Effect::Rename {
+        menu.update(Input::SubmitEdit),
+        vec![Effect::Update {
             id: "id0".to_owned(),
-            name: "New".to_owned()
+            update: WorldUpdate {
+                name: Some("New".to_owned()),
+                game_mode: None,
+                difficulty: Some(Difficulty::Hard),
+            },
         }]
     );
-    menu.apply(Event::Renamed(world("id0", "New")));
+    let mut saved = world("id0", "New");
+    saved.difficulty = Difficulty::Hard;
+    menu.apply(Event::Updated(saved));
     assert_eq!(menu.selected().map(|w| w.name.as_str()), Some("New"));
+    assert_eq!(menu.screen(), Screen::List);
+
+    menu.update(Input::BeginEdit(0));
+    assert!(
+        menu.update(Input::SubmitEdit).is_empty(),
+        "unchanged settings send nothing"
+    );
     assert_eq!(menu.screen(), Screen::List);
 }
 
 #[test]
-fn play_polls_until_running_then_hands_off_once() {
+fn templates_show_the_empty_state_and_back_returns() {
     let mut menu = loaded(&["a"]);
-    assert_eq!(
-        menu.update(Input::Play),
-        vec![Effect::Open("id0".to_owned())]
-    );
-    assert_eq!(menu.screen(), Screen::Opening);
-    assert_eq!(menu.opening_name(), Some("a"));
-    assert_eq!(
-        menu.apply(Event::Status(status(WorldState::Starting, "id0"))),
-        vec![Effect::PollStatus]
-    );
-    assert!(menu.take_ready().is_none());
-    assert!(
-        menu.apply(Event::Status(status(WorldState::Running, "id0")))
-            .is_empty()
-    );
-    assert_eq!(menu.take_ready().as_deref(), Some("id0"));
-    assert!(menu.take_ready().is_none());
+    menu.update(Input::OpenTemplates);
+    assert_eq!(menu.screen(), Screen::Templates);
+    menu.update(Input::Back);
     assert_eq!(menu.screen(), Screen::List);
 }
 
@@ -242,6 +292,7 @@ fn with_reason(reason: UnavailableReason) -> WorldStatus {
     let mut status = status(WorldState::Idle, "");
     status.world_id = None;
     status.backend_unavailable_reason = Some(reason);
+    status.setup = Some(setup(SetupState::Unsupported));
     status
 }
 
@@ -251,43 +302,60 @@ fn docker_menu(reason: UnavailableReason, names: &[&str]) -> WorldsMenu {
     menu
 }
 
+fn prompt(kind: PromptKind, blocking: PromptFor) -> Option<Prompt> {
+    Some(Prompt { kind, blocking })
+}
+
 #[test]
 fn no_backend_reason_never_shows_the_docker_modal() {
     let mut menu = loaded(&["a"]);
     menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
     menu.update(Input::BeginCreate);
     assert_eq!(menu.screen(), Screen::Create);
+    assert_eq!(menu.create_form().generator, Generator::Normal);
 }
 
+/// Without Docker the way forward is a Flat world on the built-in server, or installing Docker.
 #[test]
-fn docker_missing_gates_create_until_play_anyway() {
+fn docker_missing_offers_a_flat_world_or_docker() {
     let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
     assert!(menu.update(Input::BeginCreate).is_empty());
-    assert_eq!(menu.screen(), Screen::BackendPrompt);
-    assert_eq!(menu.prompt(), Some(PromptKind::DockerMissing));
-    assert!(
-        menu.update(Input::Prompt(PromptButton::PlayAnyway))
-            .is_empty()
-    );
-    assert_eq!(menu.screen(), Screen::Create);
-    menu.update(Input::Back);
-    menu.update(Input::BeginCreate);
     assert_eq!(
-        menu.screen(),
-        Screen::Create,
-        "acknowledged for the session"
+        menu.prompt(),
+        prompt(PromptKind::DockerMissing, PromptFor::BeginCreate)
     );
-}
-
-#[test]
-fn docker_missing_get_docker_opens_the_site_and_stays() {
-    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
-    menu.update(Input::BeginCreate);
+    let buttons = menu.prompt().expect("prompt").buttons();
+    assert!(
+        buttons.contains(&PromptButton::CreateFlat) && buttons.contains(&PromptButton::GetDocker)
+    );
     assert_eq!(
         menu.update(Input::Prompt(PromptButton::GetDocker)),
         vec![Effect::OpenUrl(DOCKER_URL)]
     );
     assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert!(
+        menu.update(Input::Prompt(PromptButton::CreateFlat))
+            .is_empty()
+    );
+    assert_eq!(menu.screen(), Screen::Create);
+    assert_eq!(menu.create_form().generator, Generator::Flat);
+
+    // Choosing the default world type anyway stops at the modal again, now blocking.
+    menu.update(Input::SetFlat(false));
+    assert_eq!(menu.create_form().generator, Generator::Normal);
+    assert!(menu.update(Input::SubmitCreate).is_empty());
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerMissing, PromptFor::CreateDefault)
+    );
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::Create, "cancel keeps the form");
+    menu.update(Input::SubmitCreate);
+    let effects = menu.update(Input::Prompt(PromptButton::CreateFlat));
+    let [Effect::Create(new_world)] = effects.as_slice() else {
+        panic!("expected a create, got {effects:?}");
+    };
+    assert_eq!(new_world.generator, Generator::Flat);
 }
 
 #[test]
@@ -303,7 +371,6 @@ fn dont_show_again_persists_and_continues() {
         }]
     );
     assert_eq!(menu.screen(), Screen::Create);
-    // A dismissed docker_missing prompt stays hidden in a fresh session.
     let mut fresh = loaded(&["a"]);
     fresh.apply(Event::Prefs(
         Prefs {
@@ -313,25 +380,23 @@ fn dont_show_again_persists_and_continues() {
     ));
     fresh.update(Input::BeginCreate);
     assert_eq!(fresh.screen(), Screen::Create);
-}
-
-#[test]
-fn dismissal_does_not_hide_the_docker_not_running_prompt() {
-    let mut menu = loaded(&[]);
-    menu.apply(Event::Prefs(
-        Prefs {
-            docker_prompt_dismissed: true,
-        },
-        with_reason(UnavailableReason::DockerNotRunning),
-    ));
-    menu.update(Input::BeginCreate);
-    assert_eq!(menu.prompt(), Some(PromptKind::DockerNotRunning));
+    fresh.update(Input::SetFlat(false));
+    fresh.update(Input::SubmitCreate);
+    assert_eq!(
+        fresh.screen(),
+        Screen::BackendPrompt,
+        "dismissal never hides the blocking modal"
+    );
 }
 
 #[test]
 fn retry_redetects_and_continues_once_docker_is_up() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
     menu.update(Input::BeginCreate);
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerNotRunning, PromptFor::BeginCreate)
+    );
     assert_eq!(
         menu.update(Input::Prompt(PromptButton::Retry)),
         vec![Effect::SetPrefs {
@@ -351,7 +416,7 @@ fn retry_redetects_and_continues_once_docker_is_up() {
 }
 
 #[test]
-fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_gets_it() {
+fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_needs_docker() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &["a"]);
     assert_eq!(
         menu.update(Input::Play),
@@ -362,10 +427,40 @@ fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_gets_it() {
     bds.backend = Backend::Bds;
     menu.apply(Event::Listed(vec![bds]));
     assert!(menu.update(Input::Play).is_empty());
-    assert_eq!(menu.screen(), Screen::BackendPrompt);
     assert_eq!(
-        menu.update(Input::Prompt(PromptButton::PlayAnyway)),
+        menu.prompt(),
+        prompt(PromptKind::DockerNotRunning, PromptFor::Play)
+    );
+    assert!(
+        !menu
+            .prompt()
+            .expect("prompt")
+            .buttons()
+            .contains(&PromptButton::CreateFlat),
+        "a saved BDS world never falls back to another server"
+    );
+    menu.update(Input::Prompt(PromptButton::Retry));
+    assert_eq!(
+        menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, ""))),
         vec![Effect::Open("id0".to_owned())]
+    );
+}
+
+#[test]
+fn docker_stopping_mid_open_offers_retry() {
+    let mut menu = loaded(&["a"]);
+    let mut bds = world("id0", "a");
+    bds.backend = Backend::Bds;
+    menu.apply(Event::Listed(vec![bds]));
+    menu.update(Input::Play);
+    let mut failed = with_reason(UnavailableReason::DockerNotRunning);
+    failed.state = WorldState::Failed;
+    failed.world_id = Some("id0".to_owned());
+    failed.error = Some("Docker is not running".to_owned());
+    assert_eq!(menu.apply(Event::Status(failed)), vec![Effect::Close]);
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerNotRunning, PromptFor::Play)
     );
 }
 
@@ -380,16 +475,17 @@ fn eula_required_prompts_then_reopens_the_same_world_after_acceptance() {
 
     menu.update(Input::Play);
     menu.apply(Event::EulaRequired);
+    assert_eq!(
+        menu.update(Input::OpenEulaLink),
+        vec![Effect::OpenUrl(EULA_URL)]
+    );
     assert_eq!(menu.update(Input::AcceptEula), vec![Effect::AcceptEula]);
     assert!(menu.busy());
     assert_eq!(
         menu.apply(Event::EulaAccepted),
         vec![Effect::Open("id0".to_owned())]
     );
-    assert_eq!(
-        (menu.screen(), menu.opening_name()),
-        (Screen::Opening, Some("a"))
-    );
+    assert_eq!(menu.screen(), Screen::Opening);
 }
 
 #[test]
@@ -400,53 +496,83 @@ fn accept_eula_outside_the_eula_screen_does_nothing() {
 }
 
 #[test]
-fn backend_label_follows_the_reported_runtime() {
-    let mut menu = loaded(&[]);
-    assert_eq!(menu.active_backend_label(), "Basic server");
-    let mut idle = status(WorldState::Idle, "");
-    idle.setup = Some(protocol::world_control::Setup {
-        state: protocol::world_control::SetupState::Ready,
-        version: None,
-        bytes_done: 0,
-        bytes_total: 0,
-        eula_accepted: true,
-        error: None,
-        runtime: "container".to_owned(),
-        reason: None,
-    });
-    menu.apply(Event::Prefs(Prefs::default(), idle));
-    assert_eq!(
-        menu.active_backend_label(),
-        "Bedrock Dedicated Server (Docker)"
-    );
-}
-
-#[test]
-fn create_defaults_to_superflat_only_where_the_dedicated_server_cannot_run() {
+fn create_defaults_to_flat_only_where_the_dedicated_server_cannot_run() {
     for (state, generator) in [
-        (
-            protocol::world_control::SetupState::Ready,
-            Generator::Normal,
-        ),
-        (
-            protocol::world_control::SetupState::Unsupported,
-            Generator::Flat,
-        ),
+        (SetupState::Ready, Generator::Normal),
+        (SetupState::Unsupported, Generator::Flat),
     ] {
         let mut menu = loaded(&[]);
         let mut idle = status(WorldState::Idle, "");
-        idle.setup = Some(protocol::world_control::Setup {
-            state,
-            version: None,
-            bytes_done: 0,
-            bytes_total: 0,
-            eula_accepted: false,
-            error: None,
-            runtime: String::new(),
-            reason: None,
-        });
+        idle.setup = Some(setup(state));
         menu.apply(Event::Prefs(Prefs::default(), idle));
         menu.update(Input::BeginCreate);
         assert_eq!(menu.create_form().generator, generator, "{state:?}");
     }
+}
+
+/// New worlds offer Survival and Creative only; Adventure is an edit-screen choice.
+#[test]
+fn adventure_is_offered_only_when_editing() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetGameMode(GameMode::Adventure));
+    assert_eq!(menu.create_form().game_mode, GameMode::Survival);
+    menu.update(Input::Back);
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetGameMode(GameMode::Adventure));
+    assert_eq!(
+        menu.edit_form().map(|e| e.game_mode),
+        Some(GameMode::Adventure)
+    );
+}
+
+#[test]
+fn leaving_edit_with_changes_asks_to_save_or_discard() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::BeginEdit(0));
+    assert!(menu.update(Input::Back).is_empty());
+    assert_eq!(menu.screen(), Screen::List, "no edits leave at once");
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetEditName("b".to_owned()));
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::ConfirmLeaveEdit);
+    menu.update(Input::Back);
+    assert_eq!(menu.screen(), Screen::Edit, "cancel keeps editing");
+    menu.update(Input::Back);
+    assert!(menu.update(Input::DiscardEdit).is_empty());
+    assert_eq!(
+        (menu.screen(), menu.worlds()[0].name.as_str()),
+        (Screen::List, "a")
+    );
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetEditName("b".to_owned()));
+    menu.update(Input::Back);
+    assert!(matches!(
+        menu.update(Input::SubmitEdit).as_slice(),
+        [Effect::Update { .. }]
+    ));
+}
+
+#[test]
+fn play_from_edit_saves_then_opens() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::BeginEdit(0));
+    assert_eq!(
+        menu.update(Input::PlayFromEdit),
+        vec![Effect::Open("id0".to_owned())],
+        "nothing to save"
+    );
+    menu.update(Input::Back);
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetDifficulty(Difficulty::Peaceful));
+    assert!(matches!(
+        menu.update(Input::PlayFromEdit).as_slice(),
+        [Effect::Update { .. }]
+    ));
+    let mut saved = world("id0", "a");
+    saved.difficulty = Difficulty::Peaceful;
+    assert_eq!(
+        menu.apply(Event::Updated(saved)),
+        vec![Effect::Open("id0".to_owned())]
+    );
 }

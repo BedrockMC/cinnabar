@@ -15,7 +15,7 @@ import (
 const (
 	methodWorldList   = "world_list.v1"
 	methodWorldCreate = "world_create.v1"
-	methodWorldRename = "world_rename.v1"
+	methodWorldUpdate = "world_update.v1"
 	methodWorldDelete = "world_delete.v1"
 	methodWorldOpen   = "world_open.v1"
 	methodWorldClose  = "world_close.v1"
@@ -38,7 +38,7 @@ const (
 type Worlds interface {
 	List() ([]localworld.World, error)
 	Create(localworld.Spec) (localworld.World, error)
-	Rename(id, name string) (localworld.World, error)
+	Update(id string, update localworld.Update) (localworld.World, error)
 	Delete(id string) error
 	Open(id string, opts ...localworld.OpenOptions) error
 	AcceptEULA() error
@@ -67,7 +67,7 @@ func WithOpenHook(worlds Worlds, onOpen func()) Worlds {
 }
 
 var worldMethods = map[string]struct{}{
-	methodWorldList: {}, methodWorldCreate: {}, methodWorldRename: {}, methodWorldDelete: {},
+	methodWorldList: {}, methodWorldCreate: {}, methodWorldUpdate: {}, methodWorldDelete: {},
 	methodWorldOpen: {}, methodWorldClose: {}, methodWorldPause: {}, methodWorldStatus: {}, methodBDSEULA: {}, methodPrefs: {},
 }
 
@@ -130,16 +130,17 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		if world, err = worlds.Create(spec); err == nil {
 			result.World = &world
 		}
-	case methodWorldRename:
+	case methodWorldUpdate:
 		var params struct {
-			ID   *string `json:"id"`
-			Name *string `json:"name"`
+			ID *string `json:"id"`
+			localworld.Update
 		}
-		if !decodeParams(raw, &params) || params.ID == nil || params.Name == nil {
+		if !decodeParams(raw, &params) || params.ID == nil ||
+			(params.Name == nil && params.GameMode == nil && params.Difficulty == nil) {
 			return invalid()
 		}
 		var world localworld.World
-		if world, err = worlds.Rename(*params.ID, *params.Name); err == nil {
+		if world, err = worlds.Update(*params.ID, params.Update); err == nil {
 			result.World = &world
 		}
 	case methodWorldDelete, methodWorldOpen:

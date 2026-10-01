@@ -111,6 +111,41 @@ pub fn extruded_sprite_vertices(
     Some(vertices)
 }
 
+/// The slab in vanilla's held-item tessellation frame: column `c` at `X = -c`, row `r` at
+/// `Y = height - r` (texels of the longer side spanning one unit) and one texel deep towards
+/// `-Z`. Both faces sample the same texel at a point, so the back reads mirrored, as vanilla's.
+#[must_use]
+pub fn held_sprite_vertices(
+    width: usize,
+    height: usize,
+    rgba8: &[u8],
+    uv_rect: [f32; 4],
+) -> Option<Vec<ItemVertex>> {
+    let texel = 1.0 / width.max(height) as f32;
+    let offset = [
+        width as f32 * texel * 0.5,
+        height as f32 * texel * 0.5,
+        -texel * 0.5,
+    ];
+    let mut vertices = extruded_sprite_vertices(width, height, rgba8, uv_rect)?;
+    for vertex in &mut vertices {
+        let [x, y, z] = vertex.position;
+        vertex.position = [-(x + offset[0]), y + offset[1], z + offset[2]];
+        vertex.normal[0] = -vertex.normal[0];
+        // The +Z face's front UVs and the -Z face's back UVs carry the unmirrored layout.
+        if vertex.normal[2] < 0.0 {
+            vertex.uv = vertex.back_uv;
+        } else {
+            vertex.back_uv = vertex.uv;
+        }
+    }
+    // Mirroring X reverses every triangle; restore counter-clockwise winding about the normal.
+    for triangle in vertices.chunks_exact_mut(3) {
+        triangle.swap(1, 2);
+    }
+    Some(vertices)
+}
+
 /// Corners (top-left, top-right, bottom-right, bottom-left as seen from outside) and outward
 /// normal per cube face, in `West, East, Down, Up, North, South` order.
 const CUBE_FACES: [([[f32; 3]; 4], [f32; 3]); 6] = [
@@ -219,7 +254,7 @@ fn push_quad(
 
 #[cfg(test)]
 mod tests {
-    use super::extruded_sprite_vertices;
+    use super::{extruded_sprite_vertices, held_sprite_vertices};
 
     const FULL: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
@@ -339,6 +374,39 @@ mod tests {
             let a = triangle[0].position;
             let b = triangle[1].position;
             let c = triangle[2].position;
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cross = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            let normal = triangle[0].normal;
+            assert!(cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2] > 0.0);
+        }
+    }
+
+    // Vanilla's held tessellation: column 0 at X = 0 running to -X, the top row at Y = 1, one
+    // texel deep towards -Z, and the same texel at a point from either face.
+    #[test]
+    fn held_layout_matches_vanilla_and_shares_texels_across_faces() {
+        let vertices = held_sprite_vertices(16, 16, &opaque(16, 16), FULL).unwrap();
+        let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for vertex in &vertices {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(vertex.position[axis]);
+                max[axis] = max[axis].max(vertex.position[axis]);
+            }
+            assert_eq!(vertex.uv, vertex.back_uv);
+        }
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-6);
+        assert!(close(min, [-1.0, 0.0, -1.0 / 16.0]) && close(max, [0.0, 1.0, 0.0]));
+        for face in vertices.iter().filter(|vertex| vertex.normal[2] != 0.0) {
+            let [x, y, _] = face.position;
+            assert!((face.uv[0] + x).abs() < 1e-6 && (face.uv[1] + y - 1.0).abs() < 1e-6);
+        }
+        for triangle in vertices.chunks_exact(3) {
+            let [a, b, c] = [0, 1, 2].map(|corner| triangle[corner].position);
             let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
             let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
             let cross = [
