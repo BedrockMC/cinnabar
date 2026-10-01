@@ -81,10 +81,13 @@ pub(super) fn bind(snapshot: &Snapshot, data: &mut DataSource) {
                     )
                     .with(
                         "#icon_path",
-                        Scalar::Text(format!(
-                            "{}pack_icon.png",
-                            super::server_pack::VANILLA_IN_PACKAGE
-                        )),
+                        Scalar::Text(
+                            snapshot
+                                .icons
+                                .get(&(pack.id.to_string(), pack.revision))
+                                .cloned()
+                                .unwrap_or_else(default_icon),
+                        ),
                     )
             })
             .collect();
@@ -112,18 +115,17 @@ pub(super) fn bind(snapshot: &Snapshot, data: &mut DataSource) {
         "#no_available_packs_visibility_global",
         Scalar::Bool(snapshot.available.is_empty()),
     );
-    data.set_global(
-        "#default_item_texture_global",
-        Scalar::Text(format!(
-            "{}pack_icon.png",
-            super::server_pack::VANILLA_IN_PACKAGE
-        )),
-    );
+    data.set_global("#default_item_texture_global", Scalar::Text(default_icon()));
     data.set_global(
         "#cinnabar_pack_status",
         Scalar::Text(snapshot.message.clone()),
     );
     data.set_global("#cinnabar_pack_idle", Scalar::Bool(!snapshot.busy));
+}
+
+/// The base pack supplies the fallback artwork for packs without a usable icon.
+fn default_icon() -> String {
+    format!("{}pack_icon.png", super::server_pack::VANILLA_IN_PACKAGE)
 }
 
 /// Opens vanilla's content-tier panel over Settings for the selected active pack.
@@ -137,25 +139,32 @@ pub(super) fn overlay(snapshot: &Snapshot) -> Option<Box<MenuScreenData>> {
         .subpacks
         .iter()
         .position(|p| Some(p.folder.as_str()) == selected)
-        .map_or(0, |index| index + 1);
+        .unwrap_or(0);
     data.set_global("#pack_settings_title", Scalar::Text(pack.name.clone()));
     data.set_global(
         "#has_content_tiering",
         Scalar::Bool(!pack.subpacks.is_empty()),
     );
-    data.set_global("#content_tier_supported", Scalar::Bool(true));
+    data.set_global(
+        "#content_tier_supported",
+        Scalar::Bool(
+            pack.subpacks
+                .get(tier)
+                .is_none_or(|pack| pack.memory_tier <= snapshot.memory_tier),
+        ),
+    );
     data.set_global("#content_tier_value", Scalar::Num(tier as f64));
     data.set_global(
         "#content_tier_steps",
-        Scalar::Num((pack.subpacks.len() + 1) as f64),
+        Scalar::Num(pack.subpacks.len() as f64),
     );
     data.set_global(
         "#content_tier_label",
         Scalar::Text(
-            tier.checked_sub(1)
-                .and_then(|index| pack.subpacks.get(index))
-                .map(|p| format!("{} (memory tier {})", p.name, p.memory_tier))
-                .unwrap_or_else(|| "Default resources".into()),
+            pack.subpacks
+                .get(tier)
+                .map(|pack| pack.name.clone())
+                .unwrap_or_default(),
         ),
     );
     Some(Box::new(MenuScreenData {
@@ -235,7 +244,7 @@ pub(super) fn slider_actions(view: &MenuView, region: &HitRegion) -> Option<Vec<
         .settings
         .and_then(|index| view.global_resources.active.get(index))?;
     Some(
-        (0..=pack.subpacks.len())
+        (0..pack.subpacks.len())
             .map(|index| MenuAction::GlobalResources(Action::Subpack(index)))
             .collect(),
     )

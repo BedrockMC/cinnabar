@@ -290,6 +290,7 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
         description: header["description"].as_str().unwrap_or_default().into(),
         min_engine_version,
         subpacks,
+        revision: 0,
     }))
 }
 
