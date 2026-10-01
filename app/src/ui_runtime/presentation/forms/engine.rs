@@ -96,7 +96,7 @@ pub(super) struct EngineInputs<'a> {
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, catalog: Catalog, first_page: u16) -> Self {
         let vanilla = Arc::new(catalog);
-        let base = Arc::new(with_java_hud(&vanilla, &Default::default()));
+        let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
         Self {
             textures: TextureSet::new(&assets, first_page),
             assets,
@@ -206,7 +206,7 @@ impl FormEngine {
                 )
             })
             .collect();
-        let mut catalog = with_java_hud(&self.vanilla, &touched);
+        let mut catalog = hud_renderers::with_java_hud(&self.vanilla, &touched);
         for files in layers {
             catalog.apply_pack(
                 files
@@ -354,26 +354,6 @@ impl FormEngine {
             self.screens.render(key, env)
         })
     }
-}
-
-/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
-/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
-fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
-    let mut catalog = vanilla.clone();
-    let kept = super::hud::JAVA_HUD_PACK
-        .iter()
-        .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
-        .map(|(path, _, bytes)| (*path, *bytes));
-    catalog.apply_pack(kept);
-    catalog.apply_pack(
-        [(
-            "ui/cinnabar_title.json",
-            menu_renderers::TITLE_PANEL_OVERLAY,
-        )]
-        .into_iter()
-        .chain(menu_renderers::NO_COPYRIGHT_OVERLAYS),
-    );
-    catalog
 }
 
 fn render_with<R: Borrow<FormRender>>(
