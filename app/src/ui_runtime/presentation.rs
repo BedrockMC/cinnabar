@@ -308,7 +308,10 @@ impl UiPresentationRuntime {
     ) {
         let default_skin = render::default_actor_skin_rgba8();
         let skin = skin
-            .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
+            .filter(|pixels| {
+                let side = (pixels.len() / 4).isqrt();
+                side != 0 && side * side * 4 == pixels.len()
+            })
             .unwrap_or(default_skin.as_ref());
         let source_hash: [u8; 32] = Sha256::digest(skin).into();
         let drawn = (

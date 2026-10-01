@@ -16,6 +16,7 @@ use crate::actor_store::ActorSnapshot;
 pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
 
 pub const MAX_RUNTIME_BONES_PER_RIG: usize = 96;
+const ANIMATION_TICK_SECONDS: f32 = 0.05;
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
 pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
@@ -71,6 +72,7 @@ pub struct ActorRigSnapshot<'a> {
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.
     pub skin_geometry: Option<&'a Arc<assets::SkinGeometry>>,
+    pub skin_layers: &'a [SkinRenderLayer],
     /// Swing and equip progress at the previous and current completed tick.
     pub hand: [HandPhase; 2],
 }
@@ -164,6 +166,7 @@ struct ActorRigState {
     equipped_main: Option<Arc<str>>,
     /// The worn skin's own model, when it names one.
     skin: Option<skin::SkinModel>,
+    skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
@@ -211,6 +214,7 @@ struct ActorTickInput {
 
 struct EvaluatedState {
     pose: Vec<BoneTransform>,
+    skin_layers: Vec<SkinRenderLayer>,
     /// `None` when the render controllers ran out of budget, keeping the last choice.
     render: Option<Vec<RenderTextureLayer>>,
     scale: Option<[f32; 4]>,
@@ -429,7 +433,9 @@ impl ActorAnimationStore {
                 state.rest_completed_tick = 0;
             }
             let context = context(actor);
-            if reset_motion_history && skin::sync_skin(state, context.skin_geometry.as_ref()) {
+            if reset_motion_history
+                && skin::sync_skin(state, context.skin_geometry.as_ref(), &assets)
+            {
                 self.stats.invalid_skin_geometries =
                     self.stats.invalid_skin_geometries.saturating_add(1);
             }
@@ -461,8 +467,12 @@ impl ActorAnimationStore {
             {
                 let scale = model_scale(state, state_assets) * actor.render_scale();
                 let player = matches!(actor.kind, ActorKind::Player { .. });
-                if !view.admits(actor.position, scale, player)
-                    && !view.admits(actor.previous_pose.position, scale, player)
+                let bounds = state
+                    .skin_skeleton()
+                    .and_then(|skin| skin.geometry.visible_bounds)
+                    .unwrap_or_default();
+                if !view.admits(actor.position, scale, player, bounds)
+                    && !view.admits(actor.previous_pose.position, scale, player, bounds)
                 {
                     state.culled = true;
                     state.previous.clone_from(&state.current);
@@ -514,12 +524,18 @@ impl ActorAnimationStore {
                 .saturating_add(budget.used as u64);
             stack = std::mem::take(&mut budget.stack);
             match result {
-                Ok(evaluated) => {
+                Ok(mut evaluated) => {
                     // A rig back in view starts from its new pose, not the one it held.
                     let resumed = std::mem::take(&mut state.culled);
                     state.controllers = evaluated.controllers;
                     state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
+                    skin_layers::carry(
+                        &state.skin_layers,
+                        &mut evaluated.skin_layers,
+                        state.reset_pending || resumed,
+                    );
+                    state.skin_layers = evaluated.skin_layers;
                     if let Some(mut render) = evaluated.render {
                         render::carry_layer_poses(
                             &state.render,
@@ -626,6 +642,7 @@ impl ActorAnimationStore {
             render: &state.render,
             bone_names: state.posed_bone_names(),
             skin_geometry: state.skin_skeleton().map(|skeleton| &skeleton.geometry),
+            skin_layers: &state.skin_layers,
             hand: state.hand_phases(),
         })
     }
@@ -780,6 +797,7 @@ fn resolve_rig(
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         equipped_main: None,
         skin: None,
+        skin_layers: Vec::new(),
         variables,
         initialized: false,
         culled: false,
@@ -941,6 +959,7 @@ mod pose;
 mod query;
 mod render;
 mod skin;
+mod skin_layers;
 mod tick;
 mod view;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
@@ -948,6 +967,7 @@ pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
+pub use skin_layers::SkinRenderLayer;
 pub(crate) use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
 pub use view::ActorAnimationView;

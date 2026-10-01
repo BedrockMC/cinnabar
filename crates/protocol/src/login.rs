@@ -769,6 +769,7 @@ fn decode_world_raw_with(
             | McpePacketName::AddItemActorPacket
             | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
+            | McpePacketName::PlayerSkinPacket
             | McpePacketName::ItemRegistryPacket
             | McpePacketName::MobEquipmentPacket
             | McpePacketName::MobArmorEquipmentPacket
