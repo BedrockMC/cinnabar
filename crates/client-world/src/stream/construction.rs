@@ -172,6 +172,8 @@ impl WorldStream {
             mesh_scheduler_camera_cell: None,
             view_forward: None,
             in_flight: HashMap::new(),
+            admitted_mesh_jobs: Arc::new(AtomicUsize::new(0)),
+            mesh_cancellations: HashMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
             staged_mesh_completions: VecDeque::new(),
             staged_mesh_bytes: 0,
