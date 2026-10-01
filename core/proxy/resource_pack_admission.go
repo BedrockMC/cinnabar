@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -242,6 +243,14 @@ func withResourcePackAcquisitionBudget(dialer minecraft.Dialer, budget *resource
 		}
 	}
 	return dialer
+}
+
+// accountTokenSource keeps an offline (nil) account a nil interface.
+func accountTokenSource(account *authcache.Account) oauth2.TokenSource {
+	if account == nil {
+		return nil
+	}
+	return account
 }
 
 // decodeInboundPacket decodes a payload with the connection's own protocol;
@@ -478,7 +487,7 @@ type preparedSlot struct {
 // preparedConnections retains a prepared upstream by the exact downstream
 // *minecraft.Conn identity until Accept transfers ownership to the session.
 type preparedConnections struct {
-	tokenSource                 oauth2.TokenSource
+	account                     *authcache.Account
 	logger                      *slog.Logger
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
@@ -504,10 +513,10 @@ type preparedConnections struct {
 	entries  map[*minecraft.Conn]*preparedSlot
 }
 
-func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) *preparedConnections {
+func newPreparedConnections(upstreamAddress string, account *authcache.Account, logger *slog.Logger) *preparedConnections {
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	connections := &preparedConnections{
-		tokenSource:    tokenSource,
+		account:        account,
 		logger:         logger,
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
@@ -515,10 +524,10 @@ func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSour
 	}
 	connections.connectPrepared = connections.connect
 	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, upstreamAddress, tokenSource, logger)
+		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
-		return connectUpstream(ctx, target.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
+		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dialer.DialContextNetwork)
 		})
 	}
@@ -662,13 +671,8 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if connections.resourcePackCache != nil {
 		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
 	}
-	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission, connections.upstreamClientCache)
-	if target.xbl != nil {
-		dialer.XBLClient = target.xbl
-	}
-	if target.playFab != nil {
-		dialer.PlayFabClient = target.playFab
-	}
+	// The account is the Dialer's multiplayer token source, so it needs no Xbox or PlayFab client.
+	dialer := newUpstreamDialerForAdmission(downstream, accountTokenSource(connections.account), telemetry, cache, packAdmission, connections.upstreamClientCache)
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}
