@@ -240,9 +240,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         return *idle;
     }
     match name {
-        "anim_time" => evaluator.anim_tick as f32 * 0.05,
-        "life_time" => evaluator.life_tick as f32 * 0.05,
-        "delta_time" => 0.05,
+        "anim_time" => evaluator.anim_tick as f32 * ANIMATION_TICK_SECONDS,
+        "life_time" => evaluator.life_tick as f32 * ANIMATION_TICK_SECONDS,
+        "delta_time" => ANIMATION_TICK_SECONDS,
         "modified_distance_moved" => input.distance_moved,
         "modified_move_speed" => input.move_speed,
         "walk_distance" => input.walk_distance,

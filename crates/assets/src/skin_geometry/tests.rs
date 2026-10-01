@@ -2,6 +2,25 @@ use super::*;
 
 const PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
 
+#[test]
+fn animated_geometry_alias_selects_its_model_and_has_a_distinct_mesh_digest() {
+    let patch = r#"{"geometry":{"default":"geometry.body","animated_face":"geometry.face"}}"#;
+    let data = r#"{"format_version":"1.14.0","minecraft:geometry":[
+        {"description":{"identifier":"geometry.body","texture_width":256,"texture_height":256},"bones":[{"name":"body"}]},
+        {"description":{"identifier":"geometry.face","texture_width":32,"texture_height":64},"bones":[{"name":"head"}]}
+    ]}"#;
+    let body = parse_skin_geometry(patch, data).unwrap().unwrap();
+    let face = parse_skin_geometry_layer(patch, data, "animated_face")
+        .unwrap()
+        .unwrap();
+    assert_eq!(face.bones[0].name.as_ref(), "head");
+    assert_eq!((face.texture_width, face.texture_height), (32, 64));
+    assert_ne!(
+        body.digest, face.digest,
+        "different layer models cannot share a cached mesh"
+    );
+}
+
 // Remote skin JSON carries editor fields and odd cubes; they are ignored or dropped, not fatal.
 #[test]
 fn modern_geometry_ignores_unknown_fields_and_drops_malformed_cubes() {

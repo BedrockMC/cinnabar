@@ -4,6 +4,12 @@ use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
 
 use super::{MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE};
 
+mod alpha;
+mod animation;
+mod legacy;
+pub use animation::{MAX_SKIN_ANIMATION_LAYERS, SkinAnimation, SkinAnimationKind};
+pub use legacy::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, expand_legacy_skin_rgba8};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSkin {
     pub width: u32,
@@ -20,29 +26,33 @@ pub struct StandardSkin {
 pub struct SkinGeometrySource {
     pub resource_patch: Arc<str>,
     pub geometry_data: Arc<str>,
+    pub animations: Arc<[SkinAnimation]>,
 }
 
 impl SkinGeometrySource {
     #[must_use]
     pub fn byte_len(&self) -> usize {
-        self.resource_patch.len() + self.geometry_data.len()
+        self.resource_patch.len()
+            + self.geometry_data.len()
+            + self
+                .animations
+                .iter()
+                .map(|image| image.rgba8.len())
+                .sum::<usize>()
     }
 }
 
 /// Model input bytes one skin may retain; larger models fall back to the default geometry.
 pub const MAX_SKIN_GEOMETRY_SOURCE_BYTES: usize = 1024 * 1024;
 
-/// Model inputs are retained only when the skin carries geometry data; without it vanilla draws
-/// its classic model.
+/// Keeps the resource patch even without model data, so classic slim skins select their model.
 fn geometry_source(
     skin: &SerializedSkinRef,
     retained_bytes: &mut usize,
 ) -> Option<Arc<SkinGeometrySource>> {
-    let data = skin.geometry_data.trim();
     let bytes = skin.resource_patch.len() + skin.geometry_data.len();
     let next = retained_bytes.checked_add(bytes)?;
-    if data.is_empty()
-        || data == "null"
+    if skin.resource_patch.is_empty()
         || bytes > MAX_SKIN_GEOMETRY_SOURCE_BYTES
         || next > MAX_PLAYER_LIST_SKIN_BYTES
     {
@@ -52,6 +62,7 @@ fn geometry_source(
     Some(Arc::new(SkinGeometrySource {
         resource_patch: skin.resource_patch.as_str().into(),
         geometry_data: skin.geometry_data.as_str().into(),
+        animations: animation::normalize(&skin.animated_image_data, retained_bytes),
     }))
 }
 
@@ -100,15 +111,20 @@ pub enum PlayerSkin {
 }
 
 pub(super) fn normalize_player_skin(
-    skin: SerializedSkinRef,
+    mut skin: SerializedSkinRef,
     retained_bytes: &mut usize,
 ) -> PlayerSkin {
-    // Vanilla rebuilds persona skins from piece assets this client lacks; the sender's baked
-    // `image_data` stands in for that rebuild (a provisional approximation).
-    let (width, height) = (skin.image_data.width, skin.image_data.height);
-    // Legacy 64x32 skins are kept; the renderer expands them to the square layout.
-    let legacy = (width, height) == (64, 32);
-    if !legacy && (width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE)) {
+    // Serialized persona payloads carry the assembled model, base raster and animation atlases.
+    let (width, mut height) = (skin.image_data.width, skin.image_data.height);
+    let classic = CLASSIC_SKIN_SIDE as u32;
+    let legacy = (width, height) == (classic, classic / 2);
+    let limit = if skin.is_persona {
+        MAX_STANDARD_SKIN_SIDE
+    } else {
+        MAX_CLASSIC_SKIN_SIDE as u32
+    };
+    if !legacy && (width != height || !width.is_power_of_two() || width < classic || width > limit)
+    {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
     }
     let Some(expected_bytes) = usize::try_from(width)
@@ -122,6 +138,13 @@ pub(super) fn normalize_player_skin(
     if skin.image_data.image_bytes.len() != expected_bytes {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength);
     }
+    if legacy && !skin.is_persona {
+        skin.image_data.image_bytes =
+            expand_legacy_skin_rgba8(&skin.image_data.image_bytes, width as usize);
+        height = width;
+        skin.image_data.height = height;
+    }
+    let expected_bytes = skin.image_data.image_bytes.len();
     let Some(next_bytes) = retained_bytes.checked_add(expected_bytes) else {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
     };
@@ -131,6 +154,7 @@ pub(super) fn normalize_player_skin(
     *retained_bytes = next_bytes;
     let cape = normalize_cape(&skin.cape_image_data, retained_bytes);
     let geometry = geometry_source(&skin, retained_bytes);
+    alpha::normalize(&mut skin);
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
@@ -138,4 +162,66 @@ pub(super) fn normalize_player_skin(
         cape,
         geometry,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_geometry_keeps_the_captured_slim_resource_patch() {
+        let skin = SerializedSkinRef {
+            resource_patch: r#"{"geometry":{"default":"geometry.humanoid.customSlim"}}"#.into(),
+            geometry_data: "null".into(),
+            ..Default::default()
+        };
+        let mut bytes = 0;
+        let source = geometry_source(&skin, &mut bytes).expect("named classic model survives");
+        assert_eq!(source.resource_patch.as_ref(), skin.resource_patch);
+        assert_eq!(source.geometry_data.as_ref(), "null");
+        assert_eq!(bytes, source.byte_len());
+    }
+
+    #[test]
+    fn classic_rejects_large_rasters_while_persona_accepts_the_bounded_larger_atlas() {
+        for side in [MAX_CLASSIC_SKIN_SIDE as u32 * 2, MAX_STANDARD_SKIN_SIDE] {
+            let mut source = SerializedSkinRef {
+                image_data: valentine::bedrock::version::v1_26_51::SkinImage {
+                    width: side,
+                    height: side,
+                    image_bytes: vec![255; (side * side * 4) as usize],
+                },
+                ..Default::default()
+            };
+            assert_eq!(
+                normalize_player_skin(source.clone(), &mut 0),
+                PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions)
+            );
+            source.is_persona = true;
+            assert!(matches!(
+                normalize_player_skin(source, &mut 0),
+                PlayerSkin::Standard(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn legacy_alpha_is_validated_after_left_limbs_are_expanded() {
+        let side = CLASSIC_SKIN_SIDE as u32;
+        let source = SerializedSkinRef {
+            resource_patch: r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.into(),
+            image_data: valentine::bedrock::version::v1_26_51::SkinImage {
+                width: side,
+                height: side / 2,
+                image_bytes: vec![0; (side * side / 2 * 4) as usize],
+            },
+            ..Default::default()
+        };
+        let PlayerSkin::Standard(skin) = normalize_player_skin(source, &mut 0) else {
+            panic!("legacy skin");
+        };
+        assert_eq!(skin.height, side);
+        assert_eq!(skin.rgba8[(52 * CLASSIC_SKIN_SIDE + 16) * 4 + 3], 255);
+        assert_eq!(skin.rgba8[(48 * CLASSIC_SKIN_SIDE) * 4 + 3], 0);
+    }
 }
