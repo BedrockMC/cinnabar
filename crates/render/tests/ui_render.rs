@@ -64,10 +64,25 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     assert!(source.contains("viewport_size"));
 }
 
+// The UI layer composites over the scene in sRGB-encoded values.
+#[test]
+fn composite_shader_blends_in_gamma_space() {
+    let source = include_str!("../src/ui_composite.wgsl");
+    let module = naga::front::wgsl::parse_str(source).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+    assert!(source.contains("ui.rgb + linear_to_srgb(under.rgb) * (1.0 - ui.a)"));
+}
+
 #[test]
 fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
-    assert_eq!(layout.entries.len(), 3);
+    // Viewport, pages, and the nearest and `bilinear` samplers.
+    assert_eq!(layout.entries.len(), 4);
     let descriptor = ui_pipeline_descriptor(layout);
     assert!(
         descriptor.depth_stencil.is_none(),
