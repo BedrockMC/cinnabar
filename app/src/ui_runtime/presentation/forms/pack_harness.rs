@@ -78,10 +78,9 @@ pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
         );
         all.extend(files);
     }
-    let wanted = ServerUiPack::referenced_texture_dirs(&pack.ui_layers);
     let mut textures = BTreeMap::new();
     for (path, bytes) in all {
-        if ServerUiPack::wants_texture(&wanted, &path) {
+        if path.starts_with("textures/") {
             textures.insert(path, bytes);
         }
     }
@@ -409,6 +408,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: Vec::new(),
         textures: vec![("textures/ui/big_logo.png".to_owned(), png)],
+        view: None,
     });
     let runtime = image_form(
         "Logo",

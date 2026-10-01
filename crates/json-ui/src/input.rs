@@ -46,6 +46,60 @@ impl HitKind {
     }
 }
 
+/// A control's press sound (`SoundComponent`): its `sound_name`, else the first
+/// `sounds` entry for a button event on the control's button (or any button).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControlSound {
+    pub name: String,
+    pub volume: f32,
+    pub pitch: f32,
+    /// `min_seconds_between_plays`; zero never holds a repeat back.
+    pub min_seconds: f32,
+}
+
+impl ControlSound {
+    fn of(control: &crate::ResolvedControl, button: Option<&str>) -> Option<Self> {
+        let properties = &control.properties;
+        let number = |value: Option<&Value>, fallback: f64| {
+            value.and_then(Value::as_f64).unwrap_or(fallback) as f32
+        };
+        if let Some(name) = properties
+            .get("sound_name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+        {
+            return Some(Self {
+                name: name.to_owned(),
+                volume: number(properties.get("sound_volume"), 1.0),
+                pitch: number(properties.get("sound_pitch"), 1.0),
+                min_seconds: 0.0,
+            });
+        }
+        properties
+            .get("sounds")?
+            .as_array()?
+            .iter()
+            .find(|entry| {
+                let event = entry.get("event_type").and_then(Value::as_str);
+                let wanted = entry.get("button_name").and_then(Value::as_str);
+                event == Some("button_event")
+                    && wanted.is_none_or(|wanted| wanted.is_empty() || Some(wanted) == button)
+            })
+            .and_then(|entry| {
+                Some(Self {
+                    name: entry
+                        .get("sound_name")
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.is_empty())?
+                        .to_owned(),
+                    volume: number(entry.get("sound_volume"), 1.0),
+                    pitch: number(entry.get("sound_pitch"), 1.0),
+                    min_seconds: number(entry.get("min_seconds_between_plays"), 0.0),
+                })
+            })
+    }
+}
+
 /// One interactive control, in draw order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HitRegion {
@@ -73,6 +127,7 @@ pub struct HitRegion {
     pub renderer: Option<String>,
     /// The axes a [`HitKind::Draggable`] region moves along.
     pub drag_axes: [bool; 2],
+    pub sound: Option<ControlSound>,
 }
 
 impl HitRegion {
@@ -157,6 +212,8 @@ fn collect(
             HitKind::EditBox => text("text_box_name"),
             _ => None,
         };
+        let pressed = pressed_target(control);
+        let sound = ControlSound::of(control, pressed.as_deref());
         out.push(HitRegion {
             key: node.key.clone(),
             name: control.name.clone(),
@@ -165,7 +222,7 @@ fn collect(
             clip: node.clip.into(),
             layer: node.layer,
             order: *order,
-            pressed: pressed_target(control),
+            pressed,
             control_name,
             collection_index: index,
             collection: collection.map(str::to_owned),
@@ -187,6 +244,7 @@ fn collect(
                 .then(|| text("renderer"))
                 .flatten(),
             drag_axes: crate::layout::draggable_axes(control),
+            sound,
         });
         *order += 1;
     }

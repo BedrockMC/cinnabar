@@ -98,6 +98,7 @@ impl UiPresentationRuntime {
         };
         let art = ScreenArt {
             now: now_millis as f64 / 1_000.0,
+            clocks: Some(&self.scene_clock),
             ..ScreenArt::default()
         };
         let screen = &mut chat.screen;

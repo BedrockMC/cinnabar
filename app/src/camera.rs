@@ -721,6 +721,7 @@ pub(crate) fn update_cursor_capture(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
     ui: Option<Res<crate::ui_runtime::UiRuntime>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
 ) {
     let (window, mut cursor) = window.into_inner();
 
@@ -732,10 +733,9 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    if ui
-        .as_deref()
-        .is_some_and(crate::ui_runtime::UiRuntime::ui_focused)
-    {
+    // The top scene decides mouse capture (`currentScreenShouldStealMouse`).
+    let steals = ui.as_deref().map(|ui| ui.steals_mouse(menu.as_deref()));
+    if steals == Some(false) {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;
@@ -750,9 +750,9 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    let recapture_click =
-        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
-    if recapture_click || auto_fly.capture_pending {
+    let active = input_is_active(window, &cursor);
+    let recapture_click = !active && mouse_buttons.just_pressed(MouseButton::Left);
+    if recapture_click || (steals == Some(true) && !active) || auto_fly.capture_pending {
         capture_cursor(&mut cursor);
         if recapture_click {
             // The click that transitions from an absolute UI cursor to

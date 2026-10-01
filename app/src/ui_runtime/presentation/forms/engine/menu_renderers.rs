@@ -99,6 +99,31 @@ fn split_sentence(text: &str, limit: usize) -> (&str, Option<&str>) {
 }
 
 impl Painter<'_> {
+    /// Messaging art, drawn as its first frame.
+    pub(super) fn animated_gif(
+        &mut self,
+        data: &BTreeMap<String, Value>,
+        dest: [f32; 4],
+        alpha: &impl Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let path = data.get("#gif_path")?.as_str()?;
+        let image = self.art.images?.get(path)?;
+        let opacity = data
+            .get("#alpha")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let tint = alpha([255, 255, 255, (255.0 * opacity) as u8]);
+        Some((
+            UiVisual::Sprite {
+                texture_page: image.page,
+                uv: image.uv,
+                color: tint,
+            },
+            dest,
+        ))
+    }
+
     /// The preview raster posed and framed as this vanilla player renderer
     /// asks; the pose is requested for the next raster.
     pub(super) fn player_preview(

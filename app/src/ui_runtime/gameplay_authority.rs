@@ -488,6 +488,7 @@ impl UiRuntime {
                 < u32::from(previous.current()) * u32::from(next.scale())
         {
             self.last_health_drop_millis = Some(envelope.local_millis);
+            self.note_player_hurt();
         }
         self.hud
             .set_stats(health, hunger, self.hud.armor(), self.hud.air());

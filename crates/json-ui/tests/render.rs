@@ -19,8 +19,8 @@ impl TextMeasure for MonoText {
 /// Every texture is a plain 16x16 image.
 struct Icons;
 impl TextureSource for Icons {
-    fn texture(&self, _path: &str) -> Option<TextureMeta> {
-        Some(TextureMeta::plain([16.0, 16.0]))
+    fn texture(&self, path: &str) -> Option<TextureMeta> {
+        (path != "missing").then(|| TextureMeta::plain([16.0, 16.0]))
     }
 }
 
@@ -209,4 +209,19 @@ fn edit_box_placeholder_hides_behind_text() {
     };
     assert_eq!(texts(draw(&edit(""))), ["Hint"]);
     assert_eq!(texts(draw(&edit("X"))), ["X"]);
+}
+
+// An empty texture draws nothing even with a colour; an unresolved one only
+// without `allow_debug_missing_texture: false`.
+#[test]
+fn empty_and_missing_textures() {
+    let image = |props: Value| draw(&ctrl("image", "image", props, vec![]));
+    assert!(image(json!({ "texture": "", "color": [1, 0, 0], "size": [8, 8] })).is_empty());
+    assert_eq!(
+        image(json!({ "texture": "missing", "size": [8, 8] })).len(),
+        1
+    );
+    let hidden =
+        json!({ "texture": "missing", "allow_debug_missing_texture": false, "size": [8, 8] });
+    assert!(image(hidden).is_empty());
 }

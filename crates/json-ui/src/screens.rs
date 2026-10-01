@@ -97,6 +97,21 @@ pub fn resolve_screen(
     resolve(catalog, reference, context).control
 }
 
+/// The `ScreenSettings` of a `type: "screen"` definition; `None` when the
+/// reference is unknown, ignored or not a screen.
+pub fn screen_settings(
+    reference: &str,
+    catalog: &Catalog,
+    context: &Context,
+) -> Option<crate::ScreenSettings> {
+    let (namespace, name) = reference.split_once('.')?;
+    let root = context.root_env(catalog);
+    let (control_type, properties) =
+        crate::Resolver::new(catalog).resolve_root_properties(namespace, name, &root)?;
+    (control_type.as_deref() == Some("screen"))
+        .then(|| crate::ScreenSettings::from_properties(&properties))
+}
+
 /// Bind a resolved screen against `data`, ready for [`crate::render_bound`].
 pub fn bind_screen(
     root: &ResolvedControl,

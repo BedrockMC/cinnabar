@@ -20,6 +20,7 @@ use ui::{
     UiRect, UiScale, UiTree, UiVisual,
 };
 
+use super::scene_stack::{Scene, SceneHost};
 use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
     camera::CameraSettingsAuthority,
@@ -52,7 +53,7 @@ mod retained_hud;
 pub(crate) mod screens;
 mod session_glyphs;
 mod session_icons;
-pub(crate) use forms::ServerUiPack;
+pub(crate) use forms::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
 pub(crate) use session_glyphs::SessionGlyphSheets;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
@@ -171,8 +172,11 @@ pub struct UiPresentationRuntime {
     /// The art set last requested: service art plus engine textures too big for a server page.
     menu_artwork_set: menu_artwork::ArtworkSet,
     menu_artwork_loader: menu_artwork::ArtworkLoader,
-    /// This frame's clock in seconds, for menu animations painted over cached layouts.
+    /// This frame's clock in seconds, which engine screen animations paint at.
     menu_seconds: f64,
+    scene_clocks: super::scene_stack::SceneClocks,
+    /// The drawing scene's transition event clocks.
+    scene_clock: std::collections::BTreeMap<String, f64>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     /// The installed refs must be rebased onto moved art pages.
     menu_artwork_dirty: bool,
@@ -275,6 +279,8 @@ impl UiPresentationRuntime {
             menu_artwork_set: Default::default(),
             menu_artwork_loader: Default::default(),
             menu_seconds: 0.0,
+            scene_clocks: Default::default(),
+            scene_clock: Default::default(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             // The title logo loads before any service art arrives.
             menu_artwork_dirty: true,
@@ -444,6 +450,55 @@ impl UiPresentationRuntime {
         self.layouts.len()
     }
 
+    /// The Java-look surfaces outside the engine HUD, over the safe HUD geometry.
+    fn append_java_hud(
+        &mut self,
+        runtime: &UiRuntime,
+        nodes: &mut Vec<UiNode>,
+        next_id: &mut u32,
+        geometry: Option<HudGeometry>,
+        now_millis: u64,
+        container: bool,
+    ) -> Result<(), UiPresentationError> {
+        let (Some(hud_textures), Some(geometry)) = (self.hud_textures.as_ref(), geometry) else {
+            return Ok(());
+        };
+        let mut frame = self.hud_frame.clone();
+        frame.now_millis = now_millis;
+        HudLayout::new(
+            nodes,
+            next_id,
+            hud_textures,
+            &mut self.layouts,
+            &self.font,
+            self.solid_texture_page,
+            geometry,
+        )?
+        .append(runtime, &frame, container)
+    }
+
+    /// The world's own overlays: diagnostics and below-name scores.
+    fn append_gameplay_overlays(
+        &mut self,
+        nodes: &mut Vec<UiNode>,
+        next_id: &mut u32,
+        metrics: TextMetrics,
+        content: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        self.append_debug_overlay(nodes, next_id, metrics, content[0])?;
+        retained_hud::append_below_name_nodes(
+            nodes,
+            next_id,
+            &mut self.layouts,
+            &self.font,
+            metrics,
+            self.solid_texture_page,
+            content[0],
+            content[1],
+            &self.below_name_anchors,
+        )
+    }
+
     pub fn build(
         &mut self,
         runtime: &UiRuntime,
@@ -478,136 +533,115 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
         let menu_visible = self.menu_view.is_some();
-        if !menu_visible
-            && let Some(hud_textures) = self.hud_textures.as_ref()
-            && let Some(geometry) = hud_geometry
-        {
-            let mut frame = self.hud_frame.clone();
-            frame.now_millis = now_millis;
-            let mut layout = HudLayout::new(
-                &mut nodes,
-                &mut next_id,
-                hud_textures,
-                &mut self.layouts,
-                &self.font,
-                self.solid_texture_page,
-                geometry,
-            )?;
-            layout.append(runtime, &frame)?;
+        let content = [content_width, content_height];
+        let host = SceneHost {
+            menu: self.menu_view.as_ref().map(|view| view.screen),
+            over_world: self.menu_view.as_ref().is_none_or(|view| view.over_world),
+            loading: self.loading_stage.is_some(),
+        };
+        let stack = runtime.scenes_in(host, &self.screen_settings());
+        let scenes = stack.visible(false);
+        self.begin_form_frame();
+        self.menu_seconds = now_millis as f64 / 1_000.0;
+        let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
+        self.scene_clocks.observe(&open, self.menu_seconds);
+        let mut menu_hit_targets = Vec::new();
+        for scene in &scenes {
+            self.scene_clock = self.scene_clocks.clocks(*scene);
+            let (nodes, next) = (&mut nodes, &mut next_id);
+            match scene {
+                Scene::Gameplay => {
+                    self.append_java_hud(runtime, nodes, next, hud_geometry, now_millis, false)?;
+                    self.append_gameplay_overlays(nodes, next, metrics, content)?;
+                }
+                Scene::Crosshair | Scene::Hud => {
+                    let crosshair = *scene == Scene::Crosshair;
+                    self.append_engine_hud(
+                        runtime, nodes, next, metrics, content, now_millis, crosshair,
+                    )?;
+                }
+                Scene::Bed => {
+                    self.append_bed_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
+                Scene::Container => {
+                    self.append_java_hud(runtime, nodes, next, hud_geometry, now_millis, true)?;
+                    self.append_container_scene(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                    )?;
+                }
+                Scene::Chat => {
+                    self.append_chat_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
+                Scene::Loading => {
+                    if let Some(stage) = self.loading_stage {
+                        // An opaque cover under the loading screen: no partial terrain or
+                        // HUD leaks through while the world settles.
+                        nodes.push(
+                            UiNode::new(UiNodeId::new(*next), None, viewport).with_visual(
+                                UiVisual::Solid {
+                                    texture_page: self.solid_texture_page,
+                                    color: [8, 10, 14, 255],
+                                },
+                            ),
+                        );
+                        *next = next.saturating_add(1);
+                        self.append_loading_screen(runtime, stage, nodes, next, metrics, content)?;
+                    }
+                }
+                Scene::SignEditor => {
+                    self.append_sign_editor(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                        now_millis,
+                    )?;
+                }
+                Scene::ServerForm | Scene::ServerSettingsForm => {
+                    self.append_server_form(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                    )?;
+                }
+                Scene::Menu(_) => {
+                    menu_hit_targets = self.append_menu(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                    )?;
+                }
+            }
         }
-
-        let inventory_open = runtime.inventory_open();
-        if !inventory_open && !menu_visible {
-            self.append_engine_hud(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        }
-
-        if !inventory_open && !menu_visible {
-            self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
-            retained_hud::append_below_name_nodes(
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                &self.below_name_anchors,
-            )?;
-        }
-
-        if !menu_visible && !inventory_open {
-            self.append_bed_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        }
-        if !menu_visible && !inventory_open && runtime.chat_focused() {
-            self.append_chat_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        } else {
+        if !scenes.contains(&Scene::Chat) {
             self.close_chat_screen();
         }
-
-        self.menu_seconds = now_millis as f64 / 1_000.0;
-        let menu_hit_targets = self.append_menu(
-            runtime,
-            &mut nodes,
-            &mut next_id,
-            metrics,
-            content_width,
-            content_height,
-        )?;
-
-        if !menu_visible && let Some(stage) = self.loading_stage {
-            // An opaque cover under the loading screen: no partial terrain or
-            // HUD leaks through while the world settles.
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(0.0, 0.0, logical_width, logical_height)?,
-                )
-                .with_visual(UiVisual::Solid {
-                    texture_page: self.solid_texture_page,
-                    color: [8, 10, 14, 255],
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-            self.append_loading_screen(
-                runtime,
-                stage,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-            )?;
+        if !scenes.contains(&Scene::SignEditor) {
+            self.hide_sign_editor();
         }
-
-        self.append_server_form(
+        // Toasts live on their own stack, drawn last over every scene.
+        self.scene_clock.clear();
+        self.append_toast_screen(
             runtime,
             &mut nodes,
             &mut next_id,
             metrics,
-            content_width,
-            content_height,
-        )?;
-        self.append_sign_editor(
-            runtime,
-            &mut nodes,
-            &mut next_id,
-            metrics,
-            content_width,
-            content_height,
+            content,
             now_millis,
         )?;
-        if !menu_visible {
-            self.append_toast_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        }
         self.sync_server_ui_pages();
         // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
         let built = menu_visible.then(|| BuiltMenu {
