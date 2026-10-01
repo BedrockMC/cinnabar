@@ -299,14 +299,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         view.rotation(),
         &mut local_visibility,
     );
-    let cull_view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
     // Vanilla projects the hand with its own fixed FOV, ignoring the FOV option and modifiers.
     let hand_camera_fov = camera
         .single()
@@ -316,6 +308,14 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     let preparation = profiler
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPreparation));
+    let cull_view = camera
+        .single()
+        .ok()
+        .map(|(transform, projection)| ActorCullView {
+            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
+            camera_position: transform.translation,
+            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+        });
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
@@ -332,6 +332,17 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                     let Some(actor) = stream.actor(rig.actor.runtime_id) else {
                         continue;
                     };
+                    // Culled before any per-actor work; the local rig also drives the hand.
+                    if rig.actor.runtime_id != local_runtime_id
+                        && !crate::presentation::actors::rig_may_be_visible(
+                            &rig,
+                            actor,
+                            step.partial_tick,
+                            cull_view,
+                        )
+                    {
+                        continue;
+                    }
                     let profile = stream.actor_player_profile(rig.actor.runtime_id);
                     let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
                         actor_rig_presentation(&rig, actor, profile, step.partial_tick).map(

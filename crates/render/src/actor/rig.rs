@@ -816,6 +816,21 @@ pub fn actor_rig_submission_is_visible(
     submission: &ActorRigSubmission,
     view: Option<ActorCullView>,
 ) -> bool {
+    // The culling box grows with the instance's scale so scaled models are not cut early.
+    let scale = Vec3::new(
+        submission.world_from_actor[0][1],
+        submission.world_from_actor[1][1],
+        submission.world_from_actor[2][1],
+    )
+    .length();
+    let feet = submission.world_from_actor.map(|row| row[3]);
+    actor_bounds_are_visible(feet, scale, view)
+}
+
+/// Whether the culling box of an actor standing at `feet` with model scale `scale` is within
+/// `view`'s distance and frustum; always true without a usable view.
+#[must_use]
+pub fn actor_bounds_are_visible(feet: [f32; 3], scale: f32, view: Option<ActorCullView>) -> bool {
     let Some(view) = view.filter(|view| {
         view.clip_from_world.is_finite()
             && view.camera_position.is_finite()
@@ -824,24 +839,13 @@ pub fn actor_rig_submission_is_visible(
     }) else {
         return true;
     };
-    let feet = Vec3::new(
-        submission.world_from_actor[0][3],
-        submission.world_from_actor[1][3],
-        submission.world_from_actor[2][3],
-    );
+    let feet = Vec3::from_array(feet);
     if (feet + Vec3::Y).distance_squared(view.camera_position)
         > view.max_distance * view.max_distance
     {
         return false;
     }
-    // The culling box grows with the instance's scale so scaled models are not cut early.
-    let scale = Vec3::new(
-        submission.world_from_actor[0][1],
-        submission.world_from_actor[1][1],
-        submission.world_from_actor[2][1],
-    )
-    .length()
-    .max(1.0);
+    let scale = scale.max(1.0);
     let (half_width, height) = (0.5 * scale, 2.0 * scale);
     let corners = [
         Vec3::new(-half_width, 0.0, -half_width),
