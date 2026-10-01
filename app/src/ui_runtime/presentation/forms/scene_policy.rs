@@ -97,7 +97,7 @@ mod tests {
         menu.open_pause();
         presentation.set_server_ui_pack(&ServerUiPack {
             ui_layers: vec![vec![(
-                "ui/pause.json".into(),
+                "ui/pause_screen.json".into(),
                 br#"{"namespace":"pause","pause_screen":{"render_game_behind":false}}"#.to_vec(),
             )]],
             ..Default::default()
