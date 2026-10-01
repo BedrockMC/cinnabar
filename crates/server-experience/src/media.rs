@@ -21,7 +21,9 @@ pub const MAX_DURATION_US: u64 = 4 * 60 * 60 * 1_000_000;
 
 /// Future MP4/H.264/AAC integration must implement the same validated output contract.
 pub trait PlatformDecoder: Send {
+    /// Reports a usable, policy-restricted platform decoder, never just codec presence.
     fn supports_mp4_h264_aac(&self) -> bool;
+    /// Returns validated frames tagged with the caller-owned playback generation.
     fn decode(&mut self, bytes: &[u8], generation: u64) -> anyhow::Result<Vec<frames::VideoFrame>>;
 }
 

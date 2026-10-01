@@ -3,7 +3,7 @@
 use std::{collections::{BTreeMap, BTreeSet}, path::Path};
 use anyhow::{Result, ensure};
 use mod_host::helper::{Dispatch, Helper};
-use server_experience::{bundle::VerifiedBundle, manifest::Permission, negotiation::Grant,
+use server_experience::{bundle::VerifiedBundle, manifest::implemented_permissions, negotiation::Grant,
     policy::*, runtime::{Budget, Capabilities, Command, Contributions, Principal, CALLBACK_INTERVAL_MS},
     session::Control, wire::{Envelope, Ingress, RateLimit}};
 
@@ -30,13 +30,16 @@ pub(super) struct Live {
 impl Live {
     /// Launches only developer helpers; unsupported required presentation remains denied.
     pub(super) fn start(grant: Grant, bundles: Vec<VerifiedBundle>, epoch: u64, now_ms: u64, executable: &Path) -> Result<Self> {
+        ensure!(bundles.iter().map(|bundle| bundle.manifest.channels.len()).sum::<usize>() <= MAX_CHANNELS,
+            "aggregate channel limit exceeded");
         let mut budget = Budget::default();
+        budget.begin_slice();
         let mut instances = BTreeMap::new();
         for bundle in bundles {
             let owner = Principal { session: grant.session.clone(), bundle: bundle.manifest.id.clone(), generation: 1 };
             let mut scope = grant.offer.offer.scope.clone();
             scope.permissions = bundle.manifest.permissions.clone();
-            scope.permissions.retain(|permission| matches!(permission, Permission::Ui | Permission::Messaging));
+            scope.permissions.retain(|permission| implemented_permissions().contains(permission));
             let count = grant.offer.offer.packages.len() as u64;
             scope.memory_bytes = (scope.memory_bytes / count).min(MAX_GUEST_MEMORY);
             scope.gpu_bytes /= count;
@@ -47,7 +50,12 @@ impl Live {
                 actions: bundle.manifest.actions.clone(),
             };
             budget.reserve(owner.clone(), capabilities.scope.memory_bytes, capabilities.scope.gpu_bytes)?;
-            let helper = bundle.component().map(|bytes| Helper::spawn_developer(executable, bytes, owner.clone(), capabilities.clone(), epoch)).transpose()?;
+            let helper = if let Some(bytes) = bundle.component() {
+                budget.dispatch(&owner)?;
+                Some(Helper::spawn_developer(executable, bytes, owner.clone(), capabilities.clone(), epoch)?)
+            } else {
+                None
+            };
             let busy = helper.is_some();
             instances.insert(owner.bundle.clone(), Instance { helper, capabilities, owner, contributions: Contributions::default(), busy });
         }
@@ -87,6 +95,8 @@ impl Live {
             self.ready = true;
             packets.push(serde_json::to_vec(&Control::Ready {
                 session: self.grant.session.clone(), packages: self.grant.offer.offer.packages.iter().map(|p| p.digest.clone()).collect(), generation: 1,
+                permissions: self.instances.iter().map(|(id, instance)| (id.clone(), instance.capabilities.scope.permissions.clone())).collect(),
+                world_epoch: self.epoch,
             })?);
         }
         ensure!(self.ready || sends.is_empty(), "guest sent before all bundles were ready");
@@ -114,14 +124,24 @@ impl Live {
     /// Applies aggregate limits and signed schemas before guest dispatch.
     pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
-        let channels: Vec<_> = self.instances.values().flat_map(|instance| instance.capabilities.channels.iter().cloned()).collect();
+        let channels: Vec<_> = self.instances.values()
+            .filter(|instance| instance.capabilities.scope.permissions
+                .contains(&server_experience::manifest::Permission::Messaging))
+            .flat_map(|instance| instance.capabilities.channels.iter().cloned()).collect();
         self.ingress.receive(bytes, now_ms, 0, &self.grant, &channels)
     }
 
-    /// Reports provenance and bounded guest labels for the host-owned JSON-UI island.
+    /// Uses only host-owned status text in the persistent execution indicator.
     pub(super) fn text(&self) -> String {
-        let labels = self.instances.values().flat_map(|instance| instance.contributions.widgets.values())
-            .take(8).cloned().collect::<Vec<_>>().join("\n");
-        format!("Cinnabar: server code running (developer helper). F9: disable\n{labels}")
+        "Cinnabar: server code running (developer helper). F9: disable".into()
+    }
+
+    /// Limits remote text separately from the trusted execution indicator.
+    pub(super) fn labels(&self) -> String {
+        let labels = self.instances.values()
+            .flat_map(|instance| instance.contributions.widgets.values())
+            .take(8).cloned().collect::<Vec<_>>().join(" | ");
+        if labels.is_empty() { return String::new(); }
+        format!("Server widgets: {}", labels.chars().take(256).collect::<String>())
     }
 }

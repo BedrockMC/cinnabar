@@ -1,3 +1,5 @@
+mod bundles;
+
 use super::*;
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use std::collections::BTreeSet;
@@ -122,4 +124,89 @@ fn stale_and_partially_invalid_transactions_never_publish() {
     assert!(contributions.apply(&transaction, &owner, 1, &capabilities).is_err());
     assert!(contributions.widgets.is_empty());
     assert!(contributions.apply(&transaction, &owner, 2, &capabilities).is_err());
+}
+
+#[test]
+fn remembered_scope_requires_reapproval_and_updates_rollback_floor() {
+    let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+    let mut value = offer(&key);
+    let mut settings = trust::Settings::default();
+    settings.remember(&value, trust::Decision::Always).unwrap();
+    value.revision += 1;
+    let marker = negotiation::Marker {
+        server_key: value.server_key.clone(),
+        offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+    };
+    let bytes = serde_json::to_vec(&marker).unwrap();
+    let mut session = session::Session::default();
+    assert!(session.discover(&bytes, &value.audience, &mut settings, 1000, 0).unwrap());
+    assert!(session.take_outbound().is_some());
+    assert_eq!(settings.pins[0].highest_revision, value.revision);
+    value.revision -= 1;
+    assert_eq!(settings.decision(&value).unwrap(), None);
+    value.revision += 1;
+    value.scope.permissions.insert(manifest::Permission::Media);
+    assert_eq!(settings.decision(&value).unwrap(), None);
+    settings.remember(&value, trust::Decision::Never).unwrap();
+    value.server_key = crypto::hex(&[1; 32]);
+    assert_eq!(settings.decision(&value).unwrap(), Some(trust::Decision::Never));
+}
+
+#[test]
+fn canonical_signature_rejects_alternate_json_even_when_signed() {
+    let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+    let value = offer(&key);
+    let payload = serde_json::to_vec_pretty(&value).unwrap();
+    let mut message = crypto::OFFER_DOMAIN.to_vec();
+    message.extend_from_slice(&payload);
+    let document = crypto::SignedDocument {
+        payload: crypto::hex(&payload),
+        signature: crypto::hex(key.sign(&message).as_ref()),
+    };
+    assert!(document.verify::<manifest::Offer>(
+        &value.server_key, crypto::OFFER_DOMAIN, policy::MAX_MARKER_BYTES,
+    ).is_err());
+}
+
+#[test]
+fn typed_records_wait_for_publication_and_replay_quarantines() {
+    let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+    let mut value = offer(&key);
+    value.scope.permissions.insert(manifest::Permission::Messaging);
+    let grant = negotiation::Grant {
+        offer: negotiation::VerifiedOffer {
+            digest: crypto::digest(&serde_json::to_vec(&value).unwrap()),
+            offer: value,
+        },
+        session: crypto::hex(&[2; 32]),
+        connection: crypto::hex(&[3; 32]),
+        subclient: 0,
+        expires_unix: 1500,
+    };
+    let channel = wire::Channel {
+        id: format!("{}.score", grant.offer.offer.packages[0].id),
+        schema: 1,
+        direction: wire::Direction::ToClient,
+        fields: vec![wire::Field::Integer { min: 0, max: 100 }],
+    };
+    let message = wire::Envelope {
+        version: policy::WIRE_VERSION,
+        session: grant.session.clone(),
+        connection: grant.connection.clone(),
+        subclient: grant.subclient,
+        bundle: grant.offer.offer.packages[0].id.clone(),
+        generation: 1,
+        channel: channel.id.clone(),
+        schema: channel.schema,
+        sequence: 1,
+        world_epoch: 7,
+        payload: vec![wire::Scalar::Integer(42)],
+    };
+    let bytes = serde_json::to_vec(&message).unwrap();
+    let mut ingress = wire::Ingress::new(0);
+    ingress.receive(&bytes, 0, 100, &grant, std::slice::from_ref(&channel)).unwrap();
+    assert!(ingress.pop(99, 7).is_none());
+    assert_eq!(ingress.pop(100, 7).unwrap().payload, message.payload);
+    assert!(ingress.receive(&bytes, 0, 101, &grant, &[channel]).is_err());
+    assert!(ingress.pop(u64::MAX, 7).is_none());
 }

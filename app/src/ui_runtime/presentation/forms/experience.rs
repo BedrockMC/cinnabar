@@ -13,6 +13,8 @@ const TEMPLATE: &[u8] = include_bytes!("experience.json");
 pub(super) struct ExperienceChrome {
     text: String,
     prompt: bool,
+    labels: String,
+    failed: bool,
     catalog: Arc<Catalog>,
     screen: CachedScreen,
     frame: Option<EngineFrame>,
@@ -37,10 +39,28 @@ impl UiPresentationRuntime {
             ("ui/cinnabar_experience.json", TEMPLATE),
         ]).map_err(|error| error.to_string())?;
         self.form_presentation.experience = Some(ExperienceChrome {
-            text: text.to_owned(), prompt, catalog: Arc::new(catalog),
+            text: text.to_owned(), prompt, labels: String::new(), failed: false, catalog: Arc::new(catalog),
             screen: CachedScreen::default(), frame: None,
         });
         Ok(())
+    }
+
+    /// Keeps guest labels in a separate, explicitly untrusted area below the status.
+    pub(crate) fn set_experience_labels(&mut self, labels: &str) {
+        if let Some(chrome) = self.form_presentation.experience.as_mut() {
+            chrome.labels = labels.to_owned();
+        }
+    }
+
+    /// Keyboard approval is possible only after a consent frame reached presentation.
+    pub(crate) fn experience_prompt_visible(&self) -> bool {
+        self.form_presentation.experience.as_ref()
+            .is_some_and(|chrome| chrome.prompt && !chrome.failed && chrome.frame.is_some())
+    }
+
+    /// Missing trusted chrome revokes remote code instead of running it invisibly.
+    pub(crate) fn experience_chrome_failed(&self) -> bool {
+        self.form_presentation.experience.as_ref().is_some_and(|chrome| chrome.failed)
     }
 
     /// Maps only hits from the last host-owned consent screen to local choices.
@@ -67,9 +87,13 @@ impl UiPresentationRuntime {
         content: [f32; 2],
     ) {
         let Some(chrome) = self.form_presentation.experience.as_mut() else { return; };
-        let Some(renderer) = self.form_presentation.engine.as_deref() else { return; };
+        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+            chrome.failed = true;
+            return;
+        };
         let mut data = DataSource::new();
         data.set_global("#experience_text", Scalar::Text(chrome.text.clone()));
+        data.set_global("#experience_widgets", Scalar::Text(chrome.labels.clone()));
         let inputs = EngineInputs {
             layouts: &mut self.layouts, font: &self.font, metrics,
             solid_page: self.solid_texture_page, safe_area: self.safe_area, content,
@@ -82,11 +106,15 @@ impl UiPresentationRuntime {
         match renderer.draw(ScreenArt::default(), inputs, out, |env, root| {
             chrome.screen.render_with(reference, &chrome.catalog, &Context::default(), data, (root, px), env, &ViewState::default())
         }) {
-            Ok(frame) => chrome.frame = frame,
+            Ok(frame) => {
+                chrome.failed = frame.is_none();
+                chrome.frame = frame;
+            }
             Err(error) => {
                 nodes.truncate(rollback.0);
                 *next = rollback.1;
                 chrome.frame = None;
+                chrome.failed = true;
                 bevy::log::warn!(%error, "server experience chrome could not render");
             }
         }

@@ -36,7 +36,7 @@ impl Download {
                             cache.publish(&offer.digest, &bytes)?;
                             bytes
                         };
-                        let bundle = VerifiedBundle::read(&bytes, offer, &grant.offer.offer.scope)?;
+                        let bundle = VerifiedBundle::read(&bytes, offer, &grant.offer.offer.scope, MAX_EXPANDED_BYTES - expanded)?;
                         expanded = expanded.checked_add(bundle.expanded_bytes()).ok_or_else(|| anyhow::anyhow!("expanded size overflow"))?;
                         ensure!(expanded <= MAX_EXPANDED_BYTES, "aggregate assets exceed limit");
                         bundles.push(bundle);

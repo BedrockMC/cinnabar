@@ -127,6 +127,8 @@ impl Ingress {
     fn receive_inner(&mut self, bytes: &[u8], now_ms: u64, publication: u64, grant: &Grant, channels: &[Channel]) -> Result<()> {
         ensure!(!self.failed, "channel quarantined");
         self.rate.charge(bytes.len(), now_ms)?;
+        ensure!(grant.offer.offer.scope.permissions.contains(&crate::manifest::Permission::Messaging),
+            "messaging permission denied");
         let message: Envelope = serde_json::from_slice(bytes)?;
         ensure!(message.version == WIRE_VERSION && message.session == grant.session
             && message.connection == grant.connection && message.subclient == grant.subclient, "wrong session route");

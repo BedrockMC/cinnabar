@@ -37,6 +37,7 @@ impl VerifiedOffer {
 pub struct Hello {
     pub version: u16,
     pub api: u16,
+    pub capabilities: std::collections::BTreeSet<crate::manifest::Permission>,
     pub offer_digest: String,
     pub client_challenge: String,
     pub connection: String,
@@ -79,6 +80,11 @@ impl Pending {
         let hello = Hello {
             version: WIRE_VERSION,
             api: API_VERSION,
+            capabilities: if std::env::var(DEVELOPER_ENV).as_deref() == Ok("1") {
+                crate::manifest::implemented_permissions()
+            } else {
+                Default::default()
+            },
             offer_digest: offer.digest.clone(),
             client_challenge: crypto::challenge()?,
             connection: crypto::challenge()?,

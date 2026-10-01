@@ -77,6 +77,12 @@ impl BundleCache {
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
             let name = entry.file_name();
+            if let Some(partial) = name.to_str().and_then(|name| name.strip_prefix(".download-")) {
+                crypto::fixed_hex::<32>(partial)?;
+                ensure!(entry.file_type()?.is_file(), "unsafe partial cache object");
+                fs::remove_file(entry.path())?;
+                continue;
+            }
             let Some(name) = name.to_str().and_then(|name| name.strip_suffix(".cxb")) else {
                 continue;
             };

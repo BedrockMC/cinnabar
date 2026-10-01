@@ -125,3 +125,8 @@ pub fn identifier(text: &str) -> bool {
 pub fn plain_text(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(|c| c.is_control() || c == '§')
 }
+
+/// Lists only capabilities with application adapters in this developer preview.
+pub fn implemented_permissions() -> BTreeSet<Permission> {
+    BTreeSet::from([Permission::Ui, Permission::Messaging])
+}

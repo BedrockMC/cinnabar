@@ -50,11 +50,18 @@ impl Helper {
         let mut child = Command::new(executable).arg("server-helper")
             .env_clear().env(DEVELOPER_ENV, "1")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
-        let mut input = child.stdin.take().ok_or_else(|| anyhow::anyhow!("missing helper input"))?;
-        let mut output = child.stdout.take().ok_or_else(|| anyhow::anyhow!("missing helper output"))?;
+        let (Some(mut input), Some(mut output)) = (child.stdin.take(), child.stdout.take()) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("missing helper pipes");
+        };
         let child = Arc::new(Mutex::new(child));
         let (requests, receiver) = mpsc::sync_channel::<Dispatch>(1);
         let (sender, responses) = mpsc::sync_channel(1);
+        let helper = Self {
+            child, requests, responses: Mutex::new(responses),
+            pending_since: Some(Instant::now()), quarantined: false,
+        };
         std::thread::Builder::new().name("experience-ipc".into()).spawn(move || {
             let result = write_frame(&mut input, &startup, MAX_STARTUP_IPC)
                 .and_then(|()| read_frame(&mut output, MAX_HOST_OUTPUT));
@@ -67,7 +74,7 @@ impl Helper {
                 if sender.send(result).is_err() || failed { return; }
             }
         })?;
-        Ok(Self { child, requests, responses: Mutex::new(responses), pending_since: Some(Instant::now()), quarantined: false })
+        Ok(helper)
     }
 
     /// Sends one callback without ever waiting for the child from the render thread.
