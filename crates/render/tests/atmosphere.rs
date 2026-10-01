@@ -536,7 +536,7 @@ fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_compositio
 fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
     let shader = include_str!("../src/atmosphere.wgsl");
     for needle in [
-        "fn star_field(",
+        "var<storage, read> stars: array<vec4<f32>>;",
         "fn sunrise_glow(",
         "if (kind == 1u)",
         "if (kind == 2u)",
