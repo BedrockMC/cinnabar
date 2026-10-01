@@ -200,16 +200,28 @@ mod tests {
     // A derived `controls` array replaces the base's children outright.
     #[test]
     fn derived_controls_replace_inherited_children() {
-        let base = control("btn", None, json!({}), vec![leaf("old", None), leaf("kept", None)]);
+        let base = control(
+            "btn",
+            None,
+            json!({}),
+            vec![leaf("old", None), leaf("kept", None)],
+        );
         let child = control("btn", None, json!({}), vec![leaf("new", None)]);
         let merged = inherit(&base, &child, Layering::Document);
         let names: Vec<&str> = merged.children.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["new"]);
         let mut empty = control("btn", None, json!({}), Vec::new());
         empty.has_controls = true;
-        assert!(inherit(&base, &empty, Layering::Document).children.is_empty());
+        assert!(
+            inherit(&base, &empty, Layering::Document)
+                .children
+                .is_empty()
+        );
         let silent = control("btn", None, json!({}), Vec::new());
-        assert_eq!(inherit(&base, &silent, Layering::Document).children.len(), 2);
+        assert_eq!(
+            inherit(&base, &silent, Layering::Document).children.len(),
+            2
+        );
     }
 
     // A derived object property is selected whole, not merged key by key.
@@ -226,7 +238,13 @@ mod tests {
     fn null_members_follow_the_layering() {
         let base = control("p", None, json!({ "alpha": 0.5 }), Vec::new());
         let child = control("p", None, json!({ "alpha": null }), Vec::new());
-        assert_eq!(inherit(&base, &child, Layering::Inline).props["alpha"], json!(0.5));
-        assert_eq!(inherit(&base, &child, Layering::Document).props["alpha"], json!(null));
+        assert_eq!(
+            inherit(&base, &child, Layering::Inline).props["alpha"],
+            json!(0.5)
+        );
+        assert_eq!(
+            inherit(&base, &child, Layering::Document).props["alpha"],
+            json!(null)
+        );
     }
 }

@@ -167,8 +167,9 @@ impl Operand {
             Operand::Null => Value::Null,
             Operand::Bool(value) => Value::Bool(value),
             Operand::Int(value) => Value::from(value),
-            Operand::Float(value) => serde_json::Number::from_f64(f64::from(value))
-                .map_or(Value::Null, Value::Number),
+            Operand::Float(value) => {
+                serde_json::Number::from_f64(f64::from(value)).map_or(Value::Null, Value::Number)
+            }
             Operand::Str(text) => Value::String(text),
         }
     }
@@ -178,10 +179,7 @@ impl Operand {
 /// a bool, else the text itself.
 fn reparse(text: String) -> Operand {
     let bytes = text.as_bytes();
-    if bytes.len() > 1
-        && matches!(bytes[0], b'\'' | b'"')
-        && bytes[bytes.len() - 1] == bytes[0]
-    {
+    if bytes.len() > 1 && matches!(bytes[0], b'\'' | b'"') && bytes[bytes.len() - 1] == bytes[0] {
         return Operand::Str(text[1..text.len() - 1].to_owned());
     }
     literal(text)
@@ -243,8 +241,21 @@ enum Item {
 fn is_delimiter(byte: u8) -> bool {
     matches!(
         byte,
-        b' ' | b'\t' | b'\n' | b'\r' | b'$' | b'(' | b')' | b'*' | b'+' | b'-' | b'/' | b'<' | b'='
-            | b'>' | b'\'' | b'"'
+        b' ' | b'\t'
+            | b'\n'
+            | b'\r'
+            | b'$'
+            | b'('
+            | b')'
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'/'
+            | b'<'
+            | b'='
+            | b'>'
+            | b'\''
+            | b'"'
     )
 }
 
@@ -428,7 +439,12 @@ fn truncation(format: &str) -> Option<usize> {
     format.strip_prefix("%.")?.strip_suffix('s')?.parse().ok()
 }
 
-fn number(left: &Operand, right: &Operand, int: fn(i32, i32) -> i32, float: fn(f32, f32) -> f32) -> Operand {
+fn number(
+    left: &Operand,
+    right: &Operand,
+    int: fn(i32, i32) -> i32,
+    float: fn(f32, f32) -> f32,
+) -> Operand {
     if matches!(left, Operand::Float(_)) || matches!(right, Operand::Float(_)) {
         Operand::Float(float(left.as_float(), right.as_float()))
     } else {
@@ -552,8 +568,14 @@ mod tests {
     fn variables_and_logic() {
         assert_eq!(eval("(not $use_custom_title_control)", &env()), Some(true));
         assert_eq!(eval("(not $show_close_button)", &env()), Some(false));
-        assert_eq!(eval("$desktop_screen and (not $pocket_screen)", &env()), Some(true));
-        assert_eq!(eval("($pocket_screen or $desktop_screen)", &env()), Some(true));
+        assert_eq!(
+            eval("$desktop_screen and (not $pocket_screen)", &env()),
+            Some(true)
+        );
+        assert_eq!(
+            eval("($pocket_screen or $desktop_screen)", &env()),
+            Some(true)
+        );
         assert_eq!(eval("($banner_text_binding_name = '')", &env()), Some(true));
         assert_eq!(eval("true or false and false", &env()), Some(false));
     }
