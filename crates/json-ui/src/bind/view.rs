@@ -230,15 +230,11 @@ impl Binder<'_> {
                 if *scope != ViewScope::Own {
                     return None;
                 }
-                let mut answered = bag.clone();
-                for name in expression.properties() {
-                    if !answered.contains_key(name)
-                        && let Some(value) = self.data.globals.get(name)
-                    {
-                        answered.insert(name.to_owned(), value.clone());
-                    }
-                }
-                observe(expression, &answered, &self.env)
+                let answered = Answered {
+                    bag,
+                    globals: &self.data.globals,
+                };
+                observe_in(expression, &answered, &self.env)
             })
         });
         let node = node_at_mut(root, path);
@@ -286,17 +282,42 @@ impl Binder<'_> {
 /// The value a view reads from `bag`: its property, or its expression when a
 /// property it reads is present; nothing when none is.
 fn observe(source: &Source, bag: &super::bag::Bag, env: &crate::env::Env) -> Option<Scalar> {
-    let present = |name: &str| {
-        bag.get(name)
-            .is_some_and(|value| value != &Scalar::Json(Value::Null))
+    observe_in(source, &BagScope(bag), env)
+}
+
+/// [`observe`] over any property scope.
+fn observe_in(
+    source: &Source,
+    scope: &dyn predicate::Bindings,
+    env: &crate::env::Env,
+) -> Option<Scalar> {
+    let read = |name: &str| {
+        scope
+            .get(name)
+            .filter(|value| value != &Scalar::Json(Value::Null))
     };
     match source {
-        Source::Simple(name) => bag.get(name).filter(|_| present(name)).cloned(),
+        Source::Simple(name) => read(name),
         Source::Expression { text, properties } => {
-            if !properties.iter().any(|name| present(name)) {
+            if !properties.iter().any(|name| read(name).is_some()) {
                 return None;
             }
-            predicate::eval_scalar(text, env, &BagScope(bag))
+            predicate::eval_scalar(text, env, scope)
         }
+    }
+}
+
+/// A bag whose missing properties the screen controller answers.
+struct Answered<'a> {
+    bag: &'a super::bag::Bag,
+    globals: &'a std::collections::BTreeMap<String, Scalar>,
+}
+
+impl predicate::Bindings for Answered<'_> {
+    fn get(&self, name: &str) -> Option<Scalar> {
+        self.bag
+            .get(name)
+            .or_else(|| self.globals.get(name))
+            .cloned()
     }
 }
