@@ -1,9 +1,12 @@
 [package]
-name = "mod-api"
+name = "experience-probe"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
-wit-bindgen.workspace = true
+experience-sdk = { path = "../../../crates/experience-sdk" }
