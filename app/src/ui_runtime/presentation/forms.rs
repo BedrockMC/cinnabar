@@ -28,7 +28,15 @@ mod play_screen;
 mod recipe_book;
 mod remote_images;
 mod server_pack;
+mod settings_account;
+mod settings_chat;
+mod settings_controls;
 mod settings_defaults;
+mod settings_keys;
+mod settings_language;
+mod settings_resources;
+#[cfg(test)]
+mod settings_snapshots;
 mod sign_editor;
 #[cfg(test)]
 pub(crate) mod snapshot;

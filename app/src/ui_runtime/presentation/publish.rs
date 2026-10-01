@@ -292,6 +292,7 @@ pub(crate) fn publish_ui_runtime(
     if let Some(mut nametag_scene) = nametag_scene {
         *nametag_scene = presentation.nametag_scene();
     }
+    presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));

@@ -187,13 +187,14 @@ pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
     let _ = BASE_MATERIAL_KEYS.set(keys);
 }
 
-/// The UI language's `texts/<code>.lang`, set once at startup; unset means en_US only.
-static ACTIVE_LANG_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// The selected UI language; unset means the base English table only.
+static ACTIVE_LANG_PATH: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
 pub(crate) fn set_active_language(code: &str) {
-    if code != "en_US" {
-        let _ = ACTIVE_LANG_PATH.set(format!("texts/{code}.lang"));
-    }
+    *ACTIVE_LANG_PATH
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+        (code != "en_US").then(|| format!("texts/{code}.lang"));
 }
 
 pub(super) type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
@@ -450,7 +451,10 @@ fn merged_server_lang(view: &LayeredPackView) -> Option<Arc<assets::ServerLangOv
     let mut kept = Vec::new();
     let mut total = 0usize;
     let mut layers = view.read_layers(SERVER_LANG_PATH);
-    if let Some(active) = ACTIVE_LANG_PATH.get() {
+    let active = ACTIVE_LANG_PATH
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(active) = active.as_deref() {
         layers.extend(view.read_layers(active));
     }
     for layer in layers.into_iter().rev() {

@@ -316,10 +316,13 @@ pub(crate) fn drive_menu_connection(
     launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
+    settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
 ) {
     menu.poll_catalog(launcher_account.is_some());
     menu.poll_saves();
     menu.sync_audio_settings(audio_settings);
+    menu.sync_user_settings(settings);
+    menu.sync_language(&mut session.runtime);
     let in_session = session.client_world.stream.is_some();
     let upstream_cache = client_blob_cache.enables_upstream_client_cache();
     if let Some(slot) = session.launcher.as_deref_mut() {

@@ -36,6 +36,8 @@ pub struct VideoSettings {
     pub distortion_scale: f32,
     pub view_bobbing: bool,
     pub cinematic_camera: bool,
+    pub camera_shake: bool,
+    pub damage_bob: f32,
 }
 
 impl Default for VideoSettings {
@@ -52,6 +54,8 @@ impl Default for VideoSettings {
             distortion_scale: 1.0,
             view_bobbing: true,
             cinematic_camera: false,
+            camera_shake: true,
+            damage_bob: 1.0,
         }
     }
 }

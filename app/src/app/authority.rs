@@ -48,6 +48,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 drive_menu_input,
                 drive_inventory_ui_actions,
                 drive_menu_connection,
+                crate::settings_runtime::apply_window_settings,
+                crate::settings_runtime::apply_render_distance,
                 crate::store::drive_store,
                 synchronize_semantic_input_authority,
                 drive_world_inventory_keys,
