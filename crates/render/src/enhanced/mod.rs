@@ -148,15 +148,8 @@ fn install_graph(world: &mut World) {
     graph.add_node(EnhancedShadowLabel, shadow);
     graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
     graph.add_node(EnhancedPostLabel, post);
-    if graph.get_node_state(Node3d::Bloom).is_ok() {
-        // Bevy normally blooms after UI; move its world-only pass earlier.
-        let _ = graph.remove_node_edge(Node3d::StartMainPassPostProcessing, Node3d::Bloom);
-        graph.add_node_edges((
-            Node3d::MainTransparentPass,
-            Node3d::Bloom,
-            EnhancedPostLabel,
-        ));
-    }
+    // Bloom stays in Bevy's post-processing stage: moving it before EndMainPass closes a cycle
+    // through MotionBlur/Taa (StartMainPassPostProcessing -> MotionBlur -> Bloom) and hangs the graph.
     graph.add_node_edges((
         Node3d::MainTransparentPass,
         EnhancedPostLabel,
