@@ -47,7 +47,7 @@ const SPLASH_COLOR: [u8; 4] = [255, 255, 0, 255];
 const SPLASH_LINE_CHARS: usize = 20;
 /// Font line height the renderer's geometry is written against, in GUI px.
 const LINE_HEIGHT: f32 = 8.0;
-/// Name tag backing (needs native measurement; world tags use 25% black).
+/// Name tag backing: `BaseActorRenderer::NAME_TAG_BACKGROUND_COLOR`, black at alpha 0.25.
 const NAME_TAG_BACKGROUND: [u8; 4] = [0, 0, 0, 64];
 
 /// The splash for this launch: a random line of the pack's `splashes.json`,

@@ -43,7 +43,8 @@ mod menu;
 mod menu_artwork;
 mod menu_scroll;
 pub(crate) use menu_artwork::BUILT_IN_TITLE;
-mod nametags;
+pub(crate) mod nametag_atlas;
+pub(crate) mod nametags;
 mod player_preview;
 mod primitives;
 mod publish;
@@ -140,8 +141,9 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// World-projected below-name score anchors for the current frame.
     below_name_anchors: Vec<BelowNameAnchor>,
-    /// World-projected nametags for players without a below-name score.
+    /// This frame's world-space name tags, and the atlas their lines rasterize into.
     nametag_anchors: Vec<nametags::NametagAnchor>,
+    nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
@@ -252,6 +254,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
+            nametag_atlas: nametag_atlas::NametagAtlas::default(),
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -419,6 +422,21 @@ impl UiPresentationRuntime {
         self.nametag_anchors = anchors;
     }
 
+    /// The world-space tag quads for this frame's anchors.
+    fn nametag_scene(&mut self) -> render::NametagScene {
+        let (font, glyphs) = (&self.font, &self.session_glyphs);
+        let dynamic_start = self.textures.dynamic_start();
+        nametags::build_nametag_scene(
+            &self.nametag_anchors,
+            font,
+            &mut self.layouts,
+            &mut self.nametag_atlas,
+            &|page| {
+                nametag_atlas::font_page(font, page).or_else(|| glyphs.page(dynamic_start, page))
+            },
+        )
+    }
+
     /// Retained text-layout cache entries, exposed for the bounded-memory
     /// steady-state witnesses.
     #[cfg(test)]
@@ -492,16 +510,6 @@ impl UiPresentationRuntime {
 
         if !inventory_open && !menu_visible {
             self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
-            nametags::append_nametag_nodes(
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                &self.nametag_anchors,
-                [content_width, content_height],
-            )?;
             retained_hud::append_below_name_nodes(
                 &mut nodes,
                 &mut next_id,
