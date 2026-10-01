@@ -72,6 +72,7 @@ struct LaidForm {
     view: ViewState,
     root: [f64; 2],
     px: f32,
+    text: [usize; 3],
     render: FormRender,
 }
 
@@ -91,6 +92,8 @@ pub(super) struct EngineInputs<'a> {
     pub(super) safe_area: SafeArea,
     pub(super) content: [f32; 2],
     pub(super) translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
+    /// The language tables `translate` reads; a change measures text again.
+    pub(super) language: [usize; 3],
 }
 
 impl FormEngine {
@@ -190,8 +193,7 @@ impl FormEngine {
         (drawn, missing)
     }
 
-    /// Re-apply a server resource pack's ui files over the vanilla catalog and
-    /// the Java HUD pack; an empty set restores the base catalog.
+    /// Re-apply a server pack's ui over vanilla and the Java HUD pack; none restores the base.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
             self.catalog = Arc::clone(&self.base);
@@ -249,6 +251,7 @@ impl FormEngine {
             });
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let text = inputs.language;
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
@@ -266,10 +269,9 @@ impl FormEngine {
             Some(identity),
             move |env, root| {
                 let cache = cache.as_mut()?;
-                let fresh = cache
-                    .laid
-                    .as_ref()
-                    .is_some_and(|laid| laid.view == *view && laid.root == root && laid.px == px);
+                let fresh = cache.laid.as_ref().is_some_and(|laid| {
+                    laid.view == *view && laid.root == root && laid.px == px && laid.text == text
+                });
                 if !fresh {
                     *passes += 1;
                     let render = render_bound(cache.bound.clone(), root, env, view);
@@ -277,6 +279,7 @@ impl FormEngine {
                         view: view.clone(),
                         root,
                         px,
+                        text,
                         render,
                     });
                 }
@@ -312,8 +315,7 @@ impl FormEngine {
         &self.context
     }
 
-    /// Paint what `draw` lays out (given the layout env and root size) over this
-    /// engine's textures; `Ok(None)` when it lays out nothing.
+    /// Paint what `draw` lays out over this engine's textures; `Ok(None)` when it lays out nothing.
     pub(super) fn draw<R: Borrow<FormRender>>(
         &self,
         art: ScreenArt<'_>,
@@ -324,8 +326,7 @@ impl FormEngine {
         render_with(self.art(), inputs, out, art, None, draw)
     }
 
-    /// Render an allow-listed screen against `data`; `art` backs its custom
-    /// renderers (item icons, the player preview, the pointer tooltip).
+    /// Render an allow-listed screen against `data`; `art` backs its custom renderers.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_screen(
         &self,
@@ -338,7 +339,7 @@ impl FormEngine {
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let language = (inputs.translate)("menu.play");
+        let text = inputs.language;
         render_with(self.art(), inputs, out, art, None, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,
@@ -348,7 +349,7 @@ impl FormEngine {
                 view,
                 root,
                 px,
-                language,
+                text,
             };
             self.screens.render(key, env)
         })
@@ -625,9 +626,8 @@ impl Painter<'_> {
         Ok(id)
     }
 
-    /// Bridge the custom renderers screens use: item icons from the icon atlas,
-    /// the durability bar, the player preview, tooltips, and the HUD's native
-    /// renderers. Others draw nothing yet.
+    /// Bridge the custom renderers screens use: item icons, the durability bar, the
+    /// player preview, tooltips, and the HUD's native renderers. Others draw nothing yet.
     fn custom(
         &mut self,
         renderer: &str,
