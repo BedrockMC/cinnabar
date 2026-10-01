@@ -51,6 +51,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "play.play_screen",
     "add_external_server.add_external_server_screen_new",
     "settings.screen_controls_and_settings",
+    "pack_settings.screen",
     "death.death_screen",
     "progress.progress_screen",
     "progress.world_convert_modal_progress_screen",

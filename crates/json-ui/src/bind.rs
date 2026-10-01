@@ -301,7 +301,7 @@ impl<'a> Binder<'a> {
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
                         continue;
                     };
-                    let item = binding
+                    let values = binding
                         .get("binding_collection_name")
                         .and_then(Value::as_str)
                         .and_then(|collection| {
@@ -311,10 +311,15 @@ impl<'a> Binder<'a> {
                                 .keys
                                 .get(collection)
                                 .map_or(collection, String::as_str);
-                            self.data.collections.get(key)?.get(index)
+                            self.data
+                                .collections
+                                .get(key)
+                                .and_then(|items| items.get(index))
+                                .map(|item| &item.values)
+                                .or_else(|| self.data.collection_defaults.get(key))
                         });
-                    let value = item.and_then(|item| {
-                        lookup(source, &item.values, &own, self.data.strict, &self.env)
+                    let value = values.and_then(|values| {
+                        lookup(source, values, &own, self.data.strict, &self.env)
                     });
                     let target = target_name(binding, source);
                     match value {
