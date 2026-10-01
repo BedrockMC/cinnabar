@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use bevy::{
     ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
@@ -95,22 +95,32 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
             "drive_chat_keyboard_input"
         ),
     ));
-    assert!(graph.dependency().graph().contains_edge(
-        system_node(
+    // Window hotkeys and live settings may run between these input owners.
+    // The authority contract requires their order, including indirect edges.
+    assert!(
+        dependency_path_exists(
             graph,
-            drive_chat_keyboard_input,
-            "drive_chat_keyboard_input"
+            system_node(
+                graph,
+                drive_chat_keyboard_input,
+                "drive_chat_keyboard_input"
+            ),
+            system_node(graph, drive_menu_input, "drive_menu_input"),
         ),
-        system_node(graph, drive_menu_input, "drive_menu_input"),
-    ));
-    assert!(graph.dependency().graph().contains_edge(
-        system_node(graph, drive_menu_input, "drive_menu_input"),
-        system_node(
+        "chat keyboard input must finish before menu input",
+    );
+    assert!(
+        dependency_path_exists(
             graph,
-            drive_inventory_ui_actions,
-            "drive_inventory_ui_actions"
+            system_node(graph, drive_menu_input, "drive_menu_input"),
+            system_node(
+                graph,
+                drive_inventory_ui_actions,
+                "drive_inventory_ui_actions"
+            ),
         ),
-    ));
+        "menu input must finish before inventory UI actions",
+    );
     assert!(graph.dependency().graph().contains_edge(
         stage_node(graph, ClientFrameSet::UiPreparation),
         stage_node(graph, ClientFrameSet::NetworkSend),
@@ -1025,6 +1035,24 @@ fn stage_node(graph: &ScheduleGraph, stage: ClientFrameSet) -> NodeId {
         .get_key(stage.intern())
         .expect("production stage");
     NodeId::Set(key)
+}
+
+fn dependency_path_exists(graph: &ScheduleGraph, before: NodeId, after: NodeId) -> bool {
+    let dependencies = graph.dependency().graph();
+    let mut pending = vec![before];
+    let mut visited = HashSet::new();
+    while let Some(node) = pending.pop() {
+        if !visited.insert(node) {
+            continue;
+        }
+        for successor in dependencies.neighbors(node) {
+            if successor == after {
+                return true;
+            }
+            pending.push(successor);
+        }
+    }
+    false
 }
 
 fn assert_system_in_stage<M>(

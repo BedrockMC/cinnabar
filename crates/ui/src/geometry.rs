@@ -7,13 +7,17 @@ pub enum GeometryError {
     NegativeInset,
 }
 
-/// User-selected UI scale in the supported `0.5..=4.0` range.
+/// UI text scale. User preferences use `0.5..=4.0`; derived display scales
+/// also account for platform DPI and magnified text.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiScale(f32);
 
 impl UiScale {
     pub const MIN: f32 = 0.5;
     pub const MAX: f32 = 4.0;
+    pub(crate) const SCALE_DENOMINATOR: i64 = 1_024;
+    /// The smallest nonzero scale representable by the text layout's fixed point.
+    pub const DISPLAY_MIN: f32 = 1.0 / Self::SCALE_DENOMINATOR as f32;
     /// Upper bound for magnified display text (titles), beyond the user-selectable range.
     pub const DISPLAY_MAX: f32 = 16.0;
 
@@ -21,9 +25,9 @@ impl UiScale {
         finite_in_range(value, Self::MIN, Self::MAX).map(Self)
     }
 
-    /// Like [`Self::new`] but admits magnified display text up to [`Self::DISPLAY_MAX`].
+    /// Accepts DPI-adjusted and magnified display text outside the preference range.
     pub fn new_display(value: f32) -> Result<Self, GeometryError> {
-        finite_in_range(value, Self::MIN, Self::DISPLAY_MAX).map(Self)
+        finite_in_range(value, Self::DISPLAY_MIN, Self::DISPLAY_MAX).map(Self)
     }
 
     pub const fn get(self) -> f32 {
@@ -221,14 +225,53 @@ fn finite_in_range(value: f32, min: f32, max: f32) -> Result<f32, GeometryError>
     Ok(value)
 }
 
+/// `GuiData::GUI_SCALE_VALUES`, verified through Lens in Bedrock 26.30.
+const DESKTOP_GUI_SCALE_VALUES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+
 /// Physical pixels per GUI pixel: Bedrock's desktop rule
 /// (`GuiData::calculateOptimalGuiScaleIndex`), `min(width/376, height/250)` in
 /// 1..=8, or a fixed preference no larger than that.
 #[must_use]
 pub fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
-    let auto = (physical[0] / 376).min(physical[1] / 250).clamp(1, 8);
+    let index = (physical[0] / 376)
+        .min(physical[1] / 250)
+        .saturating_sub(1)
+        .min(DESKTOP_GUI_SCALE_VALUES.len() as u32 - 1);
+    let auto = u32::from(DESKTOP_GUI_SCALE_VALUES[index as usize]);
     match preference {
         None | Some(0) => auto,
         Some(fixed) => u32::from(fixed).clamp(1, auto),
+    }
+}
+
+/// Desktop settings use a signed modifier relative to the optimal scale,
+/// rather than an absolute scale. Lens references:
+/// `GeneralSettingsScreenController::_getGUIScaleValues` and
+/// `GuiData::calculateGuiScale`. Desktop optimal and maximum scale share the
+/// same 376-by-250 minimum viewport, with settings offering the upper half
+/// of the supported physical scale range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DesktopGuiScale {
+    optimal: u8,
+}
+
+impl DesktopGuiScale {
+    #[must_use]
+    pub fn for_window(physical: [u32; 2]) -> Self {
+        Self {
+            optimal: gui_scale(physical, None) as u8,
+        }
+    }
+
+    #[must_use]
+    pub fn offsets(self) -> std::ops::RangeInclusive<i8> {
+        let minimum = self.optimal.div_ceil(2);
+        (minimum as i8 - self.optimal as i8)..=0
+    }
+
+    #[must_use]
+    pub fn scale_for_offset(self, offset: i8) -> u8 {
+        let minimum = *self.offsets().start();
+        (self.optimal as i8 + offset.clamp(minimum, 0)) as u8
     }
 }
