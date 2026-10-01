@@ -605,7 +605,7 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
     );
     assert_eq!(plugin.matches("render_device.create_texture(").count(), 1);
     assert_eq!(plugin.matches("render_device.create_sampler(").count(), 1);
-    assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
+    assert!(plugin.contains("layout: vec![bind_group_layout.clone(), crate::lighting::layout()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
     assert_eq!(plugin.matches("binding: ").count(), 32);
