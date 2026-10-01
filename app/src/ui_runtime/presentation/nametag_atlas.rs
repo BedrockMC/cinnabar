@@ -150,7 +150,7 @@ fn rasterize<'p>(
             font,
         })
         .ok()?;
-    let advance = (layout.size_64()[0].div_ceil(64) as u32).max(1);
+    let advance = layout.size_64()[0].div_ceil(64).max(1);
     let glyphs = || layout.glyphs().iter().filter(|glyph| glyph.line == 0);
     let top = glyphs()
         .map(|glyph| glyph.bounds_64[1].div_euclid(64))
