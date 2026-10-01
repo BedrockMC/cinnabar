@@ -24,6 +24,40 @@ impl CaveVisibilityCache {
     pub(crate) fn is_visible(&self, key: SubChunkKey) -> bool {
         !self.initialized || self.visible.contains(&key)
     }
+
+    /// Whether the culler hides the box from `low` to `high` in `dimension`: as vanilla's
+    /// `isAABBVisible`, only when the cache matches graph `generation` and every sub-chunk the
+    /// box overlaps is `known` to that graph without being visible.
+    pub(crate) fn hides_box(
+        &self,
+        dimension: i32,
+        generation: u64,
+        known: impl Fn(SubChunkKey) -> bool,
+        low: [f32; 3],
+        high: [f32; 3],
+    ) -> bool {
+        if !self.initialized
+            || self
+                .camera
+                .is_none_or(|camera| camera.dimension != dimension)
+            || self.graph_generation != Some(generation)
+            || low.iter().chain(&high).any(|value| !value.is_finite())
+        {
+            return false;
+        }
+        let section = |value: f32| (value.floor() as i32).div_euclid(16);
+        for x in section(low[0])..=section(high[0]) {
+            for y in section(low[1])..=section(high[1]) {
+                for z in section(low[2])..=section(high[2]) {
+                    let key = SubChunkKey::new(dimension, x, y, z);
+                    if !known(key) || self.visible.contains(&key) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
 }
 
 #[derive(Resource)]
@@ -109,5 +143,32 @@ pub(crate) fn remove_chunk_visibility(
     let key = instance.key();
     if cache.rendered.remove(&key) && cache.is_visible(key) {
         cache.visible_rendered = cache.visible_rendered.saturating_sub(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An actor is hidden only when every sub-chunk its box touches is known and not visible.
+    #[test]
+    fn a_box_is_hidden_only_when_all_its_known_sub_chunks_are_invisible() {
+        let key = |x, y, z| SubChunkKey::new(0, x, y, z);
+        let cache = CaveVisibilityCache {
+            camera: Some(key(0, 4, 0)),
+            graph_generation: Some(7),
+            visible: [key(1, 4, 0)].into_iter().collect(),
+            initialized: true,
+            ..CaveVisibilityCache::default()
+        };
+        let known = |key: SubChunkKey| key.y < 8;
+        let hides = |low, high| cache.hides_box(0, 7, known, low, high);
+        assert!(hides([-8.0, 64.0, 4.0], [-7.0, 66.0, 5.0]));
+        // Straddling into the visible neighbour, or reaching an unknown sub-chunk, draws it.
+        assert!(!hides([15.5, 64.0, 4.0], [16.5, 66.0, 5.0]));
+        assert!(!hides([-8.0, 127.0, 4.0], [-7.0, 129.0, 5.0]));
+        // A stale graph or another dimension never hides anything.
+        assert!(!cache.hides_box(0, 8, known, [-8.0, 64.0, 4.0], [-7.0, 66.0, 5.0]));
+        assert!(!cache.hides_box(1, 7, known, [-8.0, 64.0, 4.0], [-7.0, 66.0, 5.0]));
     }
 }
