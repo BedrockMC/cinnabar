@@ -248,7 +248,8 @@ pub(crate) fn prepare_ui_runtime(
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
-            menu_runtime.is_visible() || presentation.loading_stage.is_some(),
+            !presentation.renders_game_behind(&runtime, &menu_runtime)
+                || presentation.loading_stage.is_some(),
             physical_size,
         );
     }

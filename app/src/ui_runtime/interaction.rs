@@ -544,13 +544,17 @@ pub(crate) fn drive_world_inventory_keys(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
+    presentation: Option<Res<presentation::UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     let drop = keys.just_pressed(KeyCode::KeyQ);
     let use_book = mouse.just_pressed(MouseButton::Right);
     if !window.focused
-        || runtime.ui_focused()
-        || menu.as_ref().is_some_and(|menu| menu.is_visible())
+        || crate::screen_policy::absorbs_input(
+            Some(&runtime),
+            menu.as_deref(),
+            presentation.as_deref(),
+        )
         || !(drop || use_book)
         || runtime
             .player_game_mode()

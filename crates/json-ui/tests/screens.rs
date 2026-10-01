@@ -116,3 +116,39 @@ fn small_chest_exposes_every_slot_by_collection() {
     );
     assert_eq!(render.cancel_target.as_deref(), Some("button.menu_exit"));
 }
+
+#[test]
+fn scene_flags_follow_inheritance_and_context() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/policy.json",
+        r#"{
+      "namespace": "policy",
+      "base": {"type": "screen", "absorbs_input": false,
+        "render_game_behind": "$world", "render_only_when_topmost": false},
+      "child@base": {},
+      "opaque@base": {"absorbs_input": true, "render_game_behind": false},
+      "defaults": {"type": "screen"}
+    }"#,
+    );
+    let context = Context::default().with_flag("world", true);
+    let settings = |name| {
+        json_ui::ScreenSettings::from_root(
+            &json_ui::resolve(&catalog, name, &context).control.unwrap(),
+        )
+    };
+    let child = settings("policy.child");
+    assert!(!child.absorbs_input);
+    assert!(child.render_game_behind);
+    assert!(!child.render_only_when_topmost);
+    assert!(child.renders(false));
+    let opaque = settings("policy.opaque");
+    assert!(opaque.absorbs_input);
+    assert!(!opaque.render_game_behind);
+    assert!(!settings("policy.defaults").renders(false));
+    assert!(settings("policy.defaults").renders(true));
+    assert_eq!(
+        settings("policy.defaults"),
+        json_ui::ScreenSettings::default()
+    );
+}

@@ -8,6 +8,46 @@ use crate::layout::LayoutEnv;
 use crate::state::ViewState;
 use crate::{Context, ResolvedControl, resolve};
 
+/// Scene flags read from the resolved root, including pack inheritance and variables.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenSettings {
+    pub absorbs_input: bool,
+    pub render_game_behind: bool,
+    pub render_only_when_topmost: bool,
+}
+
+impl Default for ScreenSettings {
+    fn default() -> Self {
+        Self {
+            absorbs_input: true,
+            render_game_behind: true,
+            render_only_when_topmost: true,
+        }
+    }
+}
+
+impl ScreenSettings {
+    /// Covered screens draw only when their pack permits drawing below another scene.
+    pub fn renders(self, topmost: bool) -> bool {
+        topmost || !self.render_only_when_topmost
+    }
+
+    /// UIControlFactory defaults all three flags to true when the pack omits them.
+    pub fn from_root(root: &ResolvedControl) -> Self {
+        let flag = |name| {
+            root.properties
+                .get(name)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+        };
+        Self {
+            absorbs_input: flag("absorbs_input"),
+            render_game_behind: flag("render_game_behind"),
+            render_only_when_topmost: flag("render_only_when_topmost"),
+        }
+    }
+}
+
 /// A rendered engine screen: bound tree, draw nodes, hit regions, scroll report.
 pub type ScreenRender = FormRender;
 

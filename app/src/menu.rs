@@ -342,6 +342,11 @@ impl MenuRuntime {
         self.visible
     }
 
+    /// Full-screen launcher backgrounds replace the world; pause and death keep it visible.
+    pub(crate) fn uses_panorama(&self) -> bool {
+        self.visible && !matches!(self.screen, MenuScreen::Pause | MenuScreen::Death)
+    }
+
     pub(crate) fn screen(&self) -> MenuScreen {
         self.screen
     }

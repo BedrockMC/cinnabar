@@ -17,7 +17,8 @@ use image::{ImageFormat, ImageReader, Limits};
 use render::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView};
 
 use super::super::UiPresentationRuntime;
-use crate::menu::{MenuRuntime, MenuScreen};
+use crate::menu::MenuRuntime;
+use crate::ui_runtime::UiRuntime;
 
 // The reconstruction keeps these tuning values as unnamed data; they follow the
 // title-screen cube convention and need native measurement.
@@ -47,6 +48,7 @@ const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
 /// behind launcher screens (never behind the in-game pause or death screens).
 pub(crate) fn drive_menu_panorama(
     presentation: Res<UiPresentationRuntime>,
+    runtime: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
     scene: Option<ResMut<PanoramaScene>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -55,6 +57,11 @@ pub(crate) fn drive_menu_panorama(
     let Some(mut scene) = scene else {
         return;
     };
+    scene.set_game_visible(crate::screen_policy::renders_game(
+        runtime.as_deref(),
+        menu.as_deref(),
+        Some(&presentation),
+    ));
     let Some(engine) = presentation.form_presentation.engine.as_deref() else {
         scene.show(None);
         return;
@@ -64,9 +71,7 @@ pub(crate) fn drive_menu_panorama(
         *state = Some((Instant::now(), overlay_tint(assets)));
         scene.set_faces(launcher_faces(assets).map(Arc::new));
     }
-    let shown = menu.as_ref().is_some_and(|menu| {
-        menu.is_visible() && !matches!(menu.screen(), MenuScreen::Pause | MenuScreen::Death)
-    });
+    let shown = menu.as_deref().is_some_and(MenuRuntime::uses_panorama);
     let aspect = windows
         .iter()
         .next()
