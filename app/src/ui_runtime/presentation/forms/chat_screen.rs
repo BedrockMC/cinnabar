@@ -75,7 +75,13 @@ impl UiPresentationRuntime {
         }
         chat.open = true;
         chat.messages = messages;
-        let data = chat_data(runtime, now_millis);
+        let mut data = chat_data(runtime, now_millis);
+        // The view's bag (`#scrolled_to_end`) as it stood last frame, for its view bindings.
+        if let Some((key, metrics)) = &chat.scroll
+            && let Some(name) = key.rsplit('/').next()
+        {
+            data.set_control_values(name, metrics.feedback());
+        }
         let view = chat.view_state(runtime.chat_selected_suggestion());
         let context = renderer.context().clone();
         let catalog = Arc::clone(renderer.catalog());
@@ -89,6 +95,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content,
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = EngineOutput {
             nodes,
@@ -97,6 +104,7 @@ impl UiPresentationRuntime {
         };
         let art = ScreenArt {
             now: now_millis as f64 / 1_000.0,
+            clocks: Some(&self.scene_clock),
             ..ScreenArt::default()
         };
         let screen = &mut chat.screen;
@@ -106,7 +114,7 @@ impl UiPresentationRuntime {
                 &catalog,
                 &context,
                 data,
-                (root, px),
+                (root, px, runtime.text_generation()),
                 env,
                 &view,
             )
@@ -122,7 +130,7 @@ impl UiPresentationRuntime {
             .scrolls
             .iter()
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
-            .map(|(key, metrics)| (key.clone(), *metrics));
+            .map(|(key, metrics)| (key.clone(), metrics.clone()));
         for region in frame.hits.iter().filter(|region| region.enabled) {
             if region.kind == HitKind::EditBox {
                 chat.edit_box = Some(region.key.clone());
@@ -165,15 +173,19 @@ impl UiPresentationRuntime {
     /// `pixels`; positive scrolls toward older messages.
     pub(crate) fn scroll_chat(&mut self, delta: f32, pixels: bool) {
         let chat = &mut self.form_presentation.chat;
-        let Some((_, metrics)) = chat.scroll else {
+        let Some(metrics) = chat.scroll.as_ref().map(|(_, metrics)| metrics.clone()) else {
             return;
         };
-        let step = if pixels {
-            f64::from(delta / chat.scale.max(f32::EPSILON))
+        let max = metrics.max_offset();
+        chat.from_bottom = if pixels {
+            (chat.from_bottom + f64::from(delta / chat.scale.max(f32::EPSILON))).clamp(0.0, max)
         } else {
-            f64::from(delta) * metrics.speed
+            let at = ScrollMetrics {
+                offset: (max - chat.from_bottom).clamp(0.0, max),
+                ..metrics
+            };
+            max - at.offset_for_wheel(f64::from(delta))
         };
-        chat.from_bottom = (chat.from_bottom + step).clamp(0.0, metrics.max_offset());
     }
 }
 
@@ -200,13 +212,18 @@ impl ChatScreen {
             focused: self.edit_box.clone(),
             ..ViewState::default()
         };
-        // Unscrolled, the view's `jump_to_bottom_on_update` keeps it on the newest line.
-        if let Some((key, metrics)) = &self.scroll
-            && self.from_bottom > 0.0
-        {
-            view.scroll.insert(
+        // The view's `jump_to_bottom_on_update` jumps to the newest line whenever
+        // its maximum changes; otherwise it keeps `from_bottom`.
+        if let Some((key, metrics)) = &self.scroll {
+            let max = metrics.max_offset();
+            view.scroll
+                .insert(key.clone(), (max - self.from_bottom).max(0.0));
+            view.scroll_state.insert(
                 key.clone(),
-                (metrics.max_offset() - self.from_bottom).max(0.0),
+                json_ui::ScrollRetained {
+                    extent: Some(max),
+                    ..Default::default()
+                },
             );
         }
         view

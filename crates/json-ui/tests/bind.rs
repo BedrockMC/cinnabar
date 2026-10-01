@@ -29,7 +29,7 @@ fn ctrl_children(
         control_type: control_type.map(str::to_owned),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }
@@ -51,8 +51,7 @@ fn factory_panel(
             .iter()
             .map(|(role, reference)| ((*role).to_owned(), reference.clone()))
             .collect(),
-        control_name: None,
-        max_children_size: None,
+        ..json_ui::Factory::default()
     });
     control
 }
@@ -299,7 +298,7 @@ fn view_binding_over_a_sibling_drives_visibility() {
 }
 
 #[test]
-fn empty_texture_binding_emits_no_texture_property() {
+fn empty_texture_binding_applies_the_empty_filename() {
     let image = ctrl(
         "image",
         Some("image"),
@@ -310,11 +309,9 @@ fn empty_texture_binding_emits_no_texture_property() {
     let mut data = DataSource::new();
     data.set_global("#tex", Scalar::Text(String::new()));
 
+    // The empty filename reaches the sprite, which then draws nothing.
     let bound = bind(&image, &data, &EmptyLibrary);
-    assert!(
-        !bound.properties.contains_key("texture"),
-        "empty texture is dropped"
-    );
+    assert_eq!(prop(&bound, "texture"), &json!(""));
 
     let mut present = DataSource::new();
     present.set_global("#tex", Scalar::Text("textures/items/apple".into()));
@@ -336,8 +333,9 @@ fn strict_screens_hide_unbound_visibility_flags_but_keep_text() {
         }),
     );
     let mut data = DataSource::new();
+    // Unanswered, the bag holds nothing and the visible reader's default shows it.
     let lenient = bind(&control, &data, &EmptyLibrary);
-    assert!(!lenient.properties.contains_key("visible"));
+    assert_eq!(prop(&lenient, "visible"), &json!(true));
     data.set_strict(true);
     let strict = bind(&control, &data, &EmptyLibrary);
     assert_eq!(prop(&strict, "visible"), &json!(false));
@@ -487,7 +485,7 @@ fn collection_bindings_outside_a_grid_read_the_first_item() {
     );
     let bound = bind(&label, &data, &EmptyLibrary);
     assert_eq!(prop(&bound, "text"), &json!("12"));
-    assert_eq!(prop(&bound, "#collection_index"), &json!(0.0));
+    assert_eq!(prop(&bound, "#collection_index"), &json!(0));
     assert_eq!(prop(&bound, "#collection_name"), &json!("fuel_items"));
 }
 
@@ -524,4 +522,35 @@ fn listed_grid_cells_index_their_collection_by_position() {
     let bound = bind(&grid, &data, &EmptyLibrary);
     assert_eq!(prop(&bound.children[0], "text"), &json!("d"));
     assert_eq!(prop(&bound.children[1], "text"), &json!("b"));
+}
+
+// `property_bag_for_children` values bind in descendants, not the parent.
+#[test]
+fn child_property_bag_reaches_descendants() {
+    let label = ctrl("child", Some("label"), json!({ "text": "#title" }));
+    let panel = ctrl_children(
+        "panel",
+        Some("panel"),
+        json!({ "property_bag_for_children": { "#title": "Child title" } }),
+        vec![label],
+    );
+    let bound = bind(&panel, &DataSource::new(), &EmptyLibrary);
+    assert_eq!(prop(&bound.children[0], "text"), &json!("Child title"));
+    assert!(!bound.properties.contains_key("#title"));
+}
+
+// A `#texture_file_system` names the texture's domain, never a texture path.
+#[test]
+fn texture_file_system_is_not_a_texture() {
+    let image = ctrl(
+        "image",
+        Some("image"),
+        json!({ "bindings": [
+            { "binding_name": "#fs", "binding_name_override": "#texture_file_system" }
+        ] }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#fs", Scalar::Text("InUserPackage".into()));
+    let bound = bind(&image, &data, &EmptyLibrary);
+    assert!(!bound.properties.contains_key("texture"));
 }

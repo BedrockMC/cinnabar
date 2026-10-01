@@ -119,6 +119,21 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     }
 }
 
+/// The vanilla screen a menu state draws; `None` for the OreUI-only states. The
+/// Marketplace names its base screen here; its snapshot may pick another.
+pub(crate) fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
+    Some(match screen {
+        MenuScreen::Death => "death.death_screen",
+        MenuScreen::Pause => "pause.pause_screen",
+        MenuScreen::Home => "start.start_screen",
+        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => "play.play_screen",
+        MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
+        MenuScreen::Settings => SETTINGS_SCREEN,
+        MenuScreen::Store => crate::store::SDL_SCREEN,
+        MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+    })
+}
+
 /// The vanilla screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them).
 pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<MenuScreenData> {
@@ -149,6 +164,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         data.set_global("#code", text(code.clone()));
         "xbl_console_signin.xbl_console_signin"
     } else {
+        let reference = menu_reference(view.screen)?;
         match view.screen {
             MenuScreen::Death => {
                 flags(
@@ -161,7 +177,6 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                         "#quit_enabled",
                     ],
                 );
-                "death.death_screen"
             }
             MenuScreen::Pause => {
                 data.set_global("#playername", text(view.display_name.clone()));
@@ -174,22 +189,18 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                         "store_button_text",
                         Value::String(server_store_text(translate)),
                     );
-                "pause.pause_screen"
             }
             MenuScreen::Home => {
                 start_screen(view, &mut data, translate);
                 context = start_screen_vars(context);
-                "start.start_screen"
             }
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
                 super::play_screen::bind(view, &mut data);
-                "play.play_screen"
             }
             MenuScreen::AddServer => {
                 add_server_screen(view, &mut data, translate);
                 // The controller's edit mode swaps Play for Remove.
                 context = context.with_flag("edit_mode", view.editing.is_some());
-                "add_external_server.add_external_server_screen_new"
             }
             MenuScreen::Settings => {
                 settings_screen(view, &mut data, translate);
@@ -197,7 +208,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                     translated(translate, key, key)
                 });
                 return Some(MenuScreenData {
-                    reference: SETTINGS_SCREEN,
+                    reference,
                     context: settings_context(context),
                     data,
                     overlay: None,
@@ -206,6 +217,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             MenuScreen::Store => return store_screen(view, &context, translate),
             MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
         }
+        reference
     };
     Some(MenuScreenData {
         reference,
@@ -501,7 +513,11 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
     for ((slider, _), percent) in VOLUME_SLIDERS.iter().zip(view.volumes) {
         let shown = percent.unwrap_or(100);
         data.set_global(format!("#{slider}"), Scalar::Num(f64::from(shown) / 100.0));
-        data.set_global(format!("#{slider}_slider_label"), text(format!("{shown}%")));
+        // The label localizes again, where `%%` keeps one `%`.
+        data.set_global(
+            format!("#{slider}_slider_label"),
+            text(format!("{shown}%%")),
+        );
         data.set_global(
             format!("#{slider}_enabled"),
             Scalar::Bool(percent.is_some()),
@@ -510,11 +526,6 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
 }
 
 const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";
-
-/// The settings screen and the context it opens with, to resolve at startup.
-pub(super) fn settings_target() -> (&'static str, Context) {
-    (SETTINGS_SCREEN, settings_context(base_context()))
-}
 
 /// Every launcher screen's context before its own vars.
 fn base_context() -> Context {
@@ -766,6 +777,13 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            drag_axes: [false; 2],
+            sound: None,
+            input: Default::default(),
+            focus: None,
+            widget: Default::default(),
+            collections: Vec::new(),
+            modal_root: None,
         }
     }
 

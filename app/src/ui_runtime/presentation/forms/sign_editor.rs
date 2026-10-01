@@ -16,7 +16,7 @@ use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::{UiRuntime, sign_editor::SignEdit};
 
-const SIGN_SCREEN: &str = "sign.sign_screen";
+pub(crate) const SIGN_SCREEN: &str = "sign.sign_screen";
 /// The edit box caret's on and off time.
 const CARET_BLINK_MILLIS: u64 = 500;
 
@@ -38,6 +38,11 @@ impl UiPresentationRuntime {
             .rev()
             .find(|(bounds, _)| bounds.contains(point))
             .is_some_and(|(_, pressed)| pressed.as_deref() == Some("button.menu_exit"))
+    }
+
+    /// Drops the hidden editor's hit regions.
+    pub(in crate::ui_runtime::presentation) fn hide_sign_editor(&mut self) {
+        self.form_presentation.sign.hits.clear();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -82,6 +87,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content: [width, height],
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = EngineOutput {
             nodes,
@@ -90,17 +96,26 @@ impl UiPresentationRuntime {
         };
         let sign = &mut self.form_presentation.sign;
         let view = ViewState::default();
-        let frame = renderer.draw(ScreenArt::default(), inputs, out, |env, root| {
-            sign.screen.render_with(
-                SIGN_SCREEN,
-                &catalog,
-                &context,
-                data,
-                (root, px),
-                env,
-                &view,
-            )
-        })?;
+        let frame = renderer.draw(
+            ScreenArt {
+                now: self.menu_seconds,
+                clocks: Some(&self.scene_clock),
+                ..ScreenArt::default()
+            },
+            inputs,
+            out,
+            |env, root| {
+                sign.screen.render_with(
+                    SIGN_SCREEN,
+                    &catalog,
+                    &context,
+                    data,
+                    (root, px, runtime.text_generation()),
+                    env,
+                    &view,
+                )
+            },
+        )?;
         if let Some(frame) = frame {
             sign.hits = frame
                 .hits

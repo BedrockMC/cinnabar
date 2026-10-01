@@ -8,9 +8,10 @@
 use std::sync::Arc;
 
 use json_ui::{
-    BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context, DataSource,
-    FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl, Sidebar,
-    Timed, ViewState, bind_shared, hud_clocks, hud_context, hud_data_source, render_bound, resolve,
+    BindState, BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context,
+    DataSource, FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl,
+    Sidebar, Timed, ViewState, bind_stateful, hud_clocks, hud_context, hud_data_source,
+    render_bound_cached, resolve,
 };
 use ui::{TimedText, UiNode};
 
@@ -58,21 +59,32 @@ const TICKS_PER_DAY: f64 = 24_000.0;
 /// One screen's resolved tree per catalog and its last layout per model.
 #[derive(Default)]
 pub(super) struct CachedScreen {
-    resolved: Option<(Arc<Catalog>, Option<Arc<ResolvedControl>>)>,
+    resolved: Option<ResolvedScreen>,
     /// Factory and grid resolutions for the resolved catalog, kept across binds.
     library: ResolveCache,
+    /// The screen's live bindings across data refreshes.
+    binding: BindState,
     laid: Option<Laid>,
+    measures: json_ui::MeasureCache,
     /// Bind+layout passes run, for cache tests and profiling.
     pub(super) passes: usize,
+}
+
+struct ResolvedScreen {
+    reference: String,
+    catalog: Arc<Catalog>,
+    context: Context,
+    tree: Option<Arc<ResolvedControl>>,
 }
 
 struct Laid {
     reference: String,
     catalog: Arc<Catalog>,
-    data: DataSource,
+    data: Arc<DataSource>,
     view: ViewState,
     root: [f64; 2],
     px: f32,
+    language: [usize; 3],
     render: FormRender,
 }
 
@@ -93,11 +105,11 @@ impl CachedScreen {
         reference: &str,
         catalog: &Arc<Catalog>,
         context: &Context,
-        data: DataSource,
-        at: ([f64; 2], f32),
+        data: Arc<DataSource>,
+        at: ([f64; 2], f32, [usize; 3]),
         env: &json_ui::LayoutEnv,
     ) -> Option<&FormRender> {
-        self.render_with(
+        self.render_shared_with(
             reference,
             catalog,
             context,
@@ -116,7 +128,30 @@ impl CachedScreen {
         catalog: &Arc<Catalog>,
         context: &Context,
         data: DataSource,
-        (root, px): ([f64; 2], f32),
+        (root, px, language): ([f64; 2], f32, [usize; 3]),
+        env: &json_ui::LayoutEnv,
+        view: &ViewState,
+    ) -> Option<&FormRender> {
+        self.render_shared_with(
+            reference,
+            catalog,
+            context,
+            Arc::new(data),
+            (root, px, language),
+            env,
+            view,
+        )
+    }
+
+    /// Reuse a controller revision without cloning or comparing all its bags.
+    #[allow(clippy::too_many_arguments)]
+    fn render_shared_with(
+        &mut self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+        data: Arc<DataSource>,
+        (root, px, language): ([f64; 2], f32, [usize; 3]),
         env: &json_ui::LayoutEnv,
         view: &ViewState,
     ) -> Option<&FormRender> {
@@ -125,38 +160,58 @@ impl CachedScreen {
                 && Arc::ptr_eq(&laid.catalog, catalog)
                 && laid.root == root
                 && laid.px == px
-                && laid.data == data
-                && laid.view == *view
-        });
-        if !fresh {
-            let current = self
-                .laid
-                .as_ref()
-                .is_none_or(|laid| laid.reference == reference)
+                && laid.language == language
                 && self
                     .resolved
                     .as_ref()
-                    .is_some_and(|(resolved_for, _)| Arc::ptr_eq(resolved_for, catalog));
+                    .is_some_and(|resolved| resolved.context == *context)
+                && (Arc::ptr_eq(&laid.data, &data) || laid.data == data)
+                && laid.view == *view
+        });
+        if !fresh {
+            let current = self.resolved.as_ref().is_some_and(|resolved| {
+                resolved.reference == reference
+                    && Arc::ptr_eq(&resolved.catalog, catalog)
+                    && resolved.context == *context
+            });
             if !current {
                 let tree = resolve(catalog, reference, context).control.map(Arc::new);
-                self.resolved = Some((Arc::clone(catalog), tree));
+                self.resolved = Some(ResolvedScreen {
+                    reference: reference.to_owned(),
+                    catalog: Arc::clone(catalog),
+                    context: context.clone(),
+                    tree,
+                });
                 self.library = ResolveCache::default();
+                self.binding = BindState::new();
             }
-            let tree = self.resolved.as_ref()?.1.as_ref()?;
+            let tree = self.resolved.as_ref()?.tree.as_ref()?;
             let library = CachedLibrary {
                 library: CatalogLibrary { catalog, context },
                 cache: &self.library,
             };
-            let bound = bind_shared(tree, &data, &library);
+            let mut bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
+            if current
+                && self.laid.as_ref().is_some_and(|laid| {
+                    laid.root == root && laid.px == px && laid.language == language
+                })
+            {
+                let mut previous = self.laid.take()?.render.bound;
+                self.measures.update_tree(&mut previous, bound);
+                bound = previous;
+            } else {
+                self.measures = json_ui::MeasureCache::default();
+            }
             self.passes += 1;
             self.laid = Some(Laid {
                 reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
-                render: render_bound(bound, root, env, view),
+                render: render_bound_cached(bound, root, env, view, &mut self.measures),
                 data,
                 view: view.clone(),
                 root,
                 px,
+                language,
             });
         }
         self.laid.as_ref().map(|laid| &laid.render)
@@ -174,11 +229,13 @@ pub(super) struct HudScreens {
     pub(super) loading: CachedScreen,
     /// This frame's fade clocks (title, action bar, item name).
     clocks: std::collections::BTreeMap<String, f64>,
+    model: Option<HudModel>,
+    data: Arc<DataSource>,
 }
 
 impl UiPresentationRuntime {
-    /// Draw the gameplay HUD through the engine; `Ok(false)` when the engine is
-    /// not loaded.
+    /// Draw the gameplay HUD screen, or its crosshair overlay screen, through
+    /// the engine; `Ok(false)` when the engine is not loaded.
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) fn append_engine_hud(
         &mut self,
@@ -188,6 +245,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
         now_millis: u64,
+        crosshair: bool,
     ) -> Result<bool, UiPresentationError> {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(false);
@@ -195,50 +253,69 @@ impl UiPresentationRuntime {
         let mut frame = self.hud_frame.clone();
         frame.now_millis = now_millis;
         let mut icons = Vec::new();
-        let sidebar = self
-            .scoreboard
-            .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
-            .map(sidebar_model);
-        let model = hud_model(runtime, &frame, sidebar, &mut icons);
-        self.form_presentation.hud.clocks = hud_clocks(&model);
+        let data = if crosshair {
+            Arc::default()
+        } else {
+            let sidebar = self
+                .scoreboard
+                .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
+                .map(sidebar_model);
+            let model = hud_model(runtime, &frame, sidebar, &mut icons);
+            let hud = &mut self.form_presentation.hud;
+            hud.clocks = hud_clocks(&model);
+            if hud.model.as_ref() != Some(&model) {
+                hud.data = Arc::new(hud_data_source(&model));
+                hud.model = Some(model);
+            }
+            Arc::clone(&hud.data)
+        };
+        self.form_presentation
+            .hud
+            .clocks
+            .extend(self.scene_clock.clone());
         let paint = hud_layout::capture_hud_paint(runtime, &frame, self.hud_textures.as_ref());
         let context = hud_context(renderer.context());
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let translate = |key: &str| runtime.translation(key);
+        let screens = &mut self.form_presentation.hud;
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,
             hud: Some(&paint),
+            clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
-        let translate = |key: &str| runtime.translation(key);
-        let screens = &mut self.form_presentation.hud;
-        let art = ScreenArt {
-            clocks: Some(&screens.clocks),
-            ..art
+        let (reference, screen) = if crosshair {
+            (CROSSHAIR_SCREEN, &mut screens.crosshair)
+        } else {
+            (HUD_SCREEN, &mut screens.hud)
         };
-        for (reference, data, screen) in [
-            (HUD_SCREEN, hud_data_source(&model), &mut screens.hud),
-            (CROSSHAIR_SCREEN, DataSource::new(), &mut screens.crosshair),
-        ] {
-            let inputs = EngineInputs {
-                layouts: &mut self.layouts,
-                font: &self.font,
-                metrics,
-                solid_page: self.solid_texture_page,
-                safe_area: self.safe_area,
-                content,
-                translate: &translate,
-            };
-            let out = EngineOutput {
-                nodes: &mut *nodes,
-                next: &mut *next,
-                overlay: &[],
-            };
-            renderer.draw(art, inputs, out, |env, root| {
-                screen.render(reference, &catalog, &context, data, (root, px), env)
-            })?;
-        }
+        let inputs = EngineInputs {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content,
+            translate: &translate,
+            language: runtime.text_generation(),
+        };
+        let out = EngineOutput {
+            nodes: &mut *nodes,
+            next: &mut *next,
+            overlay: &[],
+        };
+        renderer.draw(art, inputs, out, |env, root| {
+            screen.render(
+                reference,
+                &catalog,
+                &context,
+                data,
+                (root, px, runtime.text_generation()),
+                env,
+            )
+        })?;
         Ok(true)
     }
 }
@@ -519,8 +596,21 @@ impl UiPresentationRuntime {
         missing
     }
 
-    /// A draw node's fade multiplier at `now`, under this frame's clocks.
+    /// A draw node's fade multiplier at `now`, under this frame's clocks,
+    /// sampled by a fresh animator so it runs from the node's creation clock.
     pub(crate) fn hud_fade(&self, node: &json_ui::DrawNode, now: f64) -> f32 {
-        json_ui::fade_factor_at(&node.fades, now, &self.form_presentation.hud.clocks)
+        let clocks = Some(&self.form_presentation.hud.clocks);
+        let opacity = node
+            .animate(&mut json_ui::Animator::new(), now, clocks, None)
+            .opacity;
+        if node.alpha > 0.0 {
+            opacity / node.alpha
+        } else {
+            opacity
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "hud/cache_tests.rs"]
+mod cache_tests;

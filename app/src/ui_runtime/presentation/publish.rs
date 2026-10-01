@@ -314,6 +314,7 @@ pub(crate) fn prepare_ui_runtime(
     presentation.set_menu_view(menu_view);
     presentation
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    presentation.publish_scene_inputs(&mut runtime);
     prepared.0 = Some(PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(),
         preview,

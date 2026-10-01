@@ -14,7 +14,7 @@ mod worker;
 
 pub(crate) use action::StoreAction;
 pub(crate) use driver::drive_store;
-pub(crate) use screens::{ScreenSpec, StoreScreens, screens};
+pub(crate) use screens::{SDL_SCREEN, ScreenSpec, StoreScreens, screens};
 pub(crate) use settings::SETTINGS_FILE;
 pub(crate) use snapshot::StoreSnapshot;
 pub(crate) use state::StoreState;

@@ -119,7 +119,7 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.set_server_ui_pack(&super::ServerUiPack {
         ui_layers: vec![vec![("ui/x.json".to_owned(), b"{}".to_vec())]],
-        textures: Vec::new(),
+        ..Default::default()
     });
     presentation
         .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
@@ -179,6 +179,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
                 .to_vec(),
         )]],
         textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
+        view: None,
     };
     let mut presentation = mini_engine_presentation();
     let runtime = super::pack_harness::action_form("Menu", &["A"]);
@@ -307,6 +308,7 @@ impl json_ui::TextureSource for NoTextures {
     fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
         Some(json_ui::TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: None,
         })
     }

@@ -10,6 +10,10 @@ use bevy::render::{
 };
 
 use crate::ui::UiRenderRejectReason;
+use bevy::prelude::{Res, ResMut};
+use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCache};
+
+use super::{UiGpu, UiPipeline};
 use crate::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
@@ -161,7 +165,7 @@ impl UiGpuTextures {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let dirty = self.state.dirty(catalog)?;
-        let format = TextureFormat::Rgba8UnormSrgb.guaranteed_format_features(device.features());
+        let format = TextureFormat::Rgba8Unorm.guaranteed_format_features(device.features());
         if !format
             .allowed_usages
             .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
@@ -186,7 +190,7 @@ impl UiGpuTextures {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8UnormSrgb,
+                    format: TextureFormat::Rgba8Unorm,
                     usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                     view_formats: &[],
                 });
@@ -238,6 +242,48 @@ impl UiGpuTextures {
             );
             Ok::<(), UiRenderRejectReason>(())
         })
+    }
+}
+
+/// Bind each page bucket with the viewport and both samplers once the frame is accepted.
+pub(super) fn prepare_ui_bind_group(
+    render_device: Res<RenderDevice>,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<UiPipeline>,
+    mut gpu: ResMut<UiGpu>,
+) {
+    if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
+        return;
+    }
+    let viewport = gpu.viewport_buffer.clone();
+    let sampler = gpu.sampler.clone();
+    let linear_sampler = gpu.linear_sampler.clone();
+    for bucket in &mut gpu.textures.buckets {
+        if bucket.bind_group.is_some() {
+            continue;
+        }
+        bucket.bind_group = Some(render_device.create_bind_group(
+            "shared retained UI bind group",
+            &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: viewport.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(&bucket.view),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&sampler),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::Sampler(&linear_sampler),
+                },
+            ],
+        ));
     }
 }
 

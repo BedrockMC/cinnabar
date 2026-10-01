@@ -751,9 +751,9 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    let recapture_click =
-        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
-    if recapture_click || auto_fly.capture_pending {
+    let active = input_is_active(window, &cursor);
+    let recapture_click = !active && mouse_buttons.just_pressed(MouseButton::Left);
+    if recapture_click || (steals == Some(true) && !active) || auto_fly.capture_pending {
         capture_cursor(&mut cursor);
         if recapture_click {
             // The click that transitions from an absolute UI cursor to

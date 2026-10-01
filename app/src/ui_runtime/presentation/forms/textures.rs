@@ -1,8 +1,9 @@
 //! Where a JSON-UI texture path draws from, in the vanilla lookup's spirit: the
 //! server pack first, then the UI carrier, then the item icon atlas already on
 //! the UI texture array, and last vanilla images from the local pack or remote
-//! URLs, packed on demand into the reserved server pages. Paths match in any
-//! case, as resource paths do.
+//! URLs, packed on demand into the reserved server pages. Paths match exactly,
+//! as the client's preloaded asset index does, so vanilla's `textures/ui/White`
+//! (only `white.png` ships) is unresolved and draws the default white texture.
 
 use std::{
     borrow::Cow,
@@ -23,8 +24,6 @@ use super::server_pack::ServerAtlas;
 pub(super) struct TextureSet {
     /// A lock only because renders borrow the engine shared.
     atlas: Mutex<ServerAtlas>,
-    /// Carrier texture keys by lowercase spelling.
-    carrier: HashMap<String, String>,
     /// Item icon atlas sprites by lowercase item texture path.
     icons: HashMap<String, IconRef>,
     /// Texture page of carrier atlas page 0.
@@ -33,18 +32,15 @@ pub(super) struct TextureSet {
     pub(super) server_page: u16,
     vanilla: Option<PathBuf>,
     pub(super) remote: RemoteImages,
+    /// Full-resolution art-page copies of server textures too big for a server page.
+    full_res: HashMap<String, IconRef>,
 }
 
 impl TextureSet {
-    pub(super) fn new(assets: &RuntimeUiAssets, first_page: u16) -> Self {
+    pub(super) fn new(first_page: u16) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
         Self {
-            atlas: Mutex::new(ServerAtlas::new(&[], pages)),
-            carrier: assets
-                .textures()
-                .iter()
-                .map(|texture| (texture.path.to_ascii_lowercase(), texture.path.to_string()))
-                .collect(),
+            atlas: Mutex::new(ServerAtlas::new(&[], None, pages)),
             first_page,
             ..Self::default()
         }
@@ -62,17 +58,22 @@ impl TextureSet {
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
+    /// Where oversized server textures' full-resolution copies sit, by texture key.
+    pub(super) fn set_full_res(&mut self, full_res: HashMap<String, IconRef>) {
+        self.full_res = full_res;
+    }
+
     /// The carrier, icon and vanilla lookups without the server atlas's pack or
     /// residency, for laying out a no-pack screen on another thread.
     pub(super) fn detached(&self) -> Self {
         let pages = super::super::dynamic_textures::SERVER_UI_PAGES;
-        let atlas = ServerAtlas::new(&[], pages).with_fallbacks(self.vanilla.clone(), None);
+        let atlas = ServerAtlas::new(&[], None, pages).with_fallbacks(self.vanilla.clone(), None);
         Self {
             atlas: Mutex::new(atlas),
-            carrier: self.carrier.clone(),
             icons: self.icons.clone(),
             vanilla: self.vanilla.clone(),
             remote: RemoteImages::default(),
+            full_res: HashMap::new(),
             ..*self
         }
     }
@@ -113,21 +114,9 @@ pub(super) struct Textures<'a> {
 }
 
 impl Textures<'_> {
-    /// `path` as its source spells it, without an image extension.
+    /// `path` without an image extension, the key every source uses.
     pub(super) fn canonical<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        let key = texture_key(path);
-        if is_remote(key) || self.atlas.meta(key).is_some() || self.assets.texture(key).is_some() {
-            return Cow::Borrowed(key);
-        }
-        let folded = key.to_ascii_lowercase();
-        match self
-            .atlas
-            .folded(&folded)
-            .or_else(|| self.set.carrier.get(&folded).map(String::as_str))
-        {
-            Some(found) => Cow::Owned(found.to_owned()),
-            None => Cow::Borrowed(key),
-        }
+        Cow::Borrowed(texture_key(path))
     }
 
     fn icon(&self, key: &str) -> Option<IconRef> {
@@ -149,11 +138,22 @@ impl Textures<'_> {
             .filter(|path| self.image(path).is_none())
             .map(|path| self.canonical(path))
             .filter(|key| {
-                self.atlas.meta(key).is_some()
+                self.atlas.has_image(key)
                     || (self.assets.texture(key).is_none() && self.icon(key).is_none())
             })
             .map(Cow::into_owned)
             .collect()
+    }
+
+    /// Whether no source has `path`; a URL still loading is not missing.
+    pub(super) fn missing(&self, path: &str) -> bool {
+        let key = texture_key(path);
+        !is_remote(key)
+            && self.images.is_none_or(|images| !images.contains_key(path))
+            && !self.atlas.has_image(key)
+            && self.assets.texture(key).is_none()
+            && self.icon(key).is_none()
+            && self.atlas.fallback_size(key).is_none()
     }
 
     /// The texture page and pixel rect `path` draws from.
@@ -163,6 +163,10 @@ impl Textures<'_> {
             return Some((image.page, [u0, v0, u1 - u0, v1 - v0]));
         }
         let key = self.canonical(path);
+        if let Some(art) = self.set.full_res.get(key.as_ref()) {
+            let [u0, v0, u1, v1] = art.uv.map(f32::from);
+            return Some((art.page, [u0, v0, u1 - u0, v1 - v0]));
+        }
         if let Some(server) = self.atlas.placement(&key) {
             return Some((
                 self.set.server_page.saturating_add(server.page),
@@ -175,51 +179,63 @@ impl Textures<'_> {
                 [placement.x, placement.y, placement.width, placement.height].map(f32::from),
             ));
         }
-        let icon = self.icon(&key)?;
-        let [u0, v0, u1, v1] = icon.uv.map(f32::from);
-        Some((icon.page, [u0, v0, u1 - u0, v1 - v0]))
+        if let Some(icon) = self.icon(&key) {
+            let [u0, v0, u1, v1] = icon.uv.map(f32::from);
+            return Some((icon.page, [u0, v0, u1 - u0, v1 - v0]));
+        }
+        None
     }
 }
 
 impl TextureSource for Textures<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
-        if let Some(image) = self.image(path) {
-            let [u0, v0, u1, v1] = image.uv.map(f64::from);
-            return Some(TextureMeta {
-                base_size: [u1 - u0, v1 - v0],
-                nineslice: None,
-            });
-        }
         let key = self.canonical(path);
         let key = key.as_ref();
-        if let Some(meta) = self.atlas.meta(key) {
-            return Some(meta);
-        }
-        if let Some(sidecar) = self.assets.sidecar(key) {
-            return Some(TextureMeta {
+        // The image and its sidecar each come from the highest layer that has
+        // them: the server pack, then the carrier. An image promoted to the art
+        // pages keeps its source size and sidecar.
+        let size = self
+            .atlas
+            .image_size(key)
+            .or_else(|| {
+                let [u0, v0, u1, v1] = self.image(path)?.uv.map(f64::from);
+                Some([u1 - u0, v1 - v0])
+            })
+            .or_else(|| {
+                let placement = self.assets.texture(key)?;
+                Some([f64::from(placement.width), f64::from(placement.height)])
+            })
+            .or_else(|| {
+                let [u0, v0, u1, v1] = self.icon(key)?.uv.map(f64::from);
+                Some([u1 - u0, v1 - v0])
+            })
+            .or_else(|| self.atlas.fallback_size(key))?;
+        let sidecar = self.atlas.sidecar(key).or_else(|| {
+            let sidecar = self.assets.sidecar(key)?;
+            Some(TextureMeta {
                 base_size: sidecar.base_size.map(f64::from),
+                pixels: size,
                 nineslice: sidecar.nineslice.map(|inset| NineSlice {
                     left: f64::from(inset.left),
                     top: f64::from(inset.top),
                     right: f64::from(inset.right),
                     bottom: f64::from(inset.bottom),
                 }),
-            });
-        }
-        if let Some(placement) = self.assets.texture(key) {
-            return Some(TextureMeta {
-                base_size: [f64::from(placement.width), f64::from(placement.height)],
-                nineslice: None,
-            });
-        }
-        if let Some(icon) = self.icon(key) {
-            let [u0, v0, u1, v1] = icon.uv.map(f64::from);
-            return Some(TextureMeta {
-                base_size: [u1 - u0, v1 - v0],
-                nineslice: None,
-            });
-        }
-        self.atlas.fallback_meta(key)
+            })
+        });
+        // A sidecar without `base_size` measures in the image's pixels.
+        Some(match sidecar {
+            Some(meta) => TextureMeta {
+                base_size: if meta.base_size == [0.0, 0.0] {
+                    size
+                } else {
+                    meta.base_size
+                },
+                pixels: size,
+                ..meta
+            },
+            None => TextureMeta::plain(size),
+        })
     }
 }
 
