@@ -116,12 +116,9 @@ fn embedment_wall_pocket_reports_no_horizontal_drift() {
         );
     }
 
-    assert_eq!(
-        (state.position.x, state.position.z),
-        (start.x, start.z),
-        "a zero-input pocket must not drift horizontally, feet at {:?}",
-        state.position,
-    );
+    // FinalizeMove reconstructs the centre of the native float AABB.
+    assert!((state.position.x - start.x).abs() <= f64::from(f32::EPSILON));
+    assert_eq!(state.position.z, start.z);
 }
 
 #[test]
@@ -153,7 +150,7 @@ fn embedded_horizontal_start_reports_zero_horizontal_motion() {
     assert_eq!(result.movement.z, 0.0, "no fabricated horizontal PosDelta");
     assert_eq!(result.velocity.x, 0.0, "no fabricated horizontal velocity");
     assert_eq!(result.velocity.z, 0.0, "no fabricated horizontal velocity");
-    assert_eq!(state.position.x, start.x, "no horizontal drift");
+    assert!((state.position.x - start.x).abs() <= f64::from(f32::EPSILON));
     assert_eq!(state.position.z, start.z, "no horizontal drift");
 }
 

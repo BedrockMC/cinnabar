@@ -8,7 +8,9 @@ use sim::{
 };
 use thiserror::Error;
 
+mod controller_frame;
 mod correction;
+use controller_frame::ControllerFrame;
 mod timeline;
 
 pub(crate) use timeline::ServerControlFlags;
@@ -220,6 +222,7 @@ pub struct LocalPhysicsController {
     dropped_tick_count: u64,
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
+    controller_history: VecDeque<ControllerFrame>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     history_capacity: usize,
@@ -252,6 +255,7 @@ impl Default for LocalPhysicsController {
             dropped_tick_count: 0,
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             server_motions: VecDeque::new(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
@@ -297,6 +301,7 @@ impl LocalPhysicsController {
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.controller_history.clear();
         self.server_motions.clear();
         self.server_control_flags = None;
         self.modes.reset();
@@ -346,6 +351,7 @@ impl LocalPhysicsController {
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.controller_history.clear();
         self.server_motions.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -545,6 +551,27 @@ impl LocalPhysicsController {
                 Ok(output) => {
                     let result = output.tick_result;
                     self.last_environment = result.environment;
+                    while self.controller_history.len() >= self.history_capacity {
+                        self.controller_history.pop_front();
+                    }
+                    self.controller_history.push_back(ControllerFrame {
+                        tick: state.tick,
+                        intent: context.mode_intent,
+                        jump_edge: self.jump_edge_pending,
+                        fly_toggle: self.fly_toggle_pending,
+                        requested_sneak: sneak_request,
+                        requested_sprint: sprint_request,
+                        mode_override: None,
+                        sneak_override: None,
+                        sprint_override: None,
+                        forced_sneak,
+                        grounded_before_tick,
+                        jump_repeated,
+                        ride_delta,
+                        input,
+                        modes: self.modes,
+                        environment: result.environment,
+                    });
                     effects.commit_successful_tick();
                     self.previous_position = before;
                     let world_identity = result.world_identity;

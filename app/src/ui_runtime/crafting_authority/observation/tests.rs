@@ -464,11 +464,11 @@ fn observer_does_not_change_normal_open_close_bytes_or_allocate_craft_request() 
     let bytes = |packet: protocol::Packet| {
         protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap()
     };
-    let expected = bytes(before.pending_packet().unwrap().unwrap());
+    let expected = bytes(before.pending_batch().unwrap().unwrap().0);
     let fixture = Fixture::new();
     let state = state();
     with_probe(|probe| probe.snapshot(&state, true));
-    assert_eq!(bytes(ledger.pending_packet().unwrap().unwrap()), expected);
+    assert_eq!(bytes(ledger.pending_batch().unwrap().unwrap().0), expected);
     let open = ContainerOpenEvent {
         container: ContainerIdentity::window(1),
         window_type: 0,
@@ -483,8 +483,8 @@ fn observer_does_not_change_normal_open_close_bytes_or_allocate_craft_request() 
     ledger.request_personal_close();
     before.request_personal_close();
     assert_eq!(
-        bytes(ledger.pending_packet().unwrap().unwrap()),
-        bytes(before.pending_packet().unwrap().unwrap())
+        bytes(ledger.pending_batch().unwrap().unwrap().0),
+        bytes(before.pending_batch().unwrap().unwrap().0)
     );
     assert!(ledger.pending_request_id().is_none());
     assert!(fixture.0.probe.lock().unwrap().rows <= MAX_ROWS);

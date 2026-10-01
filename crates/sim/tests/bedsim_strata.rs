@@ -77,7 +77,7 @@ fn retained_horizontal_collision_climbs_a_ladder_without_a_jump_input() {
             .unwrap();
         assert!(tick.environment.on_climbable);
         assert!(
-            (tick.movement.y - 0.2).abs() <= 1.0e-12,
+            (tick.movement.y - 0.2).abs() <= f64::from(f32::EPSILON),
             "retained collision {collided:?} must climb at +0.2, got {}",
             tick.movement.y
         );
@@ -95,7 +95,7 @@ fn climbing_requires_a_retained_collision_or_a_held_jump() {
     let tick = Simulator::default()
         .tick(&mut state, MovementInput::default(), &ladder)
         .unwrap();
-    assert!((tick.movement.y + 0.2).abs() <= 1.0e-12);
+    assert!((tick.movement.y + 0.2).abs() <= f64::from(f32::EPSILON));
 }
 
 /// A tick's resolved axis collisions must survive into the next tick so the
@@ -137,11 +137,11 @@ fn walking_on_slime_damps_horizontal_velocity() {
         .unwrap();
 
     assert!(
-        damped.movement.y.abs() <= 1.0e-12,
+        damped.movement.y.abs() <= f64::from(f32::EPSILON),
         "the witness needs a flat tick"
     );
-    assert!((damped.movement.x - plain.movement.x * 0.4).abs() <= 1.0e-12);
-    assert!((damped.movement.z - plain.movement.z * 0.4).abs() <= 1.0e-12);
+    assert!((damped.movement.x - plain.movement.x * 0.4).abs() <= f64::from(f32::EPSILON));
+    assert!((damped.movement.z - plain.movement.z * 0.4).abs() <= f64::from(f32::EPSILON));
 }
 
 /// The same reference function refuses to damp while sneaking
@@ -203,7 +203,7 @@ fn sneaking_suppresses_the_bed_bounce() {
     assert!(tick.collisions.y);
     let expected = (0.0 - 0.08) * 0.98;
     assert!(
-        (state.velocity.y - expected).abs() <= 1.0e-12,
+        (state.velocity.y - expected).abs() <= f64::from(f32::EPSILON),
         "sneaking must suppress the bed bounce exactly: expected {expected}, got {}",
         state.velocity.y
     );
@@ -224,7 +224,7 @@ fn a_negligible_slime_rebound_snaps_to_zero() {
     assert!(tick.collisions.y);
     assert_eq!(
         tick.velocity.y,
-        (0.0 - 0.08) * 0.98,
+        f64::from(-0.08_f32 * 0.98_f32),
         "a sub-1e-4 rebound must be zeroed before gravity, got {}",
         tick.velocity.y
     );

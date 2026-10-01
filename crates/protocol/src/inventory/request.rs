@@ -6,6 +6,8 @@ use valentine::bedrock::version::v1_26_51::{
 
 use super::InventoryPacketError;
 mod actions;
+#[cfg(test)]
+mod batch_tests;
 pub(super) mod manual_craft;
 pub(super) mod mining;
 
@@ -53,6 +55,29 @@ pub fn item_stack_request_packet_filtered(
     actions: &[StackRequestAction],
     filter_strings: &[String],
 ) -> Result<crate::Packet, InventoryPacketError> {
+    Ok(ItemStackRequestPacket {
+        requests: vec![encode_request(request_id, actions, filter_strings)?],
+    }
+    .into())
+}
+
+/// Builds the native request vector without combining actions or filtering text across requests.
+pub fn item_stack_request_batch<'a>(
+    requests: impl IntoIterator<Item = (i32, &'a [StackRequestAction], &'a [String])>,
+) -> Result<Option<crate::Packet>, InventoryPacketError> {
+    let requests = requests
+        .into_iter()
+        .map(|(id, actions, strings)| encode_request(id, actions, strings))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((!requests.is_empty()).then(|| ItemStackRequestPacket { requests }.into()))
+}
+
+/// Validates each request independently, including its own created-output identifiers.
+fn encode_request(
+    request_id: i32,
+    actions: &[StackRequestAction],
+    filter_strings: &[String],
+) -> Result<ItemStackRequestPacketDataRequestData, InventoryPacketError> {
     if filter_strings.len() > MAX_FILTER_STRINGS {
         return Err(InventoryPacketError::InvalidStackRequestActionCount(
             filter_strings.len(),
@@ -75,24 +100,19 @@ pub fn item_stack_request_packet_filtered(
             ));
         }
     }
-    Ok(ItemStackRequestPacket {
-        requests: vec![ItemStackRequestPacketDataRequestData {
-            client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 {
-                id: request_id,
-            },
-            actions: actions
-                .iter()
-                .map(actions::encode)
-                .collect::<Result<_, _>>()?,
-            strings_to_filter: filter_strings.to_vec(),
-            strings_to_filter_origin: if filter_strings.is_empty() {
-                EnumsTextProcessingEventOrigin::Unknown
-            } else {
-                EnumsTextProcessingEventOrigin::Anviltext
-            },
-        }],
-    }
-    .into())
+    Ok(ItemStackRequestPacketDataRequestData {
+        client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 { id: request_id },
+        actions: actions
+            .iter()
+            .map(actions::encode)
+            .collect::<Result<_, _>>()?,
+        strings_to_filter: filter_strings.to_vec(),
+        strings_to_filter_origin: if filter_strings.is_empty() {
+            EnumsTextProcessingEventOrigin::Unknown
+        } else {
+            EnumsTextProcessingEventOrigin::Anviltext
+        },
+    })
 }
 
 fn action_slots(action: &StackRequestAction) -> impl Iterator<Item = StackRequestSlot> {

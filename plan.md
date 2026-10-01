@@ -3653,3 +3653,49 @@ isotropic face rotation, complete repeater/comparator geometry and per-species o
 are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
+
+### Numeric continuation (2026-10-02, incomplete D01)
+
+
+### Registry collision continuation (2026-10-02)
+
+Doors now resolve facing/open from the lower half and hinge from the upper half;
+missing pairs use the native default plane. Current planes are 0.1825 blocks thick
+(Lens `0xa7bdb60`, `0xa7bdbf0`; `R:d/DoorBlock.cpp:647`). Stair collision reads the
+current registry corner state (Lens `0xa5b5090`, `0xa5b5460`, `0xa5b57f0`); the older
+neighbor-derived algorithm in `R:s/StairBlock.cpp:1110` is not substituted for it.
+Scaffold support uses the stable registry unit cube and the native pre-move top/contact
+conditions (Lens `0x8eff050`, `0x8eff210`; `R:s/ScaffoldingBlock.cpp:189`). Registry
+coverage includes both runtime-ID modes and all stair corners/halves. Scaffold movement
+coefficients, powder-snow equipment behavior and broader interaction parity remain open.
+
+### Historical replay continuation (2026-10-02, incomplete INT-10)
+
+Palette prediction frames now retain immutable block pages, load state, registry data
+and collision revisions. Replays use each frame's world even after live edits or unloads.
+Controller frames retain mode intent, input edges, requested controls, mode state and
+environment; corrected ticks re-evaluate pose and repeated jumps and preserve retimed
+server overrides. Tests cover changed ceilings, changed correction anchors and repeated
+replays. Lens `0x38db020` and `R:r/RewindSimulation.cpp:84` establish history-based
+component replay; these tests verify our implementation, not complete native parity.
+Anchor depenetration remains provisional (INT-10), and full component coverage and the
+memory/performance cost of retained world metadata still need validation.
+
+### Liquid contact continuation (2026-10-02, incomplete D08–D11)
+
+Liquid contact now uses the current native water/lava shrink vectors, including low-pose
+center clamping and material-cell tests independent of fluid surface height (Lens
+`0xa5d5c40`, `0xa5dd330`; `R:l/LiquidPhysicsSystem.cpp:182`). Contact boundary witnesses
+and the complete simulator suite pass. Currents, complete swimming travel/drag, liquid
+attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
+from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
+with any exact difference. This comparison is not a native parity acceptance gate.
+
+### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
+
+Ready ledger requests now share one ItemStackRequest packet, retaining each request's
+ID, ordered actions and text-filter origin. Transport refusal leaves the entire batch
+unsent; successful admission advances all included requests together. Empty batches
+emit no packet (Lens `0x28d09e0`; `R:i/ItemStackNetManagerClient.cpp:4058`). The existing
+window-control priority is retained. Native tick/flush phase, cross-family packet batching,
+vehicle prediction, interaction models and emote/spin/flight input ownership remain open.
