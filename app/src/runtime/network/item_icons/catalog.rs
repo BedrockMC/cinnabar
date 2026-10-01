@@ -60,7 +60,7 @@ pub(super) fn icon_keys(
         if !path.starts_with("items/") || !path.ends_with(".json") {
             continue;
         }
-        for bytes in view.read_layers(&path) {
+        for bytes in view.read_layers(path) {
             let Some(root) = parse_pack_json(&bytes) else {
                 continue;
             };
@@ -73,10 +73,10 @@ pub(super) fn icon_keys(
                 .as_str()
                 .or_else(|| icon["textures"]["default"].as_str())
                 .or_else(|| icon["texture"].as_str());
-            if let Some(key) = key.filter(|key| !key.is_empty() && key.len() <= 256) {
-                if keys.len() < MAX_CATALOG_ENTRIES || keys.contains_key(identifier) {
-                    keys.insert(Arc::from(identifier), Arc::from(key));
-                }
+            if let Some(key) = key.filter(|key| !key.is_empty() && key.len() <= 256)
+                && (keys.len() < MAX_CATALOG_ENTRIES || keys.contains_key(identifier))
+            {
+                keys.insert(Arc::from(identifier), Arc::from(key));
             }
         }
     }

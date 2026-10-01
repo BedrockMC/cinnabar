@@ -71,7 +71,7 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
     let entity = app.world_mut().spawn(instance.clone()).id();
     let assets = ChunkTextureAssets::default();
     let candidate = PreparedResourceGeometry::build(
-        &[instance.clone()],
+        std::slice::from_ref(&instance),
         assets.clone(),
         device.clone(),
         queue.clone(),
