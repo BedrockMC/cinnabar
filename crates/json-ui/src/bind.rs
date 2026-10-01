@@ -396,9 +396,8 @@ impl<'a> Binder<'a> {
         let index = forced.and_then(Value::as_f64).or_else(|| {
             let name = forced.and_then(Value::as_str)?;
             match own.get(name)? {
-                Scalar::Num(number) => Some(*number),
                 Scalar::Text(text) => text.parse().ok(),
-                Scalar::Bool(_) => None,
+                other => other.as_number(),
             }
         });
         let (Some(name), Some(index)) = (
@@ -812,9 +811,8 @@ fn bake_properties(
 
 fn scalar_number(scalar: &Scalar) -> Option<f64> {
     match scalar {
-        Scalar::Num(number) => Some(*number),
         Scalar::Text(text) => text.parse().ok(),
-        Scalar::Bool(_) => None,
+        other => other.as_number(),
     }
 }
 
@@ -941,11 +939,5 @@ fn nonempty_text(scalar: Option<&Scalar>) -> Option<String> {
 }
 
 fn scalar_to_value(scalar: &Scalar) -> Value {
-    match scalar {
-        Scalar::Bool(value) => Value::Bool(*value),
-        Scalar::Text(text) => Value::String(text.clone()),
-        Scalar::Num(number) => serde_json::Number::from_f64(*number)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-    }
+    scalar.to_json()
 }

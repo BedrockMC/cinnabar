@@ -112,12 +112,8 @@ pub fn fold_expression(raw: &Value, substituted: Value, env: &Env) -> Value {
         return substituted;
     };
     match crate::predicate::eval_scalar(expression, env, &crate::predicate::NoBindings) {
-        Some(crate::predicate::Scalar::Bool(flag)) => Value::Bool(flag),
-        Some(crate::predicate::Scalar::Text(text)) => Value::String(text),
-        Some(crate::predicate::Scalar::Num(number)) => serde_json::Number::from_f64(number)
-            .map(Value::Number)
-            .unwrap_or(substituted),
-        None => substituted,
+        Some(crate::predicate::Scalar::Json(_)) | None => substituted,
+        Some(value) => value.to_json(),
     }
 }
 
