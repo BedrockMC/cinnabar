@@ -71,15 +71,6 @@ impl FactoryItem {
 }
 
 impl<'a> Binder<'a> {
-    /// The `[columns, rows]` the screen answers a grid's `grid_dimension_binding` with.
-    pub(super) fn bound_dimensions(&self, control: &ResolvedControl) -> Option<[u32; 2]> {
-        let name = control
-            .properties
-            .get("grid_dimension_binding")
-            .and_then(Value::as_str)?;
-        self.data.grid_dimensions.get(name).copied()
-    }
-
     /// The items a screen fed to this control's named factory.
     pub(super) fn feed(&self, control: &ResolvedControl) -> Option<&'a [FactoryItem]> {
         let name = control.factory.as_ref()?.name.as_deref()?;
@@ -127,7 +118,9 @@ impl<'a> Binder<'a> {
             // The item's property bag is readable throughout the created subtree.
             let mut item_scope = scope.clone();
             if let Some((collection, index)) = &item.cursor {
-                item_scope.indices.insert(collection.clone(), *index);
+                std::sync::Arc::make_mut(&mut item_scope.cursor)
+                    .indices
+                    .insert(collection.clone(), *index as i64);
             }
             let mut values = (*item_scope.values).clone();
             values.extend(

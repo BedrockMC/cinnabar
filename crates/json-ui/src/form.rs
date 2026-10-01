@@ -210,9 +210,18 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
         ] {
             context = context.with_flag(flag, value);
         }
+        // The popup's button labels read their text from the controller, as a
+        // screen hosting this popup selects.
+        context = context.with_var(
+            "button_text_binding_type",
+            serde_json::Value::from("global"),
+        );
     }
     context
 }
+
+/// The popup panel `popup_dialog.modal_dialog_popup`'s text views read.
+const MODAL_SOURCE: &str = "modal_bg_buttons";
 
 /// Map a form model onto the `#binding` names its template reads.
 pub fn form_data_source(model: &FormModel) -> DataSource {
@@ -221,8 +230,9 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
         FormModel::Action(form) => long_form_source(&mut data, form),
         FormModel::Modal(form) => {
             let text = |value: &str| Scalar::Text(value.to_owned());
-            data.set_global("#modal_title_text", text(&form.title));
-            data.set_global("#modal_label_text", text(&form.body));
+            // The dialog's text views read the panel the controller fills.
+            data.set_control_value(MODAL_SOURCE, "#modal_title_text", text(&form.title));
+            data.set_control_value(MODAL_SOURCE, "#modal_label_text", text(&form.body));
             data.set_global("#modal_left_button_text", text(&form.button1));
             data.set_global("#modal_middle_button_text", text(""));
             data.set_global("#modal_rightcancel_button_text", text(&form.button2));
