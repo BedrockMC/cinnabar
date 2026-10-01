@@ -17,6 +17,14 @@ pub struct ViewState {
     /// Scroll view key → its maximum offset last layout, which
     /// `jump_to_bottom_on_update` compares against (see [`ViewState::remember`]).
     pub scroll_max: BTreeMap<String, f64>,
+    /// The pointer in virtual pixels, for `follows_cursor` controls; feed it only
+    /// while [`LayoutReport::tracks_pointer`], or pointer moves relayout.
+    pub pointer: Option<[f64; 2]>,
+    /// `draggable` control key → its accumulated drag offset.
+    pub drags: BTreeMap<String, [f64; 2]>,
+    /// The animation clock (seconds) `size` animations play against; without it
+    /// they hold their final value.
+    pub now: Option<f64>,
 }
 
 impl ViewState {
@@ -176,10 +184,18 @@ impl ScrollMetrics {
     }
 }
 
-/// Side results gathered while laying out: every scroll view's metrics.
+/// Side results gathered while laying out.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayoutReport {
     pub scrolls: BTreeMap<String, ScrollMetrics>,
+    /// Each control with a `clip_state_change_event`: the event and whether the
+    /// control lies wholly outside its clip. A change between layouts fires it.
+    pub clip_states: BTreeMap<String, (String, bool)>,
+    /// Whether a laid-out control follows the pointer ([`ViewState::pointer`]).
+    pub tracks_pointer: bool,
+    /// Whether a `size` animation is still playing: lay out again next frame,
+    /// without reusing measurements.
+    pub animating: bool,
 }
 
 /// A content drag under the client's scroll dynamics: while held the offset

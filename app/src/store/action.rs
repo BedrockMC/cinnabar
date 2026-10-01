@@ -139,6 +139,7 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            drag_axes: [false; 2],
         }
     }
 

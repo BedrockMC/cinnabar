@@ -203,7 +203,7 @@ fn collect_gated(
     for (_, _, drawn) in &mut out[first..] {
         drawn.gates.clone_from(gates);
     }
-    let masks = crate::widgets::state_child_masks(node.control);
+    let masks = crate::widgets::state_child_masks(node.control, !node.enabled);
     for child in &node.children {
         match masks.iter().find(|(name, _)| *name == child.control.name) {
             Some((_, mask)) => {

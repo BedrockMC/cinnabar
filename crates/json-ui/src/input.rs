@@ -27,6 +27,9 @@ pub enum HitKind {
     Panel,
     /// A `custom` renderer cell (e.g. a container item) the caller interprets.
     Custom,
+    /// A `draggable` control; the caller accumulates its drag in
+    /// [`crate::ViewState::drags`] along [`HitRegion::drag_axes`].
+    Draggable,
 }
 
 impl HitKind {
@@ -68,6 +71,8 @@ pub struct HitRegion {
     pub group_index: Option<usize>,
     /// The `custom` renderer name for [`HitKind::Custom`].
     pub renderer: Option<String>,
+    /// The axes a [`HitKind::Draggable`] region moves along.
+    pub drag_axes: [bool; 2],
 }
 
 impl HitRegion {
@@ -164,7 +169,7 @@ fn collect(
             control_name,
             collection_index: index,
             collection: collection.map(str::to_owned),
-            enabled: widgets::enabled(control),
+            enabled: node.enabled,
             checked: matches!(kind, HitKind::Toggle | HitKind::Dropdown)
                 .then(|| widgets::toggle_checked(control)),
             max_length: control
@@ -181,6 +186,7 @@ fn collect(
             renderer: (kind == HitKind::Custom)
                 .then(|| text("renderer"))
                 .flatten(),
+            drag_axes: crate::layout::draggable_axes(control),
         });
         *order += 1;
     }
@@ -191,6 +197,11 @@ fn collect(
 
 fn kind_of(node: &LaidOut) -> Option<HitKind> {
     let control = node.control;
+    if control.control_type.as_deref() != Some("scrollbar_box")
+        && crate::layout::draggable_axes(control) != [false; 2]
+    {
+        return Some(HitKind::Draggable);
+    }
     Some(match control.control_type.as_deref()? {
         "button" => HitKind::Button,
         "toggle" => HitKind::Toggle,

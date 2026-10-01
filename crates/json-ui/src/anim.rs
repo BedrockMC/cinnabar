@@ -20,6 +20,8 @@ pub(crate) const BORN_KEY: &str = "anim_born";
 pub(crate) const CLOCK_KEY: &str = "anim_clock";
 /// Property holding a control's resolved `offset` animation (a [`Slide`]).
 pub(crate) const SLIDE_KEY: &str = "anim_offset";
+/// Resolved `size` animation: a [`Slide`] of size vectors, relaid out each tick.
+pub(crate) const RESIZE_KEY: &str = "anim_size";
 /// Property holding a control's resolved `uv` flip-book (a [`FlipBook`]).
 pub(crate) const FLIP_BOOK_KEY: &str = "anim_flip_book";
 /// Longest `next` chain followed; a longer or cyclic chain loops from its start.
@@ -246,11 +248,35 @@ pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Op
 /// Resolve `@ns.name` (following `next`) to its offset steps, their ends still
 /// length expressions; `None` without an offset step.
 pub(crate) fn resolve_slide(catalog: &Catalog, reference: &str, env: &Env) -> Option<Slide> {
+    resolve_vector(catalog, reference, env, "offset")
+}
+
+/// Resolve `@ns.name` to its `size` steps; `None` without one or when an event
+/// starts it.
+pub(crate) fn resolve_resize(catalog: &Catalog, reference: &str, env: &Env) -> Option<Slide> {
+    resolve_vector(catalog, reference, env, "size")
+}
+
+/// A `size` animation's resting vector: its first step's `from`, what the
+/// control holds until the animation plays.
+pub(crate) fn resting_size(catalog: &Catalog, reference: &str, env: &Env) -> Option<Value> {
+    let target = ControlRef::parse(reference, "");
+    let def = catalog.lookup(&target.namespace, &target.name)?;
+    let Value::Object(props) = substitute(&Value::Object(def.props.clone()), env, &mut Vec::new())
+    else {
+        return None;
+    };
+    (props.get("anim_type").and_then(Value::as_str) == Some("size"))
+        .then(|| props.get("from").cloned())
+        .flatten()
+}
+
+fn resolve_vector(catalog: &Catalog, reference: &str, env: &Env, kind: &str) -> Option<Slide> {
     let (links, looping) = chain_links(catalog, reference, env)?;
     let steps: Vec<SlideStep> = links
         .iter()
         .map(|props| {
-            let moves = props.get("anim_type").and_then(Value::as_str) == Some("offset");
+            let moves = props.get("anim_type").and_then(Value::as_str) == Some(kind);
             let end = |key: &str| {
                 props
                     .get(key)
@@ -350,6 +376,42 @@ pub struct Slide {
 }
 
 impl Slide {
+    /// One axis's value `age` seconds in, each end measured by `pixels`
+    /// (a vector element to pixels); `rest` holds before the first step.
+    pub(crate) fn axis_at(&self, age: f64, rest: f64, pixels: impl Fn(&Value) -> f64) -> f64 {
+        Chain {
+            steps: self
+                .steps
+                .iter()
+                .map(|step| Step {
+                    kind: if step.moves {
+                        StepKind::Alpha
+                    } else {
+                        StepKind::Wait
+                    },
+                    duration: step.duration,
+                    from: pixels(&step.from),
+                    to: pixels(&step.to),
+                    easing: step.easing.clone(),
+                    destroys: false,
+                })
+                .collect(),
+            looping: self.looping,
+        }
+        .value_at(age, rest)
+    }
+
+    /// Whether the slide is still moving `age` seconds in.
+    pub(crate) fn running(&self, age: f64) -> bool {
+        self.looping
+            || age
+                < self
+                    .steps
+                    .iter()
+                    .map(|step| step.duration.max(0.0))
+                    .sum::<f64>()
+    }
+
     /// The slide in pixels, its ends measured by `pixels` (an offset pair to
     /// pixels); `rest` is the static offset it replaces.
     pub(crate) fn motion(

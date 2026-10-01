@@ -74,24 +74,27 @@ pub(crate) fn hidden_state_children(
     control: &ResolvedControl,
     key: &str,
     state: &ViewState,
+    locked: bool,
 ) -> Vec<String> {
     hidden_under(
         control,
         state.is_hovered(key),
         state.is_pressed(key),
         state.is_focused(key),
+        locked,
     )
 }
 
 /// State children hidden at rest (no hover, press or focus): the client hides
 /// them, so they add nothing to their parent's `%c`/`%cm`.
 pub(crate) fn rest_hidden_children(control: &ResolvedControl) -> Vec<String> {
-    hidden_under(control, false, false, false)
+    hidden_under(control, false, false, false, false)
 }
 
 /// Per state child of a stateful control, the interaction states it shows under,
 /// as a mask over [`state_index`]; empty for controls without state children.
-pub(crate) fn state_child_masks(control: &ResolvedControl) -> Vec<(String, u8)> {
+/// `locked` is an ancestor's lock.
+pub(crate) fn state_child_masks(control: &ResolvedControl, locked: bool) -> Vec<(String, u8)> {
     let names: &[&str] = match control.control_type.as_deref().unwrap_or("") {
         "button" | "edit_box" | "slider_box" | "slider" => &BUTTON_STATES,
         "toggle" | "dropdown" => &TOGGLE_STATES,
@@ -104,7 +107,13 @@ pub(crate) fn state_child_masks(control: &ResolvedControl) -> Vec<(String, u8)> 
         .collect();
     masks.dedup();
     for index in 0..8u8 {
-        let hidden = hidden_under(control, index & 1 != 0, index & 2 != 0, index & 4 != 0);
+        let hidden = hidden_under(
+            control,
+            index & 1 != 0,
+            index & 2 != 0,
+            index & 4 != 0,
+            locked,
+        );
         for (name, mask) in &mut masks {
             if !hidden.contains(name) {
                 *mask |= 1 << index;
@@ -121,14 +130,16 @@ pub(crate) fn state_index(state: &ViewState, key: &str) -> u8 {
         | (u8::from(state.is_focused(key)) << 2)
 }
 
+/// A lock (own or an ancestor's) shows the locked child and hides hover/press.
 fn hidden_under(
     control: &ResolvedControl,
     hovered: bool,
     pressed: bool,
     focused: bool,
+    ancestor_locked: bool,
 ) -> Vec<String> {
     let kind = control.control_type.as_deref().unwrap_or("");
-    let locked = !enabled(control);
+    let locked = ancestor_locked || !enabled(control);
     let (names, shown): (&[&str], &str) = match kind {
         "button" | "edit_box" | "slider_box" => {
             let shown = if locked {

@@ -8,11 +8,9 @@ use json_ui::{
     ControlLibrary, ControlRef, DataSource, LaidOut, LayoutEnv, ResolvedControl, Scalar,
     TextMeasure, TextureMeta, TextureSource, bind, layout,
 };
-
 use serde_json::{Value, json};
 
 struct MonoText;
-
 impl TextMeasure for MonoText {
     fn extent(&self, text: &str) -> [f64; 2] {
         [text.chars().count() as f64 * 6.0, 10.0]
@@ -21,7 +19,6 @@ impl TextMeasure for MonoText {
 
 /// Every texture is 40x20.
 struct Textures;
-
 impl TextureSource for Textures {
     fn texture(&self, _path: &str) -> Option<TextureMeta> {
         Some(TextureMeta {
@@ -469,7 +466,6 @@ fn d08_listed_cells_use_grid_position() {
 
 /// A library holding `t.cell`, a 20x10 panel.
 struct CellLibrary;
-
 impl ControlLibrary for CellLibrary {
     fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl> {
         (reference.name == "cell")
@@ -793,6 +789,86 @@ fn v09_wheel_steps_scale_by_speed() {
     assert!((metrics.wheel_target(1.0) - (100.0 - 15.0 * 120.0 / 127.0)).abs() < 1e-9);
 }
 
+fn laid_node<'a>(laid: &'a LaidOut<'a>, name: &str) -> &'a LaidOut<'a> {
+    let found = find(laid, name);
+    assert_eq!(found.control.name, name, "{name} not laid out");
+    found
+}
+
+// P02: `clip_offset` insets the clip a clipping control gives its children.
+#[test]
+fn p02_clip_offset_insets_the_child_clip() {
+    let root = screen(json!([{ "p": top_left(json!({
+        "type": "panel", "size": [100, 100], "clips_children": true, "clip_offset": [5, 5],
+        "controls": [{ "c": { "type": "image", "size": [100, 100], "texture": "t" } }],
+    })) }]));
+    let laid = layout(&root, [100.0, 100.0], &env());
+    let clip = laid_node(&laid, "c").clip;
+    assert_eq!([clip.x, clip.y, clip.w, clip.h], [5.0, 5.0, 90.0, 90.0]);
+}
+
+// P03: `allow_clipping: false` draws outside the ancestor clip; children inherit it.
+#[test]
+fn p03_allow_clipping_opts_out_of_the_ancestor_clip() {
+    let root = screen(json!([{ "p": top_left(json!({
+        "type": "panel", "size": [20, 20], "clips_children": true,
+        "controls": [{ "c": top_left(json!({
+            "type": "image", "size": [40, 40], "texture": "t", "allow_clipping": false,
+            "controls": [{ "g": { "type": "image", "size": [40, 40], "texture": "t" } }],
+        })) }],
+    })) }]));
+    let laid = layout(&root, [100.0, 100.0], &env());
+    let free = laid_node(&laid, "c").clip;
+    assert_eq!([free.w, free.h], [100.0, 100.0]);
+    let inherited = laid_node(&laid, "g").clip;
+    assert_eq!([inherited.w, inherited.h], [100.0, 100.0]);
+}
+
+// P05: a control with `clip_state_change_event` reports when it is wholly clipped.
+#[test]
+fn p05_clip_state_is_reported() {
+    let root = screen(json!([{ "p": top_left(json!({
+        "type": "panel", "size": [20, 20], "clips_children": true,
+        "controls": [
+            { "inside": top_left(json!({ "type": "panel", "size": [5, 5],
+                "clip_state_change_event": "inside.changed" })) },
+            { "outside": top_left(json!({ "type": "panel", "size": [5, 5], "offset": [40, 0],
+                "clip_state_change_event": "outside.changed" })) },
+        ],
+    })) }]));
+    let (_, report) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &Default::default());
+    assert_eq!(
+        report.clip_states["/root/p/inside"],
+        ("inside.changed".to_owned(), false)
+    );
+    assert_eq!(
+        report.clip_states["/root/p/outside"],
+        ("outside.changed".to_owned(), true)
+    );
+}
+
+// P12: a disabled ancestor locks its descendants.
+#[test]
+fn p12_disabled_ancestors_lock_descendants() {
+    let root = screen(json!([{ "p": {
+        "type": "panel", "enabled": false,
+        "controls": [{ "b": {
+            "type": "button", "size": [20, 20], "enabled": true,
+            "default_control": "d", "locked_control": "l",
+            "controls": [
+                { "d": { "type": "panel" } },
+                { "l": { "type": "panel" } },
+            ],
+        } }],
+    } }]));
+    let laid = layout(&root, [100.0, 100.0], &env());
+    assert!(!laid_node(&laid, "b").enabled);
+    assert!(!laid_node(&laid, "d").visible);
+    assert!(laid_node(&laid, "l").visible);
+    let regions = json_ui::hit_regions(&laid);
+    assert!(regions.iter().all(|region| !region.enabled));
+}
+
 // V12: the track's press routes by the configured `scrollbar_track_button`.
 #[test]
 fn v12_configured_button_names_route_presses() {
@@ -867,6 +943,77 @@ fn v14_v16_gesture_drags_follow_their_flags() {
     assert!(metrics.drags_content());
     metrics.scroll_when_fits = false;
     assert!(!metrics.drags_content());
+}
+
+// G19: a size animation plays against the layout clock and reports it is running.
+#[test]
+fn g19_size_animation_plays_against_the_clock() {
+    let slide = json!({ "steps": [{ "moves": true, "duration": 1.0, "from": [0, 0],
+                                     "to": [40, 20], "easing": "linear" }], "looping": false });
+    let root = screen(json!([{ "p": { "type": "panel", "size": [40, 20], "anim_size": slide } }]));
+    let state = json_ui::ViewState {
+        now: Some(0.5),
+        ..Default::default()
+    };
+    let (laid, report) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &state);
+    let rect = laid_node(&laid, "p").rect;
+    assert_eq!([rect.w, rect.h], [20.0, 10.0]);
+    assert!(report.animating);
+    assert_eq!(size(&root, "p"), [40.0, 20.0]);
+}
+
+// A02: an anchored offset measures the fraction in from the anchored edge.
+#[test]
+fn a02_anchored_offset() {
+    let root = screen(json!([{ "p": {
+        "type": "panel", "size": [20, 10], "anchor_from": "bottom_right", "anchor_to": "top_left",
+        "use_anchored_offset": true, "property_bag": { "#anchored_offset_value_x": 0.25,
+                                                       "#anchored_offset_value_y": 0.1 },
+    } }]));
+    assert_eq!(rect(&root, "p")[..2], [55.0, 80.0]);
+}
+
+// A03/A04: cursor-following controls centre on, or sit beside, the pointer.
+#[test]
+fn a03_a04_follow_the_cursor() {
+    let root = screen(json!([
+        { "a": { "type": "panel", "size": [20, 10], "follows_cursor": true } },
+        { "b": { "type": "panel", "size": [20, 10], "follows_cursor_inside_parent": true } },
+    ]));
+    let state = json_ui::ViewState {
+        pointer: Some([90.0, 40.0]),
+        ..Default::default()
+    };
+    let (laid, report) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &state);
+    let a = laid_node(&laid, "a").rect;
+    let b = laid_node(&laid, "b").rect;
+    assert!(report.tracks_pointer);
+    assert_eq!([a.x, a.y], [80.0, 35.0]);
+    assert_eq!([b.x, b.y], [60.0, 50.0]);
+}
+
+// A05/A06: a drag moves only along `draggable`, `contained` keeps it inside.
+#[test]
+fn a05_a06_drag_and_containment() {
+    let root = screen(json!([
+        { "free": top_left(json!({ "type": "panel", "size": [20, 10], "draggable": "horizontal" })) },
+        { "kept": top_left(json!({ "type": "panel", "size": [20, 10], "draggable": "both",
+                                   "contained": true })) },
+    ]));
+    let mut state = json_ui::ViewState::default();
+    state.drags.insert("/root/free".into(), [30.0, 30.0]);
+    state.drags.insert("/root/kept".into(), [300.0, 300.0]);
+    let (laid, _) = json_ui::layout_with(&root, [100.0, 100.0], &env(), &state);
+    let free = laid_node(&laid, "free").rect;
+    let kept = laid_node(&laid, "kept").rect;
+    assert_eq!([free.x, free.y], [30.0, 0.0]);
+    assert_eq!([kept.x, kept.y], [80.0, 90.0]);
+    let regions = json_ui::hit_regions(&laid);
+    assert!(
+        regions
+            .iter()
+            .any(|region| region.kind == json_ui::HitKind::Draggable)
+    );
 }
 
 // G05: a button's `%c` counts only the state child it shows at rest.
