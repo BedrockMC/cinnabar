@@ -40,7 +40,7 @@ pub use forms::{
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 pub(crate) use sign_editor::drive_sign_editor;
 
-pub(crate) use gameplay_authority::drain_inventory_authority;
+pub(crate) use gameplay_authority::{Translator, drain_inventory_authority};
 pub use interaction::FastTransferAction;
 #[cfg(test)]
 pub(crate) use interaction::dispatch_inventory_click;

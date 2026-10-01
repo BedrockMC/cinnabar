@@ -105,12 +105,13 @@ func offerFromItem(item *playfabcatalog.Item) (Offer, bool) {
 	}
 	offer.Creator = clip(props.Creator)
 	offer.ThumbnailURL = thumbnailOf(item.Images)
-	for _, price := range item.PriceOptions {
-		for _, amount := range price.Amounts {
-			if amount.Value >= 0 && len(offer.Prices) < maxPricesPerItem {
-				offer.Prices = append(offer.Prices, Price{Currency: amount.ItemID, Amount: int64(amount.Value)})
-			}
+	for _, option := range item.PriceOptions {
+		if price, ok := singlePrice(option); ok && len(offer.Prices) < maxPricesPerItem {
+			offer.Prices = append(offer.Prices, price)
 		}
+	}
+	if len(item.PriceOptions) > 0 && len(offer.Prices) == 0 {
+		return Offer{}, false // only price forms the store cannot quote or buy
 	}
 	if item.Rating.TotalCount > 0 {
 		offer.Rating = &Rating{Average: float64(item.Rating.Average), Count: item.Rating.TotalCount}
@@ -121,6 +122,20 @@ func offerFromItem(item *playfabcatalog.Item) (Offer, bool) {
 		}
 	}
 	return offer, true
+}
+
+// singlePrice maps a price option the store can quote and buy: one currency amount for one unit
+// with no duration. Options needing several currencies together, several units or a duration are
+// refused rather than split into prices the purchase flow would misread.
+func singlePrice(option playfabcatalog.Price) (Price, bool) {
+	if len(option.Amounts) != 1 || option.UnitAmount > 1 || option.UnitDurationInSeconds != 0 {
+		return Price{}, false
+	}
+	amount := option.Amounts[0]
+	if amount.Value < 0 || amount.ItemID == "" {
+		return Price{}, false
+	}
+	return Price{Currency: amount.ItemID, Amount: int64(amount.Value)}, true
 }
 
 func thumbnailOf(images []playfabcatalog.Image) string {

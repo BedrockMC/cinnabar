@@ -2,111 +2,67 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 	"sync"
 
-	"github.com/df-mc/go-playfab/v2"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"golang.org/x/oauth2"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
-const (
-	defaultBaseURI = "https://store.mktpl.minecraft-services.net"
-	allowedHostTLD = ".minecraft-services.net"
-)
-
-// environmentNames are the discovery service names tried, in order, for the store base URI.
-var environmentNames = []string{"store", "marketplace", "mktpl"}
-
-// baseURL picks the store service URI from discovery, falling back to the production host. Only
-// https hosts under the Mojang services domain are accepted so the service token never leaves it.
-func baseURL(disc *service.Discovery) *url.URL {
-	if disc != nil {
-		for _, name := range environmentNames {
-			raw, ok := disc.ServiceEnvironments[name]["prod"]
-			if !ok {
-				continue
-			}
-			var env struct {
-				ServiceURI string `json:"serviceUri"`
-			}
-			if json.Unmarshal(raw, &env) != nil {
-				continue
-			}
-			if u, err := url.Parse(env.ServiceURI); err == nil && trustedHost(u) {
-				return u
-			}
-		}
+// Open returns a Client on the account's shared PlayFab session and service token; the account owns
+// both, so closing the Client releases nothing.
+func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
+	if account == nil {
+		return nil, errors.New("store: no signed-in account")
 	}
-	u, _ := url.Parse(defaultBaseURI)
-	return u
-}
-
-func trustedHost(u *url.URL) bool {
-	host := strings.ToLower(u.Hostname())
-	return u.Scheme == "https" && strings.HasSuffix(host, allowedHostTLD) && u.User == nil
-}
-
-// Open signs in to Xbox Live, PlayFab and the Mojang authorization service and returns a Client plus
-// the function that releases those sessions.
-func Open(ctx context.Context, src oauth2.TokenSource) (*Client, func(), error) {
-	xbl, err := catalog.XboxClient(ctx, src)
+	xbl, err := catalog.XboxClient(ctx, account)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	xuid := xbl.UserInfo().XUID
+	_ = xbl.Close()
 	discovery, err := service.Default(ctx)
 	if err != nil {
-		_ = xbl.Close()
-		return nil, nil, fmt.Errorf("store: discover services: %w", err)
+		return nil, fmt.Errorf("store: discover services: %w", err)
 	}
-	env := new(service.AuthorizationEnvironment)
-	if err := discovery.Environment(env); err != nil {
-		_ = xbl.Close()
-		return nil, nil, fmt.Errorf("store: resolve authorization service: %w", err)
+	storeEnv := new(marketplace.Environment)
+	if err := discovery.Environment(storeEnv); err != nil {
+		return nil, fmt.Errorf("store: resolve store service: %w", err)
 	}
-	pf, err := playfab.LoginWithXbox(ctx, env.PlayFabTitleID, xbl, playfab.ClientConfig{CreateAccount: true})
+	market, err := storeEnv.New(account)
 	if err != nil {
-		_ = xbl.Close()
-		return nil, nil, fmt.Errorf("store: PlayFab login: %w", err)
+		return nil, fmt.Errorf("store: %w", err)
 	}
-	release := func() {
-		_ = pf.Close()
-		_ = xbl.Close()
+	env, err := account.Environment(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: resolve authorization service: %w", err)
 	}
-	client, err := NewClient(Config{
-		BaseURL: baseURL(discovery),
-		Tokens:  env.TokenSource(pf, service.TokenConfig{}),
-		Catalog: pf.Catalog(),
-		Identity: Identity{
-			XUID:    xbl.UserInfo().XUID,
-			TitleID: string(env.PlayFabTitleID),
-		},
+	pf, err := account.PlayFab(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return NewClient(Config{
+		Market:   market,
+		Catalog:  pf.Catalog(),
+		Identity: Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)},
 	})
-	if err != nil {
-		release()
-		return nil, nil, err
-	}
-	return client, release, nil
 }
 
 // Session opens its Client on first use and serves every store call from it.
 type Session struct {
-	open   func(context.Context) (*Client, func(), error)
+	open   func(context.Context) (*Client, error)
 	images *ImageCache
 
-	mu      sync.Mutex
-	client  *Client
-	release func()
+	mu     sync.Mutex
+	client *Client
 }
 
-// NewSession returns a Session that signs in with src on first use; an empty imageDir disables images.
-func NewSession(src oauth2.TokenSource, imageDir string) *Session {
-	s := &Session{open: func(ctx context.Context) (*Client, func(), error) { return Open(ctx, src) }}
+// NewSession returns a Session that opens on the account on first use; an empty imageDir disables images.
+func NewSession(account *authcache.Account, imageDir string) *Session {
+	s := &Session{open: func(ctx context.Context) (*Client, error) { return Open(ctx, account) }}
 	if imageDir != "" {
 		s.images = NewImageCache(imageDir)
 	}
@@ -130,23 +86,12 @@ func (s *Session) get(ctx context.Context) (*Client, error) {
 	if s.open == nil {
 		return nil, errors.New("store: session has no opener")
 	}
-	client, release, err := s.open(ctx)
+	client, err := s.open(ctx)
 	if err != nil {
 		return nil, err
 	}
-	s.client, s.release = client, release
+	s.client = client
 	return client, nil
-}
-
-// Close releases the underlying sign-ins; the Session reopens on the next call.
-func (s *Session) Close() {
-	s.mu.Lock()
-	release := s.release
-	s.client, s.release = nil, nil
-	s.mu.Unlock()
-	if release != nil {
-		release()
-	}
 }
 
 // Home implements the store home call.
