@@ -91,7 +91,12 @@ impl<'a> Resolver<'a> {
             self.extract_factory(control, control_type.as_deref(), env);
         let mut properties = build_properties(control, env, control_ids_consumed, &mut missing);
         self.resolve_anims(&mut properties, env);
-        if factory.is_some() || properties.contains_key("grid_item_template") {
+        // A grid's items and a `control_name` template resolve in this scope;
+        // `control_ids` creations see only their own and captured variables.
+        let template = factory
+            .as_ref()
+            .is_some_and(|factory| factory.control_name.is_some());
+        if template || properties.contains_key("grid_item_template") {
             let scope = self.local_scope(env);
             let key = scope_key(&scope);
             properties.insert(FACTORY_SCOPE.to_owned(), scope);
@@ -360,6 +365,10 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The factory a control declares: a `type: "factory"` control naming a
+    /// `control_name` or `control_ids` is its own factory, else an object-valued
+    /// `factory` (possibly a `$var`) is. `true` when the control's own
+    /// `control_ids` were consumed.
     fn extract_factory(
         &mut self,
         control: &RawControl,
@@ -367,52 +376,85 @@ impl<'a> Resolver<'a> {
         env: &Env,
     ) -> (Option<Factory>, bool) {
         let owner = &control.owner_ns;
-        if let Some(Value::Object(spec)) = control.props.get("factory") {
-            let name = spec.get("name").and_then(Value::as_str).map(str::to_owned);
-            let control_ids = control_id_map(spec.get("control_ids"), owner, env);
-            let control_name = spec
-                .get("control_name")
-                .and_then(Value::as_str)
-                .map(|reference| parse_reference(reference, owner, env));
-            let max_children_size = spec
-                .get("max_children_size")
-                .and_then(Value::as_u64)
-                .map(|max| max as usize);
-            let factory = Factory {
-                name,
-                control_ids,
-                control_name,
-                max_children_size,
+        if control_type == Some("factory") {
+            let names = |key: &str| {
+                control
+                    .props
+                    .get(key)
+                    .is_some_and(|value| !evaluate(value, env).is_null())
             };
-            if !factory.is_empty() || factory.name.is_some() {
-                return (Some(factory), false);
+            if names("control_name") || names("control_ids") {
+                let name = instance_name(&control.name, env);
+                let factory = self.factory_from(&control.props, Some(name), owner, env);
+                return (Some(factory), true);
             }
         }
-        // A `type: "factory"` control is its own factory, named by its instance.
-        if control_type == Some("factory") {
-            let control_ids = control_id_map(control.props.get("control_ids"), owner, env);
-            let control_name = control
-                .props
-                .get("control_name")
-                .and_then(Value::as_str)
-                .map(|reference| parse_reference(reference, owner, env));
-            if !control_ids.is_empty() || control_name.is_some() {
-                return (
-                    Some(Factory {
-                        name: Some(instance_name(&control.name, env)),
-                        control_ids,
-                        control_name,
-                        max_children_size: control
-                            .props
-                            .get("max_children_size")
-                            .and_then(Value::as_u64)
-                            .map(|max| max as usize),
-                    }),
-                    true,
-                );
-            }
+        if let Some(spec) = control.props.get("factory")
+            && let Value::Object(spec) = evaluate(spec, env)
+        {
+            return (Some(self.factory_from(&spec, None, owner, env)), false);
         }
         (None, false)
+    }
+
+    /// A factory's declaration, each field evaluated in the declaring scope.
+    fn factory_from(
+        &mut self,
+        fields: &Map<String, Value>,
+        name: Option<String>,
+        owner: &str,
+        env: &Env,
+    ) -> Factory {
+        let field = |key: &str| fields.get(key).map(|value| evaluate(value, env));
+        let name = name.or_else(|| field("name").and_then(value_string));
+        if name.as_deref().is_none_or(str::is_empty) {
+            self.diagnostics
+                .push(format!("{owner}: factory name should not be empty"));
+        }
+        let mut factory = Factory {
+            name: name.filter(|name| !name.is_empty()),
+            ..Factory::default()
+        };
+        // A `control_name` template takes priority; `control_ids` then go unread.
+        match field("control_name").and_then(value_string) {
+            Some(reference) if !reference.is_empty() => {
+                factory.control_name = Some(ControlRef::parse(&reference, owner));
+            }
+            _ => {
+                if let Some(Value::Object(entries)) = field("control_ids") {
+                    for (role, reference) in entries {
+                        let Some(reference) = value_string(evaluate(&reference, env)) else {
+                            continue;
+                        };
+                        if let Some((instance, _)) = reference.split_once('@')
+                            && !instance.is_empty()
+                        {
+                            factory.instance_names.insert(role.clone(), instance.to_owned());
+                        }
+                        factory
+                            .control_ids
+                            .insert(role, ControlRef::parse(&reference, owner));
+                    }
+                }
+            }
+        }
+        if let Some(Value::Array(names)) = field("factory_variables") {
+            for name in names.iter().filter_map(Value::as_str) {
+                let key = name.strip_prefix('$').unwrap_or(name).to_owned();
+                factory.variables.insert(key, evaluate(&Value::from(name), env));
+            }
+        }
+        match field("max_children_size").as_ref().and_then(Value::as_i64) {
+            Some(max) if max < 0 => self
+                .diagnostics
+                .push(format!("{owner}: negative factory max_children_size {max}")),
+            // Zero means unlimited.
+            Some(max) if max > 0 => factory.max_children_size = usize::try_from(max).ok(),
+            _ => {}
+        }
+        factory.insert_front = field("insert_location").and_then(value_string).as_deref()
+            == Some("front");
+        factory
     }
 }
 
@@ -453,35 +495,6 @@ fn is_reserved(key: &str) -> bool {
         key,
         "type" | "ignored" | "variables" | "factory" | "controls"
     )
-}
-
-/// A factory's role map; the whole map may itself be a `$var` holding an object.
-fn control_id_map(
-    value: Option<&Value>,
-    owner: &str,
-    env: &Env,
-) -> std::collections::BTreeMap<String, ControlRef> {
-    let mut map = std::collections::BTreeMap::new();
-    let value = value.map(|value| evaluate(value, env));
-    if let Some(Value::Object(entries)) = &value {
-        for (role, reference) in entries {
-            if let Some(text) = reference.as_str() {
-                map.insert(role.clone(), parse_reference(text, owner, env));
-            }
-        }
-    }
-    map
-}
-
-fn parse_reference(reference: &str, owner: &str, env: &Env) -> ControlRef {
-    let resolved = match reference.strip_prefix('$') {
-        Some(variable) => match env.get(variable) {
-            Some(Value::String(text)) => text.clone(),
-            _ => reference.to_owned(),
-        },
-        None => reference.to_owned(),
-    };
-    ControlRef::parse(&resolved, owner)
 }
 
 /// A diagnostic-sized prefix of server-supplied text.
