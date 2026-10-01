@@ -107,12 +107,11 @@ pub(crate) fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
-    if !actor_bounds_are_visible(feet, scale, Some(view)) {
+    let bounds = rig.culling_bounds();
+    if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
     }
-    let half = 0.5 * scale.max(1.0);
-    let low = [feet[0] - half, feet[1], feet[2] - half];
-    let high = [feet[0] + half, feet[1] + 4.0 * half, feet[2] + half];
+    let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)
 }
 
@@ -239,7 +238,7 @@ fn actor_rig_presentation_inner(
     };
     let alpha = partial_tick.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
-    let yaw = lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha);
+    let yaw = actor_world_yaw(actor, rig, alpha);
     // The model's authored scale times the server's metadata scale, as vanilla renders it.
     let scale = rig.scale * actor.render_scale();
     if !yaw.is_finite() || !scale.is_finite() || scale <= 0.0 {
@@ -263,6 +262,7 @@ fn actor_rig_presentation_inner(
     let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: rig.culling_bounds(),
             input: ActorRigRenderInput {
                 identity,
                 rig: EntityRigId(rig.rig.0),
@@ -331,6 +331,7 @@ pub(crate) fn local_diagnostic_presentation(
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
                     session_id: actor_session_id,
@@ -651,6 +652,22 @@ fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
 
 fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Projectile bones carry absolute rotation; billboard bones carry the camera's rotation.
+fn actor_world_yaw(actor: &ActorSnapshot, rig: &ActorRigSnapshot<'_>, alpha: f32) -> f32 {
+    let billboard = matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+        "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
+        | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
+        | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
+        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"));
+    if billboard {
+        180.0
+    } else if actor.target_rotation_is_absolute() {
+        0.0
+    } else {
+        lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
+    }
 }
 
 fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {

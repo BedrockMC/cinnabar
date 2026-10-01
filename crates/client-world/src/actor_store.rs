@@ -102,6 +102,13 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
+    /// These actors animate their full yaw through the target-rotation queries.
+    #[must_use]
+    pub fn target_rotation_is_absolute(&self) -> bool {
+        matches!(&self.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+            "minecraft:arrow" | "minecraft:fireworks_rocket" | "minecraft:wither_skull" | "minecraft:wither_skull_dangerous"))
+    }
+
     /// The render position `alpha` of the way from the previous tick's pose to the current one,
     /// or `None` when a component is not finite.
     #[must_use]
@@ -579,6 +586,7 @@ mod hurt;
 mod lifecycle;
 mod lightning;
 mod placement;
+mod projectile;
 pub(crate) mod properties;
 mod query;
 
@@ -613,7 +621,10 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) | ActorEvent::Status(_) | ActorEvent::TakeItem(_) => None,
+        ActorEvent::PlayerList(_)
+        | ActorEvent::Skin { .. }
+        | ActorEvent::Status(_)
+        | ActorEvent::TakeItem(_) => None,
     }
 }
 
@@ -621,5 +632,9 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
 mod local_tests;
 #[cfg(test)]
 mod riding_tests;
+mod skin_update;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod projectile_tests;
