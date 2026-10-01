@@ -27,6 +27,15 @@ pub(in crate::stream) fn mesh_job_cap(worker_threads: usize) -> usize {
     worker_threads.div_ceil(2).clamp(2, WORK_RESULT_CAPACITY)
 }
 
+impl WorldStream {
+    /// Stops a superseded job before its next expensive worker phase.
+    pub(in crate::stream) fn cancel_mesh_job(&mut self, key: SubChunkKey) {
+        if let Some(cancelled) = self.mesh_cancellations.remove(&key) {
+            cancelled.store(true, Ordering::Release);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,14 +55,5 @@ mod tests {
         assert_eq!(mesh_job_cap(12), 6);
         assert_eq!(mesh_job_cap(32), 16);
         assert_eq!(mesh_job_cap(usize::MAX), WORK_RESULT_CAPACITY);
-    }
-}
-
-impl WorldStream {
-    /// Stops a superseded job before its next expensive worker phase.
-    pub(in crate::stream) fn cancel_mesh_job(&mut self, key: SubChunkKey) {
-        if let Some(cancelled) = self.mesh_cancellations.remove(&key) {
-            cancelled.store(true, Ordering::Release);
-        }
     }
 }

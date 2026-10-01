@@ -91,6 +91,7 @@ impl WorldStream {
                     .sub_chunk(key)
                     .expect("fixture source remains resident");
                 let completion = MeshCompletion {
+                    output_permit: None,
                     _job_permit: None,
                     key,
                     revision: generation,

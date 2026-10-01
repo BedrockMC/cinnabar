@@ -294,6 +294,7 @@ pub(super) enum RetrySchedule {
 #[derive(Debug)]
 pub enum WorldMeshChange {
     Upsert {
+        output_permit: Option<super::meshing::memory::MeshMemoryPermit>,
         key: SubChunkKey,
         mesh: ChunkMesh,
         biome: PackedBiomeRecord,
@@ -865,6 +866,7 @@ pub(super) struct PendingMesh {
 
 #[derive(Debug)]
 pub(super) struct MeshCompletion {
+    pub(super) output_permit: Option<super::meshing::memory::MeshMemoryPermit>,
     pub(super) _job_permit: Option<super::meshing::admission::MeshJobPermit>,
     pub(super) key: SubChunkKey,
     pub(super) revision: u64,

@@ -24,13 +24,16 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
+pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
+pub(crate) const MAX_COMPOUND_MODEL_PARTS: u32 = 2;
+
 pub(crate) fn select_model_templates<'a>(
     context: PaletteResolutionContext<'_, 'a>,
     facts: &PaletteFacts<'a>,
     neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
     coordinate: [usize; 3],
     entry: ResolvedPaletteEntry,
-) -> ([u32; 2], u8) {
+) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
     if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
         let mask = connected_model_mask(
@@ -46,7 +49,10 @@ pub(crate) fn select_model_templates<'a>(
     if fence_flag != 0 {
         let mask = connected_model_mask(context, facts, neighbour_facts, coordinate, fence_flag);
         if mask != 0 {
-            return ([entry.model_template, entry.model_template + 1 + mask], 2);
+            return (
+                [entry.model_template, entry.model_template + 1 + mask],
+                MAX_SELECTED_MODEL_TEMPLATES as u8,
+            );
         }
         return ([entry.model_template, NO_MODEL_TEMPLATE], 1);
     }

@@ -237,6 +237,15 @@ impl WorldStream {
                 }
                 continue;
             };
+            let Some(mut output_permit) =
+                self.mesh_memory
+                    .try_admit(&center, &self.runtime_assets, self.network_id_mode)
+            else {
+                if queued {
+                    self.pending_resident_mesh_deferred.push(candidate);
+                }
+                continue;
+            };
             let snapshot = self.mesh_snapshot(key, center, light_halo);
             self.pending_mesh.remove(&key);
             self.in_flight.insert(key, pending.revision);
@@ -269,7 +278,9 @@ impl WorldStream {
                 } else {
                     snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode)
                 };
+                output_permit.reconcile(&mesh, &biome);
                 let _ = tx.send(MeshCompletion {
+                    output_permit: Some(output_permit),
                     _job_permit: Some(job_permit),
                     key,
                     revision: pending.revision,
@@ -612,6 +623,7 @@ impl WorldStream {
         }
         let urgent = completion.urgent;
         let change = WorldMeshChange::Upsert {
+            output_permit: completion.output_permit,
             key: completion.key,
             mesh: completion.mesh,
             biome: completion.biome,

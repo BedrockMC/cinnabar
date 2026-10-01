@@ -72,6 +72,26 @@ fn scheduler_turn_timing() {
 }
 
 #[test]
+fn output_credit_survives_a_publication_without_gpu_allowance() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .unwrap();
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_dirty_exact(key, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(stream.mesh_memory.retained.load(Ordering::Acquire) > 0);
+    stream.accept_mesh_completion(completion);
+    let change = stream.pop_mesh_change().unwrap();
+    assert!(stream.mesh_memory.retained.load(Ordering::Acquire) > 0);
+    drop(change);
+    assert_eq!(stream.mesh_memory.retained.load(Ordering::Acquire), 0);
+}
+
+#[test]
 fn expired_poll_still_dispatches_one_ready_mesh() {
     let mut stream = lit_stream(1);
     for x in [0, 4] {

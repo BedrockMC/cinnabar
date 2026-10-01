@@ -757,6 +757,7 @@ pub(crate) fn drive_world_stream(
             };
             let retry = match change {
                 WorldMeshChange::Upsert {
+                    output_permit,
                     key,
                     mesh,
                     biome,
@@ -790,6 +791,7 @@ pub(crate) fn drive_world_stream(
                             None
                         }
                         Err((mesh, biome, permit)) => Some(WorldMeshChange::Upsert {
+                            output_permit,
                             key,
                             mesh,
                             biome,

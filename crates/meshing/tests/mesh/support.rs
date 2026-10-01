@@ -1,10 +1,17 @@
+/// Builds fixture geometry and checks its conservative output reservation.
 fn mesh<'a>(
     classifier: &BlockClassifier,
     mode: NetworkIdMode,
     neighbours: &Neighbourhood<'a>,
     sub_chunk: &SubChunk,
 ) -> meshing::ChunkMesh {
-    mesh_sub_chunk(classifier, runtime_assets(), mode, neighbours, sub_chunk)
+    let assets = runtime_assets();
+    let output = mesh_sub_chunk(classifier, assets, mode, neighbours, sub_chunk);
+    assert!(
+        meshing::mesh_output_byte_len(&output, &meshing::PackedBiomeRecord::fallback())
+            <= meshing::MeshOutputBounds::new(assets).for_sub_chunk(sub_chunk, assets, mode)
+    );
+    output
 }
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {

@@ -325,6 +325,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
     );
 
     stream.accept_mesh_completion(MeshCompletion {
+        output_permit: None,
         _job_permit: None,
         key,
         revision: old_generation,
@@ -361,6 +362,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
     assert!(!stream.revisions.is_current(key, old_generation));
 
     stream.accept_mesh_completion(MeshCompletion {
+        output_permit: None,
         _job_permit: None,
         key,
         revision: old_generation,
