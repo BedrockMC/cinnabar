@@ -46,8 +46,9 @@ func relayPreLoginDisconnect(downstream packetDisconnecter, err error) {
 
 func joinFailureKey(err error) string {
 	var realm *realmJoinError
+	var admission *PackAdmissionError
 	switch {
-	case errors.Is(err, errResourcePackTransferTooLarge):
+	case errors.Is(err, errResourcePackTransferTooLarge), errors.As(err, &admission):
 		return "disconnectionScreen.resourcePack"
 	case errors.As(err, &realm):
 		return "disconnectionScreen.cantConnectToRealm"
