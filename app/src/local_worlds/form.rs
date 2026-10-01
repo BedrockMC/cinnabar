@@ -1,4 +1,4 @@
-use protocol::world_control::{Difficulty, GameMode, Generator, NewWorld, World};
+use protocol::world_control::{Backend, Difficulty, GameMode, Generator, NewWorld, World};
 
 /// Vanilla's world name field limit (`CreateNewWorld.general`, 30 characters); the core allows 64.
 pub(crate) const MAX_WORLD_NAME_CHARS: usize = 30;
@@ -105,7 +105,8 @@ impl CreateForm {
             game_mode: self.game_mode,
             generator: self.generator,
             difficulty: self.difficulty,
-            backend: None,
+            // Flat worlds run on the built-in server, which can pause; default worlds need BDS.
+            backend: (self.generator == Generator::Flat).then_some(Backend::Dragonfly),
             seed: seed_from_text(&self.seed_text),
         })
     }
@@ -176,6 +177,15 @@ mod tests {
         assert_eq!(world.name, "My World");
         assert_eq!(world.game_mode, GameMode::Survival);
         assert_eq!(world.seed, None);
+        assert_eq!(world.backend, None, "the core puts default worlds on BDS");
+        let flat = CreateForm {
+            generator: Generator::Flat,
+            ..CreateForm::default()
+        };
+        assert_eq!(
+            flat.build().map(|w| w.backend),
+            Ok(Some(Backend::Dragonfly))
+        );
     }
 
     #[test]

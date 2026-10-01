@@ -183,6 +183,11 @@ fn snapshot(view: &MenuView, name: &str) {
 }
 
 fn snapshot_at(view: &MenuView, name: &str, now_millis: u64) {
+    snapshot_after(view, name, now_millis, 2);
+}
+
+/// `warm` frames first: a screen laid out off-thread needs a few to settle.
+fn snapshot_after(view: &MenuView, name: &str, now_millis: u64, warm: usize) {
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         return;
@@ -198,11 +203,14 @@ fn snapshot_at(view: &MenuView, name: &str, now_millis: u64) {
     }
     presentation.sync_menu_artwork(super::super::menu_artwork::view_paths(view));
     let dpi = DpiScale::new(2.0).unwrap();
-    for _ in 0..2 {
+    for _ in 0..warm {
         presentation.set_menu_view(Some(view.clone()));
         presentation
             .build(&runtime, now_millis, [2560, 1440], dpi)
             .unwrap();
+        if warm > 2 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
     presentation.set_menu_view(Some(view.clone()));
     let input = presentation
@@ -408,4 +416,97 @@ fn the_settings_panes_take_the_wheel() {
     presentation.set_menu_view(Some(view));
     let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
     super::snapshot::write(&input, "flow-settings-scrolled");
+}
+
+// Writes PNGs of the local-world screens driven through the module (local only).
+#[test]
+fn snapshot_local_worlds() {
+    use crate::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
+    use protocol::world_control::{
+        Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
+        World, WorldState, WorldStatus,
+    };
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut base = fixture_view(&dir);
+    base.screen = MenuScreen::Play;
+    let world = World {
+        id: "0123456789abcdef".to_owned(),
+        name: "My World".to_owned(),
+        game_mode: GameMode::Survival,
+        generator: Generator::Normal,
+        difficulty: Difficulty::Normal,
+        backend: Backend::Bds,
+        seed: 1,
+        created_unix: 1_790_553_600,
+        last_played_unix: 1_790_553_600,
+        size_bytes: 12 * 1024 * 1024,
+    };
+    let shot = |menu: &WorldsMenu, name: &str| {
+        let mut view = base.clone();
+        view.local = menu.view();
+        snapshot(&view, name);
+    };
+    let mut menu = WorldsMenu::default();
+    menu.update(Input::Refresh);
+    menu.apply(Event::Listed(vec![world]));
+    menu.update(Input::BeginCreate);
+    shot(&menu, "local-create-general");
+    menu.update(Input::SelectTab(Tab::Advanced));
+    shot(&menu, "local-create-advanced");
+    menu.update(Input::Back);
+    menu.update(Input::OpenTemplates);
+    shot(&menu, "local-templates");
+    menu.update(Input::Back);
+    menu.update(Input::BeginEdit(0));
+    shot(&menu, "local-edit");
+    menu.update(Input::RequestDelete);
+    shot(&menu, "local-delete-confirm");
+    menu.update(Input::Back);
+    menu.update(Input::Back);
+    let status = |state: WorldState, setup: Option<Setup>, reason| WorldStatus {
+        state,
+        world_id: Some("0123456789abcdef".to_owned()),
+        backend: Some(Backend::Bds),
+        paused: false,
+        pause_supported: false,
+        error: None,
+        setup,
+        backend_unavailable_reason: reason,
+    };
+    menu.update(Input::Play);
+    let mut download = Setup {
+        state: SetupState::Downloading,
+        version: Some("1.26.52.3".to_owned()),
+        bytes_done: 40 * 1024 * 1024,
+        bytes_total: 90 * 1024 * 1024,
+        layers_done: 0,
+        layers_total: 0,
+        eula_accepted: true,
+        error: None,
+        runtime: "container".to_owned(),
+        reason: None,
+    };
+    menu.apply(Event::Status(status(
+        WorldState::Starting,
+        Some(download.clone()),
+        None,
+    )));
+    let mut progress = base.clone();
+    progress.local = menu.view();
+    snapshot_after(&progress, "local-progress-download", 0, 40);
+    menu.update(Input::Back);
+    download.state = SetupState::Unsupported;
+    menu.apply(Event::Prefs(
+        Prefs::default(),
+        status(
+            WorldState::Idle,
+            Some(download),
+            Some(UnavailableReason::DockerMissing),
+        ),
+    ));
+    menu.update(Input::BeginCreate);
+    shot(&menu, "local-docker-missing");
+    menu.update(Input::Prompt(PromptButton::CreateFlat));
+    shot(&menu, "local-create-flat-only");
 }
