@@ -198,9 +198,7 @@ fn launcher_command(
         );
     // The core refuses to start local worlds without their server binary.
     if executable.with_file_name(LOCAL_SERVER).is_file() {
-        command
-            .arg("-local-worlds-dir")
-            .arg(layout.local_worlds_dir());
+        command.args(crate::local_worlds::core_args(layout));
     }
     if upstream_client_cache {
         command.arg("-upstream-client-cache");
