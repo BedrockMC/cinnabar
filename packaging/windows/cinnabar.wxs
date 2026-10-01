@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- WiX v4. Build via build-installer.ps1, which supplies Version, Payload and Icon. -->
+<!-- WiX v5 (Files element). Build via build-installer.ps1, which supplies Version, Payload and Icon. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Cinnabar" Manufacturer="Cinnabar" Version="$(Version)"
            UpgradeCode="2A430447-F280-4F32-AFE9-F8A652811A04" Scope="perMachine" Compressed="yes">

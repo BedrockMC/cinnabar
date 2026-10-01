@@ -875,8 +875,9 @@ impl Painter<'_> {
     }
 
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
-        let clip = self.logical(&node.clip);
-        let dest = self.logical(&node.dest);
+        let (dest, clip) = node.animated_rects(self.art.now, self.art.clocks);
+        let clip = self.logical(&clip);
+        let dest = self.logical(&dest);
         if clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]

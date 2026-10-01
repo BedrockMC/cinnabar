@@ -17,16 +17,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/df-mc/go-playfab/v2"
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
-	"golang.org/x/oauth2"
 )
 
 // File is the small JSON contract consumed by the Rust launcher.
@@ -75,9 +73,9 @@ type Friend struct {
 // Fetch loads the four account-backed launcher surfaces. A failure in one
 // service is retained in Errors so the UI can show the successful sections and
 // explain a missing section instead of silently presenting fake servers.
-func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
-	if src == nil {
-		return File{}, errors.New("catalog authentication token source is nil")
+func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
+	if account == nil {
+		return File{}, errNoAccount
 	}
 	result := File{
 		Featured:   []Server{},
@@ -86,22 +84,13 @@ func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
 		Friends:    []Friend{},
 	}
 
-	if values, err := fetchRealms(ctx, src); err != nil {
+	if values, err := fetchRealms(ctx, account); err != nil {
 		result.Errors = append(result.Errors, "Realms: "+err.Error())
 	} else {
 		result.Realms = values
 	}
 
-	xbl, err := newXSAPIClient(ctx, src)
-	if err != nil {
-		result.Errors = append(result.Errors, "Friends: "+err.Error())
-		result.Errors = append(result.Errors, "Featured servers: "+err.Error())
-		result.Errors = append(result.Errors, "Gatherings: "+err.Error())
-		return result, nil
-	}
-	defer xbl.Close()
-
-	if values, err := fetchFriends(ctx, xbl); err != nil {
+	if values, err := Friends(ctx, account); err != nil {
 		result.Errors = append(result.Errors, "Friends: "+err.Error())
 	} else {
 		result.Friends = values
@@ -109,25 +98,14 @@ func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
 
 	discovery, err := service.Default(ctx)
 	if err != nil {
-		result.Errors = append(result.Errors, "Featured servers: discover services: "+err.Error())
-		result.Errors = append(result.Errors, "Gatherings: discover services: "+err.Error())
+		result.Errors = append(result.Errors, "Featured servers: discover services: "+err.Error(), "Gatherings: discover services: "+err.Error())
 		return result, nil
 	}
-	env := new(service.AuthorizationEnvironment)
-	if err := discovery.Environment(env); err != nil {
-		result.Errors = append(result.Errors, "Featured servers: resolve services: "+err.Error())
-		result.Errors = append(result.Errors, "Gatherings: resolve services: "+err.Error())
-		return result, nil
-	}
-	playFab, err := playfab.LoginWithXbox(ctx, env.PlayFabTitleID, xbl, playfab.ClientConfig{CreateAccount: true})
+	gatheringsClient, err := gatheringsClient(discovery, account)
 	if err != nil {
-		result.Errors = append(result.Errors, "Featured servers: PlayFab login: "+err.Error())
-		result.Errors = append(result.Errors, "Gatherings: PlayFab login: "+err.Error())
+		result.Errors = append(result.Errors, "Featured servers: "+err.Error(), "Gatherings: "+err.Error())
 		return result, nil
 	}
-	defer playFab.Close()
-
-	gatheringsClient := gatherings.NewClient(env.TokenSource(playFab, service.TokenConfig{}))
 	if values, err := gatheringsClient.FeaturedServers(ctx); err != nil {
 		result.Errors = append(result.Errors, "Featured servers: "+err.Error())
 	} else {
@@ -150,15 +128,9 @@ func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
 			if experience == nil || !experience.Valid() {
 				continue
 			}
-			joinContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-			address, joinErr := experience.Join(joinContext)
-			cancel()
-			if joinErr != nil || address == nil || address.String() == ":0" {
-				continue
-			}
 			result.Gatherings = append(result.Gatherings, Server{
 				Name:     displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
-				Address:  address.String(),
+				Address:  GatheringTargetPrefix + experience.ID.String(),
 				Caption:  firstGameCaption(experience.AvailableGames, "Community gathering"),
 				imageURL: artworkURL(experience.Item, experience.AvailableGames),
 			})
@@ -169,7 +141,7 @@ func Fetch(ctx context.Context, src oauth2.TokenSource) (File, error) {
 
 // Write fetches the catalog and publishes it as one complete JSON file so the
 // Rust process never observes a partially-written response.
-func Write(ctx context.Context, path string, src oauth2.TokenSource) error {
+func Write(ctx context.Context, path string, account *authcache.Account) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("catalog output path is empty")
 	}
@@ -179,7 +151,7 @@ func Write(ctx context.Context, path string, src oauth2.TokenSource) error {
 	}
 	fetchContext, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	result, err := Fetch(fetchContext, src)
+	result, err := Fetch(fetchContext, account)
 	if err != nil {
 		return err
 	}
@@ -336,8 +308,12 @@ func cacheArtworkFileWithTransport(
 	return path, nil
 }
 
-func fetchRealms(ctx context.Context, src oauth2.TokenSource) ([]Realm, error) {
-	values, err := realms.NewClient(src, nil).Realms(ctx)
+// fetchRealms lists the Realms; the account supplies the Realms XSTS token from its shared cache.
+func fetchRealms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
+	if account == nil {
+		return nil, errNoAccount
+	}
+	values, err := realms.NewClient(account, nil).Realms(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -371,19 +347,21 @@ func fetchRealms(ctx context.Context, src oauth2.TokenSource) ([]Realm, error) {
 	return result, nil
 }
 
-func newXSAPIClient(ctx context.Context, src oauth2.TokenSource) (*xsapi.Client, error) {
-	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, xsapiTokenSource(src))
+// GatheringTargetPrefix marks a catalog address as an experience ID joined at connect time.
+const GatheringTargetPrefix = "gathering/"
+
+// errNoAccount is returned when a call needs the signed-in account and there is none.
+var errNoAccount = errors.New("catalog: no signed-in account")
+
+func newXSAPIClient(ctx context.Context, account *authcache.Account) (*xsapi.Client, error) {
+	if account == nil {
+		return nil, errNoAccount
+	}
+	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, account)
 	if err != nil {
 		return nil, fmt.Errorf("login to Xbox Live: %w", err)
 	}
 	return client, nil
-}
-
-func xsapiTokenSource(src oauth2.TokenSource) xsapi.TokenSource {
-	if cached, ok := src.(xsapi.TokenSource); ok {
-		return cached
-	}
-	return auth.AndroidConfig.New(src, nil)
 }
 
 func fetchFriends(ctx context.Context, client *xsapi.Client) ([]Friend, error) {
