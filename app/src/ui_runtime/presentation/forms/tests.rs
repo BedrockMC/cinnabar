@@ -378,6 +378,31 @@ fn connecting_screen_reports_the_pack_download() {
     }
 }
 
+// Opening a local world shows vanilla's loading screen with the current stage and its bytes.
+#[test]
+fn local_world_loading_screen_names_the_stage() {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.local.progress = Some(crate::local_worlds::Progress {
+        stage: crate::local_worlds::Stage::DownloadingServer,
+        fraction: Some(0.5),
+        detail: "50.0 / 100.0 MB".to_owned(),
+    });
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    assert!(
+        texts.iter().any(|text| text == "Starting World"),
+        "{texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Downloading Bedrock Dedicated Server")
+                && text.contains("50.0 / 100.0 MB")),
+        "{texts:?}"
+    );
+}
+
 // Retail desktop settings show vanilla's section set; debug, edu, touch and
 // automation sections stay hidden.
 #[test]

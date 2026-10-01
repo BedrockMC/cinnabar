@@ -1,89 +1,76 @@
-use std::{
-    path::Path,
-    process::{Command, Stdio},
-};
+use std::{ffi::OsString, sync::OnceLock};
 
-use anyhow::{Context, Result};
+use serde::Deserialize;
 
-use crate::{
-    install_layout::InstallLayout,
-    lifecycle::children::{self, Spawned},
-    menu::core_process::clear_stale_bridge_endpoint,
-};
+use crate::install_layout::InstallLayout;
 
-/// Spawns a core that serves the world-control methods and routes the game socket to local worlds.
-pub(crate) fn spawn_core_for_local_worlds(
-    layout: &InstallLayout,
-    socket_dir: &Path,
-) -> Result<Spawned> {
-    let executable = &layout.core_executable;
-    if !executable.is_file() {
-        anyhow::bail!(
-            "bedrock-core executable was not found at {}",
-            executable.display()
-        );
-    }
-    clear_stale_bridge_endpoint(socket_dir)?;
-    children::spawn(&mut local_worlds_command(layout, socket_dir))
-        .with_context(|| format!("spawn {} for local worlds", executable.display()))
+const BEDROCK_TARGET_JSON: &str = include_str!("../../../assets/bedrock-target.json");
+
+/// The dedicated-server build local worlds run, from the target manifest.
+#[derive(Debug, Deserialize)]
+struct ServerPin {
+    server_version: String,
+    bds_container_image: String,
 }
 
-pub(super) fn local_worlds_command(layout: &InstallLayout, socket_dir: &Path) -> Command {
-    let mut command = Command::new(&layout.core_executable);
-    command
-        .arg("-socket-dir")
-        .arg(socket_dir)
-        .arg("-control-status")
-        .arg("-local-worlds-dir")
-        .arg(layout.local_worlds_dir())
-        .arg("-resource-pack-cache-dir")
-        .arg(layout.resource_pack_cache_dir())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    command
+fn server_pin() -> &'static ServerPin {
+    static PIN: OnceLock<ServerPin> = OnceLock::new();
+    PIN.get_or_init(|| {
+        serde_json::from_str(BEDROCK_TARGET_JSON).expect("valid Bedrock target manifest")
+    })
+}
+
+/// Core arguments that enable local worlds on the manifest's exact server build and image.
+pub(crate) fn core_args(layout: &InstallLayout) -> Vec<OsString> {
+    let pin = server_pin();
+    vec![
+        "-local-worlds-dir".into(),
+        layout.local_worlds_dir().into(),
+        "-bds-version".into(),
+        pin.server_version.clone().into(),
+        "-bds-image".into(),
+        pin.bds_container_image.clone().into(),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use crate::install_layout::{InstallEnvironment, Platform};
-
     use super::*;
 
-    fn layout() -> InstallLayout {
-        InstallLayout::resolve(
-            Platform::Linux,
-            &InstallEnvironment {
-                executable: PathBuf::from("/opt/cinnabar/bin/bedrock-client"),
-                home: Some(PathBuf::from("/home/p")),
-                local_app_data: None,
-                xdg_config_home: None,
-                xdg_data_home: Some(PathBuf::from("/data")),
-                xdg_runtime_dir: Some(PathBuf::from("/run/user/1")),
-            },
-        )
-        .expect("layout")
+    fn arg_after(args: &[OsString], flag: &str) -> String {
+        let position = args.iter().position(|arg| arg == flag).expect(flag);
+        args[position + 1].to_string_lossy().into_owned()
     }
 
     #[test]
-    fn command_enables_control_and_local_worlds_without_an_upstream() {
-        let layout = layout();
-        let command = local_worlds_command(&layout, Path::new("/run/s"));
-        let args: Vec<String> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        assert!(args.iter().any(|arg| arg == "-control-status"));
-        assert!(!args.iter().any(|arg| arg == "-upstream"));
-        let position = args
-            .iter()
-            .position(|arg| arg == "-local-worlds-dir")
-            .expect("worlds dir flag");
+    fn core_args_carry_the_worlds_dir_and_the_manifest_pin() {
+        let layout = InstallLayout::scratch("local-world-args");
+        let args = core_args(&layout);
         assert_eq!(
-            Path::new(&args[position + 1]),
-            layout.local_worlds_dir().as_path()
+            std::path::PathBuf::from(arg_after(&args, "-local-worlds-dir")),
+            layout.local_worlds_dir()
         );
+        assert_eq!(
+            arg_after(&args, "-bds-version"),
+            server_pin().server_version
+        );
+        assert_eq!(
+            arg_after(&args, "-bds-image"),
+            server_pin().bds_container_image
+        );
+    }
+
+    /// A tag alone drifts with upstream releases and can break joins; the image must name a digest.
+    #[test]
+    fn the_container_image_is_pinned_to_a_digest() {
+        let image = &server_pin().bds_container_image;
+        let (name, digest) = image.split_once("@sha256:").expect("digest-pinned image");
+        assert!(!name.is_empty() && !name.ends_with(":latest"), "{image}");
+        assert!(
+            digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()),
+            "{image}"
+        );
+        let version = &server_pin().server_version;
+        assert_eq!(version.split('.').count(), 4, "exact build: {version}");
     }
 }

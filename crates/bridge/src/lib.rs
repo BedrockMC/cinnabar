@@ -32,9 +32,9 @@ pub use store::{
 };
 pub use worlds::{
     Backend, CODE_EULA_REQUIRED, Difficulty, GameMode, Generator, NewWorld, Prefs, PrefsUpdate,
-    Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus, accept_bds_eula,
-    close_world, create_world, delete_world, list_worlds, local_worlds_prefs, open_world,
-    open_world_with, rename_world, set_world_paused, world_status,
+    Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus, WorldUpdate,
+    accept_bds_eula, close_world, create_world, delete_world, list_worlds, local_worlds_prefs,
+    open_world, open_world_with, set_world_paused, update_world, world_status,
 };
 
 /// Returns the platform endpoint used for the logical socket directory.
