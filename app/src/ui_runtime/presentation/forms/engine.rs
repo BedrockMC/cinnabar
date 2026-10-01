@@ -366,7 +366,7 @@ fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<Strin
     catalog.apply_pack(kept);
     catalog.apply_pack(
         [(
-            "ui/cinnabar_title.json",
+            "ui/ui_art_assets_common.json",
             menu_renderers::TITLE_PANEL_OVERLAY,
         )]
         .into_iter()
