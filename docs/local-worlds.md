@@ -13,9 +13,9 @@ Each world records the backend that created it (`world.json`) and always reopens
 | `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in the manifest's pinned `itzg/minecraft-bedrock-server` image, `--platform linux/amd64`. |
 | `dragonfly` | fallback when neither can run, and worlds created on it | Superflat only (dragonfly's default generators), no vanilla mob behavior. |
 
-Default (`normal`) worlds always run on BDS; where BDS cannot run, creating one fails with a "create a superflat
-world" error and the create screen starts on Superflat. Superflat worlds default to BDS when it can run
-(`-local-backend=auto`), else dragonfly; `world_create.v1` may pass `backend`. Normal worlds saved on dragonfly by
+Default (`normal`) worlds always run on BDS; where BDS cannot run, the create screen starts on Flat and the Docker
+modal offers Get Docker / Retry or a Flat world instead. The client creates Flat worlds on dragonfly (it pauses);
+`world_create.v1` without `backend` uses the store default (`-local-backend=auto`). Normal worlds saved on dragonfly by
 older builds no longer open rather than regenerate with approximate terrain.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
@@ -43,11 +43,13 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
   runs at a time. Worlds move between backends only where formats allow; dragonfly-written `level.dat` files may
   not satisfy BDS and vice versa, so do not share one folder across backends.
 - **server.properties / env:** name, gamemode, difficulty, seed, level type, `online-mode=false`, `max-players=1`,
-  view and tick distance from the client's `view_distance` (5-32). Seed and level type apply at creation only.
+  view and tick distance from the client's `view_distance` (5-32), `transport=raknet` (1.26.5x defaults to NetherNet,
+  which the core cannot dial) and `enable-lan-visibility=false`. Seed and level type apply at creation only.
+- **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets Go's default one.
 - **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
   The container maps its port to `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
-- **Pause:** on focus loss dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
+- **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
   keep running and status reports `pause_supported: false`.
