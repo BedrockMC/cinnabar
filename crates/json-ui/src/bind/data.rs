@@ -37,10 +37,10 @@ impl CollectionItem {
 pub struct DataSource {
     pub(super) globals: BTreeMap<String, Scalar>,
     pub(super) collections: BTreeMap<String, Vec<CollectionItem>>,
+    /// Values the controller writes straight into named controls' bags.
+    pub(super) controls: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// Controls created through named factories (`chat_item_factory`, …).
     pub(super) factories: BTreeMap<String, Vec<FactoryItem>>,
-    /// `[columns, rows]` a `grid_dimension_binding` reads.
-    pub(super) grid_dimensions: BTreeMap<String, [u32; 2]>,
     /// Screen-controller semantics: an unbound `#name` reads as `false` rather
     /// than leaving the template's literal in place.
     pub(super) strict: bool,
@@ -56,6 +56,15 @@ impl DataSource {
     /// Set a `global` binding value, keyed with its leading `#`.
     pub fn set_global(&mut self, name: impl Into<String>, value: Scalar) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Write `name` into the bag of every control named `control` on each
+    /// refresh, as a screen controller fills a dialog's source panel.
+    pub fn set_control_value(&mut self, control: &str, name: impl Into<String>, value: Scalar) {
+        self.controls
+            .entry(control.to_owned())
+            .or_default()
+            .insert(name.into(), value);
     }
 
     /// Read unbound globals as `false`, as a screen controller answers bindings
@@ -87,9 +96,14 @@ impl DataSource {
         self.factories.insert(name.into(), items);
     }
 
-    /// Answer a `grid_dimension_binding` named `name` (with its `#`).
+    /// Answer the global a `grid_dimension_binding` named `name` (with its `#`)
+    /// binds, as `ScreenController::bindGridSize` does: a `[columns, rows]` array.
     pub fn set_grid_dimensions(&mut self, name: impl Into<String>, dimensions: [u32; 2]) {
-        self.grid_dimensions.insert(name.into(), dimensions);
+        let [columns, rows] = dimensions;
+        self.globals.insert(
+            name.into(),
+            Scalar::Json(serde_json::json!([columns, rows])),
+        );
     }
 
     /// Replace the list a collection named `name` reads while inside item `index` of the enclosing

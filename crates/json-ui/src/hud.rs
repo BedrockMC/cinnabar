@@ -382,6 +382,19 @@ fn sidebar(data: &mut DataSource, sidebar: Option<&Sidebar>) {
     );
 }
 
+/// A `#rrggbb` tint as the `[r, g, b, a]` array `bindColor` answers; other
+/// text stays text.
+fn color_array(color: &str) -> Scalar {
+    match crate::emit::color_value(&Value::String(color.to_owned())) {
+        Some(rgba) => Scalar::Json(Value::Array(
+            rgba.iter()
+                .map(|channel| Value::from(f64::from(*channel) / 255.0))
+                .collect(),
+        )),
+        None => Scalar::Text(color.to_owned()),
+    }
+}
+
 fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
     data.set_grid_dimensions("#boss_grid_dimension", [1, bars.len() as u32]);
     data.set_collection(
@@ -395,7 +408,7 @@ fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
                         "#progress_percentage",
                         Scalar::Num(1.0 - bar.progress.clamp(0.0, 1.0)),
                     )
-                    .with("#bar_color", Scalar::Text(bar.color.clone()))
+                    .with("#bar_color", color_array(&bar.color))
                     .with("#bar_notches", Scalar::Num(f64::from(bar.notches)))
             })
             .collect(),
