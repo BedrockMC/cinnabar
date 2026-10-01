@@ -114,7 +114,9 @@ impl EquipmentRuntime {
         icon_fallback: bool,
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool)> {
         let session = match item.kind {
-            HeldKind::Sprite | HeldKind::Other => self.session_sprite(&item.identifier),
+            HeldKind::Sprite | HeldKind::Other => {
+                self.session_sprite(&item.identifier, item.metadata)
+            }
             HeldKind::Block(_) => None,
         };
         let (index, key, placement, location) = if let Some((index, placement, location)) = session

@@ -82,6 +82,8 @@ pub enum Draw {
         color: [u8; 4],
     },
     Text {
+        #[serde(default)]
+        font_type: String,
         text: String,
         color: [u8; 4],
         shadow: bool,
@@ -454,6 +456,12 @@ fn text_draw(control: &ResolvedControl) -> Draw {
         None => color_of(control, [255, 255, 255, 255]),
     };
     Draw::Text {
+        font_type: control
+            .properties
+            .get("font_type")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_owned(),
         text,
         color,
         shadow: matches!(control.properties.get("shadow"), Some(Value::Bool(true))),

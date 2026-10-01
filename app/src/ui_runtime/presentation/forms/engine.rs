@@ -543,6 +543,20 @@ impl TextMeasure for Measure<'_, '_> {
         }
     }
 
+    fn font_extent(&self, text: &str, font: &str, width: Option<f64>) -> [f64; 2] {
+        let measure = Measure {
+            font: self.font.font_named(font),
+            layouts: self.layouts,
+            metrics: self.metrics,
+            px: self.px,
+            translate: self.translate,
+        };
+        width.map_or_else(
+            || measure.extent(text),
+            |width| measure.wrapped(text, width),
+        )
+    }
+
     fn localize<'t>(&self, text: &'t str) -> Cow<'t, str> {
         localized(text, self.translate)
     }
@@ -737,6 +751,7 @@ impl Painter<'_> {
         dest: [f32; 4],
         clip: [f32; 4],
         style: TextPaint,
+        font_type: &str,
     ) -> Result<(), UiPresentationError> {
         let text = if style.localize {
             localized(text, self.translate)
@@ -755,7 +770,7 @@ impl Painter<'_> {
                 &self.metrics,
                 &source,
                 width_64(f64::from(dest[2] - dest[0])),
-                self.font,
+                self.font.font_named(font_type),
                 style.scale,
             );
             let Ok(layout) = self.layouts.layout(request) else {
@@ -882,6 +897,7 @@ impl Painter<'_> {
             _ => clip,
         };
         if let Draw::Text {
+            font_type,
             text,
             color,
             shadow,
@@ -901,7 +917,7 @@ impl Painter<'_> {
                 scale: *scale,
                 localize: *localize,
             };
-            return self.text(text, dest, clip, style);
+            return self.text(text, dest, clip, style, font_type);
         }
         self.group(clip)?;
         let (visual, bounds) = match &node.draw {

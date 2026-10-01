@@ -299,9 +299,18 @@ pub(crate) fn set_active_language(code: &str) {
     }
 }
 
+/// Returns the same locale used by the language overlay and its font resources.
+pub(super) fn active_language_code() -> &'static str {
+    ACTIVE_LANG_PATH
+        .get()
+        .and_then(|path| path.strip_prefix("texts/")?.strip_suffix(".lang"))
+        .unwrap_or("en_US")
+}
+
 pub(super) type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
 
 struct CachedOverlay {
+    dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
     stack: StackFingerprint,
     hashed: bool,
     blocks: protocol::CustomBlocks,
