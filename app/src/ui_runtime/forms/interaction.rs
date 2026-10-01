@@ -1,4 +1,4 @@
-use super::{LocalFormAction, engine_input};
+use super::{LocalFormAction, engine_focus, engine_input};
 use crate::{
     menu::MenuRuntime,
     ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
@@ -7,12 +7,13 @@ use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
         ButtonState,
+        gamepad::Gamepad,
         keyboard::KeyboardInput,
         mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::{
-        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Time, Window,
-        With,
+        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut, Single, Time,
+        Window, With,
     },
     time::Real,
     window::{CursorOptions, PrimaryWindow},
@@ -34,6 +35,8 @@ pub(crate) fn drive_server_form_input(
     mut runtime: ResMut<UiRuntime>,
     mut owned_last_frame: Local<bool>,
     time: Option<Res<Time<Real>>>,
+    pads: Query<&Gamepad>,
+    mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
     // Buttons are reset every owned frame, so a physical release never surfaces
@@ -108,6 +111,7 @@ pub(crate) fn drive_server_form_input(
                         input.text.as_ref().map(|text| text.to_string()),
                     )
                 })
+                .chain(engine_focus::gamepad_keys(pads.iter(), &mut stick))
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
         };

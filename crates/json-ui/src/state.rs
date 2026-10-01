@@ -14,13 +14,23 @@ pub struct ViewState {
     pub focused: Option<String>,
     /// Scroll view key → requested offset in virtual pixels (clamped by layout).
     pub scroll: BTreeMap<String, f64>,
+    pub focus_memory: FocusMemory,
     /// What the screen's components wrote into their bags; binding reads it.
     pub components: crate::component::Components,
 }
 
+/// Focus history navigation keeps between frames.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FocusMemory {
+    /// Focus container key → the control last focused inside it (`use_last_focus`).
+    pub last: BTreeMap<String, String>,
+    /// The control focus left that keeps its hover look (`reset_on_focus_lost: false`).
+    pub held: Option<String>,
+}
+
 impl ViewState {
     pub fn is_hovered(&self, key: &str) -> bool {
-        self.hovered.as_deref() == Some(key)
+        self.hovered.as_deref() == Some(key) || self.focus_memory.held.as_deref() == Some(key)
     }
 
     pub fn is_pressed(&self, key: &str) -> bool {

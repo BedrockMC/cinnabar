@@ -72,9 +72,13 @@ pub use hud::{
     hud_context, hud_data_source,
 };
 pub use input::{
-    FocusMeta, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
-    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, region_rect,
-    scroll_target,
+    CustomRoute, FOCUS_OVERRIDE_STOP, FocusContainer, FocusDirection, FocusMeta, FocusMove,
+    NavigationMode, controller_direction_claimed, default_focus, navigate, next_in_order,
+    set_focus,
+};
+pub use input::{
+    HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping, MappingScope,
+    MappingType, focus_order, global_mapping, hit_regions, hit_test, region_rect, scroll_target,
 };
 pub use layout::{
     LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
@@ -86,7 +90,7 @@ pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
-pub use state::{LayoutReport, ScrollMetrics, ViewState};
+pub use state::{FocusMemory, LayoutReport, ScrollMetrics, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
