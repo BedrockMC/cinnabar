@@ -1,0 +1,112 @@
+//! Vertical projection of the recorded Zeqa knockback and correction burst.
+
+use std::time::Duration;
+
+use super::{
+    LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionOutcome,
+    PhysicsSampleContext, reconcile_prediction_correction,
+};
+use sim::{Aabb, CollisionQuery, CollisionWorld, MovementInput, Vec3, WorldQueryError};
+
+#[derive(serde::Deserialize)]
+struct RecordedTick {
+    tick: u64,
+    position_y: f32,
+    #[serde(default)]
+    delta_y: f32,
+}
+
+#[derive(serde::Deserialize)]
+struct MotionFixture {
+    anchor_tick: u64,
+    anchor_y: f32,
+    motion_tick: u64,
+    applied_tick: u64,
+    motion_y: f32,
+    sent: Vec<RecordedTick>,
+    corrected: Vec<RecordedTick>,
+}
+
+struct RecordedFloor(f64);
+
+impl CollisionWorld for RecordedFloor {
+    /// Supplies a flat floor for the isolated vertical trajectory.
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let floor = Aabb::new(
+            Vec3::new(-8.0, self.0 - 1.0, -8.0),
+            Vec3::new(8.0, self.0, 8.0),
+        );
+        Ok(CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
+    }
+}
+
+#[test]
+fn zeqa_logged_vertical_motion_and_correction_replay() {
+    let fixture: MotionFixture =
+        serde_json::from_str(include_str!("fixtures/zeqa_vertical_motion.json")).unwrap();
+    let anchor = [0.0, fixture.anchor_y, 0.0];
+    let world = RecordedFloor(f64::from(
+        fixture.anchor_y - protocol::PLAYER_NETWORK_OFFSET,
+    ));
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(anchor, fixture.anchor_tick, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, fixture.anchor_tick, anchor);
+    ticker.set_source(MovementSource::Physics);
+    for sent in &fixture.sent {
+        if sent.tick == fixture.applied_tick {
+            physics.queue_server_motion([0.0, fixture.motion_y, 0.0], fixture.motion_tick);
+        }
+        let frame = physics.advance_with_context(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &world,
+        );
+        assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+        let sample = frame.samples.into_iter().next().unwrap();
+        assert_eq!(sample.tick, sent.tick);
+        assert!((sample.position[1] - sent.position_y).abs() < 2.0e-5);
+        assert!((sample.movement[1] - sent.delta_y).abs() < 1.0e-6);
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+
+    let corrected = &fixture.corrected[0];
+    // The log omits correction velocity. Infer the next Y velocity from the
+    // following authoritative positions; horizontal state is isolated here.
+    let inferred_velocity = fixture.corrected[1].position_y - corrected.position_y;
+    let outcome = reconcile_prediction_correction(
+        &mut ticker,
+        &mut physics,
+        [0.0, corrected.position_y, 0.0],
+        corrected.tick,
+        false,
+        [0.0, inferred_velocity, 0.0],
+        &world,
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        Some(PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: corrected.tick,
+            replayed_ticks: fixture.corrected.len() - 1,
+        })
+    );
+    for expected in &fixture.corrected {
+        let sample = physics.sample_at(expected.tick).unwrap();
+        assert!((sample.position[1] - expected.position_y).abs() < 3.0e-5);
+        assert!(!sample.grounded_after_tick);
+    }
+    assert_eq!(
+        physics.state().unwrap().tick,
+        fixture.sent.last().unwrap().tick
+    );
+    assert_eq!(physics.state().unwrap().jump_delay, 0);
+    assert!(!physics.state().unwrap().on_ground);
+}
