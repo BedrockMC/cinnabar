@@ -12,14 +12,14 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_resource::{
-            AddressMode, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
-            Buffer, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferSize,
-            BufferUsages, CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension, Variants,
-            VertexAttribute, VertexFormat, VertexState, VertexStepMode,
+            AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
+            BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
+            BufferDescriptor, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, FilterMode,
+            FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer, SpecializerKey,
+            TextureFormat, TextureSampleType, TextureViewDimension, Variants, VertexAttribute,
+            VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -570,7 +570,6 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
         Ok(key)
     }
 }
-
 
 /// Resolve the entire ordered frame before emitting any batch command.
 fn resolved_batches<'a>(
