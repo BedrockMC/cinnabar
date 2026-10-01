@@ -15,6 +15,7 @@ use crate::{
 };
 
 const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
+const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Resource)]
@@ -69,7 +70,7 @@ fn drive_mod(
         focused,
         ui.ui_focused(),
         menu.as_ref().is_some_and(|menu| menu.is_visible()),
-    ) && keys.just_pressed(KeyCode::F8);
+    ) && keys.just_pressed(DEMO_KEY);
     if extension.host.is_active()
         && let Err(error) = extension.host.frame(pressed)
     {
@@ -132,7 +133,7 @@ mod tests {
         app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::F8);
+            .press(DEMO_KEY);
         app.update();
         assert_eq!(initial, sample_frame(&mut app));
         app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
@@ -141,7 +142,7 @@ mod tests {
         assert!(
             app.world()
                 .resource::<ButtonInput<KeyCode>>()
-                .just_pressed(KeyCode::F8)
+                .just_pressed(DEMO_KEY)
         );
     }
 
