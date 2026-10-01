@@ -13,6 +13,8 @@ pub(super) struct Declaration {
     pub(super) bindings: Arc<Vec<Binding>>,
     pub(super) diagnostics: Vec<String>,
     pub(super) observes_scroll: bool,
+    pub(super) uses_visibility: bool,
+    pub(super) radio_group: bool,
 }
 
 struct Entry {
@@ -42,6 +44,17 @@ pub(super) fn get(src: &Src) -> Arc<Declaration> {
         let declaration = Arc::new(Declaration {
             bags: bag::Bags::new(control),
             observes_scroll: spec::observes_scroll(control, &bindings),
+            uses_visibility: bindings.iter().any(|binding| {
+                !matches!(binding.kind, spec::Kind::View { .. })
+                    && matches!(
+                        binding.condition,
+                        spec::Condition::Visible
+                            | spec::Condition::AlwaysWhenVisible
+                            | spec::Condition::VisibilityChanged
+                    )
+            }),
+            radio_group: control.properties.get("radio_toggle_group")
+                == Some(&serde_json::Value::Bool(true)),
             bindings,
             diagnostics,
         });

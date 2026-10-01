@@ -309,13 +309,15 @@ impl<'a> Binder<'a> {
         };
         self.run_bindings(
             control,
-            &bindings,
+            &declaration,
             &scope,
             &mut own,
             &mut native,
             &mut memory,
         );
-        self.radio_state(control, &mut own);
+        if declaration.radio_group {
+            self.radio_state(control, &mut own);
+        }
         let src = native_grid(src, &native);
         let control = src.get();
         if let Some(capacity) = grid_capacity(&src) {
@@ -324,11 +326,10 @@ impl<'a> Binder<'a> {
         let layout_key = scope.layout_key.clone();
         let mut child_scope = scope;
         child_scope.parent_key = key;
+        let visible = native.visible(control);
         // Only state a refresh cannot rebuild from literals is retained.
-        let retained = !bindings.is_empty()
-            || !native.props.is_empty()
-            || !native.visible(control)
-            || had_published;
+        let retained =
+            !bindings.is_empty() || !native.props.is_empty() || !visible || had_published;
         if retained {
             child_scope.retained_parent = key;
         }
@@ -353,7 +354,7 @@ impl<'a> Binder<'a> {
         };
         // A hidden control's subtree builds only once shown or named, so a
         // pack's many title-selected layouts cost only the one on screen.
-        if !node.native.visible(node.src.get()) {
+        if !visible {
             node.deferred = Some(child_scope);
         } else {
             node.children = self.children_of(&node, &child_scope);
@@ -506,9 +507,6 @@ impl<'a> Binder<'a> {
     /// A radio-group toggle is checked when the screen selected its index; a
     /// `#name` forced index reads the toggle's own bound value (collection rows).
     fn radio_state(&self, control: &ResolvedControl, own: &mut Bag) {
-        if control.properties.get("radio_toggle_group") != Some(&Value::Bool(true)) {
-            return;
-        }
         let forced = control.properties.get("toggle_group_forced_index");
         let index = forced.and_then(Value::as_f64).or_else(|| {
             let name = forced.and_then(Value::as_str)?;

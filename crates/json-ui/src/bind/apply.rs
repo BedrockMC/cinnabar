@@ -17,15 +17,15 @@ impl Binder<'_> {
     pub(super) fn run_bindings(
         &self,
         control: &ResolvedControl,
-        bindings: &[Binding],
+        declaration: &super::declarations::Declaration,
         scope: &Scope,
         own: &mut Bag,
         native: &mut Native,
         memory: &mut Retained,
     ) {
         // The control's own visible flag as it stood before this refresh.
-        let visible = native.visible(control);
-        for (index, binding) in bindings.iter().enumerate() {
+        let visible = declaration.uses_visibility && native.visible(control);
+        for (index, binding) in declaration.bindings.iter().enumerate() {
             if matches!(binding.kind, Kind::View { .. }) {
                 continue;
             }
