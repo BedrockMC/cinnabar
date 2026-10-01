@@ -15,7 +15,7 @@ fn standalone(source: &str) -> String {
     source
         .replacen("#import bevy_render::view::View", VIEW, 1)
         .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}",
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}",
             &lighting,
             1,
         )

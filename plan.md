@@ -9,7 +9,11 @@ shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
 the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
 and material color-space conversion remain unverified. The existing sky-darken
 and effect-envelope inputs remain provisional. Offline GPU evidence is not a
-native visual parity gate. The full audit work is in progress on fix/world-lighting.
+native visual parity gate. AO now uses channel maxima, the conditional diagonal, the opaque-block shade
+curve, emitting/ordinary face factors and inset model planes. Full current
+shade/solid-render property export, component exponents, dimension shading modes
+and box-average interpolation remain incomplete. The full audit work is in
+progress on fix/world-lighting.
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);

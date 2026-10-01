@@ -434,11 +434,9 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
         include_str!("../../src/model.wgsl"),
         include_str!("../../src/liquid.wgsl"),
     ] {
-        assert!(
-            shader.contains(
-                "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour}"
-            )
-        );
+        assert!(shader.contains(
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}"
+        ));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
         assert!(!shader.contains("fn lit_colour("));
         assert!(shader.contains("lighting: vec3<f32>"));
