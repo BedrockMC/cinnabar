@@ -27,6 +27,9 @@ use super::view::{
 };
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
+#[cfg(test)]
+mod home_promo;
+
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often events refresh while a join is under way, so its progress bar moves smoothly.
@@ -310,7 +313,11 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         .iter()
         .find(|event| event.end_unix == 0 || now_unix < event.end_unix)
         .map(|event| LiveEventCard {
-            button_text: event.button_text.clone(),
+            button_text: if event.button_text.is_empty() {
+                "gathering.button.liveEventFallback".to_owned()
+            } else {
+                event.button_text.clone()
+            },
             caption: event.caption_text.clone(),
             countdown: event.caption_countdown,
             start_unix: event.start_unix,

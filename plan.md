@@ -3,11 +3,12 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
-2026-10-01 home promo: incomplete. Messaging now sends the selected UI language
-as `Accept-Language`, matching the current client. The persistent left-hand promo
-placement, control and click action remain unidentified in the supplied reference;
-the owner's cached feed contains only Marketplace button art and inbox messages.
-No promo visibility or visual parity gate is closed. See
+2026-10-01 home promo: incomplete. The gathering query now uses the desktop
+`Windows10`/`Win32` identity, and downloaded badges bind `RawPath`. Empty button
+labels use vanilla's localization fallback. Messaging sends the selected UI
+language as `Accept-Language`. The offline fixture is authored; a recorded
+response, the exact current public-config request and complete gathering click
+behavior remain unverified. No visual parity gate is closed. See
 [the investigation](docs/home-promo-investigation.md).
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
