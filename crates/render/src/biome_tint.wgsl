@@ -140,7 +140,7 @@ fn blended_biome_tint(
 // Lens 0xa772a80 and 0xa7b3fe0: float simplex coordinates and the 12-entry gradient order.
 fn grass_corner(cell: vec2<i32>, offset: vec2<f32>) -> f32 {
     let gradients = array<vec2<f32>, 12>(vec2(1.0,1.0),vec2(-1.0,1.0),vec2(1.0,-1.0),vec2(-1.0,-1.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(0.0,1.0),vec2(0.0,-1.0),vec2(0.0,1.0),vec2(0.0,-1.0));
-    let hash = GRASS_PERMUTATION[(u32(cell.x) + GRASS_PERMUTATION[u32(cell.y) & 255u]) & 255u] % 12u;
+    let hash = GRASS_PERMUTATION[(u32(cell.x) + GRASS_PERMUTATION[u32(cell.y) & GRASS_PERMUTATION_MASK]) & GRASS_PERMUTATION_MASK] % 12u;
     let t = max(0.0, (0.5 - offset.x * offset.x) - offset.y * offset.y);
     let gradient = gradients[hash];
     return (offset.y * gradient.y + offset.x * gradient.x) * t * t * t * t;
@@ -158,5 +158,6 @@ fn grass_palette_index(world_xz: vec2<i32>) -> u32 {
     let second = first - vec2<f32>(step) + vec2(bitcast<f32>(0x3e58658cu));
     let third = first - vec2(1.0) + vec2(bitcast<f32>(0x3e58658cu)) + vec2(bitcast<f32>(0x3e58658cu));
     let noise = (grass_corner(cell, first) + grass_corner(cell + step, second) + grass_corner(cell + vec2(1), third)) * 70.0;
-    return u32(clamp(i32((noise + 0.6) * 255.0), 0, 255));
+    let maximum = i32(BIOME_TINT_MAP_SIZE - 1u);
+    return u32(clamp(i32((noise + 0.6) * f32(maximum)), 0, maximum));
 }
