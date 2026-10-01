@@ -48,6 +48,11 @@ async fn login_reaches_start_game_through_bds() {
         )
     });
 
+    session
+        .finish_loading()
+        .await
+        .expect("headless presentation ready");
+
     assert_eq!(PROTOCOL_VERSION, 2193);
     assert_eq!(GAME_VERSION, "1.26.50");
     // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
@@ -148,12 +153,7 @@ async fn offline_core_preserves_spawn_order_and_startup_transfer() {
                 .send(startup_marker(100))
                 .await
                 .expect("pre-readiness marker");
-            tokio::time::timeout(LOGIN_TIMEOUT, async {
-                loop {
-                    let packet = session.recv().await.expect("readiness barrier");
-                    if matches!(packet.data, McpePacketData::SetTimePacket(ref value) if value.time == 200) { break; }
-                }
-            }).await.expect("upstream readiness barrier");
+            wait_for_startup_marker(&mut session, 200, &harness).await;
             session.finish_loading().await.expect("presentation ready");
             session
                 .finish_loading()
@@ -163,10 +163,32 @@ async fn offline_core_preserves_spawn_order_and_startup_transfer() {
                 .send(startup_marker(300))
                 .await
                 .expect("completion marker");
+            wait_for_startup_marker(&mut session, 400, &harness).await;
         }
         let status = harness.finish(CHILD_EXIT_TIMEOUT).expect("harness exit");
         assert!(status.success(), "{}", harness.output());
     }
+}
+
+/// Waits for proof that the upstream has checked the preceding client messages.
+async fn wait_for_startup_marker(
+    session: &mut protocol::PlaySession,
+    time: i32,
+    harness: &GoHarness,
+) {
+    tokio::time::timeout(LOGIN_TIMEOUT, async {
+        loop {
+            let packet = session
+                .recv()
+                .await
+                .unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+            if matches!(packet.data, McpePacketData::SetTimePacket(value) if value.time == time) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("upstream barrier timeout\n{}", harness.output()));
 }
 
 /// Builds an application-owned barrier that the upstream can observe on the wire.
@@ -417,6 +439,7 @@ fn build_go_harness(core_dir: &Path, executable: &Path) -> io::Result<()> {
     let mut command = Command::new("go");
     command
         .current_dir(core_dir)
+        .env("GOWORK", "off")
         .args([OsStr::new("test"), OsStr::new("-c"), OsStr::new("-o")])
         .arg(executable)
         .arg("./proxy")

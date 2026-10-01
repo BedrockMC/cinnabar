@@ -55,6 +55,7 @@ impl ServerTransferEvent {
         )
     }
 
+    /// Validates a decoded destination before retaining it for the reconnect owner.
     fn from_wire_fields(
         address: &str,
         port: u16,

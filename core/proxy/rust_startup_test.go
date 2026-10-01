@@ -115,7 +115,7 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string) error {
 			return err
 		}
 	}
-	return nil
+	return conn.WritePacketImmediate(&packet.SetTime{Time: 400})
 }
 
 // expectStartupPacket compares complete decoded packets, including order and runtime identity.
