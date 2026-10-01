@@ -199,3 +199,5 @@ pub use weather::{
     average_precipitation, classify_precipitation, column_heights, particle_mesh,
     particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
 };
+
+mod stars;

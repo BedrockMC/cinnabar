@@ -19,13 +19,13 @@ use bevy::{
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferId, BufferInitDescriptor, BufferUsages, Canonical, ColorTargetState, ColorWrites,
-            CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache,
-            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
+            BufferBindingType, BufferId, BufferInitDescriptor, BufferUsages, Canonical,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
+            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
+            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
+            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
@@ -118,6 +118,8 @@ pub(crate) fn install_atmosphere(app: &mut App) {
 #[derive(Resource)]
 pub(crate) struct AtmosphereGpu {
     pub(crate) buffer: Buffer,
+    stars: Buffer,
+    star_vertex_count: u32,
     prepared: Option<PreparedAtmosphereAssets>,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
@@ -141,8 +143,16 @@ fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>)
         contents: bytemuck::bytes_of(&AtmosphereFrame::default()),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
+    let vertices = crate::stars::vertices();
+    let stars = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("seeded classic star quads"),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: BufferUsages::STORAGE,
+    });
     commands.insert_resource(AtmosphereGpu {
         buffer,
+        stars,
+        star_vertex_count: vertices.len() as u32,
         prepared: None,
         bind_group: None,
         view_buffer_id: None,
@@ -309,7 +319,7 @@ impl FromWorld for AtmospherePipeline {
             &[
                 BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: true,
@@ -319,7 +329,7 @@ impl FromWorld for AtmospherePipeline {
                 },
                 BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -363,6 +373,16 @@ impl FromWorld for AtmospherePipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -379,7 +399,7 @@ impl FromWorld for AtmospherePipeline {
                 entry_point: Some("atmosphere_fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
-                    blend: None,
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
                 ..default()
@@ -485,6 +505,10 @@ fn prepare_atmosphere_bind_group(
                 binding: 5,
                 resource: BindingResource::TextureView(&prepared.views[2]),
             },
+            BindGroupEntry {
+                binding: 6,
+                resource: gpu.stars.as_entire_binding(),
+            },
         ],
     ));
     gpu.view_buffer_id = Some(view_buffer.id());
@@ -562,7 +586,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetAtmosphereBindGroup<I
 struct DrawAtmosphere;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawAtmosphere {
-    type Param = ();
+    type Param = SRes<AtmosphereGpu>;
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -570,10 +594,11 @@ impl<P: PhaseItem> RenderCommand<P> for DrawAtmosphere {
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        _param: SystemParamItem<'w, '_, Self::Param>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         pass.draw(0..3, 0..1);
+        pass.draw(3..3 + gpu.into_inner().star_vertex_count, 0..1);
         RenderCommandResult::Success
     }
 }
