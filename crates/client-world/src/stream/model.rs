@@ -769,7 +769,7 @@ pub(super) enum PreparedWorldEvent {
         duration: Duration,
     },
     BlockUpdates {
-        result: Result<Vec<PreparedSubChunkMutation>, MutationError>,
+        result: Result<PreparedBlockMutations, MutationError>,
         duration: Duration,
     },
     BlockEntityUpdate {
@@ -780,6 +780,13 @@ pub(super) enum PreparedWorldEvent {
     Immediate(WorldEvent),
     CommitOnly,
     NormalizationFailure,
+}
+
+/// Packed replacements and their worker-computed light invalidation summary.
+#[derive(Debug)]
+pub(super) struct PreparedBlockMutations {
+    pub(super) mutations: Vec<PreparedSubChunkMutation>,
+    pub(super) relight: BTreeSet<SubChunkKey>,
 }
 
 #[derive(Debug)]

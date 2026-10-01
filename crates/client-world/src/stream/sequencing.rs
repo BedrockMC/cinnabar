@@ -9,39 +9,6 @@ impl WorldStream {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
         self.stats.normalization_reasons.record(reason);
     }
-    pub(super) fn apply_ready(&mut self) {
-        if self.blocking_block_updates.is_some() {
-            return;
-        }
-        while let Some(event) = self.ordered.pop_next() {
-            let sequence = self.ordered.next_sequence().saturating_sub(1);
-            match event {
-                PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(events)) => {
-                    let batches = self.snapshot_block_mutation_batches(events);
-                    if batches.is_empty() {
-                        self.submitted.remove(&sequence);
-                        self.heavy_sequences.remove(&sequence);
-                        continue;
-                    }
-                    let ids = self.decode_ids(self.current_dimension);
-                    self.predictions.begin_server_batch();
-                    self.enqueue_decode_job(DecodeJob::BlockUpdates {
-                        sequence,
-                        batches,
-                        ids,
-                    });
-                    self.blocking_block_updates = Some(sequence);
-                    break;
-                }
-                event => {
-                    self.submitted.remove(&sequence);
-                    self.heavy_sequences.remove(&sequence);
-                    self.apply_prepared_with_sequence(event, Some(sequence));
-                    self.cancel_request_reservation(sequence);
-                }
-            }
-        }
-    }
     /// Commits prepared block mutations and invalidates what they changed.
     pub(super) fn commit_block_mutations(
         &mut self,
@@ -58,6 +25,15 @@ impl WorldStream {
                 .then_some(mutation.key())
             })
             .collect::<BTreeSet<_>>();
+        self.commit_block_mutations_with_relight(prepared, &relight)
+    }
+
+    /// Publishes an atomic prepared batch using its already computed light summary.
+    pub(super) fn commit_block_mutations_with_relight(
+        &mut self,
+        prepared: Vec<PreparedSubChunkMutation>,
+        relight: &BTreeSet<SubChunkKey>,
+    ) -> bool {
         let Ok(changed) = self.store.commit_prepared_block_updates(prepared) else {
             return false;
         };
@@ -304,7 +280,10 @@ impl WorldStream {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 match result {
                     Ok(prepared) => {
-                        if !self.commit_block_mutations(prepared) {
+                        if !self.commit_block_mutations_with_relight(
+                            prepared.mutations,
+                            &prepared.relight,
+                        ) {
                             self.record_normalization_error(
                                 NormalizationErrorReason::BlockMutationFailure,
                             );
