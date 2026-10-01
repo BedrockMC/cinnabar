@@ -23,6 +23,7 @@ pub(super) struct StartupPresentationState {
     frame_generation_baseline: u64,
     readiness_frame_baseline: Option<u64>,
     released: bool,
+    pub(super) completion_queued: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -133,6 +134,7 @@ impl StartupPresentationState {
             self.frame_generation_baseline = latest_frame_generation;
             self.readiness_frame_baseline = None;
             self.released = false;
+            self.completion_queued = false;
         }
         if self.released {
             return true;
@@ -174,6 +176,7 @@ impl StartupPresentationState {
         self.frame_generation_baseline = frame_generation;
         self.readiness_frame_baseline = None;
         self.released = false;
+        self.completion_queued = false;
     }
 }
 

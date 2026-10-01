@@ -10,7 +10,8 @@ use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
     AtmosphereFrame, LevelParticle, ParticleGpuFrame, ParticleSystem, RainSplashQueue,
     SpawnRequest, block_break_request, block_crack_request, classify_level_event,
-    item_icon_request, named_request, parse_molang_variables, particle_view, update_particle_frame,
+    item_icon_request, named_request, parse_molang_variables, particle_view, terrain_request,
+    update_particle_frame,
 };
 
 use super::{
@@ -213,9 +214,20 @@ fn route_level_event(
         }) => {
             system.spawn(&named_request(effect, position, spell_color));
         }
-        Some(LevelParticle::BlockBreak { runtime_id })
-        | Some(LevelParticle::Terrain { runtime_id }) => {
+        Some(LevelParticle::BlockBreak { runtime_id }) => {
             spawn_block_break(system, routing, runtime_id, floor_cell(position));
+        }
+        Some(LevelParticle::Terrain { runtime_id }) => {
+            let block = floor_cell(position);
+            if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id as u32, block)
+            {
+                system.spawn(&terrain_request(
+                    BLOCK_BREAK_EFFECT,
+                    block,
+                    found.tile,
+                    found.tint,
+                ));
+            }
         }
         Some(LevelParticle::BlockCrack { face, .. }) => {
             spawn_crack(system, routing, floor_cell(position), face);
@@ -393,7 +405,7 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     system.set_camera(view.position);
-    system.daylight = (atmosphere.sun_direction()[1] * 0.8 + 0.2).clamp(0.0, 1.0);
+    system.daylight = atmosphere.daylight();
 
     for committed in inbox.events.drain(..) {
         match &committed.event {

@@ -1,3 +1,33 @@
+/// UI input suppression leaves the independently controlled view intact.
+#[test]
+fn inactive_movement_preserves_view_yaw() {
+    let input = physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, None);
+    assert_eq!(input.yaw_degrees, 90.0);
+    assert_eq!([input.strafe, input.forward], [0.0; 2]);
+    assert!(!input.jumping && !input.sneaking && !input.sprinting);
+}
+
+/// Replayed controls must reach unsent packets and the next tick's edge detector.
+#[test]
+fn replayed_sneak_rebuilds_outbound_controls_and_following_edges() {
+    let (mut physics, mut ticker) = walked_physics(4);
+    let update = flags(|flags| flags.sneaking = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(102, update), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    let pending = ticker.pending_snapshots();
+    assert_eq!(pending.len(), 2);
+    for (index, snapshot) in pending.iter().enumerate() {
+        assert_eq!(snapshot.move_vector, [0.0, 0.3]);
+        assert_ne!(snapshot.flags.bits() & PlayerInputFlags::SNEAKING.bits(), 0);
+        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::START_SNEAKING.bits() != 0, index == 0);
+        assert_eq!(snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(), 0);
+    }
+    let next = run_one_tick(&mut physics, &VersionedFloor(1));
+    ticker.enqueue_completed_physics(next).unwrap();
+    let next = ticker.pending_snapshots().pop().unwrap();
+    assert_ne!(next.flags.bits() & PlayerInputFlags::STOP_SNEAKING.bits(), 0);
+}
+
 #[test]
 fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     let mut physics = LocalPhysicsController::default();
@@ -77,7 +107,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             )
             .with_mask(
                 PlayerInputFlags::JUMPING,
-                !retained.processed.jump_arc_active,
+                !retained.jumping,
             );
     }
     reconcile_candidate_physics_correction(
@@ -95,7 +125,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     assert_eq!(after.len(), before.len());
     for ((live, replayed), retained) in before.into_iter().zip(after).zip(plan.replayed_samples) {
         assert_eq!(replayed.snapshot.position, retained.position);
-        assert_eq!(replayed.snapshot.delta, retained.movement);
+        assert_eq!(replayed.snapshot.delta, retained.velocity);
         assert_ne!(replayed.snapshot.position, [99.0; 3]);
         assert_ne!(replayed.snapshot.delta, [99.0; 3]);
         assert_ne!(replayed.snapshot.position, live.snapshot.position);
@@ -111,7 +141,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             ),
             (
                 PlayerInputFlags::JUMPING,
-                retained.processed.jump_arc_active,
+                retained.jumping,
             ),
         ] {
             assert_eq!(

@@ -75,7 +75,10 @@ use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
-pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
+pub(crate) use publish::{
+    PreparedUiPublication, observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime,
+    publish_ui_runtime,
+};
 use retained_hud::{BelowNameAnchor, PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::{StartupPresentationState, StartupReadinessInput};
 use text_metrics::{
@@ -305,7 +308,10 @@ impl UiPresentationRuntime {
     ) {
         let default_skin = render::default_actor_skin_rgba8();
         let skin = skin
-            .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
+            .filter(|pixels| {
+                let side = (pixels.len() / 4).isqrt();
+                side != 0 && side * side * 4 == pixels.len()
+            })
             .unwrap_or(default_skin.as_ref());
         let source_hash: [u8; 32] = Sha256::digest(skin).into();
         let drawn = (
@@ -444,6 +450,7 @@ impl UiPresentationRuntime {
         self.layouts.len()
     }
 
+    /// Builds the frame from its retained UI authority.
     pub fn build(
         &mut self,
         runtime: &UiRuntime,
@@ -506,6 +513,13 @@ impl UiPresentationRuntime {
                 [content_width, content_height],
                 now_millis,
             )?;
+            self.append_mod_hud(
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+            );
         }
 
         if !inventory_open && !menu_visible {

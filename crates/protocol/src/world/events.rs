@@ -424,6 +424,8 @@ pub enum WorldEvent {
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     ActorMotion(ActorMotionEvent),
+    /// A server probe echoed only after preceding world controls are applied.
+    NetworkStackLatency(u64),
     SetTime(SetTimeEvent),
     GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),

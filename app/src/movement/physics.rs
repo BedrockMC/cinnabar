@@ -70,7 +70,10 @@ pub fn physics_movement_input(
     item_use_movement_modifier: Option<f64>,
 ) -> MovementInput {
     if !active {
-        return MovementInput::default();
+        return MovementInput {
+            yaw_degrees: f64::from(yaw_degrees),
+            ..MovementInput::default()
+        };
     }
     let sprinting = sprint_request && right_forward[1] > 0.0;
     MovementInput {
@@ -109,14 +112,12 @@ pub struct PhysicsSampleContext {
 pub struct PhysicsMovementSample {
     pub tick: u64,
     pub position: [f32; 3],
-    /// This tick's resolved displacement (new position minus old), carried
-    /// verbatim as PlayerAuthInput.PosDelta.
+    /// This tick's resolved displacement, used by local movement evidence.
     pub movement: [f32; 3],
-    /// Predicted end-of-tick velocity retained for prediction and correction
-    /// replay. It is post-gravity/friction state, not the reported PosDelta.
+    /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
     pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
-    /// Pre-normalization device sample carried to PlayerAuthInput raw input.
+    /// Pre-normalization device sample used for the digital raw-input fallback.
     pub raw_move_vector: [f32; 2],
     /// Analog-axis sample carried to PlayerAuthInput analog input.
     pub analogue_move_vector: [f32; 2],
@@ -183,6 +184,7 @@ pub(super) struct PhysicsCorrectionPlan {
     pub(super) corrected_tick: u64,
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
+    pub(super) anchor_input: super::encoding::HeldInput,
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
 }
 
@@ -211,6 +213,7 @@ pub struct LocalPhysicsController {
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    fly_toggle_pending: bool,
     /// Open processed-jump-arc fold state carried across ticks. Reset with the
     /// rest of prediction state; rebuilt across correction replays.
     processed_jump_arc_active: bool,
@@ -229,8 +232,7 @@ pub struct LocalPhysicsController {
     /// Locomotion mode selector and the previous tick's sampled environment it reads.
     modes: ModeTracker,
     last_environment: sim::MovementEnvironment,
-    /// Server corrections applied to this controller; drives the prediction sync.
-    corrections_applied: u64,
+    pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
 }
 
 impl Default for LocalPhysicsController {
@@ -245,6 +247,7 @@ impl Default for LocalPhysicsController {
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            fly_toggle_pending: false,
             processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
@@ -255,7 +258,7 @@ impl Default for LocalPhysicsController {
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
-            corrections_applied: 0,
+            prediction_sync: Default::default(),
         }
     }
 }
@@ -284,11 +287,13 @@ impl LocalPhysicsController {
     }
 
     pub fn deactivate(&mut self) {
+        self.prediction_sync.clear();
         self.state = None;
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
@@ -336,6 +341,7 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
@@ -410,6 +416,7 @@ impl LocalPhysicsController {
         }
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
+        self.fly_toggle_pending ^= context.mode_intent.fly_toggle;
 
         if self.discard_next_elapsed {
             self.discard_next_elapsed = false;
@@ -431,7 +438,6 @@ impl LocalPhysicsController {
 
         let sprint_request = input.sprinting;
         let sneak_request = input.sneaking;
-        let mut fly_toggle = context.mode_intent.fly_toggle;
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
@@ -456,15 +462,6 @@ impl LocalPhysicsController {
             // latch for taps shorter than one fixed tick, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             let grounded_before_tick = state.on_ground;
-            // The simulator clears a retained post-jump cooldown whenever the
-            // button is not held and then consumes requests only while
-            // grounded with that cooldown expired (`jump_pressed` +
-            // pre-tick ground contact + zero effective delay). Capture the
-            // same pre-tick facts so the initiation fold below claims exactly
-            // the requests the simulator can consume: a fresh press edge
-            // arriving inside the cooldown is refused by the simulator and
-            // must not assert an initiation here.
-            let jump_cooldown_cleared = !input.jumping || state.jump_delay == 0;
             let jump_repeated = input.jumping
                 && grounded_before_tick
                 && state.jump_delay == 0
@@ -474,9 +471,10 @@ impl LocalPhysicsController {
             input.sprinting = sprint_request;
             let mut forced_sneak = false;
             let mut mode_error = None;
+            let previous_modes = self.modes;
             match self.modes.select(
                 context.mode_intent,
-                std::mem::take(&mut fly_toggle),
+                self.fly_toggle_pending,
                 ModeObservation {
                     feet: state.position,
                     on_ground: state.on_ground,
@@ -552,15 +550,11 @@ impl LocalPhysicsController {
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
-                    // The simulator can only consume a jump request from the
-                    // ground with its post-jump cooldown expired, so
-                    // initiation is the consumed request on a tick that
-                    // started grounded and clear of the cooldown. The arc
-                    // then rides the airborne window until the simulator
-                    // reports ground contact again.
+                    self.prediction_sync.tick();
+                    // The simulator owns initiation; held inputs alone cannot prove a jump.
                     let mut processed = ProcessedMovementState::next(
                         self.processed_jump_arc_active,
-                        input.jump_pressed && grounded_before_tick && jump_cooldown_cleared,
+                        output.jump_initiated,
                         state.on_ground,
                         input.sneaking,
                         input.sprinting,
@@ -632,9 +626,11 @@ impl LocalPhysicsController {
                             .clone(),
                     );
                     self.jump_edge_pending = false;
+                    self.fly_toggle_pending = false;
                     input.jump_pressed = false;
                 }
                 Err(error) => {
+                    self.modes = previous_modes;
                     let transient_collision_blocked = matches!(
                         &error,
                         sim::PredictionError::Simulation(error)
@@ -711,11 +707,6 @@ impl LocalPhysicsController {
         self.sample_history
             .iter()
             .find(|sample| sample.tick == tick)
-    }
-
-    #[must_use]
-    pub const fn corrections_applied(&self) -> u64 {
-        self.corrections_applied
     }
 
     #[must_use]

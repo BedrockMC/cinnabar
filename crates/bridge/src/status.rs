@@ -49,6 +49,9 @@ pub enum PackDownstreamOutcome {
     None,
     OfferedOptional,
     HandedOffOptional,
+    /// The upstream's required bits were forwarded to the client unchanged.
+    OfferedRequired,
+    HandedOffRequired,
     RejectedRequired,
     StrippedIgnored,
 }
@@ -288,12 +291,17 @@ mod tests {
     }
 
     #[test]
-    fn parses_optional_offer_and_completed_handoff_outcomes() {
+    fn parses_offer_and_completed_handoff_outcomes() {
         for (wire, expected) in [
             ("offered_optional", PackDownstreamOutcome::OfferedOptional),
             (
                 "handed_off_optional",
                 PackDownstreamOutcome::HandedOffOptional,
+            ),
+            ("offered_required", PackDownstreamOutcome::OfferedRequired),
+            (
+                "handed_off_required",
+                PackDownstreamOutcome::HandedOffRequired,
             ),
         ] {
             let payload = VALID_RESULT
@@ -302,7 +310,7 @@ mod tests {
                     r#""downstream_outcome":"rejected_required""#,
                     &format!(r#""downstream_outcome":"{wire}""#),
                 );
-            let status = parse_status_response(payload.as_bytes()).expect("optional status");
+            let status = parse_status_response(payload.as_bytes()).expect("outcome status");
             assert_eq!(status.pack_admission.downstream_outcome, expected);
             assert_eq!(
                 status.pack_admission.application,

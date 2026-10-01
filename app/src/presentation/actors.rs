@@ -107,12 +107,11 @@ pub(crate) fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
-    if !actor_bounds_are_visible(feet, scale, Some(view)) {
+    let bounds = rig.culling_bounds();
+    if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
     }
-    let half = 0.5 * scale.max(1.0);
-    let low = [feet[0] - half, feet[1], feet[2] - half];
-    let high = [feet[0] + half, feet[1] + 4.0 * half, feet[2] + half];
+    let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)
 }
 
@@ -263,6 +262,7 @@ fn actor_rig_presentation_inner(
     let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: rig.culling_bounds(),
             input: ActorRigRenderInput {
                 identity,
                 rig: EntityRigId(rig.rig.0),
@@ -331,6 +331,7 @@ pub(crate) fn local_diagnostic_presentation(
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
                     session_id: actor_session_id,

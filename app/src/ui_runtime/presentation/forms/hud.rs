@@ -77,6 +77,16 @@ struct Laid {
 }
 
 impl CachedScreen {
+    /// Whether the bound HUD has content for an extension to accompany.
+    pub(super) fn has_visible_content(&self) -> bool {
+        self.laid.as_ref().is_some_and(|laid| {
+            laid.render
+                .nodes
+                .iter()
+                .any(|node| node.alpha > 0.0 && node.shown(&laid.view))
+        })
+    }
+
     /// The laid-out screen for `data`, rebinding only when an input changed.
     fn render(
         &mut self,

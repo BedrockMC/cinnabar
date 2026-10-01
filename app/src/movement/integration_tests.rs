@@ -152,3 +152,4 @@ include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
 include!("integration_tests/timeline.rs");
+include!("integration_tests/connected_shapes.rs");

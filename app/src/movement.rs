@@ -10,6 +10,7 @@ mod anchor_probe_evidence;
 mod authority;
 mod collision_registries;
 mod control_modes;
+mod control_trace;
 mod correction_shape;
 mod diagnostics;
 mod effects;
@@ -28,6 +29,7 @@ mod trace;
 pub(crate) use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::PhysicsCollisionRegistries;
+pub(crate) use control_trace::trace_server_control;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
 pub use correction_shape::{
     PhysicsAnchor, reconcile_candidate_physics_correction, reconcile_physics_anchor,
@@ -137,6 +139,7 @@ pub struct MovementTicker {
     next_admission_id: u64,
     reanchor_epoch: u64,
     terminal_drain: bool,
+    pending_control_fence: bool,
     teleport_ack_enabled: bool,
     pending_teleport_ack: Option<teleport_ack::TeleportAckPending>,
     teleport_acks_expired: u64,
@@ -177,6 +180,7 @@ impl MovementTicker {
             next_admission_id: 0,
             reanchor_epoch: 0,
             terminal_drain: false,
+            pending_control_fence: false,
             teleport_ack_enabled: teleport_ack::enabled_from_env(),
             pending_teleport_ack: None,
             teleport_acks_expired: 0,
@@ -212,6 +216,7 @@ impl MovementTicker {
         self.pending_fault = None;
         self.next_admission_id = 0;
         self.terminal_drain = false;
+        self.pending_control_fence = false;
         self.pending_teleport_ack = None;
     }
 
@@ -224,6 +229,7 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
+        self.pending_control_fence = false;
         self.pending_teleport_ack = None;
     }
 
@@ -267,6 +273,7 @@ impl MovementTicker {
             self.clear_pending_teleport_ack();
         }
         self.terminal_drain = false;
+        self.pending_control_fence = false;
     }
 
     pub fn snap_non_authoritative_anchor(&mut self, tick: u64, position: [f32; 3]) {
@@ -374,18 +381,22 @@ impl MovementTicker {
     fn snapshot(&mut self, sample: &PhysicsMovementSample) -> PlayerAuthInputSnapshot {
         let current_input = HeldInput::from(sample);
         // Samples carry right-positive x; the wire vectors are left-positive.
-        let wire = |vector: [f32; 2]| [-vector[0], vector[1]];
-        let move_vector = wire(normalize_move_vector(sample.move_vector));
+        let wire = |vector: [f32; 2]| [if vector[0] == 0.0 { 0.0 } else { -vector[0] }, vector[1]];
+        let move_vector = encoding::wire_move_vector(sample.move_vector);
+        let analogue_move_vector = wire(sample.analogue_move_vector);
+        let raw_move_vector = if analogue_move_vector == [0.0; 2] {
+            wire(normalize_move_vector(sample.raw_move_vector))
+        } else {
+            analogue_move_vector
+        };
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            // gophertunnel PlayerAuthInput.Delta is "the delta between the old
-            // and the new position", i.e. this tick's resolved displacement —
-            // not the post-tick velocity.
-            delta: sample.movement,
+            // LocalPlayer::sendInput copies end-of-tick StateVector motion.
+            delta: sample.velocity,
             move_vector,
-            analogue_move_vector: wire(sample.analogue_move_vector),
-            raw_move_vector: wire(sample.raw_move_vector),
+            analogue_move_vector,
+            raw_move_vector,
             pitch: sample.pitch,
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,
@@ -592,8 +603,14 @@ impl MovementTicker {
             && !self.terminal_drain
             && !self.has_unresolved_position_authority_change()
     }
+    /// Pauses new simulation while previously completed inputs can still drain.
+    pub(crate) fn set_control_fence_pending(&mut self, pending: bool) {
+        self.pending_control_fence = pending;
+    }
+
     pub(crate) fn can_advance_physics_frame(&self) -> bool {
-        self.accepting_physics_admissions()
+        !self.pending_control_fence
+            && self.accepting_physics_admissions()
             && self.pending_count()
                 <= OUTBOX_CAPACITY.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME)
     }
@@ -662,6 +679,11 @@ impl MovementTicker {
     #[must_use]
     pub fn pending_count(&self) -> usize {
         self.outbox.len().saturating_add(self.pending_sends.len())
+    }
+
+    /// Whether completed inputs still await admission to the network FIFO.
+    pub(crate) fn has_unsent_inputs(&self) -> bool {
+        !self.outbox.is_empty()
     }
 
     #[must_use]
@@ -748,7 +770,6 @@ impl MovementTicker {
                 self.position_authority_changed();
                 self.next_tick = plan.final_tick.saturating_add(1);
                 self.previous_position = plan.final_position;
-                self.previous_input = HeldInput::default();
                 self.outbox.clear();
                 self.sent_history.clear();
                 Ok(())
@@ -771,6 +792,16 @@ impl MovementTicker {
                     }
                 }
 
+                let mut previous_input = plan.anchor_input;
+                let rebuilt: Vec<_> = plan
+                    .replayed_samples
+                    .iter()
+                    .map(|sample| {
+                        let flags = input_flags(sample, previous_input);
+                        previous_input = HeldInput::from(sample);
+                        (sample, flags)
+                    })
+                    .collect();
                 let replay_sample = |pending: &mut QueuedPhysicsSample| {
                     if pending.session_generation != self.session_generation {
                         return Err(PhysicsAuthorityFault::PendingSessionMismatch {
@@ -782,10 +813,8 @@ impl MovementTicker {
                     if tick <= plan.corrected_tick {
                         return Ok(None);
                     }
-                    let Some(replayed) = plan
-                        .replayed_samples
-                        .iter()
-                        .find(|sample| sample.tick == tick)
+                    let Some((replayed, flags)) =
+                        rebuilt.iter().find(|(sample, _)| sample.tick == tick)
                     else {
                         return Err(PhysicsAuthorityFault::PendingTickMismatch {
                             expected: tick,
@@ -796,25 +825,18 @@ impl MovementTicker {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
                     pending.snapshot.position = replayed.position;
-                    pending.snapshot.delta = replayed.movement;
-                    pending.snapshot.flags = pending
-                        .snapshot
-                        .flags
-                        .with_mask(
-                            PlayerInputFlags::HORIZONTAL_COLLISION,
-                            replayed.horizontal_collision,
-                        )
-                        .with_mask(
-                            PlayerInputFlags::VERTICAL_COLLISION,
-                            replayed.vertical_collision,
-                        )
-                        // Rebuilt simulated state: the arc plus collision hints. Raw-button
-                        // evidence and pre-correction contact records intentionally keep
-                        // their recorded values (the replay inputs are byte-identical).
-                        .with_mask(
-                            PlayerInputFlags::JUMPING,
-                            replayed.processed.jump_arc_active,
-                        );
+                    pending.snapshot.delta = replayed.velocity;
+                    pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
+                    // Tick-bound actions survive; all movement flags come from replay.
+                    pending.snapshot.flags = [
+                        PlayerInputFlags::HANDLED_TELEPORT,
+                        PlayerInputFlags::MISSED_SWING,
+                        PlayerInputFlags::START_USING_ITEM,
+                    ]
+                    .into_iter()
+                    .fold(*flags, |flags, bit| {
+                        flags.with_mask(bit, pending.snapshot.flags.bits() & bit.bits() != 0)
+                    });
                     pending.evidence.network_position = replayed.position;
                     Ok(Some(()))
                 };
@@ -837,6 +859,7 @@ impl MovementTicker {
                         pending.sample.snapshot.tick > plan.corrected_tick;
                 }
                 self.previous_position = plan.final_position;
+                self.previous_input = previous_input;
                 Ok(())
             }
         }
@@ -887,3 +910,6 @@ mod state_tests;
 mod teleport_ack_tests;
 #[cfg(test)]
 mod teleport_ack_wiring_tests;
+
+#[cfg(test)]
+mod zeqa_tests;

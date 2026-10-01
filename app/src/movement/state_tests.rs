@@ -1,13 +1,3 @@
-//! Exact per-mode wire-flag witnesses for processed movement state (VPA-011).
-//!
-//! Flag identity and wire order are pinned by Mojang's published protocol
-//! documentation and the vendored protocol-2168 packet definitions. The exact
-//! vanilla lifecycle of each flag has not been measured against a
-//! version-matched native client, so the sequences below pin Cinnabar's
-//! provisional processed-movement contract: raw button families follow the
-//! physical button, while the processed `Jumping`, sneaking, and sprinting
-//! families describe what the simulation acted on. A future native measurement
-//! replaces these rules deliberately, never silently.
 
 use std::time::Duration;
 
@@ -62,7 +52,6 @@ impl CollisionWorld for CooldownFloor {
 fn raw_held_jump_mask() -> u128 {
     (PlayerInputFlags::JUMP_DOWN
         | PlayerInputFlags::JUMP_CURRENT_RAW
-        | PlayerInputFlags::START_JUMPING
         | PlayerInputFlags::JUMP_PRESSED_RAW)
         .bits()
 }
@@ -176,7 +165,7 @@ fn requests_that_cannot_take_off_never_claim_a_jump_arc() {
 }
 
 #[test]
-fn processed_arc_drives_wire_jumping_even_when_the_button_is_released() {
+fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 40, [0.0; 3]);
     ticker.set_source(MovementSource::Physics);
@@ -216,10 +205,10 @@ fn processed_arc_drives_wire_jumping_even_when_the_button_is_released() {
     }
 
     let released_snapshot = ticker.pop_pending().expect("release queued").snapshot;
-    assert_ne!(
+    assert_eq!(
         released_snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
         0,
-        "the processed arc keeps Jumping asserted after the button releases"
+        "Jumping follows the processed button, not the airborne arc"
     );
     assert_ne!(
         released_snapshot.flags.bits() & PlayerInputFlags::JUMP_RELEASED_RAW.bits(),
@@ -240,7 +229,7 @@ fn processed_arc_drives_wire_jumping_even_when_the_button_is_released() {
 }
 
 #[test]
-fn tap_jump_flag_sequence_tracks_the_processed_arc_until_landing() {
+fn tap_jump_flag_sequence_releases_jumping_before_landing() {
     let mut harness = flag_harness();
 
     let (takeoff_flags, takeoff) = step(&mut harness, jump_input(true));
@@ -266,11 +255,11 @@ fn tap_jump_flag_sequence_tracks_the_processed_arc_until_landing() {
         let raw_held = flags & raw_held_jump_mask();
         if !landing_seen {
             if flags & PlayerInputFlags::JUMP_RELEASED_RAW.bits() != 0 {
-                // The release tick itself: raw family drops, the arc stays.
-                assert_ne!(jumping, 0, "the release tick is still inside the arc");
+                // The release tick clears held flags while the arc continues.
+                assert_eq!(jumping, 0, "the processed button is released");
                 assert_eq!(raw_held, 0);
             } else if !sample.grounded_after_tick {
-                assert_ne!(jumping, 0, "airborne ticks keep claiming the processed arc");
+                assert_eq!(jumping, 0, "airborne ticks keep the released button clear");
                 assert_eq!(raw_held, 0, "released buttons carry no raw held flags");
                 airborne_after_release += 1;
             } else {
@@ -293,7 +282,7 @@ fn tap_jump_flag_sequence_tracks_the_processed_arc_until_landing() {
 }
 
 #[test]
-fn held_jump_claims_jumping_only_while_an_arc_is_in_progress() {
+fn held_jump_keeps_jumping_asserted_on_landing_and_between_takeoffs() {
     let mut harness = flag_harness();
 
     let mut takeoffs = 0;
@@ -307,13 +296,7 @@ fn held_jump_claims_jumping_only_while_an_arc_is_in_progress() {
         } else if !sample.grounded_after_tick {
             assert_ne!(jumping, 0, "airborne continuations claim Jumping");
         } else {
-            // Grounded reports close or keep the arc closed: both the landing
-            // tick of each hop and any grounded pause between hops stay silent
-            // on the processed carrier. Continuous holding re-initiates as
-            // soon as the simulator's own jump-delay gate reopens, so pauses
-            // are rare here; the closed-on-ground property itself is pinned at
-            // the fold level by `jump_arc_opens_on_a_ground_takeoff_and_closes_on_landing`.
-            assert_eq!(jumping, 0, "grounded non-initiation ticks claim no Jumping");
+            assert_ne!(jumping, 0, "ground contact does not release the button");
             if !sample.grounded_before_tick {
                 landing_ticks += 1;
             }
@@ -518,8 +501,7 @@ fn early_landing_correction_closes_the_replayed_jump_arc() {
 
     // The server reports the player already landed at the second airborne
     // tick. The replayed remainder starts from a grounded anchor with no
-    // initiation there, so the following snapshot must drop Jumping instead
-    // of carrying an arc the server says never happened.
+    // initiation there. Released input must keep Jumping clear after replay.
     let anchor = &airborne[1];
     reconcile_candidate_physics_correction(
         &mut harness.ticker,
@@ -540,7 +522,7 @@ fn early_landing_correction_closes_the_replayed_jump_arc() {
     assert_eq!(
         after_anchor.flags.bits() & PlayerInputFlags::JUMPING.bits(),
         0,
-        "a server-reported landing closes the arc for replayed ticks"
+        "replay preserves the released jump button"
     );
 }
 
@@ -604,8 +586,7 @@ fn a_fresh_edge_inside_the_post_jump_cooldown_initiates_nothing() {
     assert!(repressed.samples.is_empty());
 
     // The next due tick carries that fresh edge into a grounded cooldown
-    // tick: the simulator refuses it, so neither the initiation fold nor the
-    // wire may claim a jump for the tick.
+    // tick: the simulator refuses it, so StartJumping must stay clear.
     let mut refused = physics.advance(TICK, jump_input(true), &CooldownFloor);
     assert_eq!(refused.samples.len(), 1);
     let sample = refused.samples.pop().expect("one completed tick");
@@ -621,10 +602,14 @@ fn a_fresh_edge_inside_the_post_jump_cooldown_initiates_nothing() {
     assert!(!sample.processed.jump_arc_active);
     ticker.enqueue_completed_physics(sample).unwrap();
     let snapshot = ticker.pending_snapshots().pop().expect("queued admission");
-    assert_eq!(
+    assert_ne!(
         snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
         0,
-        "no JUMPING bit may be asserted for a tick the simulator refused"
+        "Jumping still describes the held button during cooldown"
+    );
+    assert_eq!(
+        snapshot.flags.bits() & PlayerInputFlags::START_JUMPING.bits(),
+        0
     );
 
     // The gate is not a lockout: once the retained cooldown expires under a
@@ -669,8 +654,9 @@ fn an_airborne_tap_opens_no_arc_and_gestates_no_later_initiation() {
     assert_ne!(
         tap_flags & PlayerInputFlags::JUMPING.bits(),
         0,
-        "the carried arc from the real takeoff rides through the tap"
+        "the airborne tap holds the processed button"
     );
+    assert_eq!(tap_flags & PlayerInputFlags::START_JUMPING.bits(), 0);
     let _ = step(&mut harness, jump_input(false));
 
     // Fall back to rest: nothing may gestate into a later initiation, and the
@@ -688,7 +674,7 @@ fn an_airborne_tap_opens_no_arc_and_gestates_no_later_initiation() {
             assert_eq!(
                 flags & PlayerInputFlags::JUMPING.bits(),
                 0,
-                "landing closes the carried arc with no replacement"
+                "the released jump button remains clear on landing"
             );
         } else {
             assert!(!landed, "grounded report followed by airborne sample");
@@ -750,11 +736,7 @@ fn grounded_correction_at_the_initiation_tick_outranks_the_retained_initiation()
 
     // The server corrects the initiated takeoff tick itself and reports
     // ground contact there, contradicting this client's takeoff prediction.
-    // The replay seed deliberately lets that server-reported outcome outrank
-    // the retained initiation: seeding the arc open would assert Jumping
-    // through replayed ticks anchored on a grounded report. This documents
-    // the accepted provisional precedence (see `apply_correction`); a native
-    // correction-heavy measurement replaces it deliberately or confirms it.
+    // The replay seed clears the internal arc; released input stays clear.
     reconcile_candidate_physics_correction(
         &mut harness.ticker,
         &mut harness.physics,
@@ -779,7 +761,7 @@ fn grounded_correction_at_the_initiation_tick_outranks_the_retained_initiation()
         assert_eq!(
             snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
             0,
-            "tick {} must not carry an arc seeded by the outranked initiation",
+            "tick {} must keep the released jump button clear",
             snapshot.tick
         );
     }
@@ -799,8 +781,7 @@ fn correction_upstream_of_the_initiation_asserts_no_phantom_arc() {
     // The server contradicts this client's prediction one tick BEFORE the
     // recorded initiation: it reports the player already airborne there at an
     // elevated position. The replayed timeline therefore starts falling and
-    // can never consume the recorded takeoff edge, so no replayed tick may
-    // assert Jumping from that stale initiation record.
+    // cannot consume the takeoff edge. The held button still survives replay.
     let anchor = [0.0, takeoff.position[1] + 6.0, 0.0];
     reconcile_candidate_physics_correction(
         &mut harness.ticker,
@@ -828,8 +809,12 @@ fn correction_upstream_of_the_initiation_asserts_no_phantom_arc() {
     for snapshot in &replayed {
         assert_eq!(
             snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
-            0,
-            "tick {} asserted Jumping from an initiation the replayed timeline never consumed",
+            if snapshot.tick == takeoff.tick {
+                PlayerInputFlags::JUMPING.bits()
+            } else {
+                0
+            },
+            "tick {} must preserve the recorded held button",
             snapshot.tick
         );
     }
@@ -880,8 +865,7 @@ fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
     )
     .expect("the early-grounding correction is retained and replays");
 
-    // The rebuilt initiations must ride the arc onto the wire instead of
-    // being silenced by the stale mid-air record.
+    // Replay preserves the recorded button and rebuilds the takeoff action.
     let replayed = harness.ticker.pending_snapshots();
     assert_eq!(
         replayed.first().map(|snapshot| snapshot.tick),
@@ -893,51 +877,35 @@ fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
         "the replayed tap must leave the corrected ground upward"
     );
     for snapshot in &replayed {
-        assert_ne!(
+        assert_eq!(
             snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
-            0,
-            "tick {} silenced a jump the replayed timeline really consumed",
+            if snapshot.tick == tap.tick {
+                PlayerInputFlags::JUMPING.bits()
+            } else {
+                0
+            },
+            "tick {} must preserve the recorded held button",
             snapshot.tick
         );
     }
 }
 
 #[test]
-fn the_replay_jump_fold_matches_the_simulator_consumption_rule() {
-    let input = |jumping: bool, pressed: bool| MovementInput {
-        jumping,
-        jump_pressed: pressed,
-        ..MovementInput::default()
-    };
+fn the_replay_jump_fold_uses_actual_simulator_initiations() {
+    let mut fresh = ReplayJumpArcFold::seed(true, false, false);
+    assert_eq!(fresh.step(true, false), (true, true));
+    assert_eq!(fresh.step(false, false), (false, true));
+    assert_eq!(fresh.step(false, true), (false, false));
 
-    // A grounded, cooldown-cleared anchor consumes the retained press.
-    let mut fresh = ReplayJumpArcFold::seed(true, 0, false, false);
-    assert_eq!(fresh.step(&input(true, true), false), (true, true));
-    // The simulator's post-jump cooldown then refuses repeats even while the
-    // button stays held, and landing closes the carried arc.
-    assert_eq!(fresh.step(&input(true, false), false), (false, true));
-    assert_eq!(fresh.step(&input(true, true), false), (false, true));
-    assert_eq!(fresh.step(&input(true, false), true), (false, false));
+    let mut refused = ReplayJumpArcFold::seed(true, false, false);
+    assert_eq!(refused.step(false, false), (false, false));
 
-    // A short tap latches its press edge across zero-tick frames; the
-    // simulator consumes such an edge from ground even when the button reads
-    // released on the tick itself, so the fold must too.
-    let mut latched = ReplayJumpArcFold::seed(true, 5, false, false);
-    assert_eq!(latched.step(&input(false, true), false), (true, true));
+    let mut carried = ReplayJumpArcFold::seed(false, false, true);
+    assert_eq!(carried.step(false, false), (false, true));
+    assert_eq!(carried.step(false, true), (false, false));
 
-    // A held press inside the seeded cooldown initiates nothing.
-    let mut cooling = ReplayJumpArcFold::seed(true, sim::JUMP_DELAY_TICKS, false, false);
-    assert_eq!(cooling.step(&input(true, true), true), (false, false));
-
-    // An airborne anchor carries the recorded arc forward until grounding.
-    let mut carried = ReplayJumpArcFold::seed(false, 3, false, true);
-    assert_eq!(carried.step(&input(false, false), false), (false, true));
-    assert_eq!(carried.step(&input(false, false), true), (false, false));
-
-    // A server-reported ground contact at the anchor outranks a retained
-    // initiation instead of asserting Jumping through corrected-ground ticks.
-    let mut outranked = ReplayJumpArcFold::seed(true, 3, true, true);
-    assert_eq!(outranked.step(&input(false, false), false), (false, false));
+    let mut outranked = ReplayJumpArcFold::seed(true, true, true);
+    assert_eq!(outranked.step(false, false), (false, false));
 }
 
 #[test]
@@ -1068,4 +1036,24 @@ fn raw_sneak_carriers_follow_the_physical_button() {
         released_flags & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(),
         0
     );
+}
+
+#[test]
+fn airborne_jump_press_sends_held_and_raw_flags_without_start_jumping() {
+    let mut sample = settled_sample(41, [0.0, 64.620_01, 0.0]);
+    sample.jumping = true;
+    sample.grounded_before_tick = false;
+    sample.grounded_after_tick = false;
+    sample.processed.jump_initiated = false;
+    sample.processed.jump_arc_active = false;
+    let flags = super::encoding::input_flags(&sample, super::encoding::HeldInput::default());
+    assert_eq!(flags.bits() & PlayerInputFlags::START_JUMPING.bits(), 0);
+    for bit in [
+        PlayerInputFlags::JUMPING,
+        PlayerInputFlags::JUMP_DOWN,
+        PlayerInputFlags::JUMP_CURRENT_RAW,
+        PlayerInputFlags::JUMP_PRESSED_RAW,
+    ] {
+        assert_ne!(flags.bits() & bit.bits(), 0, "missing {bit:?}");
+    }
 }

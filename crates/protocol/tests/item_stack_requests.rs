@@ -93,7 +93,7 @@ fn take_place_and_swap_have_exact_protocol_2168_wire() {
 }
 
 #[test]
-fn level_entity_take_and_client_close_match_captured_protocol_2168_wire() {
+fn level_entity_take_and_native_client_close_encode_expected_wire() {
     let storage = slot(
         StackRequestContainer::LevelEntity { dynamic_id: None },
         2,
@@ -110,30 +110,30 @@ fn level_entity_take_and_client_close_match_captured_protocol_2168_wire() {
     );
     assert_eq!(
         encode(
-            &container_close_packet(1, 0).expect("valid close"),
+            &container_close_packet(1).expect("valid close"),
             &BedrockSession { shield_item_id: 0 },
         )
         .unwrap()
         .to_vec(),
-        hex("fe042f010000")
+        hex("fe042f01f700")
     );
     assert_eq!(
         encode(
-            &container_close_packet(-1, 0).expect("signed raw close"),
+            &container_close_packet(-1).expect("signed raw close"),
             &BedrockSession { shield_item_id: 0 },
         )
         .unwrap()
         .to_vec(),
-        hex("fe042fff0000")
+        hex("fe042ffff700")
     );
     assert_eq!(
         encode(
-            &container_close_packet(-128, 0).expect("lowest signed raw close"),
+            &container_close_packet(-128).expect("lowest signed raw close"),
             &BedrockSession { shield_item_id: 0 },
         )
         .unwrap()
         .to_vec(),
-        hex("fe042f800000")
+        hex("fe042f80f700")
     );
 }
 
