@@ -1,4 +1,8 @@
-use super::{evaluation::Evaluator, *};
+use super::{
+    evaluation::Evaluator,
+    pose::{LocalDelta, compose_pose, sample_clips},
+    *,
+};
 
 /// One texture layer a rig draws this tick, from its render controllers in controller order.
 #[derive(Clone, Debug, PartialEq)]
@@ -11,7 +15,122 @@ pub struct RenderTextureLayer {
     pub overlay: [f32; 4],
     /// Bones this layer does not draw.
     pub hidden_bones: Arc<[u32]>,
+    /// `uv_anim` `[offset u, offset v, scale u, scale v]`: `uv = offset + uv * scale`.
+    pub uv_anim: [f32; 4],
+    /// Catalog geometry this layer draws when its controller picks another than the rig's;
+    /// `hidden_bones` and the poses then index that geometry's bones.
+    pub geometry: Option<u32>,
+    pub previous_pose: Arc<[BoneTransform]>,
+    pub pose: Arc<[BoneTransform]>,
+    /// The controller draws unlit.
+    pub ignore_lighting: bool,
 }
+
+/// Bones of a geometry a render controller draws beside the rig's own.
+#[derive(Debug)]
+pub(super) struct LayerSkeleton {
+    bones: Vec<RuntimeBone>,
+    names: Vec<Box<str>>,
+}
+
+/// The rig whose render controllers are evaluated.
+pub(super) struct RenderRig<'a> {
+    pub binding: usize,
+    /// Geometry the rig itself draws.
+    pub geometry: u32,
+    pub bone_names: &'a [Box<str>],
+    pub skeletons: &'a BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
+}
+
+/// Resolves, once per actor, every geometry the rig's controllers can choose.
+pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut ActorRigState) {
+    let render = assets.render_data();
+    for layer in assets.render_layers(state.rig_binding) {
+        let first = layer.first_geometry as usize;
+        let Some(choices) = render
+            .geometries
+            .get(first..first + usize::from(layer.geometry_count))
+        else {
+            continue;
+        };
+        for choice in choices {
+            state
+                .layer_skeletons
+                .entry(choice.geometry)
+                .or_insert_with(|| {
+                    let (bones, names) = resolve_bones(assets, choice.geometry as usize)?;
+                    Some(Arc::new(LayerSkeleton { bones, names }))
+                });
+        }
+    }
+}
+
+/// Poses each layer drawing its own geometry: the actor's clips, recompiled for that geometry,
+/// bind to its bones by name as vanilla animates every controller's model.
+pub(super) fn pose_layers(
+    evaluator: &Evaluator<'_>,
+    variables: &MolangVariables,
+    skeletons: &BTreeMap<u32, Option<Arc<LayerSkeleton>>>,
+    clips: &[super::tick::WeightedClip],
+    layers: &mut [RenderTextureLayer],
+    budget: &mut EvalBudget<'_>,
+) {
+    let assets = evaluator.assets;
+    for layer in layers.iter_mut() {
+        let Some(geometry) = layer.geometry else {
+            continue;
+        };
+        let Some(Some(skeleton)) = skeletons.get(&geometry) else {
+            continue;
+        };
+        let mapped: Vec<_> = clips
+            .iter()
+            .filter_map(|weighted| {
+                let symbol = assets.animation_clips().get(weighted.clip)?.symbol;
+                Some(super::tick::WeightedClip {
+                    clip: assets.clip_for_geometry(symbol, geometry)? as usize,
+                    ..*weighted
+                })
+            })
+            .collect();
+        // Keyframe scripts already ran for the rig; a scratch copy keeps them from running twice.
+        let mut scratch = variables.clone();
+        let local = sample_clips(
+            evaluator,
+            &mut scratch,
+            skeleton.bones.len(),
+            &mapped,
+            budget,
+        )
+        .unwrap_or_else(|_| vec![LocalDelta::default(); skeleton.bones.len()]);
+        if let Some(pose) = compose_pose(&skeleton.bones, &local) {
+            layer.pose = pose.into();
+        }
+    }
+}
+
+/// Gives each layer the pose it drew last tick as its previous pose, so layers interpolate.
+pub(super) fn carry_layer_poses(
+    old: &[RenderTextureLayer],
+    new: &mut [RenderTextureLayer],
+    reset: bool,
+) {
+    for (index, layer) in new.iter_mut().enumerate() {
+        layer.previous_pose = match old.get(index) {
+            Some(previous)
+                if !reset
+                    && previous.geometry == layer.geometry
+                    && previous.pose.len() == layer.pose.len() =>
+            {
+                Arc::clone(&previous.pose)
+            }
+            _ => Arc::clone(&layer.pose),
+        };
+    }
+}
+
+/// The `uv_anim` value of a controller without one.
+const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 /// `pattern` is lowercase with an optional leading and/or trailing `*`; bone names match
 /// ignoring ASCII case. Runs per rule, bone and actor every tick, so it never allocates.
@@ -59,14 +178,13 @@ fn color(
 pub(super) fn evaluate_render(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
-    rig_binding: usize,
-    bone_names: &[Box<str>],
+    rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<RenderTextureLayer>, EvalError> {
     let assets = evaluator.assets;
     let render = assets.render_data();
     let mut output = Vec::new();
-    for layer in assets.render_layers(rig_binding) {
+    for layer in assets.render_layers(rig.binding) {
         budget.charge_work()?;
         if let Some(condition) = layer.condition
             && !evaluator
@@ -75,6 +193,35 @@ pub(super) fn evaluate_render(
         {
             continue;
         }
+        let choices = render
+            .geometries
+            .get(
+                layer.first_geometry as usize
+                    ..layer.first_geometry as usize + usize::from(layer.geometry_count),
+            )
+            .ok_or(EvalError::Invalid)?;
+        let mut chosen = None;
+        for choice in choices {
+            budget.charge_work()?;
+            let selected = match choice.condition {
+                None => true,
+                Some(condition) => evaluator
+                    .run(condition as usize, variables, 0.0, budget)?
+                    .truthy(),
+            };
+            if selected {
+                chosen = Some(choice.geometry);
+                break;
+            }
+        }
+        let (geometry, bone_names) = match chosen.filter(|geometry| *geometry != rig.geometry) {
+            None => (None, rig.bone_names),
+            Some(geometry) => match rig.skeletons.get(&geometry) {
+                Some(Some(skeleton)) => (Some(geometry), skeleton.names.as_slice()),
+                // A geometry without a usable skeleton cannot be drawn.
+                _ => continue,
+            },
+        };
         let rules = render
             .visibility
             .get(
@@ -101,6 +248,13 @@ pub(super) fn evaluate_render(
             .collect();
         let tint = color(evaluator, variables, layer.color, [1.0; 4], budget)?;
         let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
+        let uv_anim = color(
+            evaluator,
+            variables,
+            layer.uv_anim,
+            IDENTITY_UV_ANIM,
+            budget,
+        )?;
         let slots = render
             .slots
             .get(
@@ -130,6 +284,11 @@ pub(super) fn evaluate_render(
                         color: tint,
                         overlay,
                         hidden_bones: Arc::clone(&hidden_bones),
+                        uv_anim,
+                        geometry,
+                        previous_pose: Arc::from([]),
+                        pose: Arc::from([]),
+                        ignore_lighting: layer.ignore_lighting,
                     });
                     break;
                 }

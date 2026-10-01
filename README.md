@@ -9,6 +9,12 @@ networking.
 
 <img width="2534" height="1446" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
 
+## Download
+
+Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
+Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
+the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
+
 ## Play
 
 ```sh
@@ -74,7 +80,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/world` | Palette-native chunk and world model. |
 | `tools/architecture` | Architecture gate: line limits, dependency rules, markers. |
 | `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
-| `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out and render screens. |
+| `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out, render and export packs. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
@@ -87,13 +93,15 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `catalog`, `store`, `launcher`, `control` | Menu data: featured servers, Realms, friends, marketplace. |
 | `localworld` | Local worlds on BDS (a container on macOS). |
 | `packcache` | On-disk cache of server packs. |
-| `update`, `crashreport` | Signed update checks and crash reports. |
+| `update` | Signed update checks. |
 
 ## JSON-UI editor
 
 [bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/) previews and edits pack UI
 exactly as Cinnabar renders it; open your own vanilla or server pack, nothing is bundled or
-uploaded. `make jsonui-editor` builds it locally. For AI agents, `cargo build -p jsonui-mcp` gives a
+uploaded. Paste into the empty editor to start a scratch file; the Export tab packages edits as
+`.mcpack`, `.zip` or `.mcaddon`, by default an overlay of only the changed controls.
+`make jsonui-editor` builds it locally. For AI agents, `cargo build -p jsonui-mcp` gives a
 stdio MCP server:
 
 ```json

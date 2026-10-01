@@ -29,6 +29,9 @@ const CONTENT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_content.bin
 const SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot.bin");
 /// A zeqa.net hotbar item: window 0 whose container name is `AnvilMaterial` (1).
 const LIVE_ZEQA_SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot_live_zeqa.bin");
+/// zeqa.net's spawn armor: window 120 whose container name is `AnvilMaterial` (1).
+const LIVE_ZEQA_ARMOR_FIXTURE: &[u8] =
+    include_bytes!("../fixtures/inventory_content_armor_live_zeqa.bin");
 const HOTBAR_FIXTURE: &[u8] = include_bytes!("../fixtures/player_hotbar.bin");
 const RESPONSE_FIXTURE: &[u8] = include_bytes!("../fixtures/item_stack_response.bin");
 
@@ -207,6 +210,23 @@ fn live_window_zero_slot_routes_by_window_despite_a_foreign_container_name() {
     assert_eq!(
         project_container_cell(&slot.identity.container, slot.identity.slot),
         Some(CanonicalCell::PlayerInventory(0)),
+    );
+}
+
+/// A live server's armor content on window 120 lands in the armor cells whatever its name.
+#[test]
+fn live_window_120_content_routes_to_the_armor_cells() {
+    let InventoryEvent::Content(content) = (match decode_fixture(LIVE_ZEQA_ARMOR_FIXTURE).data {
+        McpePacketData::InventoryContentPacket(packet) => normalize_content(*packet).unwrap(),
+        other => panic!("expected InventoryContent, got {other:?}"),
+    }) else {
+        panic!("expected a Content event")
+    };
+    assert_eq!(content.container.window_id, Some(120));
+    assert_eq!(content.slots.len(), 4);
+    assert_eq!(
+        project_container_cell(&content.container, 0),
+        Some(CanonicalCell::Armor(0)),
     );
 }
 

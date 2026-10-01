@@ -199,6 +199,8 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        uv_anim: render::IDENTITY_UV_ANIM,
+        light: 0,
         overlay_rgba8: 0x6600_00ff,
     };
     let layer = layer_presentation(
@@ -418,6 +420,8 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        uv_anim: render::IDENTITY_UV_ANIM,
+        light: 0,
         overlay_rgba8: 0,
     };
     let worn = |identifier: &str| WornItem {
@@ -503,6 +507,8 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        uv_anim: render::IDENTITY_UV_ANIM,
+        light: 0,
         overlay_rgba8: 0,
     }
 }

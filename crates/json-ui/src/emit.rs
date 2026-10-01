@@ -116,7 +116,51 @@ pub struct DrawNode {
     /// A sprite's `uv` flip-book, stepped by the caller at paint time.
     #[serde(default)]
     pub flip_book: Option<crate::anim::FlipBook>,
+    /// Offset animations shifting `dest` and `clip`, evaluated at paint time.
+    #[serde(default)]
+    pub motions: crate::anim::Motions,
     pub draw: Draw,
+    /// State children this node sits under, from [`emit_gated`]; see [`DrawNode::shown`].
+    #[serde(default)]
+    pub gates: Vec<StateGate>,
+}
+
+/// A state child (hover, pressed, …) of the control at `key`, shown under the
+/// interaction states set in `mask`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StateGate {
+    pub key: String,
+    pub mask: u8,
+}
+
+impl DrawNode {
+    /// Whether the node shows under `state`: every state child it sits under is
+    /// the one its control shows.
+    pub fn shown(&self, state: &crate::state::ViewState) -> bool {
+        self.gates
+            .iter()
+            .all(|gate| gate.mask & (1 << crate::widgets::state_index(state, &gate.key)) != 0)
+    }
+}
+
+impl DrawNode {
+    /// `dest` and `clip` displaced by this node's offset animations at `now`.
+    pub fn animated_rects(
+        &self,
+        now: f64,
+        clocks: Option<&BTreeMap<String, f64>>,
+    ) -> (RectOut, RectOut) {
+        if self.motions.own.is_empty() && self.motions.clip.is_empty() {
+            return (self.dest, self.clip);
+        }
+        let (own, clip) = self.motions.at(now, clocks);
+        let shift = |rect: RectOut, by: [f64; 2]| RectOut {
+            x: rect.x + by[0],
+            y: rect.y + by[1],
+            ..rect
+        };
+        (shift(self.dest, own), shift(self.clip, clip))
+    }
 }
 
 /// Flatten a laid-out tree to draw commands, ordered by `layer` then document order.
@@ -129,6 +173,52 @@ pub fn emit(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
     nodes.into_iter().map(|(_, _, node)| node).collect()
 }
 
+/// [`emit`] of a tree laid out with no hover, press or focus, keeping every state
+/// child's subtree gated by the states it shows under, so an interaction change
+/// only filters nodes ([`DrawNode::shown`]) instead of laying out again.
+pub fn emit_gated(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
+    let mut nodes = Vec::new();
+    let mut order = 0usize;
+    let mut gates = Vec::new();
+    collect_gated(root, env, &mut nodes, &mut order, &mut gates, false);
+    nodes.sort_by_key(|(layer, index, _)| (*layer, *index));
+    nodes.into_iter().map(|(_, _, node)| node).collect()
+}
+
+fn collect_gated(
+    node: &LaidOut,
+    env: &LayoutEnv,
+    out: &mut Vec<(i32, usize, DrawNode)>,
+    order: &mut usize,
+    gates: &mut Vec<StateGate>,
+    state_child: bool,
+) {
+    // A state child hidden only by the neutral state still emits, gated.
+    let own = state_child && crate::layout::own_visible(node.control);
+    if !(node.visible || own) {
+        return;
+    }
+    let first = out.len();
+    emit_own(node, env, out, order);
+    for (_, _, drawn) in &mut out[first..] {
+        drawn.gates.clone_from(gates);
+    }
+    let masks = crate::widgets::state_child_masks(node.control);
+    for child in &node.children {
+        match masks.iter().find(|(name, _)| *name == child.control.name) {
+            Some((_, mask)) => {
+                gates.push(StateGate {
+                    key: node.key.clone(),
+                    mask: *mask,
+                });
+                collect_gated(child, env, out, order, gates, true);
+                gates.pop();
+            }
+            None => collect_gated(child, env, out, order, gates, false),
+        }
+    }
+}
+
 fn collect(
     node: &LaidOut,
     env: &LayoutEnv,
@@ -138,6 +228,19 @@ fn collect(
     if !node.visible {
         return;
     }
+    emit_own(node, env, out, order);
+    for child in &node.children {
+        collect(child, env, out, order);
+    }
+}
+
+/// The node's own primitives, cropped to its progress clip.
+fn emit_own(
+    node: &LaidOut,
+    env: &LayoutEnv,
+    out: &mut Vec<(i32, usize, DrawNode)>,
+    order: &mut usize,
+) {
     let visible_rect = node
         .clip_ratio
         .map(|ratio| clipped_rect(node.control, node.rect, ratio));
@@ -145,6 +248,17 @@ fn collect(
         let Some((dest, draw)) = crop(dest, draw, visible_rect) else {
             continue;
         };
+        if matches!(&draw, Draw::Text { text, .. } if text.is_empty()) {
+            continue;
+        }
+        // A primitive wholly outside its clip (a scrolled-away cell) draws nothing;
+        // a hover tooltip draws beside the pointer instead of in its rect.
+        let clipped = dest.intersect(node.clip);
+        let floats =
+            matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
+        if dest.w > 0.0 && dest.h > 0.0 && (clipped.w <= 0.0 || clipped.h <= 0.0) && !floats {
+            continue;
+        }
         out.push((
             node.layer,
             *order,
@@ -156,17 +270,16 @@ fn collect(
                 layer: node.layer,
                 alpha: node.alpha,
                 fades: node.fades.clone(),
+                motions: node.motions.clone(),
                 flip_book: match &draw {
                     Draw::Sprite { texture, .. } => flip_book(node.control, texture, env),
                     _ => None,
                 },
                 draw,
+                gates: Vec::new(),
             },
         ));
         *order += 1;
-    }
-    for child in &node.children {
-        collect(child, env, out, order);
     }
 }
 
@@ -350,14 +463,20 @@ fn text_draw(control: &ResolvedControl) -> Draw {
     }
 }
 
+/// Plain properties a custom renderer reads besides its `#` bindings.
+const CUSTOM_PROPERTIES: [&str; 4] = [
+    "collection_index",
+    "primary_color",
+    "starting_rotation",
+    "camera_tilt_degrees",
+];
+
 fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
     let renderer = control.properties.get("renderer")?.as_str()?.to_owned();
     let data = control
         .properties
         .iter()
-        .filter(|(key, _)| {
-            key.starts_with('#') || matches!(key.as_str(), "collection_index" | "primary_color")
-        })
+        .filter(|(key, _)| key.starts_with('#') || CUSTOM_PROPERTIES.contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     Some(Draw::Custom { renderer, data })

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds Cinnabar-<version>-<arch>.AppImage. Requires appimagetool (APPIMAGETOOL) and librsvg or ImageMagick.
-# Usage: build-appimage.sh [out_dir]. Env: CLIENT, CORE, LOCAL_SERVER, ASSETC, ARCH (default uname -m).
+# Usage: build-appimage.sh [out_dir]. Env: CLIENT, CORE, LOCAL_SERVER, ASSETC, ARCH (default uname -m),
+# APPIMAGE_RUNTIME (pinned type2 runtime; appimagetool otherwise downloads the latest).
 set -euo pipefail
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=../common/stage-payload.sh
@@ -27,5 +28,7 @@ install -m 0644 "$here/cinnabar.desktop" "$appdir/cinnabar.desktop"
 install -m 0644 "$out/icons/icon-256.png" "$appdir/cinnabar.png"
 
 image="$out/Cinnabar-$(version_of)-$arch.AppImage"
-ARCH="$arch" "${APPIMAGETOOL:-appimagetool}" "$appdir" "$image"
+runtime_args=()
+[[ -z "${APPIMAGE_RUNTIME:-}" ]] || runtime_args=(--runtime-file "$APPIMAGE_RUNTIME")
+ARCH="$arch" "${APPIMAGETOOL:-appimagetool}" "${runtime_args[@]}" "$appdir" "$image"
 echo "$image"

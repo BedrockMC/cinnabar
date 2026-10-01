@@ -302,7 +302,7 @@ func TestManagerGatesBDSWorldsOnEULAAndPlatform(t *testing.T) {
 	runner := &fakeRunner{}
 	m := NewManager(store, Runners{BackendBDS: runner, BackendDragonfly: runner}, nil)
 	t.Cleanup(m.Shutdown)
-	world, err := m.Create(Spec{Name: "b"})
+	world, err := store.Create(Spec{Name: "b"})
 	if err != nil || world.Backend != BackendBDS {
 		t.Fatalf("world = %+v, %v", world, err)
 	}
@@ -328,11 +328,46 @@ func TestManagerGatesBDSWorldsOnEULAAndPlatform(t *testing.T) {
 	}
 
 	m.SetSetup(&Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"})
-	if _, err := m.Create(Spec{Name: "x", Backend: BackendBDS}); !errors.Is(err, ErrBackendUnavailable) {
+	if _, err := m.Create(Spec{Name: "x", Backend: BackendBDS, Generator: GeneratorFlat}); !errors.Is(err, ErrBackendUnavailable) {
 		t.Fatalf("explicit BDS on unsupported platform: %v", err)
 	}
-	if _, err := m.Create(Spec{Name: "x", Backend: BackendDragonfly}); err != nil {
+	if _, err := m.Create(Spec{Name: "x", Backend: BackendDragonfly, Generator: GeneratorFlat}); err != nil {
 		t.Fatalf("dragonfly stays available: %v", err)
+	}
+}
+
+// Normal worlds are vanilla terrain, which only BDS generates; dragonfly never approximates it.
+func TestNormalWorldsRouteToBDSOrAreUnavailable(t *testing.T) {
+	store := newTestStore(t)
+	store.SetDefaultBackend(BackendDragonfly)
+	runner := &fakeRunner{}
+	m := NewManager(store, Runners{BackendBDS: runner, BackendDragonfly: runner}, nil)
+	t.Cleanup(m.Shutdown)
+	m.SetSetup(&Provisioner{Root: t.TempDir(), goos: "linux", goarch: "amd64"})
+
+	if w, err := m.Create(Spec{Name: "n"}); err != nil || w.Backend != BackendBDS || w.Generator != GeneratorNormal {
+		t.Fatalf("default world = %+v, %v", w, err)
+	}
+	if w, err := m.Create(Spec{Name: "f", Generator: GeneratorFlat}); err != nil || w.Backend != BackendDragonfly {
+		t.Fatalf("flat world = %+v, %v", w, err)
+	}
+	if _, err := m.Create(Spec{Name: "d", Backend: BackendDragonfly}); !errors.Is(err, ErrVanillaNeedsBDS) {
+		t.Fatalf("normal on dragonfly: %v", err)
+	}
+	m.SetSetup(&Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"})
+	if _, err := m.Create(Spec{Name: "u"}); !errors.Is(err, ErrVanillaNeedsBDS) {
+		t.Fatalf("normal where BDS cannot run: %v", err)
+	}
+
+	legacy := World{ID: "0123456789abcdef", Name: "old", GameMode: GameModeSurvival, Generator: GeneratorNormal, Difficulty: DifficultyNormal, Backend: BackendDragonfly}
+	if err := store.write(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Open(legacy.ID); !errors.Is(err, ErrVanillaNeedsBDS) {
+		t.Fatalf("legacy normal dragonfly world opened: %v", err)
+	}
+	if _, err := (ProcessRunner{Binary: "unused"}).Start(context.Background(), StartSpec{World: legacy}); !errors.Is(err, ErrVanillaNeedsBDS) {
+		t.Fatalf("process runner accepted a normal world: %v", err)
 	}
 }
 
@@ -366,7 +401,7 @@ func TestRunnersRejectUnknownBackend(t *testing.T) {
 
 func TestLegacyWorldsWithoutBackendLoadAsDragonfly(t *testing.T) {
 	store := newTestStore(t)
-	world, _ := store.Create(Spec{Name: "old"})
+	world, _ := store.Create(Spec{Name: "old", Generator: GeneratorFlat})
 	dir, _ := store.Dir(world.ID)
 	raw, _ := os.ReadFile(filepath.Join(dir, metaFile))
 	raw = bytes.ReplaceAll(raw, []byte(`"backend": "dragonfly",`), nil)
