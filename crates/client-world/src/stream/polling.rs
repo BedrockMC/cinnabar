@@ -258,6 +258,11 @@ impl WorldStream {
     pub fn cave_visible_sub_chunks(&self, camera: SubChunkKey) -> HashSet<SubChunkKey> {
         crate::culling::cave_visible_sub_chunks(camera, &self.connectivity)
     }
+    /// Whether the face-connectivity graph covers `key`; the cave culler can only hide those.
+    #[must_use]
+    pub fn has_sub_chunk_connectivity(&self, key: SubChunkKey) -> bool {
+        self.connectivity.contains_key(&key)
+    }
 }
 
 impl WorldStream {

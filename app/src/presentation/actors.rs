@@ -79,13 +79,15 @@ pub(crate) fn update_actor_rig_scene<'a>(
     )
 }
 
-/// Whether a rig can pass this frame's culling, judged before its presentation is built; non-player
-/// actors must also lie within vanilla's candidate cube around the camera.
+/// Whether a rig can pass this frame's culling, judged before its presentation is built: non-player
+/// actors must lie within vanilla's candidate cube, and no actor may be hidden by `occluded`
+/// (given its culling box's low and high corners).
 pub(crate) fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     partial_tick: f32,
     view: Option<ActorCullView>,
+    occluded: impl Fn([f32; 3], [f32; 3]) -> bool,
 ) -> bool {
     let (Some(view), Some(feet)) = (
         view,
@@ -104,11 +106,14 @@ pub(crate) fn rig_may_be_visible(
         .axis_scale
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
-    actor_bounds_are_visible(
-        feet,
-        rig.scale * actor.render_scale() * largest_axis,
-        Some(view),
-    )
+    let scale = rig.scale * actor.render_scale() * largest_axis;
+    if !actor_bounds_are_visible(feet, scale, Some(view)) {
+        return false;
+    }
+    let half = 0.5 * scale.max(1.0);
+    let low = [feet[0] - half, feet[1], feet[2] - half];
+    let high = [feet[0] + half, feet[1] + 4.0 * half, feet[2] + half];
+    !occluded(low, high)
 }
 
 pub(crate) fn entity_rig_presentation(

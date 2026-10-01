@@ -154,6 +154,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
+    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -183,6 +184,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut dropped_items,
         profiler,
         mut partial_tick,
+        cave,
     } = params;
     let _timer = profiler
         .as_deref()
@@ -345,6 +347,17 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                             actor,
                             step.partial_tick,
                             cull_view,
+                            |low, high| {
+                                cave.as_deref().is_some_and(|cave| {
+                                    cave.hides_box(
+                                        stream.current_dimension(),
+                                        stream.connectivity_generation(),
+                                        |key| stream.has_sub_chunk_connectivity(key),
+                                        low,
+                                        high,
+                                    )
+                                })
+                            },
                         )
                     {
                         continue;
