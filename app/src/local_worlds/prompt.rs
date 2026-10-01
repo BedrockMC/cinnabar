@@ -1,3 +1,4 @@
+use super::form::FLAT_WORLD_LABEL;
 use super::model::Input;
 
 pub(crate) const DOCKER_URL: &str = "https://www.docker.com/products/docker-desktop/";
@@ -45,25 +46,27 @@ impl Prompt {
         }
     }
 
-    pub(crate) fn text(self) -> &'static str {
+    pub(crate) fn text(self) -> String {
         match (self.kind, self.blocking) {
             (PromptKind::DockerMissing, PromptFor::Play) => {
                 "This world runs on the official Bedrock Dedicated Server, which needs Docker on Mac \
                  (Docker Desktop, OrbStack or Colima). Install Docker, start it, then play again."
+                    .to_owned()
             }
             (PromptKind::DockerNotRunning, PromptFor::Play) => {
                 "This world runs on the official Bedrock Dedicated Server in Docker. Start Docker, \
                  then choose Retry."
+                    .to_owned()
             }
-            (PromptKind::DockerMissing, _) => {
+            (PromptKind::DockerMissing, _) => format!(
                 "Default worlds run on the official Bedrock Dedicated Server, which needs Docker on \
-                 Mac (Docker Desktop, OrbStack or Colima). Without Docker you can still create a Flat \
-                 world on the built-in server."
-            }
-            (PromptKind::DockerNotRunning, _) => {
+                 Mac (Docker Desktop, OrbStack or Colima). Without Docker you can still create a \
+                 {FLAT_WORLD_LABEL} world on the built-in server."
+            ),
+            (PromptKind::DockerNotRunning, _) => format!(
                 "Default worlds run on the official Bedrock Dedicated Server in Docker. Start Docker, \
-                 then choose Retry, or create a Flat world on the built-in server."
-            }
+                 then choose Retry, or create a {FLAT_WORLD_LABEL} world on the built-in server."
+            ),
         }
     }
 
@@ -84,13 +87,13 @@ impl Prompt {
 }
 
 impl PromptButton {
-    pub(crate) fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> String {
         match self {
-            Self::CreateFlat => "Create Flat world",
-            Self::GetDocker => "Get Docker",
-            Self::DontShowAgain => "Don't show again",
-            Self::Retry => "Retry",
-            Self::Cancel => "Cancel",
+            Self::CreateFlat => format!("Create {FLAT_WORLD_LABEL} world"),
+            Self::GetDocker => "Get Docker".to_owned(),
+            Self::DontShowAgain => "Don't show again".to_owned(),
+            Self::Retry => "Retry".to_owned(),
+            Self::Cancel => "Cancel".to_owned(),
         }
     }
 
