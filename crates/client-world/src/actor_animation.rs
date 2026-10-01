@@ -203,6 +203,8 @@ struct EvalBudget<'a> {
     work_left: usize,
     transitions_left: usize,
     used: usize,
+    /// Operand stack lent to each expression run, so runs reuse one allocation.
+    stack: Vec<evaluation::MolangValue>,
 }
 
 impl EvalBudget<'_> {
@@ -353,6 +355,7 @@ impl ActorAnimationStore {
             return;
         };
         let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
+        let mut stack = Vec::new();
         // Start where the world budget ran out last tick so no actor starves every tick.
         let lifetimes = match self.first_starved.take() {
             Some(start) => self
@@ -449,6 +452,7 @@ impl ActorAnimationStore {
                 work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
                 transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
                 used: 0,
+                stack: std::mem::take(&mut stack),
             };
             if state.fallback != EntityRigFallback::GeometryOnly {
                 render::cache_layer_skeletons(state_assets, state);
@@ -475,6 +479,7 @@ impl ActorAnimationStore {
                 .stats
                 .evaluated_molang_ops
                 .saturating_add(budget.used as u64);
+            stack = std::mem::take(&mut budget.stack);
             match result {
                 Ok(evaluated) => {
                     // A rig back in view starts from its new pose, not the one it held.
@@ -653,6 +658,7 @@ fn resolve_rig(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
+        stack: Vec::new(),
     };
     let mut candidate_offset = 0;
     let input = ActorTickInput {
