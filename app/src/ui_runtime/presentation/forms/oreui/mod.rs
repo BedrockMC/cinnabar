@@ -8,6 +8,7 @@ mod friends;
 mod grid;
 mod icons;
 mod inbox;
+mod modal;
 mod paint;
 mod play;
 mod play_realms;
@@ -15,6 +16,7 @@ mod play_servers;
 mod profile;
 mod theme;
 mod widgets;
+mod world_settings;
 
 use std::sync::Arc;
 
@@ -82,6 +84,7 @@ impl UiPresentationRuntime {
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         // A launcher dialog draws over the OreUI screen instead.
         let covered = view.connecting
+            || view.local.progress.is_some()
             || view.disconnect_message.is_some()
             || matches!(view.auth_state, AuthState::AwaitingCode { .. });
         let screen = view.screen;
@@ -120,7 +123,13 @@ impl UiPresentationRuntime {
             MenuScreen::Profile => profile::draw(&mut canvas, view, size, portrait)?,
             MenuScreen::Inbox => inbox::draw(&mut canvas, view, size)?,
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-                play::draw(&mut canvas, view, size, &self.menu_artwork.refs)?
+                match world_settings::route(view.local.screen, &view.local) {
+                    Some(route) => world_settings::draw(&mut canvas, view, size, route)?,
+                    None => play::draw(&mut canvas, view, size, &self.menu_artwork.refs)?,
+                }
+                if let Some(dialog) = modal::local_world_modal(&view.local) {
+                    modal::draw(&mut canvas, view, size, &dialog)?;
+                }
             }
             _ => friends::draw(&mut canvas, view, size)?,
         }

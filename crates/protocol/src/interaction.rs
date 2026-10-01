@@ -1,16 +1,17 @@
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction, EnumsHandSlot,
+    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction,
+    EnumsContainerEnumName, EnumsHandSlot, EnumsInventorySourceType,
     EnumsItemReleaseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
     EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
-    EnumsPlayerActionType, EnumsPlayerRespawnState, InventoryTransaction,
-    InventoryTransactionPacket, InventoryTransactionPacketTransaction,
+    EnumsPlayerActionType, EnumsPlayerRespawnState, InventoryAction, InventorySource,
+    InventoryTransaction, InventoryTransactionPacket, InventoryTransactionPacketTransaction,
     ItemReleaseInventoryTransaction, ItemUseInventoryTransaction,
-    ItemUseOnActorInventoryTransaction, PlayerActionPacket, RespawnPacket,
+    ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket, RespawnPacket,
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
 
@@ -249,13 +250,13 @@ pub struct HeldItemRequest {
     pub player_position: [f32; 3],
 }
 
-/// How an item in use ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemReleaseKind {
-    /// The use button went up (bow shot, trident throw).
-    Release,
-    /// The use duration ran out (loaded crossbow, finished food).
-    Complete,
+/// The selected slot's stack before and after an air use changed it locally (a throw).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PredictedSlotChange {
+    /// The negative client legacy request id `to` carries; unused when `to` is empty.
+    pub legacy_request_id: i32,
+    pub from: VerifiedNetworkItemStack,
+    pub to: VerifiedNetworkItemStack,
 }
 
 fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePacketError> {
@@ -272,18 +273,45 @@ fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePac
 }
 
 /// Builds the click-air transaction vanilla's `GameMode::baseUseItem` sends: zero block and
-/// click positions, face 255, unset trigger and a failure prediction.
-pub fn click_air_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
+/// click positions, face 255, unset trigger and a failure prediction. A `change` becomes the
+/// inventory action and legacy set-slot request vanilla records while the use runs.
+pub fn click_air_packet(
+    request: HeldItemRequest,
+    change: Option<PredictedSlotChange>,
+) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
     let item = request.selected_item.into_vendor_item(0)?;
+    let mut legacy_request_id = 0;
+    let mut legacy_set_item_slots = None;
+    let mut actions = Vec::new();
+    if let Some(change) = change {
+        // `setPlayerContainer` stamps and records only a non-empty result.
+        if !change.to.is_empty() && change.legacy_request_id < 0 {
+            legacy_request_id = change.legacy_request_id;
+            legacy_set_item_slots = Some(vec![LegacySetSlot {
+                container_enum: EnumsContainerEnumName::Inventorycontainer,
+                slots: vec![request.selected_slot],
+            }]);
+        }
+        actions.push(InventoryAction {
+            source: InventorySource {
+                source_type: EnumsInventorySourceType::Containerinventory,
+                container_id: Some(0),
+                bit_flags: None,
+            },
+            slot: u32::from(request.selected_slot),
+            from_item: change.from.into_vendor_item(0)?,
+            to_item: change.to.into_vendor_item(0)?,
+        });
+    }
     Ok(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
-        legacy_set_item_slots: None,
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
+            id: legacy_request_id,
+        },
+        legacy_set_item_slots,
         transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
             ItemUseInventoryTransaction {
-                actions: InventoryTransaction {
-                    actions: Vec::new(),
-                },
+                actions: InventoryTransaction { actions },
                 action_type: ItemUseInventoryTransactionActionType::Use,
                 trigger_type: ItemUseInventoryTransactionTriggerType::Unknown,
                 position: BlockPos { x: 0, y: 0, z: 0 },
@@ -307,17 +335,11 @@ pub fn click_air_packet(request: HeldItemRequest) -> Result<crate::Packet, Block
     .into())
 }
 
-/// Builds the release-item transaction that ends an item use.
-pub fn release_item_packet(
-    request: HeldItemRequest,
-    kind: ItemReleaseKind,
-) -> Result<crate::Packet, BlockUsePacketError> {
+/// Builds the release-item transaction `GameMode::releaseUsingItem` sends when the use button
+/// goes up; a use that runs out completes without a packet from the client.
+pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
     let item = request.selected_item.into_vendor_item(0)?;
-    let action_type = match kind {
-        ItemReleaseKind::Release => EnumsItemReleaseInventoryTransactionActionType::Release,
-        ItemReleaseKind::Complete => EnumsItemReleaseInventoryTransactionActionType::Use,
-    };
     Ok(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
@@ -326,7 +348,7 @@ pub fn release_item_packet(
                 actions: InventoryTransaction {
                     actions: Vec::new(),
                 },
-                action_type,
+                action_type: EnumsItemReleaseInventoryTransactionActionType::Release,
                 slot,
                 item,
                 from_position,
@@ -406,6 +428,7 @@ pub enum SwingSource {
     Mine,
     Interact,
     Attack,
+    ThrowItem,
 }
 
 impl SwingSource {
@@ -416,6 +439,7 @@ impl SwingSource {
             Self::Mine => "Mine",
             Self::Interact => "Interact",
             Self::Attack => "Attack",
+            Self::ThrowItem => "ThrowItem",
         }
     }
 }

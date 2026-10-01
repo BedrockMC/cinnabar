@@ -26,24 +26,13 @@ fn render_local_pack_entities() {
     ) else {
         return;
     };
-    let view = super::super::local_pack::local_pack_view_at(Path::new(&pack)).unwrap();
-    let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
-        .ok()
-        .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
-    let compiled =
-        asset_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
-            .unwrap()
-            .unwrap();
-    let (compiled_textures, compiled_bindings) =
-        (compiled.textures.clone(), compiled.bindings.clone());
-    let artwork =
-        ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
-    let candidates: Vec<u32> = compiled
-        .bindings
-        .iter()
-        .map(|binding| binding.geometry_candidate)
-        .collect();
-    let entities = Arc::new(RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
+    let LocalPack {
+        entities,
+        artwork,
+        candidates,
+        textures: compiled_textures,
+        bindings: compiled_bindings,
+    } = compile_local_pack(Path::new(&pack));
     if let Some(carriers) = std::env::var_os("CINNABAR_RENDER_CARRIERS") {
         measure_pages(Path::new(&carriers), &compiled_textures, &compiled_bindings);
     }
@@ -64,6 +53,66 @@ fn render_local_pack_entities() {
     }
 }
 
+/// A cached pack's entity catalog with its artwork pages.
+pub(super) struct LocalPack {
+    pub(super) entities: Arc<RuntimeEntityAssets>,
+    pub(super) artwork: ActorArtworkPages,
+    pub(super) candidates: Vec<u32>,
+    textures: Vec<assets::ActorTexture>,
+    bindings: Vec<assets::ActorArtworkBinding>,
+}
+
+pub(super) fn compile_local_pack(pack: &Path) -> LocalPack {
+    let view = super::super::local_pack::local_pack_view_at(pack).unwrap();
+    let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
+        .ok()
+        .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
+    let compiled =
+        asset_compiler::compile_actor_pack(super::collect::collect_files(&view, refs.as_ref()))
+            .unwrap()
+            .unwrap();
+    let artwork =
+        ActorArtworkPages::default().with_pack_artwork(&compiled.textures, &compiled.bindings);
+    let candidates = compiled
+        .bindings
+        .iter()
+        .map(|binding| binding.geometry_candidate)
+        .collect();
+    LocalPack {
+        textures: compiled.textures,
+        bindings: compiled.bindings,
+        entities: Arc::new(RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
+        artwork,
+        candidates,
+    }
+}
+
+/// A world streaming only `entities`, with the viewer at `eye`.
+pub(super) fn world_for(
+    entities: &Arc<RuntimeEntityAssets>,
+    candidates: &[u32],
+    eye: [f32; 3],
+) -> WorldStream {
+    let mut world = WorldStream::new_with_asset_sets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: eye,
+            world_spawn_position: [0, 64, 0],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        Arc::clone(entities),
+        eye,
+        None,
+    );
+    world.set_pack_entities(Some((Arc::clone(entities), candidates.to_vec())));
+    world.set_actor_camera_position(eye);
+    world
+}
+
 fn spawn(
     entities: &Arc<RuntimeEntityAssets>,
     candidates: &[u32],
@@ -71,22 +120,7 @@ fn spawn(
     variant: i32,
     scale: f32,
 ) -> WorldStream {
-    let mut world = WorldStream::new_with_asset_sets(
-        WorldBootstrap {
-            local_player_unique_id: 1,
-            dimension: 0,
-            local_player_runtime_id: 1,
-            player_position: [0.0, 64.0, 8.0],
-            world_spawn_position: [0, 64, 0],
-            air_network_id: 0,
-            block_network_ids_are_hashes: false,
-        },
-        Arc::new(RuntimeAssets::diagnostic()),
-        Arc::clone(entities),
-        [0.0, 64.0, 8.0],
-        None,
-    );
-    world.set_pack_entities(Some((Arc::clone(entities), candidates.to_vec())));
+    let mut world = world_for(entities, candidates, [0.0, 66.0, 8.0]);
     let metadata = [
         ActorMetadata {
             key: 2,
@@ -121,7 +155,6 @@ fn spawn(
             })),
         )
         .unwrap();
-    world.set_actor_camera_position([0.0, 66.0, 8.0]);
     world.advance_actor_interpolation_ticks(20);
     world
 }

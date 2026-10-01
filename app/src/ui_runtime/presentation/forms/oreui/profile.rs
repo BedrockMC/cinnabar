@@ -131,10 +131,12 @@ pub(super) fn draw(
         &[("Overview", None), ("Stats", None)],
         0,
     )?;
+    // An unavailable count stays blank rather than reading as zero.
+    let count = |value: Option<i64>| value.map_or_else(String::new, |n| n.to_string());
     let rows = [
-        ("Friends", profile.friends.to_string()),
-        ("Followers", profile.followers.to_string()),
-        ("Gamerscore", profile.gamerscore.to_string()),
+        ("Friends", count(profile.friends.map(i64::from))),
+        ("Followers", count(profile.followers.map(i64::from))),
+        ("Gamerscore", count(profile.gamerscore)),
     ];
     let mut row_top = tab_bottom + space(canvas, 2);
     let row_height = canvas.r(6.4);

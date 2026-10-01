@@ -33,7 +33,7 @@ impl MeshLightHalo {
         let offset = offset.map(|value| value as i8);
         let local = coordinate.map(|value| value.rem_euclid(16) as u8);
         let Some(slot) = self.slots[mesh_offset_index(offset)].as_ref() else {
-            return [0, 0];
+            return self.absent_light();
         };
         [
             slot.light
@@ -43,6 +43,15 @@ impl MeshLightHalo {
                 .get(LightChannel::Sky, local[0], local[1], local[2])
                 .unwrap_or(0),
         ]
+    }
+
+    /// Vanilla `BlockSource` reads an absent chunk at the dimension's default brightness
+    /// (block 0, sky 15); Nether and End store no sky light, so only the Overworld is sky-lit.
+    fn absent_light(&self) -> [u8; 2] {
+        match self.center {
+            Some(center) if center.dimension == 0 => [0, 15],
+            _ => [0, 0],
+        }
     }
 
     #[cfg(test)]

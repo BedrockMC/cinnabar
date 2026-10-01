@@ -68,6 +68,29 @@ pub struct ActorRigSnapshot<'a> {
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.
     pub skin_geometry: Option<&'a Arc<assets::SkinGeometry>>,
+    /// Swing and equip progress at the previous and current completed tick.
+    pub hand: [HandPhase; 2],
+}
+
+/// The arm's swing and equip progress over one tick, as the first-person item reads them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HandPhase {
+    /// 0..1 swing progress; 0 at rest.
+    pub attack_time: f32,
+    /// 0..1 equip progress; 1 once the held item has settled.
+    pub arm_height: f32,
+    /// Consecutive ticks the using-item flag has been set.
+    pub use_ticks: u32,
+}
+
+impl Default for HandPhase {
+    fn default() -> Self {
+        Self {
+            attack_time: 0.0,
+            arm_height: 1.0,
+            use_ticks: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -179,6 +202,8 @@ struct ActorTickInput {
     swim_amount: f32,
     /// 0..1 equip progress; 1 once the held item has settled.
     arm_height: f32,
+    /// 0..1 swing progress after this tick's motion advance.
+    attack_time: f32,
 }
 
 struct EvaluatedState {
@@ -591,6 +616,7 @@ impl ActorAnimationStore {
             render: &state.render,
             bone_names: state.posed_bone_names(),
             skin_geometry: state.skin_skeleton().map(|skeleton| &skeleton.geometry),
+            hand: state.hand_phases(),
         })
     }
 

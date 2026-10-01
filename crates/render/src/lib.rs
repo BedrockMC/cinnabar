@@ -15,6 +15,8 @@ mod hand_rig_render;
 mod item_geometry;
 mod lightning;
 mod lightning_render;
+mod nametag;
+mod nametag_render;
 mod panorama;
 mod panorama_render;
 mod particles;
@@ -71,8 +73,8 @@ pub use actor::{
     MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
     actor_bounds_are_visible, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    entity_geometry, equipment_geometry, equipment_rig_id, extruded_sprite_vertices,
-    find_geometry_index, geometry_bone_names, geometry_bone_pivots, install_default_player_skin,
+    entity_geometry, equipment_geometry, equipment_rig_id, find_geometry_index,
+    geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, install_default_player_skin,
     item_mesh_rig_id, layer_geometry_rig_id, normalize_actor_skin, normalize_actor_skin_cached,
     pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skin_geometry,
     skin_rig_id, skull_geometry, standard_biped_overlay_vertices, standard_biped_vertices,
@@ -149,6 +151,10 @@ pub use lightning::{
     BoltRecord, BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, LightningScene,
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
+};
+pub use nametag::{
+    MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
+    NAMETAG_TEXT_LIFT_BLOCKS, NametagRecord, NametagScene,
 };
 pub use panorama::{
     MAX_PANORAMA_FACE_SIDE, PANORAMA_WGSL, PanoramaFaces, PanoramaScene, PanoramaView,

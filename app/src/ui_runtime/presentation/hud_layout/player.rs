@@ -30,9 +30,8 @@ impl HudLayout<'_> {
         {
             self.hand_sprite(hand, [-10.0, g.gui_height - HAND_Y], HAND_SIZE)?;
         }
-        // Keep this CPU carrier in the draw list: only exact current GPU hand
-        // coverage can omit its index range. Held-item carriers stay untouched.
-        if let Some(hand) = frame.right_hand {
+        // The player render controller shows the right arm only for an empty hand.
+        if let Some(hand) = frame.right_hand.filter(|_| frame.held_item_icon.is_none()) {
             self.hand_sprite(
                 hand,
                 [g.gui_width - HAND_SIZE[0] + 10.0, g.gui_height - HAND_Y],

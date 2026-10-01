@@ -84,7 +84,7 @@ pub struct FeaturedServer {
     pub games: Vec<FeaturedGame>,
 }
 
-/// A community gathering; `address` is empty when it could not be resolved.
+/// A community gathering; the core joins it by `id` only when the player connects.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Gathering {
     #[serde(default)]
@@ -97,8 +97,6 @@ pub struct Gathering {
     pub description: String,
     #[serde(default)]
     pub creator: String,
-    #[serde(default)]
-    pub address: String,
     #[serde(default)]
     pub image: Artwork,
     #[serde(default)]
@@ -120,12 +118,13 @@ pub struct Profile {
     pub real_name: String,
     #[serde(default)]
     pub presence_text: String,
+    /// Absent when the lookup failed, so the UI never shows a fabricated zero.
     #[serde(default)]
-    pub gamerscore: i64,
+    pub gamerscore: Option<i64>,
     #[serde(default)]
-    pub friends: u32,
+    pub friends: Option<u32>,
     #[serde(default)]
-    pub followers: u32,
+    pub followers: Option<u32>,
 }
 
 /// The start screen's service data: messaging surfaces, inbox counts,
@@ -303,6 +302,8 @@ pub enum ConnectTarget {
     Realm(String),
     /// A friend's XUID from [`Friend::xuid`].
     Friend(String),
+    /// A gathering's experience ID from [`Gathering::id`].
+    Gathering(String),
 }
 
 impl ConnectTarget {
@@ -311,6 +312,7 @@ impl ConnectTarget {
             Self::RakNet(value) => ("raknet", value),
             Self::Realm(value) => ("realm", value),
             Self::Friend(value) => ("friend", value),
+            Self::Gathering(value) => ("gathering", value),
         };
         ConnectParams { kind, value }
     }
@@ -365,16 +367,38 @@ pub struct Events {
     pub disconnect: Option<ServerDisconnect>,
     #[serde(default)]
     pub transfer: Option<TransferPending>,
-    /// Live while the core downloads the server's resource packs.
+    /// Live while the core prepares a join; gone once it hands the session to the client.
     #[serde(default)]
-    pub pack_download: Option<PackDownload>,
+    pub connect: Option<ConnectProgress>,
 }
 
-/// Pack chunk bytes received against the admitted offer's total.
+/// The core's stage of preparing a join, and its pack download counts.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-pub struct PackDownload {
+pub struct ConnectProgress {
+    pub stage: ConnectStage,
+    /// Packs being downloaded (cache hits excluded) and those finished.
+    #[serde(default)]
+    pub packs_done: u32,
+    #[serde(default)]
+    pub packs_total: u32,
+    /// Across all packs; the total grows as each pack's download begins.
+    #[serde(default)]
     pub received_bytes: u64,
+    #[serde(default)]
     pub total_bytes: u64,
+}
+
+/// Vanilla's join progress handlers the core's stages stand for.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectStage {
+    /// The Realm lookup.
+    Realm,
+    /// Resource pack acquisition.
+    Packs,
+    /// Transport connect and login; also any stage this client does not know.
+    #[serde(other)]
+    Connecting,
 }
 
 #[derive(Serialize)]
@@ -591,6 +615,11 @@ mod tests {
         );
         let friend = serde_json::to_string(&ConnectTarget::Friend("9".into()).params());
         assert_eq!(friend.expect("encode"), r#"{"kind":"friend","value":"9"}"#);
+        let gathering = serde_json::to_string(&ConnectTarget::Gathering("e".into()).params());
+        assert_eq!(
+            gathering.expect("encode"),
+            r#"{"kind":"gathering","value":"e"}"#
+        );
     }
 
     #[test]
@@ -633,6 +662,47 @@ mod tests {
         let quiet: Events = parse_response(quiet).expect("quiet");
         assert_eq!(quiet.auth.state, AuthState::Offline);
         assert!(quiet.disconnect.is_none() && quiet.transfer.is_none());
+        assert!(quiet.connect.is_none());
+    }
+
+    // Omitted counts read as zero and an unknown stage reads as connecting.
+    #[test]
+    fn parses_connect_progress() {
+        let events = |connect: &str| {
+            let reply = format!(
+                r#"{{"jsonrpc":"2.0","id":1,"result":{{"schema_version":1,
+                "auth":{{"state":"signed_in"}},"connect":{connect}}}}}"#
+            );
+            parse_response::<Events>(reply.as_bytes())
+                .expect("events")
+                .connect
+                .expect("connect")
+        };
+        let stage = |connect: &str| events(connect).stage;
+        assert_eq!(stage(r#"{"stage":"realm"}"#), ConnectStage::Realm);
+        assert_eq!(stage(r#"{"stage":"connecting"}"#), ConnectStage::Connecting);
+        assert_eq!(
+            stage(r#"{"stage":"handshaking"}"#),
+            ConnectStage::Connecting
+        );
+        assert_eq!(
+            events(r#"{"stage":"packs"}"#),
+            ConnectProgress {
+                stage: ConnectStage::Packs,
+                packs_done: 0,
+                packs_total: 0,
+                received_bytes: 0,
+                total_bytes: 0,
+            }
+        );
+        let downloading = events(
+            r#"{"stage":"packs","packs_done":1,"packs_total":3,
+            "received_bytes":5242880,"total_bytes":20971520}"#,
+        );
+        assert_eq!(downloading.packs_done, 1);
+        assert_eq!(downloading.packs_total, 3);
+        assert_eq!(downloading.received_bytes, 5_242_880);
+        assert_eq!(downloading.total_bytes, 20_971_520);
     }
 
     #[test]

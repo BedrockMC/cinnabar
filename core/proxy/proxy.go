@@ -27,24 +27,16 @@ type Config struct {
 	Upstream    string
 	TokenSource oauth2.TokenSource
 	Logger      *slog.Logger
-	// UpstreamClientCache opts the core into advertising client blob-cache
-	// capability toward the real Bedrock server: during the upstream login
-	// the outbound ClientCacheStatus byte is rewritten to enabled, so the
-	// server may stream blob-referencing cached chunks through the relay.
-	// Operators must enable it only together with a downstream client that
-	// owns a verified blob cache and advertises cache support downstream —
-	// the app passes this option exactly then. Enabled without such a client,
-	// cached chunks reach a downstream session that skips them. The default
-	// false keeps today's exact upstream wire bytes; there is no runtime
-	// downstream-capability negotiation in either mode.
+	// UpstreamClientCache advertises blob-cache support upstream; set it only when the downstream
+	// client owns a verified blob cache, since there is no runtime negotiation.
 	UpstreamClientCache bool
 	// ResourcePackCache is an optional process-owned cache. Serve never closes it.
 	ResourcePackCache minecraft.ResourcePackCache
 	// ResourcePackAdmission receives one secret-safe final snapshot per upstream
 	// preparation attempt. Callbacks must return promptly.
 	ResourcePackAdmission func(ResourcePackAdmissionSnapshot)
-	// ResourcePackDownload receives the live progress of pack downloads.
-	ResourcePackDownload func(ResourcePackDownload)
+	// ConnectProgress receives the join's live stage and pack download progress.
+	ConnectProgress func(ConnectProgress)
 	// ResourcePackAdmissionUpdate receives an initial reset snapshot and the
 	// final snapshot for each attempt. It is intended for latest-status stores.
 	ResourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
@@ -60,7 +52,6 @@ type Config struct {
 	LocalTarget LocalTargetFunc
 }
 
-const localRelayBatchPacketLimit = 1600
 const maxInitialTransferHops = 8
 
 type acceptResult struct {
@@ -93,7 +84,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
-	prepared.resourcePackDownload = cfg.ResourcePackDownload
+	prepared.connectProgress = cfg.ConnectProgress
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	transfers := cfg.Transfers
 	if transfers == nil {
@@ -451,25 +442,16 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
-		// The Dialer field itself stays false in every configuration:
-		// gophertunnel copies it into conn.cacheEnabled, which on this pinned
-		// module gates only the outbound ClientCacheStatus byte written after
-		// upstream LoginSuccess. The explicit UpstreamClientCache option
-		// flips that wire byte inside PacketFunc below instead of setting the
-		// field, because the upstream login completes inside the Listener
-		// preparation hook before the downstream ClientCacheStatus arrives.
-		EnableClientCache: false,
+		// A static opt-in, not the downstream status: the upstream login completes before it arrives.
+		EnableClientCache: enableUpstreamClientCache,
 		ErrorLog:          secretSafeResourcePackLogger(),
 		Protocol:          downstream.Proto(),
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
 	formProbe := processFormSchemaProbe()
-	if enableUpstreamClientCache || cacheTelemetry != nil || packAdmission != nil || formProbe != nil {
+	if cacheTelemetry != nil || packAdmission != nil || formProbe != nil {
 		dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
-			if enableUpstreamClientCache && header.PacketID == packet.IDClientCacheStatus && len(payload) > 0 {
-				flipUpstreamClientCacheStatus(payload)
-			}
 			if cacheTelemetry != nil {
 				cacheTelemetry.observeUpstreamPacket(header, payload, source, destination)
 			}
@@ -558,6 +540,7 @@ type downstreamSession interface {
 
 type upstreamSession interface {
 	packetSession
+	IdentityData() login.IdentityData // canonical account identity; wrappers must keep forwarding it
 	DoSpawnContext(context.Context) error
 	GameData() minecraft.GameData
 	ResourcePacks() []*resource.Pack
@@ -754,7 +737,8 @@ func pumpPacketsWithCacheTelemetry(
 	if err := destination.Flush(); err != nil {
 		return attributeRelayError(err, fromDownstream)
 	}
-	outputBatch := make([]packet.Packet, 0, localRelayBatchPacketLimit)
+	// One source batch becomes one write; the library splits it at the per-batch packet limit.
+	var outputBatch []packet.Packet
 	flushOutputBatch := func() error {
 		if len(outputBatch) == 0 {
 			return nil
@@ -767,10 +751,7 @@ func pumpPacketsWithCacheTelemetry(
 	}
 	writePacket := func(value packet.Packet) error {
 		outputBatch = append(outputBatch, value)
-		if len(outputBatch) != localRelayBatchPacketLimit {
-			return nil
-		}
-		return flushOutputBatch()
+		return nil
 	}
 	var pendingInitialStart packet.Packet
 	for {
