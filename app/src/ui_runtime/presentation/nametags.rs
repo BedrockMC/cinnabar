@@ -180,6 +180,7 @@ pub(super) fn append_nametag_nodes(
                 baseline_64: metrics.baseline_64,
                 scale: text_scale(anchor.pixels_per_block),
                 font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         let [width, height] = layout.size_64().map(|value| value as f32 / 64.0);

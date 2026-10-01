@@ -65,7 +65,8 @@ impl SignTextSpec {
 
 fn style_rgb(color: BedrockColor) -> Option<[u8; 3]> {
     Some(match color {
-        BedrockColor::White => return None,
+        BedrockColor::Base => return None,
+        BedrockColor::White => [255, 255, 255],
         BedrockColor::Black => [0, 0, 0],
         BedrockColor::DarkBlue => [0, 0, 170],
         BedrockColor::DarkGreen => [0, 170, 0],
@@ -111,6 +112,7 @@ pub(crate) fn line_width_design_pixels(
             baseline_64: ASCENT_TEXELS * 64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .ok()?;
     Some(layout.size_64()[0] as f32 / (TEXELS_PER_PIXEL * 64) as f32)
@@ -146,6 +148,7 @@ pub(super) fn rasterize(
             baseline_64: ASCENT_TEXELS * 64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         }) else {
             continue;
         };

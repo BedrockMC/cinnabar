@@ -458,6 +458,7 @@ impl HudLayout<'_> {
                 baseline_64: super::super::TEXT_BASELINE_64,
                 scale: UiScale::default(),
                 font: self.font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         self.text_gui(Arc::clone(&layout), position, [64, 64, 64, 255])

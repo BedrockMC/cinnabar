@@ -25,8 +25,9 @@ pub use hud::{
     TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
 };
 pub use model::{
-    FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_GLINT, UiBlendMode, UiDrawBatch,
-    UiDrawList, UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_BILINEAR, UI_STYLE_GLINT,
+    UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList, UiError, UiFrame, UiNode, UiNodeId,
+    UiTree, UiVertex, UiVisual,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
@@ -41,5 +42,6 @@ pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, GlyphQuad,
     MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64,
     TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache,
-    TextLayoutKey, TextLayoutRequest, TextSpan, TextSpans, TextStyle, parse_bedrock_text,
+    TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap,
+    WordChop, parse_bedrock_text,
 };
