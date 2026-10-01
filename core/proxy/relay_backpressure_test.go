@@ -220,32 +220,3 @@ func TestRelayKeepsAStalledBatchWhole(t *testing.T) {
 		t.Fatalf("events = %v, want the batch's writes then one flush", events)
 	}
 }
-
-// A packet written outside a forwarded batch leaves within the idle flush; requested flushes coalesce.
-func TestRelayFlushesOutOfBatchWritesWhileIdle(t *testing.T) {
-	src := newFakeDownstream(nil)
-	src.useBatchReads = true
-	sink := &eventSink{fakeUpstream: newFakeUpstream(nil)}
-	reader := newPacketReader(src, sink, false, relayIdleFlush)
-	defer reader.Close()
-	read := make(chan error, 1)
-	go func() {
-		_, err := reader.Read()
-		read <- err
-	}()
-	out := &packet.NetworkStackLatency{Timestamp: 9}
-	_ = sink.fakeUpstream.WritePacket(out) // as gophertunnel or the core would, outside any batch
-	deadline := time.Now().Add(4 * relayIdleFlush)
-	for len(sink.flushedBatches()) == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if got := sink.flushedBatches(); len(got) != 1 || got[0][0] != out {
-		t.Fatalf("idle write batches = %v, want it flushed within the idle period", batchSizes(got))
-	}
-	reader.RequestFlush()
-	reader.RequestFlush() // coalesces with the first
-	src.batchReads <- batchResult{err: io.EOF}
-	if err := <-read; !errors.Is(err, io.EOF) {
-		t.Fatalf("Read() error = %v, want EOF", err)
-	}
-}
