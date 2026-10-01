@@ -20,6 +20,7 @@ bevy = { workspace = true, default-features = false, features = [
     "keyboard",
     "mouse",
     "std",
+    "bevy_post_process",
 ] }
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }

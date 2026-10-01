@@ -201,18 +201,51 @@ pub(in crate::chunk) fn sorted_visible_entities<T>(
     visible
 }
 
-pub(in crate::chunk) type DrawChunkCommands = (SetItemPipeline, DrawPackedChunk);
-pub(in crate::chunk) type DrawChunkIndirectCommands = (SetItemPipeline, DrawPackedChunksIndirect);
-pub(in crate::chunk) type DrawModelCommands = (SetItemPipeline, DrawPackedModel);
-pub(in crate::chunk) type DrawModelIndirectCommands = (SetItemPipeline, DrawPackedModelsIndirect);
-pub(in crate::chunk) type DrawTransparentModelCommands =
-    (SetItemPipeline, DrawPackedTransparentModel);
-pub(in crate::chunk) type DrawDepthLiquidCommands = (SetItemPipeline, DrawDepthLiquid);
-pub(in crate::chunk) type DrawDepthLiquidIndirectCommands =
-    (SetItemPipeline, DrawDepthLiquidsIndirect);
-pub(in crate::chunk) type DrawTransparentLiquidCommands = (SetItemPipeline, DrawTransparentLiquid);
-pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands =
-    (SetItemPipeline, DrawTransparentLiquidIndirect);
+pub(in crate::chunk) type DrawChunkCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawPackedChunk,
+);
+pub(in crate::chunk) type DrawChunkIndirectCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawPackedChunksIndirect,
+);
+pub(in crate::chunk) type DrawModelCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawPackedModel,
+);
+pub(in crate::chunk) type DrawModelIndirectCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawPackedModelsIndirect,
+);
+pub(in crate::chunk) type DrawTransparentModelCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawPackedTransparentModel,
+);
+pub(in crate::chunk) type DrawDepthLiquidCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawDepthLiquid,
+);
+pub(in crate::chunk) type DrawDepthLiquidIndirectCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawDepthLiquidsIndirect,
+);
+pub(in crate::chunk) type DrawTransparentLiquidCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawTransparentLiquid,
+);
+pub(in crate::chunk) type DrawTransparentLiquidIndirectCommands = (
+    SetItemPipeline,
+    crate::enhanced::SetEnhancedViewBindGroup<1>,
+    DrawTransparentLiquidIndirect,
+);
 pub(in crate::chunk) type OpaqueChunkViewQuery = (Entity, Read<ViewUniformOffset>);
 
 pub(in crate::chunk) fn record_visibility_direct_submission(

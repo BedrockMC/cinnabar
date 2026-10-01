@@ -1,6 +1,9 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#ifdef ENHANCED
+#import cinnabar::enhanced_view::{material_class, shade_surface}
+#endif
 
 struct PackedQuad {
     geometry: u32,
@@ -95,6 +98,9 @@ struct VertexOutput {
     @location(9) block_light: f32,
     @location(10) sky_light: f32,
     @location(11) ambient_occlusion: f32,
+#ifdef ENHANCED
+    @location(12) @interpolate(flat) material_class: u32,
+#endif
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -260,6 +266,9 @@ fn vertex(
     out.block_light = light_brightness(light_sample & 15u);
     out.sky_light = light_brightness((light_sample >> 4u) & 15u);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 3u);
+#ifdef ENHANCED
+    out.material_class = material_class(quad.material_id);
+#endif
     return out;
 }
 
@@ -333,6 +342,19 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.local_position,
         in.normal,
     );
+#ifdef ENHANCED
+    let shaded = shade_surface(
+        colour.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.block_light,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.material_class,
+    );
+    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+#else
     let lit = lit_colour(
         colour.rgb,
         in.block_light,
@@ -341,4 +363,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         atmosphere.sun_direction_daylight.w,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+#endif
 }
