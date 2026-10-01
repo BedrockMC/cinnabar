@@ -105,4 +105,56 @@ mod tests {
         assert!(!keybind_allowed(true, true, false));
         assert!(!keybind_allowed(true, false, true));
     }
+
+    #[test]
+    fn configured_sample_drives_the_app_adapter_offline() {
+        if std::env::var_os(COMPONENT_ENV).is_none() {
+            return;
+        }
+        let presentation =
+            crate::ui_runtime::presentation::forms::pack_harness::engine_presentation()
+                .expect("real UI carrier required for the selected sample");
+        let mut app = App::new();
+        app.insert_resource(presentation)
+            .insert_resource(UiRuntime::new(1))
+            .insert_resource(ButtonInput::<KeyCode>::default());
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let vanilla = sample_frame(&mut app);
+        configure_from_environment(&mut app);
+        assert!(app.world().contains_resource::<ModRuntime>());
+        app.update();
+        let initial = sample_frame(&mut app);
+        assert_ne!(vanilla, initial);
+
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::F8);
+        app.update();
+        assert_eq!(initial, sample_frame(&mut app));
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+        app.update();
+        assert_ne!(initial, sample_frame(&mut app));
+        assert!(
+            app.world()
+                .resource::<ButtonInput<KeyCode>>()
+                .just_pressed(KeyCode::F8)
+        );
+    }
+
+    /// Renders the adapter's retained state without a window or network session.
+    fn sample_frame(app: &mut App) -> render::UiRenderInput {
+        app.world_mut()
+            .resource_mut::<UiPresentationRuntime>()
+            .build(
+                &UiRuntime::new(1),
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap()
+    }
 }

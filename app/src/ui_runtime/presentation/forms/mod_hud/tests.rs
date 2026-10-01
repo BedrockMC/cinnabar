@@ -167,3 +167,72 @@ fn mod_spike_snapshot_with_real_carrier() {
         snapshot::rasterize(&frame(&mut presentation))
     );
 }
+
+#[test]
+#[ignore = "requires the real carrier and a compiled sample; prints offline CPU timings"]
+fn mod_spike_offline_frame_overhead() {
+    let path = std::env::var_os("CINNABAR_MOD_SNAPSHOT_COMPONENT")
+        .expect("set CINNABAR_MOD_SNAPSHOT_COMPONENT to the compiled sample");
+    let mut host = mod_host::ModHost::load(std::path::Path::new(&path)).unwrap();
+    let mut vanilla = pack_harness::engine_presentation().expect("real UI carrier required");
+    let mut modded = pack_harness::engine_presentation().expect("real UI carrier required");
+    for _ in 0..5 {
+        measure_frame_batch(&mut vanilla, None);
+        measure_frame_batch(&mut modded, Some(&mut host));
+    }
+    let mut empty = Vec::new();
+    let mut loaded = Vec::new();
+    let mut delta = Vec::new();
+    for batch in 0..40 {
+        let (a, b) = if batch % 2 == 0 {
+            let a = measure_frame_batch(&mut vanilla, None);
+            (a, measure_frame_batch(&mut modded, Some(&mut host)))
+        } else {
+            let b = measure_frame_batch(&mut modded, Some(&mut host));
+            (measure_frame_batch(&mut vanilla, None), b)
+        };
+        empty.push(a);
+        loaded.push(b);
+        delta.push(b - a);
+    }
+    println!(
+        "offline_ui profile={} arch={} os={} viewport=1280x720 dpi=1 batches=40 frames_per_batch={BENCH_FRAMES}",
+        if cfg!(debug_assertions) {
+            "dev"
+        } else {
+            "release"
+        },
+        std::env::consts::ARCH,
+        std::env::consts::OS,
+    );
+    for (name, mut samples) in [
+        ("zero_mods", empty),
+        ("sample_idle", loaded),
+        ("added", delta),
+    ] {
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "{name} frame_ns_p50={:.1} frame_ns_p95={:.1}",
+            samples[samples.len() / 2],
+            samples[samples.len() * 95 / 100],
+        );
+    }
+}
+
+const BENCH_FRAMES: usize = 100;
+
+/// Times the real CPU UI build plus the loaded guest and retained-label adapter.
+fn measure_frame_batch(
+    presentation: &mut UiPresentationRuntime,
+    mut host: Option<&mut mod_host::ModHost>,
+) -> f64 {
+    let start = std::time::Instant::now();
+    for _ in 0..BENCH_FRAMES {
+        if let Some(host) = host.as_deref_mut() {
+            host.frame(std::hint::black_box(false)).unwrap();
+            presentation.set_mod_label(host.label()).unwrap();
+        }
+        std::hint::black_box(frame(presentation));
+    }
+    start.elapsed().as_nanos() as f64 / BENCH_FRAMES as f64
+}
