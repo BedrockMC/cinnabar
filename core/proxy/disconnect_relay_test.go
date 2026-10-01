@@ -86,7 +86,7 @@ func (s *reverseFirstDisconnectSession) ReadBatch() ([]packet.Packet, error) {
 	return nil, s.reason
 }
 
-func (s *reverseFirstDisconnectSession) WritePacketImmediate(...packet.Packet) error {
+func (s *reverseFirstDisconnectSession) WritePacket(packet.Packet) error {
 	return s.reason
 }
 
