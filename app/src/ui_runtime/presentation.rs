@@ -623,6 +623,12 @@ impl UiPresentationRuntime {
             )?;
         }
         self.sync_server_ui_pages();
+        self.append_experience_chrome(
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            [content_width, content_height],
+        );
         // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
         let built = menu_visible.then(|| BuiltMenu {
             nodes: Vec::new(),

@@ -327,6 +327,7 @@ pub(crate) fn receive_network_events(
                     continue;
                 }
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
+                ui_runtime.experiences.marker = packs.extension_marker;
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,

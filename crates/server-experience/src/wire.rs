@@ -67,7 +67,7 @@ pub struct Envelope {
     pub payload: Vec<Scalar>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RateLimit {
     last_ms: u64,
     messages: u64,

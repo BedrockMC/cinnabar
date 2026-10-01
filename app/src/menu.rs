@@ -452,6 +452,11 @@ impl MenuRuntime {
         self.config_path.with_file_name(crate::store::SETTINGS_FILE)
     }
 
+    /// Server trust lives beside the other per-user launcher settings.
+    pub(crate) fn experience_settings_path(&self) -> PathBuf {
+        self.config_path.with_file_name(server_experience::trust::SETTINGS_FILE)
+    }
+
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
     pub(crate) fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
         self.local_worlds = worlds;

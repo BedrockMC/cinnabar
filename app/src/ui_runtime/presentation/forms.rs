@@ -15,6 +15,7 @@ mod menu_latency;
 mod menu_screens;
 mod menus;
 mod mod_hud;
+mod experience;
 mod model;
 mod npc;
 mod oreui;
@@ -77,6 +78,7 @@ pub(super) struct FormPresentation {
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
+    experience: Option<experience::ExperienceChrome>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
     /// The open chat's cached screen; carried across the per-frame reset.
@@ -280,6 +282,7 @@ impl UiPresentationRuntime {
         let logged = self.form_presentation.logged;
         let hud = std::mem::take(&mut self.form_presentation.hud);
         let mod_hud = self.form_presentation.mod_hud.take();
+        let experience = self.form_presentation.experience.take();
         let container_cache = self.form_presentation.container_cache.take();
         let chat = std::mem::take(&mut self.form_presentation.chat);
         let bed = std::mem::take(&mut self.form_presentation.bed);
@@ -290,6 +293,7 @@ impl UiPresentationRuntime {
             logged,
             hud,
             mod_hud,
+            experience,
             container_cache,
             chat,
             bed,

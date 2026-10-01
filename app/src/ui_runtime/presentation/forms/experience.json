@@ -1,0 +1,41 @@
+{
+  "namespace": "cinnabar_experience",
+  "copy": {
+    "type": "label",
+    "size": ["100%", "100%"],
+    "text": "#experience_text",
+    "text_alignment": "left",
+    "color": [1, 1, 1],
+    "shadow": true,
+    "bindings": [{"binding_name": "#experience_text"}]
+  },
+  "indicator": {
+    "type": "panel",
+    "size": ["100%", 22],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "offset": [4, 4],
+    "controls": [{"copy@cinnabar_experience.copy": {}}]
+  },
+  "choice": {
+    "type": "button",
+    "size": ["100%", 22],
+    "$caption": "",
+    "$action": "",
+    "button_mappings": [{"from_button_id": "button.menu_select", "to_button_id": "$action", "mapping_type": "pressed"}],
+    "controls": [{"label": {
+      "type": "label", "size": ["100%", "100%"], "text": "$caption",
+      "text_alignment": "center", "color": [0.7, 1, 0.7], "shadow": true
+    }}]
+  },
+  "consent": {
+    "type": "panel",
+    "size": ["94%", "94%"],
+    "controls": [
+      {"body@cinnabar_experience.copy": {"size": ["100%", "100% - 76px"], "anchor_from": "top_left", "anchor_to": "top_left"}},
+      {"once@cinnabar_experience.choice": {"$caption": "F6: Allow once", "$action": "experience.once", "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "offset": [0, -48]}},
+      {"always@cinnabar_experience.choice": {"$caption": "F7: Always for this server and scope", "$action": "experience.always", "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "offset": [0, -24]}},
+      {"never@cinnabar_experience.choice": {"$caption": "F8: Never for this server", "$action": "experience.never", "anchor_from": "bottom_middle", "anchor_to": "bottom_middle"}}
+    ]
+  }
+}
