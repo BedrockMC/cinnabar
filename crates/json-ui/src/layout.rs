@@ -25,6 +25,7 @@ use crate::widgets::{self, ScrollFrame};
 mod grid;
 mod measure;
 mod place;
+mod scroll;
 
 pub use measure::MeasureCache;
 
@@ -311,18 +312,14 @@ fn place_subtree<'a>(
             child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
             clip_for_child = *area_clip;
         }
-        if let Some(frame) = ctx.scrolls.last_mut() {
-            if frame.metrics.is_none() && child.name == frame.content {
-                child_rect = frame.place_content(rect, child_rect);
-            } else if child.name == frame.bar_box
-                && child.control_type.as_deref() == Some("scrollbar_box")
-            {
-                match frame.place_box(rect, child_rect) {
-                    Some(placed) => child_rect = placed,
-                    None => child_shown = false,
-                }
-            }
-        }
+        let box_fade;
+        (child_rect, child_shown, box_fade) = scroll::place(
+            ctx.scrolls.last_mut(),
+            child,
+            rect,
+            (child_rect, child_shown),
+            ctx.env,
+        );
         // The named slider box travels the slider however deep it sits.
         if let Some(frame) = ctx.sliders.last()
             && frame.names[0].as_deref() == Some(child.name.as_str())
@@ -331,16 +328,13 @@ fn place_subtree<'a>(
         }
         // Scroll content wholly outside its viewport neither draws nor takes input.
         if ctx.cull
-            && ctx
-                .scrolls
-                .last()
-                .is_some_and(|frame| frame.metrics.is_some())
+            && ctx.scrolls.last().is_some_and(ScrollFrame::content_placed)
             && disjoint(child_rect, clip_for_child)
         {
             continue;
         }
         let next_key = child_key(&key, child);
-        children.push(place_subtree(
+        let mut laid = place_subtree(
             child,
             next_key,
             child_rect,
@@ -348,18 +342,20 @@ fn place_subtree<'a>(
             (absolute_layer, child_shown),
             &inherit,
             ctx,
-        ));
+        );
+        scroll::fade(&mut laid, box_fade);
+        children.push(laid);
     }
     ctx.ancestors.pop();
     ctx.overrides.truncate(overrides_len);
     if opened_slider {
         ctx.sliders.pop();
     }
-    if opened_scroll
-        && let Some(frame) = ctx.scrolls.pop()
-        && let Some(metrics) = frame.metrics
-    {
-        ctx.report.scrolls.insert(frame.key, metrics);
+    if opened_scroll && let Some(frame) = ctx.scrolls.pop() {
+        let key = frame.key.clone();
+        if let Some(metrics) = frame.finish() {
+            ctx.report.scrolls.insert(key, metrics);
+        }
     }
     LaidOut {
         control,

@@ -304,16 +304,25 @@ pub fn hit_test(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
     (top.kind != HitKind::Modal).then_some(top)
 }
 
-/// The scroll view whose area contains `point`, innermost first.
-pub fn scroll_target(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
+/// The scroll view the wheel at `point` reaches, innermost first: one whose
+/// viewport or track holds the point, or one that always handles scrolling.
+pub fn scroll_target<'a>(
+    regions: &'a [HitRegion],
+    report: &crate::state::LayoutReport,
+    point: [f64; 2],
+) -> Option<&'a HitRegion> {
     for region in regions.iter().rev() {
-        if !region.contains(point) {
-            continue;
-        }
         match region.kind {
-            HitKind::ScrollView => return Some(region),
+            HitKind::ScrollView
+                if report
+                    .scrolls
+                    .get(&region.key)
+                    .is_some_and(|metrics| metrics.takes_wheel(point)) =>
+            {
+                return Some(region);
+            }
             // An inline modal leaves the views around it scrolling.
-            HitKind::Modal if !region.input.inline_modal => return None,
+            HitKind::Modal if region.contains(point) && !region.input.inline_modal => return None,
             _ => {}
         }
     }

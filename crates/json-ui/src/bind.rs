@@ -302,7 +302,9 @@ impl<'a> Binder<'a> {
 
     fn gather_own(&self, control: &ResolvedControl, scope: &Scope) -> BTreeMap<String, Scalar> {
         let mut own = (*scope.values).clone();
+        own.extend(data::component_bag(control));
         own.extend(property_bag(control));
+        own.extend(self.data.control_values(&control.name));
         // Component bag writes stand until a binding the screen answers replaces them.
         crate::component::write_bag(control, &self.data.components, &scope.key, &mut own);
         for binding in bindings_of(control) {
