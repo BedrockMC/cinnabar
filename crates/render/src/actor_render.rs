@@ -113,7 +113,7 @@ struct ActorGpu {
     instance_buffer: Buffer,
     previous_bone_buffer: Buffer,
     current_bone_buffer: Buffer,
-    geometry_vertex_buffer: Option<Buffer>,
+    geometry_vertices: crate::actor::gpu::SegmentedVertexBuffer,
     geometry_span_buffer: Option<Buffer>,
     instance_count: u32,
     maximum_vertex_count: u32,
@@ -202,7 +202,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
-        geometry_vertex_buffer: None,
+        geometry_vertices: default(),
         geometry_span_buffer: None,
         instance_count: 0,
         maximum_vertex_count: 0,
@@ -252,25 +252,20 @@ fn prepare_actor_resources(
         gate.clear();
         tracker.clear();
         gpu.frame_generation = u64::MAX;
-        if rig.geometry_vertices.is_empty() || rig.geometry_spans.is_empty() {
-            gpu.geometry_vertex_buffer = None;
-            gpu.geometry_span_buffer = None;
-        } else {
-            gpu.geometry_vertex_buffer = Some(render_device.create_buffer_with_data(
-                &BufferInitDescriptor {
-                    label: Some("shared immutable actor rig vertices"),
-                    contents: bytemuck::cast_slice::<ActorRigVertex, u8>(&rig.geometry_vertices),
-                    usage: BufferUsages::STORAGE,
-                },
-            ));
-            gpu.geometry_span_buffer = Some(render_device.create_buffer_with_data(
-                &BufferInitDescriptor {
-                    label: Some("shared immutable actor rig geometry spans"),
-                    contents: bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
-                    usage: BufferUsages::STORAGE,
-                },
-            ));
-        }
+        // A new skin model or item mesh uploads only its own vertices.
+        gpu.geometry_vertices.sync(
+            &render_device,
+            &render_queue,
+            "shared actor rig vertices",
+            &rig.geometry_vertices,
+        );
+        gpu.geometry_span_buffer = (!rig.geometry_spans.is_empty()).then(|| {
+            render_device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("shared actor rig geometry spans"),
+                contents: bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
+                usage: BufferUsages::STORAGE,
+            })
+        });
         gpu.geometry_revision = rig.geometry_revision;
         gpu.bind_group = None;
         gpu.artwork.invalidate_bindings();
@@ -600,7 +595,7 @@ fn prepare_actor_bind_group(
         gpu.bind_group = None;
         return;
     };
-    let Some(geometry_vertex_buffer) = gpu.geometry_vertex_buffer.as_ref() else {
+    let Some(geometry_vertex_buffer) = gpu.geometry_vertices.buffer() else {
         gpu.bind_group = None;
         return;
     };

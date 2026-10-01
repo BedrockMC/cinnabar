@@ -110,7 +110,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
     Arc::make_mut(&mut inputs[1].input.current_bones)[2].rotation = [0.0; 4];
     Arc::make_mut(&mut inputs[2].input.previous_bones)[2].rotation = [0.0; 4];
     inputs[3].input.reset_generation = u64::from(u32::MAX) + 1;
-    let geometry_index = builder.geometry_indices[&EntityRigId(3)];
+    let geometry_index = builder.catalog.indices[&EntityRigId(3)];
     let mut previous_bones = Vec::new();
     let mut current_bones = Vec::new();
     let mut instances = Vec::new();
@@ -147,14 +147,14 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
     }
     let expected = ActorRigRenderFrame {
         frame_generation: 1,
-        geometry_revision: builder.geometry_revision,
+        geometry_revision: builder.catalog.revision,
         instances: instances.into(),
         previous_bones: previous_bones.into(),
         current_bones: current_bones.into(),
-        geometry_vertices: Arc::clone(&builder.geometry_vertices),
-        geometry_spans: Arc::clone(&builder.geometry_spans),
+        geometry_vertices: builder.catalog.vertices.clone(),
+        geometry_spans: Arc::clone(&builder.catalog.published_spans),
         manifest: manifest.into(),
-        maximum_vertex_count: builder.geometry_spans[geometry_index as usize].vertex_count,
+        maximum_vertex_count: builder.catalog.published_spans[geometry_index as usize].vertex_count,
         rejects: ActorRigRejects {
             non_finite_pose: 2,
             invalid_identity: 1,
