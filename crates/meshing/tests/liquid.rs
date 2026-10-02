@@ -743,7 +743,8 @@ fn runtime_assets() -> &'static RuntimeAssets {
             Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
-                animation: NO_ANIMATION
+                animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             };
             16
         ];
@@ -751,22 +752,26 @@ fn runtime_assets() -> &'static RuntimeAssets {
             texture: TextureRef::new(0, 0).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
             animation: 0,
+            ..assets::Material::unvaried()
         };
         materials[FLOW as usize] = Material {
             texture: TextureRef::new(0, 1).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
             animation: 1,
+            ..assets::Material::unvaried()
         };
         materials[15] = Material {
             texture: TextureRef::new(0, 0).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_CUTOUT,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         };
         for material in [13_usize, 14] {
             materials[material] = Material {
                 texture: TextureRef::new(0, (material - 13) as u32).unwrap(),
                 flags: MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
                 animation: (material - 13) as u32,
+                ..assets::Material::unvaried()
             };
         }
         for (material, animation) in [(3_usize, 0_u32), (4, 1)] {
@@ -774,6 +779,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 texture: TextureRef::new(0, animation).unwrap(),
                 flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
                 animation,
+                ..assets::Material::unvaried()
             };
         }
         for (material, entry) in materials.iter_mut().enumerate().take(13).skip(7) {
@@ -781,6 +787,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 texture: TextureRef::new(0, (material - 5) as u32).unwrap(),
                 flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
                 animation: (material - 5) as u32,
+                ..assets::Material::unvaried()
             };
         }
         let animations = (0..8)

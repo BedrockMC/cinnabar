@@ -2,6 +2,7 @@ mod block;
 mod flipbook;
 mod parse;
 mod terrain;
+mod variations;
 
 use std::path::Path;
 

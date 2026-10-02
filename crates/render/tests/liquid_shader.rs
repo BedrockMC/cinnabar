@@ -7,6 +7,8 @@ use meshing::Face;
 const SHADER: &str = include_str!("../src/liquid.wgsl");
 
 fn shader_for_naga() -> String {
+    let material =
+        include_str!("../src/material.wgsl").replace("#define_import_path cinnabar::material", "");
     let lighting = include_str!("../src/lighting.wgsl").replacen(
         "#define_import_path cinnabar::lighting",
         "",
@@ -18,6 +20,11 @@ fn shader_for_naga() -> String {
         .replacen(
             "#import bevy_render::view::View",
             "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+            1,
+        )
+        .replacen(
+            "#import cinnabar::material::{MaterialGpu, materials, positional_material}",
+            &material,
             1,
         )
         .replacen(
@@ -250,7 +257,11 @@ fn liquid_shader_has_mutually_exclusive_water_and_depth_writing_entries() {
     assert!(SHADER.contains("fn fragment_depth("));
     assert!(SHADER.contains("@interpolate(flat) depth_write_route: u32"));
     assert!(SHADER.contains("LIQUID_DEPTH_WRITE_BIT"));
-    assert!(SHADER.contains("let material = materials[packed_material & ~LIQUID_DEPTH_WRITE_BIT]"));
+    assert!(
+        SHADER.contains(
+            "let material = positional_material(packed_material & ~LIQUID_DEPTH_WRITE_BIT,"
+        )
+    );
     assert!(
         SHADER.contains("let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u)")
     );

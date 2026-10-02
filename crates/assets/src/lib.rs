@@ -25,6 +25,7 @@ mod item;
 mod lang;
 mod light_registry;
 mod material_keys;
+mod material_variations;
 mod model;
 mod ogg;
 mod particle;
@@ -86,7 +87,7 @@ pub use biome::{
     RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
     TintMapId, TintSource, colormap_coordinate, read_biome_registry,
 };
-pub use blob::{BLOB_MAGIC, BLOB_VERSION, encode_blob, write_blob_atomic};
+pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
     BLOCK_ENTITY_CARRIER_MAGIC, BLOCK_ENTITY_CARRIER_VERSION, BLOCK_ENTITY_ROUTES,
     BlockEntityPlacement, BlockEntityRouteKind, MAX_BLOCK_ENTITY_ATLAS_SIDE,

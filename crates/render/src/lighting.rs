@@ -58,8 +58,11 @@ pub(crate) fn install(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .insert_resource(LightingInstalled);
     app.add_plugins(ExtractResourcePlugin::<WorldLighting>::default());
+    const MATERIAL_SHADER: Handle<Shader> = uuid_handle!("40309d5a-76a4-4e3b-aed0-d5c76aa5d52e");
+
     const SHADER: Handle<Shader> = uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
     load_internal_asset!(app, SHADER, "lighting.wgsl", Shader::from_wgsl);
+    load_internal_asset!(app, MATERIAL_SHADER, "material.wgsl", Shader::from_wgsl);
     app.sub_app_mut(RenderApp)
         .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources));
 }

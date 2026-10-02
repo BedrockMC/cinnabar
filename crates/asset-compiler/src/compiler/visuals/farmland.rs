@@ -111,13 +111,14 @@ pub(in crate::compiler) fn farmland_material_descriptors(
     }
     Some(
         [
-            ("farmland_side", "textures/blocks/dirt"),
-            ("farmland", "textures/blocks/farmland_wet"),
-            ("farmland", "textures/blocks/farmland_dry"),
+            ("farmland_side", "textures/blocks/dirt", 0),
+            ("farmland", "textures/blocks/farmland_wet", 0),
+            ("farmland", "textures/blocks/farmland_dry", 1),
         ]
-        .map(|(key, path)| {
+        .map(|(key, path, state_variant)| {
             (
                 Descriptor {
+                    state_variant,
                     path: path.into(),
                     texture_key: key.into(),
                     flags: 0,

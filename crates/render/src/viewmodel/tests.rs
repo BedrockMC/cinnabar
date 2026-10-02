@@ -24,6 +24,7 @@ fn cube_carrier() -> assets::CompiledAssets {
                 texture: TextureRef::new(0, id.saturating_sub(1)).unwrap(),
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             })
             .collect::<Vec<_>>()
             .into(),
@@ -642,6 +643,7 @@ fn opaque_cube_refuses_server_block_overlay_ids() {
             texture: TextureRef::new(1, 0).unwrap(),
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }],
         texture: Some(TextureArray {
             layers: 1,

@@ -18,6 +18,8 @@ view_from_world: mat4x4<f32>, world_from_view: mat4x4<f32>, clip_from_view: mat4
 view_from_clip: mat4x4<f32>, world_position: vec3<f32>, exposure: f32, viewport: vec4<f32>, }";
 
 fn standalone(source: &str) -> String {
+    let material =
+        include_str!("../src/material.wgsl").replace("#define_import_path cinnabar::material", "");
     let lighting = include_str!("../src/lighting.wgsl").replacen(
         "#define_import_path cinnabar::lighting",
         "",
@@ -27,6 +29,11 @@ fn standalone(source: &str) -> String {
         .replacen("#define_import_path cinnabar::biome_tint", "", 1);
     source
         .replacen("#import bevy_render::view::View", VIEW, 1)
+        .replacen(
+            "#import cinnabar::material::{MaterialGpu, materials, positional_material}",
+            &material,
+            1,
+        )
         .replacen(
             "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}",
             &lighting,
@@ -51,7 +58,11 @@ fn every_shader_parses_and_validates() {
     for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if !name.ends_with(".wgsl") || name == "lighting.wgsl" || name == "biome_tint.wgsl" {
+        if !name.ends_with(".wgsl")
+            || name == "lighting.wgsl"
+            || name == "biome_tint.wgsl"
+            || name == "material.wgsl"
+        {
             continue;
         }
         let raw = std::fs::read_to_string(&path).unwrap();
