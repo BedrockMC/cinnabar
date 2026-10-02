@@ -30,6 +30,8 @@ mod audio_pcm_command;
 mod block_entity_command;
 #[path = "assetc/cli.rs"]
 mod cli;
+#[path = "assetc/command_outputs.rs"]
+mod command_outputs;
 #[path = "assetc/equipment_command.rs"]
 mod equipment_command;
 #[path = "assetc/font_command.rs"]
@@ -164,7 +166,13 @@ struct FontAssetCounts {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    match Cli::parse().command {
+    run(Cli::parse().command)
+}
+
+/// Dispatches a parsed command after its inputs and destinations are checked.
+fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+    command_outputs::validate_command_outputs(&command)?;
+    match command {
         Command::Atmosphere {
             pack,
             source_manifest,
@@ -387,7 +395,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             write_blob_atomic(&out, &blob)?;
             // Sidecar for runtime retexturing; a stale or absent one only disables that.
             write_blob_atomic(
-                &out.with_extension("matkeys.json"),
+                &command_outputs::material_keys_output(&out),
                 &material_keys.to_json(compiled.materials.len() as u32),
             )?;
             let cutout_materials = compiled
@@ -662,7 +670,7 @@ fn compile_entity_assets_command(
     write_blob_atomic(report, &report_bytes)?;
     // Sidecar for session-time server-pack entities that reference vanilla definitions.
     let refs = compile_vanilla_entity_refs(pack)?;
-    write_blob_atomic(&out.with_extension("vanillarefs.json"), &refs.to_json())?;
+    write_blob_atomic(&command_outputs::entity_refs_output(out), &refs.to_json())?;
     println!(
         "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
         report_data.counts.sources,
