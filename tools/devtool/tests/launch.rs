@@ -43,3 +43,17 @@ fn dev_profile_places_go_binaries_beside_the_debug_client() {
         assert!(commands.contains(&format!("run --profile {profile}")));
     }
 }
+#[test]
+fn developer_experiences_build_the_sibling_helper_in_the_selected_profile() {
+    for profile in ["play", "dev"] {
+        let commands = launch(profile, true);
+        let build = commands
+            .lines()
+            .find(|line| line.contains("build") && line.contains("-p mod-host"))
+            .expect("developer launch must build the helper binary");
+        assert!(build.contains(&format!("--profile {profile}")));
+        assert!(build.contains("--bin mod-host"));
+        assert!(commands.find(build).unwrap() < commands.find("run --profile").unwrap());
+    }
+    assert!(!launch("play", false).contains("-p mod-host"));
+}

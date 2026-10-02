@@ -359,6 +359,9 @@ client: assets physics-assets
 
 # Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
 play: assets physics-assets audio-pcm-assets
+ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
+	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
+endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
