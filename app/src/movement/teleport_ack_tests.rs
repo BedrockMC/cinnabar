@@ -514,9 +514,23 @@ fn disabled_provisional_routes_stay_inert_and_byte_identical() {
 fn review_expiry_removes_acknowledgement_from_a_restored_retry() {
     let mut ticker = armed_session_ticker(true);
     ticker.note_server_teleport(ServerTeleportKind::MovePlayer);
-    ticker.enqueue_completed_physics(completed_sample(101, [1.0, 2.0, 3.0])).unwrap();
-    assert!(flush_player_auth_inputs(&mut ticker, 1, Some(evidence_context()), |_id, _packet| Err("full")).is_err());
-    assert!(ticker.peek_pending().unwrap().snapshot.flags.bits() & PlayerInputFlags::HANDLED_TELEPORT.bits() != 0);
+    ticker
+        .enqueue_completed_physics(completed_sample(101, [1.0, 2.0, 3.0]))
+        .unwrap();
+    assert!(
+        flush_player_auth_inputs(
+            &mut ticker,
+            1,
+            Some(evidence_context()),
+            |_id, _packet| Err("full")
+        )
+        .is_err()
+    );
+    assert!(
+        ticker.peek_pending().unwrap().snapshot.flags.bits()
+            & PlayerInputFlags::HANDLED_TELEPORT.bits()
+            != 0
+    );
     for _ in 0..=TELEPORT_ACK_ADMITTED_TICK_BUDGET {
         ticker.observe_admitted_tick_for_teleport_ack();
     }
@@ -526,6 +540,7 @@ fn review_expiry_removes_acknowledgement_from_a_restored_retry() {
         retried = true;
         assert!(!carries_handled_teleport(&packet));
         Ok::<_, ()>(())
-    }).unwrap();
+    })
+    .unwrap();
     assert!(retried);
 }
