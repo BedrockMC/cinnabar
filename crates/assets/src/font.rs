@@ -52,6 +52,7 @@ pub struct CompiledFontCatalog {
     pages: Arc<[FontTexturePage]>,
     /// Drawn size in 1/64 px for glyphs that are not drawn at their texel size.
     draw_sizes_64: Arc<BTreeMap<char, [u32; 2]>>,
+    named: Arc<BTreeMap<String, Self>>,
 }
 
 pub type RuntimeFontCatalog = CompiledFontCatalog;
@@ -81,6 +82,7 @@ impl CompiledFontCatalog {
             glyphs: glyphs.into_boxed_slice(),
             pages: pages.into(),
             draw_sizes_64: Arc::default(),
+            named: Arc::default(),
         })
     }
 
@@ -117,7 +119,26 @@ impl CompiledFontCatalog {
             glyphs: glyphs.into_values().collect(),
             pages: Arc::clone(&self.pages),
             draw_sizes_64: Arc::new(draw_sizes_64),
+            named: Arc::clone(&self.named),
         }
+    }
+
+    /// Adds runtime font aliases without changing the pinned carrier format.
+    pub fn with_named_fonts(mut self, fonts: BTreeMap<String, Self>) -> Self {
+        let mut hash = Sha256::new();
+        hash.update(self.identity.carrier_sha256);
+        for (name, font) in &fonts {
+            hash.update(name.as_bytes());
+            hash.update(font.identity.carrier_sha256);
+        }
+        self.identity.carrier_sha256 = hash.finalize().into();
+        self.named = Arc::new(fonts);
+        self
+    }
+
+    /// Unknown aliases use the default font, as do callers without a font selection.
+    pub fn font_named(&self, name: &str) -> &Self {
+        self.named.get(name).unwrap_or(self)
     }
 
     /// Drawn `[width, height]` in 1/64 px when it differs from the glyph's texel size.

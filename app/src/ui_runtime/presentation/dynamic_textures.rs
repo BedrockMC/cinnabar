@@ -37,8 +37,8 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
 /// Rebuilds dynamic pages from immutable base assets so refreshed launcher
 /// artwork cannot accumulate stale layers or discard the HUD carriers.
 pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
-    let width = 256;
-    let height = 256;
+    let width = render::UI_DYNAMIC_PAGE_SIDE;
+    let height = render::UI_DYNAMIC_PAGE_SIDE;
     let layer_bytes = (width * height * 4) as usize;
     let mut rgba8 = if runtime.preview_dirty {
         vec![0; layer_bytes]

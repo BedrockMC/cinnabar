@@ -45,7 +45,7 @@ pub(crate) struct OverlayGaps {
     pub(crate) approximated_materials: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct CompiledBlockOverlay {
     pub(crate) overlay: BlockOverlay,
     pub(crate) gaps: OverlayGaps,

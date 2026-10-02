@@ -1,6 +1,9 @@
 //! Icons for server-defined items, packed onto the last dynamic UI page.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use render::UiTexturePage;
 
@@ -8,7 +11,8 @@ use super::{IconRef, UiPresentationRuntime, dynamic_textures};
 
 /// Largest icon side kept as-is; larger sources are reduced to fit.
 pub(crate) const MAX_SESSION_ICON_SIDE: u32 = 64;
-const PAGE_SIDE: u32 = 256;
+const MIN_PAGE_SIDE: u32 = 256;
+type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
 
@@ -16,6 +20,7 @@ const MAX_LOGGED_MISSES: usize = 512;
 #[derive(Debug)]
 pub(crate) struct SessionIcon {
     pub(crate) identifier: Arc<str>,
+    pub(crate) metadata: u32,
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) rgba8: Box<[u8]>,
@@ -33,7 +38,7 @@ pub(crate) struct SessionIcons {
 #[derive(Default)]
 pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
-    refs: HashMap<Arc<str>, IconRef>,
+    refs: IconRefs,
     pub(super) page: Option<UiTexturePage>,
 }
 
@@ -41,7 +46,12 @@ impl UiPresentationRuntime {
     /// Resolves an item identity to its icon: a server icon for this session
     /// first, then the vanilla atlas. Unknown items keep only the slot frame.
     pub(crate) fn item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
-        if let Some(icon) = self.session_icons.refs.get(identifier) {
+        if let Some(icon) = self
+            .session_icons
+            .refs
+            .get(identifier)
+            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
+        {
             return Some(*icon);
         }
         let vanilla = self
@@ -127,20 +137,19 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
 }
 
 /// Shelf-packs icons with a replicated gutter; icons that do not fit are left out.
-fn pack(
-    icons: &SessionIcons,
-    page_index: u16,
-) -> Option<(UiTexturePage, HashMap<Arc<str>, IconRef>)> {
-    let side = PAGE_SIDE as usize;
-    let mut rgba8 = vec![0u8; side * side * 4];
-    let mut refs = HashMap::new();
-    let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
+fn pack(icons: &SessionIcons, page_index: u16) -> Option<(UiTexturePage, IconRefs)> {
     // Tallest first keeps shelves dense; ties keep input order.
     let mut ordered = icons.icons.iter().collect::<Vec<_>>();
     ordered.sort_by_key(|icon| std::cmp::Reverse(icon.height));
+    let side = page_side(&ordered);
+    let mut rgba8 = vec![0u8; (side * side * 4) as usize];
+    let mut refs: IconRefs = HashMap::new();
+    let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
     for icon in ordered {
         let padded = [icon.width + GUTTER * 2, icon.height + GUTTER * 2];
-        if refs.contains_key(&icon.identifier)
+        if refs
+            .get(&icon.identifier)
+            .is_some_and(|variants| variants.contains_key(&icon.metadata))
             || icon.width == 0
             || icon.height == 0
             || icon.width > MAX_SESSION_ICON_SIDE
@@ -149,11 +158,11 @@ fn pack(
         {
             continue;
         }
-        if cursor[0] + padded[0] > PAGE_SIDE {
+        if cursor[0] + padded[0] > side {
             cursor = [0, cursor[1] + row_height];
             row_height = 0;
         }
-        if cursor[1] + padded[1] > PAGE_SIDE {
+        if cursor[1] + padded[1] > side {
             continue;
         }
         for y in 0..padded[1] {
@@ -161,27 +170,57 @@ fn pack(
             for x in 0..padded[0] {
                 let source_x = x.saturating_sub(GUTTER).min(icon.width - 1);
                 let source = ((source_y * icon.width + source_x) * 4) as usize;
-                let target = (((cursor[1] + y) * PAGE_SIDE + cursor[0] + x) * 4) as usize;
+                let target = (((cursor[1] + y) * side + cursor[0] + x) * 4) as usize;
                 rgba8[target..target + 4].copy_from_slice(&icon.rgba8[source..source + 4]);
             }
         }
         let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
-        refs.insert(
-            Arc::clone(&icon.identifier),
-            IconRef {
-                page: page_index,
-                uv: [
-                    left as u16,
-                    top as u16,
-                    (left + icon.width) as u16,
-                    (top + icon.height) as u16,
-                ],
-                glint: false,
-            },
-        );
+        refs.entry(Arc::clone(&icon.identifier))
+            .or_default()
+            .insert(
+                icon.metadata,
+                IconRef {
+                    page: page_index,
+                    uv: [
+                        left as u16,
+                        top as u16,
+                        (left + icon.width) as u16,
+                        (top + icon.height) as u16,
+                    ],
+                    glint: false,
+                },
+            );
         cursor[0] += padded[0];
         row_height = row_height.max(padded[1]);
     }
-    let page = UiTexturePage::owned([PAGE_SIDE, PAGE_SIDE], rgba8.into()).ok()?;
+    let page = UiTexturePage::owned([side, side], rgba8.into()).ok()?;
     Some((page, refs))
 }
+
+/// Grows the reserved page to the smallest bounded shelf layout containing the icons.
+fn page_side(icons: &[&SessionIcon]) -> u32 {
+    let mut side = MIN_PAGE_SIDE;
+    loop {
+        let (mut x, mut y, mut row) = (0, 0, 0);
+        for icon in icons {
+            if icon.width > MAX_SESSION_ICON_SIDE || icon.height > MAX_SESSION_ICON_SIDE {
+                continue;
+            }
+            let (width, height) = (icon.width + GUTTER * 2, icon.height + GUTTER * 2);
+            if x + width > side {
+                x = 0;
+                y += row;
+                row = 0;
+            }
+            x += width;
+            row = row.max(height);
+        }
+        if y + row <= side || side == render::MAX_UI_TEXTURE_SIDE {
+            return side;
+        }
+        side = (side * 2).min(render::MAX_UI_TEXTURE_SIDE);
+    }
+}
+
+#[cfg(test)]
+mod tests;

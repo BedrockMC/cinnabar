@@ -112,6 +112,8 @@ impl MenuRuntime {
             control_auth: None,
             sign_out_requested: false,
             store_actions: Vec::new(),
+            global_resource_actions: Vec::new(),
+            global_resources: Default::default(),
             store_snapshot: None,
             settings_options: std::sync::Arc::new(settings_options),
             storage: Default::default(),

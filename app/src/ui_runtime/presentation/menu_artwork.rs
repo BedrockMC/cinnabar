@@ -505,7 +505,12 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .unwrap_or_default(),
         )
         .map(|path| (path, MAX_ARTWORK_SIDE));
-    thumbnails
+    view.global_resources
+        .icons
+        .values()
+        .cloned()
+        .map(|path| (path, THUMBNAIL_SIDE))
+        .chain(thumbnails)
         .chain(full)
         .filter(|(path, _)| !path.is_empty())
         .collect()

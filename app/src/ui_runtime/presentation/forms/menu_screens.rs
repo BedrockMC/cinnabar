@@ -220,11 +220,12 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 super::settings_keys::bind(view, &mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
+                super::global_resources::bind(&view.global_resources, &mut data);
                 return Some(MenuScreenData {
                     reference,
                     context: settings_context(context),
                     data,
-                    overlay: None,
+                    overlay: super::global_resources::overlay(&view.global_resources),
                 });
             }
             MenuScreen::Store => return store_screen(view, &context, translate),
@@ -670,6 +671,11 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
     }
     if view.screen == MenuScreen::Store {
         return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
+    }
+    if view.screen == MenuScreen::Settings
+        && let Some(action) = super::global_resources::action(view, region)
+    {
+        return Some(action);
     }
     let index = region.collection_index;
     let collection = region.collection.as_deref();

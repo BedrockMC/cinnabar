@@ -118,6 +118,7 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     );
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.set_server_ui_pack(&super::ServerUiPack {
+        catalog: None,
         ui_layers: vec![vec![("ui/x.json".to_owned(), b"{}".to_vec())]],
         ..Default::default()
     });
@@ -171,6 +172,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let pack = super::ServerUiPack {
+        catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),
             br#"{ "namespace": "server_form", "form_button": { "modifications": [

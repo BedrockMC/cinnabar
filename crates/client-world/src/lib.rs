@@ -60,3 +60,5 @@ pub use stream::{
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
+
+pub use stream::ResourceMeshSnapshot;

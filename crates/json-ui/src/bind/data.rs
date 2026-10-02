@@ -57,6 +57,7 @@ pub struct DataSource {
     pub(super) collections: BTreeMap<String, SharedCollection>,
     /// Values the controller writes straight into named controls' bags.
     pub(super) controls: BTreeMap<String, BTreeMap<String, Scalar>>,
+    pub(super) collection_defaults: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// Controls created through named factories (`chat_item_factory`, …).
     pub(super) factories: BTreeMap<String, Vec<FactoryItem>>,
     /// Screen-controller semantics: an unbound `#name` reads as `false` rather
@@ -130,6 +131,15 @@ impl DataSource {
     pub fn set_shared_collection(&mut self, name: impl Into<String>, items: Arc<[CollectionItem]>) {
         self.collections
             .insert(name.into(), SharedCollection(items));
+    }
+
+    /// Answer collection bindings when their indexed item is absent, without creating a row.
+    pub fn set_collection_defaults(
+        &mut self,
+        name: impl Into<String>,
+        values: BTreeMap<String, Scalar>,
+    ) {
+        self.collection_defaults.insert(name.into(), values);
     }
 
     /// The controls the factory named `name` holds, oldest first.

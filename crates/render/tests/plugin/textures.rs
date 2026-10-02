@@ -269,7 +269,7 @@ fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on
         .find("let (texture_1, view_1, padded_1) = upload_texture_page(")
         .expect("second page is prepared before publication");
     let publish = prepare
-        .find("gpu_assets.prepared = Some(PreparedChunkTextureAssets {")
+        .find("_textures: [texture_0, texture_1]")
         .expect("complete revision publication");
     assert!(second_page < publish);
     assert!(prepare.contains("material.texture.raw()"));
