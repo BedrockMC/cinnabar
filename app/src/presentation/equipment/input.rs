@@ -2,11 +2,26 @@
 //! client-owned inventory) into runtime input.
 
 use assets::ItemVisualRoute;
-use client_world::{ActorArmorSnapshot, CanonicalItemStack, WorldStream};
+use client_world::{ActorArmorSnapshot, AttachableAnimationInput, CanonicalItemStack, WorldStream};
 use protocol::ActorHandedness;
 
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use crate::ui_runtime::UiRuntime;
+
+impl ActorEquipmentInput {
+    /// Native attachables run item-name queries against their owner's complete equipment,
+    /// not an artificial actor holding only the item currently being drawn.
+    pub(crate) fn attachable_input<'a>(
+        &'a self,
+        timing: AttachableAnimationInput<'a>,
+    ) -> AttachableAnimationInput<'a> {
+        AttachableAnimationInput {
+            owner_main_hand: self.main.as_ref().map(|item| item.identifier.as_ref()),
+            owner_off_hand: self.off.as_ref().map(|item| item.identifier.as_ref()),
+            ..timing
+        }
+    }
+}
 
 /// A drawable worn item, or `None` for an empty or unresolved stack.
 pub(super) fn worn_item(item: &CanonicalItemStack, dye_rgb: Option<u32>) -> Option<WornItem> {
@@ -86,5 +101,43 @@ pub(crate) fn local_input(
         .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_attachable_input_retains_other_hand_and_render_timing() {
+        let item = |identifier: &str| WornItem {
+            identifier: identifier.into(),
+            metadata: 0,
+            kind: HeldKind::Other,
+            dye_rgb: None,
+        };
+        let equipment = ActorEquipmentInput {
+            main: Some(item("minecraft:bow")),
+            off: Some(item("minecraft:shield")),
+            ..ActorEquipmentInput::default()
+        };
+        let input = equipment.attachable_input(AttachableAnimationInput {
+            first_person: true,
+            off_hand: true,
+            frame_alpha: 0.75,
+            use_elapsed_ticks: Some(2),
+            ..AttachableAnimationInput::default()
+        });
+        assert_eq!(
+            input.owner_main_hand,
+            equipment.main.as_ref().map(|item| item.identifier.as_ref())
+        );
+        assert_eq!(
+            input.owner_off_hand,
+            equipment.off.as_ref().map(|item| item.identifier.as_ref())
+        );
+        assert!(input.first_person && input.off_hand);
+        assert_eq!(input.frame_alpha, 0.75);
+        assert_eq!(input.use_elapsed_ticks, Some(2));
     }
 }

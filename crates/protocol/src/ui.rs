@@ -153,6 +153,13 @@ pub enum UiEvent {
     ChatAutocomplete(ChatAutocompleteEvent),
     AvailableCommands(CommandTreeEvent),
     GameMode(GameModeEvent),
+    /// UpdatePlayerGameType targets an actor's unique ID, not its runtime ID.
+    /// The ordered world stream admits only its local player's update to the UI.
+    PlayerGameMode {
+        actor_unique_id: i64,
+        tick: u64,
+        event: GameModeEvent,
+    },
     /// SetDefaultGameType: the level's default mode changed; players whose
     /// mode is bound to the default follow it.
     DefaultGameMode(GameModeEvent),

@@ -1,6 +1,7 @@
-//! Overlay-model contracts ported from the owner's proxy engine: layered
-//! predictions, in-order settlement, deletion as rollback, and the bounded
-//! pipeline.
+//! Native sparse prediction and response contracts.
+
+#[path = "overlay_tests/sparse.rs"]
+mod sparse;
 
 use std::sync::Arc;
 
@@ -132,7 +133,10 @@ fn accepted_response_applies_server_counts() {
         &mut ledger,
         request,
         StackResponseStatus::Accepted,
-        vec![correction(CONTAINER_NAME_CURSOR, 0, 2, 555)],
+        vec![
+            correction(CONTAINER_NAME_CURSOR, 0, 2, 555),
+            correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+        ],
     );
     let cursor = ledger.cursor_stack().unwrap();
     assert_eq!((cursor.count, cursor.stack_network_id), (2, 555));
@@ -164,9 +168,10 @@ fn gestures_pipeline_in_wire_order_over_the_folded_view() {
     assert_eq!(destination.slot, 5);
 }
 
-/// A later acceptance waits behind an unanswered head, then both commit.
+/// A later acceptance updates backing cells immediately without erasing a
+/// predecessor's historic snapshot.
 #[test]
-fn out_of_order_acceptance_settles_in_wire_order() {
+fn out_of_order_acceptance_settles_its_response_independently() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
     let head = ledger.begin_click(0).unwrap();
     let tail = ledger.begin_click(5).unwrap();
@@ -183,18 +188,28 @@ fn out_of_order_acceptance_settles_in_wire_order() {
             777,
         )],
     );
-    assert_eq!(ledger.pending_request_count(), 2);
-    assert!(ledger.queue[1].accepted.is_some());
+    assert_eq!(ledger.pending_request_count(), 1);
     assert_eq!(ledger.pending_request_id(), Some(head));
-    assert!(ledger.confirmed_stack(Cell::Inventory(5)).is_none());
+    assert_eq!(count(ledger.confirmed_stack(Cell::Inventory(5))), Some(4));
     assert_eq!(count(ledger.displayed_stack(5)), Some(4));
 
-    respond(&mut ledger, head, StackResponseStatus::Accepted, Vec::new());
+    respond(
+        &mut ledger,
+        head,
+        StackResponseStatus::Accepted,
+        vec![
+            correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+            correction(CONTAINER_NAME_CURSOR, 0, 4, 778),
+        ],
+    );
     assert_eq!(ledger.pending_request_count(), 0);
     let moved = ledger.displayed_stack(5).unwrap();
     assert_eq!((moved.count, moved.stack_network_id), (4, 777));
     assert!(ledger.displayed_stack(0).is_none());
-    assert!(ledger.cursor_stack().is_none());
+    assert!(
+        ledger.cursor_stack().is_none(),
+        "already-removed newer owner cannot be reconciled from an old answer"
+    );
     assert!(!ledger.resync_required());
 }
 
@@ -209,7 +224,10 @@ fn out_of_order_rejection_deletes_only_that_request() {
     assert_eq!(ledger.pending_request_id(), Some(head));
     assert_eq!(ledger.pending_request_count(), 1);
     assert!(ledger.displayed_stack(5).is_none());
-    assert_eq!(count(ledger.cursor_stack()), Some(4));
+    assert!(
+        ledger.cursor_stack().is_none(),
+        "rejection does not resurrect historic ownership"
+    );
 }
 
 /// Servers may append ERROR and SUCCESS for one id; the first resolves it.
@@ -238,17 +256,17 @@ fn duplicate_responses_for_one_request_resolve_once() {
     assert!(ledger.cursor_stack().is_none());
 }
 
-/// A push restating the same stack refolds the pending delta on top of it;
-/// rejection then restores exactly the pushed truth.
+/// A backing push never changes an active absolute sparse prediction;
+/// rejection uncovers exactly the pushed truth.
 #[test]
-fn server_push_of_same_stack_refolds_under_pending_delta() {
+fn server_push_of_same_stack_preserves_absolute_prediction() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
     let request = ledger.begin_take_count(0, 1).unwrap();
     send_all(&mut ledger);
     assert_eq!(count(ledger.displayed_stack(0)), Some(3));
 
     ledger.apply(&slot_push(0, stack(6, 10, 10)));
-    assert_eq!(count(ledger.displayed_stack(0)), Some(9));
+    assert_eq!(count(ledger.displayed_stack(0)), Some(3));
 
     respond(
         &mut ledger,
@@ -260,17 +278,16 @@ fn server_push_of_same_stack_refolds_under_pending_delta() {
     assert!(ledger.cursor_stack().is_none());
 }
 
-/// A push naming a different stack id voids the delta: the server validates
-/// requests by stack id, so the step can no longer apply as sent.
+/// Even a replacement backing item does not erase an active sparse cell.
 #[test]
-fn server_push_of_replacement_stack_voids_pending_delta() {
+fn server_push_of_replacement_stack_preserves_sparse_cell_until_response() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
     let request = ledger.begin_take_count(0, 1).unwrap();
     send_all(&mut ledger);
     let replacement = stack(9, 99, 10);
     ledger.apply(&slot_push(0, replacement.clone()));
-    assert_eq!(ledger.displayed_stack(0), Some(&replacement));
-    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(count(ledger.displayed_stack(0)), Some(3));
+    assert_eq!(count(ledger.cursor_stack()), Some(1));
 
     respond(
         &mut ledger,
@@ -341,7 +358,7 @@ fn rejection_keeps_authoritative_content_resend() {
 
 /// Overlapping queued transfers that are both rejected restore the source.
 #[test]
-fn rejection_rebases_overlapping_queued_transfers() {
+fn rejection_only_clears_answered_request_ownership() {
     let original = stack(6, 10, 2);
     let mut ledger = open_ledger(&[(0, original.clone())]);
     let first = ledger.begin_click(0).unwrap();
@@ -354,9 +371,10 @@ fn rejection_rebases_overlapping_queued_transfers() {
         StackResponseStatus::Rejected,
         Vec::new(),
     );
-    assert!(
-        ledger.displayed_stack(3).is_none(),
-        "the dependent place no longer applies"
+    assert_eq!(
+        count(ledger.displayed_stack(3)),
+        Some(1),
+        "later sparse ownership remains until its own response"
     );
     respond(
         &mut ledger,
@@ -408,8 +426,7 @@ fn accepted_placement_after_cursor_content_restores_item() {
     }
 }
 
-/// The pipeline is bounded; an accepted tail keeps its capacity until the
-/// head settles, and a late head drains the queue.
+/// The pipeline is bounded; each answered request frees its own capacity.
 #[test]
 fn request_queue_bounds_and_recovers() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
@@ -428,8 +445,7 @@ fn request_queue_bounds_and_recovers() {
             Vec::new(),
         );
     }
-    assert_eq!(ledger.pending_request_count(), MAX_PENDING_REQUESTS);
-    assert_eq!(ledger.begin_click(0), Err(InventoryGestureError::Busy));
+    assert_eq!(ledger.pending_request_count(), 1);
 
     respond(
         &mut ledger,
@@ -456,7 +472,10 @@ fn transport_pressure_drops_only_unsent_requests() {
     ledger.note_transport_pressure(20 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     assert_eq!(ledger.pending_request_count(), 1);
     assert_eq!(ledger.pending_request_id(), Some(admitted));
-    assert_eq!(count(ledger.cursor_stack()), Some(4));
+    assert!(
+        ledger.cursor_stack().is_none(),
+        "discarded latest unsent owner does not resurrect an older snapshot"
+    );
     assert!(!ledger.resync_required());
 }
 
@@ -563,8 +582,8 @@ fn full_queue_sends_mining_without_a_request() {
     assert_eq!(ledger.queue.len(), MAX_PENDING_REQUESTS);
 }
 
-/// An accepted request waiting behind an unanswered head never times out,
-/// and a timeout blocks only gestures touching its own surfaces.
+/// An answered request is retired immediately; an unanswered request's
+/// timeout gates only the surfaces it touched.
 #[test]
 fn timeouts_skip_accepted_requests_and_gate_only_their_surfaces() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4)), (20, stack(7, 12, 1))]);
@@ -581,7 +600,11 @@ fn timeouts_skip_accepted_requests_and_gate_only_their_surfaces() {
     respond(&mut ledger, tail, StackResponseStatus::Accepted, Vec::new());
     ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     assert!(ledger.queue[0].timed_out);
-    assert!(!ledger.queue[1].timed_out, "accepted requests only wait");
+    assert_eq!(
+        ledger.queue.len(),
+        1,
+        "accepted requests never wait behind a head"
+    );
     assert!(ledger.begin_quick_move(InventoryTarget::Player(20)).is_ok());
     assert_eq!(
         ledger.begin_drop(DropSource::Target(InventoryTarget::Offhand), Some(1)),

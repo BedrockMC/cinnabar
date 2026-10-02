@@ -125,6 +125,7 @@ impl ActorStore {
                         }),
                     has_rider,
                     has_player_rider,
+                    attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     camera_rotation,
                     camera_position,

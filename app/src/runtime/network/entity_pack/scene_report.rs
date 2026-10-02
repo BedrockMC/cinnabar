@@ -3,22 +3,19 @@
 
 use std::{path::Path, sync::Arc};
 
-use bevy::math::{EulerRot, Mat4, Quat, Vec2, Vec3, Vec4};
+use bevy::math::{EulerRot, Mat4, Quat, Vec3, Vec4};
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldEvent,
 };
-use render::{
-    ActorArtworkPages, ActorRenderScene, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
-    NAMETAG_TEXT_LIFT_BLOCKS, NametagScene,
-};
-use ui::{SafeArea, TextLayoutCache};
+use render::{ActorArtworkPages, ActorRenderScene, NAMETAG_ATLAS_SIDE, NametagScene};
+use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};
 use crate::{
     presentation::{actors, entity_layers},
     ui_runtime::presentation::{
         nametag_atlas::{GlyphPage, NametagAtlas, font_page},
-        nametags::{build_nametag_scene, project_nametag},
+        nametags::{build_nametag_scene, extract_nametag},
     },
 };
 
@@ -82,17 +79,16 @@ fn render_captured_scene() {
         &pack.artwork,
     );
     let (font, glyph_pages) = font_with_glyphs(Path::new(&font), Path::new(&glyphs));
-    let to_viewport = |point: Vec3| frame.project(point).map(|p| Vec2::new(p.x, p.y));
     let anchors: Vec<_> = runtime_ids
         .iter()
         .filter_map(|id| world.actor(*id))
         .filter_map(|actor| {
-            project_nametag(
+            extract_nametag(
                 actor,
                 eye,
-                &to_viewport,
-                [WIDTH as f32, HEIGHT as f32],
-                SafeArea::ZERO,
+                None,
+                world.actor_name_tag(actor.unique_id)?,
+                &ui::ScoreboardStore::default(),
                 1.0,
             )
         })
@@ -422,24 +418,15 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
     let side = NAMETAG_ATLAS_SIDE as f32;
     let atlas = nametag_pixels(scene);
     for (index, record) in scene.records.iter().enumerate() {
-        let anchor = Vec3::from_array(record.anchor);
-        let facing = (eye - anchor).normalize_or(Vec3::Z);
-        let right = Vec3::Y.cross(facing).normalize_or(Vec3::X);
-        let up = facing.cross(right);
-        let lift = if record.text != 0 {
-            facing * NAMETAG_TEXT_LIFT_BLOCKS
-        } else {
-            Vec3::ZERO
+        let Some(corners) = record.world_corners(eye.to_array()) else {
+            continue;
         };
-        let corner =
-            |x: f32, y: f32| anchor + (right * x - up * y) * NAMETAG_BLOCKS_PER_FONT_PIXEL + lift;
-        let [x0, y0, x1, y1] = record.rect;
         let [u0, v0, u1, v1] = record.uv;
         let quad = [
-            (corner(x0, y0), [u0, v0]),
-            (corner(x1, y0), [u1, v0]),
-            (corner(x1, y1), [u1, v1]),
-            (corner(x0, y1), [u0, v1]),
+            (Vec3::from_array(corners[0]), [u0, v0]),
+            (Vec3::from_array(corners[1]), [u1, v0]),
+            (Vec3::from_array(corners[2]), [u1, v1]),
+            (Vec3::from_array(corners[3]), [u0, v1]),
         ];
         let color = record.color;
         let shade = |uv: [f32; 2]| {
@@ -449,6 +436,9 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
                 let ty = ((uv[1] * side) as usize).min(NAMETAG_ATLAS_SIDE as usize - 1);
                 let at = (ty * NAMETAG_ATLAS_SIDE as usize + tx) * 4;
                 let texel = &atlas[at..at + 4];
+                if index >= scene.see_through && record.text != 0 && texel[3] < 128 {
+                    return None;
+                }
                 for (channel, value) in rgba.iter_mut().zip(texel) {
                     *channel *= f32::from(*value) / 255.0;
                 }
@@ -456,8 +446,18 @@ fn draw_nametags(frame: &mut Frame, scene: &NametagScene, eye: Vec3) {
             (rgba[3] > 0.0).then(|| rgba.map(|value| (value.clamp(0.0, 1.0) * 255.0).round() as u8))
         };
         let depth_tested = index >= scene.see_through;
-        frame.triangle([quad[0], quad[1], quad[2]], depth_tested, false, &shade);
-        frame.triangle([quad[0], quad[2], quad[3]], depth_tested, false, &shade);
+        frame.triangle(
+            [quad[0], quad[1], quad[2]],
+            depth_tested,
+            record.text != 0,
+            &shade,
+        );
+        frame.triangle(
+            [quad[0], quad[2], quad[3]],
+            depth_tested,
+            record.text != 0,
+            &shade,
+        );
     }
 }
 

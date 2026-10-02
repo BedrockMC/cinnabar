@@ -244,3 +244,25 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
     assert!(!runtime.survival_stats_visible());
     assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);
 }
+
+#[test]
+fn targeted_game_mode_cannot_bypass_world_stream_identity_admission() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    let outcome = runtime
+        .apply(envelope(
+            1,
+            1,
+            UiEvent::PlayerGameMode {
+                actor_unique_id: 1,
+                tick: 0,
+                event: protocol::GameModeEvent {
+                    update: GameModeUpdate::Explicit(PlayerGameMode::Creative),
+                },
+            },
+        ))
+        .unwrap();
+    assert_eq!(outcome, UiApplyOutcome::IgnoredByReceiveStore);
+    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Survival));
+    assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);
+}

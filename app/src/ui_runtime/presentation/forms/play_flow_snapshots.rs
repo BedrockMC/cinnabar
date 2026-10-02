@@ -282,6 +282,16 @@ fn the_loading_bar_animates_over_its_cached_layout() {
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
+    let bar = "textures/ui/loading_bar";
+    let bar_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local")
+        .join(crate::install_layout::vanilla_pack_relative())
+        .join(format!("{bar}.png"));
+    assert!(
+        bar_file.is_file(),
+        "the animation fixture requires the pinned vanilla loading bar at {}",
+        bar_file.display()
+    );
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
     std::fs::create_dir_all(&dir).unwrap();
     let mut view = fixture_view(&dir);
@@ -289,15 +299,38 @@ fn the_loading_bar_animates_over_its_cached_layout() {
     view.message = Some("Connecting...".to_owned());
     let runtime = UiRuntime::new(1);
     let dpi = DpiScale::new(1.0).unwrap();
-    let mut frame = |now_millis| {
+    let frame = |presentation: &mut super::super::UiPresentationRuntime, now_millis| {
         presentation.set_menu_view(Some(view.clone()));
         presentation
             .build(&runtime, now_millis, [1280, 720], dpi)
             .unwrap()
     };
-    frame(1_000);
-    let first = frame(1_000);
-    let later = frame(1_350);
+    // On-demand texture decodes may finish on workers after the inline budget.
+    // Hold the animation clock still until the strip itself can be drawn.
+    let started = std::time::Instant::now();
+    loop {
+        frame(&mut presentation, 1_000);
+        let resident = presentation
+            .form_presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .textures
+            .lock()
+            .placement(bar)
+            .is_some();
+        if resident {
+            break;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "the loading bar decode did not become resident: {}",
+            bar_file.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let first = frame(&mut presentation, 1_000);
+    let later = frame(&mut presentation, 1_350);
     let positions = |input: &render::UiRenderInput| {
         input
             .vertices

@@ -10,6 +10,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let readiness_ingress = Arc::new(ReadinessIngressCounter::default());
     let network_readiness_ingress = Arc::clone(&readiness_ingress);
+    let experience_gate = Arc::new(experience::ExperienceGate::default());
+    let network_experience_gate = Arc::clone(&experience_gate);
     let thread = thread::Builder::new()
         .name("bedrock-network".to_owned())
         .spawn(move || {
@@ -130,7 +132,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     control_event_tx,
                     world_event_tx,
                     shutdown_rx,
-                    network_readiness_ingress,
+                    (network_readiness_ingress, network_experience_gate),
                 )
                 .await;
                 if packs_applied {
@@ -148,6 +150,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
         shutdown,
         thread: Some(thread),
         readiness_ingress,
+        experience_gate,
     })
 }
 

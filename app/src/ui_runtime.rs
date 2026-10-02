@@ -162,6 +162,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug, Resource)]
 pub struct UiRuntime {
+    pub(crate) experiences: crate::server_experiences::ExperienceSession,
     local_abilities: local_abilities::LocalAbilities,
     session_id: u64,
     last_fifo_sequence: Option<u64>,
@@ -246,6 +247,7 @@ impl UiRuntime {
         inventory_ledger.begin_session(session_id);
         Self {
             session_id,
+            experiences: Default::default(),
             local_abilities: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
@@ -602,6 +604,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.experiences.reset();
         self.clear_local_abilities();
         self.server_lang = None;
         self.session_icons = None;
@@ -803,6 +806,12 @@ impl UiRuntime {
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
             UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
+            // Targeted mode updates must pass the world stream's local-unique-ID
+            // admission first; a direct UI injection cannot establish that identity.
+            UiEvent::PlayerGameMode { .. } => {
+                self.gameplay_hud.note_odd_hud_packet();
+                UiApplyOutcome::IgnoredByReceiveStore
+            }
             UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
             UiEvent::HudRules(rules) => {
                 self.apply_hud_rules(rules);

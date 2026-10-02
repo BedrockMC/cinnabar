@@ -1,6 +1,5 @@
-//! Prediction as layered deltas: the view is confirmed truth with every
-//! pending request's groups folded in queue order. Rejection deletes a
-//! request's groups; nothing is ever reverted in place.
+//! Atomic operations used only to create a request's absolute sparse snapshot.
+//! Backing slot updates and responses never rerun these operations.
 
 use super::cells::{Cell, Cells, Held};
 

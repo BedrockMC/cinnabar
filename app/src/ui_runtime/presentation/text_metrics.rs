@@ -11,7 +11,7 @@ pub(super) use ui::{
 
 /// Per-frame text metrics shared by every HUD, chat, and scoreboard run so a
 /// single frame cannot mix scales or line pitches. Font atlas texels are two
-/// texels per Java GUI design pixel, while sprite geometry uses one GUI pixel.
+/// texels per GUI design pixel, while sprite geometry uses one GUI pixel.
 #[derive(Clone, Copy)]
 pub(crate) struct TextMetrics {
     pub(super) scale: UiScale,
@@ -31,9 +31,10 @@ impl TextMetrics {
     ) -> Self {
         let dpi = dpi_scale.get();
         let k = gui_scale(physical_size, preference) as f32;
-        let scale = (k / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi)).clamp(UiScale::MIN, UiScale::MAX);
+        let scale = k / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi);
         Self {
-            scale: UiScale::new(scale).expect("the clamped scale is inside the UiScale range"),
+            scale: UiScale::new_display(scale)
+                .expect("supported GUI scale and DPI produce a valid display scale"),
             line_height_64: TEXT_LINE_HEIGHT_64,
             baseline_64: TEXT_BASELINE_64,
             shadow: TextShadow::Offset64(TEXT_SHADOW_OFFSET_64),

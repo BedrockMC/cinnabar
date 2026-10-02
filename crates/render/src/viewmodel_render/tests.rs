@@ -1,4 +1,5 @@
 use super::*;
+use bevy::core_pipeline::core_3d::graph::Node3d;
 
 fn empty_hand_world() -> World {
     use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
@@ -329,12 +330,24 @@ fn ui_only_and_optional_hand_graph_are_ordered_and_idempotent() {
             .is_ok()
     );
     assert!(
-        core.get_node_state(Node3d::MainTransparentPass)
+        core.get_node_state(crate::ui_render::UiWorldLabel)
             .unwrap()
             .edges
             .output_edges()
             .iter()
             .any(|edge| edge.get_input_node() == core.get_node_state(HandLabel).unwrap().label)
+    );
+    assert!(
+        core.get_node_state(Node3d::MainTransparentPass)
+            .unwrap()
+            .edges
+            .output_edges()
+            .iter()
+            .any(|edge| edge.get_input_node()
+                == core
+                    .get_node_state(crate::ui_render::UiWorldLabel)
+                    .unwrap()
+                    .label)
     );
 }
 

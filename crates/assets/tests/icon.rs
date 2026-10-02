@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use assets::{
-    IconEntry, IconSprite, MAX_ICON_ENTRIES, MAX_ICON_SIDE, RuntimeIconCatalog, encode_icon_catalog,
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, BlockVisualId,
+    IconBlockSheet, IconEntry, IconSprite, MAX_ICON_ENTRIES, MAX_ICON_SIDE, RuntimeIconCatalog,
+    compose_block_item_sheet, encode_icon_catalog, encode_icon_catalog_with_block_sheets,
 };
 
 fn sprite(width: u16, height: u16, fill: u8) -> IconSprite {
@@ -125,4 +127,73 @@ fn entry_count_bound_is_enforced_at_encode_time() {
         entries.push(entry(&format!("minecraft:item_{index:06}"), 0, 0));
     }
     assert!(encode_icon_catalog([0; 32], &sprites, &entries).is_err());
+}
+
+#[test]
+fn carried_block_faces_round_trip_without_occupying_an_inventory_icon_key() {
+    let tiles = std::array::from_fn(|face| {
+        sprite(BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_FACE_SIDE, face as u8 + 1)
+    });
+    let sheet = compose_block_item_sheet(&tiles).unwrap();
+    assert_eq!([sheet.width, sheet.height], BLOCK_ITEM_SHEET_SIZE);
+    let sheets = [IconBlockSheet {
+        visual: BlockVisualId(7),
+        sprite: 1,
+    }];
+    let bytes = encode_icon_catalog_with_block_sheets(
+        [7; 32],
+        &[sprite(16, 16, 99), sheet],
+        &[entry("test:carried_block", 0, 0)],
+        &sheets,
+    )
+    .unwrap();
+    let decoded = RuntimeIconCatalog::decode(&bytes).unwrap();
+    assert_eq!(decoded.block_sheets(), sheets);
+    assert_eq!(
+        decoded.lookup("test:carried_block", 0).unwrap().rgba8[0],
+        99
+    );
+    let sheet = &decoded.sprites()[decoded.block_sheets()[0].sprite as usize];
+    let columns = usize::from(BLOCK_ITEM_SHEET_GRID[0]);
+    let side = usize::from(BLOCK_ITEM_FACE_SIDE);
+    for face in 0..6 {
+        for (dx, dy) in [(0, 0), (side - 1, side - 1)] {
+            let x = face % columns * side + dx;
+            let y = face / columns * side + dy;
+            let pixel = (y * usize::from(sheet.width) + x) * 4;
+            assert_eq!(&sheet.rgba8[pixel..pixel + 4], &[face as u8 + 1; 4]);
+        }
+    }
+}
+
+#[test]
+fn carried_block_sheet_order_references_and_dimensions_fail_closed() {
+    let binding = |visual, sprite| IconBlockSheet {
+        visual: BlockVisualId(visual),
+        sprite,
+    };
+    let sprites = [sprite(
+        BLOCK_ITEM_SHEET_SIZE[0],
+        BLOCK_ITEM_SHEET_SIZE[1],
+        1,
+    )];
+    for invalid in [
+        vec![binding(7, 1)],
+        vec![binding(7, 0), binding(7, 0)],
+        vec![binding(8, 0), binding(7, 0)],
+    ] {
+        assert!(encode_icon_catalog_with_block_sheets([7; 32], &sprites, &[], &invalid).is_err());
+    }
+    assert!(
+        encode_icon_catalog_with_block_sheets(
+            [7; 32],
+            &[sprite(16, 16, 1)],
+            &[],
+            &[binding(7, 0)],
+        )
+        .is_err()
+    );
+    let mut tiles = std::array::from_fn(|_| sprite(BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_FACE_SIDE, 1));
+    tiles[3].rgba8 = Arc::from([1; 4]);
+    assert!(compose_block_item_sheet(&tiles).is_none());
 }

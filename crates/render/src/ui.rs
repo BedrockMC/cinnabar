@@ -19,7 +19,10 @@ pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct UiRenderVertex {
+    /// Physical screen XY multiplied by clip W; no perspective divide is done on the CPU.
     pub position: [f32; 2],
+    pub clip_z: f32,
+    pub clip_w: f32,
     pub uv: [u16; 2],
     pub color: [u8; 4],
     pub style_flags: u32,
@@ -50,6 +53,8 @@ impl UiScissor {
 pub const UI_BLEND_ALPHA: u32 = 0;
 /// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
 pub const UI_BLEND_INVERT: u32 = 1;
+/// Reject sampled texture alpha below one half before multiplying vertex alpha.
+pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
@@ -61,7 +66,11 @@ pub struct UiRenderBatch {
     /// One of [`UI_BLEND_ALPHA`] or [`UI_BLEND_INVERT`]; any other value is
     /// rejected at publication.
     pub blend_mode: u32,
-    _padding: u32,
+    /// 0 for Always/no comparison, 1 for reverse-Z world-depth testing.
+    pub depth_test: u32,
+    pub depth_write: u32,
+    /// 1 for world-projected UI, rendered before near-camera hands and ordinary HUD.
+    pub world_projection: u32,
 }
 
 impl UiRenderBatch {
@@ -79,8 +88,34 @@ impl UiRenderBatch {
             first_index,
             index_count,
             blend_mode,
-            _padding: 0,
+            depth_test: 0,
+            depth_write: 0,
+            world_projection: 0,
         }
+    }
+
+    #[must_use]
+    pub const fn with_depth_test(mut self, depth_test: bool) -> Self {
+        self.depth_test = depth_test as u32;
+        if depth_test {
+            self.world_projection = 1;
+        }
+        self
+    }
+
+    #[must_use]
+    pub const fn with_world_projection(mut self, projected: bool) -> Self {
+        self.world_projection = projected as u32;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_depth_write(mut self, depth_write: bool) -> Self {
+        self.depth_write = depth_write as u32;
+        if depth_write {
+            self.world_projection = 1;
+        }
+        self
     }
 }
 
@@ -117,11 +152,11 @@ impl UiRenderInput {
         {
             return Err(UiRenderRejectReason::InvalidSafeArea);
         }
-        if self
-            .vertices
-            .iter()
-            .any(|vertex| !vertex.position.iter().all(|value| value.is_finite()))
-        {
+        if self.vertices.iter().any(|vertex| {
+            !vertex.position.iter().all(|value| value.is_finite())
+                || !vertex.clip_z.is_finite()
+                || !vertex.clip_w.is_finite()
+        }) {
             return Err(UiRenderRejectReason::NonFiniteVertex);
         }
         if self
@@ -155,6 +190,9 @@ pub enum UiRenderRejectReason {
     InvalidScissor { batch: usize },
     TexturePageOutOfBounds { batch: usize },
     UnsupportedBlendMode { batch: usize },
+    UnsupportedDepthTest { batch: usize },
+    UnsupportedDepthWrite { batch: usize },
+    UnsupportedWorldProjection { batch: usize },
     InvalidTextureExtent,
     TextureByteLengthInvalid { actual: usize, expected: usize },
     TextureByteLimitExceeded { actual: usize, limit: usize },
@@ -350,6 +388,17 @@ fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
         }
         if batch.blend_mode > UI_BLEND_INVERT {
             return Err(UiRenderRejectReason::UnsupportedBlendMode { batch: batch_index });
+        }
+        if batch.depth_test > 1 {
+            return Err(UiRenderRejectReason::UnsupportedDepthTest { batch: batch_index });
+        }
+        if batch.depth_write > 1 {
+            return Err(UiRenderRejectReason::UnsupportedDepthWrite { batch: batch_index });
+        }
+        if batch.world_projection > 1
+            || ((batch.depth_test == 1 || batch.depth_write == 1) && batch.world_projection == 0)
+        {
+            return Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: batch_index });
         }
         let scissor = batch.scissor;
         let within_viewport = scissor.width > 0

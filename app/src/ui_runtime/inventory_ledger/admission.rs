@@ -18,12 +18,26 @@ use protocol::{
 use super::cells::{ARMOR_CELLS, CellSurface, FIRST_CRAFT_SLOT, Held};
 use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
-    Cell, LARGE_STORAGE_SLOT_COUNT, NO_CONTAINER_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
-    PendingCloseOwner, PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    Cell, LARGE_STORAGE_SLOT_COUNT, PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner,
+    PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
+        for update in event.slot_updates() {
+            bevy::log::debug!(target: "bedrock_client::inventory_requests",
+                identity = ?update.identity, network_id = update.stack.network_id,
+                stack_id = update.stack.stack_network_id, count = update.stack.count,
+                "authoritative inventory slot");
+        }
+        if let InventoryEvent::Content(content) = event {
+            bevy::log::debug!(target: "bedrock_client::inventory_requests",
+                container = ?content.container, slots = content.slots.len(),
+                items = ?content.slots.iter().take(PLAYER_INVENTORY_SLOT_COUNT)
+                    .map(|stack| (stack.network_id, stack.stack_network_id, stack.count))
+                    .collect::<Vec<_>>(),
+                "authoritative inventory content");
+        }
         self.admit(event);
         self.refold();
     }
@@ -46,15 +60,13 @@ impl PlayerInventoryLedger {
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
             InventoryEvent::Close(close) => {
-                if let Some(window_id) = close.container.window_id {
-                    self.remove_pending_close(window_id, close.window_type);
-                }
                 let personal_close = self.personal.as_ref().and_then(|personal| match personal {
                     super::PersonalWindow::Open {
                         window_id,
                         window_type,
                         ..
-                    } if close.container.window_id == Some(*window_id)
+                    } if close.server_initiated
+                        && close.container.window_id == Some(*window_id)
                         && close.window_type == *window_type =>
                     {
                         Some(false)
@@ -64,20 +76,34 @@ impl PlayerInventoryLedger {
                         window_type,
                         deadline_millis,
                         ..
-                    } if close.container.window_id == Some(*window_id) => {
-                        if close.window_type == *window_type {
-                            Some(false)
-                        } else if deadline_millis.is_some()
-                            && close.window_type == NO_CONTAINER_WINDOW_TYPE
-                            && !close.server_initiated
-                        {
+                    } => {
+                        if !close.server_initiated && deadline_millis.is_some() {
                             Some(true)
+                        } else if close.server_initiated
+                            && close.container.window_id == Some(*window_id)
+                            && close.window_type == *window_type
+                        {
+                            Some(false)
                         } else {
                             None
                         }
                     }
                     _ => None,
                 });
+                // A stale response cannot consume the close before it has
+                // reached the transport, even when its payload happens to match.
+                let unsent_personal_close = matches!(
+                    self.personal,
+                    Some(super::PersonalWindow::Closing {
+                        deadline_millis: None,
+                        ..
+                    })
+                );
+                if (close.server_initiated || !unsent_personal_close)
+                    && let Some(window_id) = close.container.window_id
+                {
+                    self.remove_pending_close(window_id, close.window_type);
+                }
                 if let Some(retain_confirmed_cursor) = personal_close {
                     self.finish_personal_close(retain_confirmed_cursor);
                 }
@@ -91,6 +117,19 @@ impl PlayerInventoryLedger {
             InventoryEvent::Content(content) => self.apply_content(content),
             InventoryEvent::Slot(update) => {
                 self.apply_slot_update(update.identity, &update.stack);
+            }
+            InventoryEvent::Transaction(transaction) => {
+                self.skipped_unknown_containers = self
+                    .skipped_unknown_containers
+                    .saturating_add(transaction.skipped_actions as u64);
+                if transaction.skipped_actions != 0 {
+                    bevy::log::warn!(target: "bedrock_client::inventory_requests",
+                        count = transaction.skipped_actions,
+                        "skipped unsupported normal transaction actions");
+                }
+                for update in event.slot_updates() {
+                    self.apply_slot_update(update.identity, &update.stack);
+                }
             }
             InventoryEvent::Response(event) => self.apply_response(event),
             InventoryEvent::Data(data) => self.apply_window_data(data),
@@ -130,6 +169,7 @@ impl PlayerInventoryLedger {
                     self.confirmed
                         .set(Cell::Inventory(index as u8), Held::new(stack));
                     self.known[index] = true;
+                    self.note_authoritative_write(Cell::Inventory(index as u8));
                 }
                 if complete {
                     self.player_resync_required = false;
@@ -260,6 +300,7 @@ impl PlayerInventoryLedger {
             Some(CanonicalCell::PlayerInventory(index)) => {
                 self.confirmed.set(Cell::Inventory(index), Held::new(stack));
                 self.known[usize::from(index)] = true;
+                self.note_authoritative_write(Cell::Inventory(index));
             }
             // A single-cell surface is completely restated by one slot update.
             Some(CanonicalCell::Cursor) => {

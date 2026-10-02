@@ -290,6 +290,8 @@ fn profile() -> assets::EntityGeometry {
         };
         EntityGeometryBone {
             name: name.into(),
+            binding: None,
+            texture_meshes: Box::new([]),
             parent: parent.map(Into::into),
             pivot: Some(vec(pivot)),
             rotation: None,
@@ -394,6 +396,8 @@ fn fallback_input() -> crate::ui::UiRenderInput {
         ]
         .map(|(position, uv)| UiRenderVertex {
             position,
+            clip_z: 0.0,
+            clip_w: 1.0,
             uv,
             color: [255; 4],
             style_flags: 0,

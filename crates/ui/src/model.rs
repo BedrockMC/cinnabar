@@ -9,8 +9,10 @@ use std::{
 use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
 
 mod draw;
+mod projection;
 
 use draw::{emit_visual, is_empty};
+pub use projection::UiWorldProjection;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct UiNodeId(u32);
@@ -108,6 +110,7 @@ pub struct UiNode {
     navigation_order: Option<u32>,
     clip_children: bool,
     visual: UiVisual,
+    world_projection: Option<UiWorldProjection>,
 }
 
 impl UiNode {
@@ -120,6 +123,7 @@ impl UiNode {
             navigation_order: None,
             clip_children: false,
             visual: UiVisual::None,
+            world_projection: None,
         }
     }
 
@@ -140,6 +144,13 @@ impl UiNode {
 
     pub fn with_visual(mut self, visual: UiVisual) -> Self {
         self.visual = visual;
+        self
+    }
+
+    /// Draws local font/geometry coordinates through a world transform instead of HUD layout.
+    /// Projection is per node; safe-area offsets, GUI scale and parent clips do not apply.
+    pub fn with_world_projection(mut self, projection: UiWorldProjection) -> Self {
+        self.world_projection = Some(projection);
         self
     }
 
@@ -247,10 +258,15 @@ pub const UI_STYLE_GLINT: u8 = 1 << 1;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiVertex {
+    /// Logical screen XY multiplied by clip W; ordinary HUD coordinates have W=1.
     pub position: [f32; 2],
+    /// Homogeneous clip Z and W; HUD vertices use 0 and 1 respectively.
+    pub clip_z: f32,
+    pub clip_w: f32,
     pub uv: [u16; 2],
     pub color: [u8; 4],
     pub style_flags: u8,
+    pub alpha_test: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -258,6 +274,9 @@ pub struct UiDrawBatch {
     pub texture_page: u16,
     pub clip: UiRect,
     pub blend: UiBlendMode,
+    pub depth_test: bool,
+    pub depth_write: bool,
+    pub world_projection: bool,
     pub index_range: Range<u32>,
 }
 
@@ -298,6 +317,7 @@ pub enum UiError {
     DrawByteLimitExceeded { actual: usize, limit: usize },
     DrawIndexOverflow,
     DrawAllocationFailed,
+    InvalidWorldProjection { node: UiNodeId },
 }
 
 impl fmt::Display for UiError {
@@ -332,6 +352,12 @@ impl UiTree {
         let mut by_id = BTreeMap::new();
         for node in nodes {
             let id = node.id;
+            if node
+                .world_projection
+                .is_some_and(|projection| !projection.is_valid())
+            {
+                return Err(UiError::InvalidWorldProjection { node: id });
+            }
             if by_id.insert(id, node).is_some() {
                 return Err(UiError::DuplicateNodeId { id });
             }
@@ -426,7 +452,11 @@ impl UiTree {
                 .parent
                 .and_then(|parent| bounds.get(&parent).copied())
                 .map_or(content.min(), UiRect::min);
-            let scaled = scale_rect(node.bounds, origin, scale.get())?;
+            let scaled = if node.world_projection.is_some() {
+                node.bounds
+            } else {
+                scale_rect(node.bounds, origin, scale.get())?
+            };
             bounds.insert(id, scaled);
             effective_clips.insert(id, clip);
             draw_order.push(id);
@@ -590,11 +620,20 @@ impl UiTree {
             let bounds = frame
                 .bounds(id)
                 .ok_or(UiError::MissingLayoutBounds { node: id })?;
+            let clip = match node.world_projection {
+                Some(projection) => projection
+                    .viewport_clip()
+                    .map_err(|_| UiError::InvalidWorldProjection { node: id })?,
+                None => clip,
+            };
             if !is_empty(clip) {
                 emit_visual(
                     &node.visual,
                     bounds,
-                    clip,
+                    draw::DrawSpace {
+                        clip,
+                        projection: node.world_projection.as_ref(),
+                    },
                     effects,
                     &mut vertices,
                     &mut indices,

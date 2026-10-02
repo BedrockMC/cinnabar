@@ -1155,6 +1155,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
         shutdown,
         thread: Some(worker),
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+        experience_gate: Arc::default(),
     };
 
     let packet = test_packet();

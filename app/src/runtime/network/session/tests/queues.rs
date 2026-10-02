@@ -20,6 +20,7 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
         shutdown,
         thread: None,
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+        experience_gate: Arc::default(),
     };
 
     assert_eq!(handle.pending_event_count(), 0);
