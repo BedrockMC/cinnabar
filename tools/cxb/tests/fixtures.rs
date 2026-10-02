@@ -20,6 +20,8 @@ use server_experience::{
 };
 
 const REGENERATE: &str = "regenerate with `cargo run -p cinnabar-cxb --locked -- write-fixtures tools/localserver/extension/testdata`";
+/// The server half writes `go/`: Go's own marker, Accept and envelope for the client's verifiers.
+const REGENERATE_GO: &str = "regenerate with `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures` in tools/localserver";
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../localserver/extension/testdata")
@@ -27,7 +29,12 @@ fn fixture_dir() -> PathBuf {
 
 fn read(name: &str) -> Vec<u8> {
     let path = fixture_dir().join(name);
-    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}; {REGENERATE}", path.display()))
+    let regenerate = if name.starts_with("go/") {
+        REGENERATE_GO
+    } else {
+        REGENERATE
+    };
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}; {regenerate}", path.display()))
 }
 
 /// Decodes a checked-in document and proves it is already in the client's canonical form.
@@ -239,4 +246,92 @@ fn fixtures_pass_the_client_verifiers() {
     channel
         .validate(&scalars.payload, channel.direction)
         .unwrap();
+}
+
+/// What the Go server half itself produced passes the client's verifiers: its marker, the real
+/// `.cxb` against the package Go offers for it, its Accept for a developer client's Hello under
+/// the binding rules of `Pending::accept`, and its first envelope after Ready through the client's
+/// ingress. `Pending` makes its Hello's nonces itself, so the Accept is checked by the same
+/// verification and rules rather than through a `Pending` holding Go's Hello.
+#[test]
+fn go_server_half_passes_the_client_verifiers() {
+    let marker: Marker = canonical("go/marker.json");
+    let (offer, _): (Offer, _) = marker
+        .offer
+        .verify(
+            &marker.server_key,
+            crypto::OFFER_DOMAIN,
+            MAX_MARKER_BYTES / 2,
+        )
+        .unwrap();
+    // One clock for the whole handshake, within the offer's lifetime.
+    let now = offer.expires_unix - 3600;
+    let verified = VerifiedOffer::read(&read("go/marker.json"), &offer.audience, now).unwrap();
+    let package = verified.offer.packages[0].clone();
+    let generated = fixtures::generate().unwrap();
+    let bundle = VerifiedBundle::read(
+        &generated.bundle,
+        &package,
+        &verified.offer.scope,
+        MAX_EXPANDED_BYTES,
+    )
+    .unwrap();
+
+    let Control::Hello(hello) = canonical("go/hello_message.json") else {
+        panic!("go/hello_message.json is not a hello");
+    };
+    assert_eq!(hello.offer_digest, verified.digest);
+    let Control::Accept(document) = canonical("go/accept_message.json") else {
+        panic!("go/accept_message.json is not an accept");
+    };
+    let (accept, _): (Accept, _) = document
+        .verify(
+            &verified.offer.server_key,
+            crypto::ACCEPT_DOMAIN,
+            MAX_PAYLOAD_BYTES,
+        )
+        .unwrap();
+    assert_eq!(accept.hello, hello);
+    assert_eq!(accept.audience, verified.offer.audience);
+    assert_eq!(accept.offer_digest, verified.digest);
+    assert_eq!(accept.revision, verified.offer.revision);
+    assert!(accept.expires_unix > now && accept.expires_unix <= verified.offer.expires_unix);
+    crypto::fixed_hex::<32>(&accept.server_challenge).unwrap();
+    crypto::fixed_hex::<32>(&accept.session).unwrap();
+
+    let Control::Ready {
+        session,
+        permissions,
+        world_epoch,
+        ..
+    } = canonical("go/ready_message.json")
+    else {
+        panic!("go/ready_message.json is not a ready");
+    };
+    assert_eq!(session, accept.session);
+    let mut scope = verified.offer.scope.clone();
+    scope.permissions = permissions[&package.id].clone();
+    let capabilities = Capabilities {
+        scope,
+        assets: BTreeSet::new(),
+        channels: bundle.manifest.channels.clone(),
+        actions: bundle.manifest.actions.clone(),
+    };
+    let grant = Grant {
+        offer: verified,
+        session: accept.session,
+        connection: hello.connection,
+        subclient: hello.subclient,
+        expires_unix: accept.expires_unix,
+    };
+    let mut ingress = Ingress::new(0);
+    ingress
+        .receive(&read("go/envelope_to_client.json"), 0, 1, &grant, |id| {
+            (id == package.id).then_some(&capabilities)
+        })
+        .unwrap();
+    assert_eq!(ingress.skipped, 0);
+    let envelope: Envelope = canonical("go/envelope_to_client.json");
+    let delivered = ingress.pop(1, world_epoch).unwrap();
+    assert_eq!(delivered.payload, envelope.payload);
 }
