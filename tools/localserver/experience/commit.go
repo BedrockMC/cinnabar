@@ -43,8 +43,7 @@ func (messageTeller) tell(p world.Entity, text string) {
 func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
 	var result error
 	task := ev.w.Do(func(tx *world.Tx) { result = h.apply(tx, d.id, ev, snap, ops) })
-	if err := task.Wait(ctx); err != nil {
-		task.Cancel()
+	if err := await(ctx, task); err != nil {
 		if ctx.Err() == nil {
 			h.log.Warn("commit failed", "experience", d.id, "error", err)
 		}
@@ -58,34 +57,43 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 	}
 }
 
-// apply checks snap against the world in tx and validates every op before it applies any: first
-// the block and data ops in their order, then the tells.
+// apply checks snap against the world in tx and validates every op before it applies any. Then
+// it applies the block ops in their order, the data writes, and last the tells. A position's
+// data write follows its last block op, as validate checks, so applying the data writes after
+// every block op changes nothing. Writes that shrink data go before those that grow it, so the
+// Experience's total only falls and then rises to the net that validate checked, and no single
+// write exceeds the quota.
 func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op) error {
 	actor, err := h.current(tx, exp, ev, snap)
 	if err != nil {
 		return err
 	}
-	data, err := h.validate(exp, ev, snap, ops)
+	writes, err := h.validate(exp, ev, snap, ops)
 	if err != nil {
 		return err
 	}
-	for i, op := range ops {
-		switch {
-		case op.SetBlock != nil:
-			pos := op.SetBlock.Pos.cube()
-			if op.SetBlock.ID == airID {
-				tx.SetBlock(pos, nil, nil)
-				h.store.Remove(exp, ev.dim.storeKey(pos))
+	for _, op := range ops {
+		if op.SetBlock == nil {
+			continue
+		}
+		pos := op.SetBlock.Pos.cube()
+		if op.SetBlock.ID == airID {
+			tx.SetBlock(pos, nil, nil)
+			h.store.Remove(exp, ev.dim.storeKey(pos))
+			continue
+		}
+		b, _ := h.reg.Lookup(op.SetBlock.ID)
+		tx.SetBlock(pos, b, nil)
+		h.store.Place(exp, ev.dim.storeKey(pos))
+	}
+	for _, grow := range []bool{false, true} {
+		for _, w := range writes {
+			if (w.delta > 0) != grow {
 				continue
 			}
-			b, _ := h.reg.Lookup(op.SetBlock.ID)
-			tx.SetBlock(pos, b, nil)
-			h.store.Place(exp, ev.dim.storeKey(pos))
-		case op.SetBlockData != nil:
-			key := ev.dim.storeKey(op.SetBlockData.Pos.cube())
-			if err := h.store.SetData(exp, key, data[i], op.SetBlockData.Data != nil); err != nil {
+			if err := h.store.SetData(exp, ev.dim.storeKey(w.pos), w.data, w.present); err != nil {
 				// validate checked ownership and the quota, so the store disagrees with it.
-				h.log.Error("validated data write failed", "experience", exp, "op", i, "error", err)
+				h.log.Error("validated data write failed", "experience", exp, "pos", w.pos, "error", err)
 			}
 		}
 	}
@@ -118,19 +126,31 @@ func (h *Host) current(tx *world.Tx, exp string, ev event, snap snapshot) (world
 	return nil, fmt.Errorf("%w: actor %s is not in the world", errStale, ev.actor.UUID())
 }
 
-// simCell is a writable snapshot cell as the ops before the current one leave it.
+// simCell is a writable snapshot cell as the ops before the current one leave it. written is set
+// once a data op has written it.
 type simCell struct {
 	id      string
 	owned   bool
 	dataLen uint64
+	written bool
+}
+
+// dataWrite is a validated data op: the data it writes at pos, absent unless present, and how
+// many bytes it adds to the Experience's total, negative when it frees some.
+type dataWrite struct {
+	pos     cube.Pos
+	data    []byte
+	present bool
+	delta   int64
 }
 
 // validate checks every op against the snapshot as the ops before it change it, by the rules
 // the runtime enforced: writes stay in the anchor's chunk column on loaded snapshot cells, set
 // air or an own block over air or an own block, write data only to an own block within the size
-// limit and the quota, and tell only the actor, within the tell limits. It returns the decoded
-// data of each data op, by op index.
-func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([][]byte, error) {
+// limit, and tell only the actor, within the tell limits. A position has at most one data op,
+// after its last block op. Like the runtime, it holds the quota to the result's net data, not to
+// each write. It returns the data writes in their order.
+func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([]dataWrite, error) {
 	if len(ops) > maxStagedOps {
 		return nil, fmt.Errorf("%w: %d ops, at most %d", errInvalid, len(ops), maxStagedOps)
 	}
@@ -151,8 +171,9 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([][]byte
 	if ev.actor != nil {
 		actorID = ev.actor.UUID().String()
 	}
-	used := dataQuota - h.store.Budget(exp)
-	data := make([][]byte, len(ops))
+	// The snapshot cells are current, so the store's total counts their data.
+	used := int64(dataQuota - h.store.Budget(exp))
+	var writes []dataWrite
 	tells := 0
 	for i, op := range ops {
 		switch {
@@ -165,11 +186,14 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([][]byte
 				return nil, fmt.Errorf("%w: op %d sets a block over %s, which is not its own",
 					errInvalid, i, c.id)
 			}
+			if c.written {
+				return nil, fmt.Errorf("%w: op %d sets a block whose data an earlier op wrote", errInvalid, i)
+			}
 			id := op.SetBlock.ID
 			if b, ok := h.reg.Lookup(id); id != airID && (!ok || b.t.exp != exp) {
 				return nil, fmt.Errorf("%w: op %d sets %q, which is not its own block", errInvalid, i, id)
 			}
-			used -= c.dataLen
+			used -= int64(c.dataLen)
 			*c = simCell{id: id, owned: id != airID}
 		case op.SetBlockData != nil:
 			c, err := writable(i, op.SetBlockData.Pos)
@@ -180,20 +204,24 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([][]byte
 				return nil, fmt.Errorf("%w: op %d writes data to %s, which is not its own block",
 					errInvalid, i, c.id)
 			}
-			if hexData := op.SetBlockData.Data; hexData != nil {
-				if data[i], err = hex.DecodeString(*hexData); err != nil {
+			if c.written {
+				return nil, fmt.Errorf("%w: op %d writes data that an earlier op wrote", errInvalid, i)
+			}
+			w := dataWrite{pos: op.SetBlockData.Pos.cube(), present: op.SetBlockData.Data != nil}
+			if w.present {
+				if w.data, err = hex.DecodeString(*op.SetBlockData.Data); err != nil {
 					return nil, fmt.Errorf("%w: op %d data: %v", errInvalid, i, err)
 				}
 			}
-			n := uint64(len(data[i]))
+			n := uint64(len(w.data))
 			if n > maxBlockDataBytes {
 				return nil, fmt.Errorf("%w: op %d writes %d bytes of data, at most %d",
 					errInvalid, i, n, maxBlockDataBytes)
 			}
-			if used = used - c.dataLen + n; used > dataQuota {
-				return nil, fmt.Errorf("%w: op %d exceeds the data quota", errInvalid, i)
-			}
-			c.dataLen = n
+			w.delta = int64(n) - int64(c.dataLen)
+			used += w.delta
+			c.dataLen, c.written = n, true
+			writes = append(writes, w)
 		case op.Tell != nil:
 			text := op.Tell.Text
 			tells++
@@ -211,5 +239,8 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) ([][]byte
 			return nil, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}
 	}
-	return data, nil
+	if used > dataQuota {
+		return nil, fmt.Errorf("%w: its data exceeds the quota by %d bytes", errInvalid, used-dataQuota)
+	}
+	return writes, nil
 }

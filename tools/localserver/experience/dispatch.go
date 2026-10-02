@@ -76,9 +76,12 @@ type dispatcher struct {
 }
 
 // neighborTick holds the positions of the neighbor events that one Experience admitted in one
-// tick of a world.
+// tick of a world. A tick runs its neighbour updates in a transaction of its own, which
+// identifies the tick: a world's CurrentTick does not, since the nether and the end share the
+// overworld's, which stands still while the overworld has no viewers. Holding tx keeps a later
+// transaction from taking its address.
 type neighborTick struct {
-	tick int64
+	tx   *world.Tx
 	seen map[cube.Pos]struct{}
 }
 
@@ -330,16 +333,16 @@ func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
 
 // admitNeighbor reports whether a neighbor event at pos may be queued in this tick of tx's
 // world: one per position, and maxNeighborEventsPerTick in all. One over the cap is dropped.
+// NeighbourUpdateTick runs only in a tick's transaction, so tx identifies the tick.
 func (h *Host) admitNeighbor(d *dispatcher, tx *world.Tx, pos cube.Pos) bool {
-	tick := tx.CurrentTick()
 	d.neighborMu.Lock()
 	window := d.neighbors[tx.World()]
 	if window == nil {
 		window = &neighborTick{seen: make(map[cube.Pos]struct{})}
 		d.neighbors[tx.World()] = window
 	}
-	if window.tick != tick {
-		window.tick = tick
+	if window.tx != tx {
+		window.tx = tx
 		clear(window.seen)
 	}
 	_, seen := window.seen[pos]
@@ -393,7 +396,8 @@ func (h *Host) work(ctx context.Context, d *dispatcher) {
 // A failed or rejected callback or an error publishes nothing; the supervisor has counted a
 // failure already.
 func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
-	if !h.resumed(ctx) {
+	// A cancelled worker takes no more events, though select may still pick one.
+	if ctx.Err() != nil || !h.resumed(ctx) {
 		return
 	}
 	d.seq++
@@ -449,12 +453,21 @@ type cellState struct {
 // world.
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev event) (snapshot, error) {
 	var snap snapshot
-	task := ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, ev) })
-	if err := task.Wait(ctx); err != nil {
-		task.Cancel()
+	if err := await(ctx, ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, ev) })); err != nil {
 		return snapshot{}, err
 	}
 	return snap, nil
+}
+
+// await waits for task until ctx ends, then cancels it. A task that has already started cannot
+// be cancelled, so await waits for it to finish: nothing it does outlives the worker, and a
+// commit's writes land before Close flushes the store.
+func await(ctx context.Context, task *world.Task) error {
+	err := task.Wait(ctx)
+	if err != nil && !task.Cancel() {
+		<-task.Done()
+	}
+	return err
 }
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
