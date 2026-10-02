@@ -467,3 +467,13 @@ fn programs_validate_operand_kinds_branch_depths_and_loop_frames() {
         2,
     ));
 }
+
+#[test]
+fn review_molang_rejects_unbounded_backward_jumps() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.molang_ops = vec![MolangOp::Jump(0)].into();
+    compiled.molang_expressions[0].first_op = 0;
+    compiled.molang_expressions[0].op_count = 1;
+    compiled.molang_expressions[0].max_stack = 0;
+    assert!(compiled.validate().is_err());
+}
