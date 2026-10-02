@@ -422,7 +422,7 @@ impl ActorStore {
                             verified,
                             skin,
                         } => {
-                            capacity_rejected |= !self.upsert_profile(
+                            let admitted = self.upsert_profile(
                                 *uuid,
                                 PlayerProfile {
                                     unique_id: *unique_id,
@@ -431,6 +431,10 @@ impl ActorStore {
                                     skin: skin.clone(),
                                 },
                             );
+                            capacity_rejected |= !admitted;
+                            if admitted && self.synthetic_local_uuid == Some(*uuid) {
+                                self.synthetic_local_uuid = None;
+                            }
                         }
                         PlayerListEntry::Remove { uuid } => {
                             self.remove_profile(uuid);
