@@ -798,7 +798,7 @@ fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
 }
 
 #[test]
-fn accepted_response_rejects_negative_stack_ids() {
+fn accepted_response_retains_odd_stack_ids_for_lenient_sparse_validation() {
     let response = accepted_response(
         3,
         vec![ItemStackResponseContainerInfo {
@@ -812,13 +812,13 @@ fn accepted_response_rejects_negative_stack_ids() {
             }],
         }],
     );
-    assert_eq!(
-        normalize_response(ItemStackResponsePacket {
-            responses: vec![response]
-        })
-        .unwrap_err(),
-        InventoryPacketError::InvalidStackNetworkId(-1)
-    );
+    let InventoryEvent::Response(event) = normalize_response(ItemStackResponsePacket {
+        responses: vec![response],
+    })
+    .unwrap() else {
+        panic!("response")
+    };
+    assert_eq!(event.responses[0].containers[0].slots[0].item_stack_id, -1);
 }
 
 #[test]

@@ -113,7 +113,6 @@ pub(crate) use equipment_carrier::{
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;
-pub(crate) use lang_carrier::active_language_code;
 mod path_selection;
 
 /// Environment override consumed through [`path_selection`]; kept beside the
@@ -146,6 +145,7 @@ pub use icon_carrier::{
     ICON_ASSETS_COMPILE_COMMAND, LoadedIconAssets, icon_asset_path, icon_assets_rebuild_command,
     require_icon_assets,
 };
+pub(crate) use lang_carrier::active_language;
 pub use lang_carrier::{
     LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
     load_active_language, require_lang_assets,

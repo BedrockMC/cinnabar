@@ -91,8 +91,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,
-            width: 64,
-            height: 64,
+            width: render::STANDARD_SKIN_SIDE as u32,
+            height: render::STANDARD_SKIN_SIDE as u32,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
         }),
     }
@@ -126,13 +126,18 @@ fn rig<'a>(
         render: &[],
         bone_names: &[],
         skin_geometry: None,
+        skin_layers: &[],
         hand: Default::default(),
+        item_animation: [client_world::ItemAnimationState::default(); 2],
+        off_hand_animation: [client_world::ItemAnimationState::default(); 2],
+        animation_variables: Default::default(),
     }
 }
 
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
                     session_id: 7,
@@ -399,6 +404,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
     no_identity.publish_view_visibility(
         PerspectiveMode::ThirdPersonBack,
         Vec3::new(3.0, 65.62, -2.0),
+        Vec3::new(3.0, 64.0, -2.0),
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -414,6 +420,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         avatar.publish_view_visibility(
             perspective,
             Vec3::new(3.0, 65.62, -2.0),
+            Vec3::new(3.0, 64.0, -2.0),
             Quat::IDENTITY,
             &mut visibility,
         );
@@ -423,8 +430,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
             .expect("valid session view publishes without Physics authority");
         assert_eq!(snapshot.visible(), expected_draws != 0);
 
-        let mut position = snapshot.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let position = snapshot.feet();
         let local = local_diagnostic_presentation(
             9,
             0,
@@ -451,6 +457,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
     avatar.publish_view_visibility(
         PerspectiveMode::ThirdPersonBack,
         Vec3::NAN,
+        Vec3::ZERO,
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -477,6 +484,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     .unwrap();
     let stale_sample = LocalPlayerFrameSample {
         session_generation: 7,
+        actor_session_id: 3,
         fifo_sequence: 41,
         physics_tick: 900,
         perspective: PerspectiveMode::ThirdPersonBack,
@@ -487,6 +495,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
             PerspectiveMode::ThirdPersonBack,
         ),
         eye: stale_eye,
+        feet: stale_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET,
         rotation: subject_rotation,
     };
     stale_frame.publish(stale_sample).unwrap();
@@ -506,6 +515,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
             &avatar,
             perspective,
             authoritative_eye,
+            Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
             subject_rotation,
             &mut visibility,
         );
@@ -513,8 +523,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         assert_eq!(snapshot.eye(), subject_eye);
         assert!(snapshot.visible());
 
-        let mut feet = snapshot.eye();
-        feet.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let feet = snapshot.feet();
         let local = local_diagnostic_presentation(
             7,
             0,
@@ -543,6 +552,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         &avatar,
         PerspectiveMode::FirstPerson,
         Some(subject_eye),
+        Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
         subject_rotation,
         &mut visibility,
     );
@@ -601,4 +611,55 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
         assert!(rows[2][0].abs() < 1e-6, "{identifier}");
         assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
     }
+}
+
+#[test]
+fn authored_skin_bounds_reach_frustum_and_cave_admission() {
+    let patch = r#"{"geometry":{"default":"geometry.capture_bounds"}}"#;
+    let model = r#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.capture_bounds","texture_width":64,"texture_height":64,
+            "visible_bounds_width":3,"visible_bounds_height":4,"visible_bounds_offset":[0,2,0]},
+        "bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
+    let geometry = Arc::new(assets::parse_skin_geometry(patch, model).unwrap().unwrap());
+    let mut actor = actor(42, 41);
+    actor.position = [2.0, 64.0, 0.0];
+    actor.previous_pose.position = actor.position;
+    let bones = [model_bone([0.0; 3])];
+    let default = rig(42, &bones, &bones);
+    let authored = ActorRigSnapshot {
+        skin_geometry: Some(&geometry),
+        ..default
+    };
+    let view = ActorCullView {
+        clip_from_world: Mat4::from_translation(Vec3::new(0.0, -65.0, 0.0)),
+        camera_position: Vec3::new(0.0, 65.0, 0.0),
+        max_distance: 192.0,
+    };
+    assert!(!crate::presentation::actors::rig_may_be_visible(
+        &default,
+        &actor,
+        1.0,
+        Some(view),
+        |_, _| false,
+    ));
+    assert!(crate::presentation::actors::rig_may_be_visible(
+        &authored,
+        &actor,
+        1.0,
+        Some(view),
+        |low, high| {
+            assert_eq!(low, [0.5, 64.0, -1.5]);
+            assert_eq!(high, [3.5, 68.0, 1.5]);
+            false
+        },
+    ));
+    let body = actor_rig_presentation(&authored, &actor, Some(&profile(42, 255)), 1.0).unwrap();
+    assert!(render::actor_rig_submission_is_visible(
+        &body.submission,
+        Some(view)
+    ));
+    assert_eq!(
+        body.submission.culling_bounds,
+        geometry.visible_bounds.unwrap()
+    );
 }

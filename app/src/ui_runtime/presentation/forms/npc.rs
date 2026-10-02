@@ -9,7 +9,7 @@ use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use super::engine;
 use crate::ui_runtime::{ServerFormIdentity, UiRuntime};
 
-const NPC_SCREEN: &str = "npc_interact.npc_screen";
+pub(crate) const NPC_SCREEN: &str = "npc_interact.npc_screen";
 
 impl UiPresentationRuntime {
     /// Draw `npc` through the engine; `Ok(false)` leaves it to the fallback.
@@ -40,13 +40,18 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content: [width, height],
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = engine::EngineOutput {
             nodes: &mut *nodes,
             next: &mut *next,
             overlay: &[],
         };
-        let art = engine::ScreenArt::default();
+        let art = engine::ScreenArt {
+            now: self.menu_seconds,
+            clocks: Some(&self.scene_clock),
+            ..engine::ScreenArt::default()
+        };
         match renderer.render_screen(
             NPC_SCREEN,
             &data,

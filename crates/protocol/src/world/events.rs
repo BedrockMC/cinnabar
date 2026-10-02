@@ -405,6 +405,7 @@ pub struct ActorPropertySyncEvent {
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
+    Experience(crate::ExperienceMessage),
     Abilities(crate::AbilitiesUpdate),
     BiomeDefinitions(BiomeDefinitionsEvent),
     LevelChunk(LevelChunkEvent),
@@ -424,6 +425,8 @@ pub enum WorldEvent {
     MovePlayer(MovePlayerEvent),
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     ActorMotion(ActorMotionEvent),
+    /// A server probe echoed only after preceding world controls are applied.
+    NetworkStackLatency(u64),
     SetTime(SetTimeEvent),
     GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),

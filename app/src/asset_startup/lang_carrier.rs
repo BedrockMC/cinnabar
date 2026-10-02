@@ -10,7 +10,7 @@ use std::{
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 use assets::RuntimeLangCatalog;
@@ -23,12 +23,6 @@ pub const LANG_ASSETS_FILENAME: &str = "vanilla-v1.mcbelang";
 pub const LANG_ASSETS_COMPILE_COMMAND: &str = "make lang-assets";
 const LANG_ASSETS_REPORT_FILENAME: &str = "lang-assets.json";
 const MAX_LANG_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
-static ACTIVE_LANGUAGE: OnceLock<String> = OnceLock::new();
-
-/// The selected UI language, also used for service localization.
-pub(crate) fn active_language_code() -> Option<&'static str> {
-    ACTIVE_LANGUAGE.get().map(String::as_str)
-}
 
 /// Returns a copy-paste recovery command that writes the localization
 /// carrier where startup looked for it: the bare make target at the default
@@ -82,7 +76,6 @@ pub fn load_active_language(
     requested: Option<&str>,
 ) -> Option<Arc<RuntimeLangCatalog>> {
     let code = active_language(requested);
-    let _ = ACTIVE_LANGUAGE.set(code.clone());
     crate::runtime::network::set_active_language(&code);
     load_optional_language(
         world_asset_path,
@@ -93,7 +86,7 @@ pub fn load_active_language(
 
 /// The UI language: `requested`, else the environment locale, else `en_US`.
 #[must_use]
-fn active_language(requested: Option<&str>) -> String {
+pub(crate) fn active_language(requested: Option<&str>) -> String {
     let from_env = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .filter_map(|name| std::env::var(name).ok())

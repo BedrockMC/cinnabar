@@ -87,6 +87,17 @@ impl WorldStream {
             .mesh_uploads_acknowledged
             .saturating_add(1);
     }
+    /// Returns undelivered controls to the front without changing their order.
+    pub fn restore_committed_controls(
+        &mut self,
+        controls: impl DoubleEndedIterator<Item = CommittedControlEvent>,
+    ) {
+        for control in controls.rev() {
+            assert!(self.committed_controls.len() < COMMITTED_CONTROL_CAPACITY);
+            self.committed_controls.push_front(control);
+        }
+    }
+
     pub fn take_committed_controls(&mut self) -> Vec<CommittedControlEvent> {
         self.committed_controls.drain(..).collect()
     }
@@ -111,6 +122,10 @@ impl WorldStream {
     }
     pub fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_display_name(unique_id)
+    }
+    /// Synced actor name tag, distinct from the player's scoreboard username.
+    pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_name_tag(unique_id)
     }
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {

@@ -107,6 +107,7 @@ fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
     let generation = session.retire(menu);
+    session.runtime.experiences.select_destination(&address);
     menu.feeds.join =
         super::view::JoinProgress::new(super::launcher_core::join_kind(&address, local_world));
     let launcher = session
@@ -316,10 +317,13 @@ pub(crate) fn drive_menu_connection(
     launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
+    settings: Option<ResMut<crate::settings_runtime::RuntimeSettings>>,
 ) {
     menu.poll_catalog(launcher_account.is_some());
     menu.poll_saves();
     menu.sync_audio_settings(audio_settings);
+    menu.sync_user_settings(settings);
+    menu.sync_language(&mut session.runtime);
     let in_session = session.client_world.stream.is_some();
     let upstream_cache = client_blob_cache.enables_upstream_client_cache();
     if let Some(slot) = session.launcher.as_deref_mut() {
@@ -643,7 +647,7 @@ mod transfer_follow_tests {
             let root = TempRoot::new();
             let mut menu = MenuRuntime::new_with_layout(
                 true,
-                2,
+                Some(2),
                 "Player".to_owned(),
                 missing_core_layout(root.path()),
                 crate::player_skin::LocalPlayerSkin::generated_default("Player"),
@@ -692,7 +696,7 @@ mod transfer_follow_tests {
         let root = TempRoot::new();
         let mut menu = MenuRuntime::new_with_layout(
             true,
-            2,
+            Some(2),
             "Player".to_owned(),
             missing_core_layout(root.path()),
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),
@@ -765,7 +769,7 @@ mod transfer_follow_tests {
         fs::set_permissions(&layout.core_executable, fs::Permissions::from_mode(0o755)).unwrap();
         let menu = MenuRuntime::new_with_layout(
             true,
-            2,
+            Some(2),
             "Player".to_owned(),
             layout,
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),
@@ -849,7 +853,7 @@ mod transfer_follow_tests {
         let root = TempRoot::new();
         let mut menu = MenuRuntime::new_with_layout(
             true,
-            2,
+            Some(2),
             "Player".to_owned(),
             missing_core_layout(root.path()),
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),

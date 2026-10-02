@@ -5,6 +5,8 @@ pub(crate) use committed_ui::drain_committed_ui_before_authority;
 #[cfg(test)]
 mod player_list_tests;
 mod shutdown_watchdog;
+mod sub_chunk_requests;
+pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 
 pub(crate) use acceptance_helpers::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
@@ -20,7 +22,7 @@ use std::sync::Arc;
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     ecs::system::SystemParam,
-    log::{debug, info, warn},
+    log::{info, warn},
     prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
     time::Real,
 };
@@ -36,6 +38,7 @@ use protocol::BlobCacheStats;
 use render::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, RuntimeStage, RuntimeStageProfiler,
+    VisibilityDiagnosticsInput,
 };
 
 use crate::{
@@ -226,13 +229,14 @@ pub(crate) fn update_camera_medium(
     };
 }
 
-/// Full-world cohort witness; only acceptance and metrics runs consume it, and
-/// it scans every retained column and sub-chunk.
+/// Full-world cohort witness for startup, acceptance and metrics. Normal play
+/// stops scanning retained columns and sub-chunks once startup releases.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
     acceptance: &AcceptanceRun,
+    startup_probe_enabled: bool,
 ) -> Option<ViewCohortStatus> {
-    if !super::telemetry::publication_diagnostics_enabled(acceptance) {
+    if !startup_probe_enabled && !super::telemetry::publication_diagnostics_enabled(acceptance) {
         return None;
     }
     stream
@@ -258,6 +262,7 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
     state: AppWorldState,
+    network: Option<Res<NetworkHandle>>,
     mut acceptance: ResMut<AcceptanceRun>,
     upload_budget: Res<ChunkUploadBudget>,
     model_witness_source: Res<ModelWitnessFileSource>,
@@ -271,6 +276,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut server_camera: ResMut<ServerCameraInstructions>,
     mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
+    visibility_diagnostics: Option<Res<VisibilityDiagnosticsInput>>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -302,9 +308,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     );
-    frame_poll.cohort = frame_cohort_status(stream, &acceptance);
-    let controls = stream.take_committed_controls();
-    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
+    frame_poll.cohort = frame_cohort_status(
+        stream,
+        &acceptance,
+        visibility_diagnostics.is_some_and(|diagnostics| diagnostics.startup_probe_enabled()),
+    );
     drain_committed_audio(stream, |event| {
         audio.write(event);
     });
@@ -326,7 +334,49 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     }
 
-    for control in controls {
+    if network
+        .as_ref()
+        .is_some_and(|network| network.flush_latency_reply().is_err())
+    {
+        movement.set_control_fence_pending(true);
+        return;
+    }
+    movement.set_control_fence_pending(false);
+    let controls = stream.take_committed_controls();
+    if movement.has_unsent_inputs()
+        && controls
+            .iter()
+            .any(|control| matches!(control, CommittedControlEvent::NetworkStackLatency { .. }))
+    {
+        movement.set_control_fence_pending(true);
+        stream.restore_committed_controls(controls.into_iter());
+        return;
+    }
+    refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
+
+    let mut controls = controls.into_iter();
+    while let Some(control) = controls.next() {
+        if let CommittedControlEvent::NetworkStackLatency { creation_time, .. } = control {
+            let Some(network) = network.as_ref() else {
+                movement.set_control_fence_pending(true);
+                stream.restore_committed_controls(std::iter::once(control).chain(controls));
+                return;
+            };
+            match network.send_latency_reply(creation_time) {
+                Ok(()) => {
+                    movement.set_control_fence_pending(network.has_pending_latency_reply());
+                    crate::movement::trace_server_control(&movement, &local_physics, &control)
+                }
+                Err(super::network::BatchSendError::Full) => {
+                    movement.set_control_fence_pending(true);
+                    stream.restore_committed_controls(std::iter::once(control).chain(controls));
+                    return;
+                }
+                Err(super::network::BatchSendError::Closed) => return,
+            }
+            continue;
+        }
+        crate::movement::trace_server_control(&movement, &local_physics, &control);
         if let CommittedControlEvent::LocalHurt {
             source_direction, ..
         } = control
@@ -614,6 +664,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalMovementFlags { .. }
+            | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
@@ -891,67 +942,4 @@ pub(crate) fn drive_world_stream(
     if let Some(coordinate) = resolved_mutation_coordinate {
         acceptance.set_mutation_coordinate(coordinate);
     }
-}
-
-pub(crate) fn flush_sub_chunk_requests(
-    stream: &mut WorldStream,
-    budget: usize,
-    mut send: impl FnMut(
-        world::ChunkKey,
-        i32,
-        usize,
-        protocol::Packet,
-    ) -> Result<(), crate::runtime::network::session::PacketSendError>,
-) -> Result<usize, String> {
-    let mut sent = 0;
-    for _ in 0..budget {
-        let Some(request) = stream.pop_next_request() else {
-            break;
-        };
-        let client_world::PendingSubChunkRequest {
-            packet,
-            dimension,
-            chunk,
-            base_sub_chunk_y,
-            count,
-        } = request;
-        match send(chunk, base_sub_chunk_y, count, packet) {
-            Ok(()) => {
-                stream.record_sub_chunk_request_transport_pending(chunk, base_sub_chunk_y, count);
-                debug!(
-                    dimension,
-                    chunk_x = chunk.x,
-                    chunk_z = chunk.z,
-                    base_sub_chunk_y,
-                    count,
-                    "requested streamed sub-chunk column"
-                );
-                sent += 1;
-            }
-            Err(error) => {
-                let closed = error.is_closed();
-                let retry = client_world::PendingSubChunkRequest {
-                    packet: error.into_packet(),
-                    dimension,
-                    chunk,
-                    base_sub_chunk_y,
-                    count,
-                };
-                if stream.retry_request_front(retry).is_err() {
-                    return Err(
-                        "failed to restore an unsent SubChunkRequest to the bounded FIFO"
-                            .to_owned(),
-                    );
-                }
-                if closed {
-                    return Err(
-                        "failed to send SubChunkRequest: network command channel is closed"
-                            .to_owned(),
-                    );
-                }
-                break;
-            }
-        }
-    }
-    Ok(sent)
 }

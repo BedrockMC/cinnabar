@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use bevy::{
     ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
@@ -95,22 +95,32 @@ fn production_schedule_drains_content_before_click_and_admits_only_in_network_se
             "drive_chat_keyboard_input"
         ),
     ));
-    assert!(graph.dependency().graph().contains_edge(
-        system_node(
+    // Window hotkeys and live settings may run between these input owners.
+    // The authority contract requires their order, including indirect edges.
+    assert!(
+        dependency_path_exists(
             graph,
-            drive_chat_keyboard_input,
-            "drive_chat_keyboard_input"
+            system_node(
+                graph,
+                drive_chat_keyboard_input,
+                "drive_chat_keyboard_input"
+            ),
+            system_node(graph, drive_menu_input, "drive_menu_input"),
         ),
-        system_node(graph, drive_menu_input, "drive_menu_input"),
-    ));
-    assert!(graph.dependency().graph().contains_edge(
-        system_node(graph, drive_menu_input, "drive_menu_input"),
-        system_node(
+        "chat keyboard input must finish before menu input",
+    );
+    assert!(
+        dependency_path_exists(
             graph,
-            drive_inventory_ui_actions,
-            "drive_inventory_ui_actions"
+            system_node(graph, drive_menu_input, "drive_menu_input"),
+            system_node(
+                graph,
+                drive_inventory_ui_actions,
+                "drive_inventory_ui_actions"
+            ),
         ),
-    ));
+        "menu input must finish before inventory UI actions",
+    );
     assert!(graph.dependency().graph().contains_edge(
         stage_node(graph, ClientFrameSet::UiPreparation),
         stage_node(graph, ClientFrameSet::NetworkSend),
@@ -179,7 +189,7 @@ fn supported_open_suppresses_gameplay_before_content_and_escape_closes_before_me
         app.world()
             .resource::<UiRuntime>()
             .inventory_ledger()
-            .pending_packet()
+            .pending_batch()
             .unwrap()
             .is_some()
     );
@@ -383,7 +393,9 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         .press(MouseButton::Left);
     app.update();
     let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&current));
+    let mut predicted = current.clone();
+    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
     assert_eq!(
         runtime.inventory_ledger().pending_state(),
         Some(InventoryPendingState::AwaitingTransport)
@@ -700,7 +712,9 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
     assert!(app.world().resource::<AdmissionObserved>().0);
     let runtime = app.world().resource::<UiRuntime>();
     assert!(runtime.inventory_open());
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&current));
+    let mut predicted = current.clone();
+    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
     assert_eq!(
         runtime.inventory_ledger().pending_state(),
         Some(InventoryPendingState::AwaitingResponse)
@@ -876,7 +890,9 @@ fn run_scheduled_ingress_click(complete: bool) {
 
     assert!(app.world().resource::<AdmissionObserved>().0);
     let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&current));
+    let mut predicted = current.clone();
+    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
     assert_eq!(
         runtime.inventory_ledger().pending_state(),
         Some(InventoryPendingState::AwaitingResponse)
@@ -1025,6 +1041,24 @@ fn stage_node(graph: &ScheduleGraph, stage: ClientFrameSet) -> NodeId {
         .get_key(stage.intern())
         .expect("production stage");
     NodeId::Set(key)
+}
+
+fn dependency_path_exists(graph: &ScheduleGraph, before: NodeId, after: NodeId) -> bool {
+    let dependencies = graph.dependency().graph();
+    let mut pending = vec![before];
+    let mut visited = HashSet::new();
+    while let Some(node) = pending.pop() {
+        if !visited.insert(node) {
+            continue;
+        }
+        for successor in dependencies.neighbors(node) {
+            if successor == after {
+                return true;
+            }
+            pending.push(successor);
+        }
+    }
+    false
 }
 
 fn assert_system_in_stage<M>(

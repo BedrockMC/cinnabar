@@ -1,10 +1,11 @@
-//! A joined server's resource-pack UI textures: `textures/**/*.png` with their
-//! `*.json` sidecars shadow the vanilla carrier's textures of the same path.
-//! Each decodes and shelf-packs into the reserved 256x256 dynamic pages only
-//! when a rendered screen draws it; one larger than a page packs downscaled.
-//! A frame decodes inline only within a small budget and hands the rest to
-//! workers; decoded pixels are kept (bounded) so an evicted texture repacks
-//! without decoding again. Undecodable images are skipped and remembered.
+//! A joined server's resource-pack UI textures: any `textures/**` image in the
+//! pack stack shadows the vanilla carrier's of the same path, and its `*.json`
+//! sidecar shadows the carrier's independently. Each image is read, decoded and
+//! shelf-packs into the reserved 256x256 dynamic pages only when a rendered
+//! screen draws it; one larger than a page packs downscaled. A frame decodes
+//! inline only within a small budget and hands the rest to workers; decoded
+//! pixels are kept (bounded) so an evicted texture repacks without decoding
+//! again. Undecodable images are skipped and remembered.
 
 use std::{
     cell::RefCell,
@@ -32,43 +33,99 @@ const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 
 /// A session's server resource-pack UI: each pack's `ui/**/*.json`, lowest
-/// precedence first (each layer merges over the ones below), and the winning
-/// `textures/**` images and sidecars the pack ui references.
-#[derive(Debug, Default)]
+/// precedence first (each layer merges over the ones below), and where its
+/// `textures/**` files read from.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ServerUiPack {
     pub(crate) ui_layers: Vec<Vec<(String, Vec<u8>)>>,
+    /// Winning texture files read up front (fixture packs).
     pub(crate) textures: Vec<(String, Vec<u8>)>,
+    /// The session's pack stack, which texture files read from on first draw.
+    pub(crate) view: Option<resource_pack::LayeredPackView>,
+    pub(crate) catalog: Option<Arc<json_ui::Catalog>>,
 }
 
 impl ServerUiPack {
+    /// Resolves pack definitions on the reload worker against the immutable carrier catalog.
+    pub(crate) fn prepare_catalog(&self, base: &json_ui::Catalog) -> Arc<Self> {
+        let mut prepared = self.clone();
+        prepared.catalog = Some(Arc::new(super::engine::layer_pack_catalog(
+            base,
+            &self.ui_layers,
+        )));
+        Arc::new(prepared)
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
-        self.ui_layers.iter().all(Vec::is_empty)
+        self.ui_layers.iter().all(Vec::is_empty) && self.textures.is_empty()
     }
+}
 
-    /// Whether a pack texture file is worth packing: a png or sidecar in a
-    /// directory the ui references (always `textures/ui/`).
-    pub(crate) fn wants_texture(dirs: &BTreeSet<String>, path: &str) -> bool {
-        (IMAGE_EXTENSIONS
-            .iter()
-            .any(|extension| path.ends_with(extension))
-            || path.ends_with(".json"))
-            && (path.starts_with("textures/ui/") || dirs.iter().any(|dir| path.starts_with(dir)))
-    }
+/// Largest texture file read from the pack stack.
+pub(crate) const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
 
-    /// Directories of every `textures/...` string literal in the ui json.
-    pub(crate) fn referenced_texture_dirs(layers: &[Vec<(String, Vec<u8>)>]) -> BTreeSet<String> {
-        let mut dirs = BTreeSet::new();
-        for (_, bytes) in layers.iter().flatten() {
-            let text = String::from_utf8_lossy(bytes);
-            for (at, _) in text.match_indices("\"textures/") {
-                let literal = &text[at + 1..];
-                let end = literal.find('"').unwrap_or(literal.len());
-                if let Some((dir, _)) = literal[..end].rsplit_once('/') {
-                    dirs.insert(format!("{dir}/"));
+/// The pack stack's `textures/**` images and sidecars by path stem, read lazily.
+struct PackTextures {
+    view: resource_pack::LayeredPackView,
+    images: BTreeMap<String, String>,
+    sidecars: BTreeMap<String, String>,
+    loaded: RefCell<BTreeMap<String, Option<Source>>>,
+    loaded_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
+}
+
+impl PackTextures {
+    fn index(view: resource_pack::LayeredPackView) -> Self {
+        let mut images = BTreeMap::new();
+        let mut sidecars = BTreeMap::new();
+        for path in view.list("textures/") {
+            if let Some(stem) = path.strip_suffix(".json") {
+                sidecars.insert(stem.to_owned(), path.to_owned());
+            }
+        }
+        // `.png` wins over `.tga` and `.jpg`, so it inserts last.
+        for extension in IMAGE_EXTENSIONS.iter().rev() {
+            for path in view.list("textures/") {
+                if let Some(stem) = path.strip_suffix(extension) {
+                    images.insert(stem.to_owned(), path.to_owned());
                 }
             }
         }
-        dirs
+        Self {
+            view,
+            images,
+            sidecars,
+            loaded: RefCell::default(),
+            loaded_sidecars: RefCell::default(),
+        }
+    }
+
+    fn image(&self, key: &str) -> Option<Source> {
+        if let Some(found) = self.loaded.borrow().get(key) {
+            return found.clone();
+        }
+        let found = self.images.get(key).and_then(|path| {
+            let bytes = self.view.read_capped(path, MAX_PACK_TEXTURE_BYTES)?;
+            source(std::sync::Arc::from(bytes))
+        });
+        self.loaded
+            .borrow_mut()
+            .insert(key.to_owned(), found.clone());
+        found
+    }
+
+    fn sidecar(&self, key: &str) -> Option<TextureMeta> {
+        if let Some(found) = self.loaded_sidecars.borrow().get(key) {
+            return *found;
+        }
+        let found = self.sidecars.get(key).and_then(|path| {
+            let bytes = self.view.read_capped(path, MAX_PACK_TEXTURE_BYTES)?;
+            let text = resource_pack::normalize_jsonc(&bytes)?;
+            parse_texture_meta(&serde_json::from_slice(&text).ok()?)
+        });
+        self.loaded_sidecars
+            .borrow_mut()
+            .insert(key.to_owned(), found);
+        found
     }
 }
 
@@ -87,7 +144,6 @@ struct Source {
     bytes: std::sync::Arc<[u8]>,
     size: [u32; 2],
     packed: [u32; 2],
-    meta: Option<TextureMeta>,
 }
 
 /// One reserved page: its pixels, shelf cursor, residents, and last use.
@@ -131,9 +187,11 @@ impl Page {
 /// and a full atlas evicts its least recently drawn page.
 #[derive(Default)]
 pub(super) struct ServerAtlas {
+    /// Images read up front, by path stem.
     sources: BTreeMap<String, Source>,
-    /// Source keys by lowercase spelling.
-    folded: BTreeMap<String, String>,
+    /// Sidecars read up front, by path stem, whether or not the pack has the image.
+    sidecars: BTreeMap<String, TextureMeta>,
+    pack: Option<PackTextures>,
     /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
     /// The local vanilla resource pack vanilla image paths read from.
@@ -241,15 +299,20 @@ impl Decodes {
 }
 
 impl ServerAtlas {
-    /// Index the pack's pngs (by path stem) and their sidecars; nothing decodes.
-    pub(super) fn new(files: &[(String, Vec<u8>)], max_pages: usize) -> Self {
-        let sidecars: BTreeMap<&str, TextureMeta> = files
+    /// Index up-front files' images (by path stem) and sidecars, and the pack
+    /// stack's texture paths; nothing decodes.
+    pub(super) fn new(
+        files: &[(String, Vec<u8>)],
+        view: Option<resource_pack::LayeredPackView>,
+        max_pages: usize,
+    ) -> Self {
+        let sidecars = files
             .iter()
             .filter_map(|(path, bytes)| {
                 let stem = path.strip_suffix(".json")?;
                 stem.starts_with("textures/").then_some(())?;
                 let value = serde_json::from_slice(bytes).ok()?;
-                Some((stem, parse_texture_meta(&value)?))
+                Some((stem.to_owned(), parse_texture_meta(&value)?))
             })
             .collect();
         // A path names its image without an extension; `.png` wins over `.tga`
@@ -262,17 +325,14 @@ impl ServerAtlas {
         let sources = ranked
             .filter_map(|(stem, bytes)| {
                 stem.starts_with("textures/").then_some(())?;
-                let found = source(bytes.as_slice().into(), sidecars.get(stem).copied())?;
-                Some((stem.to_owned(), found))
+                Some((stem.to_owned(), source(bytes.as_slice().into())?))
             })
             .collect::<BTreeMap<_, _>>();
-        let folded = sources
-            .keys()
-            .map(|key| (key.to_ascii_lowercase(), key.clone()))
-            .collect();
+        let pack = view.map(PackTextures::index);
         Self {
             sources,
-            folded,
+            sidecars,
+            pack,
             max_pages,
             dirty: true,
             ..Self::default()
@@ -290,15 +350,43 @@ impl ServerAtlas {
         self
     }
 
-    /// Layout metadata for a pack texture, resident or not.
-    pub(super) fn meta(&self, key: &str) -> Option<TextureMeta> {
-        self.sources.get(key).map(Source::meta)
+    /// Whether the pack has an image at `key`, without reading it.
+    pub(super) fn has_image(&self, key: &str) -> bool {
+        self.sources.contains_key(key)
+            || self
+                .pack
+                .as_ref()
+                .is_some_and(|pack| pack.images.contains_key(key))
     }
 
-    /// Layout metadata for a vanilla image or a downloaded URL, reading or
-    /// requesting it on first use.
-    pub(super) fn fallback_meta(&self, key: &str) -> Option<TextureMeta> {
-        self.fallback(key).as_ref().map(Source::meta)
+    /// The pack's image at `key`, read on first use.
+    fn image(&self, key: &str) -> Option<Source> {
+        match self.sources.get(key) {
+            Some(source) => Some(source.clone()),
+            None => self.pack.as_ref()?.image(key),
+        }
+    }
+
+    /// The pack image's pixel size; `None` when the pack lacks or cannot decode it.
+    pub(super) fn image_size(&self, key: &str) -> Option<[f64; 2]> {
+        self.image(key).map(|source| source.size.map(f64::from))
+    }
+
+    /// The pack's sidecar for `key`, which overrides a lower layer's whether or
+    /// not the pack also replaces the image (`UITextureInfo::_loadNineslice`).
+    pub(super) fn sidecar(&self, key: &str) -> Option<TextureMeta> {
+        self.sidecars
+            .get(key)
+            .copied()
+            .or_else(|| self.pack.as_ref()?.sidecar(key))
+    }
+
+    /// Pixel size of a vanilla image or a downloaded URL, reading or requesting
+    /// it on first use.
+    pub(super) fn fallback_size(&self, key: &str) -> Option<[f64; 2]> {
+        self.fallback(key)
+            .as_ref()
+            .map(|source| source.size.map(f64::from))
     }
 
     /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
@@ -309,7 +397,7 @@ impl ServerAtlas {
         }
         let (found, settled) = if is_remote(key) {
             match self.remote.as_ref()?.state(key) {
-                RemoteState::Ready(bytes) => (source(bytes, None), true),
+                RemoteState::Ready(bytes) => (source(bytes), true),
                 RemoteState::Failed => (None, true),
                 RemoteState::Loading => (None, false),
             }
@@ -318,8 +406,9 @@ impl ServerAtlas {
             let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
             let found = (key.starts_with("textures/") || relative != key).then(|| {
                 IMAGE_EXTENSIONS.iter().find_map(|extension| {
-                    let bytes = std::fs::read(root.join(format!("{relative}{extension}"))).ok()?;
-                    source(bytes.into(), None)
+                    let path = root.join(format!("{relative}{extension}"));
+                    exact_case(&path).then_some(())?;
+                    source(std::fs::read(path).ok()?.into())
                 })
             });
             (found.flatten(), true)
@@ -332,11 +421,6 @@ impl ServerAtlas {
             extra.insert(key.to_owned(), found.clone());
         }
         found
-    }
-
-    /// The source key spelled `folded` in lowercase.
-    pub(super) fn folded(&self, folded: &str) -> Option<&str> {
-        self.folded.get(folded).map(String::as_str)
     }
 
     pub(super) fn placement(&self, key: &str) -> Option<ServerTexture> {
@@ -408,8 +492,8 @@ impl ServerAtlas {
     /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
     /// while its decode is still on a worker.
     fn place(&mut self, key: &str, inline: bool) -> Option<usize> {
-        let source = match self.sources.get(key) {
-            Some(source) => source.clone(),
+        let source = match self.image(key) {
+            Some(source) => source,
             None => self.fallback(key)?,
         };
         if source.packed != source.size && self.oversized.len() < MAX_OVERSIZED {
@@ -470,36 +554,43 @@ impl ServerAtlas {
     }
 }
 
-impl Source {
-    fn meta(&self) -> TextureMeta {
-        self.meta.unwrap_or(TextureMeta {
-            base_size: self.size.map(f64::from),
-            nineslice: None,
-        })
-    }
+/// Whether `path`'s file name exists spelled exactly so, as the client's asset
+/// index matches even on a case-insensitive file system.
+fn exact_case(path: &std::path::Path) -> bool {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return false;
+    };
+    std::fs::read_dir(parent).is_ok_and(|mut entries| {
+        entries.any(|entry| entry.is_ok_and(|entry| entry.file_name() == name))
+    })
 }
 
-/// A decodable image as a source, with an optional sidecar.
-fn source(bytes: std::sync::Arc<[u8]>, meta: Option<TextureMeta>) -> Option<Source> {
+/// A decodable image as a source.
+fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
     let size = dimensions(&bytes)?;
     Some(Source {
         bytes,
         size,
         packed: fitted(size),
-        meta,
     })
 }
 
 /// Oversized textures remembered for the art pages.
 const MAX_OVERSIZED: usize = 16;
 
-/// Largest source side decoded; bigger images are skipped.
-const MAX_SOURCE_SIDE: u32 = 4096;
+/// Largest source side decoded, as a desktop texture allows; bigger images are skipped.
+const MAX_SOURCE_SIDE: u32 = 16_384;
+/// Largest source area decoded (a 4096 square), bounding decode memory.
+const MAX_SOURCE_PIXELS: u64 = 4096 * 4096;
 
 /// A png's size from its header, when within the decode bound.
 fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
     let (width, height) = reader(bytes)?.into_dimensions().ok()?;
-    (width > 0 && height > 0 && width <= MAX_SOURCE_SIDE && height <= MAX_SOURCE_SIDE)
+    (width > 0
+        && height > 0
+        && width <= MAX_SOURCE_SIDE
+        && height <= MAX_SOURCE_SIDE
+        && u64::from(width) * u64::from(height) <= MAX_SOURCE_PIXELS)
         .then_some([width, height])
 }
 
@@ -577,32 +668,22 @@ mod tests {
             ("textures/ui/other.png".to_owned(), tga(4, 4)),
             ("textures/ui/wide.png".to_owned(), png(512, 4)),
         ];
-        let mut atlas = ServerAtlas::new(&files, 1);
+        let mut atlas = ServerAtlas::new(&files, None, 1);
         assert!(
             atlas
-                .meta("textures/ui/button")
+                .sidecar("textures/ui/button")
                 .unwrap()
                 .nineslice
                 .is_some()
         );
-        assert_eq!(
-            atlas.meta("textures/ui/wide").unwrap().base_size,
-            [512.0, 4.0]
-        );
-        assert_eq!(
-            atlas.folded("textures/ui/button"),
-            Some("textures/ui/button")
-        );
+        assert_eq!(atlas.image_size("textures/ui/wide"), Some([512.0, 4.0]));
         atlas.require(["textures/ui/button"]);
         assert_eq!(
             atlas.placement("textures/ui/button").unwrap().rect,
             [0, 0, 16, 8]
         );
         assert!(atlas.placement("textures/ui/other").is_none());
-        assert_eq!(
-            atlas.meta("textures/ui/other").unwrap().base_size,
-            [4.0, 4.0]
-        );
+        assert_eq!(atlas.image_size("textures/ui/other"), Some([4.0, 4.0]));
         assert_eq!(atlas.images().len(), 1);
         assert!(atlas.take_dirty());
         atlas.require(["textures/ui/button"]);
@@ -616,6 +697,26 @@ mod tests {
         let oversized = atlas.oversized();
         assert_eq!(oversized.len(), 1, "and is offered to the art pages");
         assert_eq!(oversized[0].0, "textures/ui/wide");
+    }
+
+    // A sidecar with no pack image still overrides; an image alone leaves no sidecar.
+    #[test]
+    fn images_and_sidecars_inherit_independently() {
+        let files = vec![
+            (
+                "textures/ui/panel.json".to_owned(),
+                br#"{ "nineslice_size": 3, "base_size": [9, 9] }"#.to_vec(),
+            ),
+            ("textures/ui/frame.png".to_owned(), png(8, 8)),
+        ];
+        let atlas = ServerAtlas::new(&files, None, 1);
+        assert!(!atlas.has_image("textures/ui/panel"));
+        assert_eq!(
+            atlas.sidecar("textures/ui/panel").unwrap().base_size,
+            [9.0, 9.0]
+        );
+        assert!(atlas.has_image("textures/ui/frame"));
+        assert!(atlas.sidecar("textures/ui/frame").is_none());
     }
 
     // A burst of misses decodes partly inline and the rest on workers, each
@@ -639,7 +740,7 @@ mod tests {
         let keys: Vec<_> = (0..40)
             .map(|index| format!("textures/ui/b{index}"))
             .collect();
-        let mut atlas = ServerAtlas::new(&files, 64);
+        let mut atlas = ServerAtlas::new(&files, None, 64);
         let resident = |atlas: &ServerAtlas| {
             keys.iter()
                 .filter(|key| atlas.placement(key).is_some())
@@ -665,7 +766,7 @@ mod tests {
         let files: Vec<_> = (0..3)
             .map(|index| (format!("textures/ui/t{index}.png"), png(200, 200)))
             .collect();
-        let mut atlas = ServerAtlas::new(&files, 2);
+        let mut atlas = ServerAtlas::new(&files, None, 2);
         atlas.require(["textures/ui/t0"]);
         atlas.require(["textures/ui/t1"]);
         atlas.require(["textures/ui/t1", "textures/ui/t2"]);
@@ -680,5 +781,23 @@ mod tests {
             resident, 2,
             "two pages hold two of three; the rest is left out"
         );
+    }
+
+    // Vanilla's `textures/ui/White` must not open `white.png`, even on a
+    // case-insensitive file system.
+    #[test]
+    fn vanilla_images_match_their_exact_spelling() {
+        let root = std::env::temp_dir().join(format!(
+            "cinnabar-exact-case-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let ui = root.join("textures/ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(ui.join("white.png"), png(2, 2)).unwrap();
+        let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(root.clone()), None);
+        assert_eq!(atlas.fallback_size("textures/ui/white"), Some([2.0, 2.0]));
+        assert_eq!(atlas.fallback_size("textures/ui/White"), None);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

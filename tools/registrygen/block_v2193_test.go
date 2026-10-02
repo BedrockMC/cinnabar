@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +88,11 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(properties) != len(records) || hexDigest(lreg) != "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed" {
+	lightHash, err := targetpin.LightHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(properties) != len(records) || hexDigest(lreg) != lightHash {
 		t.Fatal("v2193 LREG identity mismatch")
 	}
 	transplanted := 0

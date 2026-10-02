@@ -82,6 +82,8 @@ fn gameplay_app(menu_visible: bool) -> App {
         .init_resource::<crate::semantic_controls::SemanticTouchTargets>()
         .init_resource::<RuntimeSettings>()
         .init_resource::<ClientWorld>()
+        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
         .add_message::<KeyboardInput>()
         .insert_resource(runtime)
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
@@ -117,4 +119,19 @@ fn click_phase(app: &mut App) -> semantic_input::ActionPhase {
 fn a_gameplay_click_reaches_attack_only_without_a_menu() {
     assert!(click_phase(&mut gameplay_app(false)).pressed);
     assert!(!click_phase(&mut gameplay_app(true)).pressed);
+}
+
+#[test]
+fn consent_discards_semantic_input_collected_before_approval() {
+    let mut app = gameplay_app(false);
+    app.update();
+    app.insert_resource(crate::server_experiences::input::ConsentInput(true));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    let snapshot = app.world().resource::<SemanticInputSnapshot>();
+    assert!(!snapshot.phase(Action::Attack).pressed);
+    assert!(!snapshot.phase(Action::Attack).held);
+    assert_eq!(snapshot.movement(), [0.0; 2]);
 }

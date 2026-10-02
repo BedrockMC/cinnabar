@@ -116,3 +116,59 @@ fn small_chest_exposes_every_slot_by_collection() {
     );
     assert_eq!(render.cancel_target.as_deref(), Some("button.menu_exit"));
 }
+
+// Vanilla screen roots carry their pack-declared settings over the parser defaults.
+#[test]
+fn vanilla_screen_settings_come_from_the_pack() {
+    let Some(catalog) = catalog() else { return };
+    let context = Context::desktop();
+    let hud = json_ui::screen_settings("hud.hud_screen", &catalog, &context).unwrap();
+    assert!(!hud.absorbs_input && !hud.is_showing_menu && hud.should_steal_mouse);
+    assert!(hud.low_frequency_rendering && hud.render_only_when_topmost);
+    let toast = json_ui::screen_settings("toast_screen.toast_screen", &catalog, &context).unwrap();
+    assert!(toast.always_accepts_input && toast.screen_draws_last && toast.screen_not_flushable);
+    assert!(!toast.render_only_when_topmost && toast.is_modal);
+    let furnace = json_ui::screen_settings("furnace.furnace_screen", &catalog, &context).unwrap();
+    assert!(furnace.close_on_player_hurt && furnace.absorbs_input);
+    let pause = json_ui::screen_settings("pause.pause_screen", &catalog, &context).unwrap();
+    assert!(pause.cache_screen && pause.is_showing_menu && !pause.should_steal_mouse);
+    let dialog = json_ui::screen_settings("common.render_below_base_screen", &catalog, &context);
+    assert!(dialog.unwrap().force_render_below);
+    assert!(json_ui::screen_settings("hud.hud_content", &catalog, &context).is_none());
+}
+
+#[test]
+fn scene_flags_follow_inheritance_and_context() {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/policy.json",
+        r#"{
+      "namespace": "policy",
+      "base": {"type": "screen", "absorbs_input": false,
+        "render_game_behind": "$world", "render_only_when_topmost": false},
+      "child@base": {},
+      "opaque@base": {"absorbs_input": true, "render_game_behind": false},
+      "defaults": {"type": "screen"}
+    }"#,
+    );
+    let context = Context::default().with_flag("world", true);
+    let settings = |name| {
+        json_ui::ScreenSettings::from_root(
+            &json_ui::resolve(&catalog, name, &context).control.unwrap(),
+        )
+    };
+    let child = settings("policy.child");
+    assert!(!child.absorbs_input);
+    assert!(child.render_game_behind);
+    assert!(!child.render_only_when_topmost);
+    assert!(child.renders(false));
+    let opaque = settings("policy.opaque");
+    assert!(opaque.absorbs_input);
+    assert!(!opaque.render_game_behind);
+    assert!(!settings("policy.defaults").renders(false));
+    assert!(settings("policy.defaults").renders(true));
+    assert_eq!(
+        settings("policy.defaults"),
+        json_ui::ScreenSettings::default()
+    );
+}

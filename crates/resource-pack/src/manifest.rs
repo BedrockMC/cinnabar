@@ -26,7 +26,8 @@ impl Version {
         Some(Self(parsed))
     }
 
-    fn from_value(value: &Value) -> Option<Self> {
+    /// Reads either manifest version representation.
+    pub(crate) fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::String(text) => Self::parse(text),
             Value::Array(parts) if parts.len() == 3 => {

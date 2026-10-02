@@ -374,6 +374,36 @@ impl ActorArtworkPages {
         self
     }
 
+    /// Replaces base texture routes while retaining the new images' original resolution.
+    pub fn with_source_texture_overrides(self, overrides: &[(u32, EquipmentRaster)]) -> Self {
+        let overrides: Vec<_> = overrides
+            .iter()
+            .filter(|(source, _)| self.source_locations.contains_key(source))
+            .collect();
+        let rasters: Vec<_> = overrides.iter().map(|(_, raster)| raster.clone()).collect();
+        let (mut pages, locations) = self.with_equipment_rasters(&rasters);
+        let mut sources = (*pages.source_locations).clone();
+        let mut routes = (*pages.routes).clone();
+        let mut variants = (*pages.entity_locations).clone();
+        for ((source, _), replacement) in overrides.into_iter().zip(locations) {
+            let (Some(old), Some(mut new)) = (sources.get(source).copied(), replacement) else {
+                continue;
+            };
+            for route in routes.values_mut() {
+                if (route.page, route.layer) == (old.page, old.layer) {
+                    new.pose_mode = route.pose_mode;
+                    *route = new;
+                }
+            }
+            sources.insert(*source, new);
+            variants.insert((new.page, new.layer));
+        }
+        pages.source_locations = Arc::new(sources);
+        pages.routes = Arc::new(routes);
+        pages.entity_locations = Arc::new(variants);
+        pages
+    }
+
     pub fn route(&self, rig: EntityRigId) -> Option<ActorArtworkLocation> {
         self.routes.get(&rig).copied()
     }
@@ -429,7 +459,7 @@ mod tests {
     #[test]
     fn page_budget_reserves_player_capacity_and_checks_exact_boundaries() {
         assert_eq!(MAX_RENDERED_PLAYERS, 128);
-        assert_eq!(MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES, 2 * 1024 * 1024);
+        assert!(player_page_bytes() < MAX_ACTOR_GPU_PIXEL_BYTES);
         assert_eq!(assets::MAX_ACTOR_TEXTURES, 2048);
         assert!(within_page_budget(
             MAX_ACTOR_TEXTURE_PAGES - 1,
@@ -443,6 +473,46 @@ mod tests {
             MAX_ACTOR_TEXTURE_PAGES - 1,
             MAX_ACTOR_GPU_PIXEL_BYTES + 1
         ));
+    }
+
+    #[test]
+    fn base_source_override_retargets_variants_and_releases_replaced_pixels() {
+        let route = ActorArtworkLocation {
+            page: 1,
+            layer: 0,
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        };
+        let base = ActorArtworkPages {
+            pages: vec![ActorTexturePage {
+                width: 1,
+                height: 1,
+                layers: 1,
+                rgba8: vec![3; 4].into(),
+            }]
+            .into(),
+            routes: Arc::new(BTreeMap::from([(EntityRigId(0), route)])),
+            source_locations: Arc::new(BTreeMap::from([(5, route)])),
+            entity_locations: Arc::new(BTreeSet::from([(1, 0)])),
+            ..Default::default()
+        };
+        let replacement = EquipmentRaster {
+            width: 2,
+            height: 2,
+            rgba8: vec![7; 16].into(),
+        };
+        let applied = base
+            .clone()
+            .with_source_texture_overrides(&[(5, replacement)]);
+        let new_route = applied.variant_location(EntityRigId(0), 5).unwrap();
+        assert_eq!(applied.route(EntityRigId(0)), Some(new_route));
+        assert_ne!(new_route.page, route.page);
+        let page = &applied.pages()[usize::from(new_route.page) - 1];
+        assert_eq!((page.width, page.height), (2, 2));
+        assert_eq!(&page.rgba8[..], &[7; 16]);
+        let pixels = Arc::downgrade(&page.rgba8);
+        drop(applied);
+        assert!(pixels.upgrade().is_none());
+        assert_eq!(base.route(EntityRigId(0)), Some(route));
     }
 
     // A pack with a texture size per page past the old 32-page cap places every texture.

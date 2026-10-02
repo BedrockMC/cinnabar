@@ -48,17 +48,15 @@ pub(super) fn collect(
 ) -> Result<Vec<EntityEnvironment>, AssetError> {
     let geometry_indices = unique_geometry_indices(geometries);
     let mut environments = Vec::new();
-    for (entity_symbol, entity) in symbols
-        .iter()
-        .enumerate()
-        .filter(|(_, symbol)| symbol.kind == EntityAssetKind::Entity)
-    {
+    for (entity_symbol, entity) in symbols.iter().enumerate().filter(|(_, symbol)| {
+        matches!(
+            symbol.kind,
+            EntityAssetKind::Entity | EntityAssetKind::Attachable
+        )
+    }) {
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
-        let description = value
-            .get("minecraft:client_entity")
-            .and_then(|value| value.get("description"))
-            .and_then(Value::as_object)
+        let description = super::roots::description(&value)
             .ok_or_else(|| invalid("client entity description is absent"))?;
         let geometry_aliases: BTreeMap<Box<str>, Box<str>> = description
             .get("geometry")

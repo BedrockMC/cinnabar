@@ -424,59 +424,26 @@ fn packed_chunk_shader_parses_and_validates() {
 }
 
 #[test]
-fn world_shaders_share_light_curve_channels_and_fragment_only_daylight() {
+fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
     let plugin = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
     let lighting = include_str!("../../src/lighting.wgsl");
-    assert_eq!(
-        lighting
-            .matches("const LIGHT_CURVE: array<f32, 16>")
-            .count(),
-        1
-    );
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
-    assert_eq!(
-        lighting
-            .matches("const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.083333336;")
-            .count(),
-        1,
-        "the conservative floor remains explicitly provisional until native visual tuning"
-    );
-    assert_eq!(
-        lighting
-            .matches("const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.0;")
-            .count(),
-        1,
-        "light level zero must retain an explicit, independently tunable ambient floor"
-    );
-    assert!(lighting.contains("let block_contribution = vec3("));
-    assert!(lighting.contains(
-        "let effective_daylight = max(clamp(daylight, 0.0, 1.0), PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR);"
-    ));
-    assert!(lighting.contains("let sky_contribution = vec3("));
-    assert!(lighting.contains("let channel_light = max(block_contribution, sky_contribution);"));
-    assert!(lighting.contains("vec3(PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR)"));
-    assert!(lighting.contains("vec3(1.0)"));
-    assert!(lighting.contains("channel_light"));
-    assert!(lighting.contains("return colour * combined * clamp(ao_factor, 0.0, 1.0)"));
-    assert!(lighting.contains("fn light_brightness(level: u32)"));
-    assert!(lighting.contains("fn light_ao_factor(level: u32)"));
+    assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
     for shader in [
         include_str!("../../src/chunk.wgsl"),
         include_str!("../../src/model.wgsl"),
         include_str!("../../src/liquid.wgsl"),
     ] {
         assert!(shader.contains(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}"
+            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}"
         ));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
         assert!(!shader.contains("fn lit_colour("));
-        assert!(shader.contains("block_light"));
-        assert!(shader.contains("sky_light"));
-        assert!(shader.contains("ambient_occlusion"));
+        assert!(shader.contains("lighting: vec3<f32>"));
         let vertex = shader.split("@fragment").next().unwrap();
         assert!(!vertex.contains("atmosphere.sun_direction_daylight.w"));
         let fragment = shader.split("@fragment").nth(1).unwrap();
-        assert!(fragment.contains("atmosphere.sun_direction_daylight.w"));
+        assert!(!fragment.contains("atmosphere.sun_direction_daylight.w"));
 
         let standalone = standalone_world_shader(shader);
         let module = naga::front::wgsl::parse_str(&standalone).expect("parse world shader");
@@ -504,19 +471,17 @@ fn world_shaders_share_light_curve_channels_and_fragment_only_daylight() {
         assert!(entry_points_call_function(
             &module,
             naga::ShaderStage::Vertex,
-            "light_brightness"
+            "light_colour"
         ));
         assert!(!entry_points_call_function(
             &module,
             naga::ShaderStage::Fragment,
-            "light_brightness"
+            "light_colour"
         ));
     }
-    assert!(plugin.contains("binding: 13,\n                    visibility: ShaderStages::VERTEX"));
-    assert!(
-        plugin.contains("binding: 15,\n                    visibility: ShaderStages::FRAGMENT")
-    );
-    assert!(!plugin.contains("binding: 15,\n                    visibility: ShaderStages::VERTEX"));
+    assert!(plugin.contains("binding: 13,\n                visibility: ShaderStages::VERTEX"));
+    assert!(plugin.contains("binding: 15,\n                visibility: ShaderStages::FRAGMENT"));
+    assert!(!plugin.contains("binding: 15,\n                visibility: ShaderStages::VERTEX"));
 }
 
 #[test]
@@ -638,7 +603,7 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
     );
     assert_eq!(plugin.matches("render_device.create_texture(").count(), 1);
     assert_eq!(plugin.matches("render_device.create_sampler(").count(), 1);
-    assert!(plugin.contains("layout: vec![bind_group_layout.clone()]"));
+    assert!(plugin.contains("layout: vec![bind_group_layout.clone(), crate::lighting::layout()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
     assert_eq!(plugin.matches("binding: ").count(), 32);

@@ -36,7 +36,11 @@ pub(crate) fn set_vanilla_refs(refs: assets::VanillaEntityRefs) {
     let _ = VANILLA_REFS.set(refs);
 }
 
-type CachedEntities = (StackFingerprint, Option<Arc<SessionEntityPack>>);
+type CachedEntities = (
+    StackFingerprint,
+    Option<Arc<SessionEntityPack>>,
+    Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
+);
 
 /// The previous session's compile, reused when the same pack stack rejoins.
 static ENTITY_CACHE: std::sync::Mutex<Option<CachedEntities>> = std::sync::Mutex::new(None);
@@ -49,13 +53,21 @@ pub(super) fn compile_session_entities(
     let mut cache = ENTITY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
-    if let Some((cached, pack)) = cache.as_ref()
+    if let Some((cached, pack, inputs)) = cache.as_ref()
         && cached == fingerprint
+        && (view.dependencies().is_none() || inputs.is_some())
     {
+        if let (Some(dependencies), Some(inputs)) = (view.dependencies(), inputs) {
+            dependencies.extend(inputs.clone());
+        }
         return pack.clone();
     }
     let pack = compile(view);
-    *cache = Some((fingerprint.clone(), pack.clone()));
+    *cache = Some((
+        fingerprint.clone(),
+        pack.clone(),
+        view.dependencies().map(|inputs| inputs.snapshot()),
+    ));
     pack
 }
 

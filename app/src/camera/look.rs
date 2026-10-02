@@ -46,6 +46,17 @@ pub fn analog_frame_scale(mode: InputMode, delta_seconds: f32) -> f32 {
     }
 }
 
+/// Scales scoped turns using the held item's damping and the selected input mode's option.
+pub(super) fn spyglass_turn_delta(delta: Vec2, scoping: bool, damping: f32) -> Vec2 {
+    // R:l/LocalPlayer.cpp:5165–5185; R:s/SpyglassItem.cpp:161 (Lens float 0x10d972240).
+    const ITEM_DAMPING: f32 = 0.05;
+    if scoping && damping > ITEM_DAMPING {
+        delta * (ITEM_DAMPING / damping)
+    } else {
+        delta
+    }
+}
+
 /// Exponential low-pass over look deltas that conserves total rotation.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct LookSmoother {
@@ -104,6 +115,19 @@ mod tests {
         assert_eq!(analog_frame_scale(InputMode::KeyboardMouse, 0.5), 1.0);
         assert!((analog_frame_scale(InputMode::GamePad, 1.0 / 60.0) - 1.0).abs() < 1e-6);
         assert!(analog_frame_scale(InputMode::GamePad, 1.0 / 120.0) < 1.0);
+    }
+
+    #[test]
+    fn spyglass_damping_scales_both_axes_and_preserves_unscoped_input() {
+        let delta = Vec2::new(20.0, -10.0);
+        for damping in [0.0, 0.025, 0.05] {
+            assert_eq!(spyglass_turn_delta(delta, true, damping), delta);
+        }
+        assert_eq!(spyglass_turn_delta(delta, true, 0.5), delta * 0.1);
+        assert_eq!(spyglass_turn_delta(delta, true, 1.0), delta * 0.05);
+        for damping in [0.0, 0.05, 0.5, 1.0] {
+            assert_eq!(spyglass_turn_delta(delta, false, damping), delta);
+        }
     }
 
     #[test]

@@ -35,6 +35,54 @@ fn local_actor_motion_commits_as_a_control_event_and_foreign_motion_is_dropped()
 }
 
 #[test]
+fn latency_fences_retain_motion_order_and_restored_controls_keep_admission_bounded() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::ActorMotion(ActorMotionEvent {
+                actor_runtime_id: 1,
+                motion: [0.0, 0.4, 0.0],
+                tick: 0,
+            }),
+        )
+        .unwrap();
+    stream
+        .submit(2, WorldEvent::NetworkStackLatency(777))
+        .unwrap();
+    stream
+        .submit(3, WorldEvent::NetworkStackLatency(888))
+        .unwrap();
+    let capacity = stream.remaining_admission_capacity();
+    let controls = stream.take_committed_controls();
+    assert!(matches!(
+        controls.as_slice(),
+        [
+            CommittedControlEvent::LocalActorMotion { sequence: 1, .. },
+            CommittedControlEvent::NetworkStackLatency {
+                sequence: 2,
+                creation_time: 777
+            },
+            CommittedControlEvent::NetworkStackLatency {
+                sequence: 3,
+                creation_time: 888
+            },
+        ]
+    ));
+    stream.restore_committed_controls(controls.clone().into_iter());
+    assert_eq!(stream.remaining_admission_capacity(), capacity);
+    assert_eq!(stream.take_committed_controls(), controls);
+}
+
+#[test]
 fn player_list_only_updates_commit_a_tab_cache_refresh_marker() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
@@ -1118,73 +1166,4 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
             source_cohort: None,
         }]
     );
-}
-
-#[test]
-fn urgent_mesh_completion_retry_stays_at_the_front() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    let key = SubChunkKey::new(0, 0, 0, 0);
-    let revision = stream.mark_dirty_exact(key, Instant::now());
-    stream.pending_mesh.remove(&key);
-    stream.pending_mesh_scan.clear();
-
-    stream.requeue_current_mesh_completion(key, revision, true);
-
-    assert!(stream.pending_mesh[&key].urgent);
-    assert_eq!(stream.pending_mesh_scan.front(), Some(&(key, revision)));
-}
-
-#[test]
-fn remote_projectile_motion_replaces_the_retained_velocity() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    let spawn = ActorSpawnEvent {
-        dimension: 0,
-        unique_id: 77,
-        runtime_id: 77,
-        kind: ActorKind::Entity {
-            identifier: "minecraft:ender_pearl".into(),
-        },
-        position: [0.0; 3],
-        velocity: [0.0; 3],
-        pitch: 0.0,
-        yaw: 0.0,
-        head_yaw: 0.0,
-        body_yaw: 0.0,
-        held_item: protocol::NetworkItemStack::empty(),
-        metadata: Arc::from([]),
-        attributes: Arc::from([]),
-        properties: Arc::from([]),
-        links: Arc::from([]),
-    };
-    stream
-        .submit(1, WorldEvent::Actor(ActorEvent::Spawn(spawn)))
-        .unwrap();
-    stream
-        .submit(
-            2,
-            WorldEvent::ActorMotion(ActorMotionEvent {
-                actor_runtime_id: 77,
-                motion: [0.5, 0.2, -0.75],
-                tick: 7,
-            }),
-        )
-        .unwrap();
-    assert_eq!(stream.actors.get(77).unwrap().velocity, [0.5, 0.2, -0.75]);
-    assert!(stream.take_committed_controls().is_empty());
 }

@@ -279,7 +279,7 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
         (1, 50, request)
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 
     assert_eq!(
         ledger
@@ -291,11 +291,14 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.stack_network_id), (PLANKS, request));
     assert!(ledger.created_output_stack().is_none());
-    assert_eq!(
-        ledger.begin_click(0),
-        Err(InventoryGestureError::AwaitingIdentity),
-        "crafted output cannot be named before it settles"
-    );
+    let mut chained = ledger.clone();
+    let next = chained.begin_click(0).unwrap();
+    let StackRequestAction::Place { source, .. } = chained.newest_request().unwrap().actions[0]
+    else {
+        panic!("place")
+    };
+    assert_eq!(source.stack_network_id, request);
+    assert_eq!(next, -5);
 
     assert!(ledger.mark_transport_enqueued(10));
     respond(
@@ -310,16 +313,24 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
     assert!(!ledger.resync_required());
 }
 
-/// An acceptance that never names the crafted stack leaves it unusable.
+/// Native clears unprocessed sparse predictions instead of inventing output.
 #[test]
-fn crafted_output_without_a_server_id_requires_recovery() {
+fn crafted_output_without_a_response_slot_reverts_to_backing_truth() {
     let catalog = catalog();
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(LOG, 101, 1)));
     let request = ledger.begin_craft(&unique(&ledger, &catalog), 1).unwrap();
     assert!(ledger.mark_transport_enqueued(10));
     respond(&mut ledger, request, &[]);
-    assert!(ledger.resync_required());
+    assert!(!ledger.resync_required());
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(28))
+            .unwrap()
+            .count,
+        1
+    );
 }
 
 /// A partial match predicts nothing and allocates no request.
@@ -437,7 +448,7 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
         (64, 50, request)
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.count), (COBBLE, 64));
 

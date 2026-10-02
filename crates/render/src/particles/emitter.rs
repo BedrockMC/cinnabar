@@ -25,6 +25,8 @@ pub struct TileRequest {
 pub struct SpawnRequest {
     pub effect: String,
     pub position: [f32; 3],
+    /// Independent uniform offsets around the emitter origin, sampled once at creation.
+    pub position_spread: [f32; 3],
     /// Emitter x, y, z axes in world space; identity when absent.
     pub basis: Option<[[f32; 3]; 3]>,
     /// Molang variables (`variable.` prefix already stripped, lowercase).
@@ -131,11 +133,20 @@ impl Emitter {
         };
         set_var(&mut vars, V_EMITTER_LIFETIME, active_time);
         set_var(&mut vars, V_EMITTER_AGE, 0.0);
+        let pos = std::array::from_fn(|i| {
+            let spread = request.position_spread[i];
+            request.position[i]
+                + if spread > 0.0 {
+                    rng.range(-spread, spread)
+                } else {
+                    0.0
+                }
+        });
         Self {
             id,
             def,
             texture,
-            pos: request.position,
+            pos,
             basis: request
                 .basis
                 .unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),

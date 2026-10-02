@@ -22,6 +22,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_source};
+mod textures;
+pub use textures::{compile_textures_for_assets, compile_textures_for_assets_with};
 
 /// Literal transforms an item's attachable exposed, keyed by item identifier.
 pub(super) struct ItemTransforms {
@@ -198,10 +200,18 @@ pub fn compile_textures_with(
     bindings: &[EquipmentBinding],
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
-    let mut identifiers = bindings
+    let identifiers = bindings
         .iter()
         .map(|binding| binding.texture.identifier.as_ref())
         .collect::<Vec<_>>();
+    compile_texture_identifiers_with(sources, identifiers, read)
+}
+
+fn compile_texture_identifiers_with(
+    sources: &[EntityAssetSource],
+    mut identifiers: Vec<&str>,
+    read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
+) -> Result<Vec<EquipmentTexture>, AssetError> {
     identifiers.sort_unstable();
     identifiers.dedup();
     let mut textures = Vec::new();

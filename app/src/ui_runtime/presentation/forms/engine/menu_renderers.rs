@@ -12,7 +12,10 @@ use assets::RuntimeUiAssets;
 use serde_json::Value;
 use ui::{TextShadow, UiVisual};
 
-use super::{Painter, UNWRAPPED_LOGICAL, scaled_request, width_64};
+use super::{
+    Painter,
+    text_paint::{UNWRAPPED_LOGICAL, scaled_request, width_64},
+};
 
 /// Title panels shaped to Cinnabar's logo (1022x282) rather than the pack's
 /// title, so it draws unstretched and the splash meets its right edge.
@@ -31,11 +34,11 @@ pub(super) const TITLE_PANEL_OVERLAY: &[u8] = br#"{
 /// Drops the "©Mojang AB" footer from the start and play screens; Cinnabar is not a Mojang product.
 pub(super) const NO_COPYRIGHT_OVERLAYS: [(&str, &[u8]); 2] = [
     (
-        "ui/cinnabar_start.json",
+        "ui/start_screen.json",
         br#"{ "namespace": "start", "copyright": { "ignored": true } }"#,
     ),
     (
-        "ui/cinnabar_play.json",
+        "ui/play_screen.json",
         br#"{ "namespace": "play", "copyright": { "ignored": true } }"#,
     ),
 ];
@@ -99,6 +102,31 @@ fn split_sentence(text: &str, limit: usize) -> (&str, Option<&str>) {
 }
 
 impl Painter<'_> {
+    /// Messaging art, drawn as its first frame.
+    pub(super) fn animated_gif(
+        &mut self,
+        data: &BTreeMap<String, Value>,
+        dest: [f32; 4],
+        alpha: &impl Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let path = data.get("#gif_path")?.as_str()?;
+        let image = self.art.images?.get(path)?;
+        let opacity = data
+            .get("#alpha")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let tint = alpha([255, 255, 255, (255.0 * opacity) as u8]);
+        Some((
+            UiVisual::Sprite {
+                texture_page: image.page,
+                uv: image.uv,
+                color: tint,
+            },
+            dest,
+        ))
+    }
+
     /// The preview raster posed and framed as this vanilla player renderer
     /// asks; the pose is requested for the next raster.
     pub(super) fn player_preview(

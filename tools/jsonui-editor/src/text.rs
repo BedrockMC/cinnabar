@@ -93,6 +93,7 @@ impl Fonts {
             baseline_64: TEXT_BASELINE_64,
             scale,
             font,
+            wrap: Default::default(),
         };
         self.cache.borrow_mut().layout(request).ok()
     }

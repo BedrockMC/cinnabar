@@ -801,3 +801,24 @@ fn batch_eviction_preserves_overlap_and_snapshot() {
     assert!(harness.stream.pending_mesh.contains_key(&retained));
     assert_eq!(snapshot.runtime_id(0, 0, 0, 0), Some(STONE));
 }
+
+/// Reports complete initial-load and disjoint-teleport convergence through real stream polling.
+#[test]
+#[ignore = "offline streaming timing comparison"]
+fn mesh_stall_stream_timing() {
+    let mut harness = Harness::new(8, 1);
+    for (phase, center, teleport) in [
+        ("initial", ChunkKey::new(0, 0, 0), false),
+        ("teleport", ChunkKey::new(0, 125, 137), true),
+    ] {
+        harness.send_view(center, teleport);
+        let started = Instant::now();
+        let report = harness.run();
+        println!(
+            "mesh_stall_stream {phase} drain_ms={} {report:?}",
+            started.elapsed().as_millis()
+        );
+        assert!(harness.idle(), "{phase} did not drain");
+        assert_eq!((report.dark_meshes, report.geometry_meshes), (0, 0));
+    }
+}

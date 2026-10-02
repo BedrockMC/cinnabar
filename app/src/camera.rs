@@ -107,6 +107,8 @@ pub struct CameraFeelSettings {
     pub distortion_scale: f32,
     pub view_bobbing: bool,
     pub cinematic_camera: bool,
+    pub camera_shake: bool,
+    pub damage_bob: f32,
     pub mouse_sensitivity: f32,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
@@ -126,6 +128,8 @@ impl CameraFeelSettings {
             distortion_scale: unit(settings.video.distortion_scale),
             view_bobbing: settings.video.view_bobbing,
             cinematic_camera: settings.video.cinematic_camera,
+            camera_shake: settings.video.camera_shake,
+            damage_bob: unit(settings.video.damage_bob),
             mouse_sensitivity: settings.controls.mouse_sensitivity,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
             touch_look_sensitivity: settings.controls.touch_look_sensitivity,
@@ -714,6 +718,7 @@ fn clear_controller_input(
     mouse_motion.delta = Vec2::ZERO;
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -721,6 +726,8 @@ pub(crate) fn update_cursor_capture(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
     ui: Option<Res<crate::ui_runtime::UiRuntime>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
 ) {
     let (window, mut cursor) = window.into_inner();
 
@@ -732,9 +739,9 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    if ui
-        .as_deref()
-        .is_some_and(crate::ui_runtime::UiRuntime::ui_focused)
+    let steals = ui.as_deref().map(|ui| ui.steals_mouse(menu.as_deref()));
+    if crate::screen_policy::absorbs_input(ui.as_deref(), menu.as_deref(), presentation.as_deref())
+        || steals == Some(false)
     {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
@@ -750,9 +757,9 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    let recapture_click =
-        !input_is_active(window, &cursor) && mouse_buttons.just_pressed(MouseButton::Left);
-    if recapture_click || auto_fly.capture_pending {
+    let active = input_is_active(window, &cursor);
+    let recapture_click = !active && mouse_buttons.just_pressed(MouseButton::Left);
+    if recapture_click || (steals == Some(true) && !active) || auto_fly.capture_pending {
         capture_cursor(&mut cursor);
         if recapture_click {
             // The click that transitions from an absolute UI cursor to
@@ -768,6 +775,10 @@ pub(crate) fn update_cursor_capture(
 }
 
 fn update_look(
+    spyglass: (
+        Option<Res<crate::menu::MenuRuntime>>,
+        Option<Res<fov::CameraFovInputs>>,
+    ),
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
     settings: Res<CameraSettingsAuthority>,
@@ -796,6 +807,13 @@ fn update_look(
     }
 
     let (yaw, pitch, roll) = view.rotation().to_euler(EulerRot::YXZ);
+    let (menu, facts) = spyglass;
+    let look_delta = look::spyglass_turn_delta(
+        look_delta,
+        facts.as_ref().is_some_and(|facts| facts.spyglass_scoping),
+        menu.as_ref()
+            .map_or(0.0, |menu| menu.spyglass_damping(mode)),
+    );
     let delta = perspective_look_delta(look_delta, settings.perspective());
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let (yaw, pitch) = look_angles(yaw, pitch, delta, Vec2::splat(scale));

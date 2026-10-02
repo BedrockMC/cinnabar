@@ -1,5 +1,5 @@
-//! The pipelined request queue: bounded in-flight requests, settlement in wire
-//! order, and recovery when authority can no longer vouch for a prediction.
+//! Native sparse predictions: absolute cell values, request-id ownership, and
+//! historic snapshots for responses that arrive after a later local gesture.
 
 use std::sync::Arc;
 
@@ -13,8 +13,7 @@ use super::overlay::DeltaGroup;
 use super::response::merge_response_overlay;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
 
-/// Retained predictions, including accepted requests blocked behind an
-/// unanswered predecessor. New gestures are refused rather than evicting work
+/// Retained predictions awaiting answers. New gestures are refused rather than evicting work
 /// the server may still apply.
 pub const MAX_PENDING_REQUESTS: usize = 256;
 
@@ -33,7 +32,7 @@ pub(super) struct PendingRequest {
     pub(super) timed_out: bool,
     /// Surfaces a timed-out request still needs a complete refresh of.
     pub(super) awaiting_refresh: Vec<CellSurface>,
-    /// Accepted corrections waiting for every predecessor to settle first.
+    /// Corrections retained while the response handler settles this request.
     pub(super) accepted: Option<Arc<[StackResponseContainer]>>,
     pub(super) session_generation: u64,
     pub(super) storage_generation: Option<u64>,
@@ -43,11 +42,20 @@ pub(super) struct PendingRequest {
     pub(super) requires_distinct_stack_ids: bool,
     /// A merge whose capacity came from the session item registry.
     pub(super) registry_bound_merge: bool,
-    /// Predicted values of touched cells, restoring item data when a response
-    /// corrects a cell that a server push emptied first.
-    pub(super) predicted: Vec<(Cell, Held)>,
+    pub(super) predicted: Vec<CellPrediction>,
     /// A mine-block request riding PlayerAuthInput rather than its own packet.
     pub(super) mining: Option<MiningPrediction>,
+}
+
+/// The native sparse cell and its historic request snapshot. A later local
+/// write replaces ownership, but the earlier snapshot still reconciles its
+/// response into backing truth. Empty predictions also own a request id.
+#[derive(Debug, Clone)]
+pub(super) struct CellPrediction {
+    pub(super) cell: Cell,
+    pub(super) before: Option<Held>,
+    pub(super) held: Option<Held>,
+    pub(super) active: bool,
 }
 
 /// The durability a mine-block request predicts for one hotbar slot.
@@ -71,7 +79,7 @@ impl PendingRequest {
 }
 
 impl PlayerInventoryLedger {
-    /// Confirmed truth with every pending prediction folded on top.
+    /// Backing truth covered by the latest active absolute sparse cells.
     pub(super) fn view(&self) -> &Cells {
         self.view.as_ref().unwrap_or(&self.confirmed)
     }
@@ -82,8 +90,10 @@ impl PlayerInventoryLedger {
             return;
         }
         let mut view = self.confirmed.clone();
-        for group in self.queue.iter().flat_map(|request| request.groups.iter()) {
-            group.apply(&mut view);
+        for prediction in self.queue.iter().flat_map(|request| &request.predicted) {
+            if prediction.active {
+                view.set(prediction.cell, prediction.held.clone());
+            }
         }
         self.view = Some(view);
     }
@@ -98,36 +108,61 @@ impl PlayerInventoryLedger {
 
     /// Queues one request built against the current view.
     pub(super) fn enqueue(&mut self, mut request: PendingRequest) {
-        let mut predicted = self.view().clone();
+        self.bind_request_dependencies(&mut request.actions, request.request_id);
+        bevy::log::debug!(target: "bedrock_client::inventory_requests",
+            request_id = request.request_id, actions = ?request.actions,
+            "inventory request predicted");
+        let before = self.view().clone();
+        let mut predicted = before.clone();
         let applied = request
             .groups
             .iter()
             .all(|group| group.apply(&mut predicted));
         debug_assert!(applied, "gestures are built against the current view");
         let mut touched: Vec<Cell> = request.touched().collect();
-        touched.dedup();
-        request.predicted = touched
+        let mut unique = Vec::new();
+        for cell in touched.drain(..) {
+            if !unique.contains(&cell) {
+                unique.push(cell);
+            }
+        }
+        for previous in self
+            .queue
+            .iter_mut()
+            .flat_map(|request| &mut request.predicted)
+        {
+            if unique.contains(&previous.cell) {
+                previous.active = false;
+            }
+        }
+        request.predicted = unique
             .into_iter()
-            .filter_map(|cell| Some((cell, predicted.get(cell)?.clone())))
+            .map(|cell| {
+                let mut held = predicted.get(cell).cloned();
+                if let Some(held) = &mut held {
+                    // SparseContainerSetListenerClient::postSetItem (089457b0).
+                    held.stack.stack_network_id = request.request_id;
+                }
+                CellPrediction {
+                    cell,
+                    before: before.get(cell).cloned(),
+                    held,
+                    active: true,
+                }
+            })
             .collect();
         self.queue.push_back(request);
         self.refold();
     }
 
-    /// Whether a stack cannot be named in a new request yet: crafted output
-    /// still carries its request id, and an unsettled split presents two
-    /// halves under one server id.
+    /// Negative odd request ids name pending sparse cells. The cell address
+    /// distinguishes even two halves stamped by the same split request.
     pub(super) fn awaiting_identity(&self, held: &Held) -> bool {
-        held.stack.stack_network_id < -1
-            || !self.queue.is_empty()
-                && self
-                    .view()
-                    .occupied()
-                    .filter(|(_, other)| {
-                        other.stack.stack_network_id == held.stack.stack_network_id
-                    })
-                    .count()
-                    > 1
+        let id = held.stack.stack_network_id;
+        id <= 0
+            && !(id < -1
+                && id & 1 != 0
+                && self.queue.iter().any(|request| request.request_id == id))
     }
 
     pub(super) fn request_is_current(&self, request: &PendingRequest) -> bool {
@@ -158,15 +193,15 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Promotes accepted requests strictly from the queue head, so a later
-    /// acceptance never commits ahead of an unanswered predecessor.
+    /// Each answer settles its own backing cells immediately; a later active
+    /// sparse prediction remains visible over an earlier historic answer.
     pub(super) fn settle_accepted_heads(&mut self) {
-        while self
+        while let Some(index) = self
             .queue
-            .front()
-            .is_some_and(|request| request.accepted.is_some())
+            .iter()
+            .position(|request| request.accepted.is_some())
         {
-            let request = self.queue.pop_front().expect("head observed");
+            let request = self.queue.remove(index).expect("index observed");
             self.settle(&request);
         }
     }
@@ -190,15 +225,6 @@ impl PlayerInventoryLedger {
             self.recover_request(request);
             return;
         }
-        // A cell whose group no longer applied may hold a stack the server
-        // rewrote; grafting this response's counts or ids onto it would be
-        // invented. An emptied one still takes the predicted item.
-        let mut stale: Vec<Cell> = Vec::new();
-        for group in &request.groups {
-            if !group.apply(&mut self.confirmed) {
-                stale.extend(group.touched());
-            }
-        }
         for container in containers.iter() {
             for correction in container.slots.iter() {
                 let Some(cell) =
@@ -207,17 +233,22 @@ impl PlayerInventoryLedger {
                     self.note_unrouted_container();
                     continue;
                 };
+                let Some(requested) = self.retained_response_cell(
+                    &container.container,
+                    u16::from(correction.hotbar_slot),
+                ) else {
+                    self.note_unrouted_container();
+                    continue;
+                };
                 // A mining correction never touches a cell a later gesture owns.
                 let owned =
                     request.mining.is_some() && self.queue.iter().any(|later| later.touches(cell));
-                if !owned && (!stale.contains(&cell) || self.confirmed.get(cell).is_none()) {
-                    self.apply_correction(request, cell, correction);
+                if !owned {
+                    self.apply_correction(request, requested, cell, correction);
                 }
             }
         }
-        if !stale.is_empty()
-            || (request.requires_distinct_stack_ids && !self.split_is_distinct(request))
-        {
+        if request.requires_distinct_stack_ids && !self.split_is_distinct(request) {
             self.recover_request(request);
         }
     }
@@ -226,24 +257,54 @@ impl PlayerInventoryLedger {
     fn apply_correction(
         &mut self,
         request: &PendingRequest,
+        requested: Cell,
         cell: Cell,
         correction: &StackResponseSlot,
     ) {
+        if (correction.count == 0) != (correction.item_stack_id <= 0) {
+            bevy::log::warn!(target: "bedrock_client::inventory_requests",
+                request_id = request.request_id, slot = correction.slot,
+                count = correction.count, stack_id = correction.item_stack_id,
+                "skipping invalid response count/stack-id pair");
+            self.note_unrouted_container();
+            return;
+        }
+        let prediction = request
+            .predicted
+            .iter()
+            .find(|prediction| prediction.cell == requested);
+        if let Some(prediction) = prediction
+            && !prediction.active
+            && !self
+                .queue
+                .iter()
+                .flat_map(|pending| &pending.predicted)
+                .any(|prediction| prediction.cell == requested && prediction.active)
+        {
+            // Native tryPushSlotPrediction returns MissingPrediction,
+            // not HistoricPrediction, after a newer owner was removed.
+            self.note_unrouted_container();
+            return;
+        }
+        self.note_authoritative_write(cell);
         if correction.count == 0 {
             self.confirmed.set(cell, None);
             return;
         }
-        if self.confirmed.get(cell).is_none()
-            && let Some((_, predicted)) = request.predicted.iter().find(|(at, _)| *at == cell)
-        {
-            self.confirmed.set(cell, Some(predicted.clone()));
+        if let Some(prediction) = prediction {
+            // Native tryPushSlotPrediction (089446a0) and the historic path
+            // (08944f90) use the requested slot's item, not the destination's.
+            let held = prediction
+                .held
+                .as_ref()
+                .or(prediction.before.as_ref())
+                .cloned();
+            self.confirmed.set(cell, held);
         }
         match self.confirmed.get_mut(cell) {
             Some(held) => {
                 held.stack.count = u16::from(correction.count);
-                if correction.item_stack_id > 0 {
-                    held.stack.stack_network_id = correction.item_stack_id;
-                }
+                held.stack.stack_network_id = correction.item_stack_id;
                 merge_response_overlay(&mut held.overlay, correction);
             }
             // Screen cells restate through slot updates that follow the response.
@@ -324,7 +385,7 @@ impl PlayerInventoryLedger {
         });
         let mut changed = self.queue.len() != before;
         for request in &mut self.queue {
-            // An accepted request only waits for its predecessors to settle.
+            // A response already being settled is not an unanswered timeout.
             if request.state == InventoryPendingState::AwaitingResponse
                 && request.mining.is_none()
                 && request.accepted.is_none()

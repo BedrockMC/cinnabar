@@ -96,6 +96,11 @@ impl ModeTracker {
         self.mode
     }
 
+    /// Restores a retained authoritative mode override during correction replay.
+    pub(super) fn restore_mode(&mut self, mode: MovementMode) {
+        self.mode = mode;
+    }
+
     /// Ends `mode` when it is current, as a server flag clear does.
     pub(super) fn end(&mut self, mode: MovementMode) {
         if self.mode == mode {
@@ -109,12 +114,14 @@ impl ModeTracker {
         intent: ModeIntent,
         fly_toggle: bool,
         observed: ModeObservation,
-        world: &impl CollisionWorld,
+        world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
-        // A server-set flying state is entered on its rising edge and pins flight until toggled off.
+        // Server ability edges override locally retained flight.
         let server_rise = intent.server_flying && !self.last_server_flying;
+        let server_fall = !intent.server_flying && self.last_server_flying;
         self.last_server_flying = intent.server_flying;
         let flying = intent.can_fly
+            && !server_fall
             && intent.ride.is_none()
             && match self.mode {
                 MovementMode::Flying => {
@@ -165,7 +172,10 @@ impl ModeTracker {
 }
 
 /// Whether the standing eye sits below the water surface of its block.
-fn head_in_water(world: &impl CollisionWorld, feet: Vec3) -> Result<bool, WorldQueryError> {
+fn head_in_water(
+    world: &(impl CollisionWorld + ?Sized),
+    feet: Vec3,
+) -> Result<bool, WorldQueryError> {
     let eye_y = feet.y + f64::from(protocol::STANDING_PLAYER_EYE_HEIGHT);
     let block = [feet.x, eye_y, feet.z].map(|axis| axis.floor() as i32);
     let sample = world.block_physics(block)?;

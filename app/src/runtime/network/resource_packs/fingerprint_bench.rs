@@ -39,7 +39,13 @@ fn shared_stack_fingerprint_timing() {
     for _ in 0..21 {
         let started = Instant::now();
         let fingerprint = stack_fingerprint(&stack);
-        black_box(cached_block_overlay(&fingerprint, &blocks, false, || None));
+        black_box(cached_block_overlay(
+            &fingerprint,
+            &view,
+            &blocks,
+            false,
+            || None,
+        ));
         black_box(super::super::entity_pack::compile_session_entities(
             &fingerprint,
             &view,

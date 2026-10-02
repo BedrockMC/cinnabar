@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use assets::{
-    AssetError, BlockFace, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode, RegistryRecord,
-    RuntimeAssets, VisualKind, read_registry_for_protocol,
+    AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
+    RegistryRecord, RuntimeAssets, VisualKind, VisualSupport, read_registry_for_protocol,
 };
 
 use crate::compiler::static_texture_path;
@@ -105,16 +105,56 @@ impl IconBlocks {
             .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id))
     }
 
-    /// Carried face paths in `BlockFace` order for a block whose icon uses them (leaves).
-    pub(super) fn carried_faces(&self, visual: BlockVisualId) -> Option<[Box<str>; 6]> {
-        let pack = self.pack.as_ref()?;
-        let record = self.records.get(visual.0 as usize)?;
-        let mut paths = BlockFace::ALL.map(|_| Box::<str>::default());
-        for face in BlockFace::ALL {
-            let key = resolve_carried_face_key(&pack.blocks, record, face)?;
-            paths[face as usize] = pack.terrain.get_clamped_untinted(&key, 0)?.into();
+    /// Ordinary opaque full cubes may carry an authored six-face item sheet.
+    /// The carried tiles replace biome-dependent world materials, not geometry.
+    pub(super) fn is_carried_cube(&self, world: &RuntimeAssets, visual: BlockVisualId) -> bool {
+        let block = world.resolve(NetworkIdMode::Sequential, visual.0);
+        if !block.is_known()
+            || block.kind() != VisualKind::Cube
+            || block.support() != VisualSupport::Exact
+            || block.flags() != (BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+            || block.model_template().is_some()
+            || block.animation().is_some()
+        {
+            return false;
         }
-        Some(paths)
+        BlockFace::ALL.into_iter().all(|face| {
+            let id = block.face(face).material_id();
+            id != assets::DIAGNOSTIC_MATERIAL
+                && world.materials().get(id as usize).is_some_and(|material| {
+                    material.animation == assets::NO_ANIMATION
+                        && material.flags
+                            & !(assets::MATERIAL_FLAG_TINT_MASK
+                                | assets::MATERIAL_FLAG_OVERLAY_MASK)
+                            == 0
+                })
+        })
+    }
+
+    /// Resolves and colors carried faces once, for inventory and held geometry.
+    pub(super) fn carried_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        let (Some(pack), Some(record)) = (self.pack.as_ref(), self.records.get(visual.0 as usize))
+        else {
+            return Ok(None);
+        };
+        let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
+        for face in BlockFace::ALL {
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face) else {
+                return Ok(None);
+            };
+            let Some((path, overlay)) = pack.terrain.get_clamped_carried(&key, 0) else {
+                return Ok(None);
+            };
+            let Some(tile) = super::carried::tile(root, path, overlay)? else {
+                return Ok(None);
+            };
+            tiles.push(tile);
+        }
+        Ok(tiles.try_into().ok())
     }
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
@@ -138,12 +178,5 @@ impl IconBlocks {
             return Ok(None);
         }
         Ok(super::bounded_sprite(decode_texture(&file, path)?).map(|(sprite, _)| sprite))
-    }
-
-    /// A 16x16 terrain tile (a strip's first frame); `None` for any other size.
-    pub(super) fn tile(root: &Path, path: &str) -> Result<Option<Box<[u8]>>, AssetError> {
-        Ok(Self::sprite(root, path)?
-            .filter(|sprite| sprite.width == 16 && sprite.height == 16)
-            .map(|sprite| sprite.rgba8.to_vec().into_boxed_slice()))
     }
 }

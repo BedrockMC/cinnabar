@@ -64,6 +64,7 @@ fn biome_gpu_entries_pack_all_six_tint_classes_and_flags() {
         evergreen: [0.4, 0.5, 0.6],
         dry_foliage: [0.5, 0.6, 0.7],
         water: [0.6, 0.7, 0.8],
+        water_opacity: 165.0 / 255.0,
         flags: 0x5a,
     };
     let gpu = prepare_biome_tint_entries(&[entry])[0];
@@ -75,6 +76,7 @@ fn biome_gpu_entries_pack_all_six_tint_classes_and_flags() {
     assert_eq!(gpu.dry_foliage, pack_linear_rgb10(entry.dry_foliage));
     assert_eq!(gpu.water, pack_linear_rgb10(entry.water));
     assert_eq!(gpu.flags, entry.flags);
+    assert_eq!(gpu.water_opacity, entry.water_opacity);
 }
 
 #[test]

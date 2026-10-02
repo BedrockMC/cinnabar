@@ -1,6 +1,65 @@
 use super::*;
 use protocol::{ContainerIdentity, InventorySlotEvent, NetworkItemStack, SlotIdentity};
 
+#[test]
+fn normal_transaction_commits_crafting_and_cursor_as_one_fifo_revision() {
+    let mut state = CraftingAuthority::new(1);
+    let update = |slot, id| InventorySlotEvent {
+        identity: SlotIdentity {
+            container: if slot == 0 {
+                ContainerIdentity {
+                    window_id: None,
+                    slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+                    dynamic_id: None,
+                }
+            } else {
+                ContainerIdentity {
+                    window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                    slot_type: Some(0),
+                    dynamic_id: None,
+                }
+            },
+            slot,
+        },
+        stack: NetworkItemStack {
+            network_id: 6,
+            count: 1,
+            stack_network_id: id,
+            ..NetworkItemStack::empty()
+        },
+        storage_item: None,
+    };
+    let event = InventoryAuthorityEvent::Inventory(InventoryEvent::Transaction(
+        protocol::InventoryTransactionEvent {
+            slots: Arc::from([
+                update(28, 10),
+                update(0, 11),
+                update(29, 12),
+                update(28, 13),
+            ]),
+            skipped_actions: 0,
+        },
+    ));
+    state.observe(1, 1, &event);
+    assert_eq!(state.queue.as_ref().unwrap().records.len(), 1);
+    state.synchronize(Some((1, 0, Some(0))));
+    state.advance();
+    assert!(state.grid.iter().all(Option::is_none));
+    assert!(state.cursor.is_none());
+    let before = state.revision;
+    state.synchronize(Some((1, 0, Some(1))));
+    state.advance();
+    assert_eq!(state.revision, before + 1);
+    assert_eq!(
+        state.grid[0].as_ref().unwrap().stack.stack_network_id,
+        13,
+        "last wire write wins"
+    );
+    assert_eq!(state.grid[1].as_ref().unwrap().stack.stack_network_id, 12);
+    assert_eq!(state.cursor.as_ref().unwrap().stack.stack_network_id, 11);
+    assert!(state.grid[2..].iter().all(Option::is_none));
+}
+
 fn contextual_content(stacks: [NetworkItemStack; 4]) -> InventoryAuthorityEvent {
     let mut slots = vec![NetworkItemStack::empty(); 54];
     slots[28..32].clone_from_slice(&stacks);

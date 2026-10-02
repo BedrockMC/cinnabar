@@ -112,6 +112,13 @@ pub(crate) fn refresh_hud_frame(
     camera_settings: &CameraSettingsAuthority,
     now_millis: u64,
 ) {
-    let icons = capture_hud_frame(runtime, presentation, stream, camera_settings, now_millis);
+    let icons = capture_hud_frame(
+        runtime,
+        presentation,
+        stream,
+        camera_settings,
+        now_millis,
+        None,
+    );
     publish_item_viewmodels(presentation, icons);
 }

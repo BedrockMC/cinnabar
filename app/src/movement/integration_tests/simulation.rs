@@ -36,12 +36,8 @@ fn run_one_tick(physics: &mut LocalPhysicsController, world: &VersionedFloor) ->
 }
 
 #[test]
-fn pos_delta_is_per_tick_displacement_not_carried_velocity() {
-    // gophertunnel PlayerAuthInput.Delta is "the delta between the old and the
-    // new position": this tick's resolved displacement, not the post-tick
-    // velocity. A grounded forward tick decays velocity by friction after it
-    // resolves motion, so the two genuinely differ and the wire delta must be
-    // the displacement.
+fn pos_delta_is_end_of_tick_velocity() {
+    // Ground friction distinguishes StateVector motion from displacement.
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let t1 = run_one_tick(&mut physics, &VersionedFloor(1));
@@ -67,8 +63,8 @@ fn pos_delta_is_per_tick_displacement_not_carried_velocity() {
     ticker.enqueue_completed_physics(t2.clone()).unwrap();
     let snapshots = ticker.pending_snapshots();
     assert_eq!(
-        snapshots[1].delta, t2.movement,
-        "the wire PosDelta must carry the tick's displacement"
+        snapshots[1].delta, t2.velocity,
+        "the wire PosDelta must carry end-of-tick StateVector motion"
     );
 }
 
@@ -301,7 +297,7 @@ fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     assert!(!state.on_ground);
     assert_eq!(physics.history_len(), 0);
     let eye = physics.render_eye_position().expect("corrected render eye");
-    assert!((eye[1] - 71.62).abs() < 1.0e-5);
+    assert!((eye[1] - (70.0 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-5);
 }
 
 #[derive(Default)]
@@ -671,7 +667,7 @@ fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
 
     assert_eq!(
         physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
-        MovementInput::default()
+        MovementInput { yaw_degrees: 90.0, ..MovementInput::default() }
     );
 }
 

@@ -179,7 +179,7 @@ fn each_due_tick_snapshots_then_transactionally_consumes_effects() {
     assert_eq!(frame.completed_ticks, 2);
     assert!(timeline.snapshot().is_empty());
     let velocity = physics.state().unwrap().velocity.y;
-    assert!((velocity - -0.163_299_36).abs() < 1.0e-9, "{velocity}");
+    assert_eq!(velocity, f64::from(-0.163_299_37_f32));
 }
 
 #[test]

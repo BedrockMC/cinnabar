@@ -45,6 +45,8 @@ pub struct ActorPickup {
 pub struct ActorStatus {
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
+    /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
+    pub shake_time: i32,
     /// The current hurt came without damage, so it shows no red flash (`SkipRedFlashComponent`).
     pub skip_red_flash: bool,
     /// Server-streamed hurt direction, when the server provides one.
@@ -86,6 +88,11 @@ impl ActorStatus {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }
         self.hurt_time = self.hurt_time.saturating_sub(1);
+        // Native Actor::baseTick (26.50 RVA 01c0f8c0) decrements only positive
+        // shake values. Zero and well-formed negative server values stay unchanged.
+        if self.shake_time > 0 {
+            self.shake_time -= 1;
+        }
         if self.dead && self.death_time < DEATH_DURATION_TICKS {
             self.death_time += 1;
         }
@@ -159,6 +166,8 @@ impl ActorStore {
                 }
             }
             ActorStatusKind::SpawnAlive => actor.status.revive(),
+            // Actor::handleEntityEvent (26.50 RVA 01c1cea0), case 0x27.
+            ActorStatusKind::Shake => actor.status.shake_time = event.data,
             // Particle-only kinds have no retained actor state.
             _ => {}
         }
@@ -266,6 +275,39 @@ mod tests {
             store.get(7).unwrap().status.hurt_time,
             HURT_DURATION_TICKS - 3
         );
+    }
+
+    #[test]
+    fn shake_event_uses_the_payload_and_only_completed_ticks_decrement_positive_values() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        let shake = |data| {
+            protocol::ActorEvent::Status(ActorStatusEvent {
+                runtime_id: 7,
+                kind: ActorStatusKind::Shake,
+                data,
+            })
+        };
+        assert_eq!(store.apply(1, 2, shake(12)), ActorApplyResult::Updated);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 12);
+        store.advance_interpolation_ticks(0);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 12);
+        store.advance_interpolation_ticks(3);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 9);
+        store.advance_interpolation_ticks(10);
+        assert_eq!(store.get(7).unwrap().status.shake_time, 0);
+
+        for (sequence, data) in [(3, -1), (4, i32::MIN), (5, 0)] {
+            assert_eq!(
+                store.apply(1, sequence, shake(data)),
+                ActorApplyResult::Updated
+            );
+            store.advance_interpolation_ticks(2);
+            assert_eq!(store.get(7).unwrap().status.shake_time, data);
+        }
+        store.apply(1, 6, shake(i32::MAX));
+        store.advance_interpolation_ticks(1);
+        assert_eq!(store.get(7).unwrap().status.shake_time, i32::MAX - 1);
     }
 
     /// Event 81 arms the hurt countdown but never the red damage flash; a real hit restores it.

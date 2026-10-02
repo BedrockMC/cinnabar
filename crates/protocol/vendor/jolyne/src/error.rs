@@ -50,6 +50,9 @@ pub enum AuthError {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ProtocolError {
+    /// A valid Transfer hands the join back to the reconnect owner.
+    #[error("Server transferred to {}:{}", .0.host, .0.port)]
+    ServerTransfer(crate::transfer::ServerTransferEvent),
     #[error("Invalid batch packet id: {0}")]
     InvalidBatchId(String),
     #[error("Decompression failed: {0}")]

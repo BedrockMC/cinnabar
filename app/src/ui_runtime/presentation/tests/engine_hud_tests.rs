@@ -734,9 +734,9 @@ fn titles_and_chat_carry_their_fades() {
     assert_eq!(presentation.hud_fade(title, 3.0), 1.0);
     assert!((presentation.hud_fade(title, 5.5) - 0.5).abs() < 1e-3);
     let chat = text(nodes, "gg").unwrap();
-    assert_eq!(json_ui::fade_factor(&chat.fades, 9.0), 1.0);
-    assert!(json_ui::fade_factor(&chat.fades, 10.5) < 1.0);
-    assert_eq!(json_ui::fade_factor(&chat.fades, 11.0), 0.0);
+    assert_eq!(presentation.hud_fade(chat, 9.0), 1.0);
+    assert!(presentation.hud_fade(chat, 10.5) < 1.0);
+    assert_eq!(presentation.hud_fade(chat, 11.0), 0.0);
     // A re-sent title restarts its fade without re-binding the screen.
     let passes = presentation.hud_passes();
     runtime.hud.set_title(Arc::from("Victory"), 3, 2_000);
@@ -940,4 +940,30 @@ fn notched_boss_overlays_draw_their_dividers() {
     };
     assert_eq!(quads(ProtocolBossOverlay::Notched6), Some(plain + 5));
     assert_eq!(quads(ProtocolBossOverlay::Notched20), Some(plain + 19));
+}
+
+/// A saved visibility edit changes the emitted HUD and restores it without a reload.
+#[test]
+fn settings_hide_hud_suppresses_the_rendered_overlay() {
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    runtime.set_local_selected_slot(0);
+    let shown = build(&mut presentation, &runtime, 0);
+    let mut options = SettingsOptions::default();
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "hide_hud")
+        .unwrap();
+    options.set(index, 1);
+    presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));
+    let hidden = build(&mut presentation, &runtime, 0);
+    assert!(hidden.vertices.len() < shown.vertices.len());
+    options.set(index, 0);
+    presentation.set_chat_settings_snapshot((Arc::new(options), None));
+    let restored = build(&mut presentation, &runtime, 0);
+    assert_eq!(restored.vertices.len(), shown.vertices.len());
 }

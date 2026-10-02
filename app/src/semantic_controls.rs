@@ -6,10 +6,10 @@ use semantic_input::{
     KeyboardMouseFrame, ReleaseReason, RouterError, SemanticInputRouter, TouchContact,
 };
 
-mod physical;
+pub(crate) mod physical;
 pub(crate) use physical::{
     PendingDeviceFrame, SemanticRouteState, collect_raw_input,
-    finalize_semantic_input_after_ui_authority, route_semantic_input,
+    finalize_semantic_input_after_ui_authority, keyboard_usage, route_semantic_input,
 };
 
 use crate::{
@@ -315,6 +315,7 @@ pub(crate) fn synchronize_semantic_input_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     ui: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
+    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
     settings: Res<RuntimeSettings>,
     client_world: Option<Res<ClientWorld>>,
     mut touch_targets: ResMut<SemanticTouchTargets>,
@@ -327,11 +328,13 @@ pub(crate) fn synchronize_semantic_input_authority(
         .as_deref()
         .and_then(|world| world.stream.as_ref())
         .map_or(0, client_world::WorldStream::current_dimension);
-    let context = if menu.as_ref().is_some_and(|menu| menu.is_visible()) || ui.ui_focused() {
-        InputContext::UiFocused
-    } else {
-        InputContext::Gameplay
-    };
+    let context =
+        if crate::screen_policy::absorbs_input(Some(&ui), menu.as_deref(), presentation.as_deref())
+        {
+            InputContext::UiFocused
+        } else {
+            InputContext::Gameplay
+        };
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;
     };
