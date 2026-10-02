@@ -6,7 +6,9 @@ use std::{
 };
 
 use bevy::{prelude::*, window::PrimaryWindow};
-use mod_host::ModHost;
+use mod_host::{ModGrants, ModHost};
+
+use crate::environment::VisualTimeOverride;
 
 use crate::{
     app::ClientFrameSet,
@@ -33,18 +35,20 @@ pub(crate) fn configure_from_environment(app: &mut App) {
 /// Loads one optional component without changing the vanilla schedule on absence.
 fn configure(app: &mut App, path: Option<&Path>) {
     let Some(path) = path else { return };
-    match ModHost::load(path) {
+    match ModHost::load_with_grants(path, ModGrants { environment: true }) {
         Ok(host) => {
-            app.insert_resource(ModRuntime {
-                host,
-                last_reload: Instant::now(),
-            })
-            .add_systems(
-                Update,
-                drive_mod
-                    .after(ClientFrameSet::SemanticFinalize)
-                    .before(ClientFrameSet::UiPublication),
-            );
+            app.insert_resource(VisualTimeOverride(host.time_override()))
+                .insert_resource(ModRuntime {
+                    host,
+                    last_reload: Instant::now(),
+                })
+                .add_systems(
+                    Update,
+                    drive_mod
+                        .after(ClientFrameSet::SemanticFinalize)
+                        .before(ClientFrameSet::UiPublication)
+                        .before(crate::environment::update_atmosphere_frame),
+                );
         }
         Err(error) => eprintln!("Cinnabar extension {} disabled: {error:#}", path.display()),
     }
@@ -58,6 +62,7 @@ fn drive_mod(
     ui: Res<UiRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
+    mut time_override: ResMut<VisualTimeOverride>,
 ) {
     if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
@@ -75,6 +80,7 @@ fn drive_mod(
     {
         eprintln!("Cinnabar extension callback disabled: {error:#}");
     }
+    time_override.0 = extension.host.time_override();
     if let Err(error) = presentation.set_mod_label(extension.host.label()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
     }
@@ -94,6 +100,7 @@ mod tests {
         let mut app = App::new();
         configure(&mut app, None);
         assert!(!app.world().contains_resource::<ModRuntime>());
+        assert!(!app.world().contains_resource::<VisualTimeOverride>());
         // Any extension system would fail here: none of its required resources exist.
         app.update();
     }
@@ -157,3 +164,6 @@ mod tests {
             .unwrap()
     }
 }
+
+#[cfg(test)]
+mod time_changer_tests;

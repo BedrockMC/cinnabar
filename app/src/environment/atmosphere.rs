@@ -144,6 +144,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
+    time_override: Option<Res<super::VisualTimeOverride>>,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
@@ -164,6 +165,9 @@ pub(crate) fn update_atmosphere_frame(
         Option<ResMut<render::CloudVisibility>>,
     ),
 ) {
+    let clock = time_override
+        .as_ref()
+        .map_or(*clock, |value| value.rendering_clock(*clock));
     let (menu, clouds) = preferences;
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     if let Some(mut clouds) = clouds {
@@ -181,7 +185,7 @@ pub(crate) fn update_atmosphere_frame(
     let submerged = display.submerged_seconds(medium.0);
     let (next_frame, next_route) = match atmosphere_assets.runtime() {
         Some(assets) => derive_profiled_atmosphere_frame(
-            *clock,
+            clock,
             shown,
             elapsed,
             medium.0,
@@ -191,7 +195,7 @@ pub(crate) fn update_atmosphere_frame(
             Some(submerged),
         ),
         None => (
-            derive_base_frame(*clock, shown, elapsed, medium.0, &context),
+            derive_base_frame(clock, shown, elapsed, medium.0, &context),
             EnvironmentProfileRoute::default(),
         ),
     };
@@ -219,7 +223,7 @@ pub(crate) fn update_atmosphere_frame(
         night_vision: vision.night_vision,
         darkness: vision.darkness * darkness_scale,
         darkness_pulse: render::darkness_pulse(
-            visual_world_time(*clock, elapsed) as f32,
+            visual_world_time(clock, elapsed) as f32,
             0.0,
             vision.darkness * darkness_scale,
             vision.darkness * darkness_scale,

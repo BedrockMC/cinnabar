@@ -6,7 +6,7 @@
 use std::f32::consts::{PI, TAU};
 
 /// Ticks in one Bedrock day.
-pub const DAY_TICKS: f64 = 24_000.0;
+pub const DAY_TICKS: f64 = mod_api::BEDROCK_DAY_TICKS as f64;
 
 /// Sky-light transfer at night: brightness-ramp level 4, i.e. 15 minus the 11-level night reduction.
 pub const NIGHT_SKY_TRANSFER: f32 = 0.083_333_336;
@@ -162,7 +162,7 @@ mod tests {
     fn angle_is_zero_at_noon_and_half_at_midnight() {
         assert!(celestial_angle(6_000.0).abs() < 1.0e-6);
         assert!((celestial_angle(18_000.0) - 0.5).abs() < 1.0e-6);
-        assert!((celestial_angle(0.0) - celestial_angle(24_000.0)).abs() < 1.0e-6);
+        assert!((celestial_angle(0.0) - celestial_angle(DAY_TICKS)).abs() < 1.0e-6);
     }
 
     #[test]
