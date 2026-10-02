@@ -4,10 +4,11 @@ package packcache
 
 import (
 	"errors"
-	"golang.org/x/sys/windows"
 	"os"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // hasLinkAttribute reports Windows reparse points.
