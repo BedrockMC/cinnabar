@@ -285,11 +285,24 @@ fn production_evidence_precedes_missing_catalog_without_changing_resolution() {
     assert!(disabled.wire_evidence.rows.is_empty());
 }
 
-
 #[test]
 fn review_replaced_stream_audio_cannot_enter_the_new_session() {
     let mut session = SessionAudio::default();
     session.admit_from_stream(2, 10, 0, vec![event(1, 500), event(2, 1)], None);
     assert_eq!(session.iter().next().unwrap().sequence(), Some(1));
     assert_eq!(session.iter().count(), 1);
+}
+
+#[test]
+fn review_broken_stdout_cannot_panic_the_audio_session() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    assert!(std::panic::catch_unwind(|| write_marker(&mut Broken, "{}")).is_ok());
 }
