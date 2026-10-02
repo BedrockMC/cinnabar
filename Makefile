@@ -154,7 +154,7 @@ help:
 	@echo make audio-bank      - Pack sound routing and FSB sound files for playback
 	@echo make physics-assets  - Install and verify the pinned protocol-2193 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
-	@echo make local-server    - Build the dragonfly local-world server beside the core binary
+	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
 	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
 	@echo make client          - Refresh stale assets, then join the core at SOCKET_DIR directly
 	@echo make client-windows  - Run the client on Windows
@@ -353,6 +353,7 @@ LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(D
 
 local-server:
 	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
+	$(CARGO) build -p experience-runtime --release --locked
 
 client: assets physics-assets
 	$(CLIENT_RUN)
