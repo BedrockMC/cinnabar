@@ -440,3 +440,29 @@ fn review_render_invalid_skin_layer_skips_only_its_actor() {
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
 }
+
+#[test]
+fn review_render_catalog_recomputes_mutated_vertex_bone_requirements() {
+    let mut geometry =
+        ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 2).unwrap();
+    for vertex in Arc::make_mut(&mut geometry.vertices) {
+        vertex.bone_index = 1;
+    }
+    let mut builder = ActorRigFrameBuilder::new([geometry.clone()]).unwrap();
+    let mut actor = submission(1, 1);
+    actor.input.previous_bones = Arc::from([bone([0.0; 3])]);
+    actor.input.current_bones = Arc::clone(&actor.input.previous_bones);
+    assert_eq!(
+        builder
+            .build(0.5, None, [actor.clone()])
+            .rejects
+            .invalid_geometry,
+        1
+    );
+    let mut builder = ActorRigFrameBuilder::new([]).unwrap();
+    builder.insert_geometry(geometry).unwrap();
+    assert_eq!(
+        builder.build(0.5, None, [actor]).rejects.invalid_geometry,
+        1
+    );
+}
