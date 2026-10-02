@@ -172,3 +172,33 @@ fn scene_flags_follow_inheritance_and_context() {
         json_ui::ScreenSettings::default()
     );
 }
+
+// Each server-info edit box reports its vanilla text box name, which picks the field it edits.
+#[test]
+fn add_server_edit_boxes_report_their_text_box_names() {
+    let Some(catalog) = catalog() else {
+        eprintln!("skipping: vanilla ui assets not present");
+        return;
+    };
+    let render = render_screen(
+        "add_external_server.add_external_server_screen_new",
+        &catalog,
+        &Context::desktop(),
+        &DataSource::default(),
+        [480.0, 270.0],
+        &env(),
+        &ViewState::default(),
+    )
+    .expect("add server renders");
+    let mut names: Vec<_> = render
+        .hits
+        .iter()
+        .filter(|hit| hit.kind == json_ui::HitKind::EditBox)
+        .map(|hit| hit.control_name.clone())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        ["#ip_text_box", "#name_text_box", "#port_text_box"].map(|n| Some(n.to_owned()))
+    );
+}
