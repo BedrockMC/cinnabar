@@ -298,3 +298,20 @@ fn frame_cost_bench_block_entity_mixed_scene_400_chests() {
         new_scene.static_rebuilds,
     );
 }
+
+#[test]
+fn review_render_appended_atlas_pixels_change_identity() {
+    let mut atlas = BlockEntityAtlas::from_assets(&assets_with_chest_offset(0));
+    let original = atlas.identity();
+    let texture = super::super::mob::MobTexture {
+        name: "test/mob".into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([7; 4]),
+    };
+    atlas.append_textures(std::slice::from_ref(&texture));
+    assert_ne!(atlas.identity(), original);
+    let appended = atlas.identity();
+    atlas.append_textures(&[texture]);
+    assert_eq!(atlas.identity(), appended);
+}
