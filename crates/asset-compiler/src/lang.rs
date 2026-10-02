@@ -2,7 +2,7 @@
 //! the bounded sorted carrier consumed by chat/rawtext resolution and item
 //! display names.
 
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, fs, io::Read, path::Path};
 
 use assets::{
     LangEntry, MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES, MAX_LANG_VALUE_BYTES, encode_lang_catalog,
@@ -61,6 +61,8 @@ pub enum LangCompileError {
     TooManyEntries { maximum: usize },
     #[error("language carrier encoding failed: {0}")]
     Carrier(#[from] assets::LangCatalogError),
+    #[error("invalid language code")]
+    InvalidLanguageCode,
     #[error("language list {path} is not a JSON array of language codes")]
     LanguageList { path: Box<Path> },
 }
@@ -68,10 +70,12 @@ pub enum LangCompileError {
 /// The pack's `texts/languages.json` codes other than `en_US`, in listed order.
 pub fn vanilla_language_codes(root: &Path) -> Result<Vec<String>, LangCompileError> {
     let path = root.join(LANGUAGES_RELATIVE_PATH);
-    let bytes = fs::read(&path).map_err(|source| LangCompileError::SourceRead {
-        path: path.clone().into_boxed_path(),
-        source,
-    })?;
+    let bytes = fs::File::open(&path)
+        .and_then(|file| bounded_bytes(file, MAX_LANGUAGES_BYTES))
+        .map_err(|source| LangCompileError::SourceRead {
+            path: path.clone().into_boxed_path(),
+            source,
+        })?;
     let list = (bytes.len() <= MAX_LANGUAGES_BYTES)
         .then(|| serde_json::from_slice::<Vec<String>>(&bytes).ok())
         .flatten()
@@ -95,6 +99,9 @@ pub fn compile_language(
     code: &str,
     source_manifest: &[u8],
 ) -> Result<CompiledLangCarrier, LangCompileError> {
+    if !assets::is_language_code(code) {
+        return Err(LangCompileError::InvalidLanguageCode);
+    }
     compile_lang_file(root, &format!("texts/{code}.lang"), source_manifest, None)
 }
 
@@ -123,10 +130,12 @@ fn compile_lang_file(
 ) -> Result<CompiledLangCarrier, LangCompileError> {
     let source_manifest_sha256 = validate_vanilla_source_manifest(source_manifest)?;
     let path = root.join(relative);
-    let bytes = fs::read(&path).map_err(|source| LangCompileError::SourceRead {
-        path: path.clone().into_boxed_path(),
-        source,
-    })?;
+    let bytes = fs::File::open(&path)
+        .and_then(|file| bounded_bytes(file, MAX_LANG_SOURCE_BYTES))
+        .map_err(|source| LangCompileError::SourceRead {
+            path: path.clone().into_boxed_path(),
+            source,
+        })?;
     if bytes.len() > MAX_LANG_SOURCE_BYTES {
         return Err(LangCompileError::SourceTooLarge {
             path: path.into_boxed_path(),
@@ -210,6 +219,22 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_language_codes_are_validated_before_path_construction() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            super::compile_language(root.path(), "../../outside", b"{}"),
+            Err(super::LangCompileError::InvalidLanguageCode)
+        ));
+    }
+
+    #[test]
+    fn review_language_reads_consume_at_most_the_limit_plus_one() {
+        let mut reader = std::io::Cursor::new(vec![0; 128]);
+        let _ = super::bounded_bytes(&mut reader, 16).unwrap();
+        assert_eq!(reader.position(), 17);
+    }
+
     use super::*;
 
     #[test]
@@ -270,4 +295,11 @@ mod tests {
 
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// Reads a language source into its staging buffer.
+fn bounded_bytes(reader: impl std::io::Read, maximum: usize) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
