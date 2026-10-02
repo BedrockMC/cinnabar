@@ -265,7 +265,7 @@ impl UiPresentationRuntime {
             }
         }
         if let Some(view) = preview_view.get() {
-            self.player_preview_view = view.quantized();
+            self.player_preview_view = view;
         }
         let Some(frame) = drawn else {
             if let Some((hits, keys)) =

@@ -70,6 +70,8 @@ pub fn adapt_ui_draw_list(
                     } else {
                         0
                     },
+                alpha_cutoff: vertex.alpha_cutoff,
+                model_light: vertex.model_light,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -106,7 +108,8 @@ pub fn adapt_ui_draw_list(
             )
             .with_depth_test(batch.depth_test)
             .with_depth_write(batch.depth_write)
-            .with_world_projection(batch.world_projection),
+            .with_world_projection(batch.world_projection)
+            .with_isolated_depth_scope(batch.isolated_depth_scope),
         );
     }
     let input = UiRenderInput {
@@ -182,10 +185,12 @@ mod tests {
                     position: [index as f32, index as f32],
                     clip_z: 0.0,
                     clip_w: 1.0,
-                    uv: [0, 0],
+                    uv: [0.0, 0.0],
                     color: [255; 4],
                     style_flags: 0,
                     alpha_test: false,
+                    alpha_cutoff: -1.0,
+                    model_light: 1.0,
                 })
                 .collect(),
             indices: vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7],
@@ -197,6 +202,7 @@ mod tests {
                     depth_test: false,
                     depth_write: false,
                     world_projection: false,
+                    isolated_depth_scope: None,
                     index_range: 0..6,
                 },
                 UiDrawBatch {
@@ -206,6 +212,7 @@ mod tests {
                     depth_test: false,
                     depth_write: false,
                     world_projection: false,
+                    isolated_depth_scope: None,
                     index_range: 6..12,
                 },
             ],
@@ -300,6 +307,74 @@ mod tests {
         assert_eq!(input.batches[0].depth_write, 1);
         assert_eq!(input.batches[0].world_projection, 1);
         assert_eq!(input.batches[0].scissor, UiScissor::new(0, 0, 200, 160));
+    }
+
+    #[test]
+    fn model_mesh_dpi_keeps_material_cutoff_and_private_depth_without_world_projection() {
+        let mesh = ui::UiMesh::new(
+            [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0]]
+                .map(|position| ui::UiMeshVertex {
+                    position,
+                    clip_z: 0.75,
+                    clip_w: 2.0,
+                    uv: [8.5, 4.5],
+                    color: [255; 4],
+                    style_flags: 0,
+                    alpha_test: false,
+                    model_light: 0.718_629,
+                })
+                .into(),
+            vec![0, 1, 2].into(),
+            vec![ui::UiMeshBatch {
+                texture_page: 0,
+                index_range: 0..3,
+                blend: ui::UiBlendMode::Alpha,
+                depth_test: true,
+                depth_write: true,
+                alpha_cutoff: Some(0.1),
+            }]
+            .into(),
+        )
+        .unwrap();
+        let mut tree = ui::UiTree::new(vec![
+            ui::UiNode::new(ui::UiNodeId::new(9), None, rect(10.0, 20.0, 30.0, 40.0))
+                .with_visual(ui::UiVisual::Mesh(Arc::new(mesh))),
+        ])
+        .unwrap();
+        tree.layout(
+            rect(0.0, 0.0, 100.0, 100.0),
+            ui::UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+        let input = adapt_ui_draw_list(
+            &tree.build_draw_list().unwrap(),
+            Arc::new(
+                UiRenderTextureArray::new(
+                    vec![render::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
+            UiRenderViewport {
+                physical_size: [200, 200],
+                dpi_scale: DpiScale::new(2.0).unwrap(),
+                safe_area: SafeArea::ZERO,
+            },
+        )
+        .unwrap();
+        assert_eq!(input.vertices[0].position, [40.0, 80.0]);
+        assert_eq!(input.vertices[0].clip_z, 0.75);
+        assert_eq!(input.vertices[0].clip_w, 2.0);
+        assert_eq!(input.vertices[0].alpha_cutoff, 0.1);
+        assert_eq!(input.vertices[0].uv, [8.5, 4.5]);
+        assert_eq!(
+            input.vertices[0].model_light.to_bits(),
+            0.718_629_f32.to_bits()
+        );
+        assert_eq!(input.batches[0].isolated_depth_scope, Some(9));
+        assert_eq!(input.batches[0].world_projection, 0);
+        assert_eq!(input.batches[0].depth_write, 1);
     }
 
     fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {

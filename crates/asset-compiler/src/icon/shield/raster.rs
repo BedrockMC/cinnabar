@@ -47,11 +47,11 @@ pub(super) fn triangle(
                 .clamp(0.0, f32::from(texture.height - 1)) as usize;
             let source = &texture.rgba8[(ty * usize::from(texture.width) + tx) * 4..][..4];
             // ui_shield.skinning inherits ALPHA_TEST; no FANCY side-lighting for UI_ENTITY.
-            if source[3] < 128 {
+            let alpha = f32::from(source[3]) / f32::from(u8::MAX);
+            if alpha < assets::gui_item::SHIELD_ALPHA_CUTOFF {
                 continue;
             }
             let output = &mut pixels[(y * SIDE + x) * 4..][..4];
-            let alpha = f32::from(source[3]) / 255.0;
             let previous = f32::from(output[3]) / 255.0;
             let final_alpha = alpha + previous * (1.0 - alpha);
             for channel in 0..3 {

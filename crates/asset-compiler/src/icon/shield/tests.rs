@@ -1,4 +1,9 @@
 use super::*;
+use assets::gui_item::{
+    SHIELD_ALPHA_CUTOFF, SHIELD_GUI_MODEL_SCALE as GUI_MODEL_SCALE,
+    SHIELD_GUI_ROTATION_RADIANS as GUI_ROTATION_RADIANS, SHIELD_GUI_TRANSLATION as GUI_TRANSLATION,
+    SHIELD_MODEL_PART_HEIGHT as MODEL_PART_HEIGHT, SHIELD_MODEL_UNIT as MODEL_UNIT,
+};
 use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
 
 fn scalar(value: f32) -> Scalar {
@@ -102,19 +107,20 @@ fn model_bake_is_a_projected_cutout_not_its_raw_uv_sheet_or_cube_lighting() {
 
 #[test]
 fn gui_alpha_test_uses_the_sampled_half_alpha_threshold() {
+    let accepted = (SHIELD_ALPHA_CUTOFF * f32::from(u8::MAX)).ceil() as u8;
     assert!(
-        bake(&geometry(), &texture(127))
+        bake(&geometry(), &texture(accepted - 1))
             .unwrap()
             .rgba8
             .iter()
             .all(|byte| *byte == 0)
     );
     assert!(
-        bake(&geometry(), &texture(128))
+        bake(&geometry(), &texture(accepted))
             .unwrap()
             .rgba8
             .chunks_exact(4)
-            .any(|pixel| pixel[3] >= 128)
+            .any(|pixel| pixel[3] >= accepted)
     );
 }
 

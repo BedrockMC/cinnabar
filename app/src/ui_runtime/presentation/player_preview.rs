@@ -1,9 +1,9 @@
-//! Small software-rendered player preview used by the gameplay HUD.
+//! Native player-preview projection, direct UI geometry and CPU hand fallback.
 //!
-//! The preview is deliberately generated from the same standard-biped vertex
-//! and UV contract used by the 3-D actor renderer. It is cached by the caller
-//! and uploaded as one UI texture layer only when the authoritative skin or
-//! pose changes, so it does not add a per-frame GPU upload or a second camera.
+//! Both model paths use the standard-biped vertex and UV contract of the 3-D
+//! actor renderer. Visible live-player/paper-doll controls use `geometry` and
+//! original skin texels at destination framebuffer resolution; the cached CPU
+//! raster is retained for compatibility and first-person fallback carriers.
 
 use std::sync::Arc;
 
@@ -12,8 +12,13 @@ use assets::RuntimeEquipmentCatalog;
 use super::{IconRef, UiPresentationRuntime};
 
 mod equipment;
-pub(crate) use equipment::{PreviewEquipment, PreviewTexture};
+pub(crate) mod geometry;
+mod skin;
+pub(crate) use equipment::{
+    PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
+};
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+pub(crate) use skin::validated_ui_skin;
 
 impl UiPresentationRuntime {
     /// Retain the CPU quad. Only exact current-render coverage may omit it in
@@ -81,6 +86,15 @@ impl UiPresentationRuntime {
             }),
             held.as_ref().map(|(id, stack)| (&**id, stack.metadata)),
         );
+        let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
+        self.player_preview_gear.hands = [held, off_hand].map(|item| {
+            let (identifier, stack) = item?;
+            Some(PreviewHandItem {
+                identifier,
+                metadata: stack.metadata,
+                charged_projectile: protocol::item_charged_projectile(&stack.extra_data),
+            })
+        });
     }
 
     /// Dresses the model: each armor slot's item identifier (helmet to boots)
@@ -106,6 +120,14 @@ impl UiPresentationRuntime {
                 tint,
             })
         });
+        let hands = [
+            held.map(|(identifier, metadata)| PreviewHandItem {
+                identifier: Arc::from(identifier),
+                metadata,
+                charged_projectile: None,
+            }),
+            None,
+        ];
         let held = held.and_then(|(identifier, metadata)| {
             let sprite = self.icon_catalog.as_ref()?.lookup(identifier, metadata)?;
             Some(PreviewTexture {
@@ -115,7 +137,7 @@ impl UiPresentationRuntime {
                 tint: None,
             })
         });
-        self.player_preview_gear = PreviewEquipment { armor, held };
+        self.player_preview_gear = PreviewEquipment { armor, held, hands };
     }
 
     /// The current model raster's RGBA pixels, empty before the first.
@@ -163,19 +185,6 @@ impl Default for PreviewView {
 }
 
 impl PreviewView {
-    /// Whole-pixel offsets and quarter-degree angles, so pointer noise doesn't re-raster.
-    pub(crate) fn quantized(self) -> Self {
-        match self {
-            Self::Live { offset } => Self::Live {
-                offset: offset.map(|axis| if axis.is_finite() { axis.round() } else { 0.0 }),
-            },
-            Self::Doll { yaw, tilt } => Self::Doll {
-                yaw: quantize_angle(yaw),
-                tilt: quantize_angle(tilt),
-            },
-        }
-    }
-
     /// `(body yaw, head yaw, head pitch, model pitch)` in degrees. A live renderer
     /// follows `LivePlayerRenderer::render`: body `atan(dx / 40) * 20`, head
     /// `atan(dx / 40) * 40` and `atan(dy / 40) * -20`, the whole model tilted by
@@ -236,15 +245,14 @@ pub(crate) fn renderer_frame(
 }
 
 /// The idle arm sway of `animation.player.bob`, in degrees, at `seconds` of life:
-/// `cos(t * 103.2) * 2.865 + 2.865`, quantized to half degrees.
+/// `cos(t * 103.2) * 2.865 + 2.865`. Geometry follows its continuous native
+/// value; a CPU raster cache may quantize its own request independently.
 pub(crate) fn bob_degrees(seconds: f64) -> f32 {
     let degrees = (seconds * 103.2).to_radians().cos() * 2.865 + 2.865;
-    ((degrees * 2.0).round() / 2.0) as f32
+    degrees as f32
 }
 
-/// Quantized authoritative pose used by the small HUD avatar. Keeping the
-/// angles to quarter-degree steps avoids rebuilding the UI texture array for
-/// insignificant network noise while still tracking normal mouse movement.
+/// Authoritative pose supplied to UI model geometry without angle quantization.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct PlayerPreviewPose {
     pub(crate) body_yaw_degrees: f32,
@@ -270,9 +278,9 @@ impl PlayerPreviewPose {
         sneaking: bool,
     ) -> Self {
         Self {
-            body_yaw_degrees: quantize_angle(body_yaw_degrees),
-            head_yaw_degrees: quantize_angle(head_yaw_degrees),
-            pitch_degrees: quantize_angle(pitch_degrees),
+            body_yaw_degrees,
+            head_yaw_degrees,
+            pitch_degrees,
             sneaking,
         }
     }
@@ -302,16 +310,7 @@ pub(crate) fn render(
     let mut depth = vec![f32::NEG_INFINITY; width * height];
     let mut vertices = standard_biped_vertices();
     vertices.extend(standard_biped_overlay_vertices());
-    let [body, head_yaw, head_pitch, model_pitch] = view.angles();
-    let rig = Rig {
-        body: body.to_radians(),
-        head_yaw: (head_yaw - body).to_radians(),
-        head_pitch: head_pitch.to_radians(),
-        model_pitch: model_pitch.to_radians(),
-        bob: bob.to_radians(),
-        sneaking: pose.sneaking,
-        holding: gear.held.is_some(),
-    };
+    let rig = Rig::new(pose, view, bob, [gear.held.is_some(), false]);
     let mut draw = |vertices: &[ActorVertex], sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>| {
         for triangle in vertices.chunks_exact(3) {
             let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
@@ -341,11 +340,27 @@ struct Rig {
     model_pitch: f32,
     bob: f32,
     sneaking: bool,
-    /// A held item raises the right arm (`animation.player.holding`: -18 degrees).
-    holding: bool,
+    /// Each held item raises its own arm (`animation.player.holding`: -18 degrees).
+    holding: [bool; 2],
 }
 
 impl Rig {
+    fn new(pose: PlayerPreviewPose, view: PreviewView, bob: f32, holding: [bool; 2]) -> Self {
+        let [body, head_yaw, head_pitch, model_pitch] = view.angles();
+        // PaperDollRenderer sets variable.is_paperdoll=1. The vanilla player
+        // controller's paperdoll branch excludes holding, sneak and idle bob.
+        let is_live = matches!(view, PreviewView::Live { .. });
+        Self {
+            body: body.to_radians(),
+            head_yaw: (head_yaw - body).to_radians(),
+            head_pitch: head_pitch.to_radians(),
+            model_pitch: model_pitch.to_radians(),
+            bob: if is_live { bob.to_radians() } else { 0.0 },
+            sneaking: is_live && pose.sneaking,
+            holding: holding.map(|holding| is_live && holding),
+        }
+    }
+
     fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
         let mut local = vertex.position;
         if self.sneaking {
@@ -359,12 +374,18 @@ impl Rig {
             // The arms sway out from the shoulders.
             2 => {
                 let shoulder = [-5.0 / 16.0, 22.0 / 16.0, 0.0];
-                if self.holding {
+                if self.holding[0] {
                     local = rotate_x(local, -18f32.to_radians(), shoulder);
                 }
                 local = rotate_z(local, -self.bob, shoulder);
             }
-            3 => local = rotate_z(local, self.bob, [5.0 / 16.0, 22.0 / 16.0, 0.0]),
+            3 => {
+                let shoulder = [5.0 / 16.0, 22.0 / 16.0, 0.0];
+                if self.holding[1] {
+                    local = rotate_x(local, -18f32.to_radians(), shoulder);
+                }
+                local = rotate_z(local, self.bob, shoulder);
+            }
             _ => {}
         }
         // The player renders at `scale: 0.9375` (player.entity.json).
@@ -582,14 +603,6 @@ fn rotate_z(mut point: [f32; 3], angle: f32, pivot: [f32; 3]) -> [f32; 3] {
     point[0] = pivot[0] + x * cos - y * sin;
     point[1] = pivot[1] + x * sin + y * cos;
     point
-}
-
-fn quantize_angle(value: f32) -> f32 {
-    if value.is_finite() {
-        (value * 4.0).round() / 4.0
-    } else {
-        0.0
-    }
 }
 
 fn edge(a: [f32; 2], b: [f32; 2], point: [f32; 2]) -> f32 {

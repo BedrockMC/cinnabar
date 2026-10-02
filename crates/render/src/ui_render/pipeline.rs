@@ -15,6 +15,7 @@ pub(super) struct UiPipelineKey {
     pub(super) layer: bool,
     pub(super) depth_test: bool,
     pub(super) depth_write: bool,
+    pub(super) isolated_depth: bool,
 }
 
 impl Specializer<RenderPipeline> for UiPipelineSpecializer {
@@ -47,7 +48,7 @@ impl Specializer<RenderPipeline> for UiPipelineSpecializer {
                 // Depth-tested, depth-writing projected UI is the native environmental-text
                 // mode. Plates are read-only; ordinary text uses Always; HUD has no depth state.
                 bias: DepthBiasState {
-                    constant: if key.depth_test && key.depth_write {
+                    constant: if key.depth_test && key.depth_write && !key.isolated_depth {
                         -NATIVE_ENVIRONMENTAL_TEXT_DEPTH_BIAS
                     } else {
                         0
@@ -91,6 +92,7 @@ mod tests {
                         layer,
                         depth_test: !layer,
                         depth_write: !layer,
+                        isolated_depth: false,
                     },
                     &mut descriptor,
                 )
@@ -117,6 +119,41 @@ mod tests {
                 if layer { 1 } else { Msaa::Sample4.samples() }
             );
             assert_eq!(descriptor.depth_stencil.is_some(), !layer);
+        }
+    }
+
+    #[test]
+    fn ui_model_depth_never_inherits_environmental_text_bias() {
+        for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+            for (depth_test, depth_write) in [(true, false), (false, true), (true, true)] {
+                let mut descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
+                UiPipelineSpecializer
+                    .specialize(
+                        UiPipelineKey {
+                            msaa,
+                            hdr: false,
+                            invert_blend: false,
+                            layer: true,
+                            depth_test,
+                            depth_write,
+                            isolated_depth: true,
+                        },
+                        &mut descriptor,
+                    )
+                    .unwrap();
+                let depth = descriptor.depth_stencil.unwrap();
+                assert_eq!(depth.depth_write_enabled, depth_write);
+                assert_eq!(depth.bias.constant, 0);
+                assert_eq!(depth.bias.slope_scale, 0.0);
+                assert_eq!(descriptor.multisample.count, 1);
+                assert_eq!(
+                    descriptor.fragment.unwrap().targets[0]
+                        .as_ref()
+                        .unwrap()
+                        .format,
+                    composite::UI_LAYER_FORMAT
+                );
+            }
         }
     }
 }

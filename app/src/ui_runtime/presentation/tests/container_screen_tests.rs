@@ -761,6 +761,7 @@ fn inventory_player_model_wears_armor_and_holds_items() {
                 Some(layer_1),
             ],
             held: Some(sword),
+            ..Default::default()
         },
     ] {
         presentation.player_preview_gear = gear;

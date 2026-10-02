@@ -35,6 +35,36 @@ shade/solid-render property export, component exponents, dimension shading modes
 and box-average interpolation remain incomplete. The full audit work is in
 progress on fix/world-lighting.
 
+2026-10-02 inventory model quality (implemented, upstream-integrated and live-checked): current mcsrc
+GUI block/shield and live-player renderers submit geometry at their controls' scale,
+not enlarged fixed 16/32/64-pixel item thumbnails or a 96x112 player raster. The new
+bounded JSON-UI mesh path uses original carried/material/skin/armor texels, native
+projection and face colours, sampled material alpha cutoffs and isolated player
+model depth. Flat pixel-art sprites remain point sampled. GUI poses are no longer
+rounded to whole pixels or quarter/half-degree steps, and the player's Fancy light
+formula is a float separate from byte colour/tint. The follow-up replaces preview
+GUI-icon planes with actual six-face cubes, extruded sprites and literal authored
+held models, using native hand pivots and both inventory hands. Tooltip layout now
+uses the native runtime purpleBorder nine-slice, mouse overflow rules, text offset
+and pitch; original floating-point texel UVs preserve extrusion side centers.
+The reported flat held-thumbnail and plain-tooltip regressions passed fresh
+macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
+first live offhand Shield exposed a missing expression-bound ModelPart origin;
+the source-derived correction now passes both hand poses and real-carrier tests.
+Integration retains upstream's gamma-space UI layer, font/animation paths and
+independently inherited image/sidecar overrides. Stateful inventory/HUD providers
+explicitly clear empty icon bindings so compact icon tables cannot leave duplicate
+items behind; moving between hands and repeated reopening passed the live rerun.
+After integrating upstream dev through 0979ff22, focused tests, the full workspace
+suite, formatting, strict workspace Clippy, the architecture gate, Go tests and
+Go vet passed, and the canonical client/core were rebuilt and live-tested.
+No complete native parity gate is closed.
+Special GUI block shapes, custom/persona/slim
+geometry and animation/held-model layers, native glint/material/color formats,
+hardware sample coverage and controlled matching vanilla frames remain incomplete.
+See docs/reference/inventory-gui-geometry.md, player-preview-rendering.md and
+inventory-hover-tooltip.md for the native contracts and exact build/frame evidence.
+
 2026-10-02 dev integration: the first-person item/block/attachable, grass material,
 arrow, name-tag, crouch/shield, offhand, inventory reopen, game-mode and inventory
 reconciliation corrections below are integrated with the upstream `dev` branch.

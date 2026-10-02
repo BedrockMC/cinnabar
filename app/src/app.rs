@@ -629,6 +629,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         eprintln!("OreUI originals disabled ({reason})");
     }
     ui_presentation.set_equipment_catalog(equipment_catalog);
+    ui_presentation
+        .set_gui_models(&loaded_assets.runtime, &entity_runtime)
+        .context("prepare native GUI model geometry and original texture pages")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();

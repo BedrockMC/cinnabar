@@ -23,9 +23,13 @@ pub struct UiRenderVertex {
     pub position: [f32; 2],
     pub clip_z: f32,
     pub clip_w: f32,
-    pub uv: [u16; 2],
+    pub uv: [f32; 2],
     pub color: [u8; 4],
     pub style_flags: u32,
+    /// Negative disables explicit model-material sampled alpha testing.
+    pub alpha_cutoff: f32,
+    /// Native linear model lighting, interpolated without byte-color quantization.
+    pub model_light: f32,
 }
 
 #[repr(C)]
@@ -56,8 +60,7 @@ pub const UI_BLEND_INVERT: u32 = 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiRenderBatch {
     pub texture_page: u32,
     pub scissor: UiScissor,
@@ -71,6 +74,8 @@ pub struct UiRenderBatch {
     pub depth_write: u32,
     /// 1 for world-projected UI, rendered before near-camera hands and ordinary HUD.
     pub world_projection: u32,
+    /// An ordered screen-space model's depth lifetime, separate from world depth.
+    pub isolated_depth_scope: Option<u32>,
 }
 
 impl UiRenderBatch {
@@ -91,6 +96,7 @@ impl UiRenderBatch {
             depth_test: 0,
             depth_write: 0,
             world_projection: 0,
+            isolated_depth_scope: None,
         }
     }
 
@@ -114,6 +120,15 @@ impl UiRenderBatch {
         self.depth_write = depth_write as u32;
         if depth_write {
             self.world_projection = 1;
+        }
+        self
+    }
+
+    #[must_use]
+    pub const fn with_isolated_depth_scope(mut self, scope: Option<u32>) -> Self {
+        self.isolated_depth_scope = scope;
+        if scope.is_some() {
+            self.world_projection = 0;
         }
         self
     }
@@ -156,6 +171,11 @@ impl UiRenderInput {
             !vertex.position.iter().all(|value| value.is_finite())
                 || !vertex.clip_z.is_finite()
                 || !vertex.clip_w.is_finite()
+                || !vertex.uv.iter().all(|value| value.is_finite())
+                || !vertex.alpha_cutoff.is_finite()
+                || vertex.alpha_cutoff > 1.0
+                || !vertex.model_light.is_finite()
+                || vertex.model_light < 0.0
         }) {
             return Err(UiRenderRejectReason::NonFiniteVertex);
         }
@@ -193,6 +213,7 @@ pub enum UiRenderRejectReason {
     UnsupportedDepthTest { batch: usize },
     UnsupportedDepthWrite { batch: usize },
     UnsupportedWorldProjection { batch: usize },
+    InvalidIsolatedDepthScope { batch: usize },
     InvalidTextureExtent,
     TextureByteLengthInvalid { actual: usize, expected: usize },
     TextureByteLimitExceeded { actual: usize, limit: usize },
@@ -251,7 +272,6 @@ impl UiRenderScene {
                 Err(UiRenderRejectReason::RevisionConflict { revision })
             } else if self.input.as_deref().is_some_and(|current| {
                 current.textures.static_identity() != input.textures.static_identity()
-                    || current.textures.plan() != input.textures.plan()
             }) {
                 Err(UiRenderRejectReason::TextureIdentityConflict {
                     identity: input.textures.identity(),
@@ -370,7 +390,21 @@ fn validate_draw_bytes(input: &UiRenderInput) -> Result<(), UiRenderRejectReason
 
 fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
     let mut expected_first = 0usize;
+    let mut previous_scope = None;
+    let mut completed_scopes = std::collections::BTreeSet::new();
     for (batch_index, batch) in input.batches.iter().enumerate() {
+        if batch.isolated_depth_scope != previous_scope {
+            if let Some(scope) = previous_scope {
+                completed_scopes.insert(scope);
+            }
+            if batch
+                .isolated_depth_scope
+                .is_some_and(|scope| completed_scopes.contains(&scope))
+            {
+                return Err(UiRenderRejectReason::InvalidIsolatedDepthScope { batch: batch_index });
+            }
+            previous_scope = batch.isolated_depth_scope;
+        }
         if batch.index_count == 0 {
             return Err(UiRenderRejectReason::EmptyBatch { batch: batch_index });
         }
@@ -396,7 +430,10 @@ fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
             return Err(UiRenderRejectReason::UnsupportedDepthWrite { batch: batch_index });
         }
         if batch.world_projection > 1
-            || ((batch.depth_test == 1 || batch.depth_write == 1) && batch.world_projection == 0)
+            || (batch.isolated_depth_scope.is_some() && batch.world_projection != 0)
+            || ((batch.depth_test == 1 || batch.depth_write == 1)
+                && batch.world_projection == 0
+                && batch.isolated_depth_scope.is_none())
         {
             return Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: batch_index });
         }

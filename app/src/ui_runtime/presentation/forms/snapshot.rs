@@ -104,9 +104,7 @@ fn fill(
                 continue;
             }
             let uv = std::array::from_fn(|axis| {
-                wa * f32::from(corners[0].uv[axis])
-                    + wb * f32::from(corners[1].uv[axis])
-                    + wc * f32::from(corners[2].uv[axis])
+                wa * corners[0].uv[axis] + wb * corners[1].uv[axis] + wc * corners[2].uv[axis]
             });
             let Some(source) = shade(uv, corners[0].color, x, y) else {
                 continue;
@@ -146,9 +144,11 @@ mod tests {
             position: [x, y],
             clip_z: 0.0,
             clip_w: 1.0,
-            uv: [0, 0],
+            uv: [0.0, 0.0],
             color: [0, 0, 0, 153],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         }
     }
 

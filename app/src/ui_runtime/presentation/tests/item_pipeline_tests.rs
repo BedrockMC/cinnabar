@@ -181,11 +181,22 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         .iter()
         .filter(|node| {
             matches!(&node.draw, Draw::Custom { renderer, data }
-                if renderer == "inventory_item_renderer" && data.contains_key("#item_renderer_data"))
+                if renderer == "inventory_item_renderer"
+                    && data.get("#item_renderer_data").is_some_and(serde_json::Value::is_number))
         })
         .count();
     let resolved = frame.hotbar_icons.iter().flatten().count();
     assert_eq!(rendered, resolved, "{report:#?}");
+    let cleared = presentation
+        .hud_draw_nodes()
+        .iter()
+        .filter(|node| {
+            matches!(&node.draw, Draw::Custom { renderer, data }
+                if renderer == "inventory_item_renderer"
+                    && data.get("#item_renderer_data").is_some_and(serde_json::Value::is_null))
+        })
+        .count();
+    assert_eq!(cleared, hotbar.len() - resolved, "{report:#?}");
     assert!(
         frame.hotbar_stacks.iter().all(Option::is_some),
         "{report:#?}"

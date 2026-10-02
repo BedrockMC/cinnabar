@@ -4,7 +4,7 @@ use super::{tick::WeightedClip, *};
 
 // ModelPart loader 26.50.26 RVA 01e61dd0 uses DAT_14ffa90d8 (24), then the model
 // constructor RVA 01e772b0 negates native Y into BoneOrientation default position.
-pub(super) const MODEL_PART_ORIGIN_Y: f32 = 24.0;
+pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
 #[derive(Clone, Copy)]
 pub(super) struct LocalDelta {

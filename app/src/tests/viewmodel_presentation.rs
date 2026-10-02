@@ -167,7 +167,7 @@ fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
                 let start = batch.first_index as usize;
                 input.indices[start..start + batch.index_count as usize].to_vec()
             })
-            .filter(|&index| input.vertices[index as usize].uv == corner)
+            .filter(|&index| input.vertices[index as usize].uv == corner.map(f32::from))
             .collect::<Vec<_>>();
         vertices.sort_unstable();
         vertices.dedup();

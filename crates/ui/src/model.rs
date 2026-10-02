@@ -9,9 +9,11 @@ use std::{
 use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
 
 mod draw;
+mod mesh;
 mod projection;
 
 use draw::{emit_visual, is_empty};
+pub use mesh::{UiMesh, UiMeshBatch, UiMeshError, UiMeshVertex};
 pub use projection::UiWorldProjection;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -43,6 +45,8 @@ pub enum UiBlendMode {
 pub enum UiVisual {
     #[default]
     None,
+    /// Direct geometry at this control's authored draw position, with private model depth.
+    Mesh(Arc<UiMesh>),
     Solid {
         texture_page: u16,
         color: [u8; 4],
@@ -281,10 +285,14 @@ pub struct UiVertex {
     /// Homogeneous clip Z and W; HUD vertices use 0 and 1 respectively.
     pub clip_z: f32,
     pub clip_w: f32,
-    pub uv: [u16; 2],
+    pub uv: [f32; 2],
     pub color: [u8; 4],
+    /// Interpolated linear model lighting, kept separate from authored sRGB tint.
+    pub model_light: f32,
     pub style_flags: u8,
     pub alpha_test: bool,
+    /// Explicit sampled-texture cutoff; negative disables this material override.
+    pub alpha_cutoff: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -295,6 +303,8 @@ pub struct UiDrawBatch {
     pub depth_test: bool,
     pub depth_write: bool,
     pub world_projection: bool,
+    /// One model control's private depth lifetime; never the world depth buffer.
+    pub isolated_depth_scope: Option<u32>,
     pub index_range: Range<u32>,
 }
 
@@ -336,6 +346,7 @@ pub enum UiError {
     DrawIndexOverflow,
     DrawAllocationFailed,
     InvalidWorldProjection { node: UiNodeId },
+    MeshWorldProjectionConflict { node: UiNodeId },
 }
 
 impl fmt::Display for UiError {
@@ -370,6 +381,9 @@ impl UiTree {
         let mut by_id = BTreeMap::new();
         for node in nodes {
             let id = node.id;
+            if node.world_projection.is_some() && matches!(node.visual, UiVisual::Mesh(_)) {
+                return Err(UiError::MeshWorldProjectionConflict { node: id });
+            }
             if node
                 .world_projection
                 .is_some_and(|projection| !projection.is_valid())
@@ -651,6 +665,7 @@ impl UiTree {
                     draw::DrawSpace {
                         clip,
                         projection: node.world_projection.as_ref(),
+                        node: id,
                     },
                     effects,
                     &mut vertices,
@@ -732,9 +747,24 @@ impl UiTree {
     }
 
     fn draw_counts(&self) -> Result<(usize, usize, usize), UiError> {
+        let mut mesh_vertices = 0usize;
+        let mut mesh_indices = 0usize;
+        let mut mesh_batches = 0usize;
         let quads = self.nodes.values().try_fold(0usize, |total, node| {
             let count = match &node.visual {
                 UiVisual::None => 0,
+                UiVisual::Mesh(mesh) => {
+                    mesh_vertices = mesh_vertices
+                        .checked_add(mesh.indices().len())
+                        .ok_or(UiError::DrawIndexOverflow)?;
+                    mesh_indices = mesh_indices
+                        .checked_add(mesh.indices().len())
+                        .ok_or(UiError::DrawIndexOverflow)?;
+                    mesh_batches = mesh_batches
+                        .checked_add(mesh.batches().len())
+                        .ok_or(UiError::DrawIndexOverflow)?;
+                    0
+                }
                 UiVisual::Solid { .. }
                 | UiVisual::Sprite { .. }
                 | UiVisual::GlintSprite { .. }
@@ -764,21 +794,33 @@ impl UiTree {
             };
             total.checked_add(count).ok_or(UiError::DrawIndexOverflow)
         })?;
-        let vertices = quads.checked_mul(4).ok_or(UiError::DrawIndexOverflow)?;
+        let vertices = quads
+            .checked_mul(4)
+            .and_then(|count| count.checked_add(mesh_vertices))
+            .ok_or(UiError::DrawIndexOverflow)?;
         if vertices > UiLimits::MAX_UI_VERTICES {
             return Err(UiError::VertexLimitExceeded {
                 actual: vertices,
                 limit: UiLimits::MAX_UI_VERTICES,
             });
         }
-        let indices = quads.checked_mul(6).ok_or(UiError::DrawIndexOverflow)?;
+        let indices = quads
+            .checked_mul(6)
+            .and_then(|count| count.checked_add(mesh_indices))
+            .ok_or(UiError::DrawIndexOverflow)?;
         if indices > UiLimits::MAX_UI_INDICES {
             return Err(UiError::IndexLimitExceeded {
                 actual: indices,
                 limit: UiLimits::MAX_UI_INDICES,
             });
         }
-        Ok((quads, vertices, indices))
+        Ok((
+            quads
+                .checked_add(mesh_batches)
+                .ok_or(UiError::DrawIndexOverflow)?,
+            vertices,
+            indices,
+        ))
     }
 }
 
