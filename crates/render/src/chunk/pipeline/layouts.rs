@@ -174,59 +174,6 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
     }
 }
 
-#[cfg(test)]
-mod enhanced_tests {
-    use super::*;
-
-    /// Recreates the vanilla specialization before the Enhanced extension.
-    fn vanilla_descriptor(msaa: Msaa, hdr: bool) -> RenderPipelineDescriptor {
-        let mut descriptor = RenderPipelineDescriptor {
-            fragment: Some(FragmentState {
-                targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                ..default()
-            }),
-            ..default()
-        };
-        descriptor.multisample.count = msaa.samples();
-        descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap()
-            .format = if hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
-        } else {
-            TextureFormat::bevy_default()
-        };
-        descriptor
-    }
-
-    #[test]
-    fn disabled_enhanced_keeps_vanilla_descriptor_and_shader_defs_identical() {
-        for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
-            for hdr in [false, true] {
-                let before = vanilla_descriptor(msaa, hdr);
-                let mut after = vanilla_descriptor(Msaa::Off, false);
-                ChunkPipelineSpecializer
-                    .specialize(
-                        ChunkPipelineKey {
-                            msaa,
-                            hdr,
-                            enhanced: false,
-                        },
-                        &mut after,
-                    )
-                    .unwrap();
-                assert_eq!(format!("{before:?}"), format!("{after:?}"));
-                assert!(after.vertex.shader_defs.is_empty());
-                assert!(after.fragment.unwrap().shader_defs.is_empty());
-            }
-        }
-    }
-}
-
 /// Shared vertex-pulling bindings used by world rendering and shadow casters.
 pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
@@ -390,4 +337,57 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
             },
         ],
     )
+}
+
+#[cfg(test)]
+mod enhanced_tests {
+    use super::*;
+
+    /// Recreates the vanilla specialization before the Enhanced extension.
+    fn vanilla_descriptor(msaa: Msaa, hdr: bool) -> RenderPipelineDescriptor {
+        let mut descriptor = RenderPipelineDescriptor {
+            fragment: Some(FragmentState {
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            ..default()
+        };
+        descriptor.multisample.count = msaa.samples();
+        descriptor.fragment.as_mut().unwrap().targets[0]
+            .as_mut()
+            .unwrap()
+            .format = if hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        descriptor
+    }
+
+    #[test]
+    fn disabled_enhanced_keeps_vanilla_descriptor_and_shader_defs_identical() {
+        for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+            for hdr in [false, true] {
+                let before = vanilla_descriptor(msaa, hdr);
+                let mut after = vanilla_descriptor(Msaa::Off, false);
+                ChunkPipelineSpecializer
+                    .specialize(
+                        ChunkPipelineKey {
+                            msaa,
+                            hdr,
+                            enhanced: false,
+                        },
+                        &mut after,
+                    )
+                    .unwrap();
+                assert_eq!(format!("{before:?}"), format!("{after:?}"));
+                assert!(after.vertex.shader_defs.is_empty());
+                assert!(after.fragment.unwrap().shader_defs.is_empty());
+            }
+        }
+    }
 }

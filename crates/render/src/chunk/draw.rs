@@ -1,5 +1,15 @@
 use crate::chunk::*;
 
+/// World views shared by opaque and transparent chunk queues.
+type ChunkViewQuery = (
+    Entity,
+    Read<MainEntity>,
+    Read<ExtractedView>,
+    Read<RenderVisibleEntities>,
+    Read<Msaa>,
+    Option<Read<crate::EnhancedRendering>>,
+);
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn queue_chunks(
     pipeline_cache: Res<PipelineCache>,
@@ -8,14 +18,7 @@ pub(in crate::chunk) fn queue_chunks(
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     render_adapter: Res<RenderAdapter>,
     render_device: Res<RenderDevice>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &RenderVisibleEntities,
-        &Msaa,
-        Option<&crate::EnhancedRendering>,
-    )>,
+    views: Query<ChunkViewQuery>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
     arena: Res<ChunkGpuArena>,
@@ -415,14 +418,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     render_adapter: Res<RenderAdapter>,
     render_device: Res<RenderDevice>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &RenderVisibleEntities,
-        &Msaa,
-        Option<&crate::EnhancedRendering>,
-    )>,
+    views: Query<ChunkViewQuery>,
     allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
     profiler: Option<Res<RuntimeStageProfiler>>,
