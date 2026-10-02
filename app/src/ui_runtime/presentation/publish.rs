@@ -135,14 +135,15 @@ pub(crate) fn prepare_ui_runtime(
                 visible_rendered: visibility.visible_rendered,
                 cohort_target_complete: frame_poll.cohort.map_or_else(
                     // Outside acceptance runs the cohort is only scanned while loading, so a
-                    // sparse view (a Flat world) can still release the loading screen.
+                    // sparse view (a Flat world) can still release the loading screen. A
+                    // server that sent no terrain before spawn (Dragonfly) sends none until
+                    // initialized, so its empty startup view releases once work drains.
                     || {
                         loading
-                            && client_world.stream.as_ref().is_some_and(|stream| {
-                                stream.committed_view_cohort().is_some_and(|target| {
-                                    stream.cohort_status(target).target_is_complete()
-                                })
-                            })
+                            && client_world
+                                .stream
+                                .as_ref()
+                                .is_some_and(|stream| stream.startup_view_complete())
                     },
                     |status| status.target_is_complete(),
                 ),

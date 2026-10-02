@@ -231,6 +231,8 @@ impl CustomBlocks {
     }
 
     /// Parses `(name, network NBT)` block definitions as StartGame carries them.
+    /// Vanilla's own data-driven blocks ride along marked `vanilla_block_data`;
+    /// the vanilla palette already holds their states, so they are not server blocks.
     #[must_use]
     pub fn from_definitions<'a>(
         definitions: impl IntoIterator<Item = (&'a str, &'a [u8])>,
@@ -238,7 +240,14 @@ impl CustomBlocks {
         let mut blocks = Vec::new();
         let mut skipped = 0;
         for (name, bytes) in definitions {
-            match parse_definition(bytes) {
+            let Some(root) = read_root(bytes) else {
+                skipped += 1;
+                continue;
+            };
+            if root.field("vanilla_block_data").is_some() {
+                continue;
+            }
+            match parse_definition(&root) {
                 Some(definition) => blocks.push(CustomBlock {
                     name: Arc::from(name),
                     state_count: definition.state_count,
@@ -275,8 +284,7 @@ struct Definition {
     visual: CustomBlockVisuals,
 }
 
-fn parse_definition(bytes: &[u8]) -> Option<Definition> {
-    let root = read_root(bytes)?;
+fn parse_definition(root: &Nbt) -> Option<Definition> {
     let mut states = 1_u64;
     let mut state_axes = Vec::new();
     for property in root.list("properties") {
@@ -534,8 +542,12 @@ fn enabled_flags(value: &Nbt) -> Vec<String> {
 mod tests {
     use super::{
         CustomBlock, CustomBlockVisuals, CustomSelection, CustomStateAxis, CustomStateValue,
-        block_name_sort_key, parse_definition,
+        Definition, block_name_sort_key,
     };
+
+    fn parse_definition(bytes: &[u8]) -> Option<Definition> {
+        super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
+    }
 
     // Every state axis combination appears once with a distinct hash.
     #[test]
@@ -716,6 +728,27 @@ mod tests {
     #[test]
     fn truncated_definition_is_rejected() {
         assert!(parse_definition(&[10, 0, 9]).is_none());
+    }
+
+    // StartGame repeats vanilla's data-driven blocks marked `vanilla_block_data`
+    // (BDS and Dragonfly both do); the vanilla palette already holds their states.
+    #[test]
+    fn vanilla_data_driven_definitions_are_not_server_blocks() {
+        let mut vanilla = named(10, "");
+        vanilla.extend(named(10, "vanilla_block_data"));
+        vanilla.extend(string_field("material", "solid"));
+        vanilla.extend([0, 0]);
+        let server = [10, 0, 0];
+        let blocks = super::CustomBlocks::from_definitions([
+            ("minecraft:light_gray_concrete_stairs", vanilla.as_slice()),
+            ("ns:server_block", server.as_slice()),
+        ]);
+        let names = blocks
+            .blocks
+            .iter()
+            .map(|block| block.name.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!((names, blocks.skipped), (vec!["ns:server_block"], 0));
     }
 
     #[test]

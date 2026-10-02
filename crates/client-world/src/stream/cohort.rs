@@ -19,6 +19,22 @@ impl WorldStream {
     pub fn schedule_source_capture(&mut self, sequence: u64) {
         self.source_capture_sequence = Some(sequence);
     }
+    /// Records whether the server sent terrain before spawn (see
+    /// [`Self::startup_view_complete`]).
+    pub fn set_startup_terrain_announced(&mut self, announced: bool) {
+        self.startup_terrain_announced = announced;
+    }
+
+    /// Whether startup has all the terrain it waits for: the committed view's
+    /// columns once the server publishes one, else nothing when the server sent
+    /// no terrain before spawn (Dragonfly streams only after initialization).
+    #[must_use]
+    pub fn startup_view_complete(&self) -> bool {
+        match self.committed_view_cohort {
+            Some(target) => self.cohort_status(target).target_is_complete(),
+            None => !self.startup_terrain_announced,
+        }
+    }
     pub fn cohort_status(&self, target: ViewCohort) -> ViewCohortStatus {
         let uses_explicit_required =
             self.committed_view_cohort == Some(target) && target.publisher_geometry.is_some();
