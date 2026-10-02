@@ -71,6 +71,10 @@ codec, whose normalized source stays hash-locked). The shared codec includes a
 fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
 encoding as two little-endian `u64` halves.
 
+The shared codec inlines its per-item capacity check and keeps rare capacity
+growth out of line. Collection storage still grows fallibly, with the same
+allocation limits and errors; generated codecs are unchanged.
+
 
 The generated protocol crate is lowered from protocolgen's reconciled 1.26.51
 manifest (protocol 2193), which pins Mojang's `v1.26.51` metadata release and
