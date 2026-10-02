@@ -3,6 +3,8 @@ package experience
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -189,11 +191,19 @@ func (f *hostFixture) assertData(exp string, pos BlockPos, want []byte) {
 	f.t.Helper()
 	got, ok := f.store.Data(exp, overworldKey(pos))
 	if want == nil && ok {
-		f.t.Fatalf("data at %v = %x, want none", pos, got)
+		f.t.Fatalf("data at %v = %s, want none", pos, dataText(got))
 	}
 	if want != nil && (!ok || !slices.Equal(got, want)) {
-		f.t.Fatalf("data at %v = %x (present %v), want %x", pos, got, ok, want)
+		f.t.Fatalf("data at %v = %s (present %v), want %s", pos, dataText(got), ok, dataText(want))
 	}
+}
+
+// dataText renders data for a failure message: its hex, or only its length when that is long.
+func dataText(data []byte) string {
+	if len(data) > 16 {
+		return fmt.Sprintf("%d bytes", len(data))
+	}
+	return fmt.Sprintf("%x", data)
 }
 
 // overworldKey is the store key of pos in the overworld.
@@ -427,4 +437,87 @@ func TestNeighborEventsDedupedAndCapped(t *testing.T) {
 		}
 		seen[ev.call.Neighbor.Pos] = true
 	}
+}
+
+// Each tick's neighbor updates run in a transaction of their own, which starts a fresh window
+// even when the world's CurrentTick stands still, as it does in the nether and the end, whose
+// tick the overworld keeps.
+func TestNeighborCapResetsEachTickTransaction(t *testing.T) {
+	log, _ := testLog(t)
+	sup, _ := startFake(t, "ok", log, startOptions{})
+	f := newIdleFixture(t, log, map[string]*Supervisor{"probe": sup})
+	t.Cleanup(func() { f.host.Close() })
+	b, _ := registered(t).Lookup(probeCounter)
+	var ticks []int64
+	batch := func() {
+		f.do(func(tx *world.Tx) {
+			ticks = append(ticks, tx.CurrentTick())
+			for i := range maxNeighborEventsPerTick {
+				pos := cube.Pos{i, 64, 0}
+				b.NeighbourUpdateTick(pos, pos.Side(cube.FaceUp), tx)
+			}
+		})
+	}
+	batch()
+	batch()
+	if ticks[0] != ticks[1] {
+		t.Fatalf("CurrentTick moved from %d to %d; the test needs a world whose tick stands still",
+			ticks[0], ticks[1])
+	}
+	if got, want := len(f.host.dispatchers["probe"].events), 2*maxNeighborEventsPerTick; got != want {
+		t.Fatalf("queued %d neighbor events in two batches, want %d", got, want)
+	}
+}
+
+// The quota bounds a result's net data, as the runtime checks it, not each write on its way: a
+// result that grows one block past the quota while it shrinks another commits, and one whose net
+// exceeds the quota by a byte commits nothing.
+func TestQuotaCheckedOnNetData(t *testing.T) {
+	log, logs := testLog(t)
+	sup, _ := startFake(t, "ok", log, startOptions{})
+	f := newIdleFixture(t, log, map[string]*Supervisor{"probe": sup})
+	t.Cleanup(func() { f.host.Close() })
+	full := make([]byte, maxBlockDataBytes)
+	a, b := probePos(probeCount), BlockPos{X: 1, Y: 64}
+	f.place(probeCounter, a, nil)
+	f.place(probeCounter, b, full)
+	// Blocks elsewhere fill the rest of the quota.
+	for i := range dataQuota/maxBlockDataBytes - 1 {
+		k := Key{X: 1000 + int32(i), Y: 64}
+		f.store.Place("probe", k)
+		if err := f.store.SetData("probe", k, full, true); err != nil {
+			t.Fatalf("filling the quota: %v", err)
+		}
+	}
+	if budget := f.store.Budget("probe"); budget != 0 {
+		t.Fatalf("budget = %d, want the quota full", budget)
+	}
+	d := f.host.dispatchers["probe"]
+	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: a.cube(), call: Call{
+		Neighbor: &NeighborCall{Pos: a, Neighbor: b},
+	}}
+	snap, err := f.host.snapshot(context.Background(), d, ev)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	grow := hex.EncodeToString(full)
+	commit := func(shrunk []byte) {
+		s := hex.EncodeToString(shrunk)
+		f.host.commit(context.Background(), d, ev, snap, []Op{
+			{SetBlockData: &SetBlockDataOp{Pos: a, Data: &grow}},
+			{SetBlockData: &SetBlockDataOp{Pos: b, Data: &s}},
+		})
+	}
+
+	commit([]byte{1})
+	waitForRecord(t, logs, func(r map[string]any) bool {
+		err, _ := r["error"].(string)
+		return r["msg"] == "invalid result discarded" && strings.Contains(err, "quota")
+	})
+	f.assertData("probe", a, nil)
+	f.assertData("probe", b, full)
+
+	commit([]byte{})
+	f.assertData("probe", a, full)
+	f.assertData("probe", b, []byte{})
 }
