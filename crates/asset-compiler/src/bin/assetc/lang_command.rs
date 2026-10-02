@@ -89,6 +89,8 @@ pub(super) fn compile_languages_command(
     source_manifest: &Path,
     dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let stamp = dir.join(".compiled");
+    validate_output_bundle(&stamp, source_manifest)?;
     let manifest_bytes = read_bounded_with_limit(
         source_manifest,
         MAX_SOURCE_MANIFEST_BYTES,
@@ -100,11 +102,13 @@ pub(super) fn compile_languages_command(
         if !pack.join(format!("texts/{code}.lang")).is_file() {
             continue;
         }
+        let out = dir.join(format!("{code}.mcbelang"));
+        validate_output_bundle(&out, source_manifest)?;
         let compiled = compile_language(pack, &code, &manifest_bytes)?;
-        write_blob_atomic(&dir.join(format!("{code}.mcbelang")), &compiled.bytes)?;
+        write_blob_atomic(&out, &compiled.bytes)?;
         written += 1;
     }
-    write_blob_atomic(&dir.join(".compiled"), format!("{written}\n").as_bytes())?;
+    write_blob_atomic(&stamp, format!("{written}\n").as_bytes())?;
     println!(
         "compiled {written} optional language carriers to {}",
         dir.display()
