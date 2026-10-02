@@ -48,7 +48,7 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 			return auth.AndroidConfig.TokenSource(ctx, token)
 		}
 	}
-	lease, err := lockfile.AcquireContext(ctx, path+".lock")
+	lease, err := lockfile.AcquireContext(ctx, path+cacheLockSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
 	}
@@ -117,7 +117,7 @@ func (s *persistingSource) token(ctx context.Context) (*oauth2.Token, error) {
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 	defer cancel()
-	lease, err := lockfile.AcquireContext(wait, s.path+".lock")
+	lease, err := lockfile.AcquireContext(wait, s.path+cacheLockSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
 	}

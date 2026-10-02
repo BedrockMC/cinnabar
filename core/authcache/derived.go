@@ -530,7 +530,7 @@ func (s *Account) acquireLeaseLocked(ctx context.Context) (io.Closer, error) {
 	}
 	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	lease, err := lockfile.AcquireContext(wait, s.path+".lock")
+	lease, err := lockfile.AcquireContext(wait, s.path+cacheLockSuffix)
 	if err == nil {
 		return lease, nil
 	}
