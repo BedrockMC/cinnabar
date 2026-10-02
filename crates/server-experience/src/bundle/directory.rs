@@ -3,6 +3,8 @@
 use anyhow::{Result, ensure};
 use std::collections::BTreeMap;
 
+const END_RECORD_BYTES: usize = 22;
+
 pub(super) struct Entry<'a> {
     pub size: u64,
     pub local: &'a [u8],
@@ -10,12 +12,15 @@ pub(super) struct Entry<'a> {
 
 /// Accepts one ordinary ZIP directory and checks every physical name before lossy indexing.
 pub(super) fn validate(bytes: &[u8]) -> Result<BTreeMap<&str, Entry<'_>>> {
-    let end = (bytes.len().saturating_sub(22 + u16::MAX as usize)..bytes.len().saturating_sub(21))
+    let end = (bytes
+        .len()
+        .saturating_sub(END_RECORD_BYTES + u16::MAX as usize)
+        ..bytes.len().saturating_sub(END_RECORD_BYTES - 1))
         .rev()
-        .find(|&at| bytes.get(at..at + 4) == Some(b"PK\x05\x06"))
+        .find(|&at| bytes.get(at..at + 4) == Some(b"PK\x05\x06") && end_record_matches(bytes, at))
         .ok_or_else(|| anyhow::anyhow!("missing ZIP directory"))?;
     ensure!(
-        end + 22 + word(bytes, end + 20)? == bytes.len(),
+        end + END_RECORD_BYTES + word(bytes, end + 20)? == bytes.len(),
         "invalid ZIP end"
     );
     ensure!(
@@ -70,6 +75,22 @@ pub(super) fn validate(bytes: &[u8]) -> Result<BTreeMap<&str, Entry<'_>>> {
     }
     ensure!(at == end, "unaccounted physical archive entries");
     Ok(entries)
+}
+
+/// Distinguishes a real end record from signature bytes inside its comment.
+fn end_record_matches(bytes: &[u8], at: usize) -> bool {
+    let fields = (|| -> Result<bool> {
+        let count = word(bytes, at + 10)?;
+        Ok(
+            at.checked_add(END_RECORD_BYTES + word(bytes, at + 20)?) == Some(bytes.len())
+                && word(bytes, at + 4)? == 0
+                && word(bytes, at + 6)? == 0
+                && word(bytes, at + 8)? == count
+                && count <= crate::policy::MAX_FILES + 1
+                && dword(bytes, at + 16)?.checked_add(dword(bytes, at + 12)?) == Some(at),
+        )
+    })();
+    fields.unwrap_or(false)
 }
 
 /// Rejects features whose extra metadata or streaming sizes are outside the bundle format.
@@ -137,4 +158,19 @@ fn dword(bytes: &[u8], at: usize) -> Result<usize> {
         .get(at..at + 4)
         .ok_or_else(|| anyhow::anyhow!("truncated ZIP field"))?;
     Ok(u32::from_le_bytes(field.try_into()?) as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_a_zip_comment_can_contain_an_end_record_signature() {
+        let mut bytes = b"PK\x05\x06".to_vec();
+        bytes.extend([0; 16]);
+        bytes.extend(22_u16.to_le_bytes());
+        bytes.extend(b"PK\x05\x06");
+        bytes.extend([0; 18]);
+        assert!(validate(&bytes).unwrap().is_empty());
+    }
 }
