@@ -150,7 +150,18 @@ impl UiRuntime {
         &mut self,
         sink: super::inventory_ledger::CraftSink,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
-        let protocol::CraftGridMatch::Unique(recipe) = self.crafting_match() else {
+        let matched = self.crafting_match();
+        bevy::log::debug!(target: "bedrock_client::inventory_requests",
+            catalog_available = self.crafting_authority.catalog().is_some(),
+            recipes = self.crafting_authority.catalog().map(|catalog| catalog.crafting_handles().len()),
+            grid = ?self.inventory_ledger().crafting_grid_cells(),
+            result = match &matched {
+                protocol::CraftGridMatch::Unavailable => "unavailable",
+                protocol::CraftGridMatch::NoMatch => "no_match",
+                protocol::CraftGridMatch::Ambiguous => "ambiguous",
+                protocol::CraftGridMatch::Unique(_) => "unique",
+            }, "manual crafting requested");
+        let protocol::CraftGridMatch::Unique(recipe) = matched else {
             return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
         };
         self.inventory_ledger_mut()

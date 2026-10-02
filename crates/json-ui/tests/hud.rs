@@ -320,6 +320,80 @@ fn at(node: &DrawNode) -> [f64; 2] {
     [node.dest.x, node.dest.y]
 }
 
+fn descendant<'a>(
+    control: &'a json_ui::ResolvedControl,
+    name: &str,
+) -> Option<&'a json_ui::ResolvedControl> {
+    if control.name == name {
+        return Some(control);
+    }
+    control
+        .children
+        .iter()
+        .find_map(|child| descendant(child, name))
+}
+
+#[test]
+fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
+    let mut item = model();
+    item.item_name = Some(Timed {
+        text: "Dirt".into(),
+        born: 0.0,
+    });
+    let mut bottoms = Vec::new();
+    for survival in [false, true] {
+        item.survival_ui = survival;
+        let Some(render) = render_full(&item, true) else {
+            return;
+        };
+        let name = text_node(&render.nodes, "Dirt");
+        let slots = custom(&render.nodes, "hotbar_renderer");
+        let first = slots.first().expect("hotbar start");
+        let last = slots.last().expect("hotbar end");
+        let hotbar_bottom = first.dest.y + first.dest.h;
+        let root = descendant(&render.bound, "item_name_text").expect("spawned item-name root");
+        let dy = root.properties["offset"][1]
+            .as_f64()
+            .expect("authored root offset");
+        assert!(dy < 0.0, "a zero-height factory cannot carry this offset");
+        let buffer = descendant(root, "survival_buffer").expect("native survival spacer");
+        let padding = if survival {
+            buffer.properties["size"][1].as_f64().unwrap()
+        } else {
+            0.0
+        };
+        let bottom = name.dest.y + name.dest.h;
+        // Read the authored offset and padding; do not duplicate HUD constants.
+        assert_eq!(bottom, hotbar_bottom + dy - padding);
+        assert_eq!(
+            name.dest.x + name.dest.w / 2.0,
+            (first.dest.x + last.dest.x + last.dest.w) / 2.0
+        );
+        assert!(
+            bottom < first.dest.y,
+            "item name overlaps hotbar: {:?}",
+            name.dest
+        );
+        if survival {
+            assert!(bottom < custom(&render.nodes, "heart_renderer")[0].dest.y);
+        }
+        assert!(
+            name.anim
+                .as_ref()
+                .is_some_and(|anim| !anim.alpha.is_empty())
+        );
+        assert!(!render.nodes.iter().any(|node| matches!(
+            &node.draw,
+            Draw::Sprite { texture, .. } if texture == "textures/ui/hud_tip_text_background"
+        )));
+        bottoms.push(bottom);
+    }
+    assert!(
+        bottoms[1] < bottoms[0],
+        "survival padding must raise the item name"
+    );
+}
+
 // Java Gui geometry on a 480x270 GUI-px screen (centre 240, bottom 270).
 #[test]
 fn java_pack_places_the_hud_where_java_does() {
