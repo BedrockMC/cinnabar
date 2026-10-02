@@ -22,6 +22,7 @@ mod launcher_core;
 mod navigation;
 pub(crate) mod servers;
 pub(crate) mod settings_options;
+mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
@@ -438,11 +439,6 @@ impl MenuRuntime {
         if self.in_store() {
             self.enter(MenuScreen::Home);
         }
-    }
-
-    /// Where the Marketplace settings file lives.
-    pub(crate) fn store_settings_path(&self) -> PathBuf {
-        self.config_path.with_file_name(crate::store::SETTINGS_FILE)
     }
 
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).

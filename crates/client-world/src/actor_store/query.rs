@@ -35,6 +35,20 @@ impl ActorStore {
         (!name.is_empty()).then_some(name)
     }
 
+    /// Rendered name tags use synced actor data, including overrides on players.
+    /// An explicitly empty tag hides it; a missing player tag uses its spawn name.
+    pub(crate) fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        let actor = self.snapshot_by_unique(unique_id)?;
+        let name = match actor.metadata.get(&NAMETAG_METADATA_KEY) {
+            Some(ActorMetadataValue::String(name)) => std::sync::Arc::clone(name),
+            _ => match &actor.kind {
+                ActorKind::Player { username, .. } => std::sync::Arc::clone(username),
+                ActorKind::Entity { .. } => return None,
+            },
+        };
+        (!name.is_empty()).then_some(name)
+    }
+
     /// Every username on the retained authoritative player list, sorted for
     /// deterministic presentation (the `@a` selector's known answer).
     pub(crate) fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {

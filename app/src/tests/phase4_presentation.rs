@@ -128,6 +128,9 @@ fn rig<'a>(
         skin_geometry: None,
         skin_layers: &[],
         hand: Default::default(),
+        item_animation: [client_world::ItemAnimationState::default(); 2],
+        off_hand_animation: [client_world::ItemAnimationState::default(); 2],
+        animation_variables: Default::default(),
     }
 }
 
@@ -401,6 +404,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
     no_identity.publish_view_visibility(
         PerspectiveMode::ThirdPersonBack,
         Vec3::new(3.0, 65.62, -2.0),
+        Vec3::new(3.0, 64.0, -2.0),
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -416,6 +420,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         avatar.publish_view_visibility(
             perspective,
             Vec3::new(3.0, 65.62, -2.0),
+            Vec3::new(3.0, 64.0, -2.0),
             Quat::IDENTITY,
             &mut visibility,
         );
@@ -425,8 +430,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
             .expect("valid session view publishes without Physics authority");
         assert_eq!(snapshot.visible(), expected_draws != 0);
 
-        let mut position = snapshot.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let position = snapshot.feet();
         let local = local_diagnostic_presentation(
             9,
             0,
@@ -453,6 +457,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
     avatar.publish_view_visibility(
         PerspectiveMode::ThirdPersonBack,
         Vec3::NAN,
+        Vec3::ZERO,
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -479,6 +484,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     .unwrap();
     let stale_sample = LocalPlayerFrameSample {
         session_generation: 7,
+        actor_session_id: 3,
         fifo_sequence: 41,
         physics_tick: 900,
         perspective: PerspectiveMode::ThirdPersonBack,
@@ -489,6 +495,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
             PerspectiveMode::ThirdPersonBack,
         ),
         eye: stale_eye,
+        feet: stale_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET,
         rotation: subject_rotation,
     };
     stale_frame.publish(stale_sample).unwrap();
@@ -508,6 +515,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
             &avatar,
             perspective,
             authoritative_eye,
+            Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
             subject_rotation,
             &mut visibility,
         );
@@ -515,8 +523,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         assert_eq!(snapshot.eye(), subject_eye);
         assert!(snapshot.visible());
 
-        let mut feet = snapshot.eye();
-        feet.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let feet = snapshot.feet();
         let local = local_diagnostic_presentation(
             7,
             0,
@@ -545,6 +552,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         &avatar,
         PerspectiveMode::FirstPerson,
         Some(subject_eye),
+        Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
         subject_rotation,
         &mut visibility,
     );

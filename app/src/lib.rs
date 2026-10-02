@@ -36,6 +36,7 @@ mod render_mode;
 mod screen_policy;
 pub mod semantic_controls;
 pub mod server_camera;
+mod server_experiences;
 pub mod session_audio;
 mod session_cleanup;
 pub mod settings_runtime;

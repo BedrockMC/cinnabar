@@ -809,6 +809,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ))
     .insert_resource({
         let mut ui_runtime = UiRuntime::new(0);
+        if let Some(address) = &args.address {
+            ui_runtime.experiences.select_destination(address);
+        }
         ui_runtime.set_lang_catalog(lang_assets.into_runtime());
         ui_runtime.set_active_language(active_lang);
         ui_runtime
@@ -950,6 +953,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     crate::modding::configure_from_environment(&mut app);
+    crate::server_experiences::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();

@@ -155,9 +155,9 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
         }
     ));
     assert_eq!(take.displayed_stack(0).unwrap().count, 7);
-    assert_eq!(take.displayed_stack(0).unwrap().stack_network_id, 44);
+    assert_eq!(take.displayed_stack(0).unwrap().stack_network_id, -3);
     assert_eq!(take.cursor_stack().unwrap().count, 5);
-    assert_eq!(take.cursor_stack().unwrap().stack_network_id, 44);
+    assert_eq!(take.cursor_stack().unwrap().stack_network_id, -3);
     assert_eq!(take.presented_slot_overlay(0), Some(&original_overlay));
     assert_eq!(
         take.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
@@ -183,9 +183,9 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
         }
     ));
     assert_eq!(place.cursor_stack().unwrap().count, 7);
-    assert_eq!(place.cursor_stack().unwrap().stack_network_id, 44);
+    assert_eq!(place.cursor_stack().unwrap().stack_network_id, -3);
     assert_eq!(place.displayed_stack(0).unwrap().count, 5);
-    assert_eq!(place.displayed_stack(0).unwrap().stack_network_id, 44);
+    assert_eq!(place.displayed_stack(0).unwrap().stack_network_id, -3);
     assert_eq!(
         place.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
         Some(&original_overlay)
@@ -347,11 +347,11 @@ fn accepted_partial_take_reconciles_distinct_server_ids_and_newer_authority_wins
     ));
     assert_eq!(raced.displayed_stack(0), Some(&newer));
     assert!(raced.cursor_stack().is_none());
-    assert!(raced.resync_required());
+    assert!(!raced.resync_required());
 }
 
 #[test]
-fn accepted_partial_split_with_missing_or_invalid_new_identity_requires_recovery() {
+fn accepted_partial_split_skips_invalid_count_id_pairs_and_removes_predictions() {
     let original = stack(44, 12);
     let mut ledger = player_ledger(Some(original), None);
     let request = ledger.begin_take_count(0, 5).unwrap();
@@ -384,11 +384,10 @@ fn accepted_partial_split_with_missing_or_invalid_new_identity_requires_recovery
         ],
     ));
 
-    assert!(ledger.resync_required());
-    assert_eq!(
-        ledger.begin_place_count(1, 1),
-        Err(InventoryGestureError::ResyncRequired)
-    );
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.skipped_unknown_containers(), 2);
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 12);
+    assert!(ledger.cursor_stack().is_none());
 }
 
 #[test]
@@ -401,16 +400,28 @@ fn accepted_partial_split_can_empty_one_half_and_reuse_the_other() {
     ledger.apply(&response(
         request,
         StackResponseStatus::Accepted,
-        vec![correction(
-            ContainerIdentity {
-                window_id: None,
-                slot_type: Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
-                dynamic_id: None,
-            },
-            0,
-            0,
-            -1,
-        )],
+        vec![
+            correction(
+                ContainerIdentity {
+                    window_id: None,
+                    slot_type: Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+                    dynamic_id: None,
+                },
+                0,
+                0,
+                -1,
+            ),
+            correction(
+                ContainerIdentity {
+                    window_id: None,
+                    slot_type: Some(CONTAINER_NAME_CURSOR),
+                    dynamic_id: None,
+                },
+                0,
+                5,
+                44,
+            ),
+        ],
     ));
 
     assert!(!ledger.resync_required());
@@ -453,8 +464,8 @@ fn rejection_deletes_prediction_and_timeout_keeps_it_pending_refresh() {
     let request = rejected.begin_take_count(0, 5).unwrap();
     assert_eq!(
         rejected.begin_take_count(0, 1),
-        Err(InventoryGestureError::AwaitingIdentity),
-        "an unsettled split cannot be named in another request"
+        Err(InventoryGestureError::InvalidRequest),
+        "merging still needs a negotiated item-capacity binding"
     );
     assert!(rejected.mark_transport_enqueued(10));
     rejected.apply(&response(

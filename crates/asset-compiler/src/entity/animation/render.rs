@@ -134,7 +134,10 @@ pub(super) fn compile_render(
     let geometry_indices = unique_geometry_indices(geometries);
     for (rig_index, rig) in rigs.iter().enumerate() {
         let entity = &symbols[rig.entity_symbol as usize];
-        debug_assert_eq!(entity.kind, EntityAssetKind::Entity);
+        debug_assert!(matches!(
+            entity.kind,
+            EntityAssetKind::Entity | EntityAssetKind::Attachable
+        ));
         if let std::collections::btree_map::Entry::Vacant(slot) =
             entity_json.entry(entity.source_index)
         {
@@ -144,10 +147,7 @@ pub(super) fn compile_render(
                 &sources[entity.source_index as usize],
             )?);
         }
-        let Some(description) = entity_json[&entity.source_index]
-            .get("minecraft:client_entity")
-            .and_then(|value| value.get("description"))
-            .and_then(Value::as_object)
+        let Some(description) = super::roots::description(&entity_json[&entity.source_index])
         else {
             continue;
         };

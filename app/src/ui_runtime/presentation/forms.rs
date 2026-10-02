@@ -7,6 +7,7 @@ mod container_data;
 mod container_kinds;
 mod containers;
 mod engine;
+mod experience;
 mod fallback;
 mod global_resources;
 mod hud;
@@ -100,6 +101,7 @@ pub(super) struct FormPresentation {
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
+    experience: Option<experience::ExperienceChrome>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -408,6 +410,7 @@ impl UiPresentationRuntime {
             logged: state.logged,
             hud: state.hud,
             mod_hud: state.mod_hud,
+            experience: state.experience,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             ready_menu: state.ready_menu,

@@ -1,5 +1,7 @@
-//! Ordered depth-free HUD overlay and exact current-frame hand coverage.
+//! Ordered world-projected UI and depth-free HUD overlay with exact hand coverage.
 use super::*;
+#[path = "world.rs"]
+mod world;
 use crate::ui::UI_BLEND_ALPHA;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
@@ -10,14 +12,20 @@ use bevy::{
         render_graph::{
             NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
         },
-        render_resource::RenderPassDescriptor,
+        render_resource::{
+            LoadOp, Operations, RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp,
+        },
         renderer::RenderContext,
+        view::ViewDepthTexture,
     },
 };
 use std::{collections::BTreeMap, ops::Range, sync::Mutex};
+use world::UiWorldNode;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
 pub(crate) struct UiOverlayLabel;
+#[derive(Debug, Clone, Hash, Eq, PartialEq, RenderLabel)]
+pub(crate) struct UiWorldLabel;
 /// Per-frame draw encoding coverage, not queue completion or presentation.
 /// The optional producer must independently require its prior completion gate.
 #[derive(Default, Resource)]
@@ -77,6 +85,9 @@ impl UiHandCoverage {
         if batch.texture_page != page || batch.blend_mode != UI_BLEND_ALPHA {
             return None;
         }
+        if batch.world_projection != 0 {
+            return None;
+        }
         if containing.next().is_some() {
             return None;
         }
@@ -102,6 +113,7 @@ pub(crate) fn retained_batch_ranges(
 }
 pub(crate) fn install_overlay_graph(world: &mut World) {
     let runner = ViewNodeRunner::<UiOverlayNode>::new(UiOverlayNode, world);
+    let world_runner = ViewNodeRunner::<UiWorldNode>::new(UiWorldNode, world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -111,8 +123,12 @@ pub(crate) fn install_overlay_graph(world: &mut World) {
     if graph.get_node_state(UiOverlayLabel).is_err() {
         graph.add_node(UiOverlayLabel, runner);
     }
+    if graph.get_node_state(UiWorldLabel).is_err() {
+        graph.add_node(UiWorldLabel, world_runner);
+    }
     graph.add_node_edges((
         Node3d::MainTransparentPass,
+        UiWorldLabel,
         UiOverlayLabel,
         Node3d::EndMainPass,
     ));
@@ -123,7 +139,7 @@ pub(super) fn queue_ui_overlay(
     mut pipeline: ResMut<UiPipeline>,
     mut composite: ResMut<super::composite::UiCompositePipeline>,
     mut gpu: ResMut<UiGpu>,
-    views: Query<(Entity, &ExtractedView, &Msaa)>,
+    views: Query<(Entity, &ExtractedView, &Msaa, Option<&ViewDepthTexture>)>,
     coverage: Option<Res<UiHandCoverage>>,
 ) {
     // Always clear the previous render-frame coverage, including empty UI and
@@ -136,6 +152,8 @@ pub(super) fn queue_ui_overlay(
     retain_view_pipeline_entries(&mut gpu.view_pipelines, |view| views.contains(view));
     gpu.composite_pipelines
         .retain(|view, _| views.contains(*view));
+    gpu.world_view_pipelines
+        .retain(|(view, _, _), _| views.contains(*view));
     if gpu.batches.is_empty()
         || gpu
             .textures
@@ -147,7 +165,7 @@ pub(super) fn queue_ui_overlay(
     {
         return;
     }
-    for (view_entity, view, msaa) in &views {
+    for (view_entity, view, msaa, depth) in &views {
         let Ok(pipeline_id) = pipeline.variants.specialize(
             &pipeline_cache,
             UiPipelineKey {
@@ -155,6 +173,8 @@ pub(super) fn queue_ui_overlay(
                 hdr: view.hdr,
                 invert_blend: false,
                 layer: true,
+                depth_test: false,
+                depth_write: false,
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
@@ -167,6 +187,8 @@ pub(super) fn queue_ui_overlay(
                 hdr: view.hdr,
                 invert_blend: true,
                 layer: false,
+                depth_test: false,
+                depth_write: false,
             },
         ) else {
             gpu.view_pipelines.remove(&view_entity);
@@ -186,6 +208,57 @@ pub(super) fn queue_ui_overlay(
             }
             None => {
                 gpu.composite_pipelines.remove(&view_entity);
+            }
+        }
+        if !gpu.batches.iter().any(|batch| batch.world_projection != 0) {
+            gpu.world_view_pipelines
+                .retain(|(owner, _, _), _| *owner != view_entity);
+            continue;
+        }
+        for (depth_test, depth_write) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            if ((depth_test || depth_write) && depth.is_none())
+                || !gpu.batches.iter().any(|batch| {
+                    batch.world_projection != 0
+                        && (batch.depth_test != 0, batch.depth_write != 0)
+                            == (depth_test, depth_write)
+                })
+            {
+                continue;
+            }
+            let key = UiPipelineKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+                invert_blend: false,
+                layer: false,
+                depth_test,
+                depth_write,
+            };
+            let pair = pipeline
+                .variants
+                .specialize(&pipeline_cache, key)
+                .and_then(|alpha| {
+                    pipeline
+                        .variants
+                        .specialize(
+                            &pipeline_cache,
+                            UiPipelineKey {
+                                invert_blend: true,
+                                ..key
+                            },
+                        )
+                        .map(|invert| (alpha, invert))
+                });
+            match pair {
+                Ok(pair) => {
+                    gpu.world_view_pipelines
+                        .insert((view_entity, depth_test, depth_write), pair);
+                }
+                Err(_) => {
+                    gpu.world_view_pipelines
+                        .remove(&(view_entity, depth_test, depth_write));
+                }
             }
         }
     }
@@ -289,7 +362,9 @@ impl ViewNode for UiOverlayNode {
                 gpu.index_count,
             )
         });
-        let batches: Vec<_> = batches.collect();
+        let batches: Vec<_> = batches
+            .filter(|(_, batch, _)| batch.world_projection == 0)
+            .collect();
         // Alpha batches blend in the gamma-space layer; an invert batch (the
         // crosshair) must see the scene, so the layer composites before it.
         for segment in batches.split_inclusive(|(_, batch, _)| batch.blend_mode == UI_BLEND_INVERT)

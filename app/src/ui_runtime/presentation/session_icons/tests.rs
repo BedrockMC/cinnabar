@@ -24,3 +24,36 @@ fn metadata_variants_get_distinct_uvs_and_large_catalogs_grow_the_page() {
     assert!(page.pixels().len() > (MIN_PAGE_SIDE * MIN_PAGE_SIDE * 4) as usize);
     assert_eq!(variants[&599].page, 7);
 }
+
+#[test]
+fn stack_icon_identity_retains_loaded_projectile_and_local_frame_override() {
+    for projectile in ["minecraft:arrow", "minecraft:firework_rocket"] {
+        let frame = crate::item_use::crossbow_animation_frame(None, 0, Some(projectile), false);
+        assert_eq!(
+            UiPresentationRuntime::item_icon_key("minecraft:crossbow", 73, Some(projectile), None),
+            ("minecraft:crossbow_pulling", frame - 1),
+        );
+        assert_eq!(
+            UiPresentationRuntime::item_icon_key(
+                "minecraft:crossbow",
+                73,
+                Some(projectile),
+                Some(0)
+            ),
+            ("minecraft:crossbow", 73),
+        );
+    }
+    assert_eq!(
+        UiPresentationRuntime::item_icon_key("minecraft:crossbow", 73, None, None),
+        ("minecraft:crossbow", 73),
+    );
+    assert_eq!(
+        UiPresentationRuntime::item_icon_key(
+            "minecraft:stone",
+            2,
+            Some("minecraft:arrow"),
+            Some(1)
+        ),
+        ("minecraft:stone", 2),
+    );
+}

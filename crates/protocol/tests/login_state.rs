@@ -43,6 +43,8 @@ type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 mod camera_instructions;
 #[path = "login_state/disconnect_reason.rs"]
 mod disconnect_reason;
+#[path = "login_state/item_registry.rs"]
+mod item_registry;
 #[path = "login_state/level_chunk_wire_failure.rs"]
 mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]

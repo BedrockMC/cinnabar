@@ -5,6 +5,7 @@ use std::{
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
+    core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
     prelude::*,
@@ -15,34 +16,41 @@ use bevy::{
             AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
             BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
             BufferDescriptor, BufferInitDescriptor, BufferSize, BufferUsages,
-            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, FilterMode,
-            FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer, SpecializerKey,
-            TextureFormat, TextureSampleType, TextureViewDimension, Variants, VertexAttribute,
-            VertexFormat, VertexState, VertexStepMode,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, FilterMode, FragmentState, PipelineCache, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension,
+            Variants, VertexAttribute, VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
         view::{ExtractedView, ViewTarget},
     },
 };
-use bytemuck::{Pod, Zeroable};
-
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
+#[path = "ui_render/batches.rs"]
+mod batches;
 #[path = "ui_render/composite.rs"]
 pub(crate) mod composite;
 #[path = "ui_render/glint.rs"]
 mod glint;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
+#[path = "ui_render/pipeline.rs"]
+mod pipeline;
+#[path = "ui_render/shader.rs"]
+pub(crate) mod shader;
 #[path = "ui_render/uploads.rs"]
 mod uploads;
+use batches::resolved_batches;
 pub use glint::UiGlintSettings;
 use overlay::queue_ui_overlay;
-pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, install_overlay_graph};
+pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_overlay_graph};
+use pipeline::UiPipelineKey;
+use shader::UiViewportUniform;
 
 use crate::ui::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
@@ -85,7 +93,7 @@ fn install_ui_render(app: &mut App) {
         ExtractResourcePlugin::<UiRenderScene>::default(),
         ExtractResourcePlugin::<UiGlintSettings>::default(),
     ));
-    load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", Shader::from_wgsl);
+    load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
     load_internal_asset!(
         app,
         composite::UI_COMPOSITE_SHADER_HANDLE,
@@ -109,15 +117,6 @@ fn install_ui_render(app: &mut App) {
             ),
         );
     install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct UiViewportUniform {
-    viewport_size: [f32; 2],
-    /// Seconds since the UI renderer started; animates the item glint.
-    time_seconds: f32,
-    glint_strength: f32,
 }
 
 #[derive(Resource)]
@@ -148,6 +147,10 @@ pub(crate) struct UiGpu {
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
     /// Each view's UI-layer composite pipeline.
     composite_pipelines: std::collections::BTreeMap<Entity, CachedRenderPipelineId>,
+    world_view_pipelines: std::collections::BTreeMap<
+        (Entity, bool, bool),
+        (CachedRenderPipelineId, CachedRenderPipelineId),
+    >,
 }
 
 fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: SystemChangeTick) {
@@ -197,6 +200,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         uploads: uploads::BufferUploads::default(),
         view_pipelines: std::collections::BTreeMap::new(),
         composite_pipelines: std::collections::BTreeMap::new(),
+        world_view_pipelines: std::collections::BTreeMap::new(),
     });
 }
 
@@ -507,23 +511,23 @@ pub(crate) fn ui_pipeline_descriptor(
                 step_mode: VertexStepMode::Vertex,
                 attributes: vec![
                     VertexAttribute {
-                        format: VertexFormat::Float32x2,
+                        format: VertexFormat::Float32x4,
                         offset: 0,
                         shader_location: 0,
                     },
                     VertexAttribute {
                         format: VertexFormat::Uint16x2,
-                        offset: 8,
+                        offset: 16,
                         shader_location: 1,
                     },
                     VertexAttribute {
                         format: VertexFormat::Unorm8x4,
-                        offset: 12,
+                        offset: 20,
                         shader_location: 2,
                     },
                     VertexAttribute {
                         format: VertexFormat::Uint32,
-                        offset: 16,
+                        offset: 24,
                         shader_location: 3,
                     },
                 ],
@@ -545,74 +549,74 @@ pub(crate) fn ui_pipeline_descriptor(
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
-struct UiPipelineKey {
-    msaa: Msaa,
-    hdr: bool,
-    invert_blend: bool,
-    /// Draws into the gamma-space UI layer rather than the view target.
-    layer: bool,
-}
-
-impl Specializer<RenderPipeline> for UiPipelineSpecializer {
-    type Key = UiPipelineKey;
-
-    fn specialize(
-        &self,
-        key: Self::Key,
-        descriptor: &mut RenderPipelineDescriptor,
-    ) -> Result<Canonical<Self::Key>, BevyError> {
-        let target = descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap();
-        descriptor.multisample.count = if key.layer { 1 } else { key.msaa.samples() };
-        target.format = if key.layer {
-            composite::UI_LAYER_FORMAT
-        } else if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
-        } else {
-            TextureFormat::bevy_default()
-        };
-        target.blend = Some(if key.invert_blend {
-            ui_invert_blend_state()
-        } else {
-            ui_alpha_blend_state()
-        });
-        Ok(key)
-    }
-}
-
-/// Resolve the entire ordered frame before emitting any batch command.
-fn resolved_batches<'a>(
-    accepted_revision: Option<u64>,
-    batches: &'a [UiRenderBatch],
-    locations: &'a [crate::UiTextureLocation],
-    buckets: &[crate::UiTextureBucket],
-) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, crate::UiTextureLocation)>> {
-    if accepted_revision.is_none()
-        || batches.iter().any(|batch| {
-            locations
-                .get(batch.texture_page as usize)
-                .is_none_or(|location| {
-                    buckets
-                        .get(location.bucket)
-                        .is_none_or(|bucket| location.layer >= bucket.layers)
-                })
-        })
-    {
-        return None;
-    }
-    Some(
-        batches
-            .iter()
-            .enumerate()
-            .map(move |(index, batch)| (index, batch, locations[batch.texture_page as usize])),
-    )
-}
-
 #[cfg(test)]
 mod ordered_command_tests {
     use super::*;
+
+    #[test]
+    fn world_projection_specializes_native_test_and_write_modes_at_each_msaa_sample_count() {
+        for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
+            for (depth_test, depth_write) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let mut descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
+                UiPipelineSpecializer
+                    .specialize(
+                        UiPipelineKey {
+                            msaa,
+                            hdr: true,
+                            invert_blend: false,
+                            layer: false,
+                            depth_test,
+                            depth_write,
+                        },
+                        &mut descriptor,
+                    )
+                    .unwrap();
+                assert_eq!(descriptor.multisample.count, msaa.samples());
+                if depth_test || depth_write {
+                    let depth = descriptor.depth_stencil.unwrap();
+                    assert_eq!(depth.depth_write_enabled, depth_write);
+                    assert_eq!(
+                        depth.depth_compare,
+                        if depth_test {
+                            CompareFunction::GreaterEqual
+                        } else {
+                            CompareFunction::Always
+                        }
+                    );
+                    assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
+                    assert_eq!(
+                        depth.bias.constant,
+                        if depth_test && depth_write {
+                            -pipeline::NATIVE_ENVIRONMENTAL_TEXT_DEPTH_BIAS
+                        } else {
+                            0
+                        }
+                    );
+                    assert_eq!(depth.bias.slope_scale, 0.0);
+                    assert_eq!(depth.bias.clamp, 0.0);
+                    if depth_test && depth_write {
+                        assert!(
+                            depth.bias.constant > 0,
+                            "reverse-Z toward-eye bias must be positive"
+                        );
+                    }
+                } else {
+                    assert!(descriptor.depth_stencil.is_none());
+                }
+            }
+        }
+        let descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
+        assert_eq!(
+            descriptor.vertex.buffers[0].array_stride,
+            std::mem::size_of::<UiRenderVertex>() as u64
+        );
+        assert_eq!(
+            descriptor.vertex.buffers[0].attributes[0].format,
+            VertexFormat::Float32x4
+        );
+    }
 
     pub(super) fn binding_world() -> World {
         use bevy::ecs::system::RunSystemOnce;
@@ -726,6 +730,8 @@ mod ordered_command_tests {
         let mut world = binding_world();
         let vertex = UiRenderVertex {
             position: [0.0; 2],
+            clip_z: 0.0,
+            clip_w: 1.0,
             uv: [0; 2],
             color: [255; 4],
             style_flags: 0,

@@ -16,6 +16,8 @@ use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionI
 #[derive(Clone, Debug)]
 pub struct PackApplication {
     pub(super) dependencies: super::pack_reload_diff::Dependencies,
+    /// Inert metadata only; accepting a pack does not authorize execution.
+    pub(crate) extension_marker: Option<Arc<[u8]>>,
     pub(crate) admission: PackAdmission,
     pub(super) inputs: Arc<super::pack_reload::PackInputs>,
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
@@ -36,6 +38,7 @@ impl Default for PackApplication {
     fn default() -> Self {
         Self {
             dependencies: Default::default(),
+            extension_marker: None,
             admission: PackAdmission::None,
             inputs: Arc::default(),
             server_lang: None,
@@ -198,6 +201,12 @@ pub(super) fn prepare_changed_application(
         } else {
             previous.and_then(|old| old.server_lang.clone())
         },
+        extension_marker: view
+            .read_capped(
+                server_experience::policy::MARKER_PATH,
+                server_experience::policy::MAX_MARKER_BYTES as u64,
+            )
+            .map(Arc::from),
         item_icons,
         item_components: None,
         glyph_sheets: if changes.glyphs {

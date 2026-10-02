@@ -43,6 +43,27 @@ pub(super) struct SessionIconPage {
 }
 
 impl UiPresentationRuntime {
+    /// Native CrossbowItem::getIcon routes nonzero animation frames to the pulling
+    /// atlas. This identity is shared by inventory cells and actual dropped sprites.
+    pub(crate) fn item_icon_key<'a>(
+        identifier: &'a str,
+        metadata: u32,
+        charged_projectile: Option<&str>,
+        animation_frame: Option<u32>,
+    ) -> (&'a str, u32) {
+        if identifier != "minecraft:crossbow" {
+            return (identifier, metadata);
+        }
+        let frame = animation_frame.unwrap_or_else(|| {
+            crate::item_use::crossbow_animation_frame(None, 0, charged_projectile, false)
+        });
+        if frame == 0 {
+            (identifier, metadata)
+        } else {
+            ("minecraft:crossbow_pulling", frame - 1)
+        }
+    }
+
     /// Resolves an item identity to its icon: a server icon for this session
     /// first, then the vanilla atlas. Unknown items keep only the slot frame.
     pub(crate) fn item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {

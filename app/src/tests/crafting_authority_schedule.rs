@@ -578,8 +578,9 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
         .unwrap()
         .commit(2)
         .unwrap();
-    // CommitOnly admission synchronously applies the now-ready prefix. The
-    // world budget is released here, while the craft observer's fence is stale.
+    // CommitOnly admission starts the now-ready prefix, but its cooperative
+    // poll deadline can stop before all successors are committed. The craft
+    // observer's fence is still stale throughout these world-only polls.
     assert!(
         app.world()
             .resource::<ClientWorld>()
@@ -589,20 +590,25 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
             .remaining_admission_capacity()
             > 0
     );
-    assert_eq!(
-        app.world()
+    // Each ready lane guarantees progress per poll; there are only 63 retained
+    // successors. Do not run app.update here: that would consume crafting's
+    // queued observations and erase the bounded-retention scenario under test.
+    for _ in 3..=65 {
+        if app
+            .world()
             .resource::<ClientWorld>()
             .stream
             .as_ref()
             .unwrap()
-            .inventory_committed_through(),
-        Some(65)
-    );
-    // Run the real world poll without synchronizing the craft fence. This is a composed-system
-    // retention witness, not an assertion about whole-frame scheduler interleaving.
-    app.world_mut()
-        .run_system_once(reconcile_world_stream_before_physics)
-        .unwrap();
+            .inventory_committed_through()
+            == Some(65)
+        {
+            break;
+        }
+        app.world_mut()
+            .run_system_once(reconcile_world_stream_before_physics)
+            .unwrap();
+    }
     assert!(
         app.world()
             .resource::<ClientWorld>()

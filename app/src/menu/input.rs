@@ -255,9 +255,26 @@ pub(crate) fn drive_menu_input(
     mut menu: ResMut<MenuRuntime>,
     runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
+    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut gui_scale_drag: Local<GuiScaleDrag>,
 ) {
+    if consent.is_some_and(|consent| consent.0) {
+        keyboard_messages.clear();
+        menu.pressed = None;
+        menu.hovered = None;
+        menu.pointer_down = false;
+        *modifiers = MenuModifiers::default();
+        gui_scale_drag.captured = false;
+        gui_scale_drag.left_held = false;
+        if let Some(messages) = mouse_messages.as_deref() {
+            gui_scale_drag.mouse_cursor.clear(messages);
+        }
+        if let Some(messages) = wheel_messages.as_deref() {
+            wheel_cursor.clear(messages);
+        }
+        return;
+    }
     let (window_entity, window, mut cursor) = window.into_inner();
     if let Some(messages) = mouse_messages.as_deref() {
         let GuiScaleDrag {

@@ -81,7 +81,7 @@ pub(crate) use publish::{
     PreparedUiPublication, observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime,
     publish_ui_runtime,
 };
-use retained_hud::{BelowNameAnchor, PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
+use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::{StartupPresentationState, StartupReadinessInput};
 use text_metrics::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
@@ -144,9 +144,7 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
-    /// World-projected below-name score anchors for the current frame.
-    below_name_anchors: Vec<BelowNameAnchor>,
-    /// This frame's world-space name tags, and the atlas their lines rasterize into.
+    /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
@@ -263,7 +261,6 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
-            below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
             player_preview_page: None,
@@ -426,15 +423,6 @@ impl UiPresentationRuntime {
         &mut self.hud_frame
     }
 
-    fn set_below_name_anchors(&mut self, anchors: impl IntoIterator<Item = BelowNameAnchor>) {
-        self.below_name_anchors.clear();
-        self.below_name_anchors.extend(
-            anchors
-                .into_iter()
-                .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS),
-        );
-    }
-
     fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
         self.nametag_anchors = anchors;
     }
@@ -488,7 +476,7 @@ impl UiPresentationRuntime {
         .append(runtime, &frame, container)
     }
 
-    /// The world's own overlays: diagnostics and below-name scores.
+    /// Diagnostics drawn with the gameplay scene; scores join the world name tags.
     fn append_gameplay_overlays(
         &mut self,
         nodes: &mut Vec<UiNode>,
@@ -496,18 +484,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        self.append_debug_overlay(nodes, next_id, metrics, content[0])?;
-        retained_hud::append_below_name_nodes(
-            nodes,
-            next_id,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            content[0],
-            content[1],
-            &self.below_name_anchors,
-        )
+        self.append_debug_overlay(nodes, next_id, metrics, content[0])
     }
 
     /// Builds the frame from its retained UI authority.
@@ -658,6 +635,13 @@ impl UiPresentationRuntime {
             now_millis,
         )?;
         self.sync_server_ui_pages();
+        self.append_experience_chrome(
+            runtime,
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            [content_width, content_height],
+        );
         // Every screen has painted: retire animation state nothing touched.
         self.end_animation_frame();
         // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.

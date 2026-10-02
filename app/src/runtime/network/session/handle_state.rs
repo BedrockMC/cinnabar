@@ -27,6 +27,7 @@ impl NetworkHandle {
                 shutdown,
                 thread: None,
                 readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+                experience_gate: Arc::default(),
             },
             control_event_tx,
         )

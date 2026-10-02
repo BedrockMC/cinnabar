@@ -144,6 +144,8 @@ mod tests {
     fn vertex(x: f32, y: f32) -> UiRenderVertex {
         UiRenderVertex {
             position: [x, y],
+            clip_z: 0.0,
+            clip_w: 1.0,
             uv: [0, 0],
             color: [0, 0, 0, 153],
             style_flags: 0,

@@ -95,14 +95,16 @@ impl FrozenBlockObservation {
 ///
 /// Events committed after the freeze (actor movement, chat) do not stale it: the ray is cast
 /// against the current world, whose inspected revisions the observation records. The stream's
-/// actor-session id is a process-wide counter, not the network session generation, so it is
-/// never compared with the ray's.
+/// actor-session id is a separate process-wide counter, not the network session generation;
+/// each is checked against the matching authority captured by the ray.
 pub(crate) fn ray_is_current(
     ray: &crate::local_player::FrozenInteractionOrigin,
     ui_session: u64,
     stream: &client_world::WorldStream,
 ) -> bool {
-    ray.session_generation() == ui_session && ray.fifo_sequence() <= stream.committed_sequence()
+    ray.session_generation() == ui_session
+        && ray.actor_session_id() == stream.actor_session_id()
+        && ray.fifo_sequence() <= stream.committed_sequence()
 }
 
 /// The ray or world evidence behind a block observation is stale or unreadable.
@@ -205,18 +207,24 @@ mod tests {
         })
     }
 
-    fn ray(session: u64, fifo_sequence: u64) -> crate::local_player::FrozenInteractionOrigin {
+    fn ray(
+        session: u64,
+        actor_session_id: u64,
+        fifo_sequence: u64,
+    ) -> crate::local_player::FrozenInteractionOrigin {
         let mut carrier = crate::local_player::LocalPlayerFrameCarrier::default();
         let identity = sim::CollisionQuery::synthetic(()).identity;
         carrier
             .publish(crate::local_player::LocalPlayerFrameSample {
                 session_generation: session,
+                actor_session_id,
                 fifo_sequence,
                 physics_tick: 100,
                 perspective: semantic_input::PerspectiveMode::FirstPerson,
                 world_collision_identity: identity,
                 pose: bevy::prelude::Transform::default(),
                 eye: bevy::prelude::Vec3::new(0.0, 71.62, 0.0),
+                feet: bevy::prelude::Vec3::new(0.0, 70.0, 0.0),
                 rotation: bevy::prelude::Quat::IDENTITY,
             })
             .unwrap();
@@ -232,8 +240,9 @@ mod tests {
     fn a_ray_survives_later_commits_and_reconnects_but_not_a_session_change() {
         let _earlier = stream();
         let mut stream = stream();
-        let session = stream.actor_session_id() + 5;
-        let frozen = ray(session, stream.committed_sequence());
+        let actor_session_id = stream.actor_session_id();
+        let session = actor_session_id + 5;
+        let frozen = ray(session, actor_session_id, stream.committed_sequence());
         stream
             .submit(
                 stream.committed_sequence() + 1,
@@ -249,6 +258,35 @@ mod tests {
         assert_ne!(stream.actor_session_id(), session);
         assert!(ray_is_current(&frozen, session, &stream));
         assert!(!ray_is_current(&frozen, session + 1, &stream));
+        assert!(!ray_is_current(&frozen, session, &self::stream()));
+        assert!(!ray_is_current(
+            &ray(session, actor_session_id, stream.committed_sequence() + 1),
+            session,
+            &stream,
+        ));
+    }
+
+    #[test]
+    fn connection_and_actor_sessions_are_independent() {
+        let stream = stream();
+        let actor_session_id = stream.actor_session_id();
+        let connection_session = actor_session_id + 1;
+        let frozen = ray(
+            connection_session,
+            actor_session_id,
+            stream.committed_sequence(),
+        );
+        assert_eq!(frozen.session_generation(), connection_session);
+        assert_eq!(frozen.actor_session_id(), actor_session_id);
+        assert!(ray_is_current(&frozen, connection_session, &stream));
+
+        // Matching a stream must not make a retired connection's ray current.
+        let retired = ray(
+            actor_session_id,
+            actor_session_id,
+            stream.committed_sequence(),
+        );
+        assert!(!ray_is_current(&retired, connection_session, &stream));
     }
 
     fn at(position: [i32; 3], input_mode: PlayerInputMode, reach: f64) -> FrozenBlockObservation {

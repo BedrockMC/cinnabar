@@ -149,7 +149,7 @@ fn spawn_block_break(
     block: [i32; 3],
 ) {
     if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id as u32, block) {
-        system.spawn(&block_break_request(
+        system.spawn_terrain(&block_break_request(
             BLOCK_BREAK_EFFECT,
             block,
             found.tile,
@@ -163,7 +163,7 @@ fn spawn_crack(system: &mut ParticleSystem, routing: &Routing<'_>, block: [i32; 
         return;
     };
     if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id, block) {
-        system.spawn(&block_crack_request(
+        system.spawn_terrain(&block_crack_request(
             BLOCK_BREAK_EFFECT,
             block,
             face,
