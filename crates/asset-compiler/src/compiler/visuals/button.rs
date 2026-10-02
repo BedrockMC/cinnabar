@@ -187,7 +187,7 @@ pub(in crate::compiler) fn button_quad(
         BlockFace::Down => [[u1, v1], [u2, v1], [u2, v2], [u1, v2]],
         BlockFace::Up => [[u1, v1], [u1, v2], [u2, v2], [u2, v1]],
     };
-    quad.flags = face as u32;
+    quad.flags = model_quad_face_id(face);
     quad
 }
 
@@ -227,7 +227,7 @@ pub(in crate::compiler) fn button_quads(
             quad.positions = quad
                 .positions
                 .map(|position| button_rotate_position(position, orientation));
-            quad.flags = target_face as u32;
+            quad.flags = model_quad_face_id(target_face);
             quad
         } else {
             // Java wall variants are UV-locked: the rotated element is
@@ -242,4 +242,24 @@ pub(in crate::compiler) fn button_quads(
             )
         }
     })
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_button_face_ids_match_the_transformed_normals() {
+        for orientation in 0..=5 {
+            for (source, quad) in
+                BlockFace::ALL
+                    .into_iter()
+                    .zip(button_quads([1; 6], orientation, false))
+            {
+                assert_eq!(
+                    quad.flags,
+                    model_quad_face_id(button_rotated_face(source, orientation))
+                );
+            }
+        }
+    }
 }
