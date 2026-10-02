@@ -33,7 +33,13 @@ pub(super) fn triangle(
                 edge(points[0], points[1], p),
             ]
             .map(|value| value / area);
-            if weights.iter().any(|value| *value < 0.0) {
+            let covered = weights.iter().enumerate().all(|(index, &weight)| {
+                let a = points[(index + 1) % 3];
+                let b = points[(index + 2) % 3];
+                let top_left = b[1] > a[1] || (b[1] == a[1] && b[0] < a[0]);
+                weight > 0.0 || (weight == 0.0 && top_left)
+            });
+            if !covered {
                 continue;
             }
             let uv: [f32; 2] = std::array::from_fn(|axis| {
