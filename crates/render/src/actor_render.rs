@@ -81,6 +81,7 @@ fn install_actor_render(app: &mut App) {
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
     load_internal_asset!(app, ACTOR_SHADER_HANDLE, "actor.wgsl", Shader::from_wgsl);
     crate::nametag_render::install_nametag_render(app);
+    crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)

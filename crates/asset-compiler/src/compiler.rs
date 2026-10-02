@@ -429,7 +429,8 @@ fn compile_pack_inner(
         material_by_descriptor
             .iter()
             .map(|(descriptor, &material)| (material, descriptor.texture_key.as_ref())),
-    );
+    )
+    .with_aliases(pack.terrain.first_paths());
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
     let (visuals, hashed, model_templates, model_quads) = compile_visuals(

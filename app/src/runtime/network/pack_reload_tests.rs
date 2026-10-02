@@ -117,6 +117,30 @@ fn optional_reload_reuses_unchanged_subscribers_and_removes_absent_ui() {
     assert!(removed.server_lang.is_none());
 }
 
+/// UI textures load lazily from the pack view, so new pixels at an old path must replace it.
+#[test]
+fn optional_reload_replaces_ui_whose_texture_pixels_changed() {
+    let definition =
+        br#"{"namespace":"reload_fixture","panel":{"type":"image","texture":"textures/ui/art"}}"#;
+    let first = resource_packs::prepare_validated_application(
+        stack(&[
+            ("ui/reload.json", definition),
+            ("textures/ui/art.png", b"old"),
+        ]),
+        Arc::new(PackInputs::default()),
+    );
+    let next = resource_packs::prepare_changed_application(
+        stack(&[
+            ("ui/reload.json", definition),
+            ("textures/ui/art.png", b"new"),
+        ]),
+        Arc::new(PackInputs::default()),
+        Some(&first),
+    );
+    let view = next.server_ui.as_ref().unwrap().view.as_ref().unwrap();
+    assert_eq!(view.read("textures/ui/art.png").unwrap().as_ref(), b"new");
+}
+
 #[test]
 fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
     let _sounds = crate::audio::SERVER_SOUNDS_TEST_LOCK

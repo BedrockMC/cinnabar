@@ -98,6 +98,13 @@ impl LayeredPackView {
         })
     }
 
+    /// Records that a later consumer may read any file under `prefix` after compilation ends.
+    pub fn track_contents(&self, prefix: &str) {
+        if let Some(dependencies) = &self.dependencies {
+            dependencies.contents(prefix);
+        }
+    }
+
     /// Lists the union of logical files under `prefix` in lexical order.
     #[must_use]
     pub fn list(&self, prefix: &str) -> Vec<&str> {

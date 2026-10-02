@@ -84,6 +84,13 @@ fn bind_visibility(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
     ] {
         data.set_global(flag, Scalar::Bool(true));
     }
+    // Without Vibrant Visuals or ray tracing support vanilla locks those rows.
+    for flag in [
+        "#graphics_mode_radio_deferred_enabled",
+        "#graphics_mode_radio_ray_traced_enabled",
+    ] {
+        data.set_global(flag, Scalar::Bool(false));
+    }
     data.set_global(
         "#advanced_graphics_options_grid_visible",
         Scalar::Bool(view.settings_advanced_graphics),

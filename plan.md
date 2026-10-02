@@ -4087,3 +4087,27 @@ and OS priority mappings are Cinnabar implementation choices; exact current-clie
 scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
+
+### Inventory/HUD correction continuation (2026-10-02, incomplete general parity)
+
+Selected-item text now positions its spawned Java-look factory root above the
+hotbar, retaining the inherited Bedrock label and animation. Bare block stacks
+can split/restack without rejecting nonzero block identity; ingredient plainness
+no longer requires zero aux/block identity. Supported recipe shapes are retained
+independently of discovery metadata, including high-bit result block identities.
+Personal/workbench closes explicitly return crafting inputs and cursor items to
+player inventory, dropping only overflow, with sparse dependency preservation
+and rejected-return recovery. References and scoped acceptance are in
+`docs/reference/selected-item-hud-label.md`, `inventory-block-restacking.md`,
+`inventory-recipe-admission.md` and `inventory-crafting-close.md`.
+
+Scoped offline BDS acceptance exercises split/restack, manual 2×2 and workbench
+crafts, input/cursor returns and repeated reopen with server-verified counts.
+Rendered survival/creative selected-name geometry is inspected at the owner's
+Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
+local evidence paths and verification state.
+
+Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
+limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
+arbitrary container return flags and exact native close/flush timing remain open.
+These corrections do not close the overall Phase 5 inventory parity gate.
