@@ -87,7 +87,11 @@ String sets sort by string order. Permission sets use this declaration order:
 quotes, backslashes and control characters as `serde_json` does. Verify roundtrip
 bytes against the Rust contract before publishing a signer in another language.
 Unsigned outer wrappers do not require canonical object order, but reject unknown
-fields. No production cross-language signing fixtures have been validated yet.
+fields. `cinnabar-cxb write-fixtures <dir>` writes golden offer, marker, hello,
+accept, ready, envelope, channel and manifest documents with their signatures from
+fixed seeds into `tools/localserver/extension/testdata`; a Rust test keeps them
+current and verifies them with this crate. No signer in another language has been
+validated against them yet.
 
 ## Deployment advertisement
 
@@ -207,6 +211,15 @@ there is no runtime package dependency loader.
 posters and media descriptors may be indexed, but their presence alone does not
 make an unimplemented presentation adapter available.
 
+`cinnabar-cxb` (`tools/cxb`) is the publisher tool. `keygen <file>` writes a new raw
+32-byte Ed25519 seed as one line of lowercase hex and never replaces a file.
+`build --manifest <toml|json> --component <wasm> --publisher-seed <file> --out
+<x.cxb>` reads `id`, `package_version`, `permissions`, `channels` and `actions` from
+the manifest source, componentizes a core module as `mod-host pack` does, stores
+it as `component.wasm`, signs the manifest and checks the archive with this
+crate's verifier before writing it. It prints the bundle's `sha256` and `bytes`.
+Entries are stored with a fixed timestamp, so equal inputs give an equal digest.
+
 The cache is under the install layout's per-user
 `server-experiences/v1/objects/<sha256>.cxb`. It has an exclusive process lease,
 private directory/file modes on Unix, atomic publication, rehashed reads and LRU
@@ -215,6 +228,8 @@ Runtime grants are never cached. Local grants are separate from immutable bytes.
 There is no cross-user or global cache and no persistent media cache in this phase.
 The private cache assumes a trusted local user; it is not a hardened defense
 against a same-user process racing filesystem operations.
+`cinnabar-cxb seed-cache --cxb <x.cxb> --user-data <dir>` publishes a bundle into
+the cache under user data root `<dir>`, as a finished download would.
 
 HTTPS requests use exact approved origins, TLS validation, no redirects, no proxy,
 no cookies, no credentials and no account headers. Resolve and reject private or
