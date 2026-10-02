@@ -556,7 +556,8 @@ fn cube_world_assets(
             Material {
                 texture: TextureRef::new(0, 0).unwrap(),
                 flags: 0,
-                animation: NO_ANIMATION
+                animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             };
             2
         ]

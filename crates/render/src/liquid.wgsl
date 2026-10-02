@@ -1,9 +1,9 @@
+#import cinnabar::material::{MaterialGpu, materials, positional_material}
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
-struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
@@ -47,7 +47,6 @@ const LIQUID_DEPTH_WRITE_BIT: u32 = 1u << 31u;
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
@@ -177,7 +176,6 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let geometry = geometry_streams[liquid_word];
     let height_word = geometry_streams[liquid_word + 1u];
     let packed_material = geometry_streams[liquid_word + 2u];
-    let material = materials[packed_material & ~LIQUID_DEPTH_WRITE_BIT];
     let lighting_record_index = geometry_streams[liquid_word + 3u];
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     let light_sample = select(
@@ -189,12 +187,14 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let local_position = liquid_corner(geometry, height_word, corner);
     let chunk_origin = chunk_origins[draw_ref.metadata_index];
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let frame = animation_sample(material);
     let block_coordinate = vec3<u32>(
         geometry & 15u,
         (geometry >> 4u) & 15u,
         (geometry >> 8u) & 15u,
     );
+
+    let material = positional_material(packed_material & ~LIQUID_DEPTH_WRITE_BIT, chunk_origin.value.xyz + vec3<i32>(block_coordinate));
+    let frame = animation_sample(material);
 
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world_position, 1.0);

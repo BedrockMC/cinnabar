@@ -126,6 +126,7 @@ fn non_default_air_runtime_assets() -> RuntimeAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: Box::new([]),
@@ -229,16 +230,19 @@ fn camera_medium_assets() -> RuntimeAssets {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
             Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_WATER_TINT,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
             Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: assets::MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
         ]
         .into_boxed_slice(),
@@ -391,6 +395,7 @@ fn block_entity_visual_assets() -> RuntimeAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: Box::new([]),
@@ -628,7 +633,8 @@ fn cave_test_assets() -> RuntimeAssets {
             Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
-                animation: NO_ANIMATION
+                animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             };
             3
         ]

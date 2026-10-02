@@ -25,9 +25,13 @@ pub(in crate::chunk) struct MaterialGpu {
     pub(in crate::chunk) texture: u32,
     pub(in crate::chunk) flags: u32,
     pub(in crate::chunk) animation: u32,
+    pub(in crate::chunk) variation_start: u32,
+    pub(in crate::chunk) variation_count: u32,
+    pub(in crate::chunk) variation_weight: u32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<MaterialGpu>() == 12);
+pub(in crate::chunk) const _: () =
+    assert!(std::mem::size_of::<MaterialGpu>() == assets::MATERIAL_BYTES);
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -259,6 +263,9 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             texture: material.texture.raw(),
             flags: material.flags,
             animation: material.animation,
+            variation_start: material.variation_start,
+            variation_count: material.variation_count,
+            variation_weight: material.variation_weight,
         })
         .collect::<Vec<_>>();
     let animation_words = assets

@@ -3910,3 +3910,16 @@ the fixed endpoint multiplier. Server-directed layers, frame smoothing and depth
 adjustments remain incomplete. Lens current client 0xfded80, 0xfde760, 0xfdf140,
 0x4e429e0 (sample table 0x1501eeff0), 0x1011890; R:f/FogManager.cpp:599,
 R:l/LevelRendererCamera.cpp:10493; pinned fogs/default_fog_setting.json.
+
+2026-10-02 GEO-01 continuation (incomplete): nested weighted texture paths are
+kept separate from state arrays and carried to cube, model and liquid shaders.
+Selection uses wrapping absolute block coordinates; weighted cube faces cannot
+merge across cells. Carrier material records now retain selector ranges and
+normalized weights; old world carriers require `make assets`. Server material
+replacement clears the replaced selector. Variant flags must match the selector's
+rendering path; string and object paths retain their distinct default weights.
+Variant tint/UV extension metadata
+is rejected explicitly pending a matching material route, so full pack-semantic
+and native visual parity remain open. Lens 1.26.50.26 RVAs 0x6a02170, 0x1a2ce10,
+0x6487680; R:t/TextureJSONParser.cpp:244 and :571. Pinned terrain_texture.json
+ordinary arrays (including repeater/comparator) remain state selectors.

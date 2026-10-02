@@ -1,3 +1,4 @@
+#import cinnabar::material::{MaterialGpu, materials, positional_material}
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
@@ -12,11 +13,6 @@ struct ChunkOrigin {
     cube_bases: vec4<u32>,
 }
 
-struct MaterialGpu {
-    texture: u32,
-    flags: u32,
-    animation: u32,
-}
 
 struct AnimationGpu {
     frame_start: u32,
@@ -46,7 +42,6 @@ struct AtmosphereUniform {
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
@@ -241,7 +236,7 @@ fn vertex(
     );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let material = materials[quad.material_id];
+    let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;

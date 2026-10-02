@@ -64,7 +64,8 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
                 Material {
                     texture: TextureRef::DIAGNOSTIC,
                     flags: 0,
-                    animation: NO_ANIMATION
+                    animation: NO_ANIMATION,
+                    ..assets::Material::unvaried()
                 };
                 2
             ]

@@ -18,9 +18,7 @@ const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
 };
 
 #[test]
-fn mcbeas07_exact_bytes() {
-    assert_eq!(&BLOB_MAGIC, b"MCBEAS07");
-    assert_eq!(BLOB_VERSION, 7);
+fn world_carrier_exact_bytes() {
     let texture = assets::TextureRef::new(1, 17).expect("bounded texture ref");
     assert_eq!(texture.raw(), 0x8000_0011);
 
@@ -59,11 +57,13 @@ fn mcbeas07_exact_bytes() {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::new(1, 0).unwrap(),
             flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
             animation: 0,
+            ..assets::Material::unvaried()
         },
     ]
     .into_boxed_slice();
@@ -101,12 +101,12 @@ fn mcbeas07_exact_bytes() {
     ]
     .into_boxed_slice();
 
-    let bytes = encode_blob(&fixture).expect("encode every MCBEAS07 table");
-    assert_eq!(bytes.len(), 1_576_272);
+    let bytes = encode_blob(&fixture).expect("encode every world carrier table");
+    assert_eq!(bytes.len(), 1_576_296);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "d88e956031e09c441e58889c0f768b9f87c4e10104e22dde0c28493d955826ad",
-        "the complete every-table fixture is the byte-exact MCBEAS07 golden"
+        "496abc3b465d65fc5e3aa6264c0121d1eec7acdd0da636933c898c3828435b0e",
+        "the complete every-table fixture is the byte-exact world carrier golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
     assert_eq!(read_u32(&bytes, 28), 2);
@@ -129,7 +129,10 @@ fn mcbeas07_exact_bytes() {
             1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0
         ]
     );
-    assert_eq!(read_u32(&bytes, materials + 12), 0x8000_0000);
+    assert_eq!(
+        read_u32(&bytes, materials + assets::MATERIAL_BYTES),
+        0x8000_0000
+    );
     assert_eq!(read_u32(&bytes, templates + 4), 1);
     assert_eq!(read_u32(&bytes, quads + 40), 1);
     assert_eq!(read_u32(&bytes, animations + 4), 2);
@@ -148,7 +151,7 @@ fn mcbeas07_exact_bytes() {
 }
 
 #[test]
-fn mcbeas07_rejects_legacy_magic_and_incomplete_or_tampered_provenance() {
+fn world_carrier_rejects_legacy_magic_and_incomplete_or_tampered_provenance() {
     // A structurally complete pre-bump blob is rejected by its magic before
     // any table is trusted.
     let legacy = encode_blob(&valid_assets())
@@ -161,7 +164,7 @@ fn mcbeas07_rejects_legacy_magic_and_incomplete_or_tampered_provenance() {
         Ok(_) => panic!("decoded a legacy MCBEAS06 blob"),
     };
     assert!(
-        error.to_string().contains("invalid MCBEAS07 magic"),
+        error.to_string().contains("invalid world asset magic"),
         "{error}"
     );
 
@@ -571,6 +574,7 @@ fn valid_assets() -> CompiledAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: Box::new([]),
@@ -595,11 +599,13 @@ fn transparent_cube_assets() -> CompiledAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::new(0, 0).unwrap(),
             flags: assets::MATERIAL_FLAG_ALPHA_BLEND,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
     ]
     .into_boxed_slice();
@@ -688,6 +694,7 @@ fn mcbeas04_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_clas
         texture: TextureRef::new(0, 0).unwrap(),
         flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     });
     mixed.materials = materials.into_boxed_slice();
     mixed.model_quads[5].material = 2;
@@ -768,7 +775,7 @@ fn blob_has_checked_little_endian_sections_and_trailing_sha256() {
     assert_eq!(visuals_offset, HEADER_BYTES);
     assert_eq!(hashes_offset, visuals_offset + 44);
     assert_eq!(materials_offset, hashes_offset + 8);
-    assert_eq!(pages_offset, materials_offset + 12);
+    assert_eq!(pages_offset, materials_offset + assets::MATERIAL_BYTES);
     assert_eq!(textures_offset, pages_offset + 64);
     assert_eq!(tint_maps_offset, textures_offset + 1_364);
     assert_eq!(biome_rules_offset, tint_maps_offset + 8 * 256 * 256 * 3);
@@ -839,11 +846,13 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
         Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: MATERIAL_FLAGS_MASK | 0x800,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
     ]
     .into_boxed_slice();
@@ -858,6 +867,7 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
         texture: TextureRef::DIAGNOSTIC,
         flags: assets::MATERIAL_FLAG_ALPHA_BLEND,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     });
     blend.materials = materials.into_boxed_slice();
     assert!(
@@ -927,7 +937,8 @@ fn blob_rejects_non_monotonic_hashes_and_allocation_counts() {
         Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
-            animation: NO_ANIMATION
+            animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         };
         MAX_MATERIALS + 1
     ]

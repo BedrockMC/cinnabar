@@ -44,6 +44,7 @@ pub(crate) struct CubeMeshOutput<'a> {
     quads: &'a mut Vec<PackedQuad>,
     lighting: &'a mut Vec<PackedQuadLighting>,
     diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
+    materials: &'a [assets::Material],
 }
 
 impl<'a> CubeMeshOutput<'a> {
@@ -51,11 +52,13 @@ impl<'a> CubeMeshOutput<'a> {
         quads: &'a mut Vec<PackedQuad>,
         lighting: &'a mut Vec<PackedQuadLighting>,
         diagnostic_geometry: &'a mut DiagnosticGeometryAccumulator,
+        materials: &'a [assets::Material],
     ) -> Self {
         Self {
             quads,
             lighting,
             diagnostic_geometry,
+            materials,
         }
     }
 }
@@ -247,12 +250,13 @@ pub(crate) fn greedy_slice(
             let origin_entry = facts.at(origin[0], origin[1], origin[2]);
             let material_id = origin_entry.faces[face.index()];
             let lighting = lighting_scratch[v * SIDE + u];
+            let positional = output.materials[material_id as usize].variation_count > 1;
 
             let shifted = rows[v] >> u;
             let binary_width = (!shifted).trailing_zeros() as usize;
             let binary_width = binary_width.min(SIDE - u);
             let mut width = 1;
-            while width < binary_width && {
+            while !positional && width < binary_width && {
                 let [x, y, z] = block_coordinate(face, slice, u + width, v);
                 same_greedy_identity(origin_entry, facts.at(x, y, z), face)
                     && lighting_scratch[v * SIDE + u + width] == lighting
@@ -262,7 +266,7 @@ pub(crate) fn greedy_slice(
 
             let span = ((1_u64 << width) - 1) << u;
             let mut height = 1;
-            'height: while v + height < SIDE && rows[v + height] & span == span {
+            'height: while !positional && v + height < SIDE && rows[v + height] & span == span {
                 for offset in 0..width {
                     let [x, y, z] = block_coordinate(face, slice, u + offset, v + height);
                     if !same_greedy_identity(origin_entry, facts.at(x, y, z), face) {

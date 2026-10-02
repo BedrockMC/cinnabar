@@ -80,6 +80,8 @@ use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey}
 const AIR: u32 = 12_530;
 
 fn standalone_world_shader(source: &str) -> String {
+    let material =
+        include_str!("../src/material.wgsl").replace("#define_import_path cinnabar::material", "");
     let lighting = include_str!("../src/lighting.wgsl").replacen(
         "#define_import_path cinnabar::lighting",
         "",
@@ -91,6 +93,11 @@ fn standalone_world_shader(source: &str) -> String {
         .replacen(
             "#import bevy_render::view::View",
             "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+            1,
+        )
+        .replacen(
+            "#import cinnabar::material::{MaterialGpu, materials, positional_material}",
+            &material,
             1,
         )
         .replacen(
@@ -242,7 +249,8 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 Material {
                     texture: TextureRef::DIAGNOSTIC,
                     flags: 0,
-                    animation: NO_ANIMATION
+                    animation: NO_ANIMATION,
+                    ..assets::Material::unvaried()
                 };
                 14
             ]
