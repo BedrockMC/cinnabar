@@ -641,6 +641,7 @@ mod local_tests;
 #[cfg(test)]
 mod riding_tests;
 mod skin_update;
+mod profiles;
 #[cfg(test)]
 mod tests;
 

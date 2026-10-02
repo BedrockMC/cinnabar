@@ -193,7 +193,7 @@ impl ActorStore {
             if let Some(stale) = self.synthetic_local_uuid.take()
                 && stale != uuid
             {
-                self.players.remove(&stale);
+                self.remove_profile(&stale);
             }
             return (uuid, username);
         }
@@ -202,7 +202,7 @@ impl ActorStore {
             None => true,
         };
         if stale {
-            self.players.insert(
+            self.upsert_profile(
                 feed.uuid,
                 PlayerProfile {
                     unique_id,
@@ -249,7 +249,7 @@ impl ActorStore {
         // The real player list survives a dimension change, but the synthetic local profile is
         // tied to the cleared actor and is re-inserted on the next pose feed.
         if let Some(uuid) = self.synthetic_local_uuid.take() {
-            self.players.remove(&uuid);
+            self.remove_profile(&uuid);
         }
         self.animation.clear();
         self.items.clear_actor_state();
@@ -404,61 +404,18 @@ impl ActorStore {
                             verified,
                             skin,
                         } => {
-                            if self.players.len() >= self.max_players
-                                && !self.players.contains_key(uuid)
-                            {
-                                capacity_rejected = true;
-                                continue;
-                            }
-                            let previous = self.players.get(uuid);
-                            let previous_skin_bytes =
-                                previous.map_or(0, |profile| retained_skin_bytes(&profile.skin));
-                            let retained_without_previous = self
-                                .retained_player_skin_bytes
-                                .saturating_sub(previous_skin_bytes);
-                            let requested_skin_bytes = retained_skin_bytes(skin);
-                            let (skin, retained_player_skin_bytes) = retained_without_previous
-                                .checked_add(requested_skin_bytes)
-                                .filter(|total| *total <= self.max_player_skin_bytes)
-                                .map_or_else(
-                                    || {
-                                        previous.map_or_else(
-                                            || {
-                                                (
-                                                    PlayerSkin::Unavailable(
-                                                        PlayerSkinUnavailable::RetainedBudgetExceeded,
-                                                    ),
-                                                    retained_without_previous,
-                                                )
-                                            },
-                                            |profile| {
-                                                (
-                                                    profile.skin.clone(),
-                                                    retained_without_previous
-                                                        .saturating_add(previous_skin_bytes),
-                                                )
-                                            },
-                                        )
-                                    },
-                                    |total| (skin.clone(), total),
-                                );
-                            self.retained_player_skin_bytes = retained_player_skin_bytes;
-                            self.players.insert(
+                            capacity_rejected |= !self.upsert_profile(
                                 *uuid,
                                 PlayerProfile {
                                     unique_id: *unique_id,
                                     username: username.clone(),
                                     verified: *verified,
-                                    skin,
+                                    skin: skin.clone(),
                                 },
                             );
                         }
                         PlayerListEntry::Remove { uuid } => {
-                            if let Some(profile) = self.players.remove(uuid) {
-                                self.retained_player_skin_bytes = self
-                                    .retained_player_skin_bytes
-                                    .saturating_sub(retained_skin_bytes(&profile.skin));
-                            }
+                            self.remove_profile(uuid);
                         }
                     }
                 }
