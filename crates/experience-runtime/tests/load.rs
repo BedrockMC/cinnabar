@@ -145,9 +145,10 @@ fn wrong_api_is_refused() {
     assert!(error.contains("unsupported api \"0.0\""), "{error}");
 }
 
-#[test]
-fn core_module_without_world_is_refused() {
-    let dir = with_server_wasm(wat::parse_str("(module)").unwrap());
+/// Loads a probe artifact whose `server.wasm` is `module` and checks that it is refused as not
+/// being a server component.
+fn assert_role_refused(module: Vec<u8>) {
+    let dir = with_server_wasm(module);
     let error = refusal(dir.path());
     assert!(
         error.contains("is not a") && error.contains("server component"),
@@ -156,13 +157,20 @@ fn core_module_without_world_is_refused() {
 }
 
 #[test]
+fn core_module_without_world_is_refused() {
+    assert_role_refused(wat::parse_str("(module)").unwrap());
+}
+
+#[test]
 fn client_component_is_refused() {
-    let dir = with_server_wasm(fs::read(hello_wasm()).unwrap());
-    let error = refusal(dir.path());
-    assert!(
-        error.contains("is not a") && error.contains("server component"),
-        "{error}"
-    );
+    assert_role_refused(fs::read(hello_wasm()).unwrap());
+}
+
+#[test]
+fn wasi_import_is_refused() {
+    let wasi = r#"(module (import "wasi_snapshot_preview1" "fd_write"
+        (func (param i32 i32 i32 i32) (result i32))))"#;
+    assert_role_refused(wat::parse_str(wasi).unwrap());
 }
 
 /// The limit is inclusive: the probe padded to exactly `MAX_COMPONENT_BYTES` loads, and one
