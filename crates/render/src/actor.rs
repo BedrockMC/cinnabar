@@ -266,7 +266,10 @@ impl ActorRenderScene {
     ) -> Result<(), ActorRigGeometryError> {
         let replacement = ActorRigFrameBuilder::from_runtime_assets(assets)?;
         self.rig_builder = replacement;
-        self.frame = ActorRenderFrame::default();
+        self.frame = ActorRenderFrame {
+            artwork: Arc::clone(&self.frame.artwork),
+            ..ActorRenderFrame::default()
+        };
         Ok(())
     }
 
@@ -290,7 +293,10 @@ impl ActorRenderScene {
             .map(asset_geometry::pack_geometries)
             .unwrap_or_default();
         self.rig_builder.replace_pack_geometries(geometries)?;
-        self.frame = ActorRenderFrame::default();
+        self.frame = ActorRenderFrame {
+            artwork: Arc::clone(&self.frame.artwork),
+            ..ActorRenderFrame::default()
+        };
         Ok(())
     }
 

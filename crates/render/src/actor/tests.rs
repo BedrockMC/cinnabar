@@ -343,3 +343,18 @@ fn batched_geometries_rebuild_the_catalog_once() {
     assert!(builder.insert_geometries(duplicate).is_err());
     assert!(!builder.contains_geometry(super::skin_rig_id(9)));
 }
+
+#[test]
+fn review_render_geometry_replacement_keeps_configured_artwork() {
+    let (pages, _) =
+        super::ActorArtworkPages::default().with_equipment_rasters(&[super::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([1, 2, 3, 255]),
+        }]);
+    let mut scene = ActorRenderScene::default();
+    scene.configure_artwork(pages);
+    let before = Arc::clone(&scene.frame.artwork);
+    scene.replace_pack_entities(None).unwrap();
+    assert!(Arc::ptr_eq(&before, &scene.frame.artwork));
+}
