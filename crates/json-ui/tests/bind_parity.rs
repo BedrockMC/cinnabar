@@ -775,3 +775,31 @@ fn binding_fields_evaluate_constant_expressions() {
     let bound = bind(&root, &global("#shown", Scalar::Bool(true)), &EmptyLibrary);
     assert_eq!(get(find(&bound, "content"), "visible"), Some(&json!(false)));
 }
+
+// An edit box's `once` content binding re-reads the host's live text: the host owns
+// the text vanilla's TextEditComponent keeps, so typing shows as it happens.
+#[test]
+fn edit_box_content_follows_the_host_text_despite_once() {
+    let edit = leaf(
+        "edit_box",
+        "edit_box",
+        json!({
+            "text": "#item_name",
+            "property_bag": { "#item_name": "" },
+            "bindings": [{
+                "binding_name": "#ip_text_box_content",
+                "binding_name_override": "#item_name",
+                "binding_condition": "once"
+            }]
+        }),
+    );
+    let bound = refresh(
+        &edit,
+        &global("#ip_text_box_content", text("pl")),
+        &global("#ip_text_box_content", text("play.example")),
+    );
+    assert_eq!(
+        get(&bound, "#item_name").or(get(&bound, "text")),
+        Some(&json!("play.example"))
+    );
+}

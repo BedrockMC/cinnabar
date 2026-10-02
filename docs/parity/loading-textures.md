@@ -56,3 +56,42 @@ The CPU snapshot rasterizer now interpolates vertex colors, so gradient assertio
 measure the same interpolation as the UI shader. Previously it used the first
 vertex's color for an entire triangle. Offline evidence does not close a live
 visual parity gate or prove how long the owner's black frame persisted.
+
+## Artwork retention under cancellation
+
+The content-hash cache keys introduced by `646b710b` preserved every replacement
+image when a batch was superseded before the worker's final `trim`. The source
+bisect identifies that commit; it reaches the originally investigated `18f3509a`
+through that commit's second parent. The preexisting worker could also accumulate
+obsolete distinct paths when requests continually interrupted packing.
+
+Eviction now runs after every completed decode batch, before cancellation can
+skip it. A changed payload replaces the previous cached image at the same path
+and size. The existing 160-entry limit remains in force. Tests churn 2,000
+same-path generations and 2,000 distinct paths, and verify the newest pixels.
+
+An isolated cancellation soak replaces one 64x64 texture 2,000 times. Baseline
+`199e0856` keeps one image (16,384 pixel bytes, final RSS 2,896 KiB), current
+`18f3509a` keeps 2,000 (32,768,000 bytes, RSS 35,968 KiB), and fixed code keeps one
+(16,384 bytes, RSS 2,720 KiB). This deliberately takes the worker's superseded-batch
+path without waiting for final packing. Harnesses and logs are under
+`/private/tmp/cinnabar-growth/`.
+
+
+## Large-image decode concurrency
+
+`f4a4d802` added float RGBA conversion for correct premultiplied downscaling.
+That scratch allocation is larger than the image reader's decoded-byte limit.
+The existing eight-image Rayon batch could hold eight such intermediates at once,
+on top of the world worker pools and Bevy's task pools. Decoding now stays on the
+already dedicated artwork worker; image conversion and output pixels are unchanged.
+A cold batch may finish later, while rendering continues on the previous atlas.
+
+The matched offline eight-image fixture uses 2048x2048 PNGs and identical image
+and Rayon versions. Sampled peak RSS is 430,816 KiB on `199e0856`, 923,888 KiB on
+`18f3509a`, and 134,752 KiB after serializing decoding. Sampled process thread
+counts are 14, 14 and 2 respectively. All three produce eight images totaling
+33,423,488 pixel bytes. These are isolated decoder process measurements, not
+whole-client thread counts or proof of a GPU-driver hang. The reconstruction's
+texture image cache is resource-location keyed
+(`R:t/TextureGroupImageCache.cpp:41`); no authored UI or texture selection changes.

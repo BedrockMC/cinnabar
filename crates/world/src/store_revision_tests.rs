@@ -36,6 +36,7 @@ fn exhausted_store_rejects_load_before_mutation() {
         authoritative_sub_chunks: HashMap::new(),
         collision_revisions: HashMap::new(),
         collision_revision_allocator: allocator,
+        collision_snapshot: Default::default(),
     };
     let ceiling = ChunkKey::new(0, 0, 0);
     let rejected = ChunkKey::new(0, 1, 0);
@@ -81,6 +82,7 @@ fn exhausted_loaded_store(key: ChunkKey) -> ChunkStore {
             },
         )]),
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(0)),
+        collision_snapshot: Default::default(),
     }
 }
 
@@ -157,6 +159,7 @@ fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
             ),
         ]),
         collision_revision_allocator: allocator,
+        collision_snapshot: Default::default(),
     };
     let prepare = |key, id| {
         ChunkStore::prepare_sub_chunk_blocks(key, None, &[BlockUpdate::new(0, 0, 0, 0, id)], 0)
@@ -192,6 +195,7 @@ fn successful_batch_assigns_revisions_in_sorted_column_order() {
         authoritative_sub_chunks: HashMap::new(),
         collision_revisions: HashMap::new(),
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(100)),
+        collision_snapshot: Default::default(),
     };
     let prepare = |key, id| {
         ChunkStore::prepare_sub_chunk_blocks(key, None, &[BlockUpdate::new(0, 0, 0, 0, id)], 0)
