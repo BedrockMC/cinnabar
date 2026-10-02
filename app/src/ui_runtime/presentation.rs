@@ -3,7 +3,6 @@ use std::{fmt, sync::Arc};
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::{
     camera::Camera,
-    math::Vec3,
     prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, Resource, Time, With},
     time::Real,
     window::{PrimaryWindow, Window},
@@ -20,6 +19,7 @@ use ui::{
     UiRect, UiScale, UiTree, UiVisual,
 };
 
+use super::scene_stack::{Scene, SceneHost};
 use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::{
     camera::CameraSettingsAuthority,
@@ -34,9 +34,12 @@ use crate::{
 mod debug_overlay;
 mod dynamic_textures;
 pub(crate) mod forms;
+mod gui_models;
+mod gui_scale_settings;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod inventory_tooltip;
+mod item_gui;
 mod item_sprite;
 mod item_viewmodel;
 mod menu;
@@ -52,7 +55,7 @@ mod retained_hud;
 pub(crate) mod screens;
 mod session_glyphs;
 mod session_icons;
-pub(crate) use forms::ServerUiPack;
+pub(crate) use forms::{MAX_PACK_TEXTURE_BYTES, ServerUiPack};
 pub(crate) use session_glyphs::SessionGlyphSheets;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
@@ -70,13 +73,17 @@ mod viewmodel_bob;
 use crate::menu::{MenuAction, MenuView};
 pub(crate) use debug_overlay::DebugLines;
 pub(crate) use forms::{BedHit, ChatHit, LoadingStage, drive_menu_panorama};
+pub(crate) use gui_scale_settings::apply_gui_scale_setting;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
-pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
-use retained_hud::{BelowNameAnchor, PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
+pub(crate) use publish::{
+    PreparedUiPublication, observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime,
+    publish_ui_runtime,
+};
+use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::{StartupPresentationState, StartupReadinessInput};
 use text_metrics::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
@@ -130,7 +137,7 @@ pub struct UiPresentationRuntime {
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
-    /// Java GUI-scale preference: `None`/0 selects the auto rule.
+    /// Bedrock desktop GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
     /// the retained tree layout, and the render viewport alike.
@@ -139,9 +146,7 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
-    /// World-projected below-name score anchors for the current frame.
-    below_name_anchors: Vec<BelowNameAnchor>,
-    /// This frame's world-space name tags, and the atlas their lines rasterize into.
+    /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
@@ -159,6 +164,7 @@ pub struct UiPresentationRuntime {
     /// Worn armor and the held item the model shows, and where armor art comes from.
     player_preview_gear: player_preview::PreviewEquipment,
     equipment_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    gui_models: gui_models::GuiModels,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     preview_dirty: bool,
     player_preview_icon: Option<IconRef>,
@@ -171,8 +177,11 @@ pub struct UiPresentationRuntime {
     /// The art set last requested: service art plus engine textures too big for a server page.
     menu_artwork_set: menu_artwork::ArtworkSet,
     menu_artwork_loader: menu_artwork::ArtworkLoader,
-    /// This frame's clock in seconds, for menu animations painted over cached layouts.
+    /// This frame's clock in seconds, which engine screen animations paint at.
     menu_seconds: f64,
+    scene_clocks: super::scene_stack::SceneClocks,
+    /// The drawing scene's transition event clocks.
+    scene_clock: std::collections::BTreeMap<String, f64>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     /// The installed refs must be rebased onto moved art pages.
     menu_artwork_dirty: bool,
@@ -184,6 +193,9 @@ pub struct UiPresentationRuntime {
     logged_hotbar: [Option<(Arc<str>, bool)>; 9],
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
+    /// Current full GUI slider geometry, including steps clipped from view.
+    /// Captured drags keep following it while scale changes move the row.
+    gui_scale_drag_targets: Vec<(MenuAction, UiRect)>,
     menu_scrolls: menu_scroll::MenuScrolls,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
@@ -252,7 +264,6 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
-            below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
             player_preview_page: None,
@@ -263,6 +274,7 @@ impl UiPresentationRuntime {
             player_preview_bob: 0.0,
             player_preview_gear: player_preview::PreviewEquipment::default(),
             equipment_catalog: None,
+            gui_models: Default::default(),
             player_preview_pixels: None,
             preview_dirty: false,
             player_preview_icon: None,
@@ -275,6 +287,8 @@ impl UiPresentationRuntime {
             menu_artwork_set: Default::default(),
             menu_artwork_loader: Default::default(),
             menu_seconds: 0.0,
+            scene_clocks: Default::default(),
+            scene_clock: Default::default(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             // The title logo loads before any service art arrives.
             menu_artwork_dirty: true,
@@ -284,6 +298,7 @@ impl UiPresentationRuntime {
             logged_hotbar: Default::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
+            gui_scale_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
             form_presentation: forms::FormPresentation::default(),
             loading_stage: None,
@@ -295,9 +310,8 @@ impl UiPresentationRuntime {
         self.loading_stage = stage;
     }
 
-    /// Updates the cached corner avatar. The raster is regenerated and the UI
-    /// texture array is replaced only when the authoritative skin or pose
-    /// changes; normal camera/HUD frames reuse the same GPU texture.
+    /// Retains original UI skin pixels and compatibility hand rasters. Live model view/bob
+    /// changes update geometry without regenerating a thumbnail or reuploading texture pixels.
     pub(crate) fn set_player_preview_skin(
         &mut self,
         skin: Option<&[u8]>,
@@ -305,14 +319,28 @@ impl UiPresentationRuntime {
     ) {
         let default_skin = render::default_actor_skin_rgba8();
         let skin = skin
-            .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
+            .filter(|pixels| {
+                let side = (pixels.len() / 4).isqrt();
+                side != 0 && side * side * 4 == pixels.len()
+            })
             .unwrap_or(default_skin.as_ref());
         let source_hash: [u8; 32] = Sha256::digest(skin).into();
-        let drawn = (
-            self.player_preview_view,
-            self.player_preview_bob,
-            self.player_preview_gear.clone(),
-        );
+        self.set_gui_skin(skin);
+        let drawn = if self.gui_models.enabled {
+            // Model pose and sway now only change geometry. Keep the software hand carriers
+            // cached by skin/hand pose; they must not force a small model render/upload each frame.
+            (
+                player_preview::PreviewView::default(),
+                0.0,
+                Default::default(),
+            )
+        } else {
+            (
+                self.player_preview_view,
+                self.player_preview_bob,
+                self.player_preview_gear.clone(),
+            )
+        };
         if self.player_preview_source_hash == Some(source_hash)
             && self.player_preview_pose == Some(pose)
             && self.player_preview_drawn.as_ref() == Some(&drawn)
@@ -320,7 +348,16 @@ impl UiPresentationRuntime {
             return;
         }
         self.player_preview_pixels = Some(player_preview::PlayerPreviewRasters {
-            preview: player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2),
+            preview: if self.gui_models.enabled {
+                // The retained reference supplies the JSON-UI model's virtual coordinate basis.
+                // No thumbnail is drawn: apply_gui_models replaces it with destination geometry.
+                vec![
+                    0;
+                    (player_preview::PREVIEW_WIDTH * player_preview::PREVIEW_HEIGHT * 4) as usize
+                ]
+            } else {
+                player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2)
+            },
             left_hand: player_preview::render_hand(skin, pose, true),
             right_hand: player_preview::render_hand(skin, pose, false),
         });
@@ -388,7 +425,7 @@ impl UiPresentationRuntime {
         Self::with_optional_assets(font, hud, None)
     }
 
-    /// Selects a fixed Java GUI scale (1..=4); `None` or 0 restores auto.
+    /// Selects a fixed desktop GUI scale; `None` or 0 restores auto.
     pub fn set_gui_scale_preference(&mut self, preference: Option<u8>) {
         self.gui_scale_preference = preference.filter(|value| *value > 0);
     }
@@ -407,15 +444,6 @@ impl UiPresentationRuntime {
 
     pub(crate) fn hud_frame_mut(&mut self) -> &mut HudFrame {
         &mut self.hud_frame
-    }
-
-    fn set_below_name_anchors(&mut self, anchors: impl IntoIterator<Item = BelowNameAnchor>) {
-        self.below_name_anchors.clear();
-        self.below_name_anchors.extend(
-            anchors
-                .into_iter()
-                .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS),
-        );
     }
 
     fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
@@ -444,6 +472,45 @@ impl UiPresentationRuntime {
         self.layouts.len()
     }
 
+    /// The Java-look surfaces outside the engine HUD, over the safe HUD geometry.
+    fn append_java_hud(
+        &mut self,
+        runtime: &UiRuntime,
+        nodes: &mut Vec<UiNode>,
+        next_id: &mut u32,
+        geometry: Option<HudGeometry>,
+        now_millis: u64,
+        container: bool,
+    ) -> Result<(), UiPresentationError> {
+        let (Some(hud_textures), Some(geometry)) = (self.hud_textures.as_ref(), geometry) else {
+            return Ok(());
+        };
+        let mut frame = self.hud_frame.clone();
+        frame.now_millis = now_millis;
+        HudLayout::new(
+            nodes,
+            next_id,
+            hud_textures,
+            &mut self.layouts,
+            &self.font,
+            self.solid_texture_page,
+            geometry,
+        )?
+        .append(runtime, &frame, container)
+    }
+
+    /// Diagnostics drawn with the gameplay scene; scores join the world name tags.
+    fn append_gameplay_overlays(
+        &mut self,
+        nodes: &mut Vec<UiNode>,
+        next_id: &mut u32,
+        metrics: TextMetrics,
+        content: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        self.append_debug_overlay(nodes, next_id, metrics, content[0])
+    }
+
+    /// Builds the frame from its retained UI authority.
     pub fn build(
         &mut self,
         runtime: &UiRuntime,
@@ -455,6 +522,10 @@ impl UiPresentationRuntime {
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
         session_glyphs::observe(self, runtime.session_glyphs());
+        // Install artwork before any screen resolves its pixel UVs.
+        if self.menu_artwork_loader.poll() {
+            self.rebuild_dynamic_textures();
+        }
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
@@ -478,137 +549,129 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
         let menu_visible = self.menu_view.is_some();
-        if !menu_visible
-            && let Some(hud_textures) = self.hud_textures.as_ref()
-            && let Some(geometry) = hud_geometry
-        {
-            let mut frame = self.hud_frame.clone();
-            frame.now_millis = now_millis;
-            let mut layout = HudLayout::new(
-                &mut nodes,
-                &mut next_id,
-                hud_textures,
-                &mut self.layouts,
-                &self.font,
-                self.solid_texture_page,
-                geometry,
-            )?;
-            layout.append(runtime, &frame)?;
+        let content = [content_width, content_height];
+        let host = SceneHost {
+            menu: self.menu_view.as_ref().map(|view| view.screen),
+            over_world: self.menu_view.as_ref().is_none_or(|view| view.over_world),
+            loading: self.loading_stage.is_some(),
+        };
+        let stack = runtime.scenes_in(host, &self.screen_settings());
+        let scenes = stack.visible(false);
+        self.begin_form_frame();
+        self.menu_seconds = now_millis as f64 / 1_000.0;
+        let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
+        self.scene_clocks.observe(&open, self.menu_seconds);
+        let mut menu_hit_targets = Vec::new();
+        for scene in &scenes {
+            self.scene_clock = self.scene_clocks.clocks(*scene);
+            let (nodes, next) = (&mut nodes, &mut next_id);
+            match scene {
+                Scene::Gameplay => {
+                    self.append_java_hud(runtime, nodes, next, hud_geometry, now_millis, false)?;
+                    self.append_gameplay_overlays(nodes, next, metrics, content)?;
+                }
+                Scene::Crosshair | Scene::Hud => {
+                    let crosshair = *scene == Scene::Crosshair;
+                    self.append_engine_hud(
+                        runtime, nodes, next, metrics, content, now_millis, crosshair,
+                    )?;
+                    if !crosshair {
+                        self.append_mod_hud(runtime, nodes, next, metrics, content);
+                    }
+                }
+                Scene::Bed => {
+                    self.append_bed_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
+                Scene::Container => {
+                    self.append_java_hud(runtime, nodes, next, hud_geometry, now_millis, true)?;
+                    self.append_container_scene(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                    )?;
+                }
+                Scene::Chat => {
+                    self.append_chat_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
+                Scene::Loading => {
+                    if let Some(stage) = self.loading_stage {
+                        // An opaque cover under the loading screen: no partial terrain or
+                        // HUD leaks through while the world settles.
+                        nodes.push(
+                            UiNode::new(UiNodeId::new(*next), None, viewport).with_visual(
+                                UiVisual::Solid {
+                                    texture_page: self.solid_texture_page,
+                                    color: [8, 10, 14, 255],
+                                },
+                            ),
+                        );
+                        *next = next.saturating_add(1);
+                        self.append_loading_screen(runtime, stage, nodes, next, metrics, content)?;
+                    }
+                }
+                Scene::SignEditor => {
+                    self.append_sign_editor(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                        now_millis,
+                    )?;
+                }
+                Scene::ServerForm | Scene::ServerSettingsForm => {
+                    self.append_server_form(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                    )?;
+                }
+                Scene::Menu(_) => {
+                    menu_hit_targets = self.append_menu(
+                        runtime,
+                        nodes,
+                        next,
+                        metrics,
+                        content_width,
+                        content_height,
+                    )?;
+                }
+            }
         }
-
-        let inventory_open = runtime.inventory_open();
-        if !inventory_open && !menu_visible {
-            self.append_engine_hud(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        }
-
-        if !inventory_open && !menu_visible {
-            self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
-            retained_hud::append_below_name_nodes(
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                &self.below_name_anchors,
-            )?;
-        }
-
-        if !menu_visible && !inventory_open {
-            self.append_bed_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        }
-        if !menu_visible && !inventory_open && runtime.chat_focused() {
-            self.append_chat_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        } else {
+        if !scenes.contains(&Scene::Chat) {
             self.close_chat_screen();
         }
-
-        self.menu_seconds = now_millis as f64 / 1_000.0;
-        let menu_hit_targets = self.append_menu(
-            runtime,
-            &mut nodes,
-            &mut next_id,
-            metrics,
-            content_width,
-            content_height,
-        )?;
-
-        if !menu_visible && let Some(stage) = self.loading_stage {
-            // An opaque cover under the loading screen: no partial terrain or
-            // HUD leaks through while the world settles.
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(0.0, 0.0, logical_width, logical_height)?,
-                )
-                .with_visual(UiVisual::Solid {
-                    texture_page: self.solid_texture_page,
-                    color: [8, 10, 14, 255],
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-            self.append_loading_screen(
-                runtime,
-                stage,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-            )?;
+        if !scenes.contains(&Scene::SignEditor) {
+            self.hide_sign_editor();
         }
-
-        self.append_server_form(
+        // Toasts live on their own stack, drawn last over every scene.
+        self.scene_clock.clear();
+        self.append_toast_screen(
             runtime,
             &mut nodes,
             &mut next_id,
             metrics,
-            content_width,
-            content_height,
-        )?;
-        self.append_sign_editor(
-            runtime,
-            &mut nodes,
-            &mut next_id,
-            metrics,
-            content_width,
-            content_height,
+            content,
             now_millis,
         )?;
-        if !menu_visible {
-            self.append_toast_screen(
-                runtime,
-                &mut nodes,
-                &mut next_id,
-                metrics,
-                [content_width, content_height],
-                now_millis,
-            )?;
-        }
         self.sync_server_ui_pages();
+        self.append_experience_chrome(
+            runtime,
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            [content_width, content_height],
+        );
+        // Every screen has painted: retire animation state nothing touched.
+        self.end_animation_frame();
+        self.apply_gui_models(&mut nodes);
         // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
         let built = menu_visible.then(|| BuiltMenu {
             nodes: Vec::new(),

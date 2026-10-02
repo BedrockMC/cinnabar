@@ -271,7 +271,7 @@ impl ViewmodelScene {
                     && distinct
                     && corners.into_iter().zip(expected).all(|(index, uv)| {
                         input.vertices.get(index as usize).is_some_and(|v| {
-                            v.uv == uv
+                            v.uv == uv.map(f32::from)
                                 && v.color == [255; 4]
                                 && v.style_flags == 0
                                 && v.position.iter().all(|v| v.is_finite())

@@ -101,14 +101,14 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "render"
 path = "crates/render"
-allowed_dependencies = ["assets", "client-world", "meshing", "world"]
+allowed_dependencies = ["assets", "client-world", "meshing", "mod-api", "world"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
 name = "app"
 path = "app"
 # asset-compiler is allowed only for the session-time in-memory server-pack entity compile.
-allowed_dependencies = ["asset-compiler", "assets", "client-world", "json-ui", "meshing", "protocol", "render", "resource-pack", "semantic-input", "sim", "ui", "world"]
+allowed_dependencies = ["asset-compiler", "assets", "client-world", "json-ui", "meshing", "mod-host", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = []
 
 [[crates]]
@@ -116,6 +116,36 @@ name = "sim"
 path = "crates/sim"
 allowed_dependencies = ["world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "server-experience"
+path = "crates/server-experience"
+allowed_dependencies = ["protocol"]
+forbidden_dependencies = ["bevy", "wgpu", "asset-compiler"]
+
+[[crates]]
+name = "mod-api"
+path = "crates/mod-api"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "mod-host"
+path = "crates/mod-host"
+allowed_dependencies = ["mod-api", "server-experience"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "hello-mod"
+path = "examples/mods/hello"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "time-changer-mod"
+path = "examples/mods/time-changer"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
 name = "ui"
@@ -323,6 +353,12 @@ consumer = "app/src/ui_runtime/crafting_authority/observation.rs"
 
 [[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/app.rs"
+
+[[markers]]
+literal = "RUST_MCBE_STAGE_PROFILE_FRAMES"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/app.rs"

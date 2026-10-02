@@ -111,55 +111,25 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
 }
 
 #[test]
-fn mixed_font_shadow_and_fill_keep_logical_page_order() {
+fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let runtime = UiRuntime::new(1);
-    presentation.set_below_name_anchors([super::super::retained_hud::BelowNameAnchor {
-        x: 400.0,
-        y: 300.0,
-        name: Arc::from("A一A"),
-        score: 7,
-        objective: Arc::from(""),
-    }]);
+    presentation.set_nametag_anchors(vec![super::super::nametags::tests::anchor("A一A")]);
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    let glyphs = input
-        .indices
-        .chunks_exact(6)
-        .enumerate()
-        .filter_map(|(quad, indices)| {
-            let vertex = input.vertices[indices[0] as usize];
-            let first = (quad * 6) as u32;
-            let batch = input
-                .batches
-                .iter()
-                .find(|b| first >= b.first_index && first < b.first_index + b.index_count)
-                .unwrap();
-            if batch.texture_page >= 2 || !matches!(vertex.uv, [16, 0] | [32, 0]) {
-                return None;
-            }
-            Some((batch.texture_page, vertex.color, vertex.position))
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        glyphs.iter().map(|g| g.0).collect::<Vec<_>>(),
-        [0, 1, 0, 0, 1, 0]
+    // The world glyphs now rasterize into the retained GPU line atlas, not HUD vertices.
+    let scene = presentation.nametag_scene();
+    assert_eq!(scene.records.len(), 2);
+    assert_eq!(scene.records[1].color, [1.0; 4]);
+    assert_eq!(scene.atlas.len(), 1);
+    assert!(
+        scene.atlas[0]
+            .rgba8
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] != 0)
+            .all(|pixel| pixel == [255; 4])
     );
-    let shadow_offset = gui_scale([800, 600], None) as f32;
-    for index in 0..3 {
-        for channel in 0..3 {
-            assert_eq!(glyphs[index].1[channel], glyphs[index + 3].1[channel] / 4);
-        }
-        assert_eq!(glyphs[index].1[3], glyphs[index + 3].1[3]);
-        assert_eq!(
-            glyphs[index].2,
-            [
-                glyphs[index + 3].2[0] + shadow_offset,
-                glyphs[index + 3].2[1] + shadow_offset
-            ]
-        );
-    }
     for batch in input.batches.iter() {
         let logical = batch.texture_page as usize;
         let physical = input.textures.plan().locations()[logical];
@@ -455,12 +425,14 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
         icons: vec![
             SessionIcon {
                 identifier: "test:gem".into(),
+                metadata: 0,
                 width: 2,
                 height: 1,
                 rgba8: vec![255, 0, 0, 255, 0, 255, 0, 255].into(),
             },
             SessionIcon {
                 identifier: "test:bad".into(),
+                metadata: 0,
                 width: 4,
                 height: 4,
                 rgba8: vec![0; 3].into(),
@@ -490,6 +462,15 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
 fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     assert!(presentation.font.glyph('\u{e005}').is_none());
+    presentation.set_nametag_anchors(vec![super::super::nametags::NametagAnchor {
+        runtime_id: 1,
+        position: bevy::math::Vec3::new(0.0, 2.0, 0.0),
+        lines: vec![Arc::from("\u{e005}")],
+        depth_tested: false,
+        text_alpha: 1.0,
+        distance: 5.0,
+    }]);
+    let before = presentation.nametag_scene();
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
     for y in 0..8usize {
         for x in 0..8usize {
@@ -498,6 +479,8 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         }
     }
     let sheets = Arc::new(SessionGlyphSheets {
+        named: Default::default(),
+        prepared: Default::default(),
         cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
@@ -506,6 +489,12 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         }),
     });
     session_glyphs::observe(&mut presentation, Some(&sheets));
+    let changed = presentation.nametag_scene();
+    assert!(!Arc::ptr_eq(
+        &before.atlas[0].rgba8,
+        &changed.atlas[0].rgba8
+    ));
+    assert_ne!(before.records[1].rect, changed.records[1].rect);
     let glyph = *presentation.font.glyph('\u{e005}').expect("sheet glyph");
     let dynamic_start = presentation.textures.dynamic_start();
     assert_eq!(usize::from(glyph.page), dynamic_start + 10);
@@ -513,13 +502,17 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     let page = &presentation.textures.pages()[usize::from(glyph.page)];
     let [left, top, ..] = glyph.uv;
     assert_eq!(
-        page.pixels()[(usize::from(top) * 256 + usize::from(left)) * 4 + 3],
+        page.pixels()
+            [(usize::from(top) * page.dimensions()[0] as usize + usize::from(left)) * 4 + 3],
         255
     );
     assert!(presentation.base_font.glyph('\u{e005}').is_none());
 
     session_glyphs::observe(&mut presentation, None);
     assert!(presentation.font.glyph('\u{e005}').is_none());
+    let restored = presentation.nametag_scene();
+    assert_eq!(restored.records[1].rect, before.records[1].rect);
+    assert_eq!(restored.atlas[0].rgba8, before.atlas[0].rgba8);
     assert_eq!(
         presentation.textures.pages().len(),
         dynamic_start + render::MAX_UI_DYNAMIC_PAGES + render::MAX_UI_ART_PAGES
@@ -562,6 +555,7 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
     let icons = Arc::new(SessionIcons {
         icons: vec![SessionIcon {
             identifier: "test:gem".into(),
+            metadata: 0,
             width: 4,
             height: 4,
             rgba8: vec![255; 64].into(),
@@ -572,6 +566,8 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
     rgba8[..8 * 128 * 4].fill(255);
     let sheets = Arc::new(SessionGlyphSheets {
+        named: Default::default(),
+        prepared: Default::default(),
         cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
@@ -631,6 +627,8 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
     );
     assert_icon_drawable(&presentation, &sample);
     let sheets = Arc::new(SessionGlyphSheets {
+        named: Default::default(),
+        prepared: Default::default(),
         cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,

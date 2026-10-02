@@ -20,16 +20,20 @@ bevy = { workspace = true, default-features = false, features = [
     "keyboard",
     "mouse",
     "std",
+    "bevy_post_process",
 ] }
 crossbeam-channel = "0.5"
+crossbeam-queue = "=0.3.13"
 ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
+mod-host = { path = "../crates/mod-host" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
+server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
 rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
@@ -38,7 +42,7 @@ semantic-input = { path = "../crates/input" }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2.workspace = true
 thiserror.workspace = true
 url = "2"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }

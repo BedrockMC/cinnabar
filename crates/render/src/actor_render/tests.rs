@@ -221,7 +221,7 @@ fn actor_shader_parses_as_wgsl() {
             "struct View { clip_from_world: mat4x4<f32>, }",
         )
         .replace(
-            "#import cinnabar::lighting::{lit_colour, light_brightness}",
+            "#import cinnabar::lighting::{lit_colour, light_colour}",
             &lighting,
         );
     naga::front::wgsl::parse_str(&source).expect("actor shader parses");

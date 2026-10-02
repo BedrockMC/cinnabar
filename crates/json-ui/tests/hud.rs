@@ -1,6 +1,8 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
 //! gitignored, so each test skips (not fails) when it is absent.
 
+#[path = "support/java_pack.rs"]
+mod java_pack;
 mod support;
 
 use std::path::PathBuf;
@@ -70,6 +72,7 @@ impl PackTextures {
         };
         Some(TextureMeta {
             base_size: [dimension(16)?, dimension(20)?],
+            pixels: [dimension(16)?, dimension(20)?],
             nineslice: None,
         })
     }
@@ -127,29 +130,19 @@ fn model() -> HudModel {
     }
 }
 
-/// The built-in Java HUD pack's files, as the client layers them.
-fn java_pack() -> Vec<(String, Vec<u8>)> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/java-hud");
-    ["ui/hud_screen.json", "ui/scoreboards.json"]
-        .into_iter()
-        .map(|path| {
-            (
-                path.to_owned(),
-                std::fs::read(dir.join(path)).expect("pack file"),
-            )
-        })
-        .collect()
-}
-
 fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
     render_with(model, false)
 }
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
+    render_full(model, java).map(|render| render.nodes)
+}
+
+fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
     let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
     if java {
-        let files = java_pack();
+        let files = java_pack::files();
         let before = catalog.diagnostics().len();
         catalog.apply_pack(
             files
@@ -174,7 +167,53 @@ fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
         &ViewState::default(),
     )
     .expect("hud renders");
-    Some(render.nodes)
+    Some(render)
+}
+
+// The HUD never takes a gameplay click: a press at the crosshair reaches no control.
+#[test]
+fn hud_leaves_gameplay_clicks_alone() {
+    for java in [false, true] {
+        let Some(render) = render_full(&model(), java) else {
+            return;
+        };
+        let mut view = ViewState::default();
+        let mut dispatcher = json_ui::Dispatcher::default();
+        let center = [240.0, 135.0];
+        let hover = dispatcher.pointer(
+            &render.hits,
+            &mut view,
+            json_ui::PointerInput {
+                point: Some(center),
+                held: false,
+                mode: json_ui::InputMode::Mouse,
+                now: 0.0,
+            },
+        );
+        assert!(
+            !hover.consumed,
+            "java {java}: hover taken by {:?}",
+            view.hovered
+        );
+        for down in [true, false] {
+            let press = dispatcher.button(
+                &render.hits,
+                &mut view,
+                json_ui::ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point: Some(center),
+                    mode: json_ui::InputMode::Mouse,
+                    now: 0.0,
+                },
+            );
+            assert!(
+                !press.consumed,
+                "java {java}: press consumed: {:?}",
+                press.events
+            );
+        }
+    }
 }
 
 fn named<'a>(nodes: &'a [DrawNode], name: &str) -> Vec<&'a DrawNode> {
@@ -192,7 +231,7 @@ fn dump(nodes: &[DrawNode]) {
                 node.dest.w,
                 node.dest.h,
                 node.alpha,
-                node.fades.len(),
+                node.anim.is_some(),
                 match &node.draw {
                     Draw::Text { text, .. } => format!("text {text:?}"),
                     Draw::Sprite { texture, .. } => texture.clone(),
@@ -254,11 +293,11 @@ fn vanilla_hud_draws_its_bound_surfaces() {
     let selected = named(&nodes, "hotbar_slot_selected_image");
     assert_eq!(selected.len(), 1);
     // Title and chat carry their fades.
-    assert!(
-        named(&nodes, "title")
-            .iter()
-            .all(|node| !node.fades.is_empty())
-    );
+    assert!(named(&nodes, "title").iter().all(|node| {
+        node.anim
+            .as_ref()
+            .is_some_and(|anim| !anim.alpha.is_empty())
+    }));
 }
 
 fn text_node<'a>(nodes: &'a [DrawNode], text: &str) -> &'a DrawNode {
@@ -279,6 +318,80 @@ fn custom<'a>(nodes: &'a [DrawNode], renderer: &str) -> Vec<&'a DrawNode> {
 
 fn at(node: &DrawNode) -> [f64; 2] {
     [node.dest.x, node.dest.y]
+}
+
+fn descendant<'a>(
+    control: &'a json_ui::ResolvedControl,
+    name: &str,
+) -> Option<&'a json_ui::ResolvedControl> {
+    if control.name == name {
+        return Some(control);
+    }
+    control
+        .children
+        .iter()
+        .find_map(|child| descendant(child, name))
+}
+
+#[test]
+fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
+    let mut item = model();
+    item.item_name = Some(Timed {
+        text: "Dirt".into(),
+        born: 0.0,
+    });
+    let mut bottoms = Vec::new();
+    for survival in [false, true] {
+        item.survival_ui = survival;
+        let Some(render) = render_full(&item, true) else {
+            return;
+        };
+        let name = text_node(&render.nodes, "Dirt");
+        let slots = custom(&render.nodes, "hotbar_renderer");
+        let first = slots.first().expect("hotbar start");
+        let last = slots.last().expect("hotbar end");
+        let hotbar_bottom = first.dest.y + first.dest.h;
+        let root = descendant(&render.bound, "item_name_text").expect("spawned item-name root");
+        let dy = root.properties["offset"][1]
+            .as_f64()
+            .expect("authored root offset");
+        assert!(dy < 0.0, "a zero-height factory cannot carry this offset");
+        let buffer = descendant(root, "survival_buffer").expect("native survival spacer");
+        let padding = if survival {
+            buffer.properties["size"][1].as_f64().unwrap()
+        } else {
+            0.0
+        };
+        let bottom = name.dest.y + name.dest.h;
+        // Read the authored offset and padding; do not duplicate HUD constants.
+        assert_eq!(bottom, hotbar_bottom + dy - padding);
+        assert_eq!(
+            name.dest.x + name.dest.w / 2.0,
+            (first.dest.x + last.dest.x + last.dest.w) / 2.0
+        );
+        assert!(
+            bottom < first.dest.y,
+            "item name overlaps hotbar: {:?}",
+            name.dest
+        );
+        if survival {
+            assert!(bottom < custom(&render.nodes, "heart_renderer")[0].dest.y);
+        }
+        assert!(
+            name.anim
+                .as_ref()
+                .is_some_and(|anim| !anim.alpha.is_empty())
+        );
+        assert!(!render.nodes.iter().any(|node| matches!(
+            &node.draw,
+            Draw::Sprite { texture, .. } if texture == "textures/ui/hud_tip_text_background"
+        )));
+        bottoms.push(bottom);
+    }
+    assert!(
+        bottoms[1] < bottoms[0],
+        "survival padding must raise the item name"
+    );
 }
 
 // Java Gui geometry on a 480x270 GUI-px screen (centre 240, bottom 270).
@@ -366,7 +479,7 @@ fn hud_phase_timing() {
         return;
     };
     let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
-    let files = java_pack();
+    let files = java_pack::files();
     catalog.apply_pack(
         files
             .iter()

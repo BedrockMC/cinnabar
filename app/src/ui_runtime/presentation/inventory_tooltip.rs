@@ -80,15 +80,21 @@ pub(super) fn tooltip_lines(
     stated_name: Option<&str>,
 ) -> Vec<TooltipLine> {
     let display = item_display(&stack.extra_data);
-    let name = stated_name
+    let mut name = stated_name
         .map(str::to_owned)
         .or_else(|| display.name.as_deref().map(str::to_owned))
         .or_else(|| identifier.map(|id| runtime.localized_item_name(id)))
         .unwrap_or_else(|| "Unknown Item".to_owned());
-    let color = identifier
+    let formatting = identifier
         .and_then(|id| runtime.item_components(id))
-        .and_then(crate::ui_runtime::item_facts::name_format)
-        .map_or(NAME_COLOR, |(_, [r, g, b])| [r, g, b, 255]);
+        .and_then(crate::ui_runtime::item_facts::name_format);
+    let color = formatting.map_or(NAME_COLOR, |(_, [r, g, b])| [r, g, b, 255]);
+    if let Some((code, _)) = formatting {
+        // Keep the item's already-resolved native format code, rather than
+        // reverse-mapping a duplicated component RGB palette in the UI bridge.
+        name.insert(0, code);
+        name.insert(0, '§');
+    }
     let mut lines = vec![TooltipLine { text: name, color }];
     for (id, level) in &display.enchantments {
         lines.push(TooltipLine {

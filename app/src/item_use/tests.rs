@@ -6,6 +6,50 @@ use sha2::{Digest, Sha256};
 use super::*;
 
 mod admission;
+mod crossbow;
+mod crossbow_presentation;
+
+fn crossbow_duration() -> u32 {
+    match classify("minecraft:crossbow", false, 0, None).unwrap() {
+        AirUse::Hold { max_ticks, .. } => max_ticks,
+        _ => panic!("an unloaded crossbow charges"),
+    }
+}
+
+#[test]
+fn native_bow_frames_are_not_the_pose_charge_curve() {
+    assert_eq!(ranged_animation_frame(None), 0);
+    for tick in 0..=8 {
+        assert_eq!(ranged_animation_frame(Some(tick)), 1);
+    }
+    for tick in 9..=14 {
+        assert_eq!(ranged_animation_frame(Some(tick)), 2);
+    }
+    for tick in 15..=30 {
+        assert_eq!(ranged_animation_frame(Some(tick)), 3);
+    }
+}
+
+#[test]
+fn native_crossbow_frames_follow_charge_duration_and_projectile() {
+    let duration = crossbow_duration();
+    assert_eq!(crossbow_animation_frame(None, duration, None, false), 0);
+    assert_eq!(crossbow_animation_frame(Some(0), duration, None, false), 0);
+    assert_eq!(
+        crossbow_animation_frame(Some(duration), duration, None, false),
+        4
+    );
+    assert_eq!(
+        crossbow_animation_frame(None, duration, Some("minecraft:arrow"), false),
+        4
+    );
+    assert_eq!(
+        crossbow_animation_frame(None, duration, Some("minecraft:firework_rocket"), false),
+        5
+    );
+    assert_eq!(crossbow_animation_frame(Some(23), duration, None, true), 5);
+    assert_eq!(crossbow_animation_frame(Some(14), 15, None, false), 4);
+}
 
 const BOW: i32 = 300;
 const SNOWBALL: i32 = 388;
@@ -42,6 +86,8 @@ fn frame(tick: u64, held: bool) -> UseFrame {
         air_use: classify("minecraft:bow", false, 0, None),
         ready: true,
         creative: false,
+        inventory_revision: Some(1),
+        charge_projectile: None,
         press_consumed: false,
     }
 }
@@ -254,6 +300,7 @@ fn bow_press_starts_a_use_and_button_up_releases_it() {
 fn a_depleted_crossbow_charge_ends_without_a_packet() {
     let crossbow = |tick| UseFrame {
         air_use: classify("minecraft:crossbow", false, 0, None),
+        charge_projectile: Some("minecraft:arrow"),
         ..frame(tick, true)
     };
     let mut runtime = ItemUseRuntime::default();
@@ -278,6 +325,112 @@ fn a_bow_without_arrows_sends_click_air_but_never_starts() {
     assert_eq!(kinds(&outcome), ["use"]);
     assert!(!outcome.started && !runtime.is_using());
     assert!(runtime.step(&frame(101, false)).packets.is_empty());
+}
+
+/// Server-owned lobby items still use `baseUseItem`, without a locally predicted hold.
+#[test]
+fn an_unpredicted_item_sends_click_air_once_per_press_with_its_verified_stack() {
+    for identifier in [
+        "minecraft:compass",
+        "minecraft:emerald",
+        "server:lobby_menu",
+    ] {
+        let mut runtime = ItemUseRuntime::default();
+        let use_frame = UseFrame {
+            air_use: classify(identifier, false, 0, None),
+            ready: false,
+            ..frame(100, true)
+        };
+        assert_eq!(use_frame.air_use, None);
+        runtime.observe_press(true);
+        let outcome = runtime.step(&use_frame);
+        assert_eq!(kinds(&outcome), ["use"], "{identifier}");
+        assert!(!outcome.started && !runtime.is_using());
+        assert_eq!(runtime.movement_modifier(), None);
+
+        let expected = protocol::click_air_packet(
+            held_request(use_frame.selection.as_ref().unwrap(), &use_frame),
+            None,
+        )
+        .unwrap();
+        let session = protocol::BedrockSession { shield_item_id: 0 };
+        assert_eq!(
+            protocol::encode(&outcome.packets[0], &session).unwrap(),
+            protocol::encode(&expected, &session).unwrap(),
+        );
+        for held in [true, false] {
+            assert!(
+                runtime
+                    .step(&UseFrame {
+                        tick: 101,
+                        held,
+                        ..use_frame.clone()
+                    })
+                    .packets
+                    .is_empty()
+            );
+        }
+        runtime.observe_press(true);
+        assert_eq!(
+            kinds(&runtime.step(&UseFrame {
+                now_millis: use_frame.now_millis + USE_REARM_MILLIS + 1,
+                ..use_frame
+            })),
+            ["use"]
+        );
+    }
+}
+
+#[test]
+fn unpredicted_item_use_rejects_consumed_unverified_and_empty_selections() {
+    let empty = protocol::NetworkItemStack::empty();
+    let empty_selection = FrozenMiningSelection {
+        slot: 2,
+        item: VerifiedNetworkItemStack::try_new(empty.clone(), empty.nbt_digest).unwrap(),
+    };
+    for rejected in [
+        UseFrame {
+            press_consumed: true,
+            ..frame(100, true)
+        },
+        UseFrame {
+            selection: None,
+            ..frame(100, true)
+        },
+        UseFrame {
+            selection: Some(empty_selection),
+            ..frame(100, true)
+        },
+    ] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        let outcome = runtime.step(&UseFrame {
+            air_use: None,
+            ..rejected
+        });
+        assert!(outcome.packets.is_empty() && !runtime.has_work(false));
+        assert!(!outcome.started && !runtime.is_using());
+    }
+}
+
+#[test]
+fn a_rejected_click_air_packet_does_not_start_a_predicted_use() {
+    for rejected in [
+        UseFrame {
+            selection: Some(selection(9, BOW)),
+            ..frame(100, true)
+        },
+        UseFrame {
+            position: [f32::NAN, 65.62, 0.5],
+            ..frame(100, true)
+        },
+    ] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        let outcome = runtime.step(&rejected);
+        assert!(outcome.packets.is_empty() && !runtime.has_work(false));
+        assert!(!outcome.started && !runtime.is_using());
+    }
 }
 
 /// Reselecting stops the use without a release; a consumed press starts nothing.

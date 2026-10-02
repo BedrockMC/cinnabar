@@ -300,7 +300,7 @@ impl PlayerInventoryLedger {
             if amount == 0 {
                 continue;
             }
-            if held.stack.stack_network_id <= 0 || self.awaiting_identity(held) {
+            if self.awaiting_identity(held) {
                 return Err(InventoryGestureError::AwaitingIdentity);
             }
             let id = held.stack.stack_network_id;

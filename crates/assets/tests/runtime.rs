@@ -10,6 +10,9 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "runtime/variations.rs"]
+mod variations;
+
 /// Complete synthetic identity for self-round-tripping fixtures. These bytes
 /// never match a real pinned source expectation.
 const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
@@ -20,8 +23,8 @@ const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
 };
 
 #[test]
-fn runtime_decodes_mcbeas07_tables() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS07");
+fn runtime_decodes_world_carrier_tables() {
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode world carrier");
     assert!(runtime.model_templates().is_empty());
     assert!(runtime.model_quads().is_empty());
     assert!(runtime.animations().is_empty());
@@ -96,11 +99,13 @@ fn compiled_assets() -> CompiledAssets {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
             Material {
                 texture: TextureRef::new(0, 1).unwrap(),
                 flags: MATERIAL_FLAG_FOLIAGE_TINT,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
         ]
         .into_boxed_slice(),
@@ -130,7 +135,7 @@ fn compiled_assets() -> CompiledAssets {
 
 #[test]
 fn runtime_light_properties_follow_visual_index_in_sequential_and_hash_modes() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode MCBEAS07");
+    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode world carrier");
     assert_eq!(
         runtime
             .resolve(NetworkIdMode::Sequential, 1)
@@ -380,7 +385,7 @@ fn compound_blob() -> Vec<u8> {
 
 #[test]
 fn runtime_decodes_checked_contributor_role_with_new_tables() {
-    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich MCBEAS07 fixture");
+    let runtime = RuntimeAssets::decode(&rich_blob()).expect("decode rich world carrier fixture");
     let block = runtime.resolve(NetworkIdMode::Sequential, 1);
     assert_eq!(
         block.contributor_role(),
@@ -529,8 +534,8 @@ fn decode_rejects_material_flags_outside_supported_mask() {
     let materials_offset = read_u64(&blob, MATERIALS_OFFSET_OFFSET) as usize;
     write_u32(
         &mut blob,
-        materials_offset + 16,
-        MATERIAL_FLAGS_MASK | 0x800,
+        materials_offset + assets::MATERIAL_BYTES + 4,
+        MATERIAL_FLAGS_MASK | (MATERIAL_FLAGS_MASK + 1),
     );
     reseal(&mut blob);
     assert_rejected(&blob, "material flags outside supported mask");
@@ -559,7 +564,11 @@ fn decode_rejects_non_monotonic_or_out_of_range_references() {
 
     let mut bad_material_layer = valid_blob();
     let materials_offset = read_u64(&bad_material_layer, MATERIALS_OFFSET_OFFSET) as usize;
-    write_u32(&mut bad_material_layer, materials_offset + 12, 2);
+    write_u32(
+        &mut bad_material_layer,
+        materials_offset + assets::MATERIAL_BYTES,
+        2,
+    );
     reseal(&mut bad_material_layer);
     assert_rejected(&bad_material_layer, "material layer out of range");
 }
@@ -619,7 +628,7 @@ fn decode_rejects_page_payload_hash_reserved_bits_and_noncanonical_ranges() {
     let materials_offset = read_u64(&bad_texture_reserved, MATERIALS_OFFSET_OFFSET) as usize;
     write_u32(
         &mut bad_texture_reserved,
-        materials_offset + 12,
+        materials_offset + assets::MATERIAL_BYTES,
         0x0010_0000,
     );
     reseal(&mut bad_texture_reserved);
@@ -725,7 +734,7 @@ fn decode_checks_and_round_trips_transparent_cube_template_semantics() {
     let quads = read_u64(&canonical, 224) as usize;
 
     let mut opaque = canonical.clone();
-    write_u32(&mut opaque, materials + 12 + 4, 0);
+    write_u32(&mut opaque, materials + assets::MATERIAL_BYTES + 4, 0);
     reseal(&mut opaque);
     assert_rejected(&opaque, "opaque transparent-cube material");
 
@@ -798,7 +807,7 @@ fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classe
     let mut cutout = canonical.clone();
     write_u32(
         &mut cutout,
-        materials + 12 + 4,
+        materials + assets::MATERIAL_BYTES + 4,
         assets::MATERIAL_FLAG_ALPHA_CUTOUT,
     );
     reseal(&mut cutout);
@@ -807,7 +816,7 @@ fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classe
     let mut both = canonical.clone();
     write_u32(
         &mut both,
-        materials + 12 + 4,
+        materials + assets::MATERIAL_BYTES + 4,
         assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
     );
     reseal(&mut both);
@@ -819,6 +828,7 @@ fn decode_accepts_homogeneous_copper_grate_cutout_and_rejects_mixed_alpha_classe
         texture: TextureRef::new(0, 0).unwrap(),
         flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     });
     mixed_compiled.materials = compiled_materials.into_boxed_slice();
     let mut mixed = encode_blob(&mixed_compiled)
@@ -1100,7 +1110,8 @@ fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
         Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
-            animation: NO_ANIMATION
+            animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }
     );
     assert_eq!(runtime.missing_count(), 10_001);
@@ -1109,7 +1120,8 @@ fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
         Material {
             texture: TextureRef::new(0, 1).unwrap(),
             flags: MATERIAL_FLAG_FOLIAGE_TINT,
-            animation: NO_ANIMATION
+            animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }
     );
     assert_eq!(runtime.missing_count(), 10_001);
@@ -1161,7 +1173,8 @@ fn programmatic_diagnostic_runtime_is_minimal_and_self_contained() {
         Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
-            animation: NO_ANIMATION
+            animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }
     );
     assert_eq!(runtime.texture_array().layers, 1);
@@ -1172,4 +1185,14 @@ fn programmatic_diagnostic_runtime_is_minimal_and_self_contained() {
         !runtime.resolve(NetworkIdMode::Hashed, 0).is_known(),
         "diagnostic fallback must not blur sequential and hashed namespaces"
     );
+}
+
+#[test]
+fn biome_water_opacity_round_trips_without_changing_other_flags() {
+    let mut compiled = compiled_assets();
+    compiled.biomes.rules[0].set_water_opacity(0.65).unwrap();
+    let runtime = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    let tints = runtime.biome_assets().resolve_live(&[]).unwrap();
+    assert_eq!(tints.records[1].water[3], 165.0 / 255.0);
+    assert_eq!(runtime.biome_assets().rules[0].flags & 1, 1);
 }

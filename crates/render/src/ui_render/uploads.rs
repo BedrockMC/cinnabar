@@ -98,18 +98,26 @@ mod tests {
     fn signed_zero_and_every_vertex_field_are_compared_by_bytes() {
         let vertex = UiRenderVertex {
             position: [0.0; 2],
-            uv: [0; 2],
+            clip_z: 0.0,
+            clip_w: 1.0,
+            uv: [0.0; 2],
             color: [0; 4],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         };
         let old = [vertex; 3];
-        for field in 0..4 {
+        for field in 0..8 {
             let mut new = old;
             match field {
                 0 => new[1].position[0] = -0.0,
-                1 => new[1].uv[1] = 1,
+                1 => new[1].uv[1] = 0.5,
                 2 => new[1].color[3] = 1,
-                _ => new[1].style_flags = 1,
+                3 => new[1].style_flags = 1,
+                4 => new[1].clip_z = 0.5,
+                5 => new[1].clip_w = 2.0,
+                6 => new[1].alpha_cutoff = 0.1,
+                _ => new[1].model_light = 0.718_629,
             }
             assert_eq!(changed_range(&old, &new, false), 1..2);
         }
@@ -136,9 +144,13 @@ mod tests {
     fn frame_cost_bench_ui_upload_spans_moving_nametags() {
         let vertex = UiRenderVertex {
             position: [0.0; 2],
-            uv: [0; 2],
+            clip_z: 0.0,
+            clip_w: 1.0,
+            uv: [0.0; 2],
             color: [255; 4],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         };
         let old = vec![vertex; 12_000];
         let mut new = old.clone();
@@ -163,9 +175,12 @@ mod tests {
         assert_eq!(vertex_span, 10_800..12_000);
         assert!(changed_range(&indices, &indices, false).is_empty());
         eprintln!(
-            "FRAME_COST ui_upload_spans: full_copy={:.3}ms span_scan_copy={:.3}ms bytes=312000->24000",
+            "FRAME_COST ui_upload_spans: full_copy={:.3}ms span_scan_copy={:.3}ms bytes={}->{}",
             full.as_secs_f64() * 1e3,
-            spans.as_secs_f64() * 1e3
+            spans.as_secs_f64() * 1e3,
+            old.len() * std::mem::size_of::<UiRenderVertex>()
+                + indices.len() * std::mem::size_of::<u32>(),
+            vertex_span.len() * std::mem::size_of::<UiRenderVertex>(),
         );
     }
 }

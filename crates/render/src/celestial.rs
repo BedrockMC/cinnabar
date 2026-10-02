@@ -6,7 +6,7 @@
 use std::f32::consts::{PI, TAU};
 
 /// Ticks in one Bedrock day.
-pub const DAY_TICKS: f64 = 24_000.0;
+pub const DAY_TICKS: f64 = mod_api::BEDROCK_DAY_TICKS as f64;
 
 /// Sky-light transfer at night: brightness-ramp level 4, i.e. 15 minus the 11-level night reduction.
 pub const NIGHT_SKY_TRANSFER: f32 = 0.083_333_336;
@@ -107,26 +107,6 @@ pub fn storm_tint(colour: [f32; 3], rain: f32, thunder: f32) -> [f32; 3] {
     colour
 }
 
-/// Underwater fog reach as a fraction of the profile end distance after `seconds` submerged.
-#[must_use]
-pub fn underwater_fog_fraction(seconds: f32) -> f32 {
-    const MIN_PERCENT: f32 = 0.25;
-    const MID: (f32, f32) = (5.0, 0.6);
-    const MAX: (f32, f32) = (30.0, 1.0);
-    let seconds = if seconds.is_finite() {
-        seconds.max(0.0)
-    } else {
-        0.0
-    };
-    if seconds <= MID.0 {
-        lerp(MIN_PERCENT, MID.1, seconds / MID.0)
-    } else if seconds < MAX.0 {
-        lerp(MID.1, MAX.1, (seconds - MID.0) / (MAX.0 - MID.0))
-    } else {
-        MAX.1
-    }
-}
-
 pub(crate) fn srgb_to_linear(value: f32) -> f32 {
     let value = value.clamp(0.0, 1.0);
     if value <= 0.040_45 {
@@ -182,7 +162,7 @@ mod tests {
     fn angle_is_zero_at_noon_and_half_at_midnight() {
         assert!(celestial_angle(6_000.0).abs() < 1.0e-6);
         assert!((celestial_angle(18_000.0) - 0.5).abs() < 1.0e-6);
-        assert!((celestial_angle(0.0) - celestial_angle(24_000.0)).abs() < 1.0e-6);
+        assert!((celestial_angle(0.0) - celestial_angle(DAY_TICKS)).abs() < 1.0e-6);
     }
 
     #[test]
@@ -287,14 +267,5 @@ mod tests {
         let rainy = storm_tint(colour, 1.0, 0.0);
         let stormy = storm_tint(colour, 1.0, 1.0);
         assert!(rainy[2] < colour[2] && stormy[2] < rainy[2]);
-    }
-
-    #[test]
-    fn underwater_fog_reach_grows_to_full_over_thirty_seconds() {
-        assert_eq!(underwater_fog_fraction(0.0), 0.25);
-        assert!((underwater_fog_fraction(5.0) - 0.6).abs() < 1.0e-6);
-        assert_eq!(underwater_fog_fraction(30.0), 1.0);
-        assert_eq!(underwater_fog_fraction(1.0e6), 1.0);
-        assert_eq!(underwater_fog_fraction(f32::NAN), 0.25);
     }
 }

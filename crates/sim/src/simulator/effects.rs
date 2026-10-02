@@ -11,12 +11,17 @@ pub struct MovementEffects {
     pub jump_boost: Option<i32>,
     pub levitation: Option<i32>,
     pub slow_falling: bool,
+    #[serde(default)]
+    pub weaving: bool,
 }
 
 impl MovementEffects {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.jump_boost.is_none() && self.levitation.is_none() && !self.slow_falling
+        self.jump_boost.is_none()
+            && self.levitation.is_none()
+            && !self.slow_falling
+            && !self.weaving
     }
 }
 
@@ -26,12 +31,14 @@ pub(super) fn apply_vertical(
     gravity: f64,
     gravity_multiplier: f64,
 ) {
+    let mut velocity = *velocity_y as f32;
     if let Some(amplifier) = effects.levitation {
-        let target = 0.05 * (f64::from(amplifier) + 1.0);
-        *velocity_y += (target - *velocity_y) * 0.2;
+        let target = 0.05_f32 * (amplifier as f32 + 1.0);
+        velocity += (target - velocity) * 0.2;
     } else {
-        *velocity_y = (*velocity_y - gravity) * gravity_multiplier;
+        velocity = (velocity - gravity as f32) * gravity_multiplier as f32;
     }
+    *velocity_y = f64::from(velocity);
 }
 
 #[cfg(test)]

@@ -131,19 +131,18 @@ impl UseOnIdentityEvidence {
     }
 
     fn note_inventory(&mut self, sequence: u64, event: &InventoryEvent) {
-        match event {
-            InventoryEvent::Slot(event) => self.note_stack(
+        for update in event.slot_updates() {
+            self.note_stack(
                 sequence,
-                &event.identity.container,
-                event.identity.slot,
-                &event.stack,
-            ),
-            InventoryEvent::Content(event) => {
-                for (slot, stack) in event.slots.iter().take(9).enumerate() {
-                    self.note_stack(sequence, &event.container, slot as u16, stack);
-                }
+                &update.identity.container,
+                update.identity.slot,
+                &update.stack,
+            );
+        }
+        if let InventoryEvent::Content(event) = event {
+            for (slot, stack) in event.slots.iter().take(9).enumerate() {
+                self.note_stack(sequence, &event.container, slot as u16, stack);
             }
-            _ => {}
         }
     }
 }

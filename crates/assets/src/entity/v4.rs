@@ -300,7 +300,7 @@ pub struct EntityAssetSummary {
 
 impl CompiledEntityAssets {
     pub fn validate(&self) -> Result<(), AssetError> {
-        validate_compiled(self)
+        validate_compiled(self).map(|_| ())
     }
 }
 
@@ -381,6 +381,21 @@ impl RuntimeEntityAssets {
     #[must_use]
     pub fn rig_bindings(&self) -> &[EntityRigBinding] {
         &self.rig_bindings
+    }
+
+    /// The unambiguous animated attachable rig with this authored identifier.
+    #[must_use]
+    pub fn attachable_rig_binding(&self, identifier: &str) -> Option<usize> {
+        let mut matches = self.rig_bindings.iter().enumerate().filter(|(_, rig)| {
+            self.symbols
+                .get(rig.entity_symbol as usize)
+                .is_some_and(|symbol| {
+                    symbol.kind == EntityAssetKind::Attachable
+                        && symbol.identifier.as_ref() == identifier
+                })
+        });
+        let (index, _) = matches.next()?;
+        matches.next().is_none().then_some(index)
     }
 
     #[must_use]

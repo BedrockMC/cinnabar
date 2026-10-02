@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    sync::Arc,
+    sync::{Arc, Mutex, Weak},
 };
 
 use crate::{
@@ -11,6 +11,7 @@ use crate::{
     collision_revision::{CollisionRevisionAllocator, process_collision_revisions},
 };
 
+mod collision_snapshot;
 mod helpers;
 mod level_chunk;
 use self::helpers::*;
@@ -71,9 +72,10 @@ impl PreparedSubChunkMutation {
 pub struct ChunkStore {
     chunks: HashMap<ChunkKey, Chunk>,
     loaded_chunks: BTreeSet<ChunkKey>,
-    authoritative_sub_chunks: BTreeSet<SubChunkKey>,
+    authoritative_sub_chunks: HashMap<ChunkKey, BTreeSet<i32>>,
     collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
+    collision_snapshot: Mutex<Weak<Self>>,
 }
 
 impl Default for ChunkStore {
@@ -81,9 +83,10 @@ impl Default for ChunkStore {
         Self {
             chunks: HashMap::new(),
             loaded_chunks: BTreeSet::new(),
-            authoritative_sub_chunks: BTreeSet::new(),
+            authoritative_sub_chunks: HashMap::new(),
             collision_revisions: HashMap::new(),
             collision_revision_allocator: process_collision_revisions(),
+            collision_snapshot: Mutex::default(),
         }
     }
 }
@@ -118,7 +121,11 @@ impl ChunkStore {
     /// responses that intentionally allocate no sparse palette storage.
     #[must_use]
     pub fn is_sub_chunk_loaded(&self, key: SubChunkKey) -> bool {
-        self.loaded_chunks.contains(&key.chunk()) || self.authoritative_sub_chunks.contains(&key)
+        self.loaded_chunks.contains(&key.chunk())
+            || self
+                .authoritative_sub_chunks
+                .get(&key.chunk())
+                .is_some_and(|ys| ys.contains(&key.y))
     }
 
     /// Returns the collision identity for a currently loaded column.
@@ -135,8 +142,7 @@ impl ChunkStore {
         }
         let revision = self.collision_revision_allocator.allocate()?;
         self.loaded_chunks.insert(key);
-        self.authoritative_sub_chunks
-            .retain(|sub_chunk| sub_chunk.chunk() != key);
+        self.authoritative_sub_chunks.remove(&key);
         self.set_collision_revision(key, revision);
         Ok(true)
     }
@@ -153,7 +159,10 @@ impl ChunkStore {
             return Ok(false);
         }
         let revision = self.collision_revision_allocator.allocate()?;
-        self.authoritative_sub_chunks.insert(key);
+        self.authoritative_sub_chunks
+            .entry(key.chunk())
+            .or_default()
+            .insert(key.y);
         self.set_collision_revision(key.chunk(), revision);
         Ok(true)
     }
@@ -214,10 +223,8 @@ impl ChunkStore {
             return Ok(None);
         }
         let revision = self.reserve_loaded_change(key)?;
-        self.chunks
-            .entry(key.chunk())
-            .or_default()
-            .sub_chunks
+        self.invalidate_collision_snapshot();
+        Arc::make_mut(&mut self.chunks.entry(key.chunk()).or_default().sub_chunks)
             .insert(key.y, Arc::new(decoded));
         self.apply_reserved_revision(key.chunk(), revision);
         Ok(Some(key))
@@ -431,17 +438,23 @@ impl ChunkStore {
             }
             match mutation.replacement {
                 Some(replacement) => {
-                    self.chunks
-                        .entry(mutation.key.chunk())
-                        .or_default()
-                        .sub_chunks
-                        .insert(mutation.key.y, Arc::new(replacement));
+                    Arc::make_mut(
+                        &mut self
+                            .chunks
+                            .entry(mutation.key.chunk())
+                            .or_default()
+                            .sub_chunks,
+                    )
+                    .insert(mutation.key.y, Arc::new(replacement));
                 }
                 None => {
                     self.remove_sub_chunk_without_revision(mutation.key);
                 }
             }
             changed.push(mutation.key);
+        }
+        if !changed.is_empty() {
+            self.invalidate_collision_snapshot();
         }
         for (chunk, revision) in revisions {
             self.set_collision_revision(chunk, revision);
@@ -452,16 +465,31 @@ impl ChunkStore {
     /// Removes a complete column and returns its stored sub-chunk keys sorted
     /// by Y. External `Arc<SubChunk>` snapshots remain valid.
     pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
-        self.loaded_chunks.remove(&key);
-        self.authoritative_sub_chunks
-            .retain(|sub_chunk| sub_chunk.chunk() != key);
-        self.collision_revisions.remove(&key);
-        self.chunks
-            .remove(&key)
-            .into_iter()
-            .flat_map(|chunk| chunk.sub_chunks.into_keys())
-            .map(|y| SubChunkKey::from_chunk(key, y))
-            .collect()
+        self.detach_chunks(&BTreeSet::from([key])).0
+    }
+
+    /// Removes column authority together and returns owned data for deferred destruction.
+    pub fn detach_chunks(&mut self, keys: &BTreeSet<ChunkKey>) -> (Vec<SubChunkKey>, Vec<Chunk>) {
+        let mut removed = Vec::new();
+        let mut retired = Vec::new();
+        if !keys.is_empty() {
+            self.invalidate_collision_snapshot();
+        }
+        for &key in keys {
+            self.authoritative_sub_chunks.remove(&key);
+            self.loaded_chunks.remove(&key);
+            self.collision_revisions.remove(&key);
+            if let Some(chunk) = self.chunks.remove(&key) {
+                removed.extend(
+                    chunk
+                        .sub_chunks
+                        .keys()
+                        .map(|&y| SubChunkKey::from_chunk(key, y)),
+                );
+                retired.push(chunk);
+            }
+        }
+        (removed, retired)
     }
 
     fn remove_sub_chunk(
@@ -482,9 +510,12 @@ impl ChunkStore {
     }
 
     fn remove_sub_chunk_without_revision(&mut self, key: SubChunkKey) -> Option<SubChunkKey> {
+        self.invalidate_collision_snapshot();
         let chunk_key = key.chunk();
         let chunk = self.chunks.get_mut(&chunk_key)?;
-        let removed = chunk.sub_chunks.remove(&key.y).is_some();
+        let removed = Arc::make_mut(&mut chunk.sub_chunks)
+            .remove(&key.y)
+            .is_some();
         if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
         {
             self.chunks.remove(&chunk_key);
@@ -508,6 +539,7 @@ impl ChunkStore {
     }
 
     fn set_collision_revision(&mut self, key: ChunkKey, revision: u64) {
+        self.invalidate_collision_snapshot();
         self.collision_revisions.insert(
             key,
             ChunkCollisionRevision {
@@ -747,7 +779,14 @@ impl ChunkStore {
             self.chunks.insert(
                 key,
                 Chunk {
-                    sub_chunks,
+                    sub_chunks: if collision_changed {
+                        Arc::new(sub_chunks)
+                    } else {
+                        old.map_or_else(
+                            || Arc::new(sub_chunks),
+                            |chunk| Arc::clone(&chunk.sub_chunks),
+                        )
+                    },
                     biomes,
                     block_entity_bytes: block_entities
                         .values()
@@ -759,8 +798,7 @@ impl ChunkStore {
         }
         if newly_loaded {
             self.loaded_chunks.insert(key);
-            self.authoritative_sub_chunks
-                .retain(|sub_chunk| sub_chunk.chunk() != key);
+            self.authoritative_sub_chunks.remove(&key);
         }
         self.apply_reserved_revision(key, revision);
         Ok(ApplyLevelChunk {

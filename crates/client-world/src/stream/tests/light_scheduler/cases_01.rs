@@ -844,7 +844,7 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
 }
 
 #[test]
-fn overworld_seeds_direct_sky_only_from_known_air_at_dimension_top() {
+fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
     let mut stream = lit_stream(0);
     let top = SubChunkKey::new(0, 0, 19, 0);
     stream.record_known_air(top);
@@ -1189,8 +1189,12 @@ fn light_worker_dispatch_is_capped_and_pending_work_progresses() {
     stream.accept_light_completion(completion);
     assert_eq!(stream.in_flight_light.len(), capacity - 1);
     assert_eq!(stream.pending_light.len(), 1);
-
-    assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 1);
+    // Result delivery can precede the worker guard's final drop.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while stream.dispatch_light_jobs([8.0; 3], usize::MAX) == 0 {
+        assert!(Instant::now() < deadline, "pending light work stalled");
+        std::thread::yield_now();
+    }
     assert_eq!(stream.in_flight_light.len(), capacity);
     assert!(stream.pending_light.is_empty());
 }

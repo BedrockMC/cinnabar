@@ -38,6 +38,55 @@ fn ledger_with_slot_zero() -> PlayerInventoryLedger {
     ledger
 }
 
+/// A refused batch retains every request; one successful retry admits them all exactly once.
+#[test]
+fn inventory_request_batch_retries_atomically() {
+    let mut runtime = UiRuntime::new(1);
+    *runtime.inventory_ledger_mut() = ledger_with_slot_zero();
+    let ledger = runtime.inventory_ledger_mut();
+    assert_eq!(ledger.begin_world_drop(0, Some(1)).unwrap(), -3);
+    assert_eq!(ledger.begin_world_drop(0, Some(1)).unwrap(), -5);
+    let mut attempts = Vec::new();
+    assert_eq!(
+        flush_inventory_send(&mut runtime, 10, |packet| {
+            attempts.push(
+                protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap(),
+            );
+            Err("full")
+        }),
+        Err("full")
+    );
+    assert!(
+        runtime
+            .inventory_ledger()
+            .queue
+            .iter()
+            .all(|request| request.state == InventoryPendingState::AwaitingTransport)
+    );
+    assert!(
+        flush_inventory_send(&mut runtime, 20, |packet| {
+            attempts.push(
+                protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap(),
+            );
+            Ok::<_, &str>(())
+        })
+        .unwrap()
+    );
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(attempts[0], attempts[1]);
+    let ledger = runtime.inventory_ledger();
+    assert!(
+        ledger
+            .queue
+            .iter()
+            .all(|request| request.state == InventoryPendingState::AwaitingResponse)
+    );
+    assert!(
+        !flush_inventory_send::<&str>(&mut runtime, 21, |_| panic!("batch was already sent"))
+            .unwrap()
+    );
+}
+
 fn personal_open(window_id: i32) -> ContainerOpenEvent {
     personal_open_with_actor(window_id, -1)
 }
@@ -76,11 +125,35 @@ fn correction(container: u8, slot: u8, count: u8, stack_network_id: i32) -> Stac
     }
 }
 
+fn accept_cursor_move(ledger: &mut PlayerInventoryLedger, request_id: i32, returning: bool) {
+    let (player, cursor) = if returning { (32, 0) } else { (0, 32) };
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id,
+            containers: Arc::from([
+                correction(
+                    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                    0,
+                    player,
+                    if player == 0 { -1 } else { 9 },
+                ),
+                correction(
+                    CONTAINER_NAME_CURSOR,
+                    0,
+                    cursor,
+                    if cursor == 0 { -1 } else { 9 },
+                ),
+            ]),
+        }]),
+    }));
+}
+
 #[test]
 fn personal_gesture_waits_for_open_admission_and_uses_empty_stack_id_zero() {
     let mut ledger = ledger_with_slot_zero();
     assert!(ledger.request_personal_open(42));
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     assert_eq!(
         ledger.begin_click(0),
         Err(InventoryGestureError::PersonalInventoryUnavailable)
@@ -110,7 +183,7 @@ fn open_queue_pressure_retains_one_control_and_admits_it_once() {
     assert!(ledger.request_personal_open(42));
     ledger.note_transport_pressure(10);
     ledger.note_transport_pressure(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     assert_eq!(
         ledger.begin_click(0),
         Err(InventoryGestureError::PersonalInventoryUnavailable)
@@ -245,7 +318,7 @@ fn personal_ack_retains_dynamic_window_identity_for_exact_close() {
 }
 
 #[test]
-fn none_type_client_ack_only_completes_an_admitted_personal_close() {
+fn client_ack_only_completes_an_admitted_personal_close_without_payload_correlation() {
     let close = |window_id, window_type, server_initiated| {
         InventoryEvent::Close(ContainerCloseEvent {
             container: ContainerIdentity::window(window_id),
@@ -261,18 +334,21 @@ fn none_type_client_ack_only_completes_an_admitted_personal_close() {
 
     ledger.request_personal_close();
     ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    ledger.apply(&close(2, PERSONAL_INVENTORY_WINDOW_TYPE, false));
     assert!(ledger.personal.is_some(), "a queued close is not admitted");
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(
+        ledger.pending_batch().unwrap().is_some(),
+        "even an exact-payload stale response cannot consume the unsent close"
+    );
 
     assert!(ledger.mark_transport_enqueued(20));
-    ledger.apply(&close(3, NO_CONTAINER_WINDOW_TYPE, false));
     ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, true));
     assert!(
         ledger.personal.is_some(),
         "unmatched close shapes stay isolated"
     );
 
-    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    ledger.apply(&close(3, GENERIC_STORAGE_WINDOW_TYPE, false));
     assert!(ledger.personal.is_none());
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(30));
@@ -302,8 +378,8 @@ fn personal_window_zero_and_non_sentinel_actor_complete_the_same_lifecycle() {
     ledger.request_personal_close();
     assert_eq!(
         ledger.pending_state(),
-        None,
-        "the unsent gesture rolls back"
+        Some(InventoryPendingState::AwaitingTransport),
+        "the close retains the take and its dependent cursor return"
     );
     let close = ledger.pending_closes.front().copied().unwrap();
     assert_eq!(
@@ -312,6 +388,9 @@ fn personal_window_zero_and_non_sentinel_actor_complete_the_same_lifecycle() {
     );
     assert!(matches!(close.owner, PendingCloseOwner::Personal(_)));
     assert!(ledger.mark_transport_enqueued(20));
+    accept_cursor_move(&mut ledger, -3, false);
+    accept_cursor_move(&mut ledger, -5, true);
+    assert!(ledger.mark_transport_enqueued(21));
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
         container: ContainerIdentity::window(0),
         window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
@@ -592,7 +671,7 @@ fn accepted_personal_response_reconciles_player_and_cursor_cells() {
 }
 
 #[test]
-fn admitted_local_close_ack_preserves_confirmed_cursor_for_the_next_window() {
+fn admitted_local_close_returns_confirmed_cursor_with_its_overlay() {
     let mut ledger = ledger_with_slot_zero();
     acknowledge_personal_open(&mut ledger, 2);
     let request_id = ledger.begin_click(0).unwrap();
@@ -626,36 +705,57 @@ fn admitted_local_close_ack_preserves_confirmed_cursor_for_the_next_window() {
     let overlay = ledger.cursor_overlay().cloned().unwrap();
 
     ledger.request_personal_close();
+    let returning = ledger.newest_request().unwrap().request_id;
+    assert!(
+        ledger.cursor_stack().is_none(),
+        "cursor return is predicted"
+    );
+    assert_eq!(ledger.displayed_stack(0).map(|s| s.count), Some(32));
+    assert_eq!(ledger.presented_slot_overlay(0), Some(&overlay));
     assert!(ledger.mark_transport_enqueued(30));
+    let mut destination = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 32, 9);
+    Arc::make_mut(&mut destination.slots)[0].durability_correction = 4;
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id: returning,
+            containers: Arc::from([destination, correction(CONTAINER_NAME_CURSOR, 0, 0, -1)]),
+        }]),
+    }));
+    assert!(ledger.mark_transport_enqueued(31));
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
         container: ContainerIdentity::window(2),
         window_type: NO_CONTAINER_WINDOW_TYPE,
         server_initiated: false,
     }));
-    assert_eq!(ledger.cursor_stack(), Some(&confirmed));
-    assert_eq!(ledger.cursor_overlay(), Some(&overlay));
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(0), Some(&confirmed));
+    assert_eq!(ledger.slot_overlay(0), Some(&overlay));
     assert!(!ledger.resync_required());
 
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(40));
     ledger.apply(&InventoryEvent::Open(personal_open(3)));
-    assert_eq!(ledger.begin_click(9).unwrap(), -5);
+    assert_eq!(ledger.begin_click(0).unwrap(), -7);
     let pending = ledger.newest_request().unwrap();
-    let StackRequestAction::Place {
+    let StackRequestAction::Take {
         source,
         destination,
         ..
     } = pending.actions[0]
     else {
-        panic!("expected Place action")
+        panic!("expected Take action")
     };
     assert_eq!(source.stack_network_id, 9);
     assert_eq!(destination.stack_network_id, 0);
-    assert_eq!(ledger.cursor_overlay(), Some(&overlay));
+    assert_eq!(
+        ledger.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
+        Some(&overlay)
+    );
 }
 
 #[test]
-fn admitted_mutation_remains_ambiguous_when_its_personal_window_closes() {
+fn admitted_mutation_and_cursor_return_settle_before_personal_close() {
     let mut ledger = ledger_with_slot_zero();
     acknowledge_personal_open(&mut ledger, 2);
     ledger.begin_click(0).unwrap();
@@ -671,19 +771,36 @@ fn admitted_mutation_remains_ambiguous_when_its_personal_window_closes() {
         server_initiated: false,
     }));
 
+    assert!(
+        matches!(ledger.personal, Some(PersonalWindow::Closing { .. })),
+        "unadmitted Close response cannot erase outstanding inputs"
+    );
+    accept_cursor_move(&mut ledger, -3, false);
+    accept_cursor_move(&mut ledger, -5, true);
+    assert!(ledger.mark_transport_enqueued(31));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(2),
+        window_type: NO_CONTAINER_WINDOW_TYPE,
+        server_initiated: false,
+    }));
     assert!(ledger.personal.is_none());
     assert_eq!(ledger.pending_state(), None);
     assert!(ledger.cursor_stack().is_none());
-    assert!(ledger.resync_required());
+    assert_eq!(ledger.displayed_stack(0).map(|s| s.count), Some(32));
+    assert!(!ledger.resync_required());
 }
 
 #[test]
-fn unsent_personal_mutation_is_dropped_on_close_but_admitted_one_reconciles() {
+fn unsent_and_admitted_cursor_mutations_are_retained_for_close_cleanup() {
     let mut unsent = ledger_with_slot_zero();
     acknowledge_personal_open(&mut unsent, 2);
     unsent.begin_click(0).unwrap();
     unsent.request_personal_close();
-    assert_eq!(unsent.pending_state(), None);
+    assert_eq!(
+        unsent.pending_state(),
+        Some(InventoryPendingState::AwaitingTransport)
+    );
+    assert_eq!(unsent.pending_request_count(), 2);
     assert_eq!(unsent.displayed_stack(0).map(|stack| stack.count), Some(32));
     assert_eq!(unsent.cursor_stack(), None);
 
@@ -696,6 +813,7 @@ fn unsent_personal_mutation_is_dropped_on_close_but_admitted_one_reconciles() {
         admitted.pending_state(),
         Some(InventoryPendingState::AwaitingResponse)
     );
+    assert_eq!(admitted.pending_request_count(), 2);
 }
 
 #[test]
@@ -732,7 +850,10 @@ fn close_ack_clears_unrestated_cursor_and_session_reset_drops_all_personal_work(
         responses: Arc::from([StackResponse {
             status: StackResponseStatus::Accepted,
             request_id,
-            containers: Arc::from([]),
+            containers: Arc::from([
+                correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+                correction(CONTAINER_NAME_CURSOR, 0, 32, 10),
+            ]),
         }]),
     }));
     assert!(ledger.cursor_stack().is_some());

@@ -9,7 +9,7 @@ use resource_pack::LayeredPackView;
 mod collect;
 use collect::collect_files;
 
-use super::resource_packs::{StackFingerprint, parse_pack_json, stack_fingerprint};
+use super::resource_packs::{StackFingerprint, parse_pack_json};
 
 /// The pack's entity catalog with the artwork of its eligible rigs.
 #[derive(Debug)]
@@ -36,27 +36,38 @@ pub(crate) fn set_vanilla_refs(refs: assets::VanillaEntityRefs) {
     let _ = VANILLA_REFS.set(refs);
 }
 
-type CachedEntities = (StackFingerprint, Option<Arc<SessionEntityPack>>);
+type CachedEntities = (
+    StackFingerprint,
+    Option<Arc<SessionEntityPack>>,
+    Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
+);
 
 /// The previous session's compile, reused when the same pack stack rejoins.
 static ENTITY_CACHE: std::sync::Mutex<Option<CachedEntities>> = std::sync::Mutex::new(None);
 
 /// Compiles the stack's entity files; `None` when it defines no usable entity.
 pub(super) fn compile_session_entities(
-    stack: &resource_pack::ValidatedPackStack,
+    fingerprint: &StackFingerprint,
     view: &LayeredPackView,
 ) -> Option<Arc<SessionEntityPack>> {
-    let fingerprint = stack_fingerprint(stack);
     let mut cache = ENTITY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
-    if let Some((cached, pack)) = cache.as_ref()
-        && *cached == fingerprint
+    if let Some((cached, pack, inputs)) = cache.as_ref()
+        && cached == fingerprint
+        && (view.dependencies().is_none() || inputs.is_some())
     {
+        if let (Some(dependencies), Some(inputs)) = (view.dependencies(), inputs) {
+            dependencies.extend(inputs.clone());
+        }
         return pack.clone();
     }
     let pack = compile(view);
-    *cache = Some((fingerprint, pack.clone()));
+    *cache = Some((
+        fingerprint.clone(),
+        pack.clone(),
+        view.dependencies().map(|inputs| inputs.snapshot()),
+    ));
     pack
 }
 
@@ -211,7 +222,7 @@ mod equipment_report;
 #[cfg(test)]
 mod render_report;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod lobby_bench;
 
 #[cfg(test)]

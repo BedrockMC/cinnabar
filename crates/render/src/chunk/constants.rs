@@ -9,8 +9,6 @@ pub(super) const MODEL_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("2cd46297-17aa-4c18-bfb1-83373bf39475");
 pub(super) const LIQUID_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("52e731aa-0a4d-4b07-9d66-80eb7688398f");
-pub(super) const LIGHTING_SHADER_HANDLE: Handle<Shader> =
-    uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
 pub(super) const BIOME_TINT_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("ee40bfe6-1bd1-4aa6-bf15-e3185dfac253");
 pub(super) const STATIC_QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];

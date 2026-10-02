@@ -17,7 +17,9 @@ use crate::local_player::{
 use crate::melee::produce_melee;
 use crate::menu::recover_menu_session_failure;
 use crate::movement::advance_local_physics;
-use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
+use crate::runtime::network::{
+    prepare_actor_render_frame, publish_actor_render_frame, receive_network_events,
+};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
 use crate::runtime::publication::{
     PublicationController, PublicationFrameWork, adaptive_publication_diagnostic_line,
@@ -32,11 +34,11 @@ use crate::semantic_controls::{
     synchronize_semantic_input_authority,
 };
 use crate::survival_mining::produce_survival_mining;
-use crate::ui_runtime::presentation::publish_ui_runtime;
+use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
 use client_world::{PublicationServiceConfig, WorldMeshChange};
 
 #[test]
-fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
+fn production_client_systems_are_members_of_the_behavioral_sets() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
@@ -55,9 +57,11 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
         ClientFrameSet::Camera,
         ClientFrameSet::Interaction,
         ClientFrameSet::WorldPublication,
+        ClientFrameSet::ActorPreparation,
+        ClientFrameSet::UiPreparation,
+        ClientFrameSet::NetworkSend,
         ClientFrameSet::ActorPublication,
         ClientFrameSet::UiPublication,
-        ClientFrameSet::NetworkSend,
     ];
 
     for adjacent in stages.windows(2) {
@@ -125,6 +129,18 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
         drive_world_stream,
         "drive_world_stream",
         ClientFrameSet::WorldPublication,
+    );
+    assert_system_in_stage(
+        graph,
+        prepare_actor_render_frame,
+        "prepare_actor_render_frame",
+        ClientFrameSet::ActorPreparation,
+    );
+    assert_system_in_stage(
+        graph,
+        prepare_ui_runtime,
+        "prepare_ui_runtime",
+        ClientFrameSet::UiPreparation,
     );
     assert_system_in_stage(
         graph,
@@ -434,6 +450,7 @@ fn drive_unified_publication_fixture(
         fixture.ingestion_frames = frame_number;
     }
 
+    fixture.stream.service_publication_fixture_completions();
     let poll = fixture
         .stream
         .poll([1_048.0, 64.0, 1_048.0], budget.max_per_frame);
@@ -443,6 +460,7 @@ fn drive_unified_publication_fixture(
     while let Some(change) = fixture.stream.pop_mesh_change() {
         match change {
             client_world::WorldMeshChange::Upsert {
+                output_permit: _,
                 key,
                 mesh,
                 biome,
@@ -709,7 +727,32 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
 
     let presented = presented_gate.drain();
     assert_eq!(presented.len(), 2);
-    assert!(presented[0].is_exact());
+    let pipeline_errors: Vec<_> = app
+        .sub_app(bevy::render::RenderApp)
+        .world()
+        .resource::<bevy::render::render_resource::PipelineCache>()
+        .pipelines()
+        .filter_map(|pipeline| match &pipeline.state {
+            bevy::render::render_resource::CachedPipelineState::Err(error) => {
+                Some(error.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(pipeline_errors.is_empty(), "{pipeline_errors:?}");
+    assert!(
+        presented[0].is_exact(),
+        "allocations={}, visible={}, drawn={}, missing={}, unexpected={}, source={}, foreign={}, stale={}, orphans={}",
+        presented[0].allocation_manifest.len(),
+        presented[0].visible_allocation_manifest.len(),
+        presented[0].drawn_manifest.len(),
+        presented[0].missing_target_instances,
+        presented[0].unexpected_target_instances,
+        presented[0].source_instances,
+        presented[0].foreign_instances,
+        presented[0].stale_generation_instances,
+        presented[0].orphan_allocations,
+    );
     assert!(presented[0].forms_stable_exact_pair_with(&presented[1]));
 }
 

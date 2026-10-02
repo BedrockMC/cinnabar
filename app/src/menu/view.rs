@@ -273,6 +273,8 @@ pub(crate) struct MenuFriendCard {
 #[derive(Clone, Debug)]
 pub(crate) struct MenuView {
     pub(crate) visible: bool,
+    /// The menu opened over the session's world rather than the launcher's.
+    pub(crate) over_world: bool,
     pub(crate) screen: MenuScreen,
     pub(crate) focused_action: Option<MenuAction>,
     pub(crate) hovered: Option<MenuAction>,
@@ -282,8 +284,12 @@ pub(crate) struct MenuView {
     pub(crate) field: Option<MenuField>,
     pub(crate) name: String,
     pub(crate) address: String,
+    pub(crate) port: String,
     pub(crate) message: Option<String>,
-    pub(crate) gui_scale: u8,
+    pub(crate) gui_scale_offset: i8,
+    pub(crate) gui_scale_choices: Vec<i8>,
+    pub(crate) fullscreen: bool,
+    pub(crate) render_mode: ui::RenderMode,
     pub(crate) display_name: String,
     pub(crate) servers: Vec<SavedServer>,
     pub(crate) featured: Vec<MenuServerCard>,
@@ -301,6 +307,7 @@ pub(crate) struct MenuView {
     pub(crate) auth_state: AuthState,
     pub(crate) connecting: bool,
     pub(crate) settings_section: u8,
+    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub(crate) disconnect_message: Option<String>,
     /// The saved server the add screen is editing.
@@ -308,7 +315,12 @@ pub(crate) struct MenuView {
     pub(crate) local_worlds: Vec<LocalWorldCard>,
     /// The local-world create, edit and template screens and their modals.
     pub(crate) local: crate::local_worlds::WorldsView,
-    pub(crate) volumes: super::settings_values::Volumes,
+    pub(crate) settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
+    pub(crate) storage: std::sync::Arc<super::settings_storage::StorageView>,
+    pub(crate) settings_dropdown: Option<u16>,
+    pub(crate) key_remap: Option<u16>,
+    pub(crate) settings_advanced_graphics: bool,
+    pub(crate) language_choices: std::sync::Arc<[(String, String)]>,
     pub(crate) feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub(crate) store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,

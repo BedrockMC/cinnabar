@@ -57,6 +57,7 @@ fn layout(text: &str, style: TextStyle, font: &CompiledFontCatalog) -> Arc<TextL
             baseline_64: 0,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .unwrap()
 }
@@ -169,8 +170,11 @@ fn obfuscation_swaps_a_same_width_raster_and_animates_across_frames() {
         );
         // The scrambled cell keeps its two-texel width whichever raster is picked.
         let width = dl.vertices[1].uv[0] - dl.vertices[0].uv[0];
-        assert_eq!(width, 2, "swap must preserve the cell width");
-        seen.insert((dl.batches[0].texture_page, dl.vertices[0].uv));
+        assert_eq!(width, 2.0, "swap must preserve the cell width");
+        seen.insert((
+            dl.batches[0].texture_page,
+            dl.vertices[0].uv.map(f32::to_bits),
+        ));
     }
     assert!(seen.len() > 1, "obfuscation must animate across frames");
 
@@ -203,7 +207,7 @@ fn obfuscation_swaps_a_same_width_raster_and_animates_across_frames() {
     // Without a pool the obfuscated glyph renders itself unchanged.
     let plain = draw_with(Arc::clone(&text), TextEffects::default());
     assert_eq!(plain.vertices.len(), 4);
-    assert_eq!(plain.vertices[0].uv, [0, 0]);
+    assert_eq!(plain.vertices[0].uv, [0.0, 0.0]);
 }
 
 // Rotated text turns each glyph quad about the node's centre.

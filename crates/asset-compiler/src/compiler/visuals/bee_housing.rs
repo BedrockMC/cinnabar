@@ -164,6 +164,7 @@ pub(in crate::compiler) fn bee_housing_material_descriptors(
         }
         descriptors.push((
             Descriptor {
+                state_variant: 0,
                 path: path.into(),
                 texture_key: key.into(),
                 flags: 0,

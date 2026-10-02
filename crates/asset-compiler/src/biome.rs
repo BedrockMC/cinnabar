@@ -62,6 +62,7 @@ struct ColourAppearance {
 #[derive(Deserialize)]
 struct WaterAppearance {
     surface_color: Option<Value>,
+    surface_opacity: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -156,7 +157,7 @@ pub fn compile_biome_assets(
         } else {
             0
         };
-        rules.push(BiomeRule {
+        let mut rule = BiomeRule {
             id: record.id,
             name: record.name.clone(),
             flags,
@@ -166,7 +167,15 @@ pub fn compile_biome_assets(
             water,
             temperature_bits: climate.temperature.to_bits(),
             downfall_bits: climate.downfall.to_bits(),
-        });
+        };
+        if let Some(opacity) = appearance
+            .water
+            .as_ref()
+            .and_then(|water| water.surface_opacity)
+        {
+            rule.set_water_opacity(opacity)?;
+        }
+        rules.push(rule);
     }
     Ok(CompiledBiomeAssets {
         tint_maps_rgb8,

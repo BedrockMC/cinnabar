@@ -1,11 +1,5 @@
 use super::*;
-use crate::chunk::{
-    gpu::upload::{
-        PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR, PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR,
-        packed_light_factor,
-    },
-    transparent::retirement::transparent_view_key_satisfies_witness,
-};
+use crate::chunk::transparent::retirement::transparent_view_key_satisfies_witness;
 
 fn sort_candidate(
     key: SubChunkKey,
@@ -1086,33 +1080,14 @@ fn transparent_completion_fence_is_bounded_and_stale_callbacks_cannot_regress() 
 }
 
 #[test]
-fn daylight_changes_only_sky_light_without_rebaking() {
-    let block_only = 0x000f;
-    let sky_only = 0x00f0;
-    assert_eq!(
-        packed_light_factor(0, 0.0),
-        PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR,
-        "light level zero retains the named vanilla-like ambient visibility floor"
-    );
-    assert!(
-        packed_light_factor(0x0001, 0.0) > packed_light_factor(0, 0.0),
-        "the ambient floor must not flatten the first emitted-light step"
-    );
-    assert_eq!(
-        packed_light_factor(block_only, 0.0),
-        packed_light_factor(block_only, 1.0),
-        "daylight transfer must never alter independent block light"
-    );
-    assert_eq!(
-        packed_light_factor(sky_only, 0.0),
-        PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR
-            + (1.0 - PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR) * PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR,
-        "true-night skylight retains its transfer before the independent ambient remap"
-    );
-    assert_eq!(
-        packed_light_factor(sky_only, 1.0),
-        1.0,
-        "the ambient remap must preserve full daylight exactly"
-    );
-    assert!(packed_light_factor(0x03f0, 1.0) < packed_light_factor(sky_only, 1.0));
+fn daylight_changes_shared_table_without_rebaking() {
+    let day = crate::LightmapInputs::default().build();
+    let night = crate::LightmapInputs {
+        sky_darken: 0.0,
+        ..Default::default()
+    }
+    .build();
+    assert_eq!(day[15], night[15]);
+    assert_eq!(day[240], [1.0; 4]);
+    assert_eq!(night[240], [0.0175, 0.0175, 0.05, 1.0]);
 }

@@ -11,15 +11,20 @@ use bytemuck::{Pod, Zeroable};
 mod artwork;
 #[path = "actor/asset_geometry.rs"]
 mod asset_geometry;
+#[path = "actor/texture_mesh.rs"]
+mod texture_mesh;
+pub use texture_mesh::attachable_geometry;
 #[path = "actor/geometry.rs"]
 mod geometry;
+#[path = "actor/skin_poly_mesh.rs"]
+mod skin_poly_mesh;
 pub use artwork::{
     ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
 #[cfg(test)]
 pub(crate) use geometry::ONE_SIDED_BACK_UV;
-pub use item_mesh::{held_sprite_vertices, textured_cube_vertices};
+pub use item_mesh::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
 #[path = "actor/item_mesh.rs"]
@@ -58,7 +63,10 @@ pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
 /// Vanilla gathers non-player render candidates no farther than this from the camera on any
 /// axis (`LevelRendererCamera::queueRenderEntities`, `min(radius, 72)`); players are added apart.
 pub const ACTOR_CANDIDATE_RADIUS_BLOCKS: f32 = 72.0;
-pub const STANDARD_SKIN_SIDE: usize = 64;
+/// Classic skin UV layouts use this many texels per side regardless of image resolution.
+const CLASSIC_SKIN_SIDE: usize = client_world::CLASSIC_SKIN_SIDE;
+/// The shared player array preserves every texel of every admitted skin resolution.
+pub const STANDARD_SKIN_SIDE: usize = client_world::MAX_STANDARD_SKIN_SIDE as usize;
 pub const STANDARD_SKIN_BYTES: usize = STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE * 4;
 pub const STANDARD_BIPED_VERTEX_COUNT: usize = 6 * 6 * 6;
 pub const DEFAULT_SKIN_PROVENANCE: &str = "locally generated Cinnabar Default skin";
@@ -137,6 +145,12 @@ impl ActorRenderFrame {
     #[must_use]
     pub fn instance_pages(&self) -> &[u8] {
         &self.instance_pages
+    }
+
+    /// Artwork sampled by this exact published frame, including transient skin animation pages.
+    #[must_use]
+    pub fn artwork_pages(&self) -> &ActorArtworkPages {
+        &self.artwork
     }
 }
 
@@ -280,6 +294,27 @@ impl ActorRenderScene {
         Ok(())
     }
 
+    /// Publishes both session ranges once, keeping each range's existing failure behavior.
+    pub fn replace_session_pack_geometries(
+        &mut self,
+        assets: Option<&assets::RuntimeEntityAssets>,
+        equipment: Vec<ActorRigGeometry>,
+    ) -> (
+        Result<(), ActorRigGeometryError>,
+        Result<(), ActorRigGeometryError>,
+    ) {
+        let geometries = assets
+            .map(asset_geometry::pack_geometries)
+            .unwrap_or_default();
+        let results = self
+            .rig_builder
+            .replace_session_pack_geometries(geometries, equipment);
+        if results.0.is_ok() {
+            self.frame = ActorRenderFrame::default();
+        }
+        results
+    }
+
     pub fn reset(&mut self) {
         self.frame.instance_pages = Arc::from([]);
         if !self.frame.instances.is_empty() {
@@ -380,6 +415,7 @@ impl ActorRenderScene {
             let yaw = wrap_degrees(pose.yaw_degrees).to_radians();
             let (sine, cosine) = yaw.sin_cos();
             rig_submissions.push(ActorRigSubmission {
+                culling_bounds: Default::default(),
                 input: ActorRigRenderInput {
                     identity: ActorRenderIdentity {
                         session_id: 0,
@@ -522,7 +558,9 @@ impl ActorRenderScene {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from(compatibility_instances);
         }
-        if self.frame.skins_rgba8 != skins_rgba8 {
+        if !Arc::ptr_eq(&self.frame.skins_rgba8, &skins_rgba8)
+            && self.frame.skins_rgba8 != skins_rgba8
+        {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             self.frame.skins_rgba8 = skins_rgba8;
         }
@@ -611,9 +649,14 @@ pub const DEFAULT_PLAYER_SKIN_PATH: &str = "textures/entity/steve.png";
 
 static VANILLA_DEFAULT_SKIN: OnceLock<Arc<[u8]>> = OnceLock::new();
 
-/// Installs the vanilla default skin once; a later call or a non-standard raster is ignored.
+/// Installs the classic vanilla default texture once, packing it for the player array.
 pub fn install_default_player_skin(skin: Arc<[u8]>) {
-    if skin.len() == STANDARD_SKIN_BYTES {
+    let side = CLASSIC_SKIN_SIDE as u32;
+    if let Some(skin) = normalize_actor_skin(&ActorSkinPixels {
+        width: side,
+        height: side,
+        rgba8: skin,
+    }) {
         let _ = VANILLA_DEFAULT_SKIN.set(skin);
     }
 }
@@ -631,8 +674,10 @@ pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
 
 #[must_use]
 pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
-    if !matches!(skin.width, 64 | 128 | 256)
-        || (skin.height != skin.width && skin.height * 2 != skin.width)
+    if !skin.width.is_power_of_two()
+        || skin.width < CLASSIC_SKIN_SIDE as u32
+        || skin.width > client_world::MAX_STANDARD_SKIN_SIDE
+        || (skin.height != skin.width && skin.height.checked_mul(2) != Some(skin.width))
     {
         return None;
     }
@@ -645,7 +690,7 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
         return normalize_actor_skin(&ActorSkinPixels {
             width: skin.width,
             height: skin.width,
-            rgba8: legacy_skin_to_square(&skin.rgba8, side).into(),
+            rgba8: client_world::expand_legacy_skin_rgba8(&skin.rgba8, side).into(),
         });
     }
     if side == STANDARD_SKIN_SIDE {
@@ -697,43 +742,6 @@ pub fn normalize_actor_skin_cached(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> 
     normalized
 }
 
-/// Expands a legacy half-height skin to the square layout: the left limbs are the right limbs
-/// with every face mirrored, as the legacy geometry draws them.
-fn legacy_skin_to_square(rgba8: &[u8], side: usize) -> Vec<u8> {
-    let scale = side / STANDARD_SKIN_SIDE;
-    let mut square = vec![0; side * side * 4];
-    square[..rgba8.len()].copy_from_slice(rgba8);
-    // (source x, source y, dest offset x, dest offset y, width, height) in 64-unit texels.
-    const LIMB_FACES: [(usize, usize, isize, usize, usize, usize); 12] = [
-        (4, 16, 16, 32, 4, 4),
-        (8, 16, 16, 32, 4, 4),
-        (0, 20, 24, 32, 4, 12),
-        (4, 20, 16, 32, 4, 12),
-        (8, 20, 8, 32, 4, 12),
-        (12, 20, 16, 32, 4, 12),
-        (44, 16, -8, 32, 4, 4),
-        (48, 16, -8, 32, 4, 4),
-        (40, 20, 0, 32, 4, 12),
-        (44, 20, -8, 32, 4, 12),
-        (48, 20, -16, 32, 4, 12),
-        (52, 20, -8, 32, 4, 12),
-    ];
-    for (x, y, dx, dy, width, height) in LIMB_FACES {
-        let (x, y, width, height) = (x * scale, y * scale, width * scale, height * scale);
-        let target_x = (x as isize + dx * scale as isize) as usize;
-        let target_y = y + dy * scale;
-        for row in 0..height {
-            for column in 0..width {
-                let source = ((y + row) * side + x + column) * 4;
-                let target = ((target_y + row) * side + target_x + width - 1 - column) * 4;
-                let pixel: [u8; 4] = rgba8[source..source + 4].try_into().expect("four bytes");
-                square[target..target + 4].copy_from_slice(&pixel);
-            }
-        }
-    }
-    square
-}
-
 fn generated_default_skin() -> Vec<u8> {
     let skin_tone = [198, 134, 91, 255];
     let mut rgba8 = skin_tone.repeat(STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE);
@@ -758,8 +766,9 @@ fn generated_default_skin() -> Vec<u8> {
 }
 
 fn fill_rect(rgba8: &mut [u8], x: usize, y: usize, width: usize, height: usize, color: [u8; 4]) {
-    for py in y..y + height {
-        for px in x..x + width {
+    let scale = STANDARD_SKIN_SIDE / CLASSIC_SKIN_SIDE;
+    for py in y * scale..(y + height) * scale {
+        for px in x * scale..(x + width) * scale {
             let offset = (py * STANDARD_SKIN_SIDE + px) * 4;
             rgba8[offset..offset + 4].copy_from_slice(&color);
         }

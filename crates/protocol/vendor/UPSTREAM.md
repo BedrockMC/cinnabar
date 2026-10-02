@@ -38,6 +38,10 @@ conditional. The normalization input fingerprints include this patch.
 Jolyne's client ends a join-time Disconnect with `ProtocolError::ServerDisconnect`,
 keeping the server's reason and message texts for the disconnect screen.
 
+Jolyne hands off required resource packs instead of refusing them: either
+required bit makes stack selection strict and is carried as
+`ResourcePackHandoff::required`, so the client refuses a join it cannot fully apply.
+
 The self-signed login's client data reports `DeviceOS` 8 (Win32, the GDK Windows client) with a
 lowercase-hex `DeviceId` instead of upstream's Win10 and UUID; BDS 1.26.52 closes logins claiming Win10.
 
@@ -66,6 +70,16 @@ varint in raw header decoding (resolution still goes through the generated
 codec, whose normalized source stays hash-locked). The shared codec includes a
 fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
 encoding as two little-endian `u64` halves.
+
+The shared codec inlines its per-item capacity check and keeps rare capacity
+growth out of line. Collection storage still grows fallibly, with the same
+allocation limits and errors; generated codecs are unchanged.
+
+Jolyne's StartGame handoff also retains the first decoded `ItemRegistry` and its
+shield ID. This matches the one-time initialization guard in the native
+1.26.50 `ItemRegistry::matchServerItemIds` at RVA `0x03984630`; later empty or
+custom-only packets must not replace the startup table. The Cinnabar play
+ingress wire-decodes these repeats but does not publish replacement events.
 
 The generated protocol crate is lowered from protocolgen's reconciled 1.26.51
 manifest (protocol 2193), which pins Mojang's `v1.26.51` metadata release and

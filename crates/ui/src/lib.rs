@@ -18,15 +18,19 @@ pub use chat::{
     ChatStore, ChatViewNode, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_HISTORY,
     MAX_CHAT_INPUT_BYTES, MAX_CHAT_MESSAGES, MAX_CHAT_RETAINED_BYTES, MAX_PENDING_CHAT_SENDS,
 };
-pub use geometry::{DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale, gui_scale};
+pub use geometry::{
+    DesktopGuiScale, DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale, gui_scale,
+};
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
     MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
     TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
 };
 pub use model::{
-    FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_GLINT, UiBlendMode, UiDrawBatch,
-    UiDrawList, UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_BILINEAR, UI_STYLE_GLINT,
+    UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList, UiError, UiFrame, UiMesh,
+    UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    UiWorldProjection,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
@@ -36,10 +40,14 @@ pub use scoreboard::{
     ScoreOwner, ScoreRenderType, ScoreRow, ScoreSortOrder, ScoreboardDiagnostics, ScoreboardEvent,
     ScoreboardProjection, ScoreboardStore,
 };
-pub use settings::{CURRENT_SETTINGS_SCHEMA, GameplaySettings, UserSettings, VideoSettings};
+pub use settings::{
+    CURRENT_SETTINGS_SCHEMA, DEFAULT_OUTLINE_SELECTION, GameplaySettings, RenderMode, UserSettings,
+    VideoSettings,
+};
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, GlyphQuad,
     MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, ObfuscationGlyphs, TEXT_BASELINE_64,
     TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextError, TextLayout, TextLayoutCache,
-    TextLayoutKey, TextLayoutRequest, TextSpan, TextSpans, TextStyle, parse_bedrock_text,
+    TextLayoutKey, TextLayoutRequest, TextLineAlign, TextSpan, TextSpans, TextStyle, TextWrap,
+    WordChop, parse_bedrock_text,
 };

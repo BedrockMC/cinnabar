@@ -1,9 +1,13 @@
+#import cinnabar::material::{MaterialGpu, materials, positional_material}
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
+#ifdef ENHANCED
+#import cinnabar::enhanced_common::CLASS_WATER
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position}
+#endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
-struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
@@ -47,7 +51,6 @@ const LIQUID_DEPTH_WRITE_BIT: u32 = 1u << 31u;
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
@@ -65,12 +68,18 @@ struct VertexOutput {
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) @interpolate(flat) next_texture: u32,
     @location(3) @interpolate(flat) frame_blend: f32,
-    @location(4) @interpolate(flat) water_tint: vec3<f32>,
-    @location(5) block_light: f32,
+    @location(4) @interpolate(flat) water_tint: vec4<f32>,
+    @location(5) lighting: vec3<f32>,
+#ifdef ENHANCED
     @location(6) sky_light: f32,
     @location(7) ambient_occlusion: f32,
+#endif
     @location(8) @interpolate(flat) depth_write_route: u32,
     @location(9) world_position: vec3<f32>,
+#ifdef ENHANCED
+    @location(10) normal: vec3<f32>,
+    @location(11) @interpolate(flat) surface_class: u32,
+#endif
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -179,7 +188,6 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     let geometry = geometry_streams[liquid_word];
     let height_word = geometry_streams[liquid_word + 1u];
     let packed_material = geometry_streams[liquid_word + 2u];
-    let material = materials[packed_material & ~LIQUID_DEPTH_WRITE_BIT];
     let lighting_record_index = geometry_streams[liquid_word + 3u];
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     let light_sample = select(
@@ -187,19 +195,18 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         lighting_word >> 16u,
         (corner & 1u) != 0u,
     );
-    let block_light = f32(light_sample & 15u);
-    let sky_light = f32((light_sample >> 4u) & 15u);
-    let ao = f32((light_sample >> 8u) & 3u);
     let face = (geometry >> 12u) & 7u;
     let local_position = liquid_corner(geometry, height_word, corner);
     let chunk_origin = chunk_origins[draw_ref.metadata_index];
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let frame = animation_sample(material);
     let block_coordinate = vec3<u32>(
         geometry & 15u,
         (geometry >> 4u) & 15u,
         (geometry >> 8u) & 15u,
     );
+
+    let material = positional_material(packed_material & ~LIQUID_DEPTH_WRITE_BIT, chunk_origin.value.xyz + vec3<i32>(block_coordinate));
+    let frame = animation_sample(material);
 
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
@@ -219,12 +226,24 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         0u,
         u32(chunk_origin.value.w),
         vec3<f32>(block_coordinate),
+        vec3<f32>(chunk_origin.value.xyz),
     );
-    out.block_light = light_brightness(u32(block_light));
-    out.sky_light = light_brightness(u32(sky_light));
-    out.ambient_occlusion = light_ao_factor(u32(ao));
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
+#ifdef ENHANCED
+    out.sky_light = sky_illumination(light_sample);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+#endif
     out.depth_write_route = packed_material >> 31u;
     out.world_position = world_position;
+#ifdef ENHANCED
+    out.normal = face_normal(face);
+    out.surface_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
+    if ((out.surface_class & CLASS_WATER) != 0u) {
+        out.world_position = waved_water_position(world_position, out.normal.y > 0.5
+            || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
+        out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    }
+#endif
     return out;
 }
 
@@ -258,16 +277,32 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    let colour = lit_colour(
-        sampled.rgb * in.water_tint,
-        in.block_light,
+#ifdef ENHANCED
+    if ((in.surface_class & CLASS_WATER) != 0u) {
+        let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
+            in.world_position, in.clip_position, in.lighting, in.sky_light,
+            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
+        return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
+    }
+    let colour = shade_surface(
+        sampled.rgb * in.water_tint.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
         in.sky_light,
         in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.surface_class,
     );
+#else
+    let colour = lit_colour(
+        sampled.rgb * in.water_tint.rgb,
+        in.lighting,
+    );
+#endif
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
-    return vec4(apply_distance_fog(colour, in.world_position), sampled.a);
+    return vec4(apply_distance_fog(colour, in.world_position), sampled.a * in.water_tint.a);
 }
 
 @fragment
@@ -281,12 +316,22 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    let lit = lit_colour(
+#ifdef ENHANCED
+    let lit = shade_surface(
         sampled.rgb,
-        in.block_light,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
         in.sky_light,
         in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.surface_class,
     );
+#else
+    let lit = lit_colour(
+        sampled.rgb,
+        in.lighting,
+    );
+#endif
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 }

@@ -89,6 +89,7 @@ fn light_test_assets() -> RuntimeAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: Box::new([]),
@@ -130,11 +131,16 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
     }
 }
 
+/// Advances bounded scheduler turns until all test lighting is current.
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
             return;
+        }
+        // A finished scan round can defer ready work until the next turn.
+        if stream.in_flight_light.is_empty() {
+            continue;
         }
         let completion = stream
             .light_rx
@@ -228,3 +234,9 @@ mod boundary_dominance;
 mod cases_01;
 mod cases_02;
 mod filter_dominance;
+mod sky_boundary;
+
+mod mesh_admission;
+
+mod backlog;
+mod mutation_summary;

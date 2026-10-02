@@ -666,14 +666,24 @@ fn quad_at(mesh: &meshing::ChunkMesh, origin: [u8; 3], face: Face) -> PackedLiqu
         .expect("liquid quad")
 }
 
+/// Builds liquid fixtures and checks the packed-output bound.
 fn mesh(center: &SubChunk) -> meshing::ChunkMesh {
     let neighbourhood = MeshNeighbourhood::new(center);
-    mesh_sub_chunk_in_neighbourhood(
+    let output = mesh_sub_chunk_in_neighbourhood(
         &BlockClassifier::new(AIR),
         runtime_assets(),
         NetworkIdMode::Sequential,
         &neighbourhood,
-    )
+    );
+    assert!(
+        meshing::mesh_output_byte_len(&output, &meshing::PackedBiomeRecord::fallback())
+            <= meshing::MeshOutputBounds::new(runtime_assets()).for_sub_chunk(
+                center,
+                runtime_assets(),
+                NetworkIdMode::Sequential
+            )
+    );
+    output
 }
 
 fn runtime_assets() -> &'static RuntimeAssets {
@@ -733,7 +743,8 @@ fn runtime_assets() -> &'static RuntimeAssets {
             Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
-                animation: NO_ANIMATION
+                animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             };
             16
         ];
@@ -741,22 +752,26 @@ fn runtime_assets() -> &'static RuntimeAssets {
             texture: TextureRef::new(0, 0).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
             animation: 0,
+            ..assets::Material::unvaried()
         };
         materials[FLOW as usize] = Material {
             texture: TextureRef::new(0, 1).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
             animation: 1,
+            ..assets::Material::unvaried()
         };
         materials[15] = Material {
             texture: TextureRef::new(0, 0).unwrap(),
             flags: MATERIAL_FLAG_ALPHA_CUTOUT,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         };
         for material in [13_usize, 14] {
             materials[material] = Material {
                 texture: TextureRef::new(0, (material - 13) as u32).unwrap(),
                 flags: MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
                 animation: (material - 13) as u32,
+                ..assets::Material::unvaried()
             };
         }
         for (material, animation) in [(3_usize, 0_u32), (4, 1)] {
@@ -764,6 +779,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 texture: TextureRef::new(0, animation).unwrap(),
                 flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
                 animation,
+                ..assets::Material::unvaried()
             };
         }
         for (material, entry) in materials.iter_mut().enumerate().take(13).skip(7) {
@@ -771,6 +787,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 texture: TextureRef::new(0, (material - 5) as u32).unwrap(),
                 flags: MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT,
                 animation: (material - 5) as u32,
+                ..assets::Material::unvaried()
             };
         }
         let animations = (0..8)
@@ -1009,10 +1026,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            15_847_214_303_004_695_188,
-            4_766_889_440_949_635_443,
-            578_659_367_938_113_741,
-            15_230_510_185_437_010_504
+            4_776_793_893_981_224_684,
+            14_653_987_338_179_714_709,
+            3_221_800_902_809_347_645,
+            3_205_213_798_545_330_495
         ]
     );
 }
@@ -1059,5 +1076,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 6_650_782_414_319_392_370);
+    assert_eq!(digest, 9_655_680_080_735_195_449);
 }

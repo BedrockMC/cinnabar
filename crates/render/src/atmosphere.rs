@@ -38,7 +38,6 @@ const PROVISIONAL_FLASH_SKY_PULL: f32 = 0.6;
 const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
 /// Provisional vision-effect responses; need native calibration.
 const BLINDNESS_FOG_END: f32 = 5.0;
-const DARKNESS_LIGHT_LOSS: f32 = 0.7;
 const DARKNESS_FOG_END_SCALE: f32 = 0.4;
 const NETHER_FOG_RGB8: u32 = 0x0033_0808;
 /// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
@@ -356,15 +355,13 @@ impl AtmosphereFrame {
     /// Applies blindness (fog closes to black), darkness (dimmer lightmap and fog) and night
     /// vision (lightmap toward full bright), each in `0..=1`.
     #[must_use]
-    pub fn with_vision_effects(mut self, blindness: f32, darkness: f32, night_vision: f32) -> Self {
-        let (blindness, darkness, night_vision) = (
-            bounded_level(blindness),
-            bounded_level(darkness),
-            bounded_level(night_vision),
-        );
-        let light = celestial::lerp(self.daylight(), 1.0, night_vision)
-            * (1.0 - darkness * DARKNESS_LIGHT_LOSS);
-        self.sun_direction_daylight.w = light;
+    pub fn with_vision_effects(
+        mut self,
+        blindness: f32,
+        darkness: f32,
+        _night_vision: f32,
+    ) -> Self {
+        let (blindness, darkness) = (bounded_level(blindness), bounded_level(darkness));
         let dim = (1.0 - blindness) * (1.0 - darkness * 0.5);
         for record in [
             &mut self.sky_zenith_rain,
@@ -401,15 +398,6 @@ impl AtmosphereFrame {
         self
     }
 
-    /// Scales the underwater fog reach by the time-submerged fraction; no effect outside water.
-    #[must_use]
-    pub fn with_underwater_fog_fraction(mut self, fraction: f32) -> Self {
-        if self.camera_medium() == CameraMedium::Water {
-            self.fog_end_time.x *= bounded_level(fraction);
-        }
-        self
-    }
-
     /// Applies only exact client-profile values that survived bounded asset
     /// compilation. Time, weather channels, celestial state, and cloud motion
     /// remain unchanged.
@@ -439,7 +427,7 @@ impl AtmosphereFrame {
             self.sky_horizon_thunder.z = colour[2];
         }
         if let Some(fog) = fog.filter(valid_fog) {
-            let colour = rgb8_to_linear(fog.rgb8);
+            let colour = celestial::rgb_to_linear(fog.rgb);
             self.fog_color_start = Vec4::new(colour[0], colour[1], colour[2], fog.start);
             self.fog_end_time.x = fog.end;
         }
@@ -462,11 +450,11 @@ impl AtmosphereFrame {
             Some(weather) if rain > 0.0 => ResolvedFog {
                 start: celestial::lerp(air.start, weather.start, rain),
                 end: celestial::lerp(air.end, weather.end, rain),
-                rgb8: blend_rgb8(air.rgb8, weather.rgb8, rain),
+                rgb: mix3(air.rgb, weather.rgb, rain),
             },
             _ => air,
         };
-        let mut gamma = rgb8_to_gamma(fog.rgb8);
+        let mut gamma = fog.rgb;
         if self.sky_kind() == SkyKind::Overworld {
             let brightness = celestial::fog_brightness(self.celestial_angle());
             gamma = celestial::storm_tint(gamma.map(|c| c * brightness), 0.0, self.thunder_level());
@@ -722,22 +710,15 @@ fn overworld_fog_colour(
 fn valid_fog(fog: &ResolvedFog) -> bool {
     fog.start.is_finite()
         && fog.end.is_finite()
-        && fog.start >= 0.0
         && fog.end >= fog.start
-        && fog.rgb8 <= 0x00ff_ffff
+        && fog
+            .rgb
+            .into_iter()
+            .all(|c| c.is_finite() && (0.0..=1.0).contains(&c))
 }
 
 fn rgb8_to_gamma(rgb: u32) -> [f32; 3] {
     [16, 8, 0].map(|shift| ((rgb >> shift) & 0xff) as f32 / 255.0)
-}
-
-fn blend_rgb8(left: u32, right: u32, amount: f32) -> u32 {
-    let mix = |shift: u32| {
-        let a = ((left >> shift) & 0xff) as f32;
-        let b = ((right >> shift) & 0xff) as f32;
-        (celestial::lerp(a, b, amount).round() as u32).min(255) << shift
-    };
-    mix(16) | mix(8) | mix(0)
 }
 
 fn rgb8_to_linear(rgb: u32) -> [f32; 3] {
@@ -775,7 +756,7 @@ mod tests {
     }
 
     #[test]
-    fn medium_survives_profile_fog_and_underwater_fraction_scales_only_water() {
+    fn medium_survives_profile_fog() {
         let water = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0)
             .with_camera_medium(CameraMedium::Water);
         let profiled = water.with_environment_profile(
@@ -783,13 +764,11 @@ mod tests {
             Some(assets::ResolvedFog {
                 start: 0.0,
                 end: 40.0,
-                rgb8: 0x112233,
+                rgb: super::rgb8_to_gamma(0x112233),
             }),
         );
         assert_eq!(profiled.camera_medium(), CameraMedium::Water);
-        assert_eq!(profiled.with_underwater_fog_fraction(0.5).fog_end(), 20.0);
-        let air = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
-        assert_eq!(air.with_underwater_fog_fraction(0.1), air);
+        assert_eq!(profiled.fog_end(), 40.0);
     }
 
     #[test]
@@ -823,9 +802,13 @@ mod tests {
         assert_eq!((blind.fog_start(), blind.fog_end()), (0.0, 5.0));
         assert_eq!(blind.fog_color(), [0.0; 3]);
         let dark = noon.with_vision_effects(0.0, 1.0, 0.0);
-        assert!(dark.daylight() < noon.daylight() && dark.fog_end() < noon.fog_end());
+        assert_eq!(dark.daylight(), noon.daylight());
+        assert!(dark.fog_end() < noon.fog_end());
         let night = AtmosphereFrame::from_bedrock_time(18_000.0, 0.0, 0.0);
-        assert!((night.with_vision_effects(0.0, 0.0, 1.0).daylight() - 1.0).abs() < 1.0e-6);
+        assert_eq!(
+            night.with_vision_effects(0.0, 0.0, 1.0).daylight(),
+            night.daylight()
+        );
     }
 
     #[test]
@@ -845,12 +828,12 @@ mod tests {
         let air = assets::ResolvedFog {
             start: 235.0,
             end: 256.0,
-            rgb8: 0xABD2FF,
+            rgb: super::rgb8_to_gamma(0xABD2FF),
         };
         let weather = assets::ResolvedFog {
             start: 59.0,
             end: 179.0,
-            rgb8: 0x666666,
+            rgb: super::rgb8_to_gamma(0x666666),
         };
         let clear = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0)
             .with_blended_fog(Some(air), Some(weather));

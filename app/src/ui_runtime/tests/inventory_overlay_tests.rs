@@ -89,20 +89,85 @@ fn accepted_response(
     dynamic_id: Option<u32>,
     slots: Vec<StackResponseSlot>,
 ) -> InventoryEvent {
+    accepted_response_containers(
+        request_id,
+        vec![response_container(slot_type, dynamic_id, slots)],
+    )
+}
+
+fn response_container(
+    slot_type: Option<u8>,
+    dynamic_id: Option<u32>,
+    slots: Vec<StackResponseSlot>,
+) -> StackResponseContainer {
+    StackResponseContainer {
+        container: ContainerIdentity {
+            window_id: None,
+            slot_type,
+            dynamic_id,
+        },
+        slots: Arc::from(slots),
+    }
+}
+
+fn accepted_response_containers(
+    request_id: i32,
+    containers: Vec<StackResponseContainer>,
+) -> InventoryEvent {
     InventoryEvent::Response(ItemStackResponseEvent {
         responses: Arc::from([StackResponse {
             status: StackResponseStatus::Accepted,
             request_id,
-            containers: Arc::from([StackResponseContainer {
-                container: ContainerIdentity {
-                    window_id: None,
-                    slot_type,
-                    dynamic_id,
-                },
-                slots: Arc::from(slots),
-            }]),
+            containers: Arc::from(containers),
         }]),
     })
+}
+
+/// A successful answer updates backing cells explicitly. An empty success
+/// does not authorize replaying the predicted take or place into backing.
+fn accept_take(
+    runtime: &mut UiRuntime,
+    request_id: i32,
+    source_type: u8,
+    dynamic_id: Option<u32>,
+    source_slot: u8,
+    cursor: StackResponseSlot,
+) {
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response_containers(
+            request_id,
+            vec![
+                response_container(
+                    Some(source_type),
+                    dynamic_id,
+                    vec![correction(source_slot, 0, 0, "", "", 0)],
+                ),
+                response_container(Some(protocol::CONTAINER_NAME_CURSOR), None, vec![cursor]),
+            ],
+        ));
+}
+
+fn accept_place(
+    runtime: &mut UiRuntime,
+    request_id: i32,
+    destination_type: u8,
+    dynamic_id: Option<u32>,
+    destination: StackResponseSlot,
+) {
+    runtime
+        .inventory_ledger_mut()
+        .apply(&accepted_response_containers(
+            request_id,
+            vec![
+                response_container(
+                    Some(protocol::CONTAINER_NAME_CURSOR),
+                    None,
+                    vec![correction(0, 0, 0, "", "", 0)],
+                ),
+                response_container(Some(destination_type), dynamic_id, vec![destination]),
+            ],
+        ));
 }
 
 /// Drives one take/place gesture pair so an accepted response corrects the
@@ -115,16 +180,22 @@ fn corrected_sword_in_slot_zero() -> UiRuntime {
     publish_slot(&mut runtime, 1, ledger_stack(745, 13, 4));
     publish_slot(&mut runtime, 0, NetworkItemStack::empty());
     let take = runtime.inventory_ledger_mut().begin_click(1).unwrap();
-    runtime
-        .inventory_ledger_mut()
-        .apply(&accepted_response(take, Some(12), None, Vec::new()));
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        place,
-        Some(12),
+    accept_take(
+        &mut runtime,
+        take,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
         None,
-        vec![correction(0, 2, 99, "Renamed Blade", "Filtered Blade", 125)],
-    ));
+        1,
+        correction(0, 4, 13, "", "", 0),
+    );
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    accept_place(
+        &mut runtime,
+        place,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        correction(0, 2, 99, "Renamed Blade", "Filtered Blade", 125),
+    );
     runtime
 }
 
@@ -337,24 +408,27 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
         .inventory_ledger_mut()
         .begin_storage_click(3)
         .unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
+    accept_take(
+        &mut runtime,
         take,
-        Some(GENERIC_STORAGE_SLOT_TYPE),
+        GENERIC_STORAGE_SLOT_TYPE,
         Some(STORAGE_DYNAMIC_ID),
-        Vec::new(),
-    ));
+        3,
+        correction(0, 1, 13, "", "", 0),
+    );
     // Place the stack back; the server's return correction carries the
     // authoritative names and damage for the restored storage cell.
     let place = runtime
         .inventory_ledger_mut()
         .begin_storage_click(3)
         .unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
+    accept_place(
+        &mut runtime,
         place,
-        Some(GENERIC_STORAGE_SLOT_TYPE),
+        GENERIC_STORAGE_SLOT_TYPE,
         Some(STORAGE_DYNAMIC_ID),
-        vec![correction(3, 1, 77, "Stored Blade", "Stored Blade", 42)],
-    ));
+        correction(3, 1, 77, "Stored Blade", "Stored Blade", 42),
+    );
     assert_eq!(
         runtime
             .inventory_ledger()
@@ -399,23 +473,29 @@ fn selected_item_name_prefers_the_authoritative_custom_name() {
 }
 
 #[test]
-fn omitted_fields_retain_prior_overlays_and_affirmative_ones_replace_them() {
+fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
     let mut runtime = corrected_sword_in_slot_zero();
 
     // Cycling the corrected sword through the cursor and back, with a return
-    // correction that states no names and no positive durability, must not
-    // erase the retained overlay: the server restated only what changed.
+    // correction that states no names keeps those names. Zero durability is
+    // an explicit repair, not an omitted field.
     let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime
-        .inventory_ledger_mut()
-        .apply(&accepted_response(take, Some(59), None, Vec::new()));
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        place,
-        Some(12),
+    accept_take(
+        &mut runtime,
+        take,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
         None,
-        vec![correction(0, 2, 99, "", "", 0)],
-    ));
+        0,
+        correction(0, 2, 99, "", "", 125),
+    );
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    accept_place(
+        &mut runtime,
+        place,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        correction(0, 2, 99, "", "", 0),
+    );
 
     let overlay = runtime
         .inventory_ledger()
@@ -426,20 +506,26 @@ fn omitted_fields_retain_prior_overlays_and_affirmative_ones_replace_them() {
         overlay.filtered_custom_name.as_deref(),
         Some("Filtered Blade")
     );
-    assert_eq!(overlay.durability_correction, Some(125));
+    assert_eq!(overlay.durability_correction, Some(0));
 
     // An affirmative restatement replaces every stated field.
     let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime
-        .inventory_ledger_mut()
-        .apply(&accepted_response(take, Some(59), None, Vec::new()));
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        place,
-        Some(12),
+    accept_take(
+        &mut runtime,
+        take,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
         None,
-        vec![correction(0, 2, 99, "New Name", "New Filtered", 60)],
-    ));
+        0,
+        correction(0, 2, 99, "", "", 0),
+    );
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    accept_place(
+        &mut runtime,
+        place,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        correction(0, 2, 99, "New Name", "New Filtered", 60),
+    );
     let overlay = runtime
         .inventory_ledger()
         .slot_overlay(0)
@@ -461,50 +547,36 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
     publish_slot(&mut runtime, 0, ledger_stack(745, 13, 2));
     publish_slot(&mut runtime, 1, ledger_stack(846, 24, 3));
 
-    // One take whose accepted response affirms distinct authoritative facts
-    // for both touched cells: alpha travels to the cursor with the stack it
-    // describes, and beta stays attached to its slot.
+    // Give beta authoritative facts through its own take/place pair. Native
+    // responses cannot install an overlay on an unrelated, untouched cell.
+    let take_beta = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    accept_take(
+        &mut runtime,
+        take_beta,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        1,
+        correction(0, 3, 24, "Beta Blade", "Filtered Beta", 200),
+    );
+    let place_beta = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+    accept_place(
+        &mut runtime,
+        place_beta,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        correction(1, 3, 24, "Beta Blade", "Filtered Beta", 200),
+    );
+
+    // Alpha's take then corrects exactly its source and cursor cells.
     let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime
-        .inventory_ledger_mut()
-        .apply(&InventoryEvent::Response(ItemStackResponseEvent {
-            responses: Arc::from([StackResponse {
-                status: StackResponseStatus::Accepted,
-                request_id: take,
-                containers: Arc::from([
-                    StackResponseContainer {
-                        container: ContainerIdentity {
-                            window_id: None,
-                            slot_type: Some(59),
-                            dynamic_id: None,
-                        },
-                        slots: Arc::from([correction(
-                            0,
-                            2,
-                            13,
-                            "Alpha Blade",
-                            "Filtered Alpha",
-                            100,
-                        )]),
-                    },
-                    StackResponseContainer {
-                        container: ContainerIdentity {
-                            window_id: None,
-                            slot_type: Some(12),
-                            dynamic_id: None,
-                        },
-                        slots: Arc::from([correction(
-                            1,
-                            3,
-                            24,
-                            "Beta Blade",
-                            "Filtered Beta",
-                            200,
-                        )]),
-                    },
-                ]),
-            }]),
-        }));
+    accept_take(
+        &mut runtime,
+        take,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        0,
+        correction(0, 2, 13, "Alpha Blade", "Filtered Alpha", 100),
+    );
     assert_eq!(
         runtime
             .inventory_ledger()
@@ -533,7 +605,21 @@ fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
     let swap = runtime.inventory_ledger_mut().begin_click(1).unwrap();
     runtime
         .inventory_ledger_mut()
-        .apply(&accepted_response(swap, Some(12), None, Vec::new()));
+        .apply(&accepted_response_containers(
+            swap,
+            vec![
+                response_container(
+                    Some(protocol::CONTAINER_NAME_CURSOR),
+                    None,
+                    vec![correction(0, 3, 24, "Beta Blade", "Filtered Beta", 200)],
+                ),
+                response_container(
+                    Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+                    None,
+                    vec![correction(1, 2, 13, "Alpha Blade", "Filtered Alpha", 100)],
+                ),
+            ],
+        ));
 
     assert_eq!(
         runtime
@@ -586,7 +672,7 @@ fn damaged_sword(damage: i32) -> NetworkItemStack {
     NetworkItemStack {
         network_id: IRON_SWORD_NETWORK_ID,
         metadata: 0,
-        stack_network_id: -1,
+        stack_network_id: 77,
         count: 1,
         nbt_digest: Sha256::digest(&extra).into(),
         block_runtime_id: 0,
@@ -632,22 +718,28 @@ fn round_tripped_selected_sword(final_correction: StackResponseSlot) -> UiRuntim
     publish_slot(&mut runtime, 0, damaged_sword(125));
     runtime.set_local_selected_slot(0);
     let take = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime
-        .inventory_ledger_mut()
-        .apply(&accepted_response(take, Some(12), None, Vec::new()));
-    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        place,
-        Some(12),
+    accept_take(
+        &mut runtime,
+        take,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
         None,
-        vec![final_correction],
-    ));
+        0,
+        correction(0, 1, 77, "", "", 125),
+    );
+    let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+    accept_place(
+        &mut runtime,
+        place,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        final_correction,
+    );
     runtime
 }
 
 #[test]
-fn count_only_corrections_keep_the_locally_derived_durability_bar() {
-    let mut runtime = round_tripped_selected_sword(correction(0, 1, -1, "", "", 0));
+fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
+    let mut runtime = round_tripped_selected_sword(correction(0, 1, 77, "", "", 0));
     let stream = world_stream();
 
     let overlay = runtime
@@ -655,8 +747,9 @@ fn count_only_corrections_keep_the_locally_derived_durability_bar() {
         .slot_overlay(0)
         .expect("the corrected cell retains its response overlay");
     assert_eq!(
-        overlay.durability_correction, None,
-        "unstated durability must stay absent instead of defaulting"
+        overlay.durability_correction,
+        Some(0),
+        "zero damage is an explicit authoritative repair"
     );
     assert_eq!(overlay.custom_name.as_deref(), None);
     assert_eq!(overlay.filtered_custom_name.as_deref(), None);
@@ -671,8 +764,8 @@ fn count_only_corrections_keep_the_locally_derived_durability_bar() {
         "the local damage tag alone must still derive the bar: {derived:?}"
     );
     assert_eq!(
-        presented, derived,
-        "a count-only correction must not silence locally derived durability"
+        presented, None,
+        "a repaired sword hides its pristine bar despite the stale local NBT tag"
     );
 }
 
@@ -680,7 +773,7 @@ fn count_only_corrections_keep_the_locally_derived_durability_bar() {
 fn stated_durability_corrections_override_the_local_damage_tag() {
     // The local tag reads half-worn (125/250), but the accepted correction
     // restates fully damaged (250): presentation must follow the server.
-    let mut runtime = round_tripped_selected_sword(correction(0, 1, -1, "", "", 250));
+    let mut runtime = round_tripped_selected_sword(correction(0, 1, 77, "", "", 250));
     let stream = world_stream();
 
     let presented = presented_selected_durability(&mut runtime, &stream);
@@ -768,19 +861,25 @@ fn accepted_sparse_corrections_refresh_every_presented_nonselected_hotbar_consum
     let mut runtime = drained_inventory_runtime();
 
     // Round-trip the nonselected sword through the cursor; the accepted place
-    // response restates only slot 3: a server-side count change plus its
-    // authoritative identity correction.
+    // response explicitly clears the cursor and corrects slot 3: a server-side
+    // count change plus its authoritative identity correction.
     let take = runtime.inventory_ledger_mut().begin_click(3).unwrap();
-    runtime
-        .inventory_ledger_mut()
-        .apply(&accepted_response(take, Some(12), None, Vec::new()));
-    let place = runtime.inventory_ledger_mut().begin_click(3).unwrap();
-    runtime.inventory_ledger_mut().apply(&accepted_response(
-        place,
-        Some(12),
+    accept_take(
+        &mut runtime,
+        take,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
         None,
-        vec![correction(3, 2, 99, "Corrected Blade", "", 250)],
-    ));
+        3,
+        correction(0, 1, 24, "", "", 0),
+    );
+    let place = runtime.inventory_ledger_mut().begin_click(3).unwrap();
+    accept_place(
+        &mut runtime,
+        place,
+        protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+        None,
+        correction(3, 2, 99, "Corrected Blade", "", 250),
+    );
     let corrected = runtime
         .inventory_ledger()
         .displayed_stack(3)

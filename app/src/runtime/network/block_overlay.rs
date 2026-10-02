@@ -45,7 +45,7 @@ pub(crate) struct OverlayGaps {
     pub(crate) approximated_materials: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct CompiledBlockOverlay {
     pub(crate) overlay: BlockOverlay,
     pub(crate) gaps: OverlayGaps,
@@ -90,6 +90,7 @@ pub(super) fn compile_block_overlay(
         texture: TextureRef::new(1, 0).expect("layer zero"),
         flags: 0,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     });
     for block in blocks.blocks.iter() {
         if hashed {
@@ -329,6 +330,7 @@ impl Builder<'_> {
             texture: TextureRef::new(1, slot.layer).expect("bounded layer"),
             flags,
             animation: slot.animation,
+            ..assets::Material::unvaried()
         });
         self.materials.insert((texture, flags), material);
         (material, alpha_flags, two_sided)

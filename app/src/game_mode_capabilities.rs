@@ -11,7 +11,7 @@ const CREATIVE_ATTACK_REACH: f64 = 7.0;
 
 /// Bedrock ability bit positions, per the pinned gophertunnel
 /// `minecraft/protocol/ability.go`. Only the bits the client gates on are named.
-mod ability_bit {
+pub(crate) mod ability_bit {
     pub(super) const BUILD: u32 = 1 << 0;
     pub(super) const MINE: u32 = 1 << 1;
     pub(super) const DOORS_AND_SWITCHES: u32 = 1 << 2;
@@ -21,6 +21,8 @@ mod ability_bit {
     pub(super) const MAY_FLY: u32 = 1 << 10;
     pub(super) const INSTANT_BUILD: u32 = 1 << 11;
     pub(super) const NO_CLIP: u32 = 1 << 17;
+    pub(crate) const FLY_SPEED: u32 = 1 << 13;
+    pub(crate) const VERTICAL_FLY_SPEED: u32 = 1 << 19;
 }
 
 /// The interaction gates one game mode grants, after server ability overrides.
@@ -172,19 +174,26 @@ impl GameModeCapabilities {
     }
 }
 
-/// The effective value of one ability bit: the last received layer that defines
-/// it wins. `None` means no layer defined it, so the mode default stands.
+/// Resolves a boolean using the same typed layers as float abilities.
 fn resolved_ability(update: &AbilitiesUpdate, bit: u32) -> Option<bool> {
+    resolved_layer(update, bit).map(|layer| layer.values & bit != 0)
+}
+
+/// Higher layer types win; a repeated layer replaces that layer's entire definition.
+pub(crate) fn resolved_layer(
+    update: &AbilitiesUpdate,
+    bit: u32,
+) -> Option<&protocol::AbilityLayerEvidence> {
     let AbilityLayersEvidence::Received(layers) = &update.layers else {
         return None;
     };
-    let mut effective = None;
-    for layer in layers.iter() {
-        if layer.abilities & bit != 0 {
-            effective = Some(layer.values & bit != 0);
-        }
-    }
-    effective
+    (0..6).rev().find_map(|kind| {
+        layers
+            .iter()
+            .rev()
+            .find(|layer| layer.layer_type == kind)
+            .filter(|layer| layer.abilities & bit != 0)
+    })
 }
 
 #[cfg(test)]

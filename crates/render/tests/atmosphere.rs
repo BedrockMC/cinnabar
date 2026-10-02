@@ -94,7 +94,7 @@ fn exact_environment_values_replace_only_sky_and_fog_fields() {
         Some(ResolvedFog {
             start: 235.52,
             end: 256.0,
-            rgb8: 0x0B_08_0C,
+            rgb: [11.0 / 255.0, 8.0 / 255.0, 12.0 / 255.0],
         }),
     );
 
@@ -194,7 +194,7 @@ fn boss_requests_override_a_client_profile_in_air() {
         Some(ResolvedFog {
             start: 235.52,
             end: 256.0,
-            rgb8: 0x0B_08_0C,
+            rgb: [11.0 / 255.0, 8.0 / 255.0, 12.0 / 255.0],
         }),
     );
     let bossed = profiled.with_boss_environment(false, true);
@@ -466,11 +466,16 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
     assert!(source.contains("BindingType::Texture"));
     assert!(source.contains("BindingType::Sampler"));
     assert_eq!(
-        source.matches("visibility: ShaderStages::FRAGMENT").count(),
+        source.matches("visibility: ShaderStages::FRAGMENT").count()
+            + source
+                .matches("visibility: ShaderStages::VERTEX_FRAGMENT")
+                .count(),
         6,
         "Metal requires every fragment-read atmosphere binding to declare fragment visibility"
     );
-    assert!(!source.contains("BufferBindingType::Storage"));
+    assert!(source.contains("BufferBindingType::Storage { read_only: true }"));
+    assert!(source.contains("binding: 6,"));
+    assert!(source.contains("pass.draw(3..3 + gpu.into_inner().star_vertex_count, 0..1)"));
 }
 
 #[test]
@@ -479,8 +484,8 @@ fn frame_updates_keep_asset_uploads_and_bind_groups_identity_stable() {
     let chunks = include_str!("../src/chunk/gpu/bind_groups.rs");
     assert_eq!(
         atmosphere.matches("create_buffer_with_data(").count(),
-        1,
-        "the atmosphere uniform buffer is allocated once at render startup"
+        2,
+        "the atmosphere uniform and static star buffers are each allocated once at startup"
     );
     assert!(
         atmosphere
@@ -536,7 +541,7 @@ fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_compositio
 fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
     let shader = include_str!("../src/atmosphere.wgsl");
     for needle in [
-        "fn star_field(",
+        "var<storage, read> stars: array<vec4<f32>>;",
         "fn sunrise_glow(",
         "if (kind == 1u)",
         "if (kind == 2u)",

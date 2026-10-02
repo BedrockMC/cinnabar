@@ -12,16 +12,15 @@ import (
 	"time"
 
 	"github.com/df-mc/go-nethernet"
-	"github.com/df-mc/go-playfab/v2"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/sandertv/gophertunnel/minecraft"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"golang.org/x/oauth2"
 )
 
 // A raw NetherNet target names its signaling and ID: NetherNetTargetPrefix + signaling + "/" + id.
@@ -61,9 +60,8 @@ type resolvedUpstreamTarget struct {
 	address    string
 	network    minecraft.Network
 	clientData func(*login.ClientData) // applies a joined session's login fields
-	xbl        *xsapi.Client
-	playFab    *playfab.Client
 	friend     interface{ Close() error }
+	xbox       interface{ Close() error }
 	realm      bool // vanilla words a failed Realm join as its own
 }
 
@@ -73,6 +71,7 @@ type realmJoinError struct{ err error }
 func (e *realmJoinError) Error() string { return e.err.Error() }
 func (e *realmJoinError) Unwrap() error { return e.err }
 
+// close leaves the joined session before shutting down its Xbox services.
 func (target *resolvedUpstreamTarget) close() error {
 	if target == nil {
 		return nil
@@ -81,21 +80,18 @@ func (target *resolvedUpstreamTarget) close() error {
 	if target.friend != nil {
 		joined = errors.Join(joined, target.friend.Close())
 	}
-	if target.playFab != nil {
-		joined = errors.Join(joined, target.playFab.Close())
-	}
-	if target.xbl != nil {
-		joined = errors.Join(joined, target.xbl.Close())
+	if target.xbox != nil {
+		joined = errors.Join(joined, target.xbox.Close())
 	}
 	return joined
 }
 
-func resolveUpstreamTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+func resolveUpstreamTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, errors.New("upstream target is empty")
 	}
-	if src == nil {
+	if account == nil {
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
 		}
@@ -106,12 +102,12 @@ func resolveUpstreamTarget(ctx context.Context, address string, src oauth2.Token
 	defer cancel()
 	switch {
 	case strings.HasPrefix(strings.ToLower(address), friendTargetPrefix):
-		return resolveFriendTarget(resolveContext, address, src, logger)
+		return resolveFriendTarget(resolveContext, address, account, logger)
 	case strings.HasPrefix(strings.ToLower(address), realmTargetPrefix),
 		strings.HasPrefix(strings.ToLower(address), realmCodePrefix):
-		return resolveRealmTarget(resolveContext, address, src, logger)
+		return resolveRealmTarget(resolveContext, address, account, logger)
 	case strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix):
-		return resolveRawNetherNetTarget(resolveContext, address, src, logger)
+		return resolveRawNetherNetTarget(resolveContext, address, account, logger)
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
@@ -119,9 +115,9 @@ func resolveUpstreamTarget(ctx context.Context, address string, src oauth2.Token
 	}
 }
 
-func resolveRealmTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+func resolveRealmTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	reportConnectStage(ctx, ConnectStageRealm)
-	target, err := lookupRealmTarget(ctx, address, src, logger)
+	target, err := lookupRealmTarget(ctx, address, account, logger)
 	if err != nil {
 		return nil, &realmJoinError{err: err}
 	}
@@ -129,8 +125,8 @@ func resolveRealmTarget(ctx context.Context, address string, src oauth2.TokenSou
 	return target, nil
 }
 
-func lookupRealmTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	client := realms.NewClient(src, nil)
+func lookupRealmTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+	client := realms.NewClient(account, nil)
 	var realmAddress realms.RealmAddress
 	var err error
 	if strings.HasPrefix(strings.ToLower(address), realmTargetPrefix) {
@@ -162,10 +158,10 @@ func lookupRealmTarget(ctx context.Context, address string, src oauth2.TokenSour
 	if !ok {
 		return nil, fmt.Errorf("realm %q uses unsupported network protocol %q", address, realmAddress.NetworkProtocol)
 	}
-	return newNetherNetTarget(ctx, realmAddress.Address, connectionType, src, nil, logger)
+	return newNetherNetTarget(realmAddress.Address, connectionType, account, logger), nil
 }
 
-func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+func resolveFriendTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	xuid := strings.TrimSpace(address[len(friendTargetPrefix):])
 	if separator := strings.IndexByte(xuid, ':'); separator >= 0 {
 		xuid = xuid[:separator]
@@ -173,13 +169,18 @@ func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSo
 	if xuid == "" {
 		return nil, fmt.Errorf("invalid friend target %q", address)
 	}
-	xbl, err := newXSAPIClient(ctx, src)
+	xbl, err := catalog.XboxClient(ctx, account)
 	if err != nil {
 		return nil, err
 	}
-	closeXBLOnError := true
+	return resolveFriendWorld(ctx, xuid, xbl, account, logger)
+}
+
+// resolveFriendWorld owns the Xbox client, handing it to the target only after a successful join.
+func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+	retained := false
 	defer func() {
-		if closeXBLOnError {
+		if !retained {
 			_ = xbl.Close()
 		}
 	}()
@@ -200,14 +201,11 @@ func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSo
 		_ = session.Close()
 		return nil, fmt.Errorf("join friend world %q: %w", xuid, err)
 	}
-	target, err := newNetherNetTarget(ctx, joined.DialAddress(), joined.ConnectionType(), src, xbl, logger)
-	if err != nil {
-		_ = joined.Close()
-		return nil, err
-	}
+	target := newNetherNetTarget(joined.DialAddress(), joined.ConnectionType(), account, logger)
 	target.clientData = joined.ApplyClientData
 	target.friend = joined
-	closeXBLOnError = false
+	target.xbox = xbl
+	retained = true
 	return target, nil
 }
 
@@ -232,12 +230,12 @@ func selectFriendWorld(worlds []p2p.World, ownerXUID string) *p2p.World {
 	return inviteOnly
 }
 
-func resolveRawNetherNetTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+func resolveRawNetherNetTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	id, connectionType, err := parseNetherNetTarget(address)
 	if err != nil {
 		return nil, err
 	}
-	return newNetherNetTarget(ctx, id, connectionType, src, nil, logger)
+	return newNetherNetTarget(id, connectionType, account, logger), nil
 }
 
 // parseNetherNetTarget splits nethernet/<signaling>/<id>; the signaling is never inferred from the ID.
@@ -253,57 +251,12 @@ func parseNetherNetTarget(address string) (string, int, error) {
 	return id, connectionType, nil
 }
 
-func newNetherNetTarget(ctx context.Context, address string, connectionType int, src oauth2.TokenSource, xbl *xsapi.Client, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	if xbl == nil {
-		var err error
-		xbl, err = newXSAPIClient(ctx, src)
-		if err != nil {
-			return nil, err
-		}
-	}
-	serviceSource, playFab, err := newServiceTokenSource(ctx, xbl)
-	if err != nil {
-		_ = xbl.Close()
-		return nil, err
-	}
-	network := newScopedNetherNetNetwork(serviceSource, connectionType, logger)
+// newNetherNetTarget signals with the account's Minecraft service token.
+func newNetherNetTarget(address string, connectionType int, account *authcache.Account, logger *slog.Logger) *resolvedUpstreamTarget {
 	return &resolvedUpstreamTarget{
 		address: address,
-		network: network,
-		xbl:     xbl,
-		playFab: playFab,
-	}, nil
-}
-
-func newXSAPIClient(ctx context.Context, src oauth2.TokenSource) (*xsapi.Client, error) {
-	client, err := xsapi.ClientConfig{RTAMode: xsapi.RTALazy}.New(ctx, xsapiTokenSource(src))
-	if err != nil {
-		return nil, fmt.Errorf("login to Xbox Live: %w", err)
+		network: newScopedNetherNetNetwork(account, connectionType, logger),
 	}
-	return client, nil
-}
-
-func xsapiTokenSource(src oauth2.TokenSource) xsapi.TokenSource {
-	if cached, ok := src.(xsapi.TokenSource); ok {
-		return cached
-	}
-	return auth.AndroidConfig.New(src, nil)
-}
-
-func newServiceTokenSource(ctx context.Context, xbl *xsapi.Client) (service.TokenSource, *playfab.Client, error) {
-	discovery, err := service.Default(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("discover Minecraft services: %w", err)
-	}
-	env := new(service.AuthorizationEnvironment)
-	if err := discovery.Environment(env); err != nil {
-		return nil, nil, fmt.Errorf("resolve Minecraft services: %w", err)
-	}
-	playFab, err := playfab.LoginWithXbox(ctx, env.PlayFabTitleID, xbl, playfab.ClientConfig{CreateAccount: true})
-	if err != nil {
-		return nil, nil, fmt.Errorf("login to PlayFab: %w", err)
-	}
-	return env.TokenSource(playFab, service.TokenConfig{}), playFab, nil
 }
 
 func realmConnectionType(protocol realms.NetworkProtocol) (int, bool) {
@@ -319,7 +272,8 @@ func realmConnectionType(protocol realms.NetworkProtocol) (int, bool) {
 
 func isStableTarget(address string) bool {
 	lower := strings.ToLower(strings.TrimSpace(address))
-	return strings.HasPrefix(lower, friendTargetPrefix) || strings.HasPrefix(lower, realmTargetPrefix) || strings.HasPrefix(lower, realmCodePrefix)
+	return strings.HasPrefix(lower, friendTargetPrefix) || strings.HasPrefix(lower, realmTargetPrefix) ||
+		strings.HasPrefix(lower, realmCodePrefix) || strings.HasPrefix(lower, NetherNetTargetPrefix)
 }
 
 func isRawNetherNetAddress(address string) bool {

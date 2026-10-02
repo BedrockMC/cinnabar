@@ -10,7 +10,8 @@ const SLOW_FALLING_EFFECT_ID: i32 = 27;
 const HASTE_EFFECT_ID: i32 = 3;
 const MINING_FATIGUE_EFFECT_ID: i32 = 4;
 const CONDUIT_POWER_EFFECT_ID: i32 = 26;
-const TRACKED_EFFECT_COUNT: usize = 6;
+const WEAVING_EFFECT_ID: i32 = 33;
+const TRACKED_EFFECT_COUNT: usize = 7;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -25,6 +26,7 @@ enum TrackedEffect {
     Haste,
     MiningFatigue,
     ConduitPower,
+    Weaving,
 }
 
 impl TrackedEffect {
@@ -36,6 +38,7 @@ impl TrackedEffect {
             HASTE_EFFECT_ID => Some(Self::Haste),
             MINING_FATIGUE_EFFECT_ID => Some(Self::MiningFatigue),
             CONDUIT_POWER_EFFECT_ID => Some(Self::ConduitPower),
+            WEAVING_EFFECT_ID => Some(Self::Weaving),
             _ => None,
         }
     }
@@ -48,6 +51,7 @@ impl TrackedEffect {
             Self::Haste => 3,
             Self::MiningFatigue => 4,
             Self::ConduitPower => 5,
+            Self::Weaving => 6,
         }
     }
 
@@ -175,6 +179,7 @@ impl LocalMovementEffectTimeline {
             levitation: self.active[TrackedEffect::Levitation.index()]
                 .map(|effect| effect.amplifier),
             slow_falling: self.active[TrackedEffect::SlowFalling.index()].is_some(),
+            weaving: self.active[TrackedEffect::Weaving.index()].is_some(),
         }
     }
 
@@ -222,3 +227,32 @@ impl MovementEffectSource for LocalMovementEffectTimeline {
 #[cfg(test)]
 #[path = "mining_effects_tests.rs"]
 mod mining_effects_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weaving_uses_native_id_and_expires_after_successful_ticks() {
+        let mut timeline = LocalMovementEffectTimeline::default();
+        timeline.begin_session(1);
+        timeline.apply(
+            1,
+            1,
+            ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: ActorEffectAction::Add,
+                effect_id: WEAVING_EFFECT_ID,
+                amplifier: 0,
+                particles: false,
+                ambient: false,
+                duration_ticks: 1,
+                tick: 0,
+            },
+        );
+        assert!(timeline.snapshot().weaving);
+        timeline.commit_successful_tick();
+        assert!(!timeline.snapshot().weaving);
+    }
+}

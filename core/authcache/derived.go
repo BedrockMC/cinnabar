@@ -27,6 +27,7 @@ import (
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
 	"github.com/df-mc/go-xsapi/v2/xal/xasd"
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
+	"github.com/hashimthearab/rust-mcbe/core/clientplatform"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -80,7 +81,7 @@ func defaultDerivedDeps() derivedDeps {
 			return playfab.LoginWithXbox(ctx, env.PlayFabTitleID, signer, playfab.ClientConfig{CreateAccount: true})
 		},
 		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token) service.TokenSource {
-			return env.ResumeTokenSource(tickets, service.TokenConfig{}, token)
+			return env.ResumeTokenSource(tickets, clientplatform.TokenConfig(), token)
 		},
 		mint: func(ctx context.Context, env *service.AuthorizationEnvironment, source service.TokenSource, key *ecdsa.PublicKey) (string, error) {
 			return minecraft.NewMultiplayerTokenSource(env, source).MultiplayerToken(ctx, key)

@@ -5,6 +5,7 @@ use std::{
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
+    core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
     prelude::*,
@@ -12,32 +13,46 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_resource::{
-            AddressMode, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
-            Buffer, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferSize,
-            BufferUsages, CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension, Variants,
-            VertexAttribute, VertexFormat, VertexState, VertexStepMode,
+            AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
+            BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
+            BufferDescriptor, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, FilterMode, FragmentState, PipelineCache, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension,
+            Variants, VertexAttribute, VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
         view::{ExtractedView, ViewTarget},
     },
 };
-use bytemuck::{Pod, Zeroable};
-
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
-use textures::UiGpuTextures;
+use textures::{UiGpuTextures, prepare_ui_bind_group};
+#[path = "ui_render/batches.rs"]
+mod batches;
+#[path = "ui_render/composite.rs"]
+pub(crate) mod composite;
+#[path = "ui_render/glint.rs"]
+mod glint;
+#[path = "ui_render/model_depth.rs"]
+mod model_depth;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
+#[path = "ui_render/pipeline.rs"]
+mod pipeline;
+#[path = "ui_render/shader.rs"]
+pub(crate) mod shader;
 #[path = "ui_render/uploads.rs"]
 mod uploads;
+use batches::resolved_batches;
+pub use glint::UiGlintSettings;
 use overlay::queue_ui_overlay;
-pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, install_overlay_graph};
+pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_overlay_graph};
+use pipeline::UiPipelineKey;
+use shader::UiViewportUniform;
 
 use crate::ui::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
@@ -66,6 +81,7 @@ struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
     app.init_resource::<UiRenderScene>()
+        .init_resource::<UiGlintSettings>()
         .init_resource::<UiRenderStats>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
@@ -75,32 +91,35 @@ fn install_ui_render(app: &mut App) {
         return;
     }
     let stats = app.world().resource::<UiRenderStats>().clone();
-    app.add_plugins(ExtractResourcePlugin::<UiRenderScene>::default());
-    load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", Shader::from_wgsl);
+    app.add_plugins((
+        ExtractResourcePlugin::<UiRenderScene>::default(),
+        ExtractResourcePlugin::<UiGlintSettings>::default(),
+    ));
+    load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        composite::UI_COMPOSITE_SHADER_HANDLE,
+        "ui_composite.wgsl",
+        Shader::from_wgsl
+    );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
         .init_resource::<UiPipeline>()
+        .init_resource::<composite::UiCompositePipeline>()
         .insert_resource(stats)
         .init_resource::<UiHandCoverage>()
+        .init_resource::<model_depth::UiModelDepths>()
         .add_systems(RenderStartup, init_ui_gpu)
         .add_systems(
             Render,
             (
                 prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+                composite::prepare_ui_layers.in_set(RenderSystems::PrepareResources),
                 prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_ui_overlay.in_set(RenderSystems::Queue),
             ),
         );
     install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct UiViewportUniform {
-    viewport_size: [f32; 2],
-    /// Seconds since the UI renderer started; animates the item glint.
-    time_seconds: f32,
-    _padding: f32,
 }
 
 #[derive(Resource)]
@@ -118,6 +137,8 @@ pub(crate) struct UiGpu {
     started: std::time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
+    /// `bilinear` sprites sample through this instead.
+    linear_sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     // Admission watermark survives every draw rejection, even after payload drop.
@@ -127,6 +148,16 @@ pub(crate) struct UiGpu {
     uploads: uploads::BufferUploads,
     view_pipelines:
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
+    /// Each view's UI-layer composite pipeline.
+    composite_pipelines: std::collections::BTreeMap<Entity, CachedRenderPipelineId>,
+    world_view_pipelines: std::collections::BTreeMap<
+        (Entity, bool, bool),
+        (CachedRenderPipelineId, CachedRenderPipelineId),
+    >,
+    model_view_pipelines: std::collections::BTreeMap<
+        (Entity, bool, bool),
+        (CachedRenderPipelineId, CachedRenderPipelineId),
+    >,
 }
 
 fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: SystemChangeTick) {
@@ -135,20 +166,24 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         contents: bytemuck::bytes_of(&UiViewportUniform {
             viewport_size: [1.0, 1.0],
             time_seconds: 0.0,
-            _padding: 0.0,
+            glint_strength: UiGlintSettings::default().strength,
         }),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("shared nearest UI texture sampler"),
-        address_mode_u: AddressMode::ClampToEdge,
-        address_mode_v: AddressMode::ClampToEdge,
-        address_mode_w: AddressMode::ClampToEdge,
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
-        ..default()
-    });
+    let sampler_with = |label, filter| {
+        render_device.create_sampler(&SamplerDescriptor {
+            label: Some(label),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: filter,
+            min_filter: filter,
+            mipmap_filter: FilterMode::Nearest,
+            ..default()
+        })
+    };
+    let sampler = sampler_with("shared nearest UI texture sampler", FilterMode::Nearest);
+    let linear_sampler = sampler_with("shared bilinear UI texture sampler", FilterMode::Linear);
     commands.insert_resource(UiGpu {
         device: render_device.wgpu_device().clone(),
         device_observation: DeviceObservation::new(tick.this_run()),
@@ -163,6 +198,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
         sampler,
+        linear_sampler,
         batches: Arc::from([]),
         accepted_revision: None,
         last_admitted_revision: None,
@@ -170,6 +206,9 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         index_count: 0,
         uploads: uploads::BufferUploads::default(),
         view_pipelines: std::collections::BTreeMap::new(),
+        composite_pipelines: std::collections::BTreeMap::new(),
+        world_view_pipelines: std::collections::BTreeMap::new(),
+        model_view_pipelines: std::collections::BTreeMap::new(),
     });
 }
 
@@ -180,7 +219,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStats>,
     tick: SystemChangeTick,
-    coverage: Option<Res<UiHandCoverage>>,
+    (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
@@ -211,16 +250,14 @@ pub(crate) fn prepare_ui_resources(
     // Written every frame: the glint animates without a new UI revision.
     let viewport = UiViewportUniform {
         viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
-        time_seconds: gpu.started.elapsed().as_secs_f32() % 3600.0,
-        _padding: 0.0,
+        time_seconds: glint
+            .as_deref()
+            .copied()
+            .unwrap_or_default()
+            .animation_seconds(gpu.started.elapsed().as_secs_f32()),
+        glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
     render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
-    if let Err(reason) = input.validate() {
-        gpu.accepted_revision = None;
-        gpu.batches = Arc::from([]);
-        record_render_rejection(&stats, input.revision, reason);
-        return;
-    }
     if let Some(previous) = gpu.last_admitted_revision {
         let reason = if input.revision < previous {
             Some(UiRenderRejectReason::StaleRevision {
@@ -256,6 +293,12 @@ pub(crate) fn prepare_ui_resources(
                 UiRenderRejectReason::InvalidTextureExtent,
             );
         }
+        return;
+    }
+    if let Err(reason) = input.validate() {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        record_render_rejection(&stats, input.revision, reason);
         return;
     }
     if let Err(reason) = gpu
@@ -421,6 +464,12 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
         ],
     )
 }
@@ -470,24 +519,34 @@ pub(crate) fn ui_pipeline_descriptor(
                 step_mode: VertexStepMode::Vertex,
                 attributes: vec![
                     VertexAttribute {
-                        format: VertexFormat::Float32x2,
-                        offset: 0,
+                        format: VertexFormat::Float32x4,
+                        offset: std::mem::offset_of!(UiRenderVertex, position) as u64,
                         shader_location: 0,
                     },
                     VertexAttribute {
-                        format: VertexFormat::Uint16x2,
-                        offset: 8,
+                        format: VertexFormat::Float32x2,
+                        offset: std::mem::offset_of!(UiRenderVertex, uv) as u64,
                         shader_location: 1,
                     },
                     VertexAttribute {
                         format: VertexFormat::Unorm8x4,
-                        offset: 12,
+                        offset: std::mem::offset_of!(UiRenderVertex, color) as u64,
                         shader_location: 2,
                     },
                     VertexAttribute {
                         format: VertexFormat::Uint32,
-                        offset: 16,
+                        offset: std::mem::offset_of!(UiRenderVertex, style_flags) as u64,
                         shader_location: 3,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32,
+                        offset: std::mem::offset_of!(UiRenderVertex, alpha_cutoff) as u64,
+                        shader_location: 4,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32,
+                        offset: std::mem::offset_of!(UiRenderVertex, model_light) as u64,
+                        shader_location: 5,
                     },
                 ],
             }],
@@ -508,334 +567,9 @@ pub(crate) fn ui_pipeline_descriptor(
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
-struct UiPipelineKey {
-    msaa: Msaa,
-    hdr: bool,
-    invert_blend: bool,
-}
-
-impl Specializer<RenderPipeline> for UiPipelineSpecializer {
-    type Key = UiPipelineKey;
-
-    fn specialize(
-        &self,
-        key: Self::Key,
-        descriptor: &mut RenderPipelineDescriptor,
-    ) -> Result<Canonical<Self::Key>, BevyError> {
-        descriptor.multisample.count = key.msaa.samples();
-        let target = descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap();
-        target.format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
-        } else {
-            TextureFormat::bevy_default()
-        };
-        target.blend = Some(if key.invert_blend {
-            ui_invert_blend_state()
-        } else {
-            ui_alpha_blend_state()
-        });
-        Ok(key)
-    }
-}
-
-fn prepare_ui_bind_group(
-    render_device: Res<RenderDevice>,
-    pipeline_cache: Res<PipelineCache>,
-    pipeline: Res<UiPipeline>,
-    mut gpu: ResMut<UiGpu>,
-) {
-    if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
-        return;
-    }
-    let viewport = gpu.viewport_buffer.clone();
-    let sampler = gpu.sampler.clone();
-    for bucket in &mut gpu.textures.buckets {
-        if bucket.bind_group.is_some() {
-            continue;
-        }
-        bucket.bind_group = Some(render_device.create_bind_group(
-            "shared retained UI bind group",
-            &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: viewport.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&bucket.view),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(&sampler),
-                },
-            ],
-        ));
-    }
-}
-
-/// Resolve the entire ordered frame before emitting any batch command.
-fn resolved_batches<'a>(
-    accepted_revision: Option<u64>,
-    batches: &'a [UiRenderBatch],
-    locations: &'a [crate::UiTextureLocation],
-    buckets: &[crate::UiTextureBucket],
-) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, crate::UiTextureLocation)>> {
-    if accepted_revision.is_none()
-        || batches.iter().any(|batch| {
-            locations
-                .get(batch.texture_page as usize)
-                .is_none_or(|location| {
-                    buckets
-                        .get(location.bucket)
-                        .is_none_or(|bucket| location.layer >= bucket.layers)
-                })
-        })
-    {
-        return None;
-    }
-    Some(
-        batches
-            .iter()
-            .enumerate()
-            .map(move |(index, batch)| (index, batch, locations[batch.texture_page as usize])),
-    )
-}
-
 #[cfg(test)]
-mod ordered_command_tests {
-    use super::*;
-
-    fn binding_world() -> World {
-        use bevy::ecs::system::RunSystemOnce;
-        use bevy::render::renderer::{RenderAdapter, WgpuWrapper};
-        use std::{
-            future::Future,
-            pin::pin,
-            task::{Context, Poll, Waker},
-        };
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::NOOP,
-            backend_options: wgpu::BackendOptions {
-                noop: wgpu::NoopBackendOptions { enable: true },
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-        let mut context = Context::from_waker(Waker::noop());
-        let Poll::Ready(Ok(adapter)) =
-            pin!(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .poll(&mut context)
-        else {
-            panic!("noop adapter must be immediate");
-        };
-        let Poll::Ready(Ok((device, queue))) =
-            pin!(adapter.request_device(&wgpu::DeviceDescriptor::default())).poll(&mut context)
-        else {
-            panic!("noop device must be immediate");
-        };
-        let device = RenderDevice::from(device);
-        let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
-        let mut world = World::new();
-        world.insert_resource(PipelineCache::new(device.clone(), adapter, true));
-        world.insert_resource(device);
-        world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
-        world.init_resource::<UiPipeline>();
-        world.init_resource::<UiRenderStats>();
-        world.init_resource::<UiRenderScene>();
-        world.run_system_once(init_ui_gpu).unwrap();
-        world
-    }
-
-    #[test]
-    fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources() {
-        use bevy::ecs::system::RunSystemOnce;
-        let mut world = binding_world();
-        let input = UiRenderInput {
-            revision: 1,
-            viewport_size: [64, 64],
-            safe_area: [0; 4],
-            vertices: Arc::from([]),
-            indices: Arc::from([]),
-            batches: Arc::from([]),
-            textures: Arc::new(
-                crate::UiTextureCatalog::new(
-                    vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
-                    1,
-                )
-                .unwrap(),
-            ),
-        };
-        let mut scene = UiRenderScene::default();
-        scene
-            .publish(input.clone(), world.resource::<UiRenderStats>())
-            .unwrap();
-        world.insert_resource(scene.clone());
-        world.run_system_once(prepare_ui_resources).unwrap();
-        assert_eq!(world.resource::<UiGpu>().textures.buckets.len(), 1);
-        let mut invalid = input.clone();
-        invalid.indices = Arc::from([u32::MAX]);
-        scene.input = Some(Arc::new(invalid));
-        world.insert_resource(scene.clone());
-        world.run_system_once(prepare_ui_resources).unwrap();
-        world.run_system_once(prepare_ui_bind_group).unwrap();
-        assert!(
-            world.resource::<UiGpu>().textures.buckets[0]
-                .bind_group
-                .is_none()
-        );
-        assert!(world.resource::<UiGpu>().accepted_revision.is_none());
-        scene.input = None;
-        world.insert_resource(scene);
-        world.run_system_once(prepare_ui_resources).unwrap();
-        world.run_system_once(prepare_ui_bind_group).unwrap();
-        assert!(
-            world.resource::<UiGpu>().textures.buckets[0]
-                .bind_group
-                .is_none()
-        );
-        // Actual initialization drops withheld resident resources and resets the
-        // publication lifetime. Re-admit through the real publication path.
-        world.run_system_once(init_ui_gpu).unwrap();
-        let mut recovered = UiRenderScene::default();
-        recovered
-            .publish(input, world.resource::<UiRenderStats>())
-            .unwrap();
-        world.insert_resource(recovered);
-        world.run_system_once(prepare_ui_resources).unwrap();
-        world.run_system_once(prepare_ui_bind_group).unwrap();
-        assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(1));
-        assert!(
-            world.resource::<UiGpu>().textures.buckets[0]
-                .bind_group
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
-        use bevy::ecs::system::RunSystemOnce;
-        let mut world = binding_world();
-        let vertex = UiRenderVertex {
-            position: [0.0; 2],
-            uv: [0; 2],
-            color: [255; 4],
-            style_flags: 0,
-        };
-        let mut input = UiRenderInput {
-            revision: 1,
-            viewport_size: [64; 2],
-            safe_area: [0; 4],
-            vertices: Arc::from([vertex; 4]),
-            indices: Arc::from([0, 1, 2, 0, 2, 3]),
-            batches: Arc::from([UiRenderBatch::new(0, UiScissor::new(0, 0, 64, 64), 0, 6, 0)]),
-            textures: Arc::new(
-                crate::UiTextureCatalog::new(
-                    vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
-                    1,
-                )
-                .unwrap(),
-            ),
-        };
-        let mut scene = UiRenderScene::default();
-        for revision in 1..=4 {
-            input.revision = revision;
-            match revision {
-                2 => Arc::make_mut(&mut input.vertices)[1].position[0] = 1.0,
-                3 => input.viewport_size = [128; 2],
-                4 => input.vertices = vec![vertex; 4_000].into(),
-                _ => {}
-            }
-            scene
-                .publish(input.clone(), world.resource::<UiRenderStats>())
-                .unwrap();
-            world.insert_resource(scene.clone());
-            world.run_system_once(prepare_ui_resources).unwrap();
-            let stats = world.resource::<UiRenderStats>().snapshot();
-            assert_eq!(stats.accepted_revision, Some(revision));
-            assert_eq!(
-                stats.uploaded_vertices,
-                [4, 1, 0, 4_000][revision as usize - 1]
-            );
-            assert_eq!(stats.uploaded_indices, if revision == 1 { 6 } else { 0 });
-            assert_eq!(world.resource::<UiGpu>().viewport_size, input.viewport_size);
-        }
-    }
-
-    #[test]
-    fn resolved_commands_keep_bucket_layer_blend_scissor_and_index_order() {
-        let plan =
-            crate::UiTexturePlan::new(&[[1024, 1024], [2048, 2048], [256, 256], [2048, 2048]])
-                .unwrap();
-        let batches = [2, 0, 3, 1, 2]
-            .into_iter()
-            .enumerate()
-            .map(|(index, page)| {
-                UiRenderBatch::new(
-                    page,
-                    UiScissor::new(index as u32, 2, 30, 40),
-                    index as u32 * 6,
-                    6,
-                    if index == 2 { UI_BLEND_INVERT } else { 0 },
-                )
-            })
-            .collect::<Vec<_>>();
-        let trace = resolved_batches(Some(7), &batches, plan.locations(), plan.buckets())
-            .unwrap()
-            .map(|(index, batch, location)| {
-                (
-                    index,
-                    location.bucket,
-                    location.layer,
-                    batch.blend_mode,
-                    batch.scissor,
-                    batch.first_index..batch.first_index + batch.index_count,
-                )
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            trace,
-            vec![
-                (0, 2, 0, 0, UiScissor::new(0, 2, 30, 40), 0..6),
-                (1, 0, 0, 0, UiScissor::new(1, 2, 30, 40), 6..12),
-                (
-                    2,
-                    1,
-                    1,
-                    UI_BLEND_INVERT,
-                    UiScissor::new(2, 2, 30, 40),
-                    12..18
-                ),
-                (3, 1, 0, 0, UiScissor::new(3, 2, 30, 40), 18..24),
-                (4, 2, 0, 0, UiScissor::new(4, 2, 30, 40), 24..30),
-            ]
-        );
-        assert!(
-            resolved_batches(None, &batches, plan.locations(), plan.buckets()).is_none(),
-            "rejected frame emits no commands"
-        );
-        let mut malformed = batches.clone();
-        malformed.last_mut().unwrap().texture_page = 99;
-        assert!(
-            resolved_batches(Some(7), &malformed, plan.locations(), plan.buckets()).is_none(),
-            "invalid late mapping must not emit a partial prefix"
-        );
-        let mut locations = plan.locations().to_vec();
-        locations.push(crate::UiTextureLocation {
-            bucket: 2,
-            layer: 1,
-        });
-        malformed = batches;
-        malformed.last_mut().unwrap().texture_page = 4;
-        assert!(
-            resolved_batches(Some(7), &malformed, &locations, plan.buckets()).is_none(),
-            "late layer outside the actual one-layer bucket emits no prefix"
-        );
-    }
-}
+#[path = "ui_render/ordered_command_tests.rs"]
+mod ordered_command_tests;
 
 #[cfg(test)]
 #[allow(dead_code)]
@@ -967,3 +701,7 @@ impl Default for UiRenderHarness {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "ui_render/retained_tests.rs"]
+mod retained_tests;

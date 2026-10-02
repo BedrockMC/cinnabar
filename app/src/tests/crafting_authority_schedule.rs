@@ -1,4 +1,7 @@
 //! Actual inventory ingress, world reconcile and committed authority drain witnesses.
+#[path = "latency_fences.rs"]
+mod latency_fences;
+
 use crate::{
     acceptance::{AcceptanceRun, model_witness::ModelWitnessFileSource},
     camera::CameraSettingsAuthority,
@@ -575,8 +578,9 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
         .unwrap()
         .commit(2)
         .unwrap();
-    // CommitOnly admission synchronously applies the now-ready prefix. The
-    // world budget is released here, while the craft observer's fence is stale.
+    // CommitOnly admission starts the now-ready prefix, but its cooperative
+    // poll deadline can stop before all successors are committed. The craft
+    // observer's fence is still stale throughout these world-only polls.
     assert!(
         app.world()
             .resource::<ClientWorld>()
@@ -586,20 +590,25 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
             .remaining_admission_capacity()
             > 0
     );
-    assert_eq!(
-        app.world()
+    // Each ready lane guarantees progress per poll; there are only 63 retained
+    // successors. Do not run app.update here: that would consume crafting's
+    // queued observations and erase the bounded-retention scenario under test.
+    for _ in 3..=65 {
+        if app
+            .world()
             .resource::<ClientWorld>()
             .stream
             .as_ref()
             .unwrap()
-            .inventory_committed_through(),
-        Some(65)
-    );
-    // Run the real world poll without synchronizing the craft fence. This is a composed-system
-    // retention witness, not an assertion about whole-frame scheduler interleaving.
-    app.world_mut()
-        .run_system_once(reconcile_world_stream_before_physics)
-        .unwrap();
+            .inventory_committed_through()
+            == Some(65)
+        {
+            break;
+        }
+        app.world_mut()
+            .run_system_once(reconcile_world_stream_before_physics)
+            .unwrap();
+    }
     assert!(
         app.world()
             .resource::<ClientWorld>()
@@ -974,9 +983,10 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
         assert_eq!(ledger.begin_click(0), Ok(-3));
         let mut encoded = bytes::BytesMut::new();
         ledger
-            .pending_packet()
+            .pending_batch()
             .unwrap()
             .unwrap()
+            .0
             .encode_bytes_mut(&mut encoded)
             .unwrap();
         let player = ledger.displayed_stack(0).unwrap().count;
@@ -1032,5 +1042,5 @@ fn output_click_crafts_the_unique_recipe_through_the_ledger() {
     assert_eq!(ledger.pending_request_id(), Some(request));
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.count), (7, 4));
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 }

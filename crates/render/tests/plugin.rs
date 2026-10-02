@@ -1,3 +1,6 @@
+#[path = "support/shader_source.rs"]
+mod shader_source;
+
 use std::{
     fs,
     mem::size_of,
@@ -79,30 +82,9 @@ use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey}
 
 const AIR: u32 = 12_530;
 
+/// Resolve the vanilla shader for standalone validation.
 fn standalone_world_shader(source: &str) -> String {
-    let lighting = include_str!("../src/lighting.wgsl").replacen(
-        "#define_import_path cinnabar::lighting",
-        "",
-        1,
-    );
-    let biome_tint = meshing::biome_lattice::shader_source(include_str!("../src/biome_tint.wgsl"))
-        .replacen("#define_import_path cinnabar::biome_tint", "", 1);
-    source
-        .replacen(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-            1,
-        )
-        .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
-            &lighting,
-            1,
-        )
-        .replacen(
-            "#import cinnabar::biome_tint::blended_biome_tint",
-            &biome_tint,
-            1,
-        )
+    shader_source::standalone(source, &[])
 }
 
 fn entry_points_use_binding(module: &naga::Module, stage: naga::ShaderStage, binding: u32) -> bool {
@@ -242,7 +224,8 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 Material {
                     texture: TextureRef::DIAGNOSTIC,
                     flags: 0,
-                    animation: NO_ANIMATION
+                    animation: NO_ANIMATION,
+                    ..assets::Material::unvaried()
                 };
                 14
             ]

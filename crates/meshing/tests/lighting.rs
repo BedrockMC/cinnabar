@@ -161,6 +161,7 @@ fn runtime_assets_with_model_geometry(
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         light_properties: light_properties.into_boxed_slice(),
@@ -273,11 +274,15 @@ fn sampler_drives_block_and_sky_without_overwriting_ao() {
     );
 
     for sample in lighting.samples() {
-        assert_eq!(sample & 0x000f, 8, "block light averages independently");
+        assert_eq!(
+            sample & 0x000f,
+            10,
+            "block light takes the unobstructed channel maximum"
+        );
         assert_eq!(
             (sample >> 4) & 0x000f,
-            6,
-            "sky light averages independently"
+            12,
+            "sky light takes its own channel maximum"
         );
         assert_eq!((sample >> 8) & 0x0003, 3, "AO remains geometric");
         assert_eq!(sample & 0xfc00, 0, "reserved bits remain zero");
@@ -332,7 +337,7 @@ fn template_quad_lighting_order() {
         0,
     )
     .expect("known template");
-    let expected = [Face::PositiveY, Face::PositiveX, Face::NegativeZ].map(|face| {
+    let mut expected = [Face::PositiveY, Face::PositiveX, Face::NegativeZ].map(|face| {
         bake_quad_lighting(
             &classifier,
             &assets,
@@ -344,6 +349,8 @@ fn template_quad_lighting_order() {
         )
     });
 
+    // The negative-Z fixture is inset at Z=1 and therefore uses the block plane.
+    expected[2] = PackedQuadLighting::new([0x01f0; 4]);
     assert_eq!(actual, expected);
 }
 
@@ -476,4 +483,100 @@ fn dependency_mask_is_palette_native_and_asset_aware() {
             .iter()
             .all(|storage| storage.is_uniform())
     );
+}
+
+#[test]
+fn corner_light_uses_independent_channel_maxima() {
+    let assets = runtime_assets();
+    let center = blocks(&[]);
+    let sampler = |[x, _, z]: [i32; 3]| {
+        MeshLightSample::try_new(if x == 9 { 15 } else { 0 }, if z == 9 { 15 } else { 0 }).unwrap()
+    };
+    let baked = bake_quad_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        [8, 8, 8],
+        Face::PositiveY,
+        [[256, 256, 256]; 4],
+    );
+    assert_eq!(
+        baked.samples(),
+        [0x00ff; 4],
+        "Lens 1.26.50.26 0x69e6360: MAX per nibble"
+    );
+}
+
+#[test]
+fn two_solid_sides_exclude_the_bright_diagonal() {
+    let (assets, center) = fixture();
+    let sampler = |p| MeshLightSample::try_new(if p == [9, 9, 9] { 15 } else { 2 }, 0).unwrap();
+    let baked = bake_quad_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        [8, 8, 8],
+        Face::PositiveY,
+        [[256, 256, 256]; 4],
+    );
+    assert!(
+        baked.samples().into_iter().all(|sample| sample & 15 == 2),
+        "Lens 0x69e6360: the diagonal is replaced by a side"
+    );
+}
+
+#[test]
+fn cube_only_mesh_depends_on_diagonal_ao() {
+    let assets = runtime_assets();
+    assert!(
+        mesh_dependency_mask(
+            &BlockClassifier::new(AIR),
+            &assets,
+            NetworkIdMode::Sequential,
+            &blocks(&[[8, 8, 8]])
+        )
+        .diagonal_ao
+    );
+}
+
+#[test]
+fn inset_face_samples_its_own_plane() {
+    let center = blocks(&[]);
+    let sampler =
+        |[_, y, _]: [i32; 3]| MeshLightSample::try_new(if y == 8 { 11 } else { 0 }, 0).unwrap();
+    for height in [1, 128, 255] {
+        let assets = runtime_assets_with_model_geometry(
+            vec![ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            }],
+            vec![ModelQuad {
+                positions: [[256, height, 256]; 4],
+                uvs: [[0; 2]; 4],
+                material: 0,
+                flags: 2,
+            }],
+        );
+        let baked = bake_template_lighting_with_sampler(
+            &BlockClassifier::new(AIR),
+            &assets,
+            NetworkIdMode::Sequential,
+            &MeshNeighbourhood::new(&center),
+            &sampler,
+            [8, 8, 8],
+            0,
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            baked[0].samples(),
+            [11; 4],
+            "inset y={height}; Lens 0x6a07d80"
+        );
+    }
 }

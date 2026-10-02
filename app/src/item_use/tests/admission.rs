@@ -1,5 +1,6 @@
 use super::*;
 
+/// Exercises admission through the same bounded queue used by the client.
 fn send_use(
     runtime: &mut ItemUseRuntime,
     swings: &mut SwingTracker,

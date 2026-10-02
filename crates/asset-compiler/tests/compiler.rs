@@ -72,3 +72,6 @@ mod architecture;
 
 #[path = "compiler/versioned_triple.rs"]
 mod versioned_triple;
+
+#[path = "compiler/variations.rs"]
+mod variations;

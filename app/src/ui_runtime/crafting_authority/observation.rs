@@ -106,6 +106,31 @@ impl Source {
                     None
                 }
             }
+            InventoryAuthorityEvent::Inventory(event @ InventoryEvent::Transaction(_)) => {
+                let mut mask = 0;
+                let mut slots = [0; 4];
+                for slot in event.slot_updates() {
+                    if let Some(index) = super::projection::transaction_cell_index(slot.identity) {
+                        mask |= 1 << index;
+                        if let Some(position) = slots.get_mut(index) {
+                            *position = slot.identity.slot;
+                        }
+                    }
+                }
+                (mask != 0).then(|| {
+                    Self::new(
+                        3,
+                        ContainerIdentity {
+                            window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                            slot_type: Some(0),
+                            dynamic_id: None,
+                        },
+                        slots,
+                        mask,
+                        sequence,
+                    )
+                })
+            }
             _ => None,
         }
     }

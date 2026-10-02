@@ -198,6 +198,7 @@ impl<'a> HudLayout<'a> {
                 baseline_64: super::TEXT_BASELINE_64,
                 scale: UiScale::default(),
                 font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         let text_line_logical = (probe.size_64()[1] as f32 / 64.0).max(1.0);
@@ -213,14 +214,15 @@ impl<'a> HudLayout<'a> {
         })
     }
 
-    /// The Java-styled surfaces outside the engine HUD: inventory screens, the
-    /// sleep overlay, and the first-person hands.
+    /// The Java-styled surfaces outside the engine HUD: the legacy inventory
+    /// screens for a container scene, else the sleep overlay and first-person hands.
     pub(super) fn append(
         &mut self,
         runtime: &UiRuntime,
         frame: &HudFrame,
+        container: bool,
     ) -> Result<(), UiPresentationError> {
-        if runtime.inventory_open() {
+        if container {
             self.inventory_screen(runtime, frame)?;
             return Ok(());
         }
@@ -281,6 +283,7 @@ impl<'a> HudLayout<'a> {
                     baseline_64: super::TEXT_BASELINE_64,
                     scale,
                     font: self.font,
+                    wrap: Default::default(),
                 })
                 .map_err(UiPresentationError::Text)?;
             let size = [
@@ -296,8 +299,9 @@ impl<'a> HudLayout<'a> {
 
     fn text_scale(&self, gui_px: f32) -> UiScale {
         let target_logical = gui_px * self.geometry.scale;
-        let ratio = (target_logical / self.text_line_logical).clamp(0.5, 4.0);
-        UiScale::new(ratio).unwrap_or_default()
+        let ratio = (target_logical / self.text_line_logical)
+            .clamp(UiScale::DISPLAY_MIN, UiScale::DISPLAY_MAX);
+        UiScale::new_display(ratio).unwrap_or_default()
     }
 
     fn sprite_gui(

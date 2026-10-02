@@ -11,10 +11,11 @@ pub(crate) type PackEquipmentLayer = (
 
 /// A pack's attachable bindings with its own entity catalog and artwork locations.
 pub(crate) struct PackEquipment {
-    assets: Arc<RuntimeEntityAssets>,
+    pub(super) assets: Arc<RuntimeEntityAssets>,
     catalog: Arc<RuntimeEquipmentCatalog>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
+    pub(super) attachables: client_world::AttachablesRuntime,
 }
 
 impl EquipmentRuntime {
@@ -60,7 +61,10 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub(crate) fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
+        self.attachable_meshes
+            .retain(|(from_pack, _, _), _| !from_pack);
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
+            attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             texture_locations: catalog
                 .textures()
                 .iter()

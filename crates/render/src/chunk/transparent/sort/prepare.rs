@@ -20,11 +20,13 @@ fn quantize_camera_component(value: f32, quantum: f32) -> f32 {
     (value / quantum).round() * quantum
 }
 
-fn quantized_camera_position(position: [f32; 3]) -> [f32; 3] {
+/// Shares the sort cache quantization with invisible resource candidates.
+pub(in crate::chunk) fn quantized_camera_position(position: [f32; 3]) -> [f32; 3] {
     position.map(|value| quantize_camera_component(value, CAMERA_POSITION_SORT_QUANTUM))
 }
 
-fn quantized_camera_orientation(orientation: [f32; 4]) -> [f32; 4] {
+/// Shares the sort cache quantization with invisible resource candidates.
+pub(in crate::chunk) fn quantized_camera_orientation(orientation: [f32; 4]) -> [f32; 4] {
     orientation.map(|value| quantize_camera_component(value, CAMERA_ORIENTATION_SORT_QUANTUM))
 }
 

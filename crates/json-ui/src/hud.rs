@@ -264,7 +264,14 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
 }
 
 fn slot_item(slot: &HudSlot) -> CollectionItem {
-    let mut item = CollectionItem::default()
+    CollectionItem::default()
+        // Retained bindings keep an unanswered value. Null explicitly clears
+        // our optional icon reference; it is not a native numeric item sentinel.
+        .with(
+            "#item_renderer_data",
+            slot.icon
+                .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(
             "#inventory_stack_count",
@@ -284,12 +291,11 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_durability_current_amount",
             Scalar::Num(slot.durability.unwrap_or(1.0).clamp(0.0, 1.0) * 1000.0),
         )
-        .with("#item_storage_visible", Scalar::Bool(false));
-    if let Some(icon) = slot.icon {
-        item = item.with("#item_renderer_data", Scalar::Num(icon as f64));
-    }
-    item
+        .with("#item_storage_visible", Scalar::Bool(false))
 }
+
+#[cfg(test)]
+mod tests;
 
 fn titles(data: &mut DataSource, model: &HudModel) {
     if let Some(title) = &model.title {
@@ -382,6 +388,19 @@ fn sidebar(data: &mut DataSource, sidebar: Option<&Sidebar>) {
     );
 }
 
+/// A `#rrggbb` tint as the `[r, g, b, a]` array `bindColor` answers; other
+/// text stays text.
+fn color_array(color: &str) -> Scalar {
+    match crate::emit::color_value(&Value::String(color.to_owned())) {
+        Some(rgba) => Scalar::Json(Value::Array(
+            rgba.iter()
+                .map(|channel| Value::from(f64::from(*channel) / 255.0))
+                .collect(),
+        )),
+        None => Scalar::Text(color.to_owned()),
+    }
+}
+
 fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
     data.set_grid_dimensions("#boss_grid_dimension", [1, bars.len() as u32]);
     data.set_collection(
@@ -395,7 +414,7 @@ fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
                         "#progress_percentage",
                         Scalar::Num(1.0 - bar.progress.clamp(0.0, 1.0)),
                     )
-                    .with("#bar_color", Scalar::Text(bar.color.clone()))
+                    .with("#bar_color", color_array(&bar.color))
                     .with("#bar_notches", Scalar::Num(f64::from(bar.notches)))
             })
             .collect(),

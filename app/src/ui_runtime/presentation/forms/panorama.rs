@@ -17,7 +17,8 @@ use image::{ImageFormat, ImageReader, Limits};
 use render::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView};
 
 use super::super::UiPresentationRuntime;
-use crate::menu::{MenuRuntime, MenuScreen};
+use crate::menu::MenuRuntime;
+use crate::ui_runtime::UiRuntime;
 
 // The reconstruction keeps these tuning values as unnamed data; they follow the
 // title-screen cube convention and need native measurement.
@@ -47,38 +48,46 @@ const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
 /// behind launcher screens (never behind the in-game pause or death screens).
 pub(crate) fn drive_menu_panorama(
     presentation: Res<UiPresentationRuntime>,
+    runtime: Option<Res<UiRuntime>>,
     menu: Option<Res<MenuRuntime>>,
     scene: Option<ResMut<PanoramaScene>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut state: Local<Option<(Instant, [f32; 4])>>,
+    mut state: Local<Option<(Instant, f32, [f32; 4])>>,
 ) {
     let Some(mut scene) = scene else {
         return;
     };
+    scene.set_game_visible(crate::screen_policy::renders_game(
+        runtime.as_deref(),
+        menu.as_deref(),
+        Some(&presentation),
+    ));
     let Some(engine) = presentation.form_presentation.engine.as_deref() else {
         scene.show(None);
         return;
     };
     if state.is_none() {
         let assets = engine.assets();
-        *state = Some((Instant::now(), overlay_tint(assets)));
+        *state = Some((Instant::now(), 0.0, overlay_tint(assets)));
         scene.set_faces(launcher_faces(assets).map(Arc::new));
     }
-    let shown = menu.as_ref().is_some_and(|menu| {
-        menu.is_visible() && !matches!(menu.screen(), MenuScreen::Pause | MenuScreen::Death)
-    });
+    let shown = menu.as_deref().is_some_and(MenuRuntime::uses_panorama);
     let aspect = windows
         .iter()
         .next()
         .map(|window| window.width() / window.height().max(1.0))
         .unwrap_or(16.0 / 9.0);
-    let Some((epoch, tint)) = *state else {
+    let Some((last, seconds, tint)) = state.as_mut() else {
         return;
     };
+    let now = Instant::now();
+    let speed = menu.as_ref().map_or(1.0, |menu| {
+        menu.settings_snapshot().0.value("panorama_speed") as f32 / 100.0
+    });
+    *seconds += now.duration_since(*last).as_secs_f32() * speed;
+    *last = now;
     let has_faces = scene.has_faces();
-    scene.show(
-        (shown && has_faces).then(|| launcher_view(epoch.elapsed().as_secs_f32(), aspect, tint)),
-    );
+    scene.show((shown && has_faces).then(|| launcher_view(*seconds, aspect, *tint)));
 }
 
 /// The title-screen camera `seconds` after the panorama first showed.

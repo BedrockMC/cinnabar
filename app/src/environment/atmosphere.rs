@@ -7,7 +7,7 @@ use bevy::{
     time::Real,
 };
 use meshing::CameraMedium;
-use render::{AtmosphereFrame, SkyKind, underwater_fog_fraction};
+use render::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
 
 use crate::ui_runtime::UiRuntime;
@@ -64,6 +64,7 @@ fn derive_base_frame(
 }
 
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn derive_profiled_atmosphere_frame(
     clock: WorldClock,
     weather: WeatherState,
@@ -72,6 +73,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     context: &EnvironmentContext,
     biome_profiles: &[BiomeVisualProfile],
     fog_profiles: &[FogProfile],
+    transition_seconds: Option<f32>,
 ) -> (AtmosphereFrame, EnvironmentProfileRoute) {
     let base = derive_base_frame(clock, weather, elapsed_seconds, medium, context);
     let profile = context
@@ -95,9 +97,30 @@ pub(crate) fn derive_profiled_atmosphere_frame(
             .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
             .ok()
             .map(|index| &fog_profiles[index]);
-        fog.distance(requested)
-            .or_else(|| default_fog.and_then(|fallback| fallback.distance(requested)))?
-            .resolve(render_distance)
+        let samples: Vec<_> = context
+            .fog_biomes
+            .iter()
+            .map(|id| {
+                let profile = find_biome_profile(biome_profiles, id.as_deref()?)?;
+                fog_profiles
+                    .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
+                    .ok()
+                    .map(|index| &fog_profiles[index])
+            })
+            .collect();
+        let camera = [Some(fog)];
+        let layer = if samples.is_empty() {
+            &camera[..]
+        } else {
+            &samples[..]
+        };
+        assets::resolve_fog_layers(
+            &[layer],
+            default_fog,
+            requested,
+            render_distance,
+            transition_seconds.filter(|_| requested == FogMedium::Water),
+        )
     };
     let profiled = base.with_environment_profile(profile.sky_rgb8, None);
     let frame = match medium {
@@ -121,6 +144,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_atmosphere_frame(
     clock: Res<WorldClock>,
+    time_override: Option<Res<super::VisualTimeOverride>>,
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
@@ -129,34 +153,84 @@ pub(crate) fn update_atmosphere_frame(
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
     vision: Res<crate::camera::VisionEffects>,
-    outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
+    outputs: (
+        ResMut<AtmosphereFrame>,
+        ResMut<EnvironmentProfileRoute>,
+        ResMut<render::WorldLighting>,
+    ),
+    settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
+    preferences: (
+        Option<Res<crate::menu::MenuRuntime>>,
+        Option<ResMut<render::CloudVisibility>>,
+    ),
 ) {
-    let (mut frame, mut route) = outputs;
+    let clock = time_override
+        .as_ref()
+        .map_or(*clock, |value| value.rendering_clock(*clock));
+    let (menu, clouds) = preferences;
+    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    if let Some(mut clouds) = clouds {
+        clouds.0 = options
+            .as_ref()
+            .is_none_or(|options| options.value("render_clouds") != 0);
+    }
+    let darkness_scale = options
+        .as_ref()
+        .map_or(1.0, |options| options.value("darkness") as f32 / 100.0);
+    let (mut frame, mut route, mut lighting) = outputs;
     let elapsed = time.elapsed_secs_f64();
     let shown = display.advance(*weather, elapsed);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
+    let submerged = display.submerged_seconds(medium.0);
     let (next_frame, next_route) = match atmosphere_assets.runtime() {
         Some(assets) => derive_profiled_atmosphere_frame(
-            *clock,
+            clock,
             shown,
             elapsed,
             medium.0,
             &context,
             assets.biome_profiles(),
             assets.fog_profiles(),
+            Some(submerged),
         ),
         None => (
-            derive_base_frame(*clock, shown, elapsed, medium.0, &context),
+            derive_base_frame(clock, shown, elapsed, medium.0, &context),
             EnvironmentProfileRoute::default(),
         ),
     };
-    let submerged = display.submerged_seconds(medium.0);
     let next_frame = next_frame
-        .with_underwater_fog_fraction(underwater_fog_fraction(submerged))
         .with_lightning_flash(flash.level(elapsed))
-        .with_vision_effects(vision.blindness, vision.darkness, vision.night_vision);
+        .with_vision_effects(
+            vision.blindness,
+            vision.darkness * darkness_scale,
+            vision.night_vision,
+        );
     *frame = apply_boss_environment(next_frame, medium.0, state);
+    let mut sunrise = frame.sunrise_band();
+    for c in &mut sunrise[..3] {
+        *c = if *c <= 0.0031308 {
+            *c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
+    }
+    lighting.0 = render::LightmapInputs {
+        sky_darken: frame.daylight(),
+        sunrise,
+        lightning: frame.lightning_flash() > 0.0,
+        brightness: settings.user_settings_update().1.video.brightness,
+        night_vision: vision.night_vision,
+        darkness: vision.darkness * darkness_scale,
+        darkness_pulse: render::darkness_pulse(
+            visual_world_time(clock, elapsed) as f32,
+            0.0,
+            vision.darkness * darkness_scale,
+            vision.darkness * darkness_scale,
+            0.45,
+        ),
+        ..Default::default()
+    };
     *route = next_route;
 }
 

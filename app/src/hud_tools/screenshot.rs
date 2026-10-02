@@ -31,7 +31,12 @@ pub(super) fn configure(app: &mut App, dir: PathBuf) {
         sender,
         receiver,
     })
-    .add_systems(Update, (capture_on_key, report_saved).chain());
+    .add_systems(
+        Update,
+        (capture_on_key, report_saved)
+            .chain()
+            .before(crate::app::ClientFrameSet::UiPreparation),
+    );
     if let Some(path) = std::env::var_os("CINNABAR_CAPTURE_PATH") {
         let frames = std::env::var("CINNABAR_CAPTURE_AFTER_FRAMES")
             .ok()
@@ -86,11 +91,20 @@ fn capture_from_env(
 }
 
 fn capture_on_key(
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     channel: Res<ScreenshotChannel>,
     mut commands: Commands,
 ) {
-    if !keys.just_pressed(KeyCode::F2) {
+    if menu.as_ref().is_some_and(|menu| menu.is_visible())
+        || !crate::menu::settings_options::binding_pressed(
+            menu.as_deref(),
+            "key.screenshot",
+            &keys,
+            &mouse,
+        )
+    {
         return;
     }
     let path = unique_path(&channel.dir, SystemTime::now());

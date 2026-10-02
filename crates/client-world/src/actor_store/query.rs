@@ -16,6 +16,7 @@ impl ActorStore {
         };
         self.players
             .get(uuid)
+            .or_else(|| self.unlisted_players.get(uuid))
             .filter(|profile| profile.unique_id == actor.unique_id)
     }
 
@@ -31,6 +32,20 @@ impl ActorStore {
                 };
                 std::sync::Arc::clone(name)
             }
+        };
+        (!name.is_empty()).then_some(name)
+    }
+
+    /// Rendered name tags use synced actor data, including overrides on players.
+    /// An explicitly empty tag hides it; a missing player tag uses its spawn name.
+    pub(crate) fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        let actor = self.snapshot_by_unique(unique_id)?;
+        let name = match actor.metadata.get(&NAMETAG_METADATA_KEY) {
+            Some(ActorMetadataValue::String(name)) => std::sync::Arc::clone(name),
+            _ => match &actor.kind {
+                ActorKind::Player { username, .. } => std::sync::Arc::clone(username),
+                ActorKind::Entity { .. } => return None,
+            },
         };
         (!name.is_empty()).then_some(name)
     }

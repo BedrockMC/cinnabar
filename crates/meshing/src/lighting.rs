@@ -124,6 +124,10 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
 pub(crate) trait LightingInputs {
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
+    /// Selects the emitting-block directional shade branch.
+    fn emits(&self, _coordinate: [i32; 3]) -> bool {
+        false
+    }
 }
 
 struct DirectInputs<'a, 'n, S: MeshLightSampler + ?Sized> {
@@ -143,6 +147,23 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
             self.neighbourhood,
             coordinate,
         )
+    }
+
+    fn emits(&self, coordinate: [i32; 3]) -> bool {
+        let Some((chunk, local)) = self.neighbourhood.block_source(coordinate) else {
+            return false;
+        };
+        (0..chunk.storages().len()).any(|layer| {
+            chunk
+                .runtime_id(layer, local[0], local[1], local[2])
+                .is_some_and(|id| {
+                    self.assets
+                        .resolve(self.network_id_mode, id)
+                        .light_properties()
+                        .emission()
+                        > 0
+                })
+        })
     }
 
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
@@ -203,6 +224,10 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, 
         self.occluders[word].get() & bit != 0
     }
 
+    fn emits(&self, coordinate: [i32; 3]) -> bool {
+        self.direct.emits(coordinate)
+    }
+
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
         let Some(index) = halo_index(coordinate) else {
             return self.direct.sample(coordinate);
@@ -246,39 +271,64 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
     let outward = add_normal(block, normal);
     // A face against an opaque neighbour (a vine on a log) takes the light of its own cell,
     // as the neighbour holds none.
-    let light_normal = if own_cell_if_occluded && inputs.occludes(outward) {
+    let axis = normal.iter().position(|&n| n != 0).expect("face axis");
+    let boundary = !own_cell_if_occluded
+        || positions.iter().all(|p| {
+            let position = f32::from(p[axis]) / 256.0;
+            if normal[axis] < 0 {
+                position <= 0.0005
+            } else {
+                position >= 0.9995
+            }
+        });
+    let light_normal = if own_cell_if_occluded && (!boundary || inputs.occludes(outward)) {
         [0; 3]
     } else {
         normal
     };
     let light_origin = add_normal(block, light_normal);
+    let emitter = u16::from(inputs.emits(block)) << 11;
+    let shade_face = u8::from(inputs.occludes(outward));
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
-        let side_a = offset(block, normal, tangent_a, sign_a, None);
-        let side_b = offset(block, normal, tangent_b, sign_b, None);
-        let corner = offset(block, normal, tangent_a, sign_a, Some((tangent_b, sign_b)));
-        let ao = match (
-            inputs.occludes(side_a),
-            inputs.occludes(side_b),
-            inputs.occludes(corner),
-        ) {
-            (true, true, _) => 3,
-            (a, b, c) => u8::from(a) + u8::from(b) + u8::from(c),
+        let side_a = offset(block, light_normal, tangent_a, sign_a, None);
+        let side_b = offset(block, light_normal, tangent_b, sign_b, None);
+        let corner = offset(
+            block,
+            light_normal,
+            tangent_a,
+            sign_a,
+            Some((tangent_b, sign_b)),
+        );
+        let solid_a = inputs.occludes(side_a);
+        let solid_b = inputs.occludes(side_b);
+        let blocked_diagonal = solid_a && solid_b;
+        let ao = if blocked_diagonal {
+            3
+        } else {
+            u8::from(solid_a) + u8::from(solid_b) + u8::from(inputs.occludes(corner))
         };
-        let light = average_light([
-            inputs.sample(light_origin),
-            inputs.sample(offset(block, light_normal, tangent_a, sign_a, None)),
-            inputs.sample(offset(block, light_normal, tangent_b, sign_b, None)),
-            inputs.sample(offset(
+        let light_side_a = offset(block, light_normal, tangent_a, sign_a, None);
+        let light_side_b = offset(block, light_normal, tangent_b, sign_b, None);
+        let light_corner = if blocked_diagonal {
+            light_side_a
+        } else {
+            offset(
                 block,
                 light_normal,
                 tangent_a,
                 sign_a,
                 Some((tangent_b, sign_b)),
-            )),
+            )
+        };
+        let light = maximum_light([
+            inputs.sample(light_origin),
+            inputs.sample(light_side_a),
+            inputs.sample(light_side_b),
+            inputs.sample(light_corner),
         ]);
-        pack_sample(light.block(), light.sky(), ao)
+        pack_sample(light.block(), light.sky(), ao + shade_face) | emitter
     });
     PackedQuadLighting::new(samples)
 }
@@ -386,9 +436,9 @@ pub fn mesh_dependency_mask(
                 continue;
             }
             match assets.resolve(network_id_mode, network_value).kind() {
-                VisualKind::Cross | VisualKind::Model => mask.diagonal_ao = true,
+                VisualKind::Cube | VisualKind::Cross | VisualKind::Model => mask.diagonal_ao = true,
                 VisualKind::Liquid => mask.liquid = true,
-                VisualKind::Diagnostic | VisualKind::Cube | VisualKind::Invisible => {}
+                VisualKind::Diagnostic | VisualKind::Invisible => {}
             }
             if mask.diagonal_ao && mask.liquid {
                 return mask;
@@ -406,22 +456,15 @@ const fn lighting_at(sample: MeshLightSample) -> PackedQuadLighting {
     PackedQuadLighting::new([pack_sample(sample.block(), sample.sky(), 0); 4])
 }
 
-fn average_light(samples: [MeshLightSample; 4]) -> MeshLightSample {
-    let block = samples
-        .iter()
-        .map(|sample| u16::from(sample.block()))
-        .sum::<u16>()
-        / 4;
-    let sky = samples
-        .iter()
-        .map(|sample| u16::from(sample.sky()))
-        .sum::<u16>()
-        / 4;
-    MeshLightSample::try_new(block as u8, sky as u8).expect("averaged nibbles remain bounded")
+/// Vanilla selects the brightest of the four samples independently for each channel.
+fn maximum_light(samples: [MeshLightSample; 4]) -> MeshLightSample {
+    let block = samples.iter().map(|s| s.block()).max().unwrap_or(0);
+    let sky = samples.iter().map(|s| s.sky()).max().unwrap_or(0);
+    MeshLightSample::try_new(block, sky).expect("maximum nibbles remain bounded")
 }
 
 const fn pack_sample(block: u8, sky: u8, ao: u8) -> u16 {
-    debug_assert!(block <= 15 && sky <= 15 && ao <= 3);
+    debug_assert!(block <= 15 && sky <= 15 && ao <= 4);
     (block as u16) | ((sky as u16) << 4) | ((ao as u16) << 8)
 }
 

@@ -7,11 +7,12 @@ use render::UiTexturePage;
 use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview};
 
 /// Dynamic page offset holding the session's server item icons.
-pub(super) const SESSION_ICON_PAGE: usize = 9;
+pub(super) const SESSION_ICON_PAGE: usize = render::UI_SESSION_ICON_PAGE_OFFSET;
 /// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
 pub(super) const GLYPH_PAGES: usize = 8;
+pub(super) const FIRST_GLYPH_PAGE: usize = SESSION_ICON_PAGE + 1;
 /// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
-pub(super) const SERVER_UI_PAGE: usize = 10 + GLYPH_PAGES;
+pub(super) const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
 /// Dynamic pages reserved for server resource-pack UI textures.
 pub(super) const SERVER_UI_PAGES: usize = render::MAX_UI_DYNAMIC_PAGES - SERVER_UI_PAGE;
 
@@ -26,6 +27,8 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.player_preview_source_hash = None;
     runtime.player_preview_pose = None;
     runtime.player_preview_pixels = None;
+    runtime.player_preview_drawn = None;
+    runtime.gui_models.skin = None;
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
     runtime.menu_artwork_set = Default::default();
@@ -37,8 +40,8 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
 /// Rebuilds dynamic pages from immutable base assets so refreshed launcher
 /// artwork cannot accumulate stale layers or discard the HUD carriers.
 pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
-    let width = 256;
-    let height = 256;
+    let width = render::UI_DYNAMIC_PAGE_SIDE;
+    let height = render::UI_DYNAMIC_PAGE_SIDE;
     let layer_bytes = (width * height * 4) as usize;
     let mut rgba8 = if runtime.preview_dirty {
         vec![0; layer_bytes]
@@ -193,11 +196,26 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         runtime.menu_artwork.refs =
             menu_artwork::rebase(&runtime.menu_artwork_loader.relative, art_start as u16);
         runtime.menu_artwork_dirty = false;
+        runtime.refresh_full_res_art();
     }
     let previous = runtime.textures.pages();
-    // The small pages between the preview and the session icons stay reserved.
-    for _ in 0..8 {
-        dynamic.push(runtime.blank_dynamic_page.clone());
+    // Original skin and model source texels use their own dimensions. Neither page contains an
+    // already-projected miniature: geometry is rasterized at the destination's physical size.
+    for offset in 1..SESSION_ICON_PAGE {
+        let page = if offset == super::gui_models::SKIN_PAGE {
+            runtime.gui_models.skin.as_ref()
+        } else if offset >= super::gui_models::MODEL_PAGE {
+            runtime
+                .gui_models
+                .pages
+                .get(offset - super::gui_models::MODEL_PAGE)
+        } else {
+            None
+        };
+        dynamic.push(
+            page.cloned()
+                .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
+        );
     }
     dynamic.push(
         runtime
