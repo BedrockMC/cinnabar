@@ -55,12 +55,14 @@ fn frozen_local_player_sample_for(
     let rotation = Quat::from_euler(bevy::math::EulerRot::YXZ, 0.8, -0.25, 0.0);
     LocalPlayerFrameSample {
         session_generation: 7,
+        actor_session_id: 3,
         fifo_sequence: 41,
         physics_tick: 900,
         perspective,
         world_collision_identity: frozen_collision_identity(),
         pose: perspective_pose(eye, rotation, perspective),
         eye,
+        feet: eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET,
         rotation,
     }
 }
@@ -71,3 +73,4 @@ fn frozen_local_player_sample() -> LocalPlayerFrameSample {
 
 include!("camera/correction_and_evidence.rs");
 include!("camera/presentation_and_input.rs");
+include!("camera/crouch.rs");

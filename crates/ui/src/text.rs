@@ -34,7 +34,6 @@ pub const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
 pub const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
 
 const FIXED_POINT_DENOMINATOR: i64 = 64;
-const SCALE_DENOMINATOR: i64 = 1_024;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';
 // A std B-tree node currently holds several keys, values, and edge pointers.
 // Charging a full 4 KiB node to every retained entry deliberately overcounts
@@ -507,7 +506,7 @@ fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
         width_64: request.width_64,
         line_height_64: request.line_height_64,
         baseline_64: request.baseline_64,
-        scale_1024: (request.scale.get() * SCALE_DENOMINATOR as f32).round() as u16,
+        scale_1024: (request.scale.get() * UiScale::SCALE_DENOMINATOR as f32).round() as u16,
         font_identity: request.font.identity().carrier_sha256,
     }
 }
@@ -884,7 +883,7 @@ fn glyph_bounds(
 fn scale_metric(value: i64, scale_1024: i64) -> Result<i64, TextError> {
     value
         .checked_mul(scale_1024)
-        .and_then(|scaled| scaled.checked_div(SCALE_DENOMINATOR))
+        .and_then(|scaled| scaled.checked_div(UiScale::SCALE_DENOMINATOR))
         .ok_or(TextError::FixedPointOverflow)
 }
 

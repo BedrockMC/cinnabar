@@ -31,7 +31,10 @@ fn linear_to_srgb(c: f32) -> f32 {
     }
 }
 
-/// Uses the resolved down texture and the block's biome tint, as vanilla terrain effects do.
+/// Native terrain particles use the bottom material, not a tint-based top/side heuristic.
+/// `BlockDestructionParticlesComponent::getTextureInfo` (26.50 RVA 0a6706c0)
+/// resolves `down`, then `*`; the built-in texture fallback at 04e95920 uses
+/// texture group zero, populated from `down` by 069e9fc0.
 pub(super) fn block_tile(
     stream: &WorldStream,
     mode: NetworkIdMode,
@@ -59,12 +62,8 @@ fn resolved_tile(
     if id == assets::DIAGNOSTIC_MATERIAL {
         return None;
     }
-    let material = assets.material(id);
-    let flags = [BlockFace::Up, BlockFace::North, BlockFace::Down]
-        .into_iter()
-        .map(|face| assets.material(resolved.face(face).material_id()).flags)
-        .find(|flags| flags & MATERIAL_FLAG_TINT_MASK != 0)
-        .unwrap_or(0);
+    let material = terrain_material(assets, mode, network_id);
+    let flags = material.flags;
     let page = assets
         .texture_pages()
         .get(material.texture.page() as usize)?;
@@ -84,6 +83,19 @@ fn resolved_tile(
         },
         flags,
     ))
+}
+
+fn terrain_material(
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    network_id: u32,
+) -> assets::Material {
+    assets.material(
+        assets
+            .resolve(mode, network_id)
+            .face(BlockFace::Down)
+            .material_id(),
+    )
 }
 
 /// Gamma-space biome colour for a material's tint mode; white when untinted.
@@ -140,3 +152,6 @@ pub(super) fn item_tile(
         pixels: Arc::clone(&sprite.rgba8),
     })
 }
+
+#[cfg(test)]
+mod bottom_material_tests;

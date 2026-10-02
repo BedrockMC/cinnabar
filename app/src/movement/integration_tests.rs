@@ -28,6 +28,9 @@ use crate::{
 #[path = "transport_tests.rs"]
 mod transport_tests;
 
+#[path = "integration_tests/crouch_camera.rs"]
+mod crouch_camera;
+
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {
         fifo_sequence: 40,

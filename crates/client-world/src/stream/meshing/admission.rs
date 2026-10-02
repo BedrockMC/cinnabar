@@ -22,9 +22,11 @@ impl Drop for MeshJobPermit {
     }
 }
 
-/// Leaves half the pool available for decode, lighting and render preparation.
+/// Keeps one worker wave queued while the previous wave awaits frame-thread acceptance.
 pub(in crate::stream) fn mesh_job_cap(worker_threads: usize) -> usize {
-    worker_threads.div_ceil(2).clamp(2, WORK_RESULT_CAPACITY)
+    worker_threads
+        .saturating_mul(2)
+        .clamp(2, WORK_RESULT_CAPACITY)
 }
 
 impl WorldStream {
@@ -52,8 +54,8 @@ mod tests {
     #[test]
     fn admission_scales_with_workers_without_a_large_spawn_backlog() {
         assert_eq!(mesh_job_cap(1), 2);
-        assert_eq!(mesh_job_cap(12), 6);
-        assert_eq!(mesh_job_cap(32), 16);
+        assert_eq!(mesh_job_cap(12), 24);
+        assert_eq!(mesh_job_cap(32), 64);
         assert_eq!(mesh_job_cap(usize::MAX), WORK_RESULT_CAPACITY);
     }
 }

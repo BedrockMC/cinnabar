@@ -931,6 +931,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_game_keeps_first_registry_and_shield_id_across_repeats() {
+        let registry = |identifier: &str, item_id| {
+            McpePacket::from(ItemRegistryPacket {
+                item_data: vec![crate::valentine::ItemData {
+                    item_name: identifier.into(),
+                    item_id,
+                    ..Default::default()
+                }],
+            })
+        };
+        let mut packets = vec![
+            start_game_packet(),
+            registry("minecraft:shield", 355),
+            McpePacket::from(ItemRegistryPacket::default()),
+            registry("minecraft:shield", 900),
+        ];
+        packets.extend(spawn_completion_packets());
+        let (stream, data) = start_game_stream(vec![uncompressed_frame(&packets)])
+            .await_start_game()
+            .await
+            .expect("repeated registries remain nonfatal");
+        assert_eq!(data.item_registry.item_data.len(), 1);
+        assert_eq!(
+            data.item_registry.item_data[0].item_name,
+            "minecraft:shield"
+        );
+        assert_eq!(data.item_registry.item_data[0].item_id, 355);
+        assert_eq!(stream.transport.session.shield_item_id, 355);
+    }
+
+    #[tokio::test]
     async fn unencrypted_login_success_sends_client_cache_status_before_resource_packs() {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let inbound = vec![compressed_frame(McpePacket::from(
@@ -2252,6 +2283,12 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         unreachable!("packet ID and decoded variant must agree")
                     };
                     tracing::debug!(items = %registry.item_data.len(), "ItemRegistry received");
+                    // Native ItemRegistry::matchServerItemIds (1.26.50 RVA
+                    // 0x03984630) initializes once. A later empty/custom-only
+                    // packet must not replace the first table or shield ID.
+                    if item_registry.is_some() {
+                        continue;
+                    }
                     if let Some(shield) = registry
                         .item_data
                         .iter()

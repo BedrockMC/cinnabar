@@ -44,6 +44,10 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
             &compiled.symbols,
             binding.entity_symbol,
             EntityAssetKind::Entity,
+        ) && !index_has_kind(
+            &compiled.symbols,
+            binding.entity_symbol,
+            EntityAssetKind::Attachable,
         ) || !index_has_kind(
             &compiled.symbols,
             binding.render_controller,

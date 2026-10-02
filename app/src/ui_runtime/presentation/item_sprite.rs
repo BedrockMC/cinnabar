@@ -21,6 +21,52 @@ impl UiPresentationRuntime {
         let icon = self.item_icon(identifier, metadata)?;
         crop_icon(self, icon, max_side)
     }
+
+    /// Native carried block faces, not the inventory's projected cube thumbnail or tinted
+    /// world materials. Both catalogs must have been built from the same pinned pack.
+    pub(crate) fn carried_block_cube(
+        &self,
+        visual: u32,
+        source_manifest_sha256: [u8; 32],
+    ) -> Option<render::DroppedItemCube> {
+        let catalog = self.icon_catalog.as_deref()?;
+        if catalog.source_manifest_sha256() != source_manifest_sha256 {
+            return None;
+        }
+        let index = catalog
+            .block_sheets()
+            .binary_search_by_key(&visual, |sheet| sheet.visual.0)
+            .ok()?;
+        let sprite = catalog
+            .sprites()
+            .get(catalog.block_sheets()[index].sprite as usize)?;
+        carried_cube(sprite)
+    }
+}
+
+fn carried_cube(sprite: &assets::IconSprite) -> Option<render::DroppedItemCube> {
+    use assets::{BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE};
+    if [sprite.width, sprite.height] != BLOCK_ITEM_SHEET_SIZE
+        || sprite.rgba8.len() != usize::from(sprite.width) * usize::from(sprite.height) * 4
+    {
+        return None;
+    }
+    let side = usize::from(BLOCK_ITEM_FACE_SIDE);
+    let columns = usize::from(BLOCK_ITEM_SHEET_GRID[0]);
+    let faces = std::array::from_fn(|face| {
+        let (x, y) = (face % columns * side, face / columns * side);
+        let mut pixels = Vec::with_capacity(side * side * 4);
+        for row in 0..side {
+            let start = ((y + row) * usize::from(sprite.width) + x) * 4;
+            pixels.extend_from_slice(&sprite.rgba8[start..start + side * 4]);
+        }
+        std::sync::Arc::from(pixels)
+    });
+    Some(render::DroppedItemCube {
+        tile: u32::from(BLOCK_ITEM_FACE_SIDE),
+        faces,
+        tints: [render::OPAQUE_WHITE; 6],
+    })
 }
 
 fn crop_icon(
@@ -59,4 +105,27 @@ fn crop_icon(
         height: out_height,
         rgba8,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn carried_faces_are_not_biome_tinted_or_reprojected() {
+        let tiles = std::array::from_fn(|face| assets::IconSprite {
+            width: assets::BLOCK_ITEM_FACE_SIDE,
+            height: assets::BLOCK_ITEM_FACE_SIDE,
+            rgba8: [face as u8, 50, 80, 255]
+                .repeat(usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2))
+                .into(),
+        });
+        let sprite = assets::compose_block_item_sheet(&tiles).unwrap();
+        let cube = carried_cube(&sprite).unwrap();
+        for (face, pixels) in cube.faces.iter().enumerate() {
+            assert_eq!(pixels.as_ref(), tiles[face].rgba8.as_ref());
+            assert_eq!(cube.tints[face], render::OPAQUE_WHITE);
+        }
+        assert!(carried_cube(&tiles[0]).is_none());
+    }
 }

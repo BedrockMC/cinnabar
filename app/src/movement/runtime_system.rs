@@ -193,8 +193,11 @@ pub(crate) fn advance_local_physics(
             return;
         }
     }
-    if let Some(position) = physics.render_eye_position() {
-        view.set_eye_translation(Vec3::from_array(position));
+    if let (Some(eye), Some(feet)) = (
+        physics.render_eye_position(),
+        physics.render_feet_position(),
+    ) {
+        view.set_subject_position(Vec3::from_array(eye), Vec3::from_array(feet));
     }
 }
 

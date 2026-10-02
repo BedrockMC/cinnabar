@@ -15,6 +15,8 @@ use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionI
 /// Everything the session applies from its server pack stack.
 #[derive(Debug)]
 pub struct PackApplication {
+    /// Inert metadata only; accepting a pack does not authorize execution.
+    pub(crate) extension_marker: Option<Arc<[u8]>>,
     pub(crate) admission: PackAdmission,
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
@@ -32,6 +34,7 @@ pub struct PackApplication {
 impl Default for PackApplication {
     fn default() -> Self {
         Self {
+            extension_marker: None,
             admission: PackAdmission::None,
             server_lang: None,
             block_overlay: None,
@@ -135,6 +138,12 @@ pub(super) fn prepare_pack_application(
     let item_icons = compile_session_icons(&view, icon_keys, block_icons);
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     PackApplication {
+        extension_marker: view
+            .read_capped(
+                server_experience::policy::MARKER_PATH,
+                server_experience::policy::MAX_MARKER_BYTES as u64,
+            )
+            .map(Arc::from),
         server_lang: merged_server_lang(&view),
         item_icons,
         item_components: None,

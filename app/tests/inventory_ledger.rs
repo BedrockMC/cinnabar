@@ -116,6 +116,62 @@ fn response_with_slot(request_id: i32, slot: u8, count: u8, stack_id: i32) -> In
     })
 }
 
+// Native successful answers state destination cells explicitly. An empty
+// Accepted response only clears its prediction; it does not replay the take.
+fn accepted_take(request_id: i32, source: u8, count: u8, stack_id: i32) -> InventoryEvent {
+    accepted_cells(request_id, source, 0, 0, count, stack_id)
+}
+
+fn accepted_cells(
+    request_id: i32,
+    slot: u8,
+    count: u8,
+    stack_id: i32,
+    cursor_count: u8,
+    cursor_id: i32,
+) -> InventoryEvent {
+    let correction = |slot, count, item_stack_id| StackResponseSlot {
+        slot,
+        hotbar_slot: slot,
+        count,
+        item_stack_id,
+        custom_name: Arc::from(""),
+        filtered_custom_name: Arc::from(""),
+        durability_correction: 0,
+    };
+    InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id,
+            containers: Arc::from([
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_INVENTORY),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([correction(slot, count, stack_id)]),
+                },
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([correction(0, cursor_count, cursor_id)]),
+                },
+            ]),
+        }]),
+    })
+}
+
+fn predicted(stack: &NetworkItemStack, request_id: i32) -> NetworkItemStack {
+    NetworkItemStack {
+        stack_network_id: request_id,
+        ..stack.clone()
+    }
+}
+
 fn slot_update(slot: u16, stack: NetworkItemStack) -> InventoryEvent {
     InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
@@ -192,7 +248,12 @@ impl CursorGesture {
         let mut ledger = ready(Some(held.clone()), occupied.clone());
         let take = ledger.begin_click(0).unwrap();
         ledger.mark_transport_enqueued(0);
-        ledger.apply(&response(take, StackResponseStatus::Accepted));
+        ledger.apply(&accepted_take(
+            take,
+            0,
+            held.count as u8,
+            held.stack_network_id,
+        ));
         let target = match self {
             Self::Place => 0,
             Self::Swap => 1,
@@ -211,10 +272,14 @@ fn take_predicts_cursor_and_pipelines_a_follow_up_gesture() {
         Some(InventoryPendingState::AwaitingTransport)
     );
     assert!(ledger.displayed_stack(0).is_none());
-    assert_eq!(ledger.cursor_stack(), Some(&original));
+    assert_eq!(ledger.cursor_stack(), Some(&predicted(&original, request)));
     assert!(ledger.displayed_stack(u8::MAX).is_none());
-    assert_eq!(ledger.begin_click(1), Ok(-5));
-    assert_eq!(ledger.displayed_stack(1), Some(&original));
+    let place = ledger.begin_click(1).unwrap();
+    assert_eq!(place, -5);
+    assert_eq!(
+        ledger.displayed_stack(1),
+        Some(&predicted(&original, place))
+    );
 
     assert!(ledger.mark_transport_enqueued(100));
     ledger.apply(&response(request, StackResponseStatus::Accepted));
@@ -223,7 +288,10 @@ fn take_predicts_cursor_and_pipelines_a_follow_up_gesture() {
         Some(InventoryPendingState::AwaitingTransport)
     );
     assert!(ledger.cursor_stack().is_none());
-    assert_eq!(ledger.displayed_stack(1), Some(&original));
+    assert_eq!(
+        ledger.displayed_stack(1),
+        Some(&predicted(&original, place))
+    );
 }
 
 #[test]
@@ -273,17 +341,22 @@ fn empty_place_and_occupied_swap_preserve_sparse_state() {
     let mut ledger = ready(Some(first.clone()), Some(second.clone()));
     let take = ledger.begin_click(0).unwrap();
     ledger.mark_transport_enqueued(0);
-    ledger.apply(&response(take, StackResponseStatus::Accepted));
+    ledger.apply(&accepted_take(
+        take,
+        0,
+        first.count as u8,
+        first.stack_network_id,
+    ));
 
     let swap = ledger.begin_click(1).unwrap();
-    assert_eq!(ledger.cursor_stack(), Some(&second));
-    assert_eq!(ledger.displayed_stack(1), Some(&first));
+    assert_eq!(ledger.cursor_stack(), Some(&predicted(&second, swap)));
+    assert_eq!(ledger.displayed_stack(1), Some(&predicted(&first, swap)));
     ledger.mark_transport_enqueued(0);
-    ledger.apply(&response(swap, StackResponseStatus::Accepted));
+    ledger.apply(&accepted_cells(swap, 1, 1, 44, 2, 45));
 
     let place = ledger.begin_click(0).unwrap();
     assert_eq!(ledger.cursor_stack(), None);
-    assert_eq!(ledger.displayed_stack(0), Some(&second));
+    assert_eq!(ledger.displayed_stack(0), Some(&predicted(&second, place)));
     assert_eq!(ledger.pending_request_id(), Some(place));
 }
 
@@ -373,7 +446,9 @@ fn short_content_is_partial_and_never_releases_the_resync_gate() {
     assert_eq!(fresh.pending_request_id(), Some(pending));
     fresh.mark_transport_enqueued(0);
     fresh.apply(&response(pending, StackResponseStatus::Accepted));
-    assert!(fresh.resync_required());
+    assert!(!fresh.resync_required());
+    assert_eq!(fresh.displayed_stack(0), Some(&stack(6, 2, 55)));
+    assert!(fresh.cursor_stack().is_none());
 
     let mut recovering = ready(Some(first.clone()), None);
     recovering.begin_click(0).unwrap();
@@ -419,7 +494,7 @@ fn complete_sparse_content_recovers_the_player_side_of_ambiguous_paths() {
 }
 
 #[test]
-fn newer_touched_slot_authority_is_never_overwritten_by_accepted_response() {
+fn response_corrections_write_backing_in_receive_order_without_replaying_take() {
     for with_correction in [false, true] {
         let original = stack(5, 1, 44);
         let newer = stack(6, 3, 90);
@@ -434,9 +509,14 @@ fn newer_touched_slot_authority_is_never_overwritten_by_accepted_response() {
             response(request, StackResponseStatus::Accepted)
         };
         ledger.apply(&accepted);
-        assert_eq!(ledger.displayed_stack(0), Some(&newer));
+        let expected = if with_correction {
+            stack(5, 1, 44)
+        } else {
+            newer
+        };
+        assert_eq!(ledger.displayed_stack(0), Some(&expected));
         assert!(ledger.cursor_stack().is_none());
-        assert!(ledger.resync_required());
+        assert!(!ledger.resync_required());
     }
 }
 
@@ -450,7 +530,8 @@ fn unrelated_or_later_slot_authority_merges_in_fifo_order() {
     ledger.apply(&slot_update(1, unrelated.clone()));
     ledger.apply(&response(request, StackResponseStatus::Accepted));
     assert_eq!(ledger.displayed_stack(1), Some(&unrelated));
-    assert_eq!(ledger.cursor_stack(), Some(&first));
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(0), Some(&first));
     assert!(!ledger.resync_required());
 
     let later = stack(8, 4, 80);
@@ -459,18 +540,21 @@ fn unrelated_or_later_slot_authority_merges_in_fifo_order() {
 }
 
 #[test]
-fn accepted_correction_without_a_new_stack_id_preserves_the_predicted_id() {
+fn accepted_nonempty_correction_with_invalid_stack_id_is_a_counted_skip() {
     let original = stack(5, 1, 44);
     let mut ledger = ready(Some(original.clone()), None);
     let take = ledger.begin_click(0).unwrap();
     ledger.mark_transport_enqueued(0);
-    ledger.apply(&response(take, StackResponseStatus::Accepted));
+    ledger.apply(&accepted_take(take, 0, 1, 44));
 
     let place = ledger.begin_click(1).unwrap();
     ledger.mark_transport_enqueued(0);
     ledger.apply(&response_with_slot(place, 1, 1, -1));
 
-    assert_eq!(ledger.displayed_stack(1), Some(&original));
+    assert!(ledger.displayed_stack(1).is_none());
+    assert_eq!(ledger.cursor_stack(), Some(&original));
+    assert_eq!(ledger.skipped_unknown_containers(), 1);
+    assert!(!ledger.resync_required());
 }
 
 #[test]
@@ -541,8 +625,12 @@ fn place_and_swap_admitted_timeout_keep_prediction_until_full_authority() {
         ledger.mark_transport_enqueued(10);
         ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
         assert_eq!(ledger.pending_request_id(), Some(request));
-        assert_eq!(ledger.cursor_stack(), occupied.as_ref());
-        assert_eq!(ledger.displayed_stack(target), Some(&held));
+        let predicted_cursor = occupied.as_ref().map(|stack| predicted(stack, request));
+        assert_eq!(ledger.cursor_stack(), predicted_cursor.as_ref());
+        assert_eq!(
+            ledger.displayed_stack(target),
+            Some(&predicted(&held, request))
+        );
         assert!(ledger.resync_required());
 
         // A timed-out request with no response retires only after both
@@ -587,12 +675,12 @@ fn ui_window_cursor_slot_does_not_shadow_player_slot_recovery() {
         let cursor = cursor_slot_on_ui_window(cursor_authority.clone());
         if cursor_first {
             ledger.apply(&cursor);
-            assert_eq!(ledger.displayed_stack(0), Some(&original));
+            assert!(ledger.displayed_stack(0).is_none());
             assert!(ledger.resync_required());
             ledger.apply(&player);
         } else {
             ledger.apply(&player);
-            assert_eq!(ledger.displayed_stack(0), Some(&player_authority));
+            assert!(ledger.displayed_stack(0).is_none());
             assert!(ledger.resync_required());
             ledger.apply(&cursor);
         }

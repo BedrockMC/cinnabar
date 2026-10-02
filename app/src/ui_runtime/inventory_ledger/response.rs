@@ -48,10 +48,22 @@ impl PlayerInventoryLedger {
         self.confirmed.get(Cell::Storage(slot))?.overlay.as_ref()
     }
 
-    /// Resolves responses by request id. A rejection deletes its request's
-    /// groups; an acceptance waits for every predecessor before committing.
+    /// Resolve the request independently of later sparse owners. Unknown or
+    /// repeated ids cannot mutate the backing inventory.
     pub(super) fn apply_response(&mut self, event: &ItemStackResponseEvent) {
         for response in event.responses.iter() {
+            bevy::log::debug!(target: "bedrock_client::inventory_requests",
+                request_id = response.request_id, status = ?response.status,
+                pending = self.queue.len(), "inventory response received");
+            for container in response.containers.iter() {
+                for slot in container.slots.iter() {
+                    bevy::log::debug!(target: "bedrock_client::inventory_requests",
+                        request_id = response.request_id, container = ?container.container,
+                        slot = slot.slot, requested_slot = slot.hotbar_slot,
+                        stack_id = slot.item_stack_id, count = slot.count,
+                        "inventory response slot");
+                }
+            }
             let Some(index) = self.queue.iter().position(|pending| {
                 pending.request_id == response.request_id && pending.accepted.is_none()
             }) else {
@@ -86,7 +98,7 @@ pub(super) fn merge_response_overlay(
     if !correction.filtered_custom_name.is_empty() {
         overlay.filtered_custom_name = Some(Arc::clone(&correction.filtered_custom_name));
     }
-    if correction.durability_correction > 0 {
+    if correction.durability_correction >= 0 {
         overlay.durability_correction = Some(correction.durability_correction);
     }
 }

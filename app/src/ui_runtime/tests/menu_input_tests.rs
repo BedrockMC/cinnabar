@@ -312,3 +312,84 @@ fn chat_input_preserves_buttons_for_the_visible_menu() {
     );
     assert!(!app.world().resource::<UiRuntime>().chat_focused());
 }
+
+#[test]
+fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
+    use crate::server_experiences::input::{ConsentInput, consume};
+    use bevy::input::{
+        gamepad::{Gamepad, GamepadButton},
+        touch::{TouchInput, TouchPhase, touch_screen_input_system},
+    };
+    let (mut app, window) = menu_input_app(MenuClipboard::default());
+    app.insert_resource(ConsentInput(true))
+        .add_message::<TouchInput>()
+        .add_systems(
+            Update,
+            (touch_screen_input_system, consume)
+                .chain()
+                .before(drive_menu_input),
+        );
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::PlayAddServer);
+    let view = app.world().resource::<MenuRuntime>().view();
+    let point = {
+        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+        presentation.set_menu_view(Some(view));
+        presentation
+            .build(
+                &UiRuntime::new(1),
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        (0..720)
+            .step_by(8)
+            .flat_map(|y| {
+                (0..1280)
+                    .step_by(8)
+                    .map(move |x| ui::UiPoint::new(x as f32, y as f32).unwrap())
+            })
+            .find(|point| presentation.hit_test_menu(*point) == Some(MenuAction::AddAddress))
+            .unwrap()
+    };
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(Vec2::new(point.x(), point.y())));
+    let before = app.world().resource::<MenuRuntime>().view();
+    let mut pad = Gamepad::default();
+    pad.digital_mut().press(GamepadButton::South);
+    pad.digital_mut().press(GamepadButton::DPadDown);
+    app.world_mut().spawn(pad);
+    queue_key(&mut app, window, KeyCode::Enter, None);
+    queue_key(&mut app, window, KeyCode::KeyA, Some("leaked"));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.world_mut().write_message(TouchInput {
+        phase: TouchPhase::Started,
+        position: Vec2::new(point.x(), point.y()),
+        window,
+        force: None,
+        id: 1,
+    });
+    // Approval has already replaced the prompt with its status indicator, but ownership persists.
+    app.world_mut()
+        .resource_mut::<UiPresentationRuntime>()
+        .set_experience_chrome(Some("Approved"), false)
+        .unwrap();
+    app.update();
+    let after = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(after.screen, before.screen);
+    assert_eq!(after.focused_action, before.focused_action);
+    assert_eq!(after.field, before.field);
+    assert_eq!(after.name, before.name);
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left)
+    );
+    assert!(app.world().resource::<Messages<KeyboardInput>>().is_empty());
+}

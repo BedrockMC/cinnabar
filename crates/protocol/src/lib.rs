@@ -7,6 +7,7 @@ mod block_edit;
 mod camera;
 mod codec;
 mod disconnect;
+mod experience;
 mod interaction;
 mod inventory;
 mod item;
@@ -26,12 +27,17 @@ mod ui;
 mod world;
 pub mod world_control;
 
+pub use experience::{
+    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
+    is_experience_packet,
+};
+
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
     ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, CLASSIC_SKIN_SIDE, CapeImage,
+    ActorStatusKind, ActorTakeItemEvent, CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET,
     MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
     MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES,
     MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,
@@ -91,15 +97,15 @@ pub use inventory::{
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
     ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
     InventoryContentEvent, InventoryEvent, InventoryPacketError, InventorySlotEvent,
-    ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES,
-    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID,
-    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack,
-    container_close_packet, item_stack_request_packet, item_stack_request_packet_filtered,
-    normalize_authority, normalize_container_close, normalize_container_data,
-    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
-    normalize_slot, open_inventory_packet, personal_craft_content_indices,
+    InventoryTransactionEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS,
+    MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES,
+    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent,
+    SlotIdentity, StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
+    VerifiedNetworkItemStack, container_close_packet, item_stack_request_packet,
+    item_stack_request_packet_filtered, normalize_authority, normalize_container_close,
+    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
+    normalize_response, normalize_slot, open_inventory_packet, personal_craft_content_indices,
     personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
 };
 pub use inventory::{

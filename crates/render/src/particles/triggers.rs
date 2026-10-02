@@ -299,6 +299,8 @@ pub fn block_break_request(
         position: block.map(|c| c as f32 + 0.5),
         variables: variables(&[
             ("emitter_particles_count", BLOCK_BREAK_PARTICLES),
+            // Native _addTerrainEffect (04e96080), matched exponent DAT_14feff29c.
+            ("emitter_intensity", BLOCK_BREAK_PARTICLES.powf(1.0 / 3.0)),
             ("emitter_radius", 0.5),
             ("velocity_scalar", 1.0),
             ("color.r", tint[0]),
@@ -502,5 +504,36 @@ mod tests {
                 .any(|(name, value)| name == "emitter_particles_count"
                     && *value == BLOCK_CRACK_PARTICLES)
         );
+    }
+
+    #[test]
+    fn destruction_request_drives_the_native_default_burst() {
+        use crate::particles::{system::ParticleSystem, world::EmptyWorld};
+        let mut system = ParticleSystem::default();
+        // Synthetic emitter checks the real request through the live engine.
+        assert!(system.register_effect(br#"{"particle_effect":{"description":{
+          "identifier":"minecraft:test_terrain","basic_render_parameters":{"material":"particles_alpha","texture":"atlas.terrain"}},
+          "components":{"minecraft:emitter_lifetime_once":{"active_time":1},
+          "minecraft:emitter_rate_instant":{"num_particles":"variable.emitter_particles_count"},
+          "minecraft:particle_appearance_billboard":{"size":[0.1,0.1]},
+          "minecraft:particle_lifetime_expression":{"max_lifetime":1}}}}"#));
+        let request = block_break_request(
+            "minecraft:test_terrain",
+            [-2, 3, 4],
+            TileRequest {
+                key: 1,
+                size: 16,
+                pixels: vec![255; 16 * 16 * 4].into(),
+            },
+            [1.0; 4],
+        );
+        assert_eq!(request.position, [-1.5, 3.5, 4.5]);
+        assert!(request.variables.contains(&(
+            "emitter_intensity".into(),
+            BLOCK_BREAK_PARTICLES.powf(1.0 / 3.0)
+        )));
+        assert!(system.spawn_terrain(&request).is_some());
+        system.tick(0.01, &EmptyWorld);
+        assert_eq!(system.live_particles(), BLOCK_BREAK_PARTICLES as usize);
     }
 }

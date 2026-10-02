@@ -3,6 +3,16 @@ use std::{mem::size_of, num::NonZeroU64, sync::Arc};
 
 use super::budget::{Credits, Permit};
 
+pub(super) fn transaction_cell_index(identity: protocol::SlotIdentity) -> Option<usize> {
+    match protocol::project_container_cell(&identity.container, identity.slot) {
+        Some(protocol::CanonicalCell::CraftInput(index)) => Some(usize::from(index)),
+        Some(protocol::CanonicalCell::Cursor) => Some(4),
+        _ => {
+            protocol::personal_craft_slot_index(&identity.container, identity.slot).map(usize::from)
+        }
+    }
+}
+
 pub(super) const MAX_RECORDS: usize = 64;
 
 #[derive(Debug)]
@@ -107,6 +117,8 @@ pub(super) enum Observation {
         stack: Arc<StackOwner>,
     },
     Cursor(Arc<StackOwner>),
+    /// One FIFO transaction can replace several crafting cells and the cursor.
+    Cells([Option<Arc<StackOwner>>; 5]),
     Registry(Option<Arc<RegistryOwner>>),
     Recipes(protocol::RecipeUpdate),
     Authority(protocol::InventoryAuthority),
@@ -118,7 +130,7 @@ impl Observation {
             Self::Registry(_) => 1,
             Self::Recipes(_) => 2,
             Self::Authority(_) => 4,
-            Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) => 0,
+            Self::Grid(_) | Self::Cell { .. } | Self::Cursor(_) | Self::Cells(_) => 0,
         }
     }
 }

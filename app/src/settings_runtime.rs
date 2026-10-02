@@ -10,6 +10,13 @@ pub struct RuntimeSettings {
 }
 
 impl RuntimeSettings {
+    /// Write back the fullscreen adapter's already-applied window state without
+    /// publishing a complete settings replacement. A window toggle must not
+    /// apply unrelated camera or VSync defaults through their generation readers.
+    pub(crate) fn set_fullscreen(&mut self, fullscreen: bool) {
+        self.user_settings.video.fullscreen = fullscreen;
+    }
+
     pub fn replace_user_settings(&mut self, settings: UserSettings) -> u64 {
         self.generation = self.generation.saturating_add(1);
         self.user_settings = settings;

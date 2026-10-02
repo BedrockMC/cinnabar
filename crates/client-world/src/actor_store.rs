@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
-    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
-    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
-    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ITEM_ACTOR_NETWORK_OFFSET, ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES,
+    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode,
+    PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -28,7 +28,7 @@ const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 /// `minecraft:collision_box` in the vanilla `player.json` definition.
 const PLAYER_COLLISION_WIDTH: f32 = 0.6;
 const PLAYER_COLLISION_HEIGHT: f32 = 1.8;
-const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
+pub(crate) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
@@ -43,7 +43,6 @@ const ACTOR_FLAG_GLIDING: u32 = 32;
 const ACTOR_FLAG_CRAWLING: u32 = 114;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
-const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
 const MINECART_NETWORK_OFFSET: f32 = 0.5;
 const BOAT_NETWORK_OFFSET: f32 = 0.375;
