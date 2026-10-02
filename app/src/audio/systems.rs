@@ -655,11 +655,12 @@ pub(super) fn drive_weather_and_particles(
     if let Some(bank) = engine.bank() {
         let tables = bank.tables();
         for sound in &sounds {
-            let request = match tables.individual(&sound.name) {
-                Some(route) => {
+            let request = match tables.individual_lookup(&sound.name) {
+                assets::RouteLookup::Route(route) => {
                     SoundRequest::new(route.sound.clone()).with_ranges(route.volume, route.pitch)
                 }
-                None => SoundRequest::new(&*sound.name),
+                assets::RouteLookup::Absent => SoundRequest::new(&*sound.name),
+                assets::RouteLookup::Silent => continue,
             };
             requests.push(request.at(sound.position));
         }
