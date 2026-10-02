@@ -317,3 +317,22 @@ fn publication_frame_does_not_repeat_retired_world_backlog() {
         );
     }
 }
+
+#[test]
+fn review_pressure_floor_never_exceeds_configured_operation_caps() {
+    for maximum in [1, 4] {
+        let config = PublicationServiceConfig {
+            maximum_frame_items: maximum,
+            maximum_zero_byte_operations_per_frame: maximum,
+            ..PublicationServiceConfig::PHASE2_GATE
+        };
+        let mut controller = PublicationController::new(config);
+        controller.finish_frame(PublicationFrameWork {
+            upload_queue_items: 520,
+            ..PublicationFrameWork::default()
+        });
+        controller.begin_frame(Duration::from_millis(125));
+        assert!(controller.budget().max_per_frame <= maximum);
+        assert!(controller.budget().max_zero_byte_operations_per_frame <= maximum);
+    }
+}
