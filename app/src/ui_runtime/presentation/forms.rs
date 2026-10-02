@@ -101,6 +101,7 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    edit_clock: engine::host_edit::Clock,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
     menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
@@ -412,6 +413,7 @@ impl UiPresentationRuntime {
         self.form_presentation = FormPresentation {
             engine: state.engine,
             menu_keys: state.menu_keys,
+            edit_clock: state.edit_clock,
             menu_sounds: state.menu_sounds,
             logged: state.logged,
             hud: state.hud,

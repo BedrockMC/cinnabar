@@ -282,6 +282,7 @@ pub(crate) struct MenuView {
     pub(crate) server_tab: MenuServerTab,
     pub(crate) dialog: Option<MenuDialog>,
     pub(crate) field: Option<MenuField>,
+    pub(crate) text_selected: bool,
     pub(crate) name: String,
     pub(crate) address: String,
     pub(crate) port: String,
