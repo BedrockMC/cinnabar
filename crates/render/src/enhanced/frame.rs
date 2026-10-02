@@ -316,7 +316,7 @@ mod tests {
     fn texel_phase(fit: &CascadeFit, point: Vec3, resolution: u32) -> Vec3 {
         let ndc = fit.clip_from_world.project_point3(point);
         let texels = (ndc.truncate() * 0.5 + 0.5) * resolution as f32;
-        texels.fract().extend(0.0)
+        Vec3::new(texels.x.rem_euclid(1.0), texels.y.rem_euclid(1.0), 0.0)
     }
 
     // A fixed world point keeps its sub-texel phase however the camera moves.

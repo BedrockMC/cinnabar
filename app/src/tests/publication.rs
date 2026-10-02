@@ -727,7 +727,32 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
 
     let presented = presented_gate.drain();
     assert_eq!(presented.len(), 2);
-    assert!(presented[0].is_exact());
+    let pipeline_errors: Vec<_> = app
+        .sub_app(bevy::render::RenderApp)
+        .world()
+        .resource::<bevy::render::render_resource::PipelineCache>()
+        .pipelines()
+        .filter_map(|pipeline| match &pipeline.state {
+            bevy::render::render_resource::CachedPipelineState::Err(error) => {
+                Some(error.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(pipeline_errors.is_empty(), "{pipeline_errors:?}");
+    assert!(
+        presented[0].is_exact(),
+        "allocations={}, visible={}, drawn={}, missing={}, unexpected={}, source={}, foreign={}, stale={}, orphans={}",
+        presented[0].allocation_manifest.len(),
+        presented[0].visible_allocation_manifest.len(),
+        presented[0].drawn_manifest.len(),
+        presented[0].missing_target_instances,
+        presented[0].unexpected_target_instances,
+        presented[0].source_instances,
+        presented[0].foreign_instances,
+        presented[0].stale_generation_instances,
+        presented[0].orphan_allocations,
+    );
     assert!(presented[0].forms_stable_exact_pair_with(&presented[1]));
 }
 

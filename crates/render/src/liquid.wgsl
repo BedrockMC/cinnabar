@@ -81,7 +81,7 @@ struct VertexOutput {
     @location(9) world_position: vec3<f32>,
 #ifdef ENHANCED
     @location(10) normal: vec3<f32>,
-    @location(11) @interpolate(flat) material_class: u32,
+    @location(11) @interpolate(flat) surface_class: u32,
 #endif
 }
 
@@ -241,8 +241,8 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.world_position = world_position;
 #ifdef ENHANCED
     out.normal = face_normal(face);
-    out.material_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
-    if ((out.material_class & CLASS_WATER) != 0u) {
+    out.surface_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
+    if ((out.surface_class & CLASS_WATER) != 0u) {
         out.world_position = waved_water_position(world_position, out.normal.y > 0.5
             || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
         out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
@@ -282,7 +282,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
 #ifdef ENHANCED
-    if ((in.material_class & CLASS_WATER) != 0u) {
+    if ((in.surface_class & CLASS_WATER) != 0u) {
         let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
             in.world_position, in.clip_position, in.block_light, in.sky_light,
             in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
@@ -296,7 +296,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.block_light,
         in.sky_light,
         in.ambient_occlusion,
-        in.material_class,
+        in.surface_class,
     );
 #else
     let colour = lit_colour(
@@ -329,7 +329,7 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         in.block_light,
         in.sky_light,
         in.ambient_occlusion,
-        in.material_class,
+        in.surface_class,
     );
 #else
     let lit = lit_colour(

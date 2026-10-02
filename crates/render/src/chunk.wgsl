@@ -102,7 +102,7 @@ struct VertexOutput {
     @location(9) block_light: f32,
     @location(10) sky_light: f32,
     @location(11) ambient_occlusion: f32,
-    @location(12) @interpolate(flat) material_class: u32,
+    @location(12) @interpolate(flat) surface_class: u32,
 #else
     @location(9) lighting: vec3<f32>,
 #endif
@@ -279,8 +279,8 @@ fn vertex(
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
 #endif
 #ifdef ENHANCED
-    out.material_class = material_class(quad.material_id);
-    out.world_position = waved_position(world_position, out.material_class, 1.0);
+    out.surface_class = material_class(quad.material_id);
+    out.world_position = waved_position(world_position, out.surface_class, 1.0);
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
 #endif
     return out;
@@ -368,7 +368,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.block_light,
         in.sky_light,
         in.ambient_occlusion,
-        in.material_class,
+        in.surface_class,
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
