@@ -55,8 +55,9 @@ var imageExtensions = map[string]string{"image/png": ".png", "image/jpeg": ".jpg
 
 // publicTransport shares bounded idle connections across catalog and store downloads.
 var publicTransport = &http.Transport{
-	DialContext: publicDialer(), TLSHandshakeTimeout: 10 * time.Second,
-	IdleConnTimeout: 90 * time.Second, MaxIdleConns: 100,
+	DialContext:         publicDialer(net.DefaultResolver.LookupIPAddr, (&net.Dialer{}).DialContext),
+	TLSHandshakeTimeout: 10 * time.Second,
+	IdleConnTimeout:     90 * time.Second, MaxIdleConns: 100,
 }
 
 // New returns a cache rooted at dir, created on first use.
@@ -83,15 +84,22 @@ func ValidURL(raw string) bool {
 	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil
 }
 
-// publicDialer resolves the host itself and connects only to globally routable addresses.
-func publicDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+// publicDialer validates every resolved address before trying each within a shared deadline.
+func publicDialer(
+	lookup func(context.Context, string) ([]net.IPAddr, error),
+	dial func(context.Context, string, string) (net.Conn, error),
+) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, ErrRejected
 		}
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		ips, err := lookup(ctx, host)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if err != nil || len(ips) == 0 {
 			return nil, ErrRejected
 		}
@@ -100,7 +108,24 @@ func publicDialer() func(ctx context.Context, network, addr string) (net.Conn, e
 				return nil, ErrRejected
 			}
 		}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		deadline, _ := ctx.Deadline()
+		for i, ip := range ips {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			// Reserve time for the remaining addresses if this one cannot connect.
+			attempt, stop := context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(ips)-i))
+			conn, dialErr := dial(attempt, network, net.JoinHostPort(ip.IP.String(), port))
+			stop()
+			if dialErr == nil {
+				return conn, nil
+			}
+			err = dialErr
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, err
 	}
 }
 
