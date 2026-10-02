@@ -75,11 +75,6 @@ fn apply_session_pack(
     Option<StagedSessionIcons>,
     Vec<Option<render::ActorArtworkLocation>>,
 ) {
-    let geometry_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorGeometrySetup));
-    if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
-        bevy::log::warn!(?error, "server pack entity geometry was not applied");
-    }
-    drop(geometry_timer);
     let artwork_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorArtworkSetup));
     let mut pages = match pack {
         Some(pack) => base
@@ -100,9 +95,6 @@ fn apply_session_pack(
         geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
         layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
     }
-    if let Err(error) = scene.replace_pack_equipment(geometries) {
-        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
-    }
     if let Some(equipment) = equipment {
         equipment.set_pack_layer(layer);
     }
@@ -112,9 +104,19 @@ fn apply_session_pack(
         pages = extended;
         icon_locations = locations;
     }
+    drop(equipment_timer);
+    let geometry_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorGeometrySetup));
+    let (entities, equipment) =
+        scene.replace_session_pack_geometries(pack.map(|pack| &*pack.assets), geometries);
+    if let Err(error) = entities {
+        bevy::log::warn!(?error, "server pack entity geometry was not applied");
+    }
+    if let Err(error) = equipment {
+        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
+    }
+    drop(geometry_timer);
     scene.configure_artwork(pages.clone());
     *effective = (pack.is_some() || session_icons.is_some()).then_some(pages);
-    drop(equipment_timer);
     (session_icons, icon_locations)
 }
 
