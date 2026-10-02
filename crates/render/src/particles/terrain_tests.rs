@@ -158,3 +158,48 @@ fn cracks_scatter_on_the_hit_face_and_legacy_terrain_emits_once() {
     assert_eq!(system.live_particles(), 1);
     assert_eq!(system.emitters_mut()[0].particles[0].pos, [0.5; 3]);
 }
+
+#[test]
+fn review_render_live_terrain_particle_keeps_its_tile_during_recycling() {
+    let mut system = ParticleSystem::default();
+    let long = EFFECT
+        .replace("minecraft:block_destruct", "minecraft:long")
+        .replace("0.2/(math.random(0,1)*0.9+0.1)", "100");
+    let short = EFFECT
+        .replace("minecraft:block_destruct", "minecraft:short")
+        .replace("0.2/(math.random(0,1)*0.9+0.1)", "0.001");
+    assert!(system.register_effect(long.as_bytes()));
+    assert!(system.register_effect(short.as_bytes()));
+    system
+        .spawn(&block_break_request(
+            "minecraft:long",
+            [0; 3],
+            TileRequest {
+                key: 1,
+                size: 1,
+                pixels: vec![7; 4].into(),
+            },
+            [1.0; 4],
+        ))
+        .unwrap();
+    system.tick(0.001, &EmptyWorld);
+    let first = system.emitters_mut()[0].texture;
+    for key in 2..=super::atlas::MAX_SLOTS as u64 + 2 {
+        system
+            .spawn(&block_break_request(
+                "minecraft:short",
+                [0; 3],
+                TileRequest {
+                    key,
+                    size: 1,
+                    pixels: vec![9; 4].into(),
+                },
+                [1.0; 4],
+            ))
+            .unwrap();
+        system.tick(0.002, &EmptyWorld);
+    }
+    let offset = ((first.y * ATLAS_SIDE + first.x) * 4) as usize;
+    assert_eq!(&system.atlas().pixels()[offset..offset + 4], &[7; 4]);
+    assert!(system.live_particles() > 0);
+}
