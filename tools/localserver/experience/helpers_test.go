@@ -29,8 +29,11 @@ var (
 	runtimeBinary string
 	// fakeHelperBinary is testdata/fakehelper, a stand-in helper scripted by FAKE_MODE.
 	fakeHelperBinary string
-	// probeDir is an artifact of the probe guest. Tests only read it.
+	// probeDir is an artifact of the probe guest. Tests only read it; freshProbe makes one to
+	// change.
 	probeDir string
+	// repoRoot is the Cinnabar repository, and probeWasm the probe guest's core module.
+	repoRoot, probeWasm string
 )
 
 // The artifact layout the runtime expects.
@@ -58,8 +61,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// buildHelpers sets runtimeBinary, probeDir and fakeHelperBinary. Everything it writes goes
-// below scratch, except what cargo keeps in its target directories.
+// buildHelpers sets every variable that TestMain sets. Everything it writes goes below scratch,
+// except what cargo keeps in its target directories.
 func buildHelpers(scratch string) error {
 	if _, err := exec.LookPath("cargo"); err != nil {
 		return fmt.Errorf("cargo is required to build experience-runtime and the probe guest: %w", err)
@@ -69,20 +72,21 @@ func buildHelpers(scratch string) error {
 	if err != nil {
 		return err
 	}
+	repoRoot = root
 	runtimeBinary, err = cargoArtifact(root, "experience-runtime",
 		"build", "-p", "experience-runtime", "--locked")
 	if err != nil {
 		return err
 	}
 	// Like the runtime's own tests, the guest gets a target directory of its own.
-	wasm, err := cargoArtifact(root, "experience_probe",
+	probeWasm, err = cargoArtifact(root, "experience_probe",
 		"build", "--locked", "--target", "wasm32-unknown-unknown", "-p", "experience-probe",
 		"--target-dir", filepath.Join(root, "target", "experience-guests"))
 	if err != nil {
 		return err
 	}
 	probeDir = filepath.Join(scratch, "probe")
-	if err := assembleProbe(root, wasm, probeDir); err != nil {
+	if err := assembleProbe(root, probeWasm, probeDir); err != nil {
 		return fmt.Errorf("assembling the probe artifact: %w", err)
 	}
 	fakeHelperBinary = filepath.Join(scratch, "fakehelper")
@@ -174,6 +178,16 @@ func assembleProbe(root, wasm, dir string) error {
 		index += fmt.Sprintf("%q = %q\n", name, hex.EncodeToString(sum[:]))
 	}
 	return os.WriteFile(filepath.Join(dir, manifestFile), []byte(index), 0o644)
+}
+
+// freshProbe assembles a probe artifact of the test's own, which it may change.
+func freshProbe(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := assembleProbe(repoRoot, probeWasm, dir); err != nil {
+		t.Fatalf("assembling a probe artifact: %v", err)
+	}
+	return dir
 }
 
 // The probe guest selects a behavior by the x of the interacted block.

@@ -10,8 +10,8 @@
 //   - wrong_seq: commits no ops under the next seq;
 //   - load_failed: answers load with load_failed and exits 1, as the runtime does.
 //
-// Its loaded answer claims protocol FAKE_PROTOCOL. Shutdown and the end of stdin end it with
-// status 0.
+// It answers load with FAKE_LOADED, the body of a loaded frame, verbatim. Shutdown and the end of
+// stdin end it with status 0.
 package main
 
 import (
@@ -34,7 +34,10 @@ func main() {
 	if !slices.Contains(modes, mode) {
 		fail("unknown FAKE_MODE %q", mode)
 	}
-	protocol := envNumber("FAKE_PROTOCOL")
+	loaded := os.Getenv("FAKE_LOADED")
+	if loaded == "" {
+		fail("FAKE_LOADED is not set")
+	}
 	maxFrame := envNumber("FAKE_MAX_FRAME")
 
 	if _, err := readRequest(); err != nil {
@@ -44,9 +47,7 @@ func main() {
 		writeMessage(map[string]any{"type": "load_failed", "reason": "fakehelper: scripted load failure"})
 		os.Exit(1)
 	}
-	writeMessage(map[string]any{
-		"type": "loaded", "protocol": protocol, "id": "fake", "version": "0.0.0", "blocks": []any{},
-	})
+	writeFrame([]byte(loaded))
 	if mode == "hang" {
 		for {
 			time.Sleep(time.Hour)
