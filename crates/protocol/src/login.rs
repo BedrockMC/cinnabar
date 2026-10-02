@@ -192,6 +192,13 @@ impl<T: Transport> PlaySession<T> {
         self.stream.take_resource_pack_handoff()
     }
 
+    /// Whether the server sent terrain before login completed at PlayerSpawn.
+    /// Servers such as Dragonfly stream none until the client reports initialized.
+    #[must_use]
+    pub fn terrain_before_spawn(&self) -> bool {
+        self.stream.terrain_before_spawn()
+    }
+
     /// Skips a well-formed but semantically unusable world packet instead of
     /// tearing down the session, counting it for observability. Genuine wire
     /// decode/transport errors stay fatal and are returned unchanged.

@@ -3758,6 +3758,12 @@ an actual Rust-through-core order fixture. See [the reconstruction evidence](doc
 **Incomplete parity:** the existing terrain presentation thresholds, consent UI, dimension
 transitions, and matched retail/live visual and timing evidence remain open. This packet-order
 correction does not close those broader gates. No live server was used for these corrections.
+**Dragonfly join (provisional, incomplete):** Dragonfly streams no terrain until initialized, which
+deadlocked the gate. A session whose server sent no terrain before spawn now releases once received
+work drains. The vanilla zero-terrain completion path is unconfirmed: see the reconstruction lines
+cited in [the join evidence](docs/core-join-startup.md). StartGame's vanilla data-driven
+definitions (`vanilla_block_data`, sent by BDS and Dragonfly) are no longer server custom blocks:
+the v2193 palette already holds their states, state for state with Dragonfly's.
 
 ---
 
