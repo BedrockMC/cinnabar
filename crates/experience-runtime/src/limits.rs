@@ -33,17 +33,27 @@ pub const MAX_BLOCK_NAME_BYTES: usize = 32;
 pub const MAX_DISPLAY_NAME_BYTES: usize = 64;
 /// Host calls per callback; logs are counted separately.
 pub const MAX_HOST_CALLS: usize = 256;
-/// Staged ops per callback.
+/// Staged ops per callback. Rewriting a block's data replaces its staged op instead of adding
+/// one.
 pub const MAX_STAGED_OPS: usize = 64;
+/// Bytes of block data one callback may stage, summed over its staged ops.
+pub const MAX_STAGED_DATA_BYTES: usize = 262_144;
 /// Tells per callback.
 pub const MAX_TELLS: usize = 4;
 /// UTF-8 bytes per tell.
 pub const MAX_TELL_BYTES: usize = 256;
 /// Bytes of data per block.
 pub const MAX_BLOCK_DATA_BYTES: usize = 65_536;
+/// UTF-8 bytes of a guest's error reason that reach the adapter; the rest is cut off at a char
+/// boundary.
+pub const MAX_REASON_BYTES: usize = 512;
 /// Logs per callback or `register`.
 pub const MAX_LOGS: usize = 32;
 /// Bytes per log line.
 pub const MAX_LOG_BYTES: usize = 512;
 /// Encoded JSON bytes per IPC frame, excluding the 4-byte length prefix.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+
+// Hex doubles staged data, which may fill at most half of a result frame; the other half is
+// room for the remaining ops.
+const _: () = assert!(2 * MAX_STAGED_DATA_BYTES <= MAX_FRAME_BYTES / 2);

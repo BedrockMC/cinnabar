@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 
 use common::probe_dir;
 use experience_runtime::callback::run;
+use experience_runtime::limits::MAX_REASON_BYTES;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::protocol::{
     BlockPos, Call, Cause, Cell, Change, Face, FailKind, Info, Op, Outcome, Request,
@@ -172,6 +173,20 @@ fn guest_error_commits_nothing() {
             reason: "nope".to_owned()
         }
     );
+}
+
+/// The probe's reason is about 2 MiB of the 3-byte `€`. It is cut at the last char boundary
+/// within the limit, so the result still fits in a frame.
+#[test]
+fn oversized_rejection_reason_is_cut_at_a_char_boundary() {
+    let outcome = outcome(&interact(18));
+    let Outcome::Rejected { reason } = &outcome else {
+        panic!("{outcome:?}");
+    };
+    let expected = "€".repeat(MAX_REASON_BYTES / 3);
+    // Lengths first, so a failure does not print megabytes.
+    assert_eq!(reason.len(), expected.len());
+    assert_eq!(*reason, expected);
 }
 
 #[test]

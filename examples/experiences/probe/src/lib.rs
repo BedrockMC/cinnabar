@@ -146,6 +146,8 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
                 data => tell(presence(data)),
             }
         }
+        // About 2 MiB of the 3-byte `€`, so a byte limit can fall inside a character.
+        18 => return Err(GuestError::Rejected("€".repeat(2 * MIB / 3))),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())

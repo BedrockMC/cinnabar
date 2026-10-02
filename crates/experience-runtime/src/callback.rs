@@ -14,8 +14,8 @@ use crate::host::cinnabar::experience_server::types::{
 };
 use crate::host::{HostState, LimitExceeded};
 use crate::limits::{
-    CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_STAGED_OPS,
-    MAX_TELL_BYTES, MAX_TELLS,
+    CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_REASON_BYTES,
+    MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
 };
 use crate::load::Loaded;
 use crate::protocol::{self, BlockPos, Call, FailKind, Op, Outcome, Request};
@@ -41,10 +41,19 @@ pub fn run(engine: &Engine, loaded: &Loaded, request: &Request) -> Outcome {
     match invoke(engine, loaded, res, &export) {
         Ok((Ok(()), ops)) => Outcome::Committed { ops },
         Ok((Err(GuestError::Rejected(reason) | GuestError::Failed(reason)), _)) => {
-            Outcome::Rejected { reason }
+            Outcome::Rejected {
+                reason: bounded_reason(reason),
+            }
         }
         Err(error) => failed(&error),
     }
+}
+
+/// A guest's `reason` cut to [`MAX_REASON_BYTES`] at a char boundary, so the result fits in a
+/// frame.
+fn bounded_reason(mut reason: String) -> String {
+    reason.truncate(reason.floor_char_boundary(MAX_REASON_BYTES));
+    reason
 }
 
 /// Instantiates the guest in a fresh store, lends it `res` for one export call, and returns
@@ -103,12 +112,16 @@ pub struct CallbackRes {
     /// The ids of this Experience's blocks.
     own: Arc<[String]>,
     snapshot: Snapshot,
+    /// In the order they commit. A position has at most one `SetBlockData`, and it comes after
+    /// any `SetBlock` there.
     ops: Vec<Op>,
     /// Bytes this Experience may still add to its block data.
     budget: u64,
     /// Bytes the staged writes add to this Experience's block data; negative when they free
     /// more than they add.
     added: i64,
+    /// Bytes of data in the staged `SetBlockData` ops.
+    staged_data: usize,
     host_calls: usize,
     tells: usize,
 }
@@ -216,6 +229,7 @@ fn prepare<'a>(
         ops: Vec::new(),
         budget: *data_budget,
         added: 0,
+        staged_data: 0,
         host_calls: 0,
         tells: 0,
     };
@@ -292,8 +306,9 @@ impl CallbackRes {
         Ok(self.snapshot.read(pos).map(|slot| slot.id.clone()))
     }
 
-    /// Replaces air or an own block with air or an own block. The position loses its data and
-    /// is owned exactly when the new block is this Experience's.
+    /// Replaces air or an own block with air or an own block. The position loses its data, so
+    /// data staged for it is dropped, and it is owned exactly when the new block is this
+    /// Experience's.
     pub(crate) fn set_block(
         &mut self,
         pos: BlockPos,
@@ -310,6 +325,9 @@ impl CallbackRes {
         let owned = id != AIR;
         if owned && !self.own.contains(&id) {
             return Ok(Err(WorldError::UnknownBlock));
+        }
+        if let Some(index) = data_op(&self.ops, pos) {
+            self.staged_data -= staged_len(&self.ops.remove(index));
         }
         stage(
             &mut self.ops,
@@ -339,8 +357,8 @@ impl CallbackRes {
         }))
     }
 
-    /// Writes or, with `None`, deletes an own block's data, within the size limit and the data
-    /// budget.
+    /// Writes or, with `None`, deletes an own block's data, within the size limits and the data
+    /// budget. A rewrite replaces the op staged for the block in place.
     pub(crate) fn set_block_data(
         &mut self,
         pos: BlockPos,
@@ -354,18 +372,26 @@ impl CallbackRes {
         if !slot.owned {
             return Ok(Err(WorldError::NotOwned));
         }
-        if data
-            .as_ref()
-            .is_some_and(|data| data.len() > MAX_BLOCK_DATA_BYTES)
-        {
+        let size = data.as_ref().map_or(0, Vec::len);
+        let earlier = data_op(&self.ops, pos);
+        let staged =
+            self.staged_data + size - earlier.map_or(0, |index| staged_len(&self.ops[index]));
+        if size > MAX_BLOCK_DATA_BYTES || staged > MAX_STAGED_DATA_BYTES {
             return Ok(Err(WorldError::TooLarge));
         }
         let added = self.added + len(data.as_deref()) - len(slot.data.as_deref());
         if u64::try_from(added).is_ok_and(|added| added > self.budget) {
             return Ok(Err(WorldError::QuotaExceeded));
         }
-        let hex = data.as_deref().map(hex::encode);
-        stage(&mut self.ops, Op::SetBlockData { pos, data: hex })?;
+        let op = Op::SetBlockData {
+            pos,
+            data: data.as_deref().map(hex::encode),
+        };
+        match earlier {
+            Some(index) => self.ops[index] = op,
+            None => stage(&mut self.ops, op)?,
+        }
+        self.staged_data = staged;
         self.added = added;
         slot.data = data;
         Ok(Ok(()))
@@ -413,6 +439,22 @@ fn stage(ops: &mut Vec<Op>, op: Op) -> Result<()> {
     }
     ops.push(op);
     Ok(())
+}
+
+/// The index of the staged `SetBlockData` at `pos`.
+fn data_op(ops: &[Op], pos: BlockPos) -> Option<usize> {
+    ops.iter()
+        .position(|op| matches!(op, Op::SetBlockData { pos: at, .. } if *at == pos))
+}
+
+/// The bytes of data that a staged op writes; its hex has two digits per byte.
+fn staged_len(op: &Op) -> usize {
+    match op {
+        Op::SetBlockData {
+            data: Some(hex), ..
+        } => hex.len() / 2,
+        _ => 0,
+    }
 }
 
 /// The length of some data; absent data has none. A slice holds at most `isize::MAX` bytes, so
@@ -466,7 +508,8 @@ mod tests {
     use crate::host::LimitExceeded;
     use crate::host::cinnabar::experience_server::types::WorldError;
     use crate::limits::{
-        MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
+        MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS,
+        MAX_TELL_BYTES, MAX_TELLS,
     };
     use crate::protocol::{BlockPos, Call, Cell, Face, FailKind, Info, Op, Outcome, Request};
 
@@ -684,6 +727,99 @@ mod tests {
             res.set_block_data(EAST, Some(vec![0; 6])).unwrap(),
             Err(WorldError::QuotaExceeded)
         );
+    }
+
+    /// A rewrite replaces the op it rewrites, so it neither grows the result nor counts against
+    /// the op cap, and the last write is the one staged.
+    #[test]
+    fn rewriting_data_stages_one_op() {
+        let mut res = Fixture::new().res();
+        for _ in 0..MAX_STAGED_OPS {
+            assert_eq!(res.set_block_data(ANCHOR, Some(vec![0])).unwrap(), Ok(()));
+        }
+        assert_eq!(
+            res.set_block_data(ANCHOR, Some(vec![0xab])).unwrap(),
+            Ok(())
+        );
+        assert_eq!(
+            res.ops,
+            vec![Op::SetBlockData {
+                pos: ANCHOR,
+                data: Some("ab".to_owned()),
+            }]
+        );
+    }
+
+    /// The replacement clears the data staged before it, so that op is dropped. The ops are
+    /// applied in order, so data staged after the replacement must stay after it.
+    #[test]
+    fn replacement_drops_data_staged_before_it() {
+        let mut res = Fixture::new().res();
+        assert_eq!(res.set_block_data(ANCHOR, Some(vec![1])).unwrap(), Ok(()));
+        assert_eq!(res.set_block(ANCHOR, COUNTER.to_owned()).unwrap(), Ok(()));
+        assert_eq!(res.set_block_data(ANCHOR, Some(vec![2])).unwrap(), Ok(()));
+        assert_eq!(
+            res.ops,
+            vec![
+                Op::SetBlock {
+                    pos: ANCHOR,
+                    id: COUNTER.to_owned(),
+                },
+                Op::SetBlockData {
+                    pos: ANCHOR,
+                    data: Some("02".to_owned()),
+                },
+            ]
+        );
+    }
+
+    /// Owned cells in the anchor's chunk column whose full data fills the staged-data limit.
+    const FULL: [BlockPos; 4] = [ANCHOR, UP, DOWN, EAST];
+
+    /// A callback that has staged [`MAX_BLOCK_DATA_BYTES`] in every cell of [`FULL`], which
+    /// reaches the staged-data limit exactly. [`SOUTH`] is owned too and has no data.
+    fn full_staged_data() -> CallbackRes {
+        assert_eq!(
+            FULL.len() * MAX_BLOCK_DATA_BYTES,
+            MAX_STAGED_DATA_BYTES,
+            "FULL must fill the staged-data limit exactly"
+        );
+        let mut res = Fixture::new()
+            .cell(UP, COUNTER, true, None)
+            .cell(DOWN, COUNTER, true, None)
+            .cell(EAST, COUNTER, true, None)
+            .cell(SOUTH, COUNTER, true, None)
+            .res();
+        for pos in FULL {
+            let full = Some(vec![0; MAX_BLOCK_DATA_BYTES]);
+            assert_eq!(res.set_block_data(pos, full).unwrap(), Ok(()));
+        }
+        res
+    }
+
+    /// The limit itself fits; a byte more is refused and stages nothing.
+    #[test]
+    fn staged_data_limit_is_inclusive() {
+        let mut res = full_staged_data();
+        assert_eq!(
+            res.set_block_data(SOUTH, Some(vec![0])).unwrap(),
+            Err(WorldError::TooLarge)
+        );
+        assert_eq!(res.block_data(SOUTH).unwrap(), Ok(None));
+        assert_eq!(res.ops.len(), FULL.len());
+    }
+
+    /// Only the ops left staged count, so shrinking a rewrite and replacing a block both free
+    /// room.
+    #[test]
+    fn staged_data_counts_the_ops_left_after_rewrites() {
+        let mut res = full_staged_data();
+        let shrunk = Some(vec![0; MAX_BLOCK_DATA_BYTES - 1]);
+        assert_eq!(res.set_block_data(ANCHOR, shrunk).unwrap(), Ok(()));
+        assert_eq!(res.set_block_data(SOUTH, Some(vec![0])).unwrap(), Ok(()));
+        assert_eq!(res.set_block(UP, COUNTER.to_owned()).unwrap(), Ok(()));
+        let full = Some(vec![0; MAX_BLOCK_DATA_BYTES]);
+        assert_eq!(res.set_block_data(SOUTH, full).unwrap(), Ok(()));
     }
 
     #[test]
