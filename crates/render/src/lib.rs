@@ -210,4 +210,6 @@ pub use weather::{
     particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
 };
 
+mod opaque_phase;
+pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
