@@ -15,7 +15,7 @@ use super::super::super::{TextMetrics, UiPresentationError, rect};
 use super::Painter;
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
-pub(super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
+pub(in super::super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 
 #[derive(Clone)]
 pub(super) struct TextPaint {
@@ -81,7 +81,7 @@ fn label_request<'a>(
 }
 
 /// Rounded up, so text laid out at its own measured width does not wrap.
-pub(super) fn width_64(logical: f64) -> u32 {
+pub(in super::super) fn width_64(logical: f64) -> u32 {
     (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0).ceil() as u32
 }
 

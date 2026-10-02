@@ -225,12 +225,14 @@ pub(crate) struct MenuRuntime {
     server_tab: MenuServerTab,
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
-    text_selected: bool,
+    /// Bumped by every field edit and caret move, restarting the caret blink.
+    caret_revision: u64,
     /// Screens opened on the way here; back returns to the one below.
     history: json_ui::ScreenNav<MenuScreen>,
-    name: String,
-    address: String,
-    port: String,
+    /// The Add/Edit Server boxes, each typed through the chat editor's caret model.
+    name: ui::ChatEditor,
+    address: ui::ChatEditor,
+    port: ui::ChatEditor,
     message: Option<String>,
     gui_scale_preference: Option<u8>,
     gui_scale_offset: i8,
@@ -366,7 +368,6 @@ impl MenuRuntime {
         self.visible = visible;
         if !visible {
             self.field = None;
-            self.text_selected = false;
             self.dialog = None;
         }
     }
@@ -397,9 +398,10 @@ impl MenuRuntime {
             server_tab: self.server_tab,
             dialog: self.dialog,
             field: self.field,
-            name: self.name.clone(),
-            address: self.address.clone(),
-            port: self.port.clone(),
+            caret: self.caret(),
+            name: self.name.as_str().to_owned(),
+            address: self.address.as_str().to_owned(),
+            port: self.port.as_str().to_owned(),
             message: self.message.clone(),
             gui_scale_offset: self.gui_scale_display_offset,
             gui_scale_choices: self.gui_scale_choices.clone(),
@@ -526,7 +528,6 @@ impl MenuRuntime {
         self.screen = MenuScreen::Home;
         self.message = None;
         self.field = None;
-        self.text_selected = false;
     }
 
     pub(crate) fn mark_connecting(&mut self) {
@@ -545,7 +546,6 @@ impl MenuRuntime {
         self.focused = 0;
         self.connecting = false;
         self.field = None;
-        self.text_selected = false;
         self.dialog = None;
     }
 
@@ -564,7 +564,6 @@ impl MenuRuntime {
         self.screen = MenuScreen::Play;
         self.dialog = None;
         self.field = None;
-        self.text_selected = false;
         // The raw chain is for the log; the disconnect screen words it as vanilla does.
         bevy::log::warn!(error, "session ended");
         self.message = None;
@@ -610,10 +609,7 @@ impl MenuRuntime {
         }
         match action.text_field() {
             Some(field) => self.focus_field(field),
-            None => {
-                self.field = None;
-                self.text_selected = false;
-            }
+            None => self.field = None,
         }
         self.pressed = Some(action);
         self.message = None;
@@ -646,7 +642,7 @@ impl MenuRuntime {
                 self.editing = None;
                 self.name.clear();
                 self.address.clear();
-                self.port = DEFAULT_PORT.to_owned();
+                self.port.set_text(DEFAULT_PORT);
                 self.enter(MenuScreen::AddServer);
                 self.focus_field(MenuField::Name);
             }
@@ -752,8 +748,10 @@ impl MenuRuntime {
             }
             MenuAction::EditSaved(index) => {
                 if let Some(server) = self.servers.get(index) {
-                    self.name = server.name.clone();
-                    (self.address, self.port) = split_address(&server.address);
+                    self.name.set_text(&server.name);
+                    let (address, port) = split_address(&server.address);
+                    self.address.set_text(&address);
+                    self.port.set_text(&port);
                     self.enter(MenuScreen::AddServer);
                     self.editing = Some(index);
                     self.focus_field(MenuField::Name);
@@ -803,8 +801,8 @@ impl MenuRuntime {
 
     /// The draft's `host:port`; a host typed with its own port keeps it.
     fn draft_endpoint(&self) -> String {
-        let host = self.address.trim();
-        let port = self.port.trim();
+        let host = self.address.as_str().trim();
+        let port = self.port.as_str().trim();
         let own_port = host.contains("]:")
             || host.split_once(':').is_some_and(|(_, rest)| {
                 !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
@@ -821,7 +819,7 @@ impl MenuRuntime {
     }
 
     fn save_draft(&mut self) -> bool {
-        let name = self.name.trim();
+        let name = self.name.as_str().trim();
         let endpoint = self.draft_endpoint();
         let address = endpoint.trim();
         if name.is_empty() || address.is_empty() {

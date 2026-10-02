@@ -15,6 +15,7 @@ mod join_progress;
 mod loading_screen;
 #[cfg(test)]
 mod loading_texture_tests;
+pub(super) mod menu_caret;
 #[cfg(test)]
 mod menu_latency;
 mod menu_screens;
@@ -113,6 +114,8 @@ pub(super) struct FormPresentation {
     book_cache: Option<recipe_book::BookCache>,
     /// Last shown menu retained while Settings prepares in the background.
     ready_menu: Option<crate::menu::MenuView>,
+    /// The menu text caret's blink and its boxes' text; carried across the per-frame reset.
+    menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
     /// The bed screen's hits and pointer; carried across the per-frame reset.
@@ -418,6 +421,7 @@ impl UiPresentationRuntime {
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             ready_menu: state.ready_menu,
+            menu_caret: state.menu_caret,
             chat: state.chat,
             bed: state.bed,
             sign: state.sign,

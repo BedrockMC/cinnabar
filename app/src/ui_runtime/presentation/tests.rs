@@ -27,6 +27,7 @@ mod hud_server_pack_tests;
 mod inventory_count_tests;
 mod item_pipeline_tests;
 mod loading_screen_tests;
+mod menu_caret_tests;
 mod menu_status_tests;
 mod publication_split_tests;
 mod retained_hud_tests;
