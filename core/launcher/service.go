@@ -18,10 +18,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"golang.org/x/oauth2"
@@ -351,25 +351,20 @@ func (s *Service) PublishSignedIn(ctx context.Context) {
 // writes the standard prompt line to w; it publishes a sanitized failure reason on error.
 func DeviceRequest(store *control.Store) func(context.Context, io.Writer) (*oauth2.Token, error) {
 	return func(ctx context.Context, w io.Writer) (*oauth2.Token, error) {
-		fail := func(reason string, err error) (*oauth2.Token, error) {
+		token, err := (authflow.DeviceFlow{}).Request(ctx, func(device *oauth2.DeviceAuthResponse) error {
 			if store != nil {
-				store.SetAuth(control.AuthV1{State: control.AuthFailed, Reason: reason})
+				store.SetAuth(control.AuthV1{
+					State: control.AuthAwaitingCode, VerificationURI: device.VerificationURI, UserCode: device.UserCode,
+				})
+			}
+			_, err := fmt.Fprintf(w, "Authenticate at %v using the code %v.\n", device.VerificationURI, device.UserCode)
+			return err
+		})
+		if err != nil {
+			if store != nil {
+				store.SetAuth(control.AuthV1{State: control.AuthFailed, Reason: "Microsoft sign-in did not complete."})
 			}
 			return nil, err
-		}
-		device, err := auth.AndroidConfig.DeviceAuth(ctx)
-		if err != nil {
-			return fail("Could not start Microsoft sign-in.", fmt.Errorf("start device auth: %w", err))
-		}
-		if store != nil {
-			store.SetAuth(control.AuthV1{
-				State: control.AuthAwaitingCode, VerificationURI: device.VerificationURI, UserCode: device.UserCode,
-			})
-		}
-		_, _ = fmt.Fprintf(w, "Authenticate at %v using the code %v.\n", device.VerificationURI, device.UserCode)
-		token, err := auth.AndroidConfig.DeviceAccessToken(ctx, device)
-		if err != nil {
-			return fail("Microsoft sign-in did not complete.", fmt.Errorf("poll device token: %w", err))
 		}
 		_, _ = w.Write([]byte("Authentication successful.\n"))
 		return token, nil
