@@ -86,11 +86,9 @@ impl Default for EnhancedRendering {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnhancedRenderPlugin;
 
-/// Registers conditional shader imports without installing Enhanced passes.
+/// Registers source imports that Bevy resolves even for vanilla shader variants.
+/// This creates no Enhanced GPU pipelines or render passes.
 pub(crate) fn load_shader_imports(app: &mut App) {
-    if !ENHANCED_RENDERING_ENABLED {
-        return;
-    }
     if app
         .world()
         .resource::<Assets<Shader>>()
