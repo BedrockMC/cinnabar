@@ -106,7 +106,13 @@ fn fill(
             let uv = std::array::from_fn(|axis| {
                 wa * corners[0].uv[axis] + wb * corners[1].uv[axis] + wc * corners[2].uv[axis]
             });
-            let Some(source) = shade(uv, corners[0].color, x, y) else {
+            let color = std::array::from_fn(|channel| {
+                (wa * f32::from(corners[0].color[channel])
+                    + wb * f32::from(corners[1].color[channel])
+                    + wc * f32::from(corners[2].color[channel]))
+                .round() as u8
+            });
+            let Some(source) = shade(uv, color, x, y) else {
                 continue;
             };
             let target = image.get_pixel_mut(x, y);

@@ -522,6 +522,10 @@ impl UiPresentationRuntime {
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
         session_glyphs::observe(self, runtime.session_glyphs());
+        // Install artwork before any screen resolves its pixel UVs.
+        if self.menu_artwork_loader.poll() {
+            self.rebuild_dynamic_textures();
+        }
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
