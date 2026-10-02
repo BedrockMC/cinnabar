@@ -222,7 +222,7 @@ fn lay_out<'a>(
         hidden_names: Vec::new(),
         screen,
     };
-    let key = child_key("", root);
+    let key = child_key("", root, 0);
     let laid = place_subtree(
         root,
         key,
@@ -256,22 +256,47 @@ struct PlaceCtx<'tree, 'e, 'x> {
     screen: Rect,
 }
 
-/// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
-pub(crate) fn child_key(parent: &str, control: &ResolvedControl) -> String {
+/// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
+/// both, so anonymous array entries keep their own hover and press state.
+pub(crate) fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
     let mut key = String::with_capacity(parent.len() + control.name.len() + 6);
     key.push_str(parent);
     key.push('/');
     key.push_str(&control.name);
-    if let Some(index) = control
-        .properties
-        .get("collection_index")
-        .and_then(Value::as_u64)
-    {
+    if let Some(index) = collection_index(control) {
         key.push('[');
         key.push_str(&index.to_string());
         key.push(']');
     }
+    if repeat > 0 {
+        key.push('~');
+        key.push_str(&(repeat + 1).to_string());
+    }
     key
+}
+
+fn collection_index(control: &ResolvedControl) -> Option<u64> {
+    control
+        .properties
+        .get("collection_index")
+        .and_then(Value::as_u64)
+}
+
+/// Counts siblings by name and collection index for [`child_key`]'s repeat.
+#[derive(Default)]
+pub(crate) struct SiblingKeys(std::collections::HashMap<(String, Option<u64>), usize>);
+
+impl SiblingKeys {
+    /// Earlier siblings sharing `name` and `index`.
+    pub(crate) fn repeat(&mut self, name: &str, index: Option<u64>) -> usize {
+        let count = self.0.entry((name.to_owned(), index)).or_default();
+        *count += 1;
+        *count - 1
+    }
+
+    pub(crate) fn of(&mut self, control: &ResolvedControl) -> usize {
+        self.repeat(&control.name, collection_index(control))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -381,6 +406,16 @@ fn place_subtree<'a>(
     let priority = stack::hidden_by_priority(control, rect, ctx.env);
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
+    let repeats = if control.children.len() > 1 {
+        let mut siblings = SiblingKeys::default();
+        control
+            .children
+            .iter()
+            .map(|child| siblings.of(child))
+            .collect()
+    } else {
+        Vec::new()
+    };
     for (child, mut child_rect) in placed {
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
@@ -413,7 +448,11 @@ fn place_subtree<'a>(
             }
             break;
         }
-        let next_key = child_key(&key, child);
+        let repeat = repeats
+            .get(measure::child_index(control, child))
+            .copied()
+            .unwrap_or(0);
+        let next_key = child_key(&key, child, repeat);
         // Stack items and grid cells have no offset delta term.
         if !packs {
             if place::follows_pointer(child) {
