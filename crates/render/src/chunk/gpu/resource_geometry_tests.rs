@@ -170,3 +170,35 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
         old_buffer
     );
 }
+
+#[test]
+fn review_render_fairness_overflow_keeps_unchanged_uploads_discoverable() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let mut app = App::new();
+    app.insert_resource(ChunkGpuArena::new(&device))
+        .insert_resource(device)
+        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
+        .insert_resource(ChunkTextureAssets::default())
+        .insert_resource(ChunkUploadBudget::new(0, 0))
+        .init_resource::<ChunkGpuUploadStats>()
+        .init_resource::<ChunkBiomeTints>()
+        .init_resource::<ChunkUploadAcknowledgements>()
+        .init_resource::<ChunkGpuRemovalQueue>()
+        .init_resource::<TransparentRetirementFence>()
+        .insert_resource(GpuUpdateFairness::with_limit(2))
+        .add_systems(Update, prepare_gpu_chunks);
+    for x in 0..3 {
+        let mut instance = water(ChunkBiomeTintIdentity::default());
+        instance.key.x = x;
+        app.world_mut().spawn(instance);
+    }
+    app.update();
+    assert_eq!(
+        app.world().resource::<GpuUpdateFairness>().wait_ages.len(),
+        2
+    );
+    app.insert_resource(ChunkUploadBudget::new(3, u64::MAX));
+    app.update();
+    assert_eq!(app.world().resource::<ChunkGpuArena>().allocations.len(), 3);
+}
