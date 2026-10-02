@@ -31,6 +31,7 @@ mod panorama_render;
 mod particles;
 mod present_mode;
 mod runtime_profile;
+mod runtime_profile_trace;
 mod screen_overlay;
 mod screen_overlay_render;
 mod ui;
