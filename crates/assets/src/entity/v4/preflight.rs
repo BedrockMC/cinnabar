@@ -5,6 +5,7 @@ use crate::item::{MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS};
 use super::super::{
     MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES,
     MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_TEXTURE_MESHES,
 };
 use super::{
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
@@ -45,6 +46,7 @@ struct EntityCatalogCountProbe {
     _render: de::IgnoredAny,
 }
 
+#[derive(Default)]
 struct SequenceCount(usize);
 
 impl<'de> Deserialize<'de> for SequenceCount {
@@ -158,6 +160,10 @@ struct BoneProbe {
     inflate: de::IgnoredAny,
     never_render: de::IgnoredAny,
     reset: de::IgnoredAny,
+    #[serde(default)]
+    binding: Option<de::IgnoredAny>,
+    #[serde(default)]
+    texture_meshes: SequenceCount,
     cubes: SequenceCount,
 }
 
@@ -183,6 +189,7 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
             {
                 let mut bones = 0usize;
                 let mut cubes = 0usize;
+                let mut texture_meshes = 0usize;
                 while let Some(bone) = sequence.next_element::<BoneProbe>()? {
                     let BoneProbe {
                         name: _,
@@ -193,6 +200,8 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                         inflate: _,
                         never_render: _,
                         reset: _,
+                        binding: _,
+                        texture_meshes: bone_meshes,
                         cubes: bone_cubes,
                     } = bone;
                     bones = bones
@@ -201,7 +210,13 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                     cubes = cubes
                         .checked_add(bone_cubes.0)
                         .ok_or_else(|| de::Error::custom("entity cube count overflow"))?;
-                    if bones > MAX_ENTITY_GEOMETRY_BONES || cubes > MAX_ENTITY_GEOMETRY_CUBES {
+                    texture_meshes = texture_meshes
+                        .checked_add(bone_meshes.0)
+                        .ok_or_else(|| de::Error::custom("entity texture mesh count overflow"))?;
+                    if bones > MAX_ENTITY_GEOMETRY_BONES
+                        || cubes > MAX_ENTITY_GEOMETRY_CUBES
+                        || texture_meshes > MAX_ENTITY_GEOMETRY_TEXTURE_MESHES
+                    {
                         return Err(de::Error::custom(
                             "entity geometry subarray count preflight exceeds bound",
                         ));

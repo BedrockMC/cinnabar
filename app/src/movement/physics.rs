@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, time::Duration};
 
 use bevy::prelude::Resource;
-use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode, STANDING_PLAYER_EYE_HEIGHT};
+use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode};
 use sim::{
     CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
     TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
@@ -9,6 +9,7 @@ use sim::{
 use thiserror::Error;
 
 mod correction;
+mod eye;
 mod timeline;
 
 pub(crate) use timeline::ServerControlFlags;
@@ -209,6 +210,7 @@ pub struct LocalPhysicsController {
     history: PredictionHistory,
     state: Option<PlayerState>,
     previous_position: Vec3,
+    eye_offset: eye::LocalEyeOffset,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
     previous_jump_held: bool,
@@ -243,6 +245,7 @@ impl Default for LocalPhysicsController {
                 .expect("local physics history capacity is non-zero"),
             state: None,
             previous_position: Vec3::ZERO,
+            eye_offset: eye::LocalEyeOffset::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
             previous_jump_held: false,
@@ -289,6 +292,7 @@ impl LocalPhysicsController {
     pub fn deactivate(&mut self) {
         self.prediction_sync.clear();
         self.state = None;
+        self.eye_offset = eye::LocalEyeOffset::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
@@ -337,6 +341,7 @@ impl LocalPhysicsController {
         state.on_ground = on_ground;
         self.state = Some(state);
         self.previous_position = feet;
+        self.eye_offset = eye::LocalEyeOffset::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
@@ -547,6 +552,7 @@ impl LocalPhysicsController {
                     self.last_environment = result.environment;
                     effects.commit_successful_tick();
                     self.previous_position = before;
+                    self.eye_offset.tick(input.mode, input.sneaking);
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
@@ -675,14 +681,19 @@ impl LocalPhysicsController {
 
     #[must_use]
     pub fn render_eye_position(&self) -> Option<[f32; 3]> {
+        let mut feet = self.render_feet_position()?;
+        let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
+        feet[1] += self.eye_offset.height(alpha as f32);
+        Some(feet)
+    }
+
+    /// The interpolated actor origin, independent of the camera's stance offset.
+    #[must_use]
+    pub fn render_feet_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
         let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
         let feet = self.previous_position + (state.position - self.previous_position) * alpha;
-        Some([
-            feet.x as f32,
-            feet.y as f32 + STANDING_PLAYER_EYE_HEIGHT,
-            feet.z as f32,
-        ])
+        Some([feet.x as f32, feet.y as f32, feet.z as f32])
     }
 
     #[must_use]

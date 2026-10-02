@@ -5,7 +5,7 @@ use crate::viewmodel::{
 };
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::core_3d::graph::Core3d,
     ecs::system::{SystemChangeTick, SystemParam},
     mesh::VertexBufferLayout,
     prelude::*,
@@ -91,7 +91,7 @@ pub(crate) fn install_hand_graph(world: &mut World) {
         graph.add_node(HandLabel, runner);
     }
     graph.add_node_edges((
-        Node3d::MainTransparentPass,
+        crate::ui_render::UiWorldLabel,
         HandLabel,
         crate::ui_render::UiOverlayLabel,
     ));

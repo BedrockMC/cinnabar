@@ -46,6 +46,11 @@ pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
 pub const MAX_STANDARD_SKIN_SIDE: u32 = 512;
 pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 
+/// Native ItemActor origin above collision-box feet. Current ctor 0383fdc0 sets
+/// collision height to .25 and this offset to half that height. AddItemActor and
+/// both absolute/delta movement carry the native origin, not collision feet.
+pub const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.125;
+
 /// Actor-data id of the primary 64-bit actor flag word.
 ///
 /// The 1.26.40 generator emits raw actor-data ids instead of the named key enum
@@ -156,15 +161,15 @@ pub struct ActorMoveEvent {
 
 /// Coordinate space carried by an actor movement position.
 ///
-/// Spawn positions and partial actor movement values use the actor store's
-/// retained coordinate space. Absolute actor and player movement packets use a
-/// network coordinate whose player offset can be removed once actor kind is known.
+/// Normalized spawn positions use the actor store's retained coordinate space.
+/// Absolute and partial wire movement share the native actor origin; its offset
+/// can be removed once actor kind is known.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ActorPositionOrigin {
     /// The position is already in the actor store's retained coordinate space.
     #[default]
     Feet,
-    /// The position came from an absolute Bedrock network movement packet.
+    /// The position came from an absolute or delta Bedrock movement packet.
     NetworkOffset,
 }
 

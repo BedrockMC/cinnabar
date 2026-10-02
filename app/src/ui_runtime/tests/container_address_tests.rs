@@ -662,19 +662,21 @@ fn accepted_response_corrections_resolve_through_the_same_canonical_projection()
     let mut runtime = UiRuntime::new(1);
     server_ledger(&mut runtime);
     for (slot, network_id) in [(3, 33), (4, 44), (5, 55)] {
+        let mut server_stack = stack(network_id);
+        server_stack.stack_network_id = network_id;
         runtime.inventory_ledger_mut().apply(&slot_event(
             identity(
                 0,
                 Some(protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
             ),
             slot,
-            stack(network_id),
+            server_stack,
         ));
     }
     assert!(runtime.inventory_ledger_mut().request_personal_open(42));
     assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
     // One in-flight gesture so an accepted response can reconcile at all.
-    let request = runtime.inventory_ledger_mut().begin_click(5).unwrap();
+    let request = runtime.inventory_ledger_mut().begin_click(3).unwrap();
     runtime
         .inventory_ledger_mut()
         .apply(&InventoryEvent::Response(ItemStackResponseEvent {

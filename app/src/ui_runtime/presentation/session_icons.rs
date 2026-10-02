@@ -38,6 +38,27 @@ pub(super) struct SessionIconPage {
 }
 
 impl UiPresentationRuntime {
+    /// Native CrossbowItem::getIcon routes nonzero animation frames to the pulling
+    /// atlas. This identity is shared by inventory cells and actual dropped sprites.
+    pub(crate) fn item_icon_key<'a>(
+        identifier: &'a str,
+        metadata: u32,
+        charged_projectile: Option<&str>,
+        animation_frame: Option<u32>,
+    ) -> (&'a str, u32) {
+        if identifier != "minecraft:crossbow" {
+            return (identifier, metadata);
+        }
+        let frame = animation_frame.unwrap_or_else(|| {
+            crate::item_use::crossbow_animation_frame(None, 0, charged_projectile, false)
+        });
+        if frame == 0 {
+            (identifier, metadata)
+        } else {
+            ("minecraft:crossbow_pulling", frame - 1)
+        }
+    }
+
     /// Resolves an item identity to its icon: a server icon for this session
     /// first, then the vanilla atlas. Unknown items keep only the slot frame.
     pub(crate) fn item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
@@ -184,4 +205,47 @@ fn pack(
     }
     let page = UiTexturePage::owned([PAGE_SIDE, PAGE_SIDE], rgba8.into()).ok()?;
     Some((page, refs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stack_icon_identity_retains_loaded_projectile_and_local_frame_override() {
+        for projectile in ["minecraft:arrow", "minecraft:firework_rocket"] {
+            let frame = crate::item_use::crossbow_animation_frame(None, 0, Some(projectile), false);
+            assert_eq!(
+                UiPresentationRuntime::item_icon_key(
+                    "minecraft:crossbow",
+                    73,
+                    Some(projectile),
+                    None
+                ),
+                ("minecraft:crossbow_pulling", frame - 1),
+            );
+            assert_eq!(
+                UiPresentationRuntime::item_icon_key(
+                    "minecraft:crossbow",
+                    73,
+                    Some(projectile),
+                    Some(0)
+                ),
+                ("minecraft:crossbow", 73),
+            );
+        }
+        assert_eq!(
+            UiPresentationRuntime::item_icon_key("minecraft:crossbow", 73, None, None),
+            ("minecraft:crossbow", 73),
+        );
+        assert_eq!(
+            UiPresentationRuntime::item_icon_key(
+                "minecraft:stone",
+                2,
+                Some("minecraft:arrow"),
+                Some(1)
+            ),
+            ("minecraft:stone", 2),
+        );
+    }
 }

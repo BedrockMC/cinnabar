@@ -45,6 +45,8 @@ pub(crate) use source::{open_source_handle, read_bounded_source};
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
 pub use attachable::{
     compile_item_use as compile_item_use_durations, compile_textures as compile_equipment_textures,
+    compile_textures_for_assets as compile_equipment_textures_for_assets,
+    compile_textures_for_assets_with as compile_equipment_textures_for_assets_with,
     compile_textures_with as compile_equipment_textures_with,
 };
 
@@ -418,7 +420,7 @@ fn validate_reference_coverage(
             EntityAssetKind::AnimationController => {
                 compiled_controllers.contains(&index) || attributed.contains(&index)
             }
-            EntityAssetKind::Entity => {
+            EntityAssetKind::Entity | EntityAssetKind::Attachable => {
                 compiled_entities.contains(&index) || attributed.contains(&index)
             }
             _ => true,
@@ -479,7 +481,13 @@ fn parse_source(
     if relative_path.starts_with("attachables/") {
         let value = parse_unique_json(absolute_path, bytes)?;
         attachable::validate_source(&value)?;
-        return Ok(());
+        return parse_entity(
+            relative_path,
+            absolute_path,
+            &value,
+            symbols,
+            EntityAssetKind::Attachable,
+        );
     }
     if relative_path.starts_with("textures/") {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
@@ -517,7 +525,13 @@ fn parse_source(
             &["format_version", "minecraft:client_entity"],
             &["format_version", "minecraft:client_entity"],
         )?;
-        parse_entity(relative_path, absolute_path, &value, symbols)
+        parse_entity(
+            relative_path,
+            absolute_path,
+            &value,
+            symbols,
+            EntityAssetKind::Entity,
+        )
     } else if relative_path.starts_with("models/entity/") {
         parse_geometry(
             relative_path,
@@ -565,17 +579,14 @@ fn parse_entity(
     path: &Path,
     value: &Value,
     symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
+    kind: EntityAssetKind,
 ) -> Result<(), AssetError> {
-    let description = value
-        .get("minecraft:client_entity")
-        .and_then(|entity| entity.get("description"))
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            invalid(format!(
-                "missing client entity description in {}",
-                path.display()
-            ))
-        })?;
+    let description = animation::roots::description(value).ok_or_else(|| {
+        invalid(format!(
+            "missing client entity description in {}",
+            path.display()
+        ))
+    })?;
     let identifier = description
         .get("identifier")
         .and_then(Value::as_str)
@@ -626,7 +637,7 @@ fn parse_entity(
     }
     insert_symbol(
         symbols,
-        EntityAssetKind::Entity,
+        kind,
         identifier,
         relative_path,
         dependencies

@@ -520,7 +520,42 @@ mod tests {
                 responses: Arc::from([StackResponse {
                     status: StackResponseStatus::Accepted,
                     request_id: take,
-                    containers: Arc::from([]),
+                    containers: Arc::from([
+                        StackResponseContainer {
+                            container: ContainerIdentity {
+                                window_id: None,
+                                slot_type: Some(
+                                    protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                                ),
+                                dynamic_id: None,
+                            },
+                            slots: Arc::from([StackResponseSlot {
+                                slot: 1,
+                                hotbar_slot: 1,
+                                count: 0,
+                                item_stack_id: 0,
+                                custom_name: Arc::from(""),
+                                filtered_custom_name: Arc::from(""),
+                                durability_correction: 0,
+                            }]),
+                        },
+                        StackResponseContainer {
+                            container: ContainerIdentity {
+                                window_id: None,
+                                slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+                                dynamic_id: None,
+                            },
+                            slots: Arc::from([StackResponseSlot {
+                                slot: 0,
+                                hotbar_slot: 0,
+                                count: u8::try_from(original.count).unwrap(),
+                                item_stack_id: original.stack_network_id,
+                                custom_name: Arc::from(""),
+                                filtered_custom_name: Arc::from(""),
+                                durability_correction: 0,
+                            }]),
+                        },
+                    ]),
                 }]),
             }));
         runtime.set_local_selected_slot(0);

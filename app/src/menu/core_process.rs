@@ -160,6 +160,11 @@ pub(super) fn core_command_for_address(
     auth_cache: Option<&Path>,
     enable_upstream_client_cache: bool,
 ) -> Command {
+    // The fallback core needs the same default-port normalization as `connect.v1`.
+    let address = match super::launcher_core::target_for(address) {
+        protocol::launcher_control::ConnectTarget::RakNet(address) => address,
+        _ => address.to_owned(),
+    };
     let mut command = Command::new(executable);
     command
         .arg("-socket-dir")
@@ -226,4 +231,31 @@ pub(super) fn core_executable(layout: &InstallLayout) -> Option<PathBuf> {
 
 pub(super) fn auth_cache_path(layout: &InstallLayout) -> Option<PathBuf> {
     Some(layout.auth_cache()).filter(|path| path.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_core_normalizes_the_same_raknet_address_as_the_launcher() {
+        let layout = InstallLayout::scratch("fallback-target");
+        for address in ["example.test", "example.test:19133", "::1", "realm_id/42"] {
+            let command = core_command_for_address(
+                &layout,
+                &layout.core_executable,
+                &layout.runtime_root,
+                address,
+                None,
+                false,
+            );
+            let args: Vec<_> = command.get_args().collect();
+            let upstream = args.windows(2).find(|pair| pair[0] == "-upstream").unwrap()[1];
+            let expected = match super::super::launcher_core::target_for(address) {
+                protocol::launcher_control::ConnectTarget::RakNet(address) => address,
+                _ => address.to_owned(),
+            };
+            assert_eq!(upstream, std::ffi::OsStr::new(&expected));
+        }
+    }
 }

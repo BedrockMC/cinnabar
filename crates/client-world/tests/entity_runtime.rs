@@ -101,6 +101,8 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 texture_height: 16,
                 bones: vec![EntityGeometryBone {
                     name: "root".into(),
+                    binding: None,
+                    texture_meshes: Box::new([]),
                     parent: None,
                     pivot: Some([scalar(1.0), scalar(0.0), scalar(0.0)]),
                     rotation: None,
@@ -123,6 +125,8 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 texture_height: 16,
                 bones: vec![EntityGeometryBone {
                     name: "wing".into(),
+                    binding: None,
+                    texture_meshes: Box::new([]),
                     parent: Some("root".into()),
                     pivot: Some([scalar(0.0), scalar(2.0), scalar(0.0)]),
                     rotation: None,

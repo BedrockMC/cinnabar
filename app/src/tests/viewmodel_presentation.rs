@@ -734,6 +734,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     avatar.publish_view_visibility(
         semantic_input::PerspectiveMode::FirstPerson,
         Vec3::new(0., 64., 0.),
+        Vec3::new(0., 64. - protocol::PLAYER_NETWORK_OFFSET, 0.),
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -999,6 +1000,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     avatar.publish_view_visibility(
         semantic_input::PerspectiveMode::FirstPerson,
         Vec3::new(0., 64., 0.),
+        Vec3::new(0., 64. - protocol::PLAYER_NETWORK_OFFSET, 0.),
         Quat::IDENTITY,
         &mut app
             .world_mut()

@@ -193,3 +193,45 @@ fn local_armor_equipment_is_ignored_like_vanilla() {
         [CommittedUiEvent::Form { sequence: 2, .. }]
     ));
 }
+
+#[test]
+fn targeted_game_mode_commits_only_the_local_unique_id_in_fifo_order() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 42,
+        local_player_unique_id: -55,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    });
+    let mode = protocol::GameModeEvent {
+        update: protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Creative),
+    };
+    let update = |actor_unique_id| {
+        WorldEvent::Ui(UiEvent::PlayerGameMode {
+            actor_unique_id,
+            tick: 0,
+            event: mode,
+        })
+    };
+    // Matching the runtime ID is insufficient; -1 and 0 are not wildcard addresses.
+    for (sequence, target) in [(1, 42), (2, -1), (3, 0)] {
+        stream.submit(sequence, update(target)).unwrap();
+    }
+    assert!(stream.take_committed_ui().is_empty());
+    stream.submit(5, update(-55)).unwrap();
+    assert!(
+        stream.take_committed_ui().is_empty(),
+        "the sequence gap still fences UI"
+    );
+    stream.submit(4, update(77)).unwrap();
+    assert_eq!(
+        stream.take_committed_ui(),
+        vec![CommittedUiEvent::Ui {
+            sequence: 5,
+            event: UiEvent::GameMode(mode)
+        }]
+    );
+    assert!(stream.take_committed_ui().is_empty());
+}

@@ -1,7 +1,7 @@
 use protocol::{
-    BedrockSession, InventoryPacketError, MAX_STACK_REQUEST_ACTIONS, StackRequestAction,
-    StackRequestContainer, StackRequestSlot, container_close_packet, encode,
-    item_stack_request_packet,
+    BedrockSession, CREATED_OUTPUT_SLOT, InventoryPacketError, MAX_STACK_REQUEST_ACTIONS,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
+    decode_batch, encode, item_stack_request_packet,
 };
 
 fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
@@ -183,20 +183,75 @@ fn builder_rejects_ids_amounts_counts_and_slots() {
     assert!(item_stack_request_packet(-3, &too_many[1..]).is_ok());
 }
 
-/// Created output is named by this request's own id; any other negative id
-/// is refused.
+/// Native sparse ownership allows earlier negative odd request references on
+/// either cell. This request's own id is reserved for its newly created output.
+/// Current SparseContainerSetListenerClient::postSetItem 089457b0 stamps cells;
+/// ItemStackRequestActionHandler::_validateRequestSlot 08934960 resolves them.
 #[test]
-fn negative_stack_ids_may_only_name_this_requests_output() {
+fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
     let take = |id| StackRequestAction::Take {
         amount: 1,
-        source: slot(StackRequestContainer::CreatedOutput, 50, id),
+        source: slot(
+            StackRequestContainer::CreatedOutput,
+            CREATED_OUTPUT_SLOT,
+            id,
+        ),
         destination: slot(StackRequestContainer::Cursor, 0, 0),
     };
     assert!(item_stack_request_packet(-7, &[take(-7)]).is_ok());
+    assert!(item_stack_request_packet(-7, &[take(-5)]).is_ok());
+    let chained = [
+        StackRequestAction::Take {
+            amount: 1,
+            source: slot(StackRequestContainer::PlayerInventory, 0, -5),
+            destination: slot(StackRequestContainer::Cursor, 0, -3),
+        },
+        StackRequestAction::Take {
+            amount: 1,
+            source: slot(
+                StackRequestContainer::CreatedOutput,
+                CREATED_OUTPUT_SLOT,
+                -7,
+            ),
+            destination: slot(StackRequestContainer::Cursor, 0, -5),
+        },
+    ];
+    let packet = item_stack_request_packet(-7, &chained).unwrap();
+    let session = BedrockSession { shield_item_id: 0 };
+    let mut packets = decode_batch(encode(&packet, &session).unwrap(), &session).unwrap();
+    use valentine::bedrock::version::v1_26_51::{
+        ItemStackRequestPacketDataRequestDataActionsItem as Action, McpePacketData,
+    };
+    let McpePacketData::ItemStackRequestPacket(decoded) = packets.pop().unwrap().data else {
+        panic!()
+    };
+    let [
+        Action::TakeActionData(previous),
+        Action::TakeActionData(created),
+    ] = decoded.requests[0].actions.as_slice()
+    else {
+        panic!()
+    };
     assert_eq!(
-        item_stack_request_packet(-7, &[take(-5)]).unwrap_err(),
-        InventoryPacketError::InvalidRequestStackNetworkId(-5)
+        (
+            previous.source.net_id_variant,
+            previous.destination.net_id_variant
+        ),
+        (-5, -3)
     );
+    assert_eq!(
+        (
+            created.source.net_id_variant,
+            created.destination.net_id_variant
+        ),
+        (-7, -5)
+    );
+    for id in [-6, -8, -9] {
+        assert_eq!(
+            item_stack_request_packet(-7, &[take(id)]).unwrap_err(),
+            InventoryPacketError::InvalidRequestStackNetworkId(id)
+        );
+    }
     let from_player = StackRequestAction::Take {
         amount: 1,
         source: slot(StackRequestContainer::PlayerInventory, 0, -7),

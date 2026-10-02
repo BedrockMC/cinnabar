@@ -189,7 +189,9 @@ pub(super) fn has_meaningful_overlay(overlay: Option<&StackResponseOverlay>) -> 
     overlay.is_some_and(|overlay| {
         overlay.custom_name.is_some()
             || overlay.filtered_custom_name.is_some()
-            || overlay.durability_correction.is_some()
+            || overlay
+                .durability_correction
+                .is_some_and(|damage| damage > 0)
     })
 }
 

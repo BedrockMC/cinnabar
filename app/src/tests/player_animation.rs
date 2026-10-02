@@ -623,8 +623,7 @@ fn a_local_swing_animates_the_first_and_third_person_arm() {
 
 /// The vanilla resource pack the local carriers compile from, when fetched.
 fn vanilla_entities() -> Option<Arc<RuntimeEntityAssets>> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack");
+    let root = vanilla_pack_root();
     if !root.join("entity/player.entity.json").is_file() {
         eprintln!(
             "skipping: vanilla resource pack not fetched at {}",
@@ -639,11 +638,15 @@ fn vanilla_entities() -> Option<Arc<RuntimeEntityAssets>> {
     ))
 }
 
+fn vanilla_pack_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local")
+        .join(assets::vanilla_source().installed_pack_dir("resource_pack"))
+}
+
 /// A local skin carrying the vanilla humanoid model as its own geometry.
 fn vanilla_skin_geometry() -> Option<PlayerSkin> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/models/entity/humanoid.custom.geo.json",
-    );
+    let path = vanilla_pack_root().join("models/entity/humanoid.custom.geo.json");
     let geometry_data = fs::read_to_string(path).ok()?;
     Some(PlayerSkin::Standard(StandardSkin {
         geometry: Some(Arc::new(SkinGeometrySource {
@@ -703,6 +706,9 @@ fn a_local_swing_animates_the_vanilla_pack_arm() {
             );
             world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
             let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
+            let item = world.actor_rig(1).unwrap().item_animation;
+            assert!(item[1].attack_time > item[0].attack_time);
+            assert!(item.iter().all(|item| item.arm_height.is_finite()));
             assert!(
                 swing
                     .iter()

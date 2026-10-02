@@ -123,6 +123,10 @@ impl WorldStream {
     pub fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_display_name(unique_id)
     }
+    /// Synced actor name tag, distinct from the player's scoreboard username.
+    pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_name_tag(unique_id)
+    }
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
