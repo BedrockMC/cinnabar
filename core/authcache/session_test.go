@@ -68,7 +68,7 @@ func TestNestedOAuthLeaseRespectsCallerDeadline(t *testing.T) {
 			account, acquired := accountWithContendedSISU(t)
 			call := account.XSTSToken
 			if retained {
-				// PlayFab retains this source and calls it without account.mu.
+				// PlayFab retains this source and calls it without the account gate.
 				call = account.session.XSTSToken
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)

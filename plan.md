@@ -4118,5 +4118,7 @@ Authentication and pack caches now trust the user's configuration directory, whi
 retaining atomic publication, file leases, credential binding and quota eviction.
 New credentials remain private on Unix and Windows. Account methods reject calls
 after close, and sign-out takes the same leases as token refreshes. The active
+sign-in keeps a stable cache generation across refreshes; a replacement sign-in
+ends the old account runtime before it can adopt the new credentials. The active
 catalog exporter and native Windows/Linux BDS installer remain supported. Resource
 packs still pass through the Go cache and retain their client progress reporting.

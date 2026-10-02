@@ -730,9 +730,9 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 	}
 	// A stale bundle written without the eviction must not resurrect it on reload.
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
-	source.mu.Lock()
+	source.gate <- struct{}{}
 	source.reloadLocked()
-	source.mu.Unlock()
+	source.unlock()
 	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("reload resurrected the rejected token")
 	}

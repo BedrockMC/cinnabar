@@ -161,6 +161,23 @@ func TestPublishSignedInIncludesGamertag(t *testing.T) {
 	}
 }
 
+func TestPublishSignedInDoesNotOutliveAccount(t *testing.T) {
+	accountCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	account := authcache.NewAccount(accountCtx, "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "x"}), nil)
+	t.Cleanup(func() { _ = account.Close() })
+	f := newFixture(t, account)
+	f.store.SetAuth(control.AuthV1{State: control.AuthSignedOut})
+	f.service.cfg.Gamertag = func(context.Context, *authcache.Account) (string, error) {
+		cancel()
+		return "Steve", nil
+	}
+	f.service.PublishSignedIn(context.Background())
+	if got := f.store.Auth(); got.State != control.AuthSignedOut || got.Gamertag != "" {
+		t.Fatalf("ended account published auth = %+v", got)
+	}
+}
+
 func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 	var cached []string
 	service := New(Config{

@@ -12,7 +12,7 @@ import (
 
 func TestPublishedCredentialsHavePrivateWindowsACL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "oauth.json")
-	if err := save(path, token("test-access", "test-refresh")); err != nil {
+	if err := save(path, token("test-access", "test-refresh"), ""); err != nil {
 		t.Fatal(err)
 	}
 	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
