@@ -30,6 +30,7 @@ pub struct VideoSettings {
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
     pub brightness: f32,
+    pub render_mode: RenderMode,
     /// Scales speed-driven FOV changes, `0..=1`.
     pub fov_effects_scale: f32,
     /// Scales portal and nausea distortion, `0..=1`.
@@ -50,6 +51,7 @@ impl Default for VideoSettings {
             ui_scale: 1.0,
             render_distance_chunks: 16,
             brightness: 0.5,
+            render_mode: RenderMode::Vanilla,
             fov_effects_scale: 1.0,
             distortion_scale: 1.0,
             view_bobbing: true,
@@ -67,4 +69,57 @@ pub struct GameplaySettings {
     pub toggle_sprint: bool,
     /// Sneak key toggles a persistent sneak instead of requiring hold.
     pub toggle_sneak: bool,
+}
+
+/// World rendering path. `Enhanced` is an opt-in custom look that never counts
+/// toward vanilla parity.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum RenderMode {
+    #[default]
+    Vanilla,
+    Enhanced,
+}
+
+impl RenderMode {
+    #[must_use]
+    /// Stable persisted spelling of this mode.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Vanilla => "vanilla",
+            Self::Enhanced => "enhanced",
+        }
+    }
+
+    /// Case-insensitive inverse of [`Self::as_str`].
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        [Self::Vanilla, Self::Enhanced]
+            .into_iter()
+            .find(|mode| value.trim().eq_ignore_ascii_case(mode.as_str()))
+    }
+
+    #[must_use]
+    /// Switch between the two supported modes.
+    pub const fn toggled(self) -> Self {
+        match self {
+            Self::Vanilla => Self::Enhanced,
+            Self::Enhanced => Self::Vanilla,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RenderMode;
+
+    #[test]
+    fn render_mode_defaults_to_vanilla_and_round_trips_its_text() {
+        assert_eq!(RenderMode::default(), RenderMode::Vanilla);
+        for mode in [RenderMode::Vanilla, RenderMode::Enhanced] {
+            assert_eq!(RenderMode::parse(mode.as_str()), Some(mode));
+            assert_eq!(mode.toggled().toggled(), mode);
+        }
+        assert_eq!(RenderMode::parse(" ENHANCED "), Some(RenderMode::Enhanced));
+        assert_eq!(RenderMode::parse("shaders"), None);
+    }
 }

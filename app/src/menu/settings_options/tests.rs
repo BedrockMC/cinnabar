@@ -426,6 +426,7 @@ fn settings_handoff_preserves_native_window_and_viewport_preferences() {
     let mut runtime = RuntimeSettings::default();
     let mut user = ui::UserSettings::default();
     user.video.ui_scale = 3.0;
+    user.video.render_mode = ui::RenderMode::Enhanced;
     runtime.replace_user_settings(user);
     let mut app = App::new();
     app.insert_resource(menu)
@@ -439,6 +440,7 @@ fn settings_handoff_preserves_native_window_and_viewport_preferences() {
         .1;
     assert!(settings.video.fullscreen);
     assert_eq!(settings.video.ui_scale, 3.0);
+    assert_eq!(settings.video.render_mode, ui::RenderMode::Enhanced);
     assert_eq!(settings.video.brightness, 0.8);
     assert_eq!(
         app.world().resource::<MenuRuntime>().gui_scale_preference(),

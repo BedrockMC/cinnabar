@@ -29,7 +29,7 @@ const HAND_RIG_SHADER: Handle<Shader> = uuid_handle!("6f2b1c74-4a2e-49d8-9c1a-2f
 const HAND_RIG_NEAR_PLANE: f32 = 0.025;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct HandRigLabel;
+pub(crate) struct HandRigLabel;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HandRigRenderPlugin;

@@ -181,6 +181,7 @@ impl MenuRuntime {
                         .copied()
                         .map(MenuAction::SettingsScale),
                 );
+                actions.push(MenuAction::ToggleRenderMode);
                 actions
             }
             MenuScreen::AddServer => vec![

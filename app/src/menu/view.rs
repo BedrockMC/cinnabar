@@ -288,6 +288,7 @@ pub(crate) struct MenuView {
     pub(crate) gui_scale_offset: i8,
     pub(crate) gui_scale_choices: Vec<i8>,
     pub(crate) fullscreen: bool,
+    pub(crate) render_mode: ui::RenderMode,
     pub(crate) display_name: String,
     pub(crate) servers: Vec<SavedServer>,
     pub(crate) featured: Vec<MenuServerCard>,

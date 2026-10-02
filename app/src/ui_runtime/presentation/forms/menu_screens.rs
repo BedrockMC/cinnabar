@@ -497,6 +497,7 @@ fn split_address(address: &str) -> (String, String) {
 
 /// Select the section and the titles supplied by its vanilla toggle property bag.
 fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
+    super::enhanced_setting::bind(view, data);
     let section = match view.settings_section {
         0 => section_index(VIDEO_SECTION),
         picked => picked,
@@ -746,6 +747,9 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
 }
 
 fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if let Some(action) = super::enhanced_setting::action(view, region) {
+        return Some(action);
+    }
     match region.control_name.as_deref()?.trim_start_matches('#') {
         "full_screen" if view.screen == MenuScreen::Settings => {
             Some(MenuAction::SettingsFullscreen(!view.fullscreen))

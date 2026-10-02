@@ -30,6 +30,7 @@ mod view;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
+use ui::RenderMode;
 
 pub(crate) use connection::{
     drive_menu_connection, follow_server_transfer, recover_menu_session_failure,
@@ -167,6 +168,7 @@ pub(crate) enum MenuAction {
     SettingsConfirmResetGroup(settings_options::SettingsGroup),
     SettingsResetChat,
     SettingsAdvancedGraphics,
+    ToggleRenderMode,
     PauseResume,
     PauseDisconnect,
     PauseSettings,
@@ -219,6 +221,8 @@ pub(crate) struct MenuRuntime {
     fullscreen_change: Option<bool>,
     last_saved_video_settings: video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
+    render_mode: RenderMode,
+    render_mode_request: Option<RenderMode>,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -295,6 +299,23 @@ struct PendingConnect {
 }
 
 impl MenuRuntime {
+    /// Mirrors the applied mode; a pending menu toggle wins until taken.
+    pub(crate) fn sync_render_mode(&mut self, applied: RenderMode) {
+        if self.render_mode_request.is_none() {
+            self.render_mode = applied;
+        }
+    }
+
+    /// Consume the pending Video-section change.
+    pub(crate) fn take_render_mode_request(&mut self) -> Option<RenderMode> {
+        self.render_mode_request.take()
+    }
+
+    /// Return the extension settings file alongside the other user settings.
+    pub(crate) fn graphics_file(&self) -> PathBuf {
+        self.layout.graphics_file()
+    }
+
     pub(crate) fn is_visible(&self) -> bool {
         self.visible
     }
@@ -361,6 +382,7 @@ impl MenuRuntime {
             gui_scale_offset: self.gui_scale_display_offset,
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
+            render_mode: self.render_mode,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
@@ -693,6 +715,10 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
+            MenuAction::ToggleRenderMode => {
+                self.render_mode = self.render_mode.toggled();
+                self.render_mode_request = Some(self.render_mode);
+            }
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {
                 self.history.reset(MenuScreen::Death);

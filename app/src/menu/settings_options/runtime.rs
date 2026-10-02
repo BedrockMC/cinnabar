@@ -76,6 +76,7 @@ impl MenuRuntime {
             // Native window and viewport adapters own these saved preferences.
             user.video.ui_scale = runtime.user_settings_update().1.video.ui_scale;
             user.video.fullscreen = self.fullscreen;
+            user.video.render_mode = runtime.user_settings_update().1.video.render_mode;
             runtime.replace_user_settings(user);
             self.settings_apply = false;
         }

@@ -25,6 +25,7 @@ pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
 pub(crate) use panorama::{built_in_faces, launcher_view};
+mod enhanced_setting;
 #[cfg(test)]
 mod play_flow_snapshots;
 mod play_screen;

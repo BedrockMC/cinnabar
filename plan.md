@@ -1,5 +1,18 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
+persisted default. This work never closes a vanilla parity gate. T0 adds the
+setting, camera marker and pipeline key isolation. Visual acceptance and all
+subsequent effect/performance gates remain incomplete. T1 adds HDR, Bevy bloom,
+sun-driven grading, an ACES-fit curve and palette-derived emissive surfaces.
+T2 adds two default texel-snapped shadow cascades with alpha-tested terrain/model
+casters and sky-light-gated PCF receivers. Actors do not cast/receive yet.
+T3 enables half-resolution, 16-step shadow-map shafts and matching main/caster
+foliage wind plus surface water displacement. T4 adds opaque colour/depth snapshots and water SSR with Schlick Fresnel,
+analytic ripples, sun glints and depth absorption. Offscreen reflections use sky
+fallback. T5 GTAO/TAA/motion vectors are deferred. Native visual calibration and
+60-fps performance acceptance remain incomplete.
+
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 

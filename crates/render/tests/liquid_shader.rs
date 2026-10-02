@@ -1,3 +1,6 @@
+#[path = "support/shader_source.rs"]
+mod shader_source;
+
 #[path = "support/liquid_shader_contract.rs"]
 mod liquid_shader_contract;
 
@@ -6,30 +9,9 @@ use meshing::Face;
 
 const SHADER: &str = include_str!("../src/liquid.wgsl");
 
+/// Resolve the unchanged vanilla shader for standalone validation.
 fn shader_for_naga() -> String {
-    let lighting = include_str!("../src/lighting.wgsl").replacen(
-        "#define_import_path cinnabar::lighting",
-        "",
-        1,
-    );
-    let biome_tint = meshing::biome_lattice::shader_source(include_str!("../src/biome_tint.wgsl"))
-        .replacen("#define_import_path cinnabar::biome_tint", "", 1);
-    SHADER
-        .replacen(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-            1,
-        )
-        .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}",
-            &lighting,
-            1,
-        )
-        .replacen(
-            "#import cinnabar::biome_tint::blended_biome_tint",
-            &biome_tint,
-            1,
-        )
+    shader_source::standalone(SHADER, &[])
 }
 
 fn assert_uv_close(actual: [f32; 2], expected: [f32; 2], context: &str) {
