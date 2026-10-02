@@ -269,6 +269,12 @@ impl InstallLayout {
     }
 
     #[must_use]
+    /// Saved opt-in graphics settings.
+    pub fn graphics_file(&self) -> PathBuf {
+        self.user_config_root.join("graphics.json")
+    }
+
+    #[must_use]
     pub fn catalog_file(&self, process_id: u32) -> PathBuf {
         self.transient_runtime_root
             .join(format!("catalog-{process_id}.json"))

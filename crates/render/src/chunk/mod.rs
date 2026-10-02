@@ -80,6 +80,7 @@ mod api;
 mod biome_tints;
 mod constants;
 mod draw;
+pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod pipeline;

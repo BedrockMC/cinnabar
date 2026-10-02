@@ -1,34 +1,9 @@
-//! Every shader validates, not just parses: naga's parser accepts colliding varying locations
-//! and reserved identifiers that fail pipeline creation at runtime and silently skip the pass.
-const VIEW: &str = "struct View { clip_from_world: mat4x4<f32>, unjittered_clip_from_world: mat4x4<f32>, \
-view_from_world: mat4x4<f32>, world_from_view: mat4x4<f32>, clip_from_view: mat4x4<f32>, \
-view_from_clip: mat4x4<f32>, world_position: vec3<f32>, exposure: f32, viewport: vec4<f32>, }";
+#[path = "support/shader_source.rs"]
+mod shader_source;
 
+/// Resolve the unchanged vanilla shader for standalone validation.
 fn standalone(source: &str) -> String {
-    let lighting = include_str!("../src/lighting.wgsl").replacen(
-        "#define_import_path cinnabar::lighting",
-        "",
-        1,
-    );
-    let biome_tint = meshing::biome_lattice::shader_source(include_str!("../src/biome_tint.wgsl"))
-        .replacen("#define_import_path cinnabar::biome_tint", "", 1);
-    source
-        .replacen("#import bevy_render::view::View", VIEW, 1)
-        .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}",
-            &lighting,
-            1,
-        )
-        .replacen(
-            "#import cinnabar::lighting::{lit_colour, light_colour}",
-            &lighting,
-            1,
-        )
-        .replacen(
-            "#import cinnabar::biome_tint::blended_biome_tint",
-            &biome_tint,
-            1,
-        )
+    shader_source::standalone(source, &[])
 }
 
 #[test]

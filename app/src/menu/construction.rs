@@ -76,6 +76,8 @@ impl MenuRuntime {
             fullscreen_change: saved_video_settings.fullscreen.then_some(true),
             last_saved_video_settings: saved_video_settings,
             failed_video_settings_save: None,
+            render_mode: RenderMode::Vanilla,
+            render_mode_request: None,
             display_name,
             servers: loaded.servers,
             saves: ServerWriter::new(config_path.clone()),

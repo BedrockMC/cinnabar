@@ -14,6 +14,7 @@ pub(in crate::chunk) fn queue_chunks(
         &ExtractedView,
         &RenderVisibleEntities,
         &Msaa,
+        Option<&crate::EnhancedRendering>,
     )>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
@@ -59,8 +60,8 @@ pub(in crate::chunk) fn queue_chunks(
     if probes.input.enabled() {
         let diagnostic_view = views
             .iter()
-            .min_by_key(|(_, main_entity, _, _, _)| main_entity.id().to_bits());
-        if let Some((view_entity, main_entity, view, visible_entities, _)) = diagnostic_view {
+            .min_by_key(|(_, main_entity, _, _, _, _)| main_entity.id().to_bits());
+        if let Some((view_entity, main_entity, view, visible_entities, _, _)) = diagnostic_view {
             let camera = extracted_camera_identity(main_entity, view);
             let generations = probes.camera_identity_tracker.observe(camera);
             let frustum_visible_opaque = visible_entities
@@ -140,7 +141,7 @@ pub(in crate::chunk) fn queue_chunks(
     } else {
         frame_probe.clear();
     }
-    for (view_entity, view_main_entity, view, visible_entities, msaa) in &views {
+    for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced) in &views {
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -149,6 +150,7 @@ pub(in crate::chunk) fn queue_chunks(
             ChunkPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                enhanced: enhanced.is_some(),
             },
         ) else {
             continue;
@@ -158,6 +160,7 @@ pub(in crate::chunk) fn queue_chunks(
             ChunkPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                enhanced: enhanced.is_some(),
             },
         ) else {
             continue;
@@ -167,6 +170,7 @@ pub(in crate::chunk) fn queue_chunks(
             ChunkPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                enhanced: enhanced.is_some(),
             },
         ) else {
             continue;
@@ -417,6 +421,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         &ExtractedView,
         &RenderVisibleEntities,
         &Msaa,
+        Option<&crate::EnhancedRendering>,
     )>,
     allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
@@ -437,7 +442,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let draw_functions = draw_functions.read();
     let transparent_model_draw = draw_functions.id::<DrawTransparentModelCommands>();
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
-    for (view_entity, main_entity, view, visible_entities, msaa) in &views {
+    for (view_entity, main_entity, view, visible_entities, msaa, enhanced) in &views {
         if runtime.view_entity != Some(view_entity) {
             continue;
         }
@@ -447,6 +452,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         let key = ChunkPipelineKey {
             msaa: *msaa,
             hdr: view.hdr,
+            enhanced: enhanced.is_some(),
         };
         let rangefinder = view.rangefinder3d();
         if let Ok(model_pipeline_id) = pipeline

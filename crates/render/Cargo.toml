@@ -35,6 +35,7 @@ wgpu = { version = "27.0.1", default-features = false }
 [dev-dependencies]
 asset-compiler = { path = "../asset-compiler" }
 image = { version = "0.25", default-features = false, features = ["png"] }
-naga = { version = "27.0.3", features = ["wgsl-in"] }
+naga = { version = "27.0.3", features = ["wgsl-in", "wgsl-out"] }
+naga_oil = "0.20"
 tempfile = "3"
 wgpu = { version = "27.0.1", default-features = false, features = ["noop"] }
