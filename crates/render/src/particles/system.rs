@@ -563,4 +563,17 @@ mod tests {
             new_time.as_secs_f64() * 1e3,
         );
     }
+    #[test]
+    fn review_render_local_spawn_offset_is_transformed_once() {
+        let effect = EFFECT.replace("minecraft:emitter_shape_point\":{}", "minecraft:emitter_shape_point\":{\"offset\":[1,0,0]}")
+            .replace("\"minecraft:emitter_lifetime_once\"", "\"minecraft:emitter_local_space\":{\"position\":true},\"minecraft:emitter_lifetime_once\"");
+        let mut system = ParticleSystem::default();
+        assert!(system.register_effect(effect.as_bytes()));
+        let mut request = request("burst", 0.0);
+        request.basis = Some([[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]);
+        system.spawn(&request).unwrap();
+        system.tick(0.01, &EmptyWorld);
+        assert_eq!(system.emitters[0].world_position(0), [0.0, 0.0, -1.0]);
+    }
+
 }
