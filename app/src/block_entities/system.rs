@@ -29,7 +29,7 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
-const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
+pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
 /// Block entities farther than this from the eye are not drawn.
 const SCAN_RADIUS_BLOCKS: f32 = 64.0;
 const MAX_SUBMISSIONS: usize = 4_096;
@@ -42,7 +42,7 @@ const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntityScene {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
     let mut scene = BlockEntityScene::default();
-    let bytes = match std::fs::read(&path) {
+    let bytes = match crate::bounded_file::read(&path, assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!(
