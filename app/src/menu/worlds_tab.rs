@@ -86,6 +86,7 @@ impl MenuRuntime {
     /// Mirror the module's worlds and screens, forward presses and typed text, join a world
     /// that finished opening, and track whether a local-world session is live.
     pub(crate) fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
+        self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
         for action in std::mem::take(&mut self.local_ui.actions) {
             if let Some(input) = action.input() {
@@ -117,6 +118,7 @@ impl MenuRuntime {
             let name = self.local_ui.joining.as_deref().unwrap_or_default();
             view.progress = Some(Progress::connecting(name));
         }
+        self.finish_storage_world(view.screen);
         self.local_ui.view = view;
         let active = self.local_world_joined && (in_session || self.connecting);
         if active != self.local_world_active {
@@ -284,7 +286,8 @@ impl MenuRuntime {
     }
 }
 
-fn world_card(world: &World) -> LocalWorldCard {
+/// Presents metadata from the core catalog consistently in Play and Storage.
+pub(super) fn world_card(world: &World) -> LocalWorldCard {
     LocalWorldCard {
         name: world.name.clone(),
         game_mode: game_mode_label(world.game_mode).to_owned(),

@@ -12,10 +12,10 @@ pub(super) const LAYER_BOOTS: u8 = 6;
 
 /// Item-space to hand-bone placement: rotation, translation in blocks and uniform scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct ItemDisplay {
-    pub(super) rotation: Quat,
-    pub(super) translation: Vec3,
-    pub(super) scale: f32,
+pub(crate) struct ItemDisplay {
+    pub(crate) rotation: Quat,
+    pub(crate) translation: Vec3,
+    pub(crate) scale: f32,
 }
 
 impl ItemDisplay {
@@ -43,19 +43,22 @@ fn rig_from_reference_bone() -> Mat4 {
 /// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
 /// and tilt that seat vanilla's held-sprite mesh (`held_sprite_vertices`) in the grip.
 fn item_default() -> Mat4 {
-    Mat4::from_scale(Vec3::splat(1.5))
-        * Mat4::from_rotation_y(degrees(50.0))
-        * Mat4::from_rotation_z(degrees(335.0))
-        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1))
+    sprite_item_transform()
 }
 
 /// Third-person main-hand placement of a flat sprite item on the `rightItem` bone, from the
 /// 26.30 reference's held-item and default item transforms. `hand_equipped` items (tools,
 /// weapons, rods) are held upright like a sword.
-pub(super) fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
+pub(crate) fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
+    held_sprite_display_for_hand(hand_equipped, false)
+}
+
+/// Native `_renderOffHandItem` (05e2f7b0) has its own bone-frame offset and
+/// hand-equipped X translation, rather than reflecting the main-hand grip.
+pub(crate) fn held_sprite_display_for_hand(hand_equipped: bool, off_hand: bool) -> ItemDisplay {
     let grip = if hand_equipped {
         Mat4::from_rotation_y(degrees(180.0))
-            * Mat4::from_translation(Vec3::new(0.1, 0.265, 0.0))
+            * Mat4::from_translation(Vec3::new(if off_hand { 0.0 } else { 0.1 }, 0.265, 0.0))
             * Mat4::from_scale(Vec3::splat(0.625))
             * Mat4::from_rotation_x(degrees(80.0))
             * Mat4::from_rotation_y(degrees(45.0))
@@ -66,7 +69,12 @@ pub(super) fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
             * Mat4::from_rotation_x(degrees(-90.0))
             * Mat4::from_rotation_z(degrees(20.0))
     };
-    ItemDisplay::from_matrix(rig_from_reference_bone() * grip * item_default())
+    let hand_offset = if off_hand {
+        Mat4::from_translation(Vec3::new(-0.125, 0.0, 0.0))
+    } else {
+        Mat4::IDENTITY
+    };
+    ItemDisplay::from_matrix(rig_from_reference_bone() * hand_offset * grip * item_default())
 }
 
 /// How the first-person pass lays out a held item.
@@ -87,6 +95,16 @@ pub(crate) struct FirstPersonHand {
     pub(crate) equip: f32,
     /// Ticks into an eat or drink use and its duration, while one runs.
     pub(crate) consume: Option<(f32, f32)>,
+}
+
+impl From<client_world::ItemAnimationState> for FirstPersonHand {
+    fn from(state: client_world::ItemAnimationState) -> Self {
+        Self {
+            swing: state.attack_time,
+            equip: state.arm_height,
+            consume: None,
+        }
+    }
 }
 
 /// Camera-space placement of the first-person held item, from `renderFirstPerson`'s own item
@@ -140,7 +158,7 @@ pub(super) fn first_person_display(shape: FirstPersonShape, hand: FirstPersonHan
 }
 
 /// A camera-space item bone from `display`; `None` for a non-finite placement.
-pub(super) fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
+pub(crate) fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
     let bone = RenderBoneTransform {
         rotation: display.rotation.to_array(),
         translation_scale: [
@@ -154,10 +172,18 @@ pub(super) fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
     bone.is_finite().then_some(bone)
 }
 
+/// Legacy icon transform shared by the item renderer, before its per-view placement.
+pub(super) fn sprite_item_transform() -> Mat4 {
+    Mat4::from_scale(Vec3::splat(1.5))
+        * Mat4::from_rotation_y(degrees(50.0))
+        * Mat4::from_rotation_z(degrees(335.0))
+        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1))
+}
+
 /// The item's single bone: the hand bone's pose with `display` applied in the hand frame, so
 /// item-space vertices (bind pivot at the origin) land where the hand holds them. `None` for a
 /// non-finite pose.
-pub(super) fn attach_to_bone(
+pub(crate) fn attach_to_bone(
     hand: RenderBoneTransform,
     display: ItemDisplay,
 ) -> Option<RenderBoneTransform> {
@@ -185,11 +211,21 @@ pub(super) fn attach_to_bone(
     bone.is_finite().then_some(bone)
 }
 
-/// Main-hand placement of a block item's centred unit cube, from the reference's legacy block
-/// item transforms (its block mesh origin is assumed centred and needs confirming).
-pub(super) fn held_block_display() -> ItemDisplay {
+pub(crate) fn held_block_display() -> ItemDisplay {
+    held_block_display_for_hand(false)
+}
+
+/// Offhand rendering adds its own reference-bone X offset before the shared
+/// legacy block display. Custom block presentations use a different native path.
+pub(crate) fn held_block_display_for_hand(off_hand: bool) -> ItemDisplay {
+    let hand_offset = if off_hand {
+        Mat4::from_translation(Vec3::new(-0.125, 0.0, 0.0))
+    } else {
+        Mat4::IDENTITY
+    };
     ItemDisplay::from_matrix(
         rig_from_reference_bone()
+            * hand_offset
             * Mat4::from_translation(Vec3::new(0.0, 0.1875, -0.3125))
             * Mat4::from_rotation_x(degrees(200.0))
             * Mat4::from_rotation_y(degrees(225.0))
@@ -216,7 +252,7 @@ pub(super) fn is_mirrored_art(identifier: &str) -> bool {
 
 /// Items vanilla holds upright (its `isHandEquipped`): tools, weapons and rod-like items. The
 /// reference keeps this per item in code; the list mirrors vanilla's hand-equipped items.
-pub(super) fn is_hand_equipped(identifier: &str) -> bool {
+pub(crate) fn is_hand_equipped(identifier: &str) -> bool {
     let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
     ["_sword", "_axe", "_pickaxe", "_shovel", "_hoe", "_spear"]
         .iter()

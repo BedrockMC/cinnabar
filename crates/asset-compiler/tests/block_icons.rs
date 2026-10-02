@@ -5,6 +5,9 @@ use std::{fs, path::Path};
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[path = "block_icons/carried.rs"]
+mod carried;
+
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -67,6 +70,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
             texture: TextureRef::new(0, layer).unwrap(),
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         })
         .collect::<Vec<_>>();
     let page = TexturePage::new(TextureArray {
@@ -353,6 +357,7 @@ fn pinned_block_items_resolve_icons_when_requested() {
         "oak_fence",
         "cobblestone_wall",
         "oak_slab",
+        "grass_block",
     ]
     .into_iter()
     .filter(|name| {
@@ -369,4 +374,23 @@ fn pinned_block_items_resolve_icons_when_requested() {
         compiled.report.unresolved_block_items
     );
     assert!(missing.is_empty(), "no icon: {missing:?}");
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } =
+        compile_entity_assets(&pack, MANIFEST)
+            .unwrap()
+            .item_visuals
+            .iter()
+            .find(|visual| visual.key.identifier.as_ref() == "minecraft:grass_block")
+            .unwrap()
+            .route
+    else {
+        panic!("pinned grass block item route");
+    };
+    let binding = catalog
+        .block_sheets()
+        .iter()
+        .find(|sheet| sheet.visual == block_visual)
+        .unwrap();
+    let sprite = &catalog.sprites()[binding.sprite as usize];
+    assert_eq!([sprite.width, sprite.height], BLOCK_ITEM_SHEET_SIZE);
+    assert!(sprite.rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255));
 }

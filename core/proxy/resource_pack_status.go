@@ -39,6 +39,8 @@ const (
 	ResourcePackDownstreamNone              ResourcePackDownstreamOutcome = "none"
 	ResourcePackDownstreamOfferedOptional   ResourcePackDownstreamOutcome = "offered_optional"
 	ResourcePackDownstreamHandedOffOptional ResourcePackDownstreamOutcome = "handed_off_optional"
+	ResourcePackDownstreamOfferedRequired   ResourcePackDownstreamOutcome = "offered_required"
+	ResourcePackDownstreamHandedOffRequired ResourcePackDownstreamOutcome = "handed_off_required"
 	ResourcePackDownstreamRejectedRequired  ResourcePackDownstreamOutcome = "rejected_required"
 	ResourcePackDownstreamStrippedIgnored   ResourcePackDownstreamOutcome = "stripped_ignored"
 )
@@ -184,6 +186,12 @@ func (telemetry *resourcePackAdmissionTelemetry) observeFailure(ctx context.Cont
 	telemetry.mu.Unlock()
 }
 
+func (telemetry *resourcePackAdmissionTelemetry) observeRejectedRequired() {
+	telemetry.mu.Lock()
+	telemetry.downstream = ResourcePackDownstreamRejectedRequired
+	telemetry.mu.Unlock()
+}
+
 func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *selectedResourcePackStack, configured bool) {
 	if telemetry == nil {
 		return
@@ -194,6 +202,8 @@ func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *sel
 		telemetry.downstream = ResourcePackDownstreamNone
 	case len(stack.packs) == 0:
 		telemetry.downstream = ResourcePackDownstreamStrippedIgnored
+	case stack.required:
+		telemetry.downstream = ResourcePackDownstreamOfferedRequired
 	default:
 		telemetry.downstream = ResourcePackDownstreamOfferedOptional
 	}
@@ -206,8 +216,11 @@ func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(stack *sele
 		return
 	}
 	telemetry.mu.Lock()
-	if telemetry.downstream == ResourcePackDownstreamOfferedOptional {
+	switch telemetry.downstream {
+	case ResourcePackDownstreamOfferedOptional:
 		telemetry.downstream = ResourcePackDownstreamHandedOffOptional
+	case ResourcePackDownstreamOfferedRequired:
+		telemetry.downstream = ResourcePackDownstreamHandedOffRequired
 	}
 	telemetry.mu.Unlock()
 	telemetry.publishUpdate()

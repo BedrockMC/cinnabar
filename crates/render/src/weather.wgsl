@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_brightness}
+#import cinnabar::lighting::{lit_colour, light_colour}
 
 // Port of the vanilla RenderDragon `Weather` material: wrapped particle streaks stretched along
 // the layer velocity, hidden below each column's occlusion height.
@@ -132,7 +132,7 @@ fn weather_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (texel.a <= 0.0 || occluded(in.world_position, in.kind)) {
         discard;
     }
-    let lit = lit_colour(texel.rgb, 0.0, 1.0, 1.0, atmosphere.sun_direction_daylight.w);
+    let lit = lit_colour(texel.rgb, light_colour(240u));
     let fog = clamp(
         (distance(in.world_position, view.world_position) - atmosphere.fog_color_start.w)
             / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),

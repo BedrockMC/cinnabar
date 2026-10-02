@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"io"
 	"strings"
 )
@@ -13,7 +14,6 @@ const maxFoundationBytes = 16 * 1024
 
 const (
 	v2193FoundationBlockSHA256 = "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
-	v2193FoundationLightSHA256 = "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"
 )
 
 type FoundationStatus string
@@ -173,8 +173,12 @@ func validateFoundationFields(foundation registryFoundation) error {
 		if foundation.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("ready registry foundation must preserve the exact biome projection binding")
 		}
+		lightHash, err := targetpin.LightHash()
+		if err != nil {
+			return err
+		}
 		if foundation.ProjectionBindings.Block.SHA256 != v2193FoundationBlockSHA256 ||
-			foundation.ProjectionBindings.Light.SHA256 != v2193FoundationLightSHA256 {
+			foundation.ProjectionBindings.Light.SHA256 != lightHash {
 			return errors.New("ready registry foundation must bind the exact block and light projections")
 		}
 		for label, digest := range map[string]string{

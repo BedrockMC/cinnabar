@@ -4,18 +4,23 @@ use std::{
 };
 
 use assets::{
-    EntityAnimationInterpolation, EntityAnimationLoop, EntityAssetKind,
-    EntityControllerAnimationTarget, EntityGeometryBone, EntityRigFallback, MolangOp,
-    RuntimeEntityAssets, validate_entity_geometry_inheritance,
+    EntityAnimationInterpolation, EntityAnimationLoop, EntityAssetKind, EntityRigFallback,
+    MolangOp, RuntimeEntityAssets,
 };
 use protocol::{ActorKind, ActorMetadataValue};
 
 use crate::actor_store::ActorSnapshot;
 
+/// Simulation tick duration used by actor clocks and Molang time queries.
+pub use world::TICK_DURATION as ACTOR_TICK_DURATION;
+
 pub const MAX_RUNTIME_BONES_PER_RIG: usize = 96;
+const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
 pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
+/// Ordinary actor rendering only interpolates completed tick snapshots. Native held
+/// attachables instead evaluate render-time item queries under the actor evaluation budget.
 pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = 0;
 pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
@@ -68,8 +73,15 @@ pub struct ActorRigSnapshot<'a> {
     pub bone_names: &'a [Box<str>],
     /// The skin model the pose drives, instead of the rig's geometry.
     pub skin_geometry: Option<&'a Arc<assets::SkinGeometry>>,
+    pub skin_layers: &'a [SkinRenderLayer],
     /// Swing and equip progress at the previous and current completed tick.
     pub hand: [HandPhase; 2],
+    /// Previous/current fixed-tick item animation, independent of the avatar skeleton.
+    pub item_animation: [ItemAnimationState; 2],
+    /// Independent previous/current offhand equip progress; no main-hand attack swing.
+    pub off_hand_animation: [ItemAnimationState; 2],
+    /// The owner's retained Molang values and lifetime for animated equipment.
+    pub animation_variables: ActorAnimationVariables<'a>,
 }
 
 /// The arm's swing and equip progress over one tick, as the first-person item reads them.
@@ -89,6 +101,42 @@ impl Default for HandPhase {
             attack_time: 0.0,
             arm_height: 1.0,
             use_ticks: 0,
+        }
+    }
+}
+
+/// Tick-owned inputs to the camera-space legacy item renderer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ItemAnimationState {
+    pub attack_time: f32,
+    pub arm_height: f32,
+}
+
+impl From<HandPhase> for ItemAnimationState {
+    fn from(phase: HandPhase) -> Self {
+        Self {
+            attack_time: phase.attack_time,
+            arm_height: phase.arm_height,
+        }
+    }
+}
+
+impl Default for ItemAnimationState {
+    fn default() -> Self {
+        HandPhase::default().into()
+    }
+}
+
+impl ItemAnimationState {
+    /// Interpolates tick observations before nonlinear swing evaluation, including its wrap.
+    pub fn interpolate(self, current: Self, fraction: f32) -> Self {
+        let mut delta = current.attack_time - self.attack_time;
+        if delta < 0.0 {
+            delta += 1.0;
+        }
+        Self {
+            attack_time: self.attack_time + delta * fraction,
+            arm_height: self.arm_height + (current.arm_height - self.arm_height) * fraction,
         }
     }
 }
@@ -159,8 +207,13 @@ struct ActorRigState {
     history: VecDeque<ActorTickInput>,
     /// Main-hand item the arm has finished equipping.
     equipped_main: Option<Arc<str>>,
+    /// Offhand item accepted by the independent native equip clock.
+    equipped_off: Option<Arc<str>>,
+    /// Retained separately from pose history, so a geometry reset cannot restart equipping.
+    off_hand_animation: [ItemAnimationState; 2],
     /// The worn skin's own model, when it names one.
     skin: Option<skin::SkinModel>,
+    skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
@@ -168,11 +221,21 @@ struct ActorRigState {
     motion: MotionState,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct RuntimeBone {
     parent: Option<usize>,
     pivot: [f32; 3],
     rotation: [f32; 3],
+    has_binding_expression: bool,
+    attachable_root: AttachableRootFrame,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum AttachableRootFrame {
+    #[default]
+    Actor,
+    MatchingOwnerName,
+    BindingExpression,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -190,6 +253,8 @@ struct ActorTickInput {
     velocity: [f32; 3],
     on_ground: bool,
     body_yaw: f32,
+    /// Actor rotation yaw, separate from a mob's independently animated body/head.
+    yaw: f32,
     head_yaw: f32,
     pitch: f32,
     is_riding: bool,
@@ -202,12 +267,15 @@ struct ActorTickInput {
     swim_amount: f32,
     /// 0..1 equip progress; 1 once the held item has settled.
     arm_height: f32,
+    /// Independent offhand equip progress at this tick.
+    off_hand_arm_height: f32,
     /// 0..1 swing progress after this tick's motion advance.
     attack_time: f32,
 }
 
 struct EvaluatedState {
     pose: Vec<BoneTransform>,
+    skin_layers: Vec<SkinRenderLayer>,
     /// `None` when the render controllers ran out of budget, keeping the last choice.
     render: Option<Vec<RenderTextureLayer>>,
     scale: Option<[f32; 4]>,
@@ -367,12 +435,14 @@ impl ActorAnimationStore {
         }
     }
 
-    /// Advances every rig one tick; rigs outside `view` (other than `exempt`) hold their pose.
+    /// Advances tick state; only the frame's final tick evaluates visual controllers and poses.
     pub(crate) fn advance_tick(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
         view: Option<&ActorAnimationView>,
         exempt: Option<u64>,
+        evaluate: bool,
+        reset_motion_history: bool,
         context: impl Fn(&ActorSnapshot) -> ActorTickContext,
     ) {
         self.completed_tick = self.completed_tick.saturating_add(1);
@@ -382,7 +452,7 @@ impl ActorAnimationStore {
         let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
         let mut stack = Vec::new();
         // Start where the world budget ran out last tick so no actor starves every tick.
-        let lifetimes = match self.first_starved.take() {
+        let lifetimes = match evaluate.then(|| self.first_starved.take()).flatten() {
             Some(start) => self
                 .rigs
                 .range(start..)
@@ -424,11 +494,16 @@ impl ActorAnimationStore {
                 state.rest_completed_tick = 0;
             }
             let context = context(actor);
-            if skin::sync_skin(state, context.skin_geometry.as_ref()) {
+            if reset_motion_history
+                && skin::sync_skin(state, context.skin_geometry.as_ref(), &assets)
+            {
                 self.stats.invalid_skin_geometries =
                     self.stats.invalid_skin_geometries.saturating_add(1);
             }
-            advance_motion(state, actor, &context);
+            advance_motion(state, actor, &context, reset_motion_history);
+            if !evaluate {
+                continue;
+            }
             if state.fallback == EntityRigFallback::GeometryOnly {
                 state.previous.clone_from(&state.current);
                 if state.reset_pending {
@@ -453,8 +528,12 @@ impl ActorAnimationStore {
             {
                 let scale = model_scale(state, state_assets) * actor.render_scale();
                 let player = matches!(actor.kind, ActorKind::Player { .. });
-                if !view.admits(actor.position, scale, player)
-                    && !view.admits(actor.previous_pose.position, scale, player)
+                let bounds = state
+                    .skin_skeleton()
+                    .and_then(|skin| skin.geometry.visible_bounds)
+                    .unwrap_or_default();
+                if !view.admits(actor.position, scale, player, bounds)
+                    && !view.admits(actor.previous_pose.position, scale, player, bounds)
                 {
                     state.culled = true;
                     state.previous.clone_from(&state.current);
@@ -499,6 +578,7 @@ impl ActorAnimationStore {
                 &context,
                 self.completed_tick,
                 &mut budget,
+                None,
             );
             self.stats.evaluated_molang_ops = self
                 .stats
@@ -506,12 +586,18 @@ impl ActorAnimationStore {
                 .saturating_add(budget.used as u64);
             stack = std::mem::take(&mut budget.stack);
             match result {
-                Ok(evaluated) => {
+                Ok(mut evaluated) => {
                     // A rig back in view starts from its new pose, not the one it held.
                     let resumed = std::mem::take(&mut state.culled);
                     state.controllers = evaluated.controllers;
                     state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
+                    skin_layers::carry(
+                        &state.skin_layers,
+                        &mut evaluated.skin_layers,
+                        state.reset_pending || resumed,
+                    );
+                    state.skin_layers = evaluated.skin_layers;
                     if let Some(mut render) = evaluated.render {
                         render::carry_layer_poses(
                             &state.render,
@@ -555,7 +641,9 @@ impl ActorAnimationStore {
                 }
             }
         }
-        self.first_starved = starved;
+        if evaluate {
+            self.first_starved = starved;
+        }
     }
 
     pub(crate) fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
@@ -616,7 +704,19 @@ impl ActorAnimationStore {
             render: &state.render,
             bone_names: state.posed_bone_names(),
             skin_geometry: state.skin_skeleton().map(|skeleton| &skeleton.geometry),
+            skin_layers: &state.skin_layers,
             hand: state.hand_phases(),
+            item_animation: state.hand_phases().map(ItemAnimationState::from),
+            off_hand_animation: state.off_hand_animation,
+            animation_variables: ActorAnimationVariables::new(
+                if state.pack {
+                    self.pack.as_ref().map(|pack| pack.assets.as_ref())
+                } else {
+                    self.assets.as_deref()
+                },
+                &state.variables,
+                state.completed_tick.saturating_sub(state.lifetime_epoch),
+            ),
         })
     }
 
@@ -673,257 +773,10 @@ fn resolve_rig(
         .rig_bindings()
         .iter()
         .position(|rig| rig.entity_symbol as usize == entity_symbol_index)?;
-    let rig = &assets.rig_bindings()[rig_binding];
-    let first = rig.first_geometry as usize;
-    let end = first.checked_add(rig.geometry_count as usize)?;
-    let candidates = assets.rig_geometries().get(first..end)?;
-    let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
-    let mut budget = EvalBudget {
-        actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
-        world_left: &mut world_left,
-        work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
-        transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
-        used: 0,
-        stack: Vec::new(),
-    };
-    let mut candidate_offset = 0;
-    let input = ActorTickInput {
-        position: actor.position,
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
-        body_yaw: actor.body_yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
-        ..ActorTickInput::default()
-    };
-    let context = ActorTickContext::default();
-    let evaluator = Evaluator {
-        assets,
-        layout,
-        actor,
-        input: &input,
-        context: &context,
-        anim_tick: 0,
-        life_tick: 0,
-        finished: (false, false),
-        bones: &[],
-        bone_names: &[],
-    };
-    let mut variables = layout.fresh(actor.runtime_id ^ actor.spawn_revision.rotate_left(32));
-    for (offset, candidate) in candidates.iter().enumerate().skip(1) {
-        let selected = evaluator
-            .run(
-                candidate.condition? as usize,
-                &mut variables,
-                0.0,
-                &mut budget,
-            )
-            .ok()?;
-        if selected.truthy() {
-            candidate_offset = offset;
-            break;
-        }
-    }
-    let geometry_binding = first + candidate_offset;
-    let candidate = &assets.rig_geometries()[geometry_binding];
-    if candidate.animation_count as usize + candidate.controller_count as usize
-        > MAX_RUNTIME_BINDINGS_PER_RIG
-    {
-        return None;
-    }
-    let (bones, bone_names) = resolve_bones(assets, candidate.geometry as usize)?;
-    let current = compose_pose(&bones, &[])?;
-    let controller_first = candidate.first_controller as usize;
-    let controller_end = controller_first.checked_add(candidate.controller_count as usize)?;
-    let mut controllers = Vec::new();
-    for binding in assets
-        .rig_controllers()
-        .get(controller_first..controller_end)?
-    {
-        collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
-    }
-    Some(ActorRigState {
-        pack: false,
-        // The renderer needs the resolved geometry candidate, not only the
-        // entity-level binding that may contain several candidates.
-        rig: EntityRigId(geometry_binding as u32),
-        rig_binding,
-        geometry_binding,
-        bones,
-        bone_names,
-        render: Vec::new(),
-        scale: None,
-        layer_skeletons: BTreeMap::new(),
-        controllers,
-        previous: current.clone(),
-        rest: current.clone(),
-        rest_completed_tick: 0,
-        rest_reset_generation: 0,
-        rest_reset_pending: false,
-        current,
-        reset_generation: 0,
-        reset_pending: false,
-        lifetime_epoch: completed_tick,
-        animation_epoch: completed_tick,
-        completed_tick,
-        fallback: rig.fallback,
-        history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
-        equipped_main: None,
-        skin: None,
-        variables,
-        initialized: false,
-        culled: false,
-        motion: MotionState::spawn(actor.body_yaw, actor.head_yaw),
-    })
+    resolve_binding(assets, layout, actor, completed_tick, rig_binding)
 }
 
-/// Adds one runtime state per controller reachable from a rig root, each once.
-fn collect_controllers(
-    assets: &RuntimeEntityAssets,
-    controller: usize,
-    depth: usize,
-    output: &mut Vec<ControllerState>,
-) -> Option<()> {
-    if depth >= assets::MAX_ENTITY_CONTROLLER_NESTING {
-        return None;
-    }
-    if output
-        .iter()
-        .any(|runtime| runtime.controller == controller)
-    {
-        return Some(());
-    }
-    let compiled = assets.controllers().get(controller)?;
-    output.push(ControllerState {
-        controller,
-        state: compiled.initial_state,
-        entered_tick: 0,
-    });
-    let states = assets.controller_states().get(
-        compiled.first_state as usize
-            ..compiled.first_state as usize + compiled.state_count as usize,
-    )?;
-    for state in states {
-        let animations = assets.controller_animations().get(
-            state.first_animation as usize
-                ..state.first_animation as usize + state.animation_count as usize,
-        )?;
-        for animation in animations {
-            if let EntityControllerAnimationTarget::Controller(nested) = animation.target {
-                collect_controllers(assets, nested as usize, depth + 1, output)?;
-            }
-        }
-    }
-    Some(())
-}
-
-fn resolve_bones(
-    assets: &RuntimeEntityAssets,
-    geometry_index: usize,
-) -> Option<(Vec<RuntimeBone>, Vec<Box<str>>)> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries()).ok()?;
-    let mut chain = Vec::new();
-    let mut current = geometry_index;
-    for _ in 0..=parents.len() {
-        chain.push(current);
-        let Some(parent) = parents.get(current).copied().flatten() else {
-            break;
-        };
-        current = parent;
-    }
-    if chain
-        .last()
-        .and_then(|index| parents.get(*index))
-        .copied()
-        .flatten()
-        .is_some()
-    {
-        return None;
-    }
-    chain.reverse();
-    let mut merged: Vec<EntityGeometryBone> = Vec::new();
-    for index in chain {
-        for child in assets.geometries().get(index)?.bones.iter() {
-            if let Some(existing) = merged
-                .iter_mut()
-                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
-            {
-                overlay_bone(existing, child);
-            } else {
-                merged.push(child.clone());
-            }
-        }
-    }
-    skeleton(&merged)
-}
-
-/// Runtime bones and lowercase names of a merged bone list; parents must resolve by name.
-fn skeleton(merged: &[EntityGeometryBone]) -> Option<(Vec<RuntimeBone>, Vec<Box<str>>)> {
-    if merged.len() > MAX_RUNTIME_BONES_PER_RIG {
-        return None;
-    }
-    let names = merged
-        .iter()
-        .map(|bone| bone.name.to_ascii_lowercase().into_boxed_str())
-        .collect();
-    let bones = merged
-        .iter()
-        .map(|bone| {
-            let parent = bone.parent.as_ref().map(|name| {
-                merged
-                    .iter()
-                    .position(|candidate| candidate.name.eq_ignore_ascii_case(name))
-            });
-            Some(RuntimeBone {
-                parent: match parent {
-                    Some(Some(index)) => Some(index),
-                    Some(None) => return None,
-                    None => None,
-                },
-                pivot: mirror_x(scalars(bone.pivot.as_ref())),
-                rotation: scalars(bone.rotation.as_ref()),
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some((bones, names))
-}
-
-fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
-    if child.parent.is_some() {
-        base.parent.clone_from(&child.parent);
-    }
-    if child.pivot.is_some() {
-        base.pivot = child.pivot;
-    }
-    if child.rotation.is_some() {
-        base.rotation = child.rotation;
-    }
-    if child.mirror.is_some() {
-        base.mirror = child.mirror;
-    }
-    if child.inflate.is_some() {
-        base.inflate = child.inflate;
-    }
-    if child.never_render.is_some() {
-        base.never_render = child.never_render;
-    }
-    if child.reset.is_some() {
-        base.reset = child.reset;
-    }
-    if !child.cubes.is_empty() {
-        base.cubes.clone_from(&child.cubes);
-    }
-}
-
-/// Maps authored geometry coordinates into the rig frame, whose X axis is mirrored.
-fn mirror_x(point: [f32; 3]) -> [f32; 3] {
-    [-point[0], point[1], point[2]]
-}
-
-fn scalars(values: Option<&[assets::EntityGeometryScalar; 3]>) -> [f32; 3] {
-    values.map_or([0.0; 3], |values| values.map(|value| value.get()))
-}
-
+mod attachable;
 mod evaluation;
 mod geometry;
 mod motion;
@@ -931,13 +784,19 @@ mod pose;
 mod query;
 mod render;
 mod skin;
+mod skin_layers;
 mod tick;
 mod view;
+pub use attachable::{AttachableAnimationInput, AttachableRigSnapshot, AttachablesRuntime};
+pub use evaluation::ActorAnimationVariables;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
+use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};
+pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
+pub use skin_layers::SkinRenderLayer;
 pub(crate) use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
 pub use view::ActorAnimationView;

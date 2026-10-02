@@ -122,6 +122,8 @@ fn geometry_fixture() -> CompiledEntityAssets {
             inflate: None,
             never_render: None,
             reset: None,
+            binding: None,
+            texture_meshes: Box::new([]),
             cubes: vec![EntityGeometryCube {
                 origin: [scalar(0.5), scalar(-1.0), scalar(1.0)],
                 size: [scalar(0.0), scalar(5.0), scalar(8.0)],
@@ -237,6 +239,8 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
         inflate: None,
         never_render: None,
         reset: None,
+        binding: None,
+        texture_meshes: Box::new([]),
         cubes: Box::new([]),
     }]
     .into_boxed_slice();
@@ -500,6 +504,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 inflate: None,
                 never_render: None,
                 reset: None,
+                binding: None,
+                texture_meshes: Box::new([]),
                 cubes: Box::new([]),
             }]
             .into_boxed_slice(),
@@ -1123,4 +1129,20 @@ fn render_layers_round_trip_and_reject_invalid_indices() {
     let mut bad_pattern = compiled;
     bad_pattern.render.visibility[0].pattern = "Root".into();
     assert!(entity::encode_entity_blob(&bad_pattern).is_err());
+}
+
+/// Both admission paths retain the selected parent graph and clones share it unchanged.
+#[test]
+fn admitted_geometry_parents_are_shared_and_match_the_decoded_catalog() {
+    let compiled = inherited_geometry_fixture();
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let admitted = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let decoded = RuntimeEntityAssets::decode(&encoded).unwrap();
+    assert_eq!(admitted.geometry_parents(), &[None, Some(0)]);
+    assert_eq!(decoded.geometry_parents(), admitted.geometry_parents());
+    let cloned = admitted.clone();
+    assert!(std::ptr::eq(
+        cloned.geometry_parents(),
+        admitted.geometry_parents()
+    ));
 }

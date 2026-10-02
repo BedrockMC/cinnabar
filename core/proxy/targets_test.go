@@ -19,6 +19,7 @@ import (
 	"github.com/df-mc/go-nethernet"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"golang.org/x/oauth2"
@@ -235,7 +236,7 @@ func TestNetherNetTargetsNameTheirSignaling(t *testing.T) {
 			t.Fatalf("%s parsed", address)
 		}
 	}
-	if _, err := resolveUpstreamTarget(context.Background(), id, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
+	if _, err := resolveUpstreamTarget(context.Background(), id, authcache.NewAccount(context.Background(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil), nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
 		t.Fatalf("bare ID error = %v", err)
 	}
 }

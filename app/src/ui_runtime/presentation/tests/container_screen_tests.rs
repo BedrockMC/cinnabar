@@ -104,7 +104,7 @@ fn creative() -> UiRuntime {
     creative_with(300)
 }
 
-fn creative_with(count: u32) -> UiRuntime {
+pub(super) fn creative_with(count: u32) -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
     let mut runtime = session();
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
@@ -552,8 +552,10 @@ fn hovering_slots_never_lays_the_screen_out_again() {
         presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
     }
     let layouts = presentation.engine_container_layouts();
+    let hits = std::sync::Arc::clone(&presentation.engine_container_frame().unwrap().hits);
     let mut frames = Vec::new();
-    for step in 0..24u64 {
+    for frame in 0..bench_frames(24) {
+        let step = frame % 24;
         let point = [
             60.0 + (step % 8) as f32 * 18.0,
             70.0 + (step / 8) as f32 * 18.0,
@@ -561,9 +563,13 @@ fn hovering_slots_never_lays_the_screen_out_again() {
         runtime.set_inventory_pointer_gui(Some(point));
         let started = std::time::Instant::now();
         presentation
-            .build(&runtime, 1_000 + step, [1280, 720], dpi)
+            .build(&runtime, 1_000 + frame, [1280, 720], dpi)
             .unwrap();
         frames.push(started.elapsed());
+        assert!(std::sync::Arc::ptr_eq(
+            &hits,
+            &presentation.engine_container_frame().unwrap().hits
+        ));
     }
     frames.sort();
     eprintln!(
@@ -591,18 +597,20 @@ fn scrolling_the_creative_catalog_stays_interactive() {
         .scrolls
         .iter()
         .max_by(|a, b| a.1.content.total_cmp(&b.1.content))
-        .map(|(key, metrics)| (key.clone(), *metrics))
+        .map(|(key, metrics)| (key.clone(), metrics.clone()))
         .unwrap();
     assert!(metrics.max_offset() > 700.0, "{metrics:?}");
     let mut frames = Vec::new();
-    for step in 1..=12u64 {
+    let samples = bench_frames(12);
+    for frame in 1..=samples {
+        let step = (frame - 1) % 12 + 1;
         runtime
             .screen_state_mut()
             .container_scroll
             .insert(key.clone(), step as f64 * 60.0);
         let started = std::time::Instant::now();
         presentation
-            .build(&runtime, step, [1280, 720], dpi)
+            .build(&runtime, frame, [1280, 720], dpi)
             .unwrap();
         frames.push(started.elapsed());
     }
@@ -613,7 +621,10 @@ fn scrolling_the_creative_catalog_stays_interactive() {
         frames[0]
     );
     let frame = presentation.engine_container_frame().unwrap();
-    assert_eq!(frame.report.scrolls[&key].offset, 720.0);
+    assert_eq!(
+        frame.report.scrolls[&key].offset,
+        ((samples - 1) % 12 + 1) as f64 * 60.0
+    );
 }
 
 // The inventory's live player renderer faces the viewer and turns toward the
@@ -750,6 +761,7 @@ fn inventory_player_model_wears_armor_and_holds_items() {
                 Some(layer_1),
             ],
             held: Some(sword),
+            ..Default::default()
         },
     ] {
         presentation.player_preview_gear = gear;
@@ -773,4 +785,13 @@ fn inventory_player_model_wears_armor_and_holds_items() {
         rasters[0], rasters[1],
         "armor and the held item change the model"
     );
+}
+
+/// Repeat the measured frames long enough for a sampling profiler when requested.
+fn bench_frames(default: u64) -> u64 {
+    std::env::var("CINNABAR_CONTAINER_BENCH_FRAMES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+        .max(1)
 }

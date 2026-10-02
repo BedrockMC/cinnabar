@@ -7,6 +7,7 @@ mod block_edit;
 mod camera;
 mod codec;
 mod disconnect;
+mod experience;
 mod interaction;
 mod inventory;
 mod item;
@@ -19,6 +20,7 @@ mod packet;
 mod particle;
 mod permissions;
 mod raw_text;
+mod settings;
 mod socket_transport;
 pub mod store_control;
 mod transfer;
@@ -26,18 +28,24 @@ mod ui;
 mod world;
 pub mod world_control;
 
+pub use experience::{
+    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
+    is_experience_packet,
+};
+
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
     ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, CapeImage, MAX_ACTOR_ATTRIBUTE_MODIFIERS,
-    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_LINKS_PER_SPAWN,
-    MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
-    MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS,
-    MAX_PLAYER_LIST_SKIN_BYTES, MAX_SKIN_GEOMETRY_SOURCE_BYTES, MAX_STANDARD_SKIN_SIDE,
-    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, SkinGeometrySource,
-    StandardSkin,
+    ActorStatusKind, ActorTakeItemEvent, CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET,
+    MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
+    MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES,
+    MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,
+    MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
+    MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES, MAX_STANDARD_SKIN_SIDE,
+    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
+    SkinAnimationKind, SkinGeometrySource, StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -77,8 +85,8 @@ pub use inventory::recipes::{
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, StackItemDescriptor, container_window,
-    is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
+    container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
@@ -90,16 +98,17 @@ pub use inventory::{
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
     ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
     InventoryContentEvent, InventoryEvent, InventoryPacketError, InventorySlotEvent,
-    ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES,
-    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID,
-    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack,
-    container_close_packet, item_stack_request_packet, item_stack_request_packet_filtered,
-    normalize_authority, normalize_container_close, normalize_container_data,
-    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
-    normalize_slot, open_inventory_packet, personal_craft_content_indices,
-    personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
+    InventoryTransactionEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS,
+    MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES,
+    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent,
+    SlotIdentity, StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
+    VerifiedNetworkItemStack, container_close_packet, item_stack_request_batch,
+    item_stack_request_packet, item_stack_request_packet_filtered, normalize_authority,
+    normalize_container_close, normalize_container_data, normalize_container_open,
+    normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
+    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
+    validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
@@ -140,7 +149,7 @@ pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
-pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
+pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession, network_stack_latency_reply};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,
@@ -163,6 +172,7 @@ pub use raw_text::{
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
+pub use settings::request_chunk_radius_packet;
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use ui::{

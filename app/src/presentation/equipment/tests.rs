@@ -169,6 +169,7 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     }]);
     let location = locations[0].unwrap();
     let body = ActorRigSubmission {
+        culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
                 session_id: 1,
@@ -392,6 +393,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     let body = ActorRigSubmission {
+        culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
                 session_id: 1,
@@ -479,6 +481,7 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     ActorRigSubmission {
+        culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
                 session_id: 1,
@@ -566,6 +569,7 @@ fn session_items(
                     .into_iter()
                     .map(|identifier| SessionIcon {
                         identifier: identifier.into(),
+                        metadata: 0,
                         width: 16,
                         height: 16,
                         rgba8: vec![255; 16 * 16 * 4].into(),
@@ -617,6 +621,61 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     assert_eq!(runtime.layers_for(&body, &worn).len(), 1);
     runtime.set_session_items(None, None, Vec::new());
     assert!(runtime.layers_for(&body, &worn).is_empty());
+}
+
+#[test]
+fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let body = player_body(&mut runtime);
+    let item = WornItem {
+        identifier: Arc::from("test:gem"),
+        metadata: 0,
+        kind: HeldKind::Other,
+        dye_rgb: None,
+    };
+    let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let animation = client_world::ItemAnimationState::default();
+    let first = runtime.first_person_item(&body, &item, animation).unwrap();
+    assert!(first.camera_space);
+    let mut moved = body.clone();
+    let changed = body
+        .input
+        .current_bones
+        .iter()
+        .map(|_| {
+            let mut bone = bone([20.0, -12.0, 8.0], 3.0);
+            bone.rotation = Quat::from_rotation_x(1.7).to_array();
+            bone
+        })
+        .collect::<Vec<_>>();
+    moved.input.previous_bones = Arc::from(changed.clone());
+    moved.input.current_bones = Arc::from(changed);
+    let second = runtime.first_person_item(&moved, &item, animation).unwrap();
+    assert_eq!(
+        first.presentation.submission.input.previous_bones,
+        second.presentation.submission.input.previous_bones
+    );
+    assert_eq!(
+        first.presentation.submission.input.current_bones,
+        second.presentation.submission.input.current_bones
+    );
+    assert_eq!(first.presentation.location, second.presentation.location);
+    let third = runtime.layers_for(
+        &body,
+        &ActorEquipmentInput {
+            main: Some(item),
+            ..Default::default()
+        },
+    );
+    assert_eq!(third[0].location, first.presentation.location);
+    assert_ne!(
+        third[0].submission.input.current_bones,
+        first.presentation.submission.input.current_bones
+    );
 }
 
 // A custom item with no attachable holds its pack icon, gripped per `hand_equipped`.

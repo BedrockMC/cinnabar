@@ -1,6 +1,7 @@
 //! Local ability, hunger and equipment facts that gate movement modes.
 
-use protocol::{AbilitiesUpdate, AbilityLayersEvidence};
+use crate::game_mode_capabilities::{ability_bit, resolved_layer};
+use protocol::AbilitiesUpdate;
 
 use super::control_modes::SPRINT_HUNGER_FLOOR;
 use crate::ui_runtime::UiRuntime;
@@ -60,12 +61,14 @@ pub(super) fn read(
             .map(|(position, _)| position),
         can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
-        fly_speed: ui
-            .local_abilities()
-            .and_then(|update| flight_speed(update, |layer| layer.fly_speed_bits)),
-        vertical_fly_speed: ui
-            .local_abilities()
-            .and_then(|update| flight_speed(update, |layer| layer.vertical_fly_speed_bits)),
+        fly_speed: ui.local_abilities().and_then(|update| {
+            flight_speed(update, ability_bit::FLY_SPEED, |layer| layer.fly_speed_bits)
+        }),
+        vertical_fly_speed: ui.local_abilities().and_then(|update| {
+            flight_speed(update, ability_bit::VERTICAL_FLY_SPEED, |layer| {
+                layer.vertical_fly_speed_bits
+            })
+        }),
         creative_flight: capabilities.is_some_and(|capabilities| capabilities.creative_inventory),
         elytra_ready,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
@@ -79,25 +82,20 @@ pub(super) fn read(
     }
 }
 
-/// The last ability layer's finite positive flight speed for the selected float field.
+/// Reads a defined finite flight speed, including an authoritative zero.
 fn flight_speed(
     update: &AbilitiesUpdate,
+    bit: u32,
     bits: impl Fn(&protocol::AbilityLayerEvidence) -> u32,
 ) -> Option<f64> {
-    let AbilityLayersEvidence::Received(layers) = &update.layers else {
-        return None;
-    };
-    layers
-        .iter()
-        .rev()
-        .map(|layer| f32::from_bits(bits(layer)))
-        .find(|speed| speed.is_finite() && *speed > 0.0)
-        .map(f64::from)
+    let speed = f32::from_bits(bits(resolved_layer(update, bit)?));
+    (speed.is_finite() && (bit != ability_bit::FLY_SPEED || speed >= 0.0))
+        .then_some(f64::from(speed))
 }
 
 #[cfg(test)]
 mod tests {
-    use protocol::AbilityLayerEvidence;
+    use protocol::{AbilityLayerEvidence, AbilityLayersEvidence};
 
     use super::*;
 
@@ -106,7 +104,7 @@ mod tests {
             .iter()
             .map(|speed| AbilityLayerEvidence {
                 layer_type: 1,
-                abilities: 0,
+                abilities: ability_bit::FLY_SPEED,
                 values: 0,
                 fly_speed_bits: speed.to_bits(),
                 vertical_fly_speed_bits: 0,
@@ -124,20 +122,62 @@ mod tests {
     #[test]
     fn flight_speed_takes_the_last_usable_layer() {
         assert_eq!(
-            flight_speed(&update(&[0.05, 0.1]), |layer| layer.fly_speed_bits),
+            flight_speed(&update(&[0.05, 0.1]), ability_bit::FLY_SPEED, |layer| layer
+                .fly_speed_bits),
             Some(f64::from(0.1_f32))
         );
         assert_eq!(
-            flight_speed(&update(&[0.05, 0.0]), |layer| layer.fly_speed_bits),
-            Some(f64::from(0.05_f32))
+            flight_speed(&update(&[0.05, 0.0]), ability_bit::FLY_SPEED, |layer| layer
+                .fly_speed_bits),
+            Some(0.0)
         );
         assert_eq!(
-            flight_speed(&update(&[f32::NAN, -1.0]), |layer| layer.fly_speed_bits),
+            flight_speed(
+                &update(&[f32::NAN, -1.0]),
+                ability_bit::FLY_SPEED,
+                |layer| layer.fly_speed_bits
+            ),
             None
         );
         assert_eq!(
-            flight_speed(&update(&[]), |layer| layer.fly_speed_bits),
+            flight_speed(&update(&[]), ability_bit::FLY_SPEED, |layer| layer
+                .fly_speed_bits),
             None
+        );
+    }
+
+    /// Placeholder floats in layers without FlySpeed must not override it.
+    #[test]
+    fn flight_speed_ignores_undefined_layer_float() {
+        let mut update = update(&[0.1, 0.05]);
+        let AbilityLayersEvidence::Received(layers) = &mut update.layers else {
+            unreachable!()
+        };
+        let layers = std::sync::Arc::make_mut(layers);
+        layers[0].layer_type = 1;
+        layers[1].layer_type = 2;
+        layers[1].abilities = 0;
+        assert_eq!(
+            flight_speed(&update, ability_bit::FLY_SPEED, |layer| layer
+                .fly_speed_bits),
+            Some(f64::from(0.1_f32))
+        );
+    }
+
+    /// Layer type, not serialization order, sets ability precedence.
+    #[test]
+    fn flight_speed_respects_typed_layer_priority() {
+        let mut update = update(&[0.1, 0.05]);
+        let AbilityLayersEvidence::Received(layers) = &mut update.layers else {
+            unreachable!()
+        };
+        let layers = std::sync::Arc::make_mut(layers);
+        layers[0].layer_type = 2;
+        layers[1].layer_type = 1;
+        assert_eq!(
+            flight_speed(&update, ability_bit::FLY_SPEED, |layer| layer
+                .fly_speed_bits),
+            Some(f64::from(0.1_f32))
         );
     }
 }

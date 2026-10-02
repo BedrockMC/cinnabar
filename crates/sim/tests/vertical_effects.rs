@@ -13,7 +13,7 @@ impl CollisionWorld for EmptyWorld {
 
 fn assert_close(actual: f64, expected: f64) {
     assert!(
-        (actual - expected).abs() <= 1.0e-12,
+        (actual - expected).abs() <= f64::from(f32::EPSILON) * expected.abs().max(1.0),
         "{actual} != {expected}"
     );
 }
@@ -70,8 +70,11 @@ fn signed_levitation_matrix_reverses_and_extremes_remain_finite() {
             )
             .unwrap();
 
-        let target = 0.05 * (f64::from(amplifier) + 1.0);
-        assert_close(state.velocity.y, -0.4 + (target - -0.4) * 0.2);
+        let target = 0.05_f32 * (amplifier as f32 + 1.0);
+        assert_eq!(
+            state.velocity.y,
+            f64::from(-0.4_f32 + (target - -0.4_f32) * 0.2_f32)
+        );
         assert!(state.velocity.is_finite());
     }
 }

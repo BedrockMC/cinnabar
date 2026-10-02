@@ -77,6 +77,10 @@ const NOTE_INSTRUMENTS: [&str; 26] = [
 ];
 const NOTE_EVENT: &str = "note";
 
+#[cfg(test)]
+#[path = "route/block_tests.rs"]
+mod block_tests;
+
 fn from_route(route: SoundRoute, position: Option<[f32; 3]>) -> SoundRequest {
     let mut request = SoundRequest::new(route.sound).with_ranges(route.volume, route.pitch);
     request.position = position;

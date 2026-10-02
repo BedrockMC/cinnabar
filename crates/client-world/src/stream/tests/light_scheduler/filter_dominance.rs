@@ -66,6 +66,7 @@ fn filtered_light_test_assets() -> RuntimeAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: Box::new([]),

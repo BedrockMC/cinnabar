@@ -16,6 +16,7 @@ use super::{
 #[derive(Debug)]
 pub struct TerrainTextureMap {
     pub(super) entries: BTreeMap<Box<str>, TerrainPaths>,
+    pub(crate) position_variations: BTreeMap<(Box<str>, u32), Vec<super::variations::WeightedPath>>,
 }
 
 impl TerrainTextureMap {
@@ -60,6 +61,7 @@ impl TerrainTextureMap {
                 paths,
                 requires_tint: false,
                 has_extra_metadata: false,
+                ..
             } if paths.len() == 2 => Some([paths[0].as_ref(), paths[1].as_ref()]),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
@@ -74,6 +76,7 @@ impl TerrainTextureMap {
             paths,
             requires_tint: false,
             has_extra_metadata: false,
+            ..
         } = self.entries.get("farmland")?
         else {
             return None;
@@ -98,6 +101,7 @@ impl TerrainTextureMap {
                 path,
                 requires_tint: false,
                 has_extra_metadata: false,
+                ..
             } if path.as_ref() == "textures/blocks/dirt" => Some(path),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
@@ -125,6 +129,7 @@ impl TerrainTextureMap {
                 path,
                 requires_tint: false,
                 has_extra_metadata: false,
+                ..
             } => Some(path),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
@@ -138,6 +143,7 @@ impl TerrainTextureMap {
                 paths,
                 requires_tint: false,
                 has_extra_metadata: false,
+                ..
             } if paths.len() == 1 => Some(paths[0].as_ref()),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
@@ -150,16 +156,26 @@ impl TerrainTextureMap {
     }
 
     pub(crate) fn get_for_record(&self, key: &str, record: &RegistryRecord) -> Option<&str> {
+        self.get_for_record_variant(key, record)
+            .map(|(path, _)| path)
+    }
+
+    /// Returns the same state index and path, before positional variation selection.
+    pub(crate) fn get_for_record_variant(
+        &self,
+        key: &str,
+        record: &RegistryRecord,
+    ) -> Option<(&str, u32)> {
         let paths = self.entries.get(key)?;
         if !is_mushroom_face_key(key, &record.name) {
-            return Some(paths.first());
+            return Some((paths.first(), 0));
         }
         let selected = mushroom_variant_index(record)?;
         match paths {
-            TerrainPaths::Static { path, .. } => Some(path),
-            TerrainPaths::Variants { paths, .. } if paths.len() == 16 => {
-                paths.get(selected).map(AsRef::as_ref)
-            }
+            TerrainPaths::Static { path, .. } => Some((path, 0)),
+            TerrainPaths::Variants { paths, .. } if paths.len() == 16 => paths
+                .get(selected)
+                .map(|path| (path.as_ref(), selected as u32)),
             TerrainPaths::Variants { .. } => None,
         }
     }
@@ -194,29 +210,76 @@ impl TerrainTextureMap {
                 path,
                 requires_tint: false,
                 has_extra_metadata: false,
+                ..
             } => Some(path),
             TerrainPaths::Variants {
                 paths,
                 requires_tint: false,
                 has_extra_metadata: false,
+                ..
             } => paths.get(variant.min(paths.len() - 1)).map(AsRef::as_ref),
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
     }
 
+    /// The carried-item route understands a literal overlay color, but no
+    /// unreviewed terrain extension metadata. Keep world/untinted resolution
+    /// conservative: this does not relax `get_clamped_untinted`.
+    pub(crate) fn get_clamped_carried(
+        &self,
+        key: &str,
+        variant: usize,
+    ) -> Option<(&str, Option<&str>)> {
+        match self.entries.get(key)? {
+            TerrainPaths::Static {
+                path,
+                overlay_color,
+                has_extra_metadata: false,
+                ..
+            } => Some((path, overlay_color.as_deref())),
+            TerrainPaths::Variants {
+                paths,
+                overlay_colors,
+                has_extra_metadata: false,
+                ..
+            } => {
+                let selected = variant.min(paths.len() - 1);
+                Some((
+                    paths.get(selected)?,
+                    overlay_colors.get(selected)?.as_deref(),
+                ))
+            }
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
+    /// Every key with its variant-zero path, as the runtime's base catalog resolves it.
+    pub(crate) fn first_paths(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.entries
+            .iter()
+            .map(|(key, paths)| (key.as_ref(), paths.first()))
+    }
+
     pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
-        self.entries.values().flat_map(TerrainPaths::paths)
+        self.entries.values().flat_map(TerrainPaths::paths).chain(
+            self.position_variations
+                .values()
+                .flatten()
+                .map(|entry| entry.path.as_ref()),
+        )
     }
 }
 #[derive(Debug)]
 pub(super) enum TerrainPaths {
     Static {
         path: Box<str>,
+        overlay_color: Option<Box<str>>,
         requires_tint: bool,
         has_extra_metadata: bool,
     },
     Variants {
         paths: Box<[Box<str>]>,
+        overlay_colors: Box<[Option<Box<str>>]>,
         requires_tint: bool,
         has_extra_metadata: bool,
     },
@@ -253,7 +316,7 @@ struct TerrainDocument {
 
 #[derive(Deserialize)]
 struct TerrainEntry {
-    textures: TerrainValue,
+    textures: Value,
     #[serde(flatten)]
     extra: BTreeMap<String, Value>,
 }
@@ -284,14 +347,14 @@ enum TerrainVariant {
 }
 
 impl TerrainVariant {
-    fn into_path_tint_and_extra(self) -> (String, bool, bool) {
+    fn into_path_tint_and_extra(self) -> (String, Option<String>, bool) {
         match self {
-            Self::Path(path) => (path, false, false),
+            Self::Path(path) => (path, None, false),
             Self::Entry {
                 path,
                 overlay_color,
                 extra,
-            } => (path, overlay_color.is_some(), !extra.is_empty()),
+            } => (path, overlay_color, !extra.is_empty()),
         }
     }
 }
@@ -315,11 +378,30 @@ pub(super) fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError>
     };
 
     let mut entries = BTreeMap::new();
-    for (key, entry) in texture_data {
-        let variants = collect_terrain_paths(&key, entry.textures, !entry.extra.is_empty())?;
+    let mut position_variations = BTreeMap::new();
+    for (key, mut entry) in texture_data {
+        let values = match &mut entry.textures {
+            Value::Array(values) => values.as_mut_slice(),
+            value => std::slice::from_mut(value),
+        };
+        for (index, value) in values.iter_mut().enumerate() {
+            let alternatives = super::variations::extract(value)?;
+            if !alternatives.is_empty() {
+                position_variations
+                    .insert((key.clone().into_boxed_str(), index as u32), alternatives);
+            }
+        }
+        let value = serde_json::from_value(entry.textures).map_err(|source| AssetError::Json {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let variants = collect_terrain_paths(&key, value, !entry.extra.is_empty())?;
         entries.insert(key.into_boxed_str(), variants);
     }
-    Ok(TerrainTextureMap { entries })
+    Ok(TerrainTextureMap {
+        entries,
+        position_variations,
+    })
 }
 
 fn collect_terrain_paths(
@@ -332,6 +414,7 @@ fn collect_terrain_paths(
             validate_texture_path(&path)?;
             Ok(TerrainPaths::Static {
                 path: path.into_boxed_str(),
+                overlay_color: None,
                 requires_tint: false,
                 has_extra_metadata: entry_has_extra_metadata,
             })
@@ -345,6 +428,7 @@ fn collect_terrain_paths(
             Ok(TerrainPaths::Static {
                 path: path.into_boxed_str(),
                 requires_tint: overlay_color.is_some(),
+                overlay_color: overlay_color.map(String::into_boxed_str),
                 has_extra_metadata: entry_has_extra_metadata || !extra.is_empty(),
             })
         }
@@ -357,14 +441,16 @@ fn collect_terrain_paths(
                 });
             }
             let mut paths = Vec::with_capacity(variants.len());
+            let mut overlay_colors = Vec::with_capacity(variants.len());
             let mut requires_tint = false;
             let mut has_extra_metadata = entry_has_extra_metadata;
             for variant in variants {
-                let (path, variant_requires_tint, variant_has_extra_metadata) =
+                let (path, overlay_color, variant_has_extra_metadata) =
                     variant.into_path_tint_and_extra();
                 validate_texture_path(&path)?;
                 paths.push(path.into_boxed_str());
-                requires_tint |= variant_requires_tint;
+                requires_tint |= overlay_color.is_some();
+                overlay_colors.push(overlay_color.map(String::into_boxed_str));
                 has_extra_metadata |= variant_has_extra_metadata;
             }
             if paths.is_empty() {
@@ -372,6 +458,7 @@ fn collect_terrain_paths(
             }
             Ok(TerrainPaths::Variants {
                 paths: paths.into_boxed_slice(),
+                overlay_colors: overlay_colors.into_boxed_slice(),
                 requires_tint,
                 has_extra_metadata,
             })

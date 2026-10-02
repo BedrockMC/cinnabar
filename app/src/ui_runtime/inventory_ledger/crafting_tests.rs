@@ -279,7 +279,7 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
         (1, 50, request)
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 
     assert_eq!(
         ledger
@@ -291,11 +291,14 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.stack_network_id), (PLANKS, request));
     assert!(ledger.created_output_stack().is_none());
-    assert_eq!(
-        ledger.begin_click(0),
-        Err(InventoryGestureError::AwaitingIdentity),
-        "crafted output cannot be named before it settles"
-    );
+    let mut chained = ledger.clone();
+    let next = chained.begin_click(0).unwrap();
+    let StackRequestAction::Place { source, .. } = chained.newest_request().unwrap().actions[0]
+    else {
+        panic!("place")
+    };
+    assert_eq!(source.stack_network_id, request);
+    assert_eq!(next, -5);
 
     assert!(ledger.mark_transport_enqueued(10));
     respond(
@@ -310,16 +313,24 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
     assert!(!ledger.resync_required());
 }
 
-/// An acceptance that never names the crafted stack leaves it unusable.
+/// Native clears unprocessed sparse predictions instead of inventing output.
 #[test]
-fn crafted_output_without_a_server_id_requires_recovery() {
+fn crafted_output_without_a_response_slot_reverts_to_backing_truth() {
     let catalog = catalog();
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(LOG, 101, 1)));
     let request = ledger.begin_craft(&unique(&ledger, &catalog), 1).unwrap();
     assert!(ledger.mark_transport_enqueued(10));
     respond(&mut ledger, request, &[]);
-    assert!(ledger.resync_required());
+    assert!(!ledger.resync_required());
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(28))
+            .unwrap()
+            .count,
+        1
+    );
 }
 
 /// A partial match predicts nothing and allocates no request.
@@ -437,7 +448,7 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
         (64, 50, request)
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.count), (COBBLE, 64));
 
@@ -483,14 +494,40 @@ fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
     assert_eq!(ledger.displayed_stack(4).unwrap().stack_network_id, request);
 }
 
-/// Closing either crafting screen returns the grid server-side, so no ghost
-/// cells or stale ids survive into the next screen.
+/// Close returns real inputs; our bounded admission waits for the correction.
 #[test]
-fn closing_a_crafting_screen_clears_the_grid() {
+fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     let mut personal = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     personal.apply(&craft_slot(28, stack(LOG, 101, 1)));
     personal.request_personal_close();
+    let request = personal.newest_request().unwrap().request_id;
+    assert!(matches!(personal.newest_request().unwrap().actions[0],
+        StackRequestAction::Place { amount: 1, source, destination }
+            if source.container == StackRequestContainer::CraftingInput
+                && source.slot == 28 && destination.slot == 0));
+    assert!(
+        personal.confirmed.get(Cell::Craft(28)).is_some(),
+        "not optimistically cleared"
+    );
     assert!(personal.mark_transport_enqueued(10));
+    assert!(
+        personal.pending_batch().unwrap().is_none(),
+        "wait for return answer"
+    );
+    respond(
+        &mut personal,
+        request,
+        &[
+            (CONTAINER_NAME_CRAFT_INPUT, 28, 0, -1),
+            (
+                protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                1,
+                101,
+            ),
+        ],
+    );
+    assert!(personal.mark_transport_enqueued(20));
     personal.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
         container: ContainerIdentity::window(2),
         window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
@@ -504,12 +541,180 @@ fn closing_a_crafting_screen_clears_the_grid() {
             .iter()
             .all(Option::is_none)
     );
+    assert_eq!(
+        personal.displayed_stack(0).map(|stack| stack.count),
+        Some(1)
+    );
+    assert!(personal.request_personal_open(42));
 
     let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
     workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
     workbench.request_storage_close();
+    let request = workbench.newest_request().unwrap().request_id;
     assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
+    assert!(workbench.confirmed.get(Cell::Craft(36)).is_some());
+    assert!(workbench.mark_transport_enqueued(10));
+    respond(
+        &mut workbench,
+        request,
+        &[
+            (CONTAINER_NAME_CRAFT_INPUT, 36, 0, -1),
+            (
+                protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                1,
+                201,
+            ),
+        ],
+    );
     assert_eq!(workbench.crafting_grid(), CraftingGrid::Personal);
+    assert_eq!(
+        workbench.displayed_stack(0).map(|stack| stack.count),
+        Some(1)
+    );
+}
+
+#[test]
+fn ordinary_block_identity_does_not_make_a_crafting_ingredient_unplain() {
+    let catalog = catalog();
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut log = stack(LOG, 101, 8);
+    log.block_runtime_id = 123;
+    ledger.apply(&craft_slot(28, log));
+    let recipe = unique(&ledger, &catalog);
+    let request = ledger.begin_craft(&recipe, 1).unwrap();
+    assert!(matches!(ledger.newest_request().unwrap().actions[2],
+        StackRequestAction::Consume { amount: 1, source }
+            if source.slot == 28 && source.stack_network_id == 101));
+    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, request);
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(28))
+            .unwrap()
+            .count,
+        7
+    );
+}
+
+#[test]
+fn close_merges_partial_player_stack_then_returns_remainder_to_an_empty_slot() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(0),
+            slot: 0,
+        },
+        stack: stack(LOG, 100, 60),
+        storage_item: None,
+    }));
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 8)));
+    ledger.request_personal_close();
+    let request = ledger.newest_request().unwrap();
+    assert_eq!(request.actions.len(), 2);
+    assert!(
+        matches!(request.actions[0], StackRequestAction::Place { amount: 4, destination, .. }
+        if destination.slot == 0 && destination.stack_network_id == 100)
+    );
+    assert!(
+        matches!(request.actions[1], StackRequestAction::Place { amount: 4, destination, .. }
+        if destination.slot == 1 && destination.stack_network_id == 0)
+    );
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 4);
+    assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
+}
+
+#[test]
+fn close_drops_only_the_remainder_when_the_player_inventory_is_full() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: (0..PLAYER_INVENTORY_SLOT_COUNT)
+            .map(|slot| stack(COBBLE, slot as i32 + 1, 64))
+            .collect::<Vec<_>>()
+            .into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 8)));
+    ledger.request_personal_close();
+    assert!(
+        matches!(ledger.newest_request().unwrap().actions.as_slice(),
+        [StackRequestAction::Drop { amount: 8, source, randomly: false }]
+            if source.container == StackRequestContainer::CraftingInput && source.slot == 28)
+    );
+    assert_eq!(
+        (0..PLAYER_INVENTORY_SLOT_COUNT as u8)
+            .map(|slot| ledger.displayed_stack(slot).unwrap().count as usize)
+            .sum::<usize>(),
+        PLAYER_INVENTORY_SLOT_COUNT * 64
+    );
+    assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
+}
+
+#[test]
+fn invalid_close_input_identity_keeps_the_grid_and_the_screen_open() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(LOG, 0, 8)));
+    ledger.request_personal_close();
+    assert!(ledger.personal_inventory_desired_open());
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(ledger.pending_closes.is_empty());
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(28))
+            .unwrap()
+            .count,
+        8
+    );
+}
+
+#[test]
+fn refused_close_return_restores_open_state_and_preserves_the_ingredient() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 8)));
+    ledger.request_personal_close();
+    let request_id = ledger.newest_request().unwrap().request_id;
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Rejected,
+            request_id,
+            containers: Arc::from([]),
+        }]),
+    }));
+    assert!(ledger.personal_inventory_desired_open());
+    assert!(ledger.pending_closes.is_empty());
+    assert!(ledger.request_personal_open(42));
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Craft(28))
+            .unwrap()
+            .count,
+        8
+    );
+    ledger.request_personal_close();
+    assert_eq!(
+        ledger.pending_request_count(),
+        1,
+        "the valid backing id permits retry"
+    );
+}
+
+#[test]
+fn an_empty_sparse_grid_does_not_cancel_its_unanswered_transfer_on_close() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    ledger.apply(&craft_slot(28, stack(LOG, 101, 8)));
+    ledger
+        .begin_target_gesture(InventoryTarget::Craft(28), CellGesture::Click)
+        .unwrap();
+    let transfer = ledger.begin_click(0).unwrap();
+    assert!(ledger.target_stack(InventoryTarget::Craft(28)).is_none());
+    assert!(ledger.cursor_stack().is_none());
+    ledger.request_personal_close();
+    assert_eq!(ledger.pending_request_count(), 2);
+    assert_eq!(ledger.newest_request().unwrap().request_id, transfer);
+    assert!(ledger.confirmed.get(Cell::Craft(28)).is_some());
+    assert!(ledger.pending_closes.front().unwrap().returning_inputs);
 }
 
 // The recipe book's filter shows recipes the inventory holds some ingredient of.

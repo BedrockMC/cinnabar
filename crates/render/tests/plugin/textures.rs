@@ -108,6 +108,7 @@ fn animation_selects_current_next_cross_page_wrap_and_non_blended_frames() {
         texture: frames[0],
         flags: 0,
         animation: 0,
+        ..assets::Material::unvaried()
     };
     let sample = |tick, partial_tick, flags| {
         select_animation_frames(
@@ -147,6 +148,7 @@ fn animation_selects_current_next_cross_page_wrap_and_non_blended_frames() {
         texture: texture_ref(1, 4),
         flags: 0,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     };
     assert_eq!(
         select_animation_frames(
@@ -269,7 +271,7 @@ fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on
         .find("let (texture_1, view_1, padded_1) = upload_texture_page(")
         .expect("second page is prepared before publication");
     let publish = prepare
-        .find("gpu_assets.prepared = Some(PreparedChunkTextureAssets {")
+        .find("_textures: [texture_0, texture_1]")
         .expect("complete revision publication");
     assert!(second_page < publish);
     assert!(prepare.contains("material.texture.raw()"));

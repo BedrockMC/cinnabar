@@ -9,6 +9,8 @@ mod bone_arena;
 use bone_arena::PoseMatrixCache;
 #[path = "rig/catalog.rs"]
 mod catalog;
+#[path = "rig/pack.rs"]
+mod pack;
 pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
 #[path = "rig/ids.rs"]
@@ -28,13 +30,14 @@ use super::{
     asset_geometry::{geometry_from_geometry_index, geometry_from_runtime_assets},
 };
 
-pub const MAX_RENDER_BONES_PER_ACTOR: usize = 96;
+pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
-/// Bodies plus their equipment layers; `MAX_RENDERED_PLAYERS` still bounds the bodies.
-pub const MAX_ACTOR_RENDER_INSTANCES: usize = 512;
+/// Existing body/equipment allowance plus every animated skin layer per selected player.
+pub const MAX_ACTOR_RENDER_INSTANCES: usize =
+    MAX_RENDERED_PLAYERS * (4 + client_world::MAX_SKIN_ANIMATION_LAYERS);
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
     MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
-pub const MAX_ACTOR_RIG_VERTICES: usize = 1_048_576;
+pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
@@ -137,6 +140,8 @@ pub enum ActorRigRoute {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActorRigSubmission {
+    /// Model-space visibility box shared with animation and cave admission.
+    pub culling_bounds: assets::SkinGeometryBounds,
     pub input: ActorRigRenderInput,
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
@@ -151,15 +156,10 @@ pub struct ActorRigSubmission {
     pub light: u32,
 }
 
-/// Packs the block and sky light levels (0..=15) at an actor and the sky's daylight scale.
+/// Packs independent block/sky nibbles and the lit-material bit; time belongs to the shared table.
 #[must_use]
-pub fn pack_actor_light(block: u8, sky: u8, daylight: f32) -> u32 {
-    let daylight = if daylight.is_finite() {
-        (daylight.clamp(0.0, 1.0) * 255.0).round() as u32
-    } else {
-        255
-    };
-    0x8000_0000 | (daylight << 8) | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
+pub fn pack_actor_light(block: u8, sky: u8) -> u32 {
+    0x8000_0000 | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
 }
 
 /// The `uv_anim` of a draw without one.
@@ -479,7 +479,9 @@ impl ActorRigFrameBuilder {
                 .rotate_left(5)
                 .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
         }
-        self.catalog.append(geometries, revision.max(1))
+        self.catalog.append(geometries, revision.max(1))?;
+        self.matrices = PoseMatrixCache::default();
+        Ok(())
     }
 
     /// Replaces every pack-range geometry with `geometries` (empty removes them) and
@@ -504,15 +506,13 @@ impl ActorRigFrameBuilder {
         in_range: fn(EntityRigId) -> bool,
         geometries: Vec<ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
+        if geometries.is_empty() && !self.catalog.geometries.keys().any(|id| in_range(*id)) {
+            return Ok(());
+        }
         let mut by_id = self.catalog.geometries.clone();
-        by_id.retain(|id, _| !in_range(*id));
-        by_id.extend(
-            geometries
-                .into_iter()
-                .filter(|geometry| in_range(geometry.id))
-                .map(|geometry| (geometry.id, geometry)),
-        );
+        pack::replace_range(&mut by_id, in_range, geometries);
         self.catalog = GeometryCatalog::layout(by_id)?;
+        self.matrices = PoseMatrixCache::default();
         Ok(())
     }
 
@@ -768,20 +768,28 @@ pub fn actor_rig_submission_is_visible(
     view: Option<ActorCullView>,
 ) -> bool {
     // The culling box grows with the instance's scale so scaled models are not cut early.
-    let scale = Vec3::new(
-        submission.world_from_actor[0][1],
-        submission.world_from_actor[1][1],
-        submission.world_from_actor[2][1],
-    )
-    .length();
+    let scale = (0..3)
+        .map(|axis| {
+            Vec3::new(
+                submission.world_from_actor[0][axis],
+                submission.world_from_actor[1][axis],
+                submission.world_from_actor[2][axis],
+            )
+            .length()
+        })
+        .fold(1.0_f32, f32::max);
     let feet = submission.world_from_actor.map(|row| row[3]);
-    actor_bounds_are_visible(feet, scale, view)
+    actor_bounds_are_visible(feet, scale, submission.culling_bounds, view)
 }
 
-/// Whether the culling box of an actor standing at `feet` with model scale `scale` is within
-/// `view`'s distance and frustum; always true without a usable view.
+/// Tests an authored model visibility box against the same distance and frustum as default actors.
 #[must_use]
-pub fn actor_bounds_are_visible(feet: [f32; 3], scale: f32, view: Option<ActorCullView>) -> bool {
+pub fn actor_bounds_are_visible(
+    feet: [f32; 3],
+    scale: f32,
+    bounds: assets::SkinGeometryBounds,
+    view: Option<ActorCullView>,
+) -> bool {
     let Some(view) = view.filter(|view| {
         view.clip_from_world.is_finite()
             && view.camera_position.is_finite()
@@ -796,19 +804,17 @@ pub fn actor_bounds_are_visible(feet: [f32; 3], scale: f32, view: Option<ActorCu
     {
         return false;
     }
-    let scale = scale.max(1.0);
-    let (half_width, height) = (0.5 * scale, 2.0 * scale);
-    let corners = [
-        Vec3::new(-half_width, 0.0, -half_width),
-        Vec3::new(half_width, 0.0, -half_width),
-        Vec3::new(-half_width, height, -half_width),
-        Vec3::new(half_width, height, -half_width),
-        Vec3::new(-half_width, 0.0, half_width),
-        Vec3::new(half_width, 0.0, half_width),
-        Vec3::new(-half_width, height, half_width),
-        Vec3::new(half_width, height, half_width),
-    ]
-    .map(|offset| view.clip_from_world * (feet + offset).extend(1.0));
+    let (low, high) = bounds.at(feet.to_array(), scale);
+    let corners: [Vec4; 8] = std::array::from_fn(|index| {
+        let point = Vec3::from_array(std::array::from_fn(|axis| {
+            if index & (1 << axis) == 0 {
+                low[axis]
+            } else {
+                high[axis]
+            }
+        }));
+        view.clip_from_world * point.extend(1.0)
+    });
     !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
         && !outside_clip_plane(&corners, |clip| clip.x > clip.w)
         && !outside_clip_plane(&corners, |clip| clip.y < -clip.w)

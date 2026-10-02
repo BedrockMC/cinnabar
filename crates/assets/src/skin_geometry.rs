@@ -4,6 +4,11 @@
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+mod bounds;
+mod poly_mesh;
+pub use bounds::SkinGeometryBounds;
+pub use poly_mesh::{SkinPolyMesh, SkinPolyVertex};
+
 use crate::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs,
     EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_TEXTURE_DIMENSION,
@@ -13,6 +18,8 @@ use crate::{
 pub const MAX_SKIN_GEOMETRY_BONES: usize = 96;
 /// Cubes one skin model may have.
 pub const MAX_SKIN_GEOMETRY_CUBES: usize = 2048;
+/// Vertices accepted by a skin model and the actor geometry catalog.
+pub const MAX_SKIN_GEOMETRY_VERTICES: usize = 1_048_576;
 /// Inheritance links followed before a chain is treated as cyclic.
 const MAX_INHERITANCE_DEPTH: usize = 8;
 
@@ -24,8 +31,32 @@ pub struct SkinGeometry {
     pub texture_height: u16,
     /// Bones after inheritance, parents resolved by name (an unknown parent becomes a root).
     pub bones: Box<[EntityGeometryBone]>,
+    /// Optional polygon meshes in the same order as `bones`.
+    pub poly_meshes: Box<[Option<SkinPolyMesh>]>,
+    /// Authored visibility box in the actor coordinate frame, when supplied and finite.
+    pub visible_bounds: Option<SkinGeometryBounds>,
     /// Digest of the model inputs, for caching built meshes.
     pub digest: [u8; 32],
+}
+
+impl SkinGeometry {
+    /// Resolves a classic model from the catalog when a skin sends only its resource patch.
+    pub fn from_catalog(geometry: &crate::EntityGeometry) -> Option<Self> {
+        if geometry.inherits.is_some() {
+            return None;
+        }
+        let source = serde_json::to_string(geometry).ok()?;
+        finish(
+            geometry.identifier.to_string(),
+            Some(geometry.texture_width),
+            Some(geometry.texture_height),
+            geometry.bones.to_vec(),
+            vec![None; geometry.bones.len()],
+            "",
+            &source,
+        )
+        .ok()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,10 +72,15 @@ pub enum SkinGeometryError {
 /// The geometry the resource patch names as the skin's default model.
 #[must_use]
 pub fn skin_geometry_name(resource_patch: &str) -> Option<String> {
+    geometry_name(resource_patch, "default")
+}
+
+/// Reads one geometry alias from a serialized skin's patch.
+fn geometry_name(resource_patch: &str, key: &str) -> Option<String> {
     let patch: Value = serde_json::from_str(resource_patch).ok()?;
     patch
         .get("geometry")?
-        .get("default")?
+        .get(key)?
         .as_str()
         .map(str::to_ascii_lowercase)
 }
@@ -56,7 +92,16 @@ pub fn parse_skin_geometry(
     resource_patch: &str,
     geometry_data: &str,
 ) -> Result<Option<SkinGeometry>, SkinGeometryError> {
-    let Some(name) = skin_geometry_name(resource_patch) else {
+    parse_skin_geometry_layer(resource_patch, geometry_data, "default")
+}
+
+/// Resolves an additional named geometry used by a persona animation layer.
+pub fn parse_skin_geometry_layer(
+    resource_patch: &str,
+    geometry_data: &str,
+    key: &str,
+) -> Result<Option<SkinGeometry>, SkinGeometryError> {
+    let Some(name) = geometry_name(resource_patch, key) else {
         return Ok(None);
     };
     let data = geometry_data.trim();
@@ -82,17 +127,28 @@ pub fn parse_skin_geometry(
         current.clone_from(&entry.inherits);
     }
     let (mut texture_width, mut texture_height) = (None, None);
+    let mut visible_bounds = None;
     let mut bones: Vec<EntityGeometryBone> = Vec::new();
+    let mut poly_meshes = Vec::new();
     for entry in chain.iter().rev() {
         texture_width = entry.texture_width.or(texture_width);
         texture_height = entry.texture_height.or(texture_height);
-        for child in &entry.bones {
+        visible_bounds = entry.visible_bounds.or(visible_bounds);
+        for (child, mesh) in entry.bones.iter().zip(&entry.poly_meshes) {
             match bones
-                .iter_mut()
-                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
+                .iter()
+                .position(|bone| bone.name.eq_ignore_ascii_case(&child.name))
             {
-                Some(existing) => overlay_bone(existing, child),
-                None => bones.push(child.clone()),
+                Some(index) => {
+                    overlay_bone(&mut bones[index], child);
+                    if mesh.is_some() || child.reset == Some(true) {
+                        poly_meshes[index] = mesh.clone();
+                    }
+                }
+                None => {
+                    bones.push(child.clone());
+                    poly_meshes.push(mesh.clone());
+                }
             }
         }
     }
@@ -101,10 +157,14 @@ pub fn parse_skin_geometry(
         texture_width,
         texture_height,
         bones,
+        poly_meshes,
         resource_patch,
         geometry_data,
     )
-    .map(Some)
+    .map(|mut geometry| {
+        geometry.visible_bounds = visible_bounds;
+        Some(geometry)
+    })
 }
 
 fn finish(
@@ -112,6 +172,7 @@ fn finish(
     texture_width: Option<u16>,
     texture_height: Option<u16>,
     mut bones: Vec<EntityGeometryBone>,
+    poly_meshes: Vec<Option<SkinPolyMesh>>,
     resource_patch: &str,
     geometry_data: &str,
 ) -> Result<SkinGeometry, SkinGeometryError> {
@@ -149,6 +210,8 @@ fn finish(
         }
     }
     let mut digest = Sha256::new();
+    digest.update(identifier.as_bytes());
+    digest.update([0]);
     digest.update(resource_patch.as_bytes());
     digest.update([0]);
     digest.update(geometry_data.as_bytes());
@@ -157,6 +220,8 @@ fn finish(
         texture_width: texture_width.unwrap_or(64),
         texture_height: texture_height.unwrap_or(64),
         bones: bones.into(),
+        poly_meshes: poly_meshes.into(),
+        visible_bounds: None,
         digest: digest.finalize().into(),
     })
 }
@@ -167,6 +232,8 @@ struct ParsedGeometry {
     texture_width: Option<u16>,
     texture_height: Option<u16>,
     bones: Vec<EntityGeometryBone>,
+    poly_meshes: Vec<Option<SkinPolyMesh>>,
+    visible_bounds: Option<SkinGeometryBounds>,
 }
 
 fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
@@ -186,6 +253,8 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
                 texture_width: dimension(description.get("texture_width")),
                 texture_height: dimension(description.get("texture_height")),
                 bones: bones(geometry.get("bones")),
+                poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
+                visible_bounds: bounds::parse(description),
             });
         }
     }
@@ -203,6 +272,8 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
             texture_width: dimension(geometry.get("texturewidth")),
             texture_height: dimension(geometry.get("textureheight")),
             bones: bones(geometry.get("bones")),
+            poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
+            visible_bounds: bounds::parse(geometry),
         });
     }
     Some(parsed)
@@ -271,6 +342,8 @@ fn bones(value: Option<&Value>) -> Vec<EntityGeometryBone> {
                 inflate: None,
                 never_render: bone.get("neverRender").and_then(Value::as_bool),
                 reset: bone.get("reset").and_then(Value::as_bool),
+                binding: None,
+                texture_meshes: Box::new([]),
                 cubes: cubes.into(),
             })
         })
@@ -286,10 +359,15 @@ fn cube_from(
     let origin = vector(cube.get("origin"))?;
     let size: [EntityGeometryScalar; 3] = vector(cube.get("size"))?;
     let inflate = cube.get("inflate").and_then(scalar).unwrap_or(bone_inflate);
-    let zero_axes = size.iter().filter(|value| value.get() == 0.0).count();
+    let zero_axes = size
+        .iter()
+        .filter(|value| value.get() + 2.0 * inflate.get() == 0.0)
+        .count();
     if size.iter().any(|value| value.get() < 0.0)
         || zero_axes > 1
-        || (zero_axes == 1 && inflate.get() != 0.0)
+        || size
+            .iter()
+            .any(|value| value.get() + 2.0 * inflate.get() < 0.0)
     {
         return None;
     }

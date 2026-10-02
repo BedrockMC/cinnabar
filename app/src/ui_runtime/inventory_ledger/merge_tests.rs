@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
+mod blocks;
+
 fn entry(
     network_id: i32,
     identifier: &str,
@@ -197,7 +199,7 @@ fn apple_registry() -> ItemRegistryEvent {
 }
 
 #[test]
-fn occupied_primary_moves_only_free_capacity_and_retains_both_identities() {
+fn occupied_primary_moves_only_free_capacity_and_stamps_sparse_identities() {
     let target = ten_zero_stack(6, 60, 60);
     let cursor = stack(6, 33, 33);
     let mut ledger = player_ledger(Some(apple_registry()), target.clone(), cursor.clone());
@@ -220,10 +222,10 @@ fn occupied_primary_moves_only_free_capacity_and_retains_both_identities() {
         })
     ));
     let destination = ledger.displayed_stack(0).unwrap();
-    assert_eq!((destination.count, destination.stack_network_id), (64, 60));
+    assert_eq!((destination.count, destination.stack_network_id), (64, -3));
     assert_eq!(destination.extra_data, target.extra_data);
     let source = ledger.cursor_stack().unwrap();
-    assert_eq!((source.count, source.stack_network_id), (29, 33));
+    assert_eq!((source.count, source.stack_network_id), (29, -3));
     assert_eq!(source.extra_data, cursor.extra_data);
     assert_eq!(
         ledger.presented_slot_overlay(0),
@@ -308,22 +310,6 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
     let cases = [
         (None, stack(6, 60, 60), stack(6, 33, 3)),
         (Some(apple_registry()), stack(7, 60, 60), stack(7, 33, 3)),
-        (
-            Some(apple_registry()),
-            NetworkItemStack {
-                metadata: 1,
-                ..stack(6, 60, 60)
-            },
-            stack(6, 33, 3),
-        ),
-        (
-            Some(apple_registry()),
-            NetworkItemStack {
-                block_runtime_id: 1,
-                ..stack(6, 60, 60)
-            },
-            stack(6, 33, 3),
-        ),
         (
             Some(apple_registry()),
             stack(6, 60, 60),
@@ -577,7 +563,7 @@ fn accepted_partial_occupied_merge_requires_distinct_authoritative_identities() 
 }
 
 #[test]
-fn occupied_merge_timeout_keeps_prediction_and_newer_update_skips_stale_merge() {
+fn occupied_merge_timeout_keeps_prediction_and_response_uses_historic_snapshot() {
     let target = stack(6, 60, 60);
     let cursor = stack(6, 33, 33);
     let mut timed_out = player_ledger(Some(apple_registry()), target.clone(), cursor.clone());
@@ -605,11 +591,11 @@ fn occupied_merge_timeout_keeps_prediction_and_newer_update_skips_stale_merge() 
         storage_item: NetworkItemStack::default(),
     }));
     raced.apply(&accepted_response(request));
-    // The stale merge no longer applies to the pushed stack, so its
-    // corrections are never grafted onto it.
-    assert_eq!(raced.displayed_stack(0), Some(&current));
-    assert_eq!(raced.cursor_stack(), Some(&cursor));
-    assert!(raced.resync_required());
+    // The accepted request corrects its own historic item, never replaying a
+    // merge against the authoritative count that arrived during flight.
+    assert_eq!(raced.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(raced.cursor_stack().unwrap().count, 29);
+    assert!(!raced.resync_required());
 }
 
 #[test]

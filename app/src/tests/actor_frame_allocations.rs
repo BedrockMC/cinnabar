@@ -14,7 +14,9 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldEvent};
 use render::{ActorArtworkPages, ActorRenderFrame, ActorRenderScene};
 
 use super::actor_rest_presentation::{compiled_fixture, stream};
-use crate::runtime::network::{ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame};
+use crate::runtime::network::{
+    ActorFramePartialTick, HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+};
 
 /// A world holding every resource the actor publication system reads, with a perspective camera
 /// at `eye` looking at `target`.
@@ -42,6 +44,7 @@ pub(crate) fn actor_frame_world(
         "bench",
     ));
     world.insert_resource(ActorFramePartialTick::default());
+    world.init_resource::<crate::runtime::network::PreparedActorPublication>();
     let camera = Transform::from_translation(eye).looking_at(target, Vec3::Y);
     world.spawn((
         camera,
@@ -129,6 +132,7 @@ fn steady_frame_allocations(actors: u64) -> u64 {
             .update_with_instant(clock);
         let before_tick = tick(&world);
         let before = super::alloc_count::thread_allocations();
+        world.run_system_cached(prepare_actor_render_frame).unwrap();
         world.run_system_cached(publish_actor_render_frame).unwrap();
         let allocated = super::alloc_count::thread_allocations() - before;
         if frame >= 30 && tick(&world) == before_tick {

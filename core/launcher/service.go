@@ -37,6 +37,7 @@ type Config struct {
 	ArtworkDir string // screen artwork cache; empty skips caching
 	CacheFile  string // last good catalog; empty keeps it in memory only
 	Logger     *slog.Logger
+	Language   string // active UI locale used by messaging
 	// StoreImageDir holds cached Marketplace images; empty disables them.
 	StoreImageDir string
 
@@ -61,7 +62,7 @@ type Service struct {
 	cfg       Config
 	logger    *slog.Logger
 	signedOut atomic.Bool
-	messaging catalog.MessagingSession
+	messaging *catalog.MessagingSession
 
 	mu        sync.Mutex
 	snap      snapshot
@@ -109,7 +110,7 @@ func New(cfg Config) *Service {
 	if cfg.JoinGathering == nil {
 		cfg.JoinGathering = catalog.JoinGathering
 	}
-	s := &Service{cfg: cfg, logger: cfg.Logger}
+	s := &Service{cfg: cfg, logger: cfg.Logger, messaging: catalog.NewMessagingSession(cfg.Language)}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
 	}
@@ -183,7 +184,7 @@ func (s *Service) ReportMessage(ctx context.Context, event catalog.MessageEvent)
 	if err != nil {
 		return err
 	}
-	return s.cfg.Report(ctx, src, &s.messaging, event)
+	return s.cfg.Report(ctx, src, s.messaging, event)
 }
 
 // Ping pings servers for their player counts and round trip; it needs no account.

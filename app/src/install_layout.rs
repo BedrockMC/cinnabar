@@ -247,9 +247,20 @@ impl InstallLayout {
         self.resource_root.join(vanilla_pack_relative())
     }
 
+    /// Imported optional packs and the applied global selection.
+    #[must_use]
+    pub fn global_resource_packs_dir(&self) -> PathBuf {
+        self.user_data_root.join("resource-packs/global")
+    }
+
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    /// Immutable extension bundles, separate from per-server trust settings.
+    pub fn experience_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("server-experiences/v1/objects")
     }
 
     #[must_use]
@@ -260,6 +271,12 @@ impl InstallLayout {
     #[must_use]
     pub fn server_file(&self) -> PathBuf {
         self.user_config_root.join("servers.json")
+    }
+
+    #[must_use]
+    /// Saved opt-in graphics settings.
+    pub fn graphics_file(&self) -> PathBuf {
+        self.user_config_root.join("graphics.json")
     }
 
     #[must_use]
@@ -296,7 +313,11 @@ fn development_root(executable: &Path) -> Option<(PathBuf, PathBuf)> {
                 .components()
                 .next()?
                 .as_os_str();
-            if profile != "debug" && profile != "release" {
+            // Cargo profile directories this repository builds the client into.
+            if !["debug", "release", "play"]
+                .iter()
+                .any(|known| profile == *known)
+            {
                 continue;
             }
             let root = ancestor.parent()?.to_owned();
@@ -458,6 +479,20 @@ mod tests {
             xdg_data_home: None,
             xdg_runtime_dir: None,
         }
+    }
+
+    /// `make play` builds into `target/play`, which must still use the checkout's `.local`.
+    #[test]
+    fn play_profile_binary_uses_the_development_layout() {
+        let layout = InstallLayout::resolve(
+            Platform::Linux,
+            &environment("/work/cinnabar/target/play/bedrock-client", "/home/dev"),
+        )
+        .unwrap();
+        assert_eq!(
+            layout.runtime_root,
+            PathBuf::from("/work/cinnabar/.local/run")
+        );
     }
 
     #[test]

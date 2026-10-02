@@ -1,0 +1,307 @@
+//! Isolated camera-item routing tests; no optional installed carriers or native art.
+
+use super::*;
+use bevy::math::Quat;
+use client_world::ItemAnimationState;
+use render::ActorRenderIdentity;
+use sha2::{Digest, Sha256};
+
+/// The cube sheet is injected after atlas construction: these tests cover placement and
+/// routing, not block-carrier admission (which has separate asset tests).
+fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
+    let entities = RuntimeEntityAssets::from_compiled(assets::CompiledEntityAssets {
+        source_manifest_sha256: [1; 32],
+        block_visual_count: 8,
+        sources: vec![assets::EntityAssetSource {
+            path: "entity/fixture.entity.json".into(),
+            source_bytes: 2,
+            source_sha256: Sha256::digest(b"{}").into(),
+        }]
+        .into(),
+        symbols: vec![assets::EntityAssetSymbol {
+            kind: assets::EntityAssetKind::Entity,
+            identifier: "test:fixture".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        }]
+        .into(),
+        geometries: Box::new([]),
+        animation_clips: Box::new([]),
+        animation_channels: Box::new([]),
+        animation_keyframes: Box::new([]),
+        molang_symbols: Box::new([]),
+        molang_expressions: Box::new([]),
+        molang_ops: Box::new([]),
+        molang_collections: Box::new([]),
+        molang_collection_items: Box::new([]),
+        controllers: Box::new([]),
+        controller_states: Box::new([]),
+        controller_animations: Box::new([]),
+        controller_transitions: Box::new([]),
+        rig_bindings: Box::new([]),
+        rig_geometries: Box::new([]),
+        rig_animations: Box::new([]),
+        rig_controllers: Box::new([]),
+        item_visuals: Box::new([]),
+        item_visual_aliases: Box::new([]),
+        render: Default::default(),
+    })
+    .unwrap();
+    let icons =
+        RuntimeIconCatalog::decode(&assets::encode_icon_catalog([1; 32], &[], &[]).unwrap())
+            .unwrap();
+    let (mut runtime, pages, _) = EquipmentRuntime::build(
+        Arc::new(entities),
+        None,
+        Arc::new(icons),
+        None,
+        None,
+        ActorArtworkPages::default(),
+    );
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+    let sheet = IconSprite {
+        width,
+        height,
+        rgba8: vec![255; usize::from(width) * usize::from(height) * 4].into(),
+    };
+    let atlas = SpriteAtlas::pack(&[sheet]);
+    let (_, locations) = pages.with_equipment_rasters(&atlas.layers);
+    runtime.placements = atlas.placements;
+    runtime.atlas_locations = locations;
+    let visual = 7;
+    runtime.block_sheets.insert(visual, 0);
+    let rig = EntityRigId(0x7000_0000);
+    runtime.register_skin_rig(rig, vec!["rightItem".into()]);
+    let bone = RenderBoneTransform {
+        rotation: Quat::from_rotation_x(0.3).to_array(),
+        translation_scale: [0.2, 0.9, 0.3, 0.9],
+        axis_scale: render::UNIT_AXIS_SCALE,
+    };
+    let body = ActorRigSubmission {
+        culling_bounds: Default::default(),
+        input: ActorRigRenderInput {
+            identity: ActorRenderIdentity {
+                session_id: 1,
+                dimension: 0,
+                runtime_id: 2,
+                spawn_revision: 1,
+                ingress_sequence: 1,
+                source_tick: None,
+                movement_revision: 1,
+                pose_generation: 1,
+                layer: ACTOR_LAYER_BODY,
+            },
+            rig,
+            previous_bones: Arc::from([bone]),
+            current_bones: Arc::from([bone]),
+            completed_tick: 1,
+            reset_generation: 1,
+        },
+        world_from_actor: [
+            [0.9, 0.0, 0.0, 10.0],
+            [0.0, 0.9, 0.0, 20.0],
+            [0.0, 0.0, 0.9, 30.0],
+        ],
+        texture_layer: 0,
+        route: ActorRigRoute::Compiled,
+        tint: 0,
+        uv_anim: render::IDENTITY_UV_ANIM,
+        light: 0,
+        overlay_rgba8: 0,
+    };
+    let item = WornItem {
+        identifier: Arc::from("test:opaque_cube"),
+        metadata: 0,
+        kind: HeldKind::Block(visual),
+        dye_rgb: None,
+    };
+    (runtime, body, item)
+}
+
+fn third_person(
+    runtime: &mut EquipmentRuntime,
+    body: &ActorRigSubmission,
+    item: &WornItem,
+) -> EquipmentPresentation {
+    let mut layers = runtime.layers_for(
+        body,
+        &ActorEquipmentInput {
+            main: Some(item.clone()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(layers.len(), 1);
+    layers.pop().unwrap()
+}
+
+#[test]
+fn carried_block_sheet_is_admitted_without_untinted_world_materials() {
+    let (base, body, item) = block_fixture();
+    let face = IconSprite {
+        width: assets::BLOCK_ITEM_FACE_SIDE,
+        height: assets::BLOCK_ITEM_FACE_SIDE,
+        rgba8: vec![255; usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2) * 4].into(),
+    };
+    let sheet = assets::compose_block_item_sheet(&std::array::from_fn(|_| face.clone())).unwrap();
+    let icons = RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_block_sheets(
+            base.assets.source_manifest_sha256(),
+            &[sheet],
+            &[],
+            &[assets::IconBlockSheet {
+                visual: assets::BlockVisualId(7),
+                sprite: 0,
+            }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let (mut runtime, _, _) = EquipmentRuntime::build(
+        Arc::clone(&base.assets),
+        None,
+        Arc::new(icons),
+        None,
+        None,
+        ActorArtworkPages::default(),
+    );
+    assert_eq!(runtime.block_sheets.get(&7), Some(&0));
+    runtime.register_skin_rig(body.input.rig, vec!["rightItem".into()]);
+    let first = runtime
+        .first_person_item(&body, &item, ItemAnimationState::default())
+        .expect("authored carried sheet must produce a held cube");
+    assert!(first.camera_space);
+    assert_eq!(runtime.take_pending_geometries().len(), 1);
+}
+
+#[test]
+fn carried_block_sheet_rejects_a_stale_manifest_or_out_of_range_visual() {
+    let (base, _, _) = block_fixture();
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+    let sheet = IconSprite {
+        width,
+        height,
+        rgba8: vec![255; usize::from(width) * usize::from(height) * 4].into(),
+    };
+    for (manifest, visual) in [([2; 32], 7), ([1; 32], base.assets.block_visual_count())] {
+        let icons = RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_block_sheets(
+                manifest,
+                std::slice::from_ref(&sheet),
+                &[],
+                &[assets::IconBlockSheet {
+                    visual: assets::BlockVisualId(visual),
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let (runtime, _, _) = EquipmentRuntime::build(
+            Arc::clone(&base.assets),
+            None,
+            Arc::new(icons),
+            None,
+            None,
+            ActorArtworkPages::default(),
+        );
+        assert!(runtime.block_sheets.is_empty());
+    }
+}
+
+#[test]
+fn first_person_block_uses_camera_space_and_reuses_the_cube_atlas_and_rig() {
+    let (mut runtime, body, item) = block_fixture();
+    let first = runtime
+        .first_person_item(&body, &item, ItemAnimationState::default())
+        .unwrap();
+    assert!(
+        first.camera_space,
+        "ordinary blocks must not ride rightItem"
+    );
+    let expected =
+        crate::presentation::equipment::first_person::block_pose(ItemAnimationState::default())
+            .unwrap();
+    assert_eq!(
+        &*first.presentation.submission.input.previous_bones,
+        &[expected]
+    );
+    assert_eq!(
+        &*first.presentation.submission.input.current_bones,
+        &[expected]
+    );
+    let third = third_person(&mut runtime, &body, &item);
+    assert_eq!(first.presentation.location, third.location);
+    assert_eq!(
+        first.presentation.submission.input.rig,
+        third.submission.input.rig
+    );
+    assert_ne!(
+        first.presentation.submission.input.current_bones,
+        third.submission.input.current_bones
+    );
+    assert_eq!(runtime.take_pending_geometries().len(), 1);
+}
+
+#[test]
+fn first_person_block_pose_ignores_avatar_bones_and_model_scale() {
+    let (mut runtime, body, item) = block_fixture();
+    let animation = ItemAnimationState {
+        attack_time: 0.25,
+        arm_height: 0.6,
+    };
+    let first = runtime.first_person_item(&body, &item, animation).unwrap();
+    let expected = crate::presentation::equipment::first_person::block_pose(animation).unwrap();
+    assert_eq!(
+        &*first.presentation.submission.input.previous_bones,
+        &[expected]
+    );
+    assert_eq!(
+        &*first.presentation.submission.input.current_bones,
+        &[expected]
+    );
+    let mut changed = body.clone();
+    let changed_bone = RenderBoneTransform {
+        rotation: Quat::from_rotation_z(1.7).to_array(),
+        translation_scale: [20.0, -12.0, 8.0, 3.0],
+        axis_scale: [2.0, 2.0, 2.0, 1.0],
+    };
+    changed.input.previous_bones = Arc::from([changed_bone]);
+    changed.input.current_bones = Arc::from([changed_bone]);
+    changed.world_from_actor = [
+        [3.0, 0.0, 0.0, -40.0],
+        [0.0, 3.0, 0.0, 50.0],
+        [0.0, 0.0, 3.0, 60.0],
+    ];
+    let second = runtime
+        .first_person_item(&changed, &item, animation)
+        .unwrap();
+    assert_eq!(
+        first.presentation.submission.input.previous_bones,
+        second.presentation.submission.input.previous_bones
+    );
+    assert_eq!(
+        first.presentation.submission.input.current_bones,
+        second.presentation.submission.input.current_bones
+    );
+    assert_eq!(first.presentation.location, second.presentation.location);
+    let third = third_person(&mut runtime, &body, &item);
+    let third_changed = third_person(&mut runtime, &changed, &item);
+    assert_ne!(
+        third.submission.input.current_bones,
+        third_changed.submission.input.current_bones
+    );
+    assert_ne!(
+        third.submission.world_from_actor,
+        third_changed.submission.world_from_actor
+    );
+}
+
+#[test]
+fn third_person_block_retains_the_existing_grip_on_the_avatar_bone() {
+    let (mut runtime, body, item) = block_fixture();
+    let third = third_person(&mut runtime, &body, &item);
+    let expected = attach_to_bone(body.input.current_bones[0], held_block_display()).unwrap();
+    assert_eq!(&*third.submission.input.previous_bones, &[expected]);
+    assert_eq!(&*third.submission.input.current_bones, &[expected]);
+    assert_eq!(third.submission.world_from_actor, body.world_from_actor);
+}

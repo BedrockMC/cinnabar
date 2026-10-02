@@ -86,7 +86,7 @@ pub fn load_active_language(
 
 /// The UI language: `requested`, else the environment locale, else `en_US`.
 #[must_use]
-fn active_language(requested: Option<&str>) -> String {
+pub(crate) fn active_language(requested: Option<&str>) -> String {
     let from_env = ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .filter_map(|name| std::env::var(name).ok())

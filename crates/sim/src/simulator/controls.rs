@@ -13,6 +13,8 @@ pub struct ProcessedControls {
 pub struct ControlledTickResult {
     pub tick_result: TickResult,
     pub controls: ProcessedControls,
+    /// Whether this tick consumed a ground-jump request.
+    pub jump_initiated: bool,
 }
 
 pub(super) fn process(input: MovementInput) -> ProcessedControls {

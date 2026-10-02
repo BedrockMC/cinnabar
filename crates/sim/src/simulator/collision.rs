@@ -5,6 +5,7 @@ use super::{AxisCollisions, COLLISION_EPSILON, STEP_HEIGHT};
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedMotion {
     pub resolved: Vec3,
+    pub position: Vec3,
     pub collisions: AxisCollisions,
     pub identity: WorldCollisionIdentity,
     pub stepped: bool,
@@ -25,7 +26,7 @@ pub(super) fn resolve_motion(
     let normal_y_collision = normal.y != velocity.y;
     let on_ground = was_on_ground || (normal_y_collision && velocity.y < 0.0);
 
-    let (resolved_box, stepped) = if on_ground && normal_horizontal_collision {
+    let (resolved_box, resolved, stepped) = if on_ground && normal_horizontal_collision {
         // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
         let envelope = bounded_collision_boxes(
             world,
@@ -37,26 +38,26 @@ pub(super) fn resolve_motion(
         identity = identity.merge(&step_query.identity)?;
         let step_blocked = !step_query.value.is_empty();
         if !step_blocked && step.horizontal_length_squared() > normal.horizontal_length_squared() {
-            (step_box, true)
+            (step_box, step, true)
         } else {
-            (normal_box, false)
+            (normal_box, normal, false)
         }
     } else {
-        (normal_box, false)
+        (normal_box, normal, false)
     };
 
     let end_position = Vec3::new(
-        (resolved_box.min.x + resolved_box.max.x) * 0.5,
+        f64::from((resolved_box.min.x as f32 + resolved_box.max.x as f32) * 0.5),
         resolved_box.min.y,
-        (resolved_box.min.z + resolved_box.max.z) * 0.5,
+        f64::from((resolved_box.min.z as f32 + resolved_box.max.z as f32) * 0.5),
     );
-    let resolved = end_position - position;
     Ok(ResolvedMotion {
         resolved,
+        position: end_position,
         collisions: AxisCollisions {
-            x: (velocity.x - resolved.x).abs() >= COLLISION_EPSILON,
-            y: (velocity.y - resolved.y).abs() >= COLLISION_EPSILON,
-            z: (velocity.z - resolved.z).abs() >= COLLISION_EPSILON,
+            x: (velocity.x as f32 - resolved.x as f32).abs() > COLLISION_EPSILON as f32,
+            y: (velocity.y as f32 - resolved.y as f32).abs() > COLLISION_EPSILON as f32,
+            z: (velocity.z as f32 - resolved.z as f32).abs() > COLLISION_EPSILON as f32,
         },
         identity,
         stepped,
@@ -92,28 +93,25 @@ pub(super) fn clip_sneak_edge(
     position: Vec3,
     velocity: Vec3,
 ) -> Result<(Vec3, Option<WorldCollisionIdentity>), WorldQueryError> {
-    const OFFSET: f64 = 0.05;
-    const MAX_ITERATIONS: usize = 24;
+    const OFFSET: f64 = 0.05_f32 as f64;
     let full_player = Aabb::player_at(position);
     let player = Aabb::new(
         Vec3::new(
-            full_player.min.x + 0.025,
+            f64::from(full_player.min.x as f32 + 0.025_f32),
             full_player.min.y,
-            full_player.min.z + 0.025,
+            f64::from(full_player.min.z as f32 + 0.025_f32),
         ),
         Vec3::new(
-            full_player.max.x - 0.025,
+            f64::from(full_player.max.x as f32 - 0.025_f32),
             full_player.max.y,
-            full_player.max.z - 0.025,
+            f64::from(full_player.max.z as f32 - 0.025_f32),
         ),
     );
+    crate::world::validate_collision_query(player.swept(velocity))?;
     let mut clipped = velocity;
     let mut identity: Option<WorldCollisionIdentity> = None;
     for axis in [0, 2] {
-        for _ in 0..MAX_ITERATIONS {
-            if clipped[axis] == 0.0 {
-                break;
-            }
+        while clipped[axis] != 0.0 {
             let mut probe = Vec3::new(0.0, -STEP_HEIGHT * 1.01, 0.0);
             probe[axis] = clipped[axis];
             let query = bounded_collision_boxes(world, player.translated(probe))?;
@@ -127,10 +125,7 @@ pub(super) fn clip_sneak_edge(
             clipped[axis] = reduce_toward_zero(clipped[axis], OFFSET);
         }
     }
-    for _ in 0..MAX_ITERATIONS {
-        if clipped.x == 0.0 || clipped.z == 0.0 {
-            break;
-        }
+    while clipped.x != 0.0 && clipped.z != 0.0 {
         let query = bounded_collision_boxes(
             world,
             player.translated(Vec3::new(clipped.x, -STEP_HEIGHT * 1.01, clipped.z)),
@@ -152,7 +147,7 @@ fn reduce_toward_zero(value: f64, offset: f64) -> f64 {
     if value.abs() <= offset {
         0.0
     } else {
-        value - value.signum() * offset
+        f64::from(value as f32 - value.signum() as f32 * offset as f32)
     }
 }
 

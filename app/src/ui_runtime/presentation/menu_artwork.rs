@@ -20,7 +20,8 @@ use image::{ImageReader, Limits, imageops::FilterType};
 use super::IconRef;
 
 const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_SOURCE_SIDE: u32 = 4_096;
+/// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
+const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
@@ -31,6 +32,9 @@ const MAX_ARTWORKS: usize = 64;
 pub(crate) const THUMBNAIL_SIDE: u32 = 128;
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub(super) const TITLE_KEY: &str = "textures/ui/title";
+/// Prefix of a server-pack texture's full-resolution copy on the art pages, so
+/// a pack's `textures/ui/title` never collides with Cinnabar's logo.
+pub(super) const SERVER_ART_PREFIX: &str = "server-pack:";
 /// Cinnabar's logo; the pack's title draws only if this fails to decode.
 pub(crate) const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../assets/branding/title.png");
 
@@ -40,7 +44,7 @@ pub(super) struct MenuArtworkAtlas {
     pub(super) refs: HashMap<String, IconRef>,
 }
 
-/// Decoded artwork: premultiplied RGBA8 and its size.
+/// Decoded artwork: straight-alpha RGBA8, which the UI shader premultiplies, and its size.
 struct Artwork {
     width: u32,
     height: u32,
@@ -123,6 +127,7 @@ impl ArtworkLoader {
     /// Asks the worker for `set`'s atlas, superseding any pending request.
     pub(super) fn request(&mut self, set: ArtworkSet) {
         self.requested += 1;
+        self.ready = None;
         let _ = self.requests.send(Request {
             id: self.requested,
             set,
@@ -179,11 +184,14 @@ pub(super) fn rebase(refs: &HashMap<String, IconRef>, first_page: u16) -> HashMa
         .collect()
 }
 
+/// Source identity, requested size, and optional pack payload hash.
+type DecodeKey = (String, u32, Option<[u8; 32]>);
+
 /// Decoded art by source and side, plus sources that failed (both bounded).
 #[derive(Default)]
 struct DecodeCache {
-    decoded: HashMap<(String, u32), Arc<Artwork>>,
-    failed: VecDeque<(String, u32)>,
+    decoded: HashMap<DecodeKey, Arc<Artwork>>,
+    failed: VecDeque<DecodeKey>,
 }
 
 const MAX_DECODED: usize = 160;
@@ -202,7 +210,7 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
             let missing = cache.missing(&request.set);
             let mut decoded = 0;
             for batch in missing.chunks(FIRST_BATCH) {
-                cache.decode(batch);
+                cache.decode(batch, &request.set);
                 decoded += batch.len();
                 if !jobs.is_empty() {
                     continue 'request;
@@ -226,10 +234,14 @@ enum Source {
 }
 
 impl Source {
-    fn key(&self) -> (String, u32) {
+    /// Includes replacement pack bytes so a reload cannot reuse an older image.
+    fn key(&self) -> DecodeKey {
         match self {
-            Self::File(path, side) => (path.clone(), *side),
-            Self::Bytes(key, _) => (key.clone(), WHOLE_PAGE),
+            Self::File(path, side) => (path.clone(), *side, None),
+            Self::Bytes(key, bytes) => {
+                use sha2::{Digest, Sha256};
+                (key.clone(), WHOLE_PAGE, Some(Sha256::digest(bytes).into()))
+            }
         }
     }
 }
@@ -247,10 +259,10 @@ impl DecodeCache {
             .collect()
     }
 
-    fn decode(&mut self, batch: &[Source]) {
-        use rayon::prelude::*;
+    /// Keep large image scratch allocations on the existing artwork worker.
+    fn decode(&mut self, batch: &[Source], set: &ArtworkSet) {
         let results: Vec<_> = batch
-            .par_iter()
+            .iter()
             .map(|source| {
                 let art = match source {
                     Source::File(path, side) => decode(Path::new(path), *side),
@@ -267,6 +279,9 @@ impl DecodeCache {
                         height,
                         pixels,
                     };
+                    // A replacement image supersedes the prior bytes at this path and size.
+                    self.decoded
+                        .retain(|old, _| old.0 != key.0 || old.1 != key.1);
                     self.decoded.insert(key, Arc::new(art));
                 }
                 None => {
@@ -277,6 +292,8 @@ impl DecodeCache {
                 }
             }
         }
+        // Cancellation must not bypass eviction after a finished batch.
+        self.trim(set);
     }
 
     /// Drops decoded art `set` no longer names once the cache outgrows its bound.
@@ -301,8 +318,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     let engine = set
         .oversized
         .iter()
-        .filter(|(key, _)| key != TITLE_KEY)
-        .map(|(key, bytes)| Source::Bytes(key.clone(), Arc::clone(bytes)));
+        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
     let mut all: Vec<_> = files.collect();
     all.extend(engine.filter(|source| unique.insert(source.key().0)));
     all
@@ -408,7 +424,9 @@ fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     decode_bytes(&bytes, max_side.min(MAX_ARTWORK_SIDE))
 }
 
-/// Premultiplied RGBA8 of an image no larger than `max_side` on either axis.
+/// Straight-alpha RGBA8 (what the UI shader samples) of an image no larger
+/// than `max_side` on either axis; a downscale filters premultiplied so
+/// transparent texels never bleed into edges.
 fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     if bytes.is_empty() {
         return None;
@@ -430,22 +448,36 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     limits.max_image_height = Some(MAX_SOURCE_SIDE);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
-    let image = reader.decode().ok()?;
-    let image = if image.width() > max_side || image.height() > max_side {
-        image.resize(max_side, max_side, FilterType::Lanczos3)
-    } else {
-        image
-    };
-    let image = image.into_rgba8();
-    let (width, height) = image.dimensions();
-    let mut pixels = image.into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
-        let alpha = u16::from(pixel[3]);
-        pixel[0] = ((u16::from(pixel[0]) * alpha + 127) / 255) as u8;
-        pixel[1] = ((u16::from(pixel[1]) * alpha + 127) / 255) as u8;
-        pixel[2] = ((u16::from(pixel[2]) * alpha + 127) / 255) as u8;
+    let image = reader.decode().ok()?.into_rgba32f();
+    if image.width() <= max_side && image.height() <= max_side {
+        let image = image::DynamicImage::ImageRgba32F(image).into_rgba8();
+        let (width, height) = image.dimensions();
+        return Some((image.into_raw(), width, height));
     }
-    Some((pixels, width, height))
+    let mut premultiplied = image;
+    for pixel in premultiplied.pixels_mut() {
+        let alpha = pixel[3];
+        pixel[0] *= alpha;
+        pixel[1] *= alpha;
+        pixel[2] *= alpha;
+    }
+    let scale = f64::from(max_side) / f64::from(premultiplied.width().max(premultiplied.height()));
+    let size = |side: u32| ((f64::from(side) * scale).round() as u32).clamp(1, max_side);
+    let (width, height) = (size(premultiplied.width()), size(premultiplied.height()));
+    let mut resized = image::imageops::resize(&premultiplied, width, height, FilterType::Lanczos3);
+    for pixel in resized.pixels_mut() {
+        let alpha = pixel[3].clamp(0.0, 1.0);
+        for channel in 0..3 {
+            pixel[channel] = if alpha > 0.0 {
+                (pixel[channel] / alpha).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+        }
+        pixel[3] = alpha;
+    }
+    let image = image::DynamicImage::ImageRgba32F(resized).into_rgba8();
+    Some((image.into_raw(), width, height))
 }
 
 /// Every downloaded artwork path the menu view can draw.
@@ -486,7 +518,12 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .unwrap_or_default(),
         )
         .map(|path| (path, MAX_ARTWORK_SIDE));
-    thumbnails
+    view.global_resources
+        .icons
+        .values()
+        .cloned()
+        .map(|path| (path, THUMBNAIL_SIDE))
+        .chain(thumbnails)
         .chain(full)
         .filter(|(path, _)| !path.is_empty())
         .collect()
@@ -507,4 +544,111 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
         paths.push(event.badge_path.clone());
     }
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Encodes a solid test image without any external assets.
+    fn png(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(width, height, image::Rgba(pixel))
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    /// Every decode batch can be superseded before an atlas finishes packing.
+    #[test]
+    fn superseded_artwork_batches_keep_the_decode_cache_bounded() {
+        let mut cache = DecodeCache::default();
+        for revision in 0..2000_u32 {
+            let color = [revision as u8, (revision >> 8) as u8, 20, 255];
+            let set = ArtworkSet {
+                oversized: vec![("changing".into(), png(8, 8, color).into())],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set), &set);
+            assert_eq!(cache.decoded.len(), 1);
+            let source = sources(&set).pop().unwrap();
+            assert_eq!(&cache.decoded[&source.key()].pixels[..4], &color);
+        }
+    }
+
+    /// Churning distinct paths exercises eviction even when every batch is cancelled.
+    #[test]
+    fn cancelled_artwork_batches_evict_obsolete_paths() {
+        let mut cache = DecodeCache::default();
+        let bytes: Arc<[u8]> = png(8, 8, [10, 20, 30, 255]).into();
+        for revision in 0..2000 {
+            let set = ArtworkSet {
+                oversized: vec![(format!("changing-{revision}"), Arc::clone(&bytes))],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set), &set);
+            assert!(cache.decoded.len() <= MAX_DECODED);
+        }
+    }
+
+    #[test]
+    fn replacing_pack_bytes_invalidates_decoded_artwork() {
+        let mut cache = DecodeCache::default();
+        for color in [[200, 30, 40, 255], [20, 220, 30, 255]] {
+            let set = ArtworkSet {
+                oversized: vec![(TITLE_KEY.to_owned(), png(900, 300, color).into())],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set), &set);
+            let atlas = pack(&set, &cache, 0, true);
+            let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
+            let page = &atlas.pages[usize::from(art.page)];
+            let at =
+                (u32::from(art.uv[1]) * page.dimensions()[0] + u32::from(art.uv[0])) as usize * 4;
+            assert_eq!(&page.pixels()[at..at + 4], &color);
+        }
+    }
+
+    #[test]
+    fn a_superseded_prepared_atlas_cannot_be_installed() {
+        let mut loader = ArtworkLoader::default();
+        assert!(loader.ready.is_some());
+        loader.request(ArtworkSet::default());
+        assert!(loader.ready.is_none());
+        assert!(loader.take().is_none());
+    }
+
+    // A large server texture (Zeqa's 1992x669 title) keeps a whole art page of
+    // detail under its own key, not the 256px server-page downscale.
+    #[test]
+    fn oversized_server_textures_keep_full_resolution() {
+        let bytes: std::sync::Arc<[u8]> = png(1992, 669, [200, 30, 40, 255]).into();
+        let set = ArtworkSet {
+            paths: Vec::new(),
+            oversized: vec![(TITLE_KEY.to_owned(), bytes)],
+        };
+        let mut cache = DecodeCache::default();
+        cache.decode(&cache.missing(&set), &set);
+        let atlas = pack(&set, &cache, 0, true);
+        let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
+        let [u0, v0, u1, v1] = art.uv;
+        assert_eq!([u1 - u0, v1 - v0], [1022, 343]);
+        // Cinnabar's logo keeps the plain title key.
+        assert_ne!(atlas.refs[TITLE_KEY].uv, art.uv);
+    }
+
+    // Artwork stays straight alpha, as the UI shader samples it.
+    #[test]
+    fn artwork_is_straight_alpha() {
+        let (pixels, _, _) = decode_bytes(&png(4, 4, [200, 100, 50, 128]), 64).unwrap();
+        assert_eq!(&pixels[..4], &[200, 100, 50, 128]);
+        let (scaled, width, _) = decode_bytes(&png(128, 128, [200, 100, 50, 128]), 64).unwrap();
+        assert_eq!(width, 64);
+        assert!(
+            scaled[..3]
+                .iter()
+                .zip([200, 100, 50])
+                .all(|(a, b)| a.abs_diff(b) <= 1)
+        );
+    }
 }

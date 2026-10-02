@@ -2,6 +2,8 @@ use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
 use super::{tick::WeightedClip, *};
 
+pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
+
 #[derive(Clone, Copy)]
 pub(super) struct LocalDelta {
     pub(super) translation: [f32; 3],
@@ -54,7 +56,11 @@ pub(super) fn sample_clips(
             anim_tick: clip_tick,
             ..*evaluator
         };
-        let raw_time = clip_tick as f32 * 0.05;
+        let frame_alpha = evaluator
+            .context
+            .attachable
+            .map_or(0.0, |input| input.frame_alpha);
+        let raw_time = (clip_tick as f32 + frame_alpha) * ACTOR_TICK_DURATION.as_secs_f32();
         let time = match clip.loop_mode {
             EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
             // A finished one-shot stops contributing; only hold keeps its last frame.
@@ -212,6 +218,20 @@ fn compose_bone(
     visiting[index] = true;
     let bone = bones.get(index)?;
     let delta = local.get(index).copied().unwrap_or_default();
+    // Owner-name binding clears defaults; an explicit expression keeps ModelPart defaults.
+    // Keep the authored pivot unchanged: child offsets and mesh bind coordinates still use it.
+    let (root_pivot, root_rotation) = match bone.attachable_root {
+        AttachableRootFrame::Actor => (bone.pivot, bone.rotation),
+        AttachableRootFrame::MatchingOwnerName => ([0.0; 3], [0.0; 3]),
+        AttachableRootFrame::BindingExpression => (
+            [
+                bone.pivot[0],
+                bone.pivot[1] - MODEL_PART_ORIGIN_Y,
+                bone.pivot[2],
+            ],
+            bone.rotation,
+        ),
+    };
     // Pivots are already in the X-mirrored rig frame; authored offsets and angles are not.
     let translation = std::array::from_fn(|axis| {
         let parent_pivot = bone
@@ -223,9 +243,9 @@ fn compose_bone(
         } else {
             delta.translation[axis]
         };
-        bone.pivot[axis] - parent_pivot + offset
+        root_pivot[axis] - parent_pivot + offset
     });
-    let [x, y, z] = std::array::from_fn(|axis| bone.rotation[axis] + delta.rotation[axis]);
+    let [x, y, z] = std::array::from_fn(|axis| root_rotation[axis] + delta.rotation[axis]);
     // Authored X and Y angles turn against the right-hand rule in the mirrored frame.
     let rotation = quat_from_euler([-x, -y, z]);
     let transform = if let Some(parent_index) = bone.parent {

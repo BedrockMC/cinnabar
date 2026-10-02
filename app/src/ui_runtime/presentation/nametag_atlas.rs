@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use assets::RuntimeFontCatalog;
-use render::NAMETAG_ATLAS_SIDE;
+use render::{NAMETAG_ATLAS_SIDE, NametagAtlasRect};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TextLayoutCache,
     TextLayoutRequest, TextStyle, UiScale,
@@ -41,10 +41,10 @@ pub(super) struct AtlasLine {
 /// Shelf-packed line cells, rebuilt from scratch when a frame's lines no longer fit.
 #[derive(Default)]
 pub(crate) struct NametagAtlas {
-    pixels: Vec<u8>,
+    rectangles: Vec<NametagAtlasRect>,
     lines: HashMap<Arc<str>, AtlasLine>,
     shelf: [u32; 3],
-    published: Option<Arc<[u8]>>,
+    published: Option<Arc<[NametagAtlasRect]>>,
     revision: u64,
 }
 
@@ -62,13 +62,10 @@ impl NametagAtlas {
         }
         let (width, height, top, rgba8, advance) = rasterize(text, font, layouts, pages)?;
         let origin = self.allocate(width, height)?;
-        let side = NAMETAG_ATLAS_SIDE as usize;
-        for row in 0..height as usize {
-            let source = row * width as usize * 4;
-            let target = ((origin[1] as usize + row) * side + origin[0] as usize) * 4;
-            self.pixels[target..target + width as usize * 4]
-                .copy_from_slice(&rgba8[source..source + width as usize * 4]);
-        }
+        self.rectangles.push(NametagAtlasRect {
+            cell: [origin[0], origin[1], width, height],
+            rgba8: rgba8.into(),
+        });
         let line = AtlasLine {
             cell: [origin[0], origin[1], width, height],
             width_px: advance as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
@@ -83,24 +80,20 @@ impl NametagAtlas {
     pub(super) fn reset(&mut self) {
         self.lines.clear();
         self.shelf = [0; 3];
-        self.pixels.fill(0);
+        self.rectangles.clear();
         self.published = None;
     }
 
+    /// Checks the retained line-count budget.
     pub(super) fn has_room_for(&self, texts: usize) -> bool {
         self.lines.len() + texts < MAX_ATLAS_LINES
     }
 
-    /// The texels to upload and their revision, bumped whenever a line was added.
-    pub(super) fn publish(&mut self) -> (Arc<[u8]>, u64) {
+    /// Retains immutable line pixels so skipped extractions can recover every update.
+    pub(super) fn publish(&mut self) -> (Arc<[NametagAtlasRect]>, u64) {
         if self.published.is_none() {
             self.revision += 1;
-            let pixels = if self.pixels.is_empty() {
-                vec![0; (NAMETAG_ATLAS_SIDE * NAMETAG_ATLAS_SIDE * 4) as usize]
-            } else {
-                self.pixels.clone()
-            };
-            self.published = Some(pixels.into());
+            self.published = Some(self.rectangles.clone().into());
         }
         (
             Arc::clone(self.published.as_ref().expect("just published")),
@@ -108,13 +101,11 @@ impl NametagAtlas {
         )
     }
 
+    /// Reserves a non-overlapping shelf cell.
     fn allocate(&mut self, width: u32, height: u32) -> Option<[u32; 2]> {
         let side = NAMETAG_ATLAS_SIDE;
         if width > side || height > side {
             return None;
-        }
-        if self.pixels.is_empty() {
-            self.pixels = vec![0; (side * side * 4) as usize];
         }
         let [mut x, mut y, mut shelf_height] = self.shelf;
         if x + width > side {
@@ -148,6 +139,7 @@ fn rasterize<'p>(
             baseline_64: TEXT_BASELINE_64,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .ok()?;
     let advance = layout.size_64()[0].div_ceil(64).max(1);
@@ -213,4 +205,119 @@ fn rasterize<'p>(
         }
     }
     Some((width, height, top, canvas, advance))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    /// Builds the labels used by the original full-atlas timing fixture.
+    fn sample_atlas() -> (NametagAtlas, std::time::Duration) {
+        let font = super::super::tests::fixture_font();
+        let mut layouts = TextLayoutCache::new(256, 1 << 20);
+        let mut atlas = NametagAtlas::default();
+        let started = std::time::Instant::now();
+        for index in 0..100 {
+            let text = Arc::from(format!("Player {index}"));
+            atlas
+                .line(&text, &font, &mut layouts, &|page| font_page(&font, page))
+                .unwrap();
+            std::hint::black_box(atlas.publish());
+        }
+        let elapsed = started.elapsed();
+        (atlas, elapsed)
+    }
+
+    /// Measures changing labels and fingerprints their published pixels.
+    #[test]
+    #[ignore = "release performance measurement"]
+    fn frame_cost_bench_nametag_updates() {
+        let (mut atlas, elapsed) = sample_atlas();
+        let (rectangles, _) = atlas.publish();
+        let mut pixels = vec![0; (NAMETAG_ATLAS_SIDE * NAMETAG_ATLAS_SIDE * 4) as usize];
+        apply_rectangles(&mut pixels, &rectangles, &[]);
+        let bytes: usize = rectangles
+            .iter()
+            .map(|rectangle| rectangle.rgba8.len())
+            .sum();
+        eprintln!(
+            "NAMETAG_BENCH updates=100 ms={:.3} upload_bytes={bytes} sha256={:x}",
+            elapsed.as_secs_f64() * 1000.0,
+            Sha256::digest(&pixels)
+        );
+    }
+    #[test]
+    fn atlas_pixels_match_full_publication_baseline() {
+        let (mut atlas, _) = sample_atlas();
+        let mut pixels = vec![0; (NAMETAG_ATLAS_SIDE * NAMETAG_ATLAS_SIDE * 4) as usize];
+        apply_rectangles(&mut pixels, &atlas.publish().0, &[]);
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&pixels)),
+            "1a17a5251c8766a32e7400d34848e3865bc55840ce6eb0d0ba843bcea676f7a5"
+        );
+    }
+
+    /// Applies the same dirty rectangles submitted by the renderer.
+    fn apply_rectangles(
+        pixels: &mut [u8],
+        current: &[NametagAtlasRect],
+        previous: &[NametagAtlasRect],
+    ) {
+        for rectangle in NametagAtlasRect::updates(current, previous) {
+            let [x, y, width, height] = rectangle.cell;
+            for row in 0..height as usize {
+                let target = (((y as usize + row) * NAMETAG_ATLAS_SIDE as usize) + x as usize) * 4;
+                let source = row * width as usize * 4;
+                pixels[target..target + width as usize * 4]
+                    .copy_from_slice(&rectangle.rgba8[source..source + width as usize * 4]);
+            }
+        }
+    }
+
+    #[test]
+    fn rectangles_preserve_skipped_publications_reset_and_old_readers() {
+        let font = super::super::tests::fixture_font();
+        let mut layouts = TextLayoutCache::new(8, 1 << 20);
+        let mut atlas = NametagAtlas::default();
+        assert!(atlas.publish().0.is_empty());
+        let pages = |page| font_page(&font, page);
+        atlas
+            .line(&Arc::from("Player 0"), &font, &mut layouts, &pages)
+            .unwrap();
+        let first = atlas.publish().0;
+        atlas
+            .line(&Arc::from("§cPlayer 1"), &font, &mut layouts, &pages)
+            .unwrap();
+        let skipped = atlas.publish().0;
+        atlas
+            .line(&Arc::from("Player 2"), &font, &mut layouts, &pages)
+            .unwrap();
+        let latest = atlas.publish().0;
+        assert_eq!(NametagAtlasRect::updates(&latest, &first).count(), 2);
+        assert_eq!(NametagAtlasRect::updates(&latest, &latest).count(), 0);
+        let mut incremental = vec![0; (NAMETAG_ATLAS_SIDE * NAMETAG_ATLAS_SIDE * 4) as usize];
+        apply_rectangles(&mut incremental, &first, &[]);
+        apply_rectangles(&mut incremental, &latest, &first);
+        let mut full = vec![0; incremental.len()];
+        apply_rectangles(&mut full, &latest, &[]);
+        assert_eq!(incremental, full);
+        atlas.reset();
+        atlas
+            .line(&Arc::from("New"), &font, &mut layouts, &pages)
+            .unwrap();
+        let reset = atlas.publish().0;
+        assert_eq!(NametagAtlasRect::updates(&reset, &latest).count(), 1);
+        assert_eq!(first.len(), 1);
+        assert_eq!(skipped.len(), 2);
+        assert!(Arc::ptr_eq(&first[0].rgba8, &latest[0].rgba8));
+        assert!(
+            NametagAtlasRect::updates(&reset, &latest)
+                .next()
+                .unwrap()
+                .rgba8
+                .len()
+                < incremental.len()
+        );
+    }
 }

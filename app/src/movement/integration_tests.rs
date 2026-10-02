@@ -28,6 +28,9 @@ use crate::{
 #[path = "transport_tests.rs"]
 mod transport_tests;
 
+#[path = "integration_tests/crouch_camera.rs"]
+mod crouch_camera;
+
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {
         fifo_sequence: 40,
@@ -152,3 +155,4 @@ include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
 include!("integration_tests/timeline.rs");
+include!("integration_tests/connected_shapes.rs");

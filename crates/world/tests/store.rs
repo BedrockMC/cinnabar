@@ -6,6 +6,44 @@ use world::{
 const IDS: RawBlockIds = RawBlockIds { air: 0 };
 const BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };
 
+/// Partial all-air authority stays column-local across completion, eviction and re-entry.
+#[test]
+fn sparse_collision_authority_retires_only_selected_columns() {
+    let mut store = ChunkStore::new();
+    let columns = [
+        ChunkKey::new(0, 1, 1),
+        ChunkKey::new(0, 1, 2),
+        ChunkKey::new(1, 1, 1),
+    ];
+    for column in columns {
+        for y in [-2_000, -4, 20, 2_000] {
+            let key = SubChunkKey::from_chunk(column, y);
+            assert!(store.mark_sub_chunk_loaded(key).unwrap());
+            assert!(!store.mark_sub_chunk_loaded(key).unwrap());
+            assert!(store.is_sub_chunk_loaded(key));
+        }
+        assert!(!store.is_sub_chunk_loaded(SubChunkKey::from_chunk(column, 0)));
+        assert!(store.chunk(column).is_none());
+    }
+    store.mark_chunk_loaded(columns[0]).unwrap();
+    assert!(store.is_sub_chunk_loaded(SubChunkKey::from_chunk(columns[0], 0)));
+    assert!(!store.is_sub_chunk_loaded(SubChunkKey::from_chunk(columns[1], 0)));
+    let retired_revision = store.collision_revision(columns[1]).unwrap();
+    let retained_revision = store.collision_revision(columns[2]);
+    let (removed, retired) = store.detach_chunks(&columns[..2].iter().copied().collect());
+    assert!(removed.is_empty() && retired.is_empty());
+    for column in &columns[..2] {
+        assert!(!store.is_sub_chunk_loaded(SubChunkKey::from_chunk(*column, -4)));
+        assert!(store.collision_revision(*column).is_none());
+    }
+    assert!(store.is_sub_chunk_loaded(SubChunkKey::from_chunk(columns[2], -4)));
+    assert_eq!(store.collision_revision(columns[2]), retained_revision);
+    store
+        .mark_sub_chunk_loaded(SubChunkKey::from_chunk(columns[1], -4))
+        .unwrap();
+    assert!(store.collision_revision(columns[1]).unwrap() > retired_revision);
+}
+
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
     let mut encoded = Vec::new();

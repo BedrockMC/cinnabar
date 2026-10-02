@@ -191,6 +191,7 @@ impl HudLayout<'_> {
                 baseline_64: super::super::TEXT_BASELINE_64,
                 scale: self.text_scale(TEXT_GUI_PX),
                 font: self.font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         let scale = self.geometry.scale;
@@ -365,6 +366,7 @@ impl HudLayout<'_> {
                 baseline_64: super::super::TEXT_BASELINE_64,
                 scale: self.text_scale(TEXT_GUI_PX),
                 font: self.font,
+                wrap: Default::default(),
             })
             .map_err(UiPresentationError::Text)?;
         Ok(layout.size_64()[0] as f32 / 64.0 / self.geometry.scale)

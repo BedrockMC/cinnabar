@@ -32,6 +32,7 @@ fn reference_matrices(
 /// Creates a complete actor submission without any equipment or asset dependency.
 fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
     ActorRigSubmission {
+        culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
                 session_id: 1,
@@ -162,6 +163,28 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         },
     };
     assert_eq!(builder.build(0.5, None, inputs), expected);
+}
+
+#[test]
+fn replacing_geometry_rebinds_a_cached_pose_to_its_new_pivots() {
+    let id = EntityRigId(3);
+    let geometry = ActorRigGeometry::synthetic_cuboid(id, [0.0; 3], [1.0; 3], 1).unwrap();
+    let mut builder = ActorRigFrameBuilder::new([geometry.clone()]).unwrap();
+    let input = submission(1, 1);
+    let before = builder.build(0.5, None, [input.clone()]);
+    let mut replacement = geometry;
+    replacement.bone_pivots = Arc::from([[0.25, 1.5, -0.5]]);
+    builder.insert_geometry(replacement.clone()).unwrap();
+    let after = builder.build(0.5, None, [input.clone()]);
+    assert_ne!(before.current_bones, after.current_bones);
+    assert_eq!(
+        after.current_bones.as_ref(),
+        reference_matrices(&input.input.current_bones, &replacement.bone_pivots).unwrap()
+    );
+    assert_eq!(
+        after.previous_bones.as_ref(),
+        reference_matrices(&input.input.previous_bones, &replacement.bone_pivots).unwrap()
+    );
 }
 
 #[test]

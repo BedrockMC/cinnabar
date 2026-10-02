@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
-    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
-    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
-    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ITEM_ACTOR_NETWORK_OFFSET, ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES,
+    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode,
+    PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -28,7 +28,7 @@ const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 /// `minecraft:collision_box` in the vanilla `player.json` definition.
 const PLAYER_COLLISION_WIDTH: f32 = 0.6;
 const PLAYER_COLLISION_HEIGHT: f32 = 1.8;
-const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
+pub(crate) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
@@ -43,7 +43,6 @@ const ACTOR_FLAG_GLIDING: u32 = 32;
 const ACTOR_FLAG_CRAWLING: u32 = 114;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
-const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
 const MINECART_NETWORK_OFFSET: f32 = 0.5;
 const BOAT_NETWORK_OFFSET: f32 = 0.375;
@@ -277,6 +276,15 @@ impl ActorSnapshot {
             [x - half_width, y, z - half_width],
             [x + half_width, y + height, z + half_width],
         ))
+    }
+
+    /// Samples 0.66 of the body height above interpolated feet (Lens 1.26.50.26 0x1c0e520).
+    /// Network position offsets have already been removed by the actor store.
+    pub fn brightness_sample_position(&self, mut feet: [f32; 3]) -> [f32; 3] {
+        if let Some((min, max)) = self.bounding_box() {
+            feet[1] += 0.66 * (max[1] - min[1]);
+        }
+        feet
     }
 
     fn network_position_offset(&self) -> f32 {
@@ -552,6 +560,8 @@ pub(crate) struct ActorStore {
     rider_to_ridden: HashMap<i64, i64>,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
+    /// Appearances of spawned players removed from the roster, retained until despawn.
+    unlisted_players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
     actions: RemoteActionStore,
@@ -621,14 +631,19 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) | ActorEvent::Status(_) | ActorEvent::TakeItem(_) => None,
+        ActorEvent::PlayerList(_)
+        | ActorEvent::Skin { .. }
+        | ActorEvent::Status(_)
+        | ActorEvent::TakeItem(_) => None,
     }
 }
 
 #[cfg(test)]
 mod local_tests;
+mod player_appearance;
 #[cfg(test)]
 mod riding_tests;
+mod skin_update;
 #[cfg(test)]
 mod tests;
 

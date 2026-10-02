@@ -297,6 +297,10 @@ impl SoundEventTables {
     pub fn material_of(&self, block_identifier: &str) -> Option<&str> {
         self.materials
             .get(bare(block_identifier))
+            .or_else(|| {
+                self.materials
+                    .get(crate::legacy_resource_pack_block_alias(block_identifier)?)
+            })
             .map(AsRef::as_ref)
     }
 
@@ -431,6 +435,49 @@ mod tests {
         scaled.interactive_defaults.volume = FloatRange { min: 0.5, max: 0.5 };
         let quiet = scaled.interactive("player", "step", "stone").unwrap();
         assert!((quiet.volume.min - 0.15).abs() < 1e-6);
+    }
+
+    #[test]
+    fn legacy_block_materials_resolve_canonical_names_without_custom_fallbacks() {
+        let tables = SoundEventTables::from_json(
+            &json!({}),
+            &json!({"grass": "grass", "dirt": "gravel", "chain": "metal"}),
+        );
+        assert_eq!(tables.material_of("minecraft:grass_block"), Some("grass"));
+        assert_eq!(tables.material_of("grass_block"), Some("grass"));
+        assert_eq!(tables.material_of("minecraft:grass"), Some("grass"));
+        assert_eq!(tables.material_of("minecraft:dirt"), Some("gravel"));
+        assert_eq!(tables.material_of("minecraft:iron_chain"), Some("metal"));
+        assert_eq!(tables.material_of("example:grass_block"), None);
+        assert_eq!(tables.material_of("minecraft:unknown_block"), None);
+    }
+
+    #[test]
+    fn exact_material_and_server_overrides_win_over_legacy_aliases() {
+        let mut tables = SoundEventTables::from_json(
+            &json!({}),
+            &json!({"grass": "grass", "grass_block": "modern_grass"}),
+        );
+        assert_eq!(
+            tables.material_of("minecraft:grass_block"),
+            Some("modern_grass")
+        );
+        tables.merge(SoundEventTables::from_json(
+            &json!({}),
+            &json!({"minecraft:grass_block": ""}),
+        ));
+        assert_eq!(tables.material_of("minecraft:grass_block"), Some(""));
+
+        let legacy_only = SoundEventTables::from_json(&json!({}), &json!({"grass": "grass"}));
+        let mut overridden = legacy_only;
+        overridden.merge(SoundEventTables::from_json(
+            &json!({}),
+            &json!({"grass": "custom_grass"}),
+        ));
+        assert_eq!(
+            overridden.material_of("minecraft:grass_block"),
+            Some("custom_grass")
+        );
     }
 
     #[test]

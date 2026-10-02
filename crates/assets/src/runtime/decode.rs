@@ -31,7 +31,7 @@ use crate::{
 use std::sync::atomic::AtomicU64;
 
 impl RuntimeAssets {
-    /// Validates the complete `MCBEAS07` envelope, its embedded source
+    /// Validates the complete world-carrier envelope, its embedded source
     /// provenance, and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         let header = Header::decode(bytes)?;
@@ -46,12 +46,14 @@ impl RuntimeAssets {
             header.offsets[8],
         )?;
         validate_fixed(&header, &sections, &page_meta)?;
+        let materials = decode_materials(sections[2])?;
+        crate::material_variations::validate(&materials)?;
         let biomes = decode_biomes(sections[9], sections[10], sections[11])?;
         Ok(Self {
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
             hashed: decode_hashes(sections[1]),
-            materials: decode_materials(sections[2])?,
+            materials,
             model_templates: decode_templates(sections[3]),
             model_quads: decode_quads(sections[4]),
             animations: decode_animations(sections[5]),
@@ -94,16 +96,16 @@ struct Header {
 impl Header {
     fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         if bytes.len() < HEADER_BYTES + HASH_BYTES {
-            return Err(invalid("truncated MCBEAS07 blob"));
+            return Err(invalid("truncated world asset blob"));
         }
         if bytes[..8] != BLOB_MAGIC {
-            return Err(invalid("invalid MCBEAS07 magic"));
+            return Err(invalid("invalid world asset magic"));
         }
         if u32_at(bytes, 8) != BLOB_VERSION
             || u32_at(bytes, 12) != TILE_SIZE
             || u32_at(bytes, 16) != MIP_COUNT
         {
-            return Err(invalid("unsupported MCBEAS07 header"));
+            return Err(invalid("unsupported world asset header"));
         }
         if u32_at(bytes, 52) != TINT_MAP_COUNT as u32 || u32_at(bytes, 56) != TINT_MAP_SIZE {
             return Err(invalid("invalid tint-map dimensions"));
@@ -390,6 +392,8 @@ fn validate_fixed(
         if index == 0
             && (texture != TextureRef::DIAGNOSTIC
                 || flags != 0
+                || u32_at(record, 16) != 0
+                || u32_at(record, 20) != 0
                 || u32_at(record, 8) != NO_ANIMATION)
         {
             return Err(invalid("material zero is not diagnostic"));
@@ -655,12 +659,15 @@ fn decode_hashes(bytes: &[u8]) -> Box<[(u32, u32)]> {
 }
 fn decode_materials(bytes: &[u8]) -> Result<Box<[Material]>, AssetError> {
     bytes
-        .chunks_exact(12)
+        .chunks_exact(MATERIAL_BYTES)
         .map(|r| {
             Ok(Material {
                 texture: TextureRef::from_raw(u32_at(r, 0))?,
                 flags: u32_at(r, 4),
                 animation: u32_at(r, 8),
+                variation_start: u32_at(r, 12),
+                variation_count: u32_at(r, 16),
+                variation_weight: u32_at(r, 20),
             })
         })
         .collect::<Result<Vec<_>, _>>()

@@ -158,7 +158,12 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                 slice,
                 &mut rows,
                 &lighting_scratch,
-                &mut CubeMeshOutput::new(&mut quads, &mut cube_lighting, &mut diagnostic_geometry),
+                &mut CubeMeshOutput::new(
+                    &mut quads,
+                    &mut cube_lighting,
+                    &mut diagnostic_geometry,
+                    visuals.materials(),
+                ),
             );
         }
     }
@@ -194,7 +199,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                         continue;
                     };
                     let part_count = if selected.flags & MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
-                        2
+                        super::models::MAX_COMPOUND_MODEL_PARTS
                     } else {
                         1
                     };

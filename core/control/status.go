@@ -114,7 +114,8 @@ func (store *Store) SetApplied(attemptID uint64, applied bool) {
 	defer store.mu.Unlock()
 	switch {
 	case applied && attemptID != 0 && attemptID == store.latest.AttemptID &&
-		store.latest.DownstreamOutcome == proxy.ResourcePackDownstreamHandedOffOptional:
+		(store.latest.DownstreamOutcome == proxy.ResourcePackDownstreamHandedOffOptional ||
+			store.latest.DownstreamOutcome == proxy.ResourcePackDownstreamHandedOffRequired):
 		store.applied = attemptID
 	case !applied && store.applied == attemptID:
 		store.applied = 0

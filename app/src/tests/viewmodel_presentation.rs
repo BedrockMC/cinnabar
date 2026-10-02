@@ -167,7 +167,7 @@ fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
                 let start = batch.first_index as usize;
                 input.indices[start..start + batch.index_count as usize].to_vec()
             })
-            .filter(|&index| input.vertices[index as usize].uv == corner)
+            .filter(|&index| input.vertices[index as usize].uv == corner.map(f32::from))
             .collect::<Vec<_>>();
         vertices.sort_unstable();
         vertices.dedup();
@@ -185,7 +185,7 @@ fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
     assert_eq!(carriers(&mut presentation), 0);
 }
 
-struct FixturePack(std::path::PathBuf);
+pub(super) struct FixturePack(std::path::PathBuf);
 impl FixturePack {
     fn write(&self, path: &str, value: &[u8]) {
         let path = self.0.join(path);
@@ -198,7 +198,8 @@ impl Drop for FixturePack {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn hand_fixture() -> (
+/// Compiles a small player rig with an arm and sleeve for hand-publication tests.
+pub(super) fn hand_fixture() -> (
     FixturePack,
     render::ViewmodelGeometry,
     std::sync::Arc<assets::RuntimeEntityAssets>,
@@ -255,7 +256,8 @@ fn hand_fixture() -> (
 }
 
 #[test]
-fn real_producer_to_hand_adapter_keeps_cpu_until_completion_and_clears_on_unknown_or_held() {
+fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_clears_on_unknown_or_held()
+ {
     use crate::{
         camera::FlyCamera,
         presentation::viewmodel::{HandAdapter, HandFallback, ViewmodelPublish},
@@ -391,6 +393,19 @@ fn real_producer_to_hand_adapter_keeps_cpu_until_completion_and_clears_on_unknow
         app.world().resource::<HandAdapter>().stats.skin_validations,
         1
     );
+    let mut menu = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
+    menu.open_pause();
+    app.insert_resource(menu);
+    app.world_mut().run_system_once(observe).unwrap();
+    assert!(app.world().resource::<HandAdapter>().stats.mode.is_some());
+    app.world_mut()
+        .resource_mut::<crate::menu::MenuRuntime>()
+        .activate(crate::menu::MenuAction::PauseSettings);
+    app.world_mut().run_system_once(observe).unwrap();
+    assert!(app.world().resource::<HandAdapter>().stats.mode.is_none());
+    app.world_mut()
+        .resource_mut::<crate::menu::MenuRuntime>()
+        .set_visible(false);
     app.world_mut()
         .run_system_once(
             |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
@@ -541,7 +556,8 @@ fn cube_world_assets(
             Material {
                 texture: TextureRef::new(0, 0).unwrap(),
                 flags: 0,
-                animation: NO_ANIMATION
+                animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             };
             2
         ]
@@ -719,6 +735,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     avatar.publish_view_visibility(
         semantic_input::PerspectiveMode::FirstPerson,
         Vec3::new(0., 64., 0.),
+        Vec3::new(0., 64. - protocol::PLAYER_NETWORK_OFFSET, 0.),
         Quat::IDENTITY,
         &mut visibility,
     );
@@ -984,6 +1001,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     avatar.publish_view_visibility(
         semantic_input::PerspectiveMode::FirstPerson,
         Vec3::new(0., 64., 0.),
+        Vec3::new(0., 64. - protocol::PLAYER_NETWORK_OFFSET, 0.),
         Quat::IDENTITY,
         &mut app
             .world_mut()

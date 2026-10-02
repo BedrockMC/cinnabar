@@ -10,10 +10,10 @@ use super::elytra::rotation;
 
 /// A bone's literal channels: offset in pixels, rotation in degrees, per-axis scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct BoneChannels {
-    pub(super) translation: [f32; 3],
-    pub(super) rotation: [f32; 3],
-    pub(super) scale: [f32; 3],
+pub(crate) struct BoneChannels {
+    pub(crate) translation: [f32; 3],
+    pub(crate) rotation: [f32; 3],
+    pub(crate) scale: [f32; 3],
 }
 
 impl Default for BoneChannels {
@@ -28,7 +28,7 @@ impl Default for BoneChannels {
 
 /// The bone's pose in the hand item bone's frame: `pivot` is the authored bind pivot (rig frame,
 /// blocks), and the offset mirrors authored X like the actor pose evaluator.
-pub(super) fn attach(
+pub(crate) fn attach(
     hand: RenderBoneTransform,
     pivot: [f32; 3],
     channels: BoneChannels,

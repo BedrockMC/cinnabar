@@ -9,39 +9,6 @@ impl WorldStream {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
         self.stats.normalization_reasons.record(reason);
     }
-    pub(super) fn apply_ready(&mut self) {
-        if self.blocking_block_updates.is_some() {
-            return;
-        }
-        while let Some(event) = self.ordered.pop_next() {
-            let sequence = self.ordered.next_sequence().saturating_sub(1);
-            match event {
-                PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(events)) => {
-                    let batches = self.snapshot_block_mutation_batches(events);
-                    if batches.is_empty() {
-                        self.submitted.remove(&sequence);
-                        self.heavy_sequences.remove(&sequence);
-                        continue;
-                    }
-                    let ids = self.decode_ids(self.current_dimension);
-                    self.predictions.begin_server_batch();
-                    self.enqueue_decode_job(DecodeJob::BlockUpdates {
-                        sequence,
-                        batches,
-                        ids,
-                    });
-                    self.blocking_block_updates = Some(sequence);
-                    break;
-                }
-                event => {
-                    self.submitted.remove(&sequence);
-                    self.heavy_sequences.remove(&sequence);
-                    self.apply_prepared_with_sequence(event, Some(sequence));
-                    self.cancel_request_reservation(sequence);
-                }
-            }
-        }
-    }
     /// Commits prepared block mutations and invalidates what they changed.
     pub(super) fn commit_block_mutations(
         &mut self,
@@ -58,6 +25,15 @@ impl WorldStream {
                 .then_some(mutation.key())
             })
             .collect::<BTreeSet<_>>();
+        self.commit_block_mutations_with_relight(prepared, &relight)
+    }
+
+    /// Publishes an atomic prepared batch using its already computed light summary.
+    pub(super) fn commit_block_mutations_with_relight(
+        &mut self,
+        prepared: Vec<PreparedSubChunkMutation>,
+        relight: &BTreeSet<SubChunkKey>,
+    ) -> bool {
         let Ok(changed) = self.store.commit_prepared_block_updates(prepared) else {
             return false;
         };
@@ -95,7 +71,7 @@ impl WorldStream {
                 // above and the submit-time supported-dimension
                 // admission.
                 self.record_required_level_chunk(&event);
-                self.last_column_arrival = Some(Instant::now());
+                self.record_column_arrival(key, Instant::now());
                 let range = vanilla_dimension_range(event.dimension)
                     .expect("inline events are range-checked before decode");
                 let stored_keys = decoded
@@ -280,6 +256,7 @@ impl WorldStream {
                     };
                     committed_any |= committed;
                     if committed {
+                        self.record_sub_chunk_arrival(key, Instant::now());
                         self.stats.phase2_stages.subchunks_committed = self
                             .stats
                             .phase2_stages
@@ -297,14 +274,16 @@ impl WorldStream {
                 if committed_any {
                     let now = Instant::now();
                     self.stats.last_chunk_commit_at = Some(now);
-                    self.last_column_arrival = Some(now);
                 }
             }
             PreparedWorldEvent::BlockUpdates { result, duration } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 match result {
                     Ok(prepared) => {
-                        if !self.commit_block_mutations(prepared) {
+                        if !self.commit_block_mutations_with_relight(
+                            prepared.mutations,
+                            &prepared.relight,
+                        ) {
                             self.record_normalization_error(
                                 NormalizationErrorReason::BlockMutationFailure,
                             );
@@ -458,6 +437,7 @@ impl WorldStream {
                     self.publisher_epoch = next_epoch;
                 }
                 self.committed_view_cohort = Some(cohort);
+                self.prune_column_deadlines();
                 if consumes_local_reset {
                     self.local_resets_consumed = self.local_resets_consumed.saturating_add(1);
                 }
@@ -591,6 +571,13 @@ impl WorldStream {
                     resolved,
                 });
             }
+            WorldEvent::NetworkStackLatency(creation_time) => {
+                let sequence = sequence.expect("latency probes commit through submit");
+                self.push_committed_control(CommittedControlEvent::NetworkStackLatency {
+                    sequence,
+                    creation_time,
+                });
+            }
             WorldEvent::ActorMotion(motion) => {
                 let sequence = sequence.expect("sequenced actor motion commits through submit");
                 if motion.actor_runtime_id != self.local_player_runtime_id {
@@ -635,7 +622,8 @@ impl WorldStream {
                     event,
                 });
             }
-            WorldEvent::Particle(event) => {
+            WorldEvent::Particle(mut event) => {
+                self.remap_particle_block_ids(&mut event);
                 let sequence = sequence.expect("sequenced particle events commit through submit");
                 self.push_committed_particle(CommittedParticleEvent {
                     sequence,
@@ -764,8 +752,29 @@ impl WorldStream {
                     .apply_link(self.actor_session_id, sequence, event);
                 self.publish_local_mount_change(sequence, previous_mount);
             }
+            WorldEvent::Experience(event) => {
+                let sequence = sequence.expect("extension events commit through submit");
+                self.push_committed_ui(CommittedUiEvent::Experience {
+                    sequence,
+                    dimension_epoch: self.form_dimension_epoch,
+                    event,
+                });
+            }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
+                let event = match event {
+                    UiEvent::PlayerGameMode {
+                        actor_unique_id,
+                        event,
+                        ..
+                    } => {
+                        if actor_unique_id != self.local_player_unique_id {
+                            return;
+                        }
+                        UiEvent::GameMode(event)
+                    }
+                    event => event,
+                };
                 let committed = match event {
                     UiEvent::Form(event) => CommittedUiEvent::Form {
                         sequence,
@@ -846,7 +855,7 @@ impl WorldStream {
             return;
         };
         self.record_required_level_chunk(&event);
-        self.last_column_arrival = Some(Instant::now());
+        self.record_column_arrival(key, Instant::now());
         let (count, has_authoritative_upper_air) = match event.mode {
             LevelChunkMode::LimitedRequests { highest } => {
                 (usize::from(highest).min(range.sub_chunk_count), true)

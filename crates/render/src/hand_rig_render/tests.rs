@@ -76,14 +76,27 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
         rgba8: Arc::from(vec![0u8; bytes]),
     };
     let mut scene = HandRigScene::default();
-    scene.set_item_atlas(Some(atlas(32)));
+    scene.set_item_atlases([Some(atlas(32)), None]);
     assert!(!scene.is_active());
 
     assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 7));
-    scene.set_item_atlas(Some(atlas(31)));
-    assert!(scene.frame.as_ref().unwrap().item_atlas.is_none());
-    scene.set_item_atlas(Some(atlas(32)));
-    assert!(scene.frame.as_ref().unwrap().item_atlas.is_some());
+    scene.set_item_atlases([Some(atlas(31)), Some(atlas(32))]);
+    let frame = scene.frame.as_ref().unwrap();
+    assert!(frame.item_atlases[0].is_none());
+    assert!(frame.item_atlases[1].is_some());
+    scene.set_item_atlases([Some(atlas(32)), None]);
+    assert!(scene.frame.as_ref().unwrap().item_atlases[0].is_some());
+    assert!(scene.frame.as_ref().unwrap().item_atlases[1].is_none());
+    scene.set_item_atlases([
+        Some(HandItemAtlas {
+            width: u16::MAX,
+            height: u16::MAX,
+            layers: u32::MAX,
+            rgba8: Arc::from([]),
+        }),
+        None,
+    ]);
+    assert!(scene.frame.as_ref().unwrap().item_atlases[0].is_none());
 }
 
 /// A per-frame pose rewrites the same buffers instead of reallocating them and the bind group.
@@ -131,4 +144,60 @@ fn pose_updates_reuse_their_buffers() {
         buffers.push(gpu.instances.as_ref().unwrap().id());
     }
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
+
+    // Main and offhand pages may have unrelated dimensions and layer counts.
+    let main_pixels: Arc<[u8]> = vec![255; 16].into();
+    let off_pixels: Arc<[u8]> = vec![127; 48].into();
+    scene.set_item_atlases([
+        Some(HandItemAtlas {
+            width: 2,
+            height: 2,
+            layers: 1,
+            rgba8: Arc::clone(&main_pixels),
+        }),
+        Some(HandItemAtlas {
+            width: 4,
+            height: 1,
+            layers: 3,
+            rgba8: Arc::clone(&off_pixels),
+        }),
+    ]);
+    upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+    assert_eq!(gpu.atlases[0].as_ref().unwrap().size, [2, 2, 1]);
+    assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
+    assert!(Arc::ptr_eq(
+        &gpu.atlases[1].as_ref().unwrap().pixels,
+        &off_pixels
+    ));
+
+    // The same pixel allocation with new dimensions is not the same texture.
+    scene.set_item_atlases([
+        Some(HandItemAtlas {
+            width: 1,
+            height: 4,
+            layers: 1,
+            rgba8: main_pixels,
+        }),
+        Some(HandItemAtlas {
+            width: 4,
+            height: 1,
+            layers: 3,
+            rgba8: Arc::clone(&off_pixels),
+        }),
+    ]);
+    upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+    assert_eq!(gpu.atlases[0].as_ref().unwrap().size, [1, 4, 1]);
+    assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
+    scene.set_item_atlases([
+        None,
+        Some(HandItemAtlas {
+            width: 4,
+            height: 1,
+            layers: 3,
+            rgba8: off_pixels,
+        }),
+    ]);
+    upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+    assert!(gpu.atlases[0].is_none());
+    assert!(gpu.atlases[1].is_some());
 }

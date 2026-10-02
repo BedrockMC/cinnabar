@@ -197,11 +197,12 @@ pub(crate) fn validate_archive_parts(
         version: version.into(),
         sub_pack_name: sub_pack_name.into(),
         archive_bytes,
+        declared_bytes: declared,
         zip,
         files,
         folded,
         file_order: file_order.into_boxed_slice(),
-        keys,
+        keys: keys.into(),
         physical_entry_count: expected_entries,
         skipped_entries: skipped,
     };
@@ -312,7 +313,7 @@ fn selected_subpack_logical_path<'a>(path: &'a str, selected: &str) -> Option<&'
     (root.eq_ignore_ascii_case("subpacks") && name == selected).then_some(logical)
 }
 
-fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
+pub(crate) fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
     if bytes.len() < EOCD_MIN_BYTES {
         return Err(AdmissionError::InvalidZipFooter);
     }
@@ -382,7 +383,7 @@ fn le_u32(bytes: &[u8], offset: usize) -> Result<u32, AdmissionError> {
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
 }
 
-fn is_regular_file(mode: Option<u32>) -> bool {
+pub(crate) fn is_regular_file(mode: Option<u32>) -> bool {
     mode.is_none_or(|mode| {
         let kind = mode & 0o170000;
         kind == 0 || kind == 0o100000
@@ -391,7 +392,7 @@ fn is_regular_file(mode: Option<u32>) -> bool {
 
 /// Normalizes separators and a leading `./`; paths that could escape the pack
 /// root or carry control characters are refused.
-fn canonical_path(raw: &[u8]) -> Option<Box<str>> {
+pub(crate) fn canonical_path(raw: &[u8]) -> Option<Box<str>> {
     if raw.is_empty() || raw.len() > MAX_PATH_BYTES || raw.contains(&0) {
         return None;
     }

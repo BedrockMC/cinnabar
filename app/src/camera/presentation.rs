@@ -117,7 +117,10 @@ pub(super) fn advance_presentation_state(
     } else {
         ViewEffect::NONE
     };
-    hand.hurt = hurt.view_matrix(yaw);
+    hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
+        Quat::from_mat4(&hurt.view_matrix(yaw)),
+        settings.feel().damage_bob,
+    ));
     // Vanilla sways the hand only while view bobbing is on.
     let (sway_pitch, sway_yaw) = if settings.feel().view_bobbing {
         sway.sway_radians()
@@ -280,7 +283,9 @@ pub(super) fn apply_camera_presentation(
     }
 
     let shake = server.shake_offset();
-    if shake.translation != Vec3::ZERO || shake.rotation != Quat::IDENTITY {
+    if settings.feel().camera_shake
+        && (shake.translation != Vec3::ZERO || shake.rotation != Quat::IDENTITY)
+    {
         pose.translation += pose.rotation * shake.translation;
         pose.rotation = (pose.rotation * shake.rotation).normalize();
         changed = true;

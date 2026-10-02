@@ -1,6 +1,15 @@
 .DEFAULT_GOAL := help
 
 CARGO ?= cargo
+# Cargo profile for `make play`/`make client`; PROFILE=release gives the shipped build.
+PROFILE ?= play
+# Cargo names the dev profile output directory debug.
+PROFILE_DIR = $(if $(filter dev,$(PROFILE)),debug,$(PROFILE))
+EXE = $(if $(filter Windows_NT,$(OS)),.exe)
+# Reuse compiled dependencies across worktrees when sccache is installed.
+ifneq ($(shell command -v sccache 2>/dev/null),)
+export RUSTC_WRAPPER ?= sccache
+endif
 GO ?= go
 POWERSHELL ?= powershell
 
@@ -103,7 +112,7 @@ UI_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ui-as
 WEATHER_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- weather-assets --pack "$(PACK_DIR)" --out "$(WEATHER_ASSET_BLOB)"
 HUD_EXTRAS_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-extras-assets --pack "$(PACK_DIR)" --out "$(HUD_EXTRAS_ASSET_BLOB)"
 PARTICLE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- particle-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(PARTICLE_ASSET_BLOB)" --report "$(PARTICLE_ASSET_REPORT)"
-CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
 VANILLA_ASSET_FETCH = $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
@@ -350,9 +359,12 @@ client: assets physics-assets
 
 # Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
 play: assets physics-assets audio-pcm-assets
-	$(GO) build -o "$(abspath $(DIST_CORE))" ./core/cmd/bedrock-core
-	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
+	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
+endif
+	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
+	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client
 

@@ -1021,11 +1021,13 @@ fn model_upload_validation_enforces_exact_material_partition() {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
         assets::Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: assets::MATERIAL_FLAG_ALPHA_BLEND,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         },
     ];
     let refs = [PackedModelRef::new(0x432, 0, 0, 0b11)];

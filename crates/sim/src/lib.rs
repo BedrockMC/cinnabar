@@ -8,7 +8,7 @@ mod prediction;
 mod simulator;
 mod world;
 
-pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_HORIZONTAL_EPSILON, PLAYER_WIDTH, depenetrate_player};
+pub use aabb::{Aabb, PLAYER_HEIGHT, PLAYER_WIDTH, depenetrate_player};
 pub use conformance::{
     ConformanceError, LegacyTickResult, LegacyTraceRecord, ScenarioAudit, ScenarioEvidence,
     ScenarioScript, ScenarioStep, ScenarioWorld, TraceRecord, audit_scenario_trace_jsonl,
@@ -27,8 +27,8 @@ pub use simulator::{
 };
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
-    CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionWorld,
-    LenientCollisionBoxes, LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS,
-    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider, RegistryError, SurfaceResponse,
-    WorldCollisionIdentity, WorldQueryError,
+    CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot,
+    CollisionWorld, DoorFacing, DoorState, LenientCollisionBoxes, LenientSkipCounts,
+    MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider,
+    RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
 };

@@ -148,6 +148,7 @@ impl LauncherCore {
             &socket_dir,
             auth_cache,
             upstream_client_cache,
+            Some(&crate::runtime::network::active_language_code()),
         ))
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
@@ -182,6 +183,7 @@ fn launcher_command(
     socket_dir: &Path,
     auth_cache: Option<&Path>,
     upstream_client_cache: bool,
+    language: Option<&str>,
 ) -> Command {
     let mut command = Command::new(executable);
     command
@@ -206,6 +208,9 @@ fn launcher_command(
     if let Some(auth_cache) = auth_cache {
         command.arg("-auth-cache").arg(auth_cache);
     }
+    if let Some(language) = language {
+        command.arg("-language").arg(language.replace('_', "-"));
+    }
     command
 }
 
@@ -227,8 +232,6 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
 /// Marks a menu address as a gathering's experience ID, joined when selected.
 pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
 
-/// The `connect.v1` target for a menu address (the proxy's realm and friend
-/// prefixes, else a server that gets the default port when it names none).
 /// The kind of join `address` starts, for its progress titles.
 pub(super) fn join_kind(address: &str, local_world: bool) -> super::view::JoinKind {
     use super::view::JoinKind;
@@ -242,7 +245,9 @@ pub(super) fn join_kind(address: &str, local_world: bool) -> super::view::JoinKi
     }
 }
 
-fn target_for(address: &str) -> ConnectTarget {
+/// The `connect.v1` target for a menu address (the proxy's realm and friend
+/// prefixes, else a server that gets the default port when it names none).
+pub(super) fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
     if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
         return ConnectTarget::Gathering(id.to_owned());
@@ -325,6 +330,7 @@ mod tests {
                 Path::new("/run/s"),
                 auth,
                 false,
+                Some("pt_BR"),
             )
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -332,6 +338,11 @@ mod tests {
         };
         let offline = args(None);
         assert!(offline.iter().any(|arg| arg == "-control-status"));
+        assert!(
+            offline
+                .windows(2)
+                .any(|args| args == ["-language", "pt-BR"])
+        );
         assert!(
             !offline
                 .iter()

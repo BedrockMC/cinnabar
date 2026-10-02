@@ -22,10 +22,10 @@ impl PlayerInventoryLedger {
             return;
         };
         let Some(previous) = self.item_registry.as_ref() else {
-            self.item_registry = Some(next);
+            self.item_registry = Some(std::sync::Arc::new(next));
             return;
         };
-        if previous == &next {
+        if previous.as_ref() == &next {
             return;
         }
 
@@ -37,7 +37,8 @@ impl PlayerInventoryLedger {
                 pending
                     .predicted
                     .iter()
-                    .map(|(_, held)| held.stack.network_id)
+                    .filter_map(|prediction| prediction.held.as_ref())
+                    .map(|held| held.stack.network_id)
                     .any(|network_id| {
                         registry_identity_changed(previous, &next, network_id)
                             || (pending.registry_bound_merge
@@ -50,7 +51,7 @@ impl PlayerInventoryLedger {
         for cell in affected_cells {
             self.mark_cell_recovery(cell);
         }
-        self.item_registry = Some(next);
+        self.item_registry = Some(std::sync::Arc::new(next));
         self.refold();
     }
 
@@ -60,6 +61,14 @@ impl PlayerInventoryLedger {
         destination: &NetworkItemStack,
     ) -> OccupiedStackRelation {
         let distinct_network_ids = source.network_id != destination.network_id;
+        // Native ItemStackBase::matchesItem compares block/aux identity; a
+        // nonzero block identity is an ordinary block stack, not an unknown
+        // stack shape. Count and sparse/server stack ids are not item identity.
+        if source.metadata != destination.metadata
+            || source.block_runtime_id != destination.block_runtime_id
+        {
+            return OccupiedStackRelation::Incompatible;
+        }
         if !plain_stack(source) || !plain_stack(destination) {
             return if distinct_network_ids {
                 OccupiedStackRelation::Incompatible
@@ -67,9 +76,18 @@ impl PlayerInventoryLedger {
                 OccupiedStackRelation::Unsupported
             };
         }
-        if source.stack_network_id <= 0
-            || destination.stack_network_id <= 0
-            || source.stack_network_id == destination.stack_network_id
+        if (source.stack_network_id <= 0
+            && !self
+                .queue
+                .iter()
+                .any(|request| request.request_id == source.stack_network_id))
+            || (destination.stack_network_id <= 0
+                && !self
+                    .queue
+                    .iter()
+                    .any(|request| request.request_id == destination.stack_network_id))
+            || (source.stack_network_id > 0
+                && source.stack_network_id == destination.stack_network_id)
         {
             return OccupiedStackRelation::Unsupported;
         }
@@ -179,9 +197,9 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
 
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
-    stack.metadata == 0
-        && stack.block_runtime_id == 0
-        && (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
+    // Plainness describes user data, not aux or block identity. Recipes match
+    // aux independently and vanilla accepts block ingredients with runtime ids.
+    (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
         && stack.nbt_digest == digest
 }
 

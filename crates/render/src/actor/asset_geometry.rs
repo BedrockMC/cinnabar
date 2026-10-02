@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv,
-    RuntimeEntityAssets, validate_entity_geometry_inheritance,
+    RuntimeEntityAssets,
 };
 
 use crate::{BlockEntityAtlas, SkullKind};
@@ -12,6 +12,12 @@ use super::{
     ActorRigGeometry, ActorRigGeometryError, EntityRigId, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR,
 };
+
+#[path = "material.rs"]
+mod material;
+#[cfg(test)]
+#[path = "skin_geometry_tests.rs"]
+mod skin_geometry_tests;
 
 pub(super) fn geometry_from_runtime_assets(
     assets: &RuntimeEntityAssets,
@@ -96,12 +102,7 @@ pub(super) fn geometry_from_geometry_index(
             }
         }
     }
-    // The neutral catalog profile draws a plane's textured face from either side.
-    for vertex in &mut vertices {
-        if vertex.back_uv == super::geometry::ONE_SIDED_BACK_UV {
-            vertex.back_uv = vertex.uv;
-        }
-    }
+    material::apply_native_arrow_material(assets, geometry_index, &mut vertices);
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
@@ -128,13 +129,22 @@ pub fn skin_geometry(
                 cube,
                 bone_index as u32,
                 texture_size,
-                false,
-                0.0,
+                bone.mirror.unwrap_or(false),
+                bone.inflate.map_or(0.0, |inflate| inflate.get()),
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
         }
+    }
+    for (bone_index, mesh) in geometry.poly_meshes.iter().enumerate() {
+        if bones[bone_index].never_render == Some(true) {
+            continue;
+        }
+        let Some(mesh) = mesh else {
+            continue;
+        };
+        super::skin_poly_mesh::append(&mut vertices, mesh, bone_index as u32, texture_size)?;
     }
     if vertices.is_empty() {
         return Err(ActorRigGeometryError::VertexCount);
@@ -224,7 +234,7 @@ pub fn find_geometry_index(assets: &RuntimeEntityAssets, identifier: &str) -> Op
         .and_then(|index| u32::try_from(index).ok())
 }
 
-fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
+pub(super) fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
     // Pivots share the vertices' rig frame, where authored X is mirrored.
     bone.pivot.map_or([0.0; 3], |pivot| {
         [
@@ -235,12 +245,11 @@ fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
     })
 }
 
-fn resolve_geometry_bones(
+pub(super) fn resolve_geometry_bones(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
 ) -> Result<Vec<EntityGeometryBone>, ActorRigGeometryError> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries())
-        .map_err(|_| ActorRigGeometryError::InvalidAssetGeometry)?;
+    let parents = assets.geometry_parents();
     let mut chain = Vec::new();
     let mut current = geometry_index;
     for _ in 0..=parents.len() {
@@ -283,6 +292,9 @@ fn resolve_geometry_bones(
 }
 
 fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
+    if child.binding.is_some() {
+        base.binding.clone_from(&child.binding);
+    }
     if child.parent.is_some() {
         base.parent.clone_from(&child.parent);
     }
@@ -307,6 +319,15 @@ fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBo
     // `reset` drops the cubes a bone inherited; it is how derived geometries hide a bone.
     if child.reset == Some(true) {
         base.cubes = Box::default();
+        base.texture_meshes = Box::default();
+    }
+    if !child.texture_meshes.is_empty() {
+        base.texture_meshes = base
+            .texture_meshes
+            .iter()
+            .chain(child.texture_meshes.iter())
+            .cloned()
+            .collect();
     }
     if !child.cubes.is_empty() {
         base.cubes.clone_from(&child.cubes);
@@ -320,7 +341,7 @@ mod tests {
     use super::overlay_geometry_bone;
 
     #[test]
-    fn catalog_arrow_planes_keep_their_front_texture_on_the_back() {
+    fn catalog_planes_preserve_untextured_back_faces() {
         let temporary = tempfile::tempdir().unwrap();
         for family in [
             "entity",
@@ -348,7 +369,7 @@ mod tests {
             geometry
                 .vertices
                 .iter()
-                .all(|vertex| vertex.back_uv == vertex.uv)
+                .all(|vertex| vertex.back_uv == super::super::geometry::ONE_SIDED_BACK_UV)
         );
     }
 
@@ -365,6 +386,8 @@ mod tests {
         };
         EntityGeometryBone {
             name: "body".into(),
+            binding: None,
+            texture_meshes: Box::new([]),
             parent: None,
             pivot: None,
             rotation: None,

@@ -143,12 +143,14 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     local_frame
         .publish(LocalPlayerFrameSample {
             session_generation: 1,
+            actor_session_id: 1,
             fifo_sequence: 4,
             physics_tick: 10,
             perspective: semantic_input::PerspectiveMode::FirstPerson,
             world_collision_identity: world_identity,
             pose: Transform::default(),
             eye: Vec3::new(1.0, 64.0, 2.0),
+            feet: Vec3::new(1.0, 64.0 - protocol::PLAYER_NETWORK_OFFSET, 2.0),
             rotation: Quat::IDENTITY,
         })
         .unwrap();
@@ -244,12 +246,14 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     local_frame
         .publish(LocalPlayerFrameSample {
             session_generation: 1,
+            actor_session_id: 1,
             fifo_sequence: 4,
             physics_tick: 10,
             perspective: semantic_input::PerspectiveMode::FirstPerson,
             world_collision_identity: world_identity,
             pose: Transform::default(),
             eye: Vec3::new(1.0, 64.0, 2.0),
+            feet: Vec3::new(1.0, 64.0 - protocol::PLAYER_NETWORK_OFFSET, 2.0),
             rotation: Quat::IDENTITY,
         })
         .unwrap();

@@ -83,16 +83,31 @@ impl ResourcePackArchive {
 #[derive(Default)]
 pub struct ResourcePackHandoff {
     archives: Vec<ResourcePackArchive>,
+    required: bool,
 }
 
 impl ResourcePackHandoff {
     pub(crate) fn new(archives: Vec<ResourcePackArchive>) -> Self {
-        Self { archives }
+        Self::from_archives(archives)
     }
 
     /// Builds a one-shot handoff from already captured archive carriers.
     pub fn from_archives(archives: Vec<ResourcePackArchive>) -> Self {
-        Self { archives }
+        Self {
+            archives,
+            required: false,
+        }
+    }
+
+    /// Marks the packs as server-required, so a client that cannot apply one must refuse the join.
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.required = required;
+        self
+    }
+
+    /// Whether the offer or the stack required these packs.
+    pub fn required(&self) -> bool {
+        self.required
     }
 
     pub fn is_empty(&self) -> bool {

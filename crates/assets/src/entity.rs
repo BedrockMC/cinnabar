@@ -6,8 +6,11 @@ use sha2::{Digest, Sha256};
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+#[path = "entity/texture_mesh.rs"]
+mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
+pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
 
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
@@ -77,6 +80,7 @@ pub enum EntityAssetKind {
     AnimationController = 4,
     RenderController = 5,
     Texture = 6,
+    Attachable = 7,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -204,6 +208,13 @@ pub struct EntityGeometryBone {
     pub inflate: Option<EntityGeometryScalar>,
     pub never_render: Option<bool>,
     pub reset: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Box<str>>,
+    #[serde(
+        default,
+        skip_serializing_if = "<[EntityGeometryTextureMesh]>::is_empty"
+    )]
+    pub texture_meshes: Box<[EntityGeometryTextureMesh]>,
     pub cubes: Box<[EntityGeometryCube]>,
 }
 
@@ -288,6 +299,7 @@ pub struct RuntimeEntityAssets {
     sources: Arc<[EntityAssetSource]>,
     symbols: Arc<[EntityAssetSymbol]>,
     geometries: Arc<[EntityGeometry]>,
+    geometry_parents: Arc<[Option<usize>]>,
     animation_clips: Arc<[EntityAnimationClip]>,
     animation_channels: Arc<[EntityAnimationChannel]>,
     animation_keyframes: Arc<[EntityAnimationKeyframe]>,
@@ -406,13 +418,14 @@ impl RuntimeEntityAssets {
 
     /// Validates a compiled catalog and wraps it without a blob round trip.
     pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
-        validate_compiled(&compiled)?;
+        let geometry_parents = validate_compiled(&compiled)?;
         Ok(Self {
             source_manifest_sha256: compiled.source_manifest_sha256,
             block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
             symbols: Arc::from(compiled.symbols),
             geometries: Arc::from(compiled.geometries),
+            geometry_parents: Arc::from(geometry_parents),
             animation_clips: Arc::from(compiled.animation_clips),
             animation_channels: Arc::from(compiled.animation_channels),
             animation_keyframes: Arc::from(compiled.animation_keyframes),
@@ -460,6 +473,12 @@ impl RuntimeEntityAssets {
         &self.geometries
     }
 
+    /// Selected inheritance parents validated when this immutable catalog was admitted.
+    #[must_use]
+    pub fn geometry_parents(&self) -> &[Option<usize>] {
+        &self.geometry_parents
+    }
+
     #[must_use]
     pub fn geometry_candidates(&self, identifier: &str) -> &[EntityGeometry] {
         let start = self
@@ -485,7 +504,7 @@ pub fn encode_entity_blob(compiled: &CompiledEntityAssets) -> Result<Box<[u8]>, 
     v4::encode_compiled(compiled)
 }
 
-fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usize>]>, AssetError> {
     if compiled.source_manifest_sha256 == [0; 32]
         || compiled.sources.is_empty()
         || compiled.sources.len() > MAX_ENTITY_ASSET_SOURCES
@@ -552,12 +571,14 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<(), AssetError> 
         }
         previous_symbol = Some(key);
     }
-    validate_geometries(compiled)?;
+    let parents = validate_geometries(compiled)?;
     validate_extended_payload(compiled)?;
-    Ok(())
+    Ok(parents)
 }
 
-fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+fn validate_geometries(
+    compiled: &CompiledEntityAssets,
+) -> Result<Box<[Option<usize>]>, AssetError> {
     if compiled.geometries.len() > MAX_ENTITY_GEOMETRIES {
         return Err(invalid("entity geometry count exceeds bound"));
     }
@@ -606,7 +627,7 @@ fn validate_geometries(compiled: &CompiledEntityAssets) -> Result<(), AssetError
         validate_geometry_bones(&geometry.bones, geometry.inherits.is_some())?;
         previous = Some(key);
     }
-    validate_entity_geometry_inheritance(&compiled.geometries).map(|_| ())
+    validate_entity_geometry_inheritance(&compiled.geometries)
 }
 
 /// Validates deterministic catalog inheritance selection and inherited bone parents.
@@ -750,7 +771,13 @@ fn validate_geometry_bones(
     allow_inherited_parent: bool,
 ) -> Result<(), AssetError> {
     let mut total_cubes = 0usize;
+    let mut total_texture_meshes = 0usize;
     for bone in bones {
+        total_texture_meshes = total_texture_meshes
+            .checked_add(bone.texture_meshes.len())
+            .filter(|count| *count <= MAX_ENTITY_GEOMETRY_TEXTURE_MESHES)
+            .ok_or_else(|| invalid("entity geometry texture mesh count exceeds bound"))?;
+        texture_mesh::validate(bone)?;
         validate_geometry_name(&bone.name)?;
         if let Some(parent) = &bone.parent {
             validate_geometry_name(parent)?;
@@ -886,6 +913,7 @@ const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
 fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {
     let matches = match kind {
         EntityAssetKind::Entity => path.starts_with("entity/") && path.ends_with(".json"),
+        EntityAssetKind::Attachable => path.starts_with("attachables/") && path.ends_with(".json"),
         EntityAssetKind::Geometry => path.starts_with("models/entity/") && path.ends_with(".json"),
         EntityAssetKind::Animation => path.starts_with("animations/") && path.ends_with(".json"),
         EntityAssetKind::AnimationController => {

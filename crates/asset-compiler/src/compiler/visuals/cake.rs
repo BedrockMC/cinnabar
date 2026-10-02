@@ -130,6 +130,7 @@ pub(in crate::compiler) fn cake_material_descriptors(
         .map(|(key, path)| {
             (
                 Descriptor {
+                    state_variant: 0,
                     path: path.into(),
                     texture_key: key.into(),
                     flags: MATERIAL_FLAG_ALPHA_CUTOUT,

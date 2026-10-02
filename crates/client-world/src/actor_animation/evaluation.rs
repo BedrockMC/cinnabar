@@ -52,6 +52,9 @@ pub(super) struct EngineSlots {
     pub(super) damage_nearby_mobs: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
     pub(super) is_first_person: Option<usize>,
+    pub(super) context_first_person: Option<usize>,
+    pub(super) context_paperdoll: Option<usize>,
+    pub(super) context_item_slot: Option<usize>,
     /// Look pitch feeding `variable.map_angle`; refreshed per tick, unlike the seed.
     pub(super) player_x_rotation: Option<usize>,
     /// View-bobbing gate the first-person walk/breathing animations weigh against.
@@ -62,6 +65,7 @@ pub(super) struct EngineSlots {
     pub(super) first_person_rotation_factor: Option<usize>,
     /// Equip progress that lowers the first-person arm while the held item swaps.
     pub(super) player_arm_height: Option<usize>,
+    pub(super) context_player_offhand_arm_height: Option<usize>,
     pub(super) swim_amount: Option<usize>,
     pub(super) left_arm_swim_amount: Option<usize>,
     pub(super) right_arm_swim_amount: Option<usize>,
@@ -95,6 +99,13 @@ const SEEDED_VARIABLES: [(&str, f32); 20] = [
 ];
 
 impl VariableLayout {
+    /// Resolves a named engine variable in this carrier's symbol table.
+    pub(super) fn slot(&self, assets: &RuntimeEntityAssets, name: &str) -> Option<usize> {
+        assets.molang_symbols()[self.variable_base..self.variable_base + self.variable_count]
+            .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
+            .ok()
+    }
+
     pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
         let symbols = assets.molang_symbols();
         let range = |kind: MolangSymbolKind| {
@@ -127,6 +138,9 @@ impl VariableLayout {
                 is_blocking: slot("variable.is_blocking"),
                 damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
                 is_first_person: slot("variable.is_first_person"),
+                context_first_person: slot("context.is_first_person"),
+                context_paperdoll: slot("context.is_paperdoll"),
+                context_item_slot: slot("context.item_slot"),
                 player_x_rotation: slot("variable.player_x_rotation"),
                 bob_animation: slot("variable.bob_animation"),
                 first_person_item_rotation_factor: slot(
@@ -134,6 +148,7 @@ impl VariableLayout {
                 ),
                 first_person_rotation_factor: slot("variable.first_person_rotation_factor"),
                 player_arm_height: slot("variable.player_arm_height"),
+                context_player_offhand_arm_height: slot("context.player_offhand_arm_height"),
                 swim_amount: slot("variable.swim_amount"),
                 left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
                 right_arm_swim_amount: slot("variable.right_arm_swim_amount"),
@@ -149,6 +164,12 @@ impl VariableLayout {
             random: seed | 1,
         }
     }
+
+    pub(super) fn named_slot(&self, assets: &RuntimeEntityAssets, name: &str) -> Option<usize> {
+        assets.molang_symbols()[self.variable_base..self.variable_base + self.variable_count]
+            .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
+            .ok()
+    }
 }
 
 /// One actor's Molang variables and random stream; an unassigned variable reads as 0.0.
@@ -159,12 +180,69 @@ pub(super) struct MolangVariables {
     random: u64,
 }
 
+/// Borrowed owner script values, copied by name when an item uses another asset catalog.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ActorAnimationVariables<'a> {
+    assets: Option<&'a RuntimeEntityAssets>,
+    variables: Option<&'a MolangVariables>,
+    life_tick: u64,
+}
+
+impl<'a> ActorAnimationVariables<'a> {
+    pub(super) fn new(
+        assets: Option<&'a RuntimeEntityAssets>,
+        variables: &'a MolangVariables,
+        life_tick: u64,
+    ) -> Self {
+        Self {
+            assets,
+            variables: Some(variables),
+            life_tick,
+        }
+    }
+
+    pub(super) fn life_tick(self) -> u64 {
+        self.life_tick
+    }
+
+    pub(super) fn copy_to(
+        self,
+        assets: &RuntimeEntityAssets,
+        layout: &VariableLayout,
+        output: &mut MolangVariables,
+    ) {
+        let (Some(owner_assets), Some(variables)) = (self.assets, self.variables) else {
+            return;
+        };
+        let owner_symbols = owner_assets.molang_symbols();
+        let first =
+            owner_symbols.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
+        for (offset, value) in variables.values.iter().enumerate() {
+            let Some(value) = value else {
+                continue;
+            };
+            let Some(symbol) = owner_symbols.get(first + offset) else {
+                break;
+            };
+            if let Some(slot) = layout.named_slot(assets, &symbol.identifier) {
+                output.values[slot] = Some(value.clone());
+            }
+        }
+    }
+}
+
 enum Place {
     Variable(usize),
     Temporary(usize),
 }
 
 impl MolangVariables {
+    pub(super) fn set_string(&mut self, slot: Option<usize>, value: &str) {
+        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
+            *entry = Some(MolangValue::String(Arc::from(value)));
+        }
+    }
+
     pub(super) fn set(&mut self, slot: Option<usize>, value: f32) {
         if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
             *entry = Some(MolangValue::Number(value));
@@ -402,12 +480,15 @@ impl Evaluator<'_> {
                         .len()
                         .checked_sub(function.arity())
                         .ok_or(EvalError::Invalid)?;
-                    let arguments = stack
-                        .split_off(start)
-                        .iter()
-                        .map(MolangValue::number)
-                        .collect::<Vec<_>>();
-                    let value = molang_call(function, &arguments, &mut || variables.next_random());
+                    let mut arguments = [0.0; 3];
+                    let arguments = arguments
+                        .get_mut(..function.arity())
+                        .ok_or(EvalError::Invalid)?;
+                    for (argument, value) in arguments.iter_mut().zip(&stack[start..]) {
+                        *argument = value.number();
+                    }
+                    stack.truncate(start);
+                    let value = molang_call(function, arguments, &mut || variables.next_random());
                     stack.push(MolangValue::Number(value));
                 }
                 MolangOp::Jump(target) => pc = jump(target)?,

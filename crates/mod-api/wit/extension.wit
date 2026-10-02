@@ -1,0 +1,42 @@
+package cinnabar:extension@0.1.0;
+
+/// A retained, plain-text label drawn by the host's JSON-UI engine.
+interface hud {
+    /// Replaces this mod's label. Empty text removes it; invalid text is rejected.
+    set-label: func(text: string) -> result<_, string>;
+}
+
+/// A single local demo action, delivered only while gameplay owns input.
+interface input {
+    /// True only for the current frame's host-assigned action edge.
+    demo-pressed: func() -> bool;
+}
+
+/// Local presentation only; no world mutation or outbound packets.
+interface environment {
+    /// Fixes visual time to 0–23999 ticks; none restores the tracked server clock.
+    set-time-override: func(ticks: option<u32>) -> result<_, string>;
+}
+
+/// Experimental developer contract; no WASI or ambient operating-system access.
+world extension {
+    import hud;
+    import input;
+    import environment;
+    /// Creates the initial retained UI state.
+    export init: func();
+    /// Bounded frame callback used to measure the spike's crossing cost.
+    export frame: func();
+}
+
+/// Server-scoped component; optional grants return denial through these imports.
+world server-bundle {
+    import cinnabar:server-experience/ui@1.0.0;
+    import cinnabar:server-experience/input@1.0.0;
+    import cinnabar:server-experience/messaging@1.0.0;
+    import cinnabar:server-experience/scene@1.0.0;
+    import cinnabar:server-experience/media@1.0.0;
+    export init: func();
+    /// A typed message or host-owned input edge; no raw packet or keyboard data.
+    export dispatch: func(channel: string, record-json: list<u8>);
+}

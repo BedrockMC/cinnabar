@@ -1,6 +1,13 @@
+#import cinnabar::material::{MaterialGpu, materials, positional_material}
+#ifdef ENHANCED_SHADOW
+#import cinnabar::enhanced_caster::caster_clip
+#endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
+#ifdef ENHANCED
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
+#endif
 
 struct PackedQuad {
     geometry: u32,
@@ -12,11 +19,6 @@ struct ChunkOrigin {
     cube_bases: vec4<u32>,
 }
 
-struct MaterialGpu {
-    texture: u32,
-    flags: u32,
-    animation: u32,
-}
 
 struct AnimationGpu {
     frame_start: u32,
@@ -46,7 +48,6 @@ struct AtmosphereUniform {
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
@@ -92,9 +93,12 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) world_position: vec3<f32>,
-    @location(9) block_light: f32,
+    @location(9) lighting: vec3<f32>,
+#ifdef ENHANCED
     @location(10) sky_light: f32,
     @location(11) ambient_occlusion: f32,
+    @location(12) @interpolate(flat) surface_class: u32,
+#endif
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -243,11 +247,14 @@ fn vertex(
     );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let material = materials[quad.material_id];
+    let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world_position, 1.0);
+#ifdef ENHANCED_SHADOW
+    out.clip_position = caster_clip(world_position, quad.material_id, 1.0);
+#endif
     out.uv = greedy_uv(face, corner, width, height, material.flags);
     out.current_texture = animation_sample.current_texture;
     out.normal = face_normal(face);
@@ -257,9 +264,16 @@ fn vertex(
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
-    out.block_light = light_brightness(light_sample & 15u);
-    out.sky_light = light_brightness((light_sample >> 4u) & 15u);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 3u);
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+#ifdef ENHANCED
+    out.sky_light = sky_illumination(light_sample);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+#endif
+#ifdef ENHANCED
+    out.surface_class = material_class(quad.material_id);
+    out.world_position = waved_position(world_position, out.surface_class, 1.0);
+    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+#endif
     return out;
 }
 
@@ -269,6 +283,7 @@ fn apply_material_tint(
     biome_record: u32,
     local_position: vec3<f32>,
     normal: vec3<f32>,
+    world_origin: vec3<f32>,
 ) -> vec4<f32> {
     let tint_kind = material_flags & 0x30u;
     if (tint_kind != 0u) {
@@ -277,7 +292,8 @@ fn apply_material_tint(
             material_flags,
             biome_record,
             local_position - normal * 0.001,
-        );
+            world_origin,
+        ).rgb;
         if ((material_flags & (1u << 6u)) != 0u) {
             // Grass-side alpha is an overlay weight, not transparency. Its
             // alpha-zero RGB contains the opaque dirt base.
@@ -332,13 +348,39 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.biome_record,
         in.local_position,
         in.normal,
+        in.world_position - in.local_position,
     );
-    let lit = lit_colour(
+#ifdef ENHANCED
+    let shaded = shade_surface(
         colour.rgb,
-        in.block_light,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
         in.sky_light,
         in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.surface_class,
+    );
+    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+#else
+    let lit = lit_colour(
+        colour.rgb,
+        in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+#endif
 }
+#ifdef ENHANCED_SHADOW
+
+// Alpha-tested terrain depth; opaque texels cast independently of baked light.
+@fragment
+fn fragment_shadow(in: VertexOutput) {
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    var sampled = sample_texture_ref(in.current_texture, in.uv, dx, dy);
+    if (in.frame_blend > 0.0) {
+        sampled = mix(sampled, sample_texture_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+    }
+    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) { discard; }
+}
+#endif
