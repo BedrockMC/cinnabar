@@ -144,7 +144,7 @@ pub use item::{
     item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
     item_icon_keys, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
-pub use item_capacity::vanilla_item_capacity;
+pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};

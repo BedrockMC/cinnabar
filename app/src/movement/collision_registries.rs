@@ -631,17 +631,42 @@ mod tests {
             skipped: 0,
         };
         assert_eq!(registries.begin_session_custom_blocks(&interleaved), None);
-        // A name sorting among vanilla shifts later vanilla wire ids down onto the carrier's.
+        // A name sorting among vanilla takes the wire ids from the first vanilla state after
+        // it, so every later vanilla wire id is one more than the carrier's.
         let among = protocol::CustomBlocks {
-            blocks: vec![custom_block("test:among_vanilla", 2)].into(),
+            blocks: vec![custom_block("benergistics:controller", 1)].into(),
             skipped: 0,
         };
         let (range, remap) = registries.begin_session_custom_blocks(&among).unwrap();
-        assert_eq!(range, first..first + 2);
-        if !remap.is_identity() {
-            // The last wire ids are vanilla ones displaced past the custom run.
-            assert_eq!(remap.to_internal(first + 1), first - 1);
-        }
+        assert_eq!(range, first..first + 1);
+        let key = (
+            protocol::block_name_sort_key("benergistics:controller"),
+            "benergistics:controller",
+        );
+        let state = |name: &str| {
+            records
+                .iter()
+                .find(|record| record.name.as_ref() == name)
+                .unwrap()
+                .sequential_id
+        };
+        let wire = records
+            .iter()
+            .filter(|record| {
+                (
+                    protocol::block_name_sort_key(&record.name),
+                    record.name.as_ref(),
+                ) > key
+            })
+            .map(|record| record.sequential_id)
+            .min()
+            .unwrap();
+        assert_eq!(remap.to_internal(wire), first);
+        let (air, dirt) = (state("minecraft:air"), state("minecraft:dirt"));
+        assert!(dirt < wire && wire <= air);
+        assert_eq!(remap.to_internal(dirt), dirt);
+        assert_eq!(remap.to_internal(air + 1), air);
+        assert_eq!(remap.to_internal(first), first - 1);
     }
 
     /// Hashed custom states register under their hashes and are dropped by the next session.
