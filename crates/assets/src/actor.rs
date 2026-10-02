@@ -18,6 +18,7 @@ pub const MAX_ACTOR_BINDINGS: usize = 4096;
 /// A server pack's entity art fits whole (Zeqa's is 47 MiB); past it rasters are halved.
 pub const MAX_ACTOR_PIXEL_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_ACTOR_CARRIER_BYTES: usize = MAX_ACTOR_PIXEL_BYTES + 1024 * 1024;
+const MAX_ACTOR_MATERIAL_BYTES: usize = 128;
 const HEADER: usize = 128;
 const HASH: usize = 32;
 const POLICY: &[u8] = include_bytes!("../data/neutral-actor-materials-v1.json");
@@ -151,7 +152,7 @@ impl RuntimeActorCatalog {
                 _ => return Err(invalid("unknown actor pose mode")),
             };
             let length = cursor.u16()? as usize;
-            if length == 0 || length > 128 {
+            if length == 0 || length > MAX_ACTOR_MATERIAL_BYTES {
                 return Err(invalid("actor material name exceeds bound"));
             }
             let material = std::str::from_utf8(cursor.take(length)?)
@@ -244,7 +245,9 @@ pub fn encode_actor_catalog(
         ] {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
-        bytes.extend_from_slice(&(binding.material.len() as u16).to_le_bytes());
+        let length = u16::try_from(binding.material.len())
+            .map_err(|_| invalid("actor material name exceeds bound"))?;
+        bytes.extend_from_slice(&length.to_le_bytes());
         bytes.extend_from_slice(binding.material.as_bytes());
     }
     let length = bytes.len() - HEADER;
@@ -310,7 +313,7 @@ fn validate(
             || !candidates.contains(&binding.geometry_candidate)
             || binding.render_controller != rig.render_controller
             || binding.geometry != geometry_binding.geometry
-            || binding.material.is_empty()
+            || !valid_material_name(&binding.material)
             || !neutral_actor_geometry_uvs_are_supported(
                 entities.geometries(),
                 binding.geometry as usize,
@@ -370,5 +373,26 @@ impl<'a> Cursor<'a> {
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),
+    }
+}
+
+/// Checks the material name admitted by an actor carrier binding.
+fn valid_material_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_ACTOR_MATERIAL_BYTES
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_actor_materials_follow_the_decoder_byte_bound() {
+        assert!(valid_material_name(&"a".repeat(MAX_ACTOR_MATERIAL_BYTES)));
+        assert!(!valid_material_name(
+            &"a".repeat(MAX_ACTOR_MATERIAL_BYTES + 1)
+        ));
+        assert!(!valid_material_name(
+            &"é".repeat(MAX_ACTOR_MATERIAL_BYTES / 2 + 1)
+        ));
+        assert!(!valid_material_name(&"a".repeat(65_536)));
     }
 }
