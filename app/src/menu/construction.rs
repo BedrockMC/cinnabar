@@ -65,6 +65,7 @@ impl MenuRuntime {
             },
             name: String::new(),
             address: String::new(),
+            port: String::new(),
             message,
             gui_scale_preference: gui_scale
                 .filter(|scale| *scale > 0)
