@@ -3,8 +3,9 @@
 This is an optional **Cinnabar extension**, not vanilla Bedrock parity. This branch
 contains locally compiled client code and regression tests whose validation is
 recorded in `plan.md`. It does not ship a production sandbox or an end-to-end
-cinema implementation. No server SDK,
-Dragonfly integration, BDS script, or server sidecar is included.
+cinema implementation. The Dragonfly server half lives in
+`tools/localserver/extension` ([experience-runtime.md](experience-runtime.md#client-parts));
+no server SDK, BDS script, or server sidecar is included.
 
 ## Implementation status
 
