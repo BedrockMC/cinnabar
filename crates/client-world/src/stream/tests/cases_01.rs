@@ -967,7 +967,7 @@ fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
 
-    assert!(stream.revisions.next_revision > revision_before);
+    assert_eq!(stream.revisions.next_revision, revision_before);
     assert!(stream.next_block_generation > block_generation_before);
     assert!(stream.pending_mesh.contains_key(&key));
     assert_eq!(

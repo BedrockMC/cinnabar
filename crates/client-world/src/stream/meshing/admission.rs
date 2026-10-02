@@ -7,7 +7,7 @@ pub(in crate::stream) struct MeshJobPermit {
 }
 
 impl MeshJobPermit {
-    /// Reserves one job before it enters the shared Rayon pool.
+    /// Reserves one job until its completion leaves the worker-result path.
     pub(in crate::stream) fn new(occupied: &Arc<AtomicUsize>) -> Self {
         occupied.fetch_add(1, Ordering::AcqRel);
         Self {
@@ -22,7 +22,7 @@ impl Drop for MeshJobPermit {
     }
 }
 
-/// Keeps one worker wave queued while the previous wave awaits frame-thread acceptance.
+/// Bounds queued work and retained results using the machine worker count.
 pub(in crate::stream) fn mesh_job_cap(worker_threads: usize) -> usize {
     worker_threads
         .saturating_mul(2)

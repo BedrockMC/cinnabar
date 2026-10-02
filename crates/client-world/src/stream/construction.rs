@@ -68,6 +68,7 @@ impl WorldStream {
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
+        let _ = &*workers::WORKERS;
         let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
         let (light_tx, light_rx) = bounded(LIGHT_RESULT_CAPACITY);
         let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
@@ -197,6 +198,7 @@ impl WorldStream {
             unsent_column_deadlines: HashMap::new(),
             arrival_cohort: None,
             poll_deadline: None,
+            frame_deadline: None,
             polling: false,
             pending_sub_chunk_commit: None,
             publication_allowance: None,

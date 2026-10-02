@@ -69,7 +69,7 @@ impl WorldStream {
             forward: self.view_forward,
         };
         let pending_light = &self.pending_light;
-        self.light_scheduler_refresh.refresh(
+        let probe_near = self.light_scheduler_refresh.refresh(
             view,
             [
                 &mut self.pending_light_ready,
@@ -130,9 +130,13 @@ impl WorldStream {
             );
         }
 
-        let mut near = scheduler_refresh::near_light_columns(view, self.current_dimension)
-            .filter_map(|key| self.near_light_column_candidate(key, view))
-            .collect::<BinaryHeap<_>>();
+        let mut near = if probe_near {
+            scheduler_refresh::near_light_columns(view, self.current_dimension)
+                .filter_map(|key| self.near_light_column_candidate(key, view))
+                .collect::<BinaryHeap<_>>()
+        } else {
+            BinaryHeap::new()
+        };
         let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
@@ -170,12 +174,14 @@ impl WorldStream {
                     self.pending_light_deferred.push(candidate);
                 }
                 queued = false;
+                let priority = candidate;
                 candidate = PendingSchedulerCandidate::new(
                     highest_key,
                     highest_pending.revision,
                     view,
-                    highest_pending.urgent,
+                    highest_pending.urgent || priority.urgent,
                 );
+                candidate.distance_squared = priority.distance_squared;
             }
             let key = candidate.key;
             let revision = candidate.revision;
@@ -313,7 +319,7 @@ impl WorldStream {
         for batch in prepared_batches {
             let tx = self.light_tx.clone();
             let running = RunningLightJob::start(&self.running_light_jobs);
-            rayon::spawn(move || {
+            workers::WORKERS.light.spawn(move || {
                 let _running = running;
                 let started = Instant::now();
                 let solved = solve_prepared_light_batch(batch);

@@ -52,7 +52,7 @@ impl WorldStream {
             self.mark_light_changed_sources_with_priority(sources.iter().copied(), urgent);
         }
         let mut dirty = preexpanded_dirty.into_iter().collect::<BTreeSet<_>>();
-        for key in sources {
+        for &key in &sources {
             dirty.extend(key.mesh_dependents());
             for dependent in key.mesh_neighbourhood_dependents() {
                 let ao_needed = self.resident.contains(&dependent)
@@ -74,7 +74,13 @@ impl WorldStream {
             }
         }
         for dependent in dirty {
-            self.mark_dirty_exact_with_priority(dependent, now, urgent);
+            // Only resident, non-empty neighbours sample this source; own changes still apply.
+            if !sources.contains(&dependent)
+                && (!self.resident.contains(&dependent) || self.known_air.contains(&dependent))
+            {
+                continue;
+            }
+            self.invalidate_mesh_with_priority(dependent, now, urgent);
         }
     }
     pub(super) fn current_mesh_dependency_mask(
@@ -168,18 +174,20 @@ impl WorldStream {
                 && self.resident.contains(&dependent)
                 && self.store.sub_chunk(dependent).is_some()
             {
-                if let Some(pending) = self.pending_mesh.get_mut(&dependent) {
-                    // A cancelled predecessor does not own its pending successor's snapshot.
-                    if urgent && !pending.urgent {
-                        pending.urgent = true;
-                        self.pending_mesh_scan
-                            .push_front((dependent, pending.revision));
-                    }
-                    continue;
-                }
-                self.mark_dirty_exact_with_priority(dependent, now, urgent);
+                self.invalidate_mesh_with_priority(dependent, now, urgent);
             }
         }
+    }
+    /// Pending work takes its snapshot at dispatch, so repeated invalidations need one record.
+    fn invalidate_mesh_with_priority(&mut self, key: SubChunkKey, now: Instant, urgent: bool) {
+        if let Some(pending) = self.pending_mesh.get_mut(&key) {
+            if urgent && !pending.urgent {
+                pending.urgent = true;
+                self.pending_mesh_scan.push_front((key, pending.revision));
+            }
+            return;
+        }
+        self.mark_dirty_exact_with_priority(key, now, urgent);
     }
     pub(super) fn mark_mesh_neighbourhood_dirty(&mut self, source: SubChunkKey, now: Instant) {
         for dependent in source.mesh_neighbourhood_dependents() {
