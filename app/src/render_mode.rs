@@ -11,6 +11,7 @@ use std::{
 use anyhow::{Context, Result};
 use bevy::{
     camera::Camera3dDepthTextureUsage,
+    ecs::system::lifetimeless::{Read, Write},
     post_process::bloom::Bloom,
     prelude::*,
     render::{render_resource::TextureUsages, view::Hdr},
@@ -171,19 +172,19 @@ fn apply_menu_render_mode(
 #[derive(Component)]
 struct VanillaDepthUsage(Camera3dDepthTextureUsage);
 
+/// Camera state needed to apply or restore the optional mode.
+type RenderModeCameraQuery = (
+    Entity,
+    Write<Camera3d>,
+    Has<EnhancedRendering>,
+    Option<Read<VanillaDepthUsage>>,
+);
+
 /// Keep the opt-in effects on gameplay cameras only.
 fn apply_render_mode_to_cameras(
     mut commands: Commands,
     settings: Res<RuntimeSettings>,
-    mut cameras: Query<
-        (
-            Entity,
-            &mut Camera3d,
-            Has<EnhancedRendering>,
-            Option<&VanillaDepthUsage>,
-        ),
-        With<FlyCamera>,
-    >,
+    mut cameras: Query<RenderModeCameraQuery, With<FlyCamera>>,
 ) {
     let enhanced = settings.user_settings_update().1.video.render_mode == RenderMode::Enhanced;
     for (entity, mut camera, has_enhanced, vanilla_depth) in &mut cameras {
