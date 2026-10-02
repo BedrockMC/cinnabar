@@ -141,6 +141,7 @@ fn live_hud_texture_and_definition_swap_reverts_without_session_change() {
             ("textures/ui/hotbar_0.png".into(), test_raster()),
         ],
         catalog: None,
+        view: None,
     }
     .prepare_catalog(&presentation.pack_catalog_base().unwrap());
     let retired = Arc::downgrade(&pack);
