@@ -51,6 +51,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		if exps, err = startExperiences(cfg, logger); err != nil {
 			return err
 		}
+	} else if err := experience.CheckDisabled(filepath.Join(cfg.dir, experienceDataDir)); err != nil {
+		return err
 	}
 	conf, err := cfg.userConfig().Config(logger)
 	if err != nil {
@@ -117,9 +119,9 @@ type experiences struct {
 }
 
 // startExperiences discovers the artifacts of cfg.experiences, opens the store under cfg.dir and
-// starts one helper per artifact. It fails when an installed id was not started, naming it. Then
-// it registers the blocks, so it must run before server.Config.New, and records the started ids
-// as installed. On error no helper is left running.
+// starts one helper per artifact. It checks that every installed Experience and block is still
+// provided, then registers the blocks before server.Config.New and records their IDs together.
+// On error no helper is left running.
 func startExperiences(cfg settings, log *slog.Logger) (_ *experiences, err error) {
 	dirs, err := discoverArtifacts(cfg.experiences)
 	if err != nil {
@@ -149,15 +151,13 @@ func startExperiences(cfg settings, log *slog.Logger) (_ *experiences, err error
 		e.sups[l.ID] = sup
 		loaded = append(loaded, l)
 	}
-	for _, id := range store.Installed() {
-		if _, ok := e.sups[id]; !ok {
-			return nil, fmt.Errorf("installed experience %q is missing from %s", id, cfg.experiences)
-		}
+	if err := store.ValidateInstalled(loaded); err != nil {
+		return nil, err
 	}
 	if e.reg, err = experience.Register(loaded); err != nil {
 		return nil, err
 	}
-	if err := store.SetInstalled(slices.Collect(maps.Keys(e.sups))); err != nil {
+	if err := store.SetInstalled(loaded); err != nil {
 		return nil, err
 	}
 	return e, nil

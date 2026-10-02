@@ -59,10 +59,11 @@ type experienceData struct {
 type Store struct {
 	dir string
 
-	mu             sync.Mutex
-	experiences    map[string]*experienceData
-	nextGeneration uint64
-	installed      []string
+	mu              sync.Mutex
+	experiences     map[string]*experienceData
+	nextGeneration  uint64
+	installed       []string
+	installedBlocks map[string][]string
 
 	// flushMu serialises Flush calls so two never write the same temp file.
 	flushMu sync.Mutex
@@ -82,11 +83,6 @@ type experienceFile struct {
 	Schema         int         `json:"schema"`
 	NextGeneration uint64      `json:"next_generation"`
 	Entries        []fileEntry `json:"entries"`
-}
-
-type installedRecord struct {
-	Schema int      `json:"schema"`
-	IDs    []string `json:"ids"`
 }
 
 // OpenStore loads every <id>.json file and _installed.json in dir (normally
@@ -154,22 +150,6 @@ func (s *Store) loadExperience(id, path string) error {
 		s.nextGeneration = max(s.nextGeneration, fe.Generation+1)
 	}
 	s.experiences[id] = e
-	return nil
-}
-
-func (s *Store) loadInstalled(path string) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var rec installedRecord
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return err
-	}
-	if rec.Schema != storeSchema {
-		return fmt.Errorf("schema %d, want %d", rec.Schema, storeSchema)
-	}
-	s.installed = sortedUnique(rec.IDs)
 	return nil
 }
 
@@ -366,27 +346,6 @@ func (s *Store) writeJSON(name string, v any) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("write %s: %w", path, err)
 	}
-	return nil
-}
-
-// Installed returns the recorded installed Experience ids in sorted order.
-func (s *Store) Installed() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.installed)
-}
-
-// SetInstalled records ids, sorted and deduplicated, and writes _installed.json immediately.
-func (s *Store) SetInstalled(ids []string) error {
-	sorted := sortedUnique(ids)
-	s.flushMu.Lock()
-	defer s.flushMu.Unlock()
-	if err := s.writeJSON(installedFile, installedRecord{Schema: storeSchema, IDs: sorted}); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.installed = sorted
-	s.mu.Unlock()
 	return nil
 }
 
