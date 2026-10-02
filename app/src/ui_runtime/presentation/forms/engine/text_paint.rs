@@ -159,7 +159,6 @@ impl Painter<'_> {
         dest: [f32; 4],
         clip: [f32; 4],
         style: TextPaint,
-        font_type: &str,
     ) -> Result<(), UiPresentationError> {
         let text = if style.localize {
             localized(text, self.translate)
@@ -178,7 +177,8 @@ impl Painter<'_> {
             &self.metrics,
             &text,
             f64::from(dest[2] - dest[0]),
-            self.font.font_named(font_type),
+            self.font
+                .font_named(style.options.font_type.as_deref().unwrap_or("default")),
             shape,
             self.px,
         );

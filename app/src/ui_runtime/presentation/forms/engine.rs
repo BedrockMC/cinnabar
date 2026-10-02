@@ -714,7 +714,6 @@ impl Painter<'_> {
             _ => clip,
         };
         if let Draw::Text {
-            font_type,
             text,
             color,
             shadow,
@@ -736,7 +735,7 @@ impl Painter<'_> {
                 localize: *localize,
                 options: options.clone(),
             };
-            return self.text(text, dest, clip, style, font_type);
+            return self.text(text, dest, clip, style);
         }
         self.group(clip)?;
         let (visual, bounds) = match &node.draw {
