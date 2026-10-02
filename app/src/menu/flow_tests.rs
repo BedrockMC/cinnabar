@@ -34,3 +34,24 @@ fn local_world_choices_reach_the_worlds_module() {
     menu.activate(MenuAction::PlayLocalWorld(0));
     assert_eq!(menu.take_local_world_request(), Some(0));
 }
+
+// The port box edits its own value and joins the host as `host:port`; a typed port wins.
+#[test]
+fn server_draft_joins_the_separate_port_box() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+    menu.activate(MenuAction::PlayAddServer);
+    assert_eq!(menu.view().port, "19132");
+    assert_eq!(menu.draft_endpoint(), "", "an empty host stays empty");
+    menu.activate(MenuAction::AddPort);
+    assert_eq!(menu.view().field, Some(super::MenuField::Port));
+    menu.address = "play.example".to_owned();
+    menu.port = "19133".to_owned();
+    assert_eq!(menu.draft_endpoint(), "play.example:19133");
+    menu.address = "play.example:25565".to_owned();
+    assert_eq!(menu.draft_endpoint(), "play.example:25565");
+    menu.address = "::1".to_owned();
+    assert_eq!(menu.draft_endpoint(), "[::1]:19133");
+    menu.address = "play.example".to_owned();
+    menu.port.clear();
+    assert_eq!(menu.draft_endpoint(), "play.example");
+}

@@ -127,6 +127,7 @@ impl ArtworkLoader {
     /// Asks the worker for `set`'s atlas, superseding any pending request.
     pub(super) fn request(&mut self, set: ArtworkSet) {
         self.requested += 1;
+        self.ready = None;
         let _ = self.requests.send(Request {
             id: self.requested,
             set,
@@ -183,11 +184,14 @@ pub(super) fn rebase(refs: &HashMap<String, IconRef>, first_page: u16) -> HashMa
         .collect()
 }
 
+/// Source identity, requested size, and optional pack payload hash.
+type DecodeKey = (String, u32, Option<[u8; 32]>);
+
 /// Decoded art by source and side, plus sources that failed (both bounded).
 #[derive(Default)]
 struct DecodeCache {
-    decoded: HashMap<(String, u32), Arc<Artwork>>,
-    failed: VecDeque<(String, u32)>,
+    decoded: HashMap<DecodeKey, Arc<Artwork>>,
+    failed: VecDeque<DecodeKey>,
 }
 
 const MAX_DECODED: usize = 160;
@@ -230,10 +234,14 @@ enum Source {
 }
 
 impl Source {
-    fn key(&self) -> (String, u32) {
+    /// Includes replacement pack bytes so a reload cannot reuse an older image.
+    fn key(&self) -> DecodeKey {
         match self {
-            Self::File(path, side) => (path.clone(), *side),
-            Self::Bytes(key, _) => (key.clone(), WHOLE_PAGE),
+            Self::File(path, side) => (path.clone(), *side, None),
+            Self::Bytes(key, bytes) => {
+                use sha2::{Digest, Sha256};
+                (key.clone(), WHOLE_PAGE, Some(Sha256::digest(bytes).into()))
+            }
         }
     }
 }
@@ -537,12 +545,40 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// Encodes a solid test image without any external assets.
     fn png(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {
         let mut bytes = Vec::new();
         image::RgbaImage::from_pixel(width, height, image::Rgba(pixel))
             .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
             .unwrap();
         bytes
+    }
+
+    #[test]
+    fn replacing_pack_bytes_invalidates_decoded_artwork() {
+        let mut cache = DecodeCache::default();
+        for color in [[200, 30, 40, 255], [20, 220, 30, 255]] {
+            let set = ArtworkSet {
+                oversized: vec![(TITLE_KEY.to_owned(), png(900, 300, color).into())],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set));
+            let atlas = pack(&set, &cache, 0, true);
+            let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
+            let page = &atlas.pages[usize::from(art.page)];
+            let at =
+                (u32::from(art.uv[1]) * page.dimensions()[0] + u32::from(art.uv[0])) as usize * 4;
+            assert_eq!(&page.pixels()[at..at + 4], &color);
+        }
+    }
+
+    #[test]
+    fn a_superseded_prepared_atlas_cannot_be_installed() {
+        let mut loader = ArtworkLoader::default();
+        assert!(loader.ready.is_some());
+        loader.request(ArtworkSet::default());
+        assert!(loader.ready.is_none());
+        assert!(loader.take().is_none());
     }
 
     // A large server texture (Zeqa's 1992x669 title) keeps a whole art page of

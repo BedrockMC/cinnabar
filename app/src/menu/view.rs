@@ -284,6 +284,7 @@ pub(crate) struct MenuView {
     pub(crate) field: Option<MenuField>,
     pub(crate) name: String,
     pub(crate) address: String,
+    pub(crate) port: String,
     pub(crate) message: Option<String>,
     pub(crate) gui_scale_offset: i8,
     pub(crate) gui_scale_choices: Vec<i8>,

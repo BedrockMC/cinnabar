@@ -75,9 +75,8 @@
           "size": [ "100%", 0 ],
           "anchor_from": "bottom_middle",
           "anchor_to": "bottom_middle",
-          "offset": [ 0, -36 ],
           "control_ids": {
-            "item_text": "@hud.item_name_text_root",
+            "item_text": "@hud.java_item_name_text",
             "jukebox_text": "@hud.jukebox_popup_text"
           }
         }
@@ -253,6 +252,13 @@
     "$item_collection_name": "$hotbar_collection_name",
     "$durability_bar_size": [ 13, 1 ],
     "$durability_bar_offset": [ 0.5, 5.5 ]
+  },
+
+  // Factory creations are siblings of the factory, so its offset does not
+  // position them. Keep the hotbar clearance on the spawned item root; the
+  // native template still owns centering, text binding and fade animations.
+  "java_item_name_text@hud.item_name_text_root": {
+    "offset": [ 0, -36 ]
   },
 
   // The selected-item name clears the status rows by 14 GUI px in survival.

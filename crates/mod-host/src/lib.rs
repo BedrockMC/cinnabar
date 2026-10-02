@@ -21,32 +21,46 @@ pub const MAX_LABEL_BYTES: usize = 256;
 pub(crate) const FRAME_FUEL: u64 = 100_000;
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
+/// Explicit per-instance authority; environment access is denied by default.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ModGrants {
+    /// Allows this instance to replace visual time only.
+    pub environment: bool,
+}
+
 /// A developer-selected component with transactional reload and trap quarantine.
 pub struct ModHost {
     engine: Engine,
     instance: Instance,
     path: PathBuf,
     attempted: [u8; 32],
+    grants: ModGrants,
 }
 
 impl ModHost {
-    /// Loads a local component, linking only HUD and the local demo action.
+    /// Loads a local component with HUD and input, denying environment writes.
     pub fn load(path: &Path) -> Result<Self> {
+        Self::load_with_grants(path, ModGrants::default())
+    }
+
+    /// Loads a component with the developer's explicit per-mod capability grants.
+    pub fn load_with_grants(path: &Path, grants: ModGrants) -> Result<Self> {
         let bytes = read_component(path)?;
         let mut config = Config::new();
         config.wasm_component_model(true).consume_fuel(true);
         config.max_wasm_stack(256 * 1024);
         let engine = Engine::new(&config)?;
-        let instance = Instance::new(&engine, &bytes)?;
+        let instance = Instance::new(&engine, &bytes, grants)?;
         Ok(Self {
             engine,
             instance,
             path: path.to_owned(),
             attempted: Sha256::digest(&bytes).into(),
+            grants,
         })
     }
 
-    /// Runs one bounded callback; a trap revokes its UI and disables the guest.
+    /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
         self.instance.frame(pressed)
     }
@@ -54,6 +68,11 @@ impl ModHost {
     /// Returns only the last successfully committed plain-text label.
     pub fn label(&self) -> Option<&str> {
         self.instance.label()
+    }
+
+    /// Returns the committed visual override without entering the guest.
+    pub fn time_override(&self) -> Option<u32> {
+        self.instance.time_override()
     }
 
     /// Whether this guest can still receive callbacks.
@@ -69,7 +88,7 @@ impl ModHost {
             return Ok(false);
         }
         self.attempted = digest;
-        let candidate = Instance::new(&self.engine, &bytes)
+        let candidate = Instance::new(&self.engine, &bytes, self.grants)
             .context("reload rejected; previous mod retained")?;
         self.instance = candidate;
         Ok(true)

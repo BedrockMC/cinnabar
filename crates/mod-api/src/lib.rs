@@ -1,5 +1,8 @@
 //! Guest SDK generated from the same WIT contract used by the host.
 
+/// Ticks in one Bedrock day, shared by capability validation and sky math.
+pub const BEDROCK_DAY_TICKS: u32 = 24_000;
+
 pub mod bindings {
     wit_bindgen::generate!({
         path: "wit",
