@@ -6,12 +6,14 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"golang.org/x/oauth2"
 )
 
@@ -77,7 +79,7 @@ func TestClosedAccountRefusesEveryCredential(t *testing.T) {
 	}
 }
 
-func TestAccountCloseWaitsForActiveOAuthRead(t *testing.T) {
+func TestAccountCloseWaitsForUncancellableOAuthRead(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	source := newAccount(context.Background(), "", oauthSourceFunc(func() (*oauth2.Token, error) {
@@ -102,8 +104,8 @@ func TestAccountCloseWaitsForActiveOAuthRead(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
-	if err := <-tokenDone; err != nil {
-		t.Fatal(err)
+	if err := <-tokenDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("active OAuth read after Close began = %v, want cancellation", err)
 	}
 	if err := <-closed; err != nil {
 		t.Fatal(err)
@@ -114,4 +116,108 @@ func TestAccountCloseWaitsForActiveOAuthRead(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatal("OAuth refreshed after Close returned")
 	}
+}
+
+func TestAccountCloseInterruptsCredentialLeaseWait(t *testing.T) {
+	for _, derived := range []bool{false, true} {
+		name := "OAuth"
+		if derived {
+			name = "derived"
+		}
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "oauth.json")
+			token := testOAuthToken("account")
+			oauth, err := Source(context.Background(), Config{Path: path, Refresh: staticRefresh, Request: func(context.Context, io.Writer) (*oauth2.Token, error) {
+				return token, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			account := newAccount(context.Background(), DerivedCachePath(path), oauth, nil, derivedDeps{})
+			lockedPath := path
+			if derived {
+				lockedPath = DerivedCachePath(path)
+			}
+			lease, err := lockfile.Acquire(lockedPath+cacheLockSuffix, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.Close()
+			operation := make(chan error, 1)
+			go func() {
+				var err error
+				if derived {
+					_, err = account.DeviceToken(context.Background())
+				} else {
+					_, err = account.Token()
+				}
+				operation <- err
+			}()
+			waitForAccountOperation(t, account)
+			closed := make(chan error, 1)
+			go func() { closed <- account.Close() }()
+			select {
+			case err := <-closed:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("Close waited for another process's credential lease")
+			}
+			if err := <-operation; !errors.Is(err, context.Canceled) {
+				t.Fatalf("credential wait = %v, want cancellation", err)
+			}
+			if _, err := account.Token(); !errors.Is(err, ErrAccountClosed) {
+				t.Fatalf("credential after Close = %v", err)
+			}
+		})
+	}
+}
+
+func TestAccountLifetimeCancellationInterruptsOAuthWait(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oauth.json")
+	oauth, err := Source(context.Background(), Config{Path: path, Refresh: staticRefresh, Request: func(context.Context, io.Writer) (*oauth2.Token, error) {
+		return testOAuthToken("account"), nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	account := newAccount(ctx, "", oauth, nil, derivedDeps{})
+	lease, err := lockfile.Acquire(path+cacheLockSuffix, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	done := make(chan error, 1)
+	go func() { _, err := account.Token(); done <- err }()
+	waitForAccountOperation(t, account)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Token = %v, want cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Token ignored account lifetime cancellation")
+	}
+	if err := account.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitForAccountOperation waits until the test call holds the account mutex;
+// the competing lease stays held until after shutdown has finished.
+func waitForAccountOperation(t *testing.T, account *Account) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if !account.mu.TryLock() {
+			return
+		}
+		account.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("credential operation never acquired the account mutex")
 }
