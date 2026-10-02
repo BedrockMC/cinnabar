@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"slices"
 	"sync"
@@ -27,10 +28,13 @@ var errClosed = errors.New("experience supervisor closed")
 
 // Supervisor runs the helper process of one Experience: it loads the artifact, runs callbacks
 // one at a time, restarts the helper after a fault, and quarantines the Experience when strikes
-// or restarts pile up.
+// or restarts pile up. Every helper after the first must load the artifact that the first one
+// loaded, whose blocks the server registered.
 type Supervisor struct {
 	binary, dir string
 	opts        startOptions
+	// registered is the first load. It is set before the Supervisor is shared and never changes.
+	registered Loaded
 	// log tags its records with the Experience id once the first load names it. The helpers'
 	// stderr forwarders read it concurrently.
 	log         atomic.Pointer[slog.Logger]
@@ -38,7 +42,6 @@ type Supervisor struct {
 
 	// mu serializes Call, Reload and Close, and guards the fields below.
 	mu sync.Mutex
-	id string
 	// proc is nil while no helper runs: after a failed restart, in quarantine, and after Close.
 	proc     *helper
 	seq      uint64
@@ -53,6 +56,8 @@ type startOptions struct {
 	env []string
 	// now is the clock of the strike and restart windows; nil means time.Now.
 	now func() time.Time
+	// spawned, if set, is told of every helper process started, before its load.
+	spawned func(*helper)
 }
 
 // StartSupervisor starts the helper binary, `experience-runtime`, with a cleared environment and
@@ -72,7 +77,7 @@ func startSupervisor(binary, dir string, log *slog.Logger, opts startOptions) (*
 	if err != nil {
 		return nil, Loaded{}, fmt.Errorf("starting the experience in %s: %w", dir, err)
 	}
-	s.id = loaded.ID
+	s.registered = loaded
 	s.log.Store(log.With("experience", loaded.ID))
 	s.proc = proc
 	return s, loaded, nil
@@ -125,7 +130,8 @@ func (s *Supervisor) Quarantined() bool {
 }
 
 // Reload replaces the helper with a fresh one and clears the strikes, the restart history and
-// any quarantine. A failed load is a strike, and the next Call retries the restart.
+// any quarantine. The fresh helper must load the registered artifact (see respawn); when it does
+// not, Reload returns why and leaves the Experience quarantined.
 func (s *Supervisor) Reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -134,15 +140,14 @@ func (s *Supervisor) Reload() error {
 	}
 	s.stopHelper()
 	s.strikes, s.restarts = nil, nil
-	s.quarantined.Store(false)
-	proc, _, err := s.spawn()
+	proc, loaded, err := s.respawn()
 	if err != nil {
-		s.logger().Warn("helper reload failed", "err", err)
-		s.strike()
-		return fmt.Errorf("reloading experience %s: %w", s.id, err)
+		s.quarantine(fmt.Sprintf("reload failed: %v", err))
+		return fmt.Errorf("reloading experience %s: %w", s.registered.ID, err)
 	}
 	s.proc = proc
-	s.logger().Info("helper reloaded")
+	s.quarantined.Store(false)
+	s.logger().Info("helper reloaded", "version", loaded.Version)
 	return nil
 }
 
@@ -161,7 +166,7 @@ func (s *Supervisor) Close() error {
 	err := s.proc.shutdown()
 	s.proc = nil
 	if err != nil {
-		return fmt.Errorf("closing experience %s: %w", s.id, err)
+		return fmt.Errorf("closing experience %s: %w", s.registered.ID, err)
 	}
 	return nil
 }
@@ -176,10 +181,28 @@ func (s *Supervisor) spawn() (*helper, Loaded, error) {
 	if err != nil {
 		return nil, Loaded{}, err
 	}
+	if s.opts.spawned != nil {
+		s.opts.spawned(h)
+	}
 	loaded, err := h.load(s.dir)
 	if err != nil {
 		h.kill()
 		return nil, Loaded{}, err
+	}
+	return h, loaded, nil
+}
+
+// respawn spawns a helper that must load the registered artifact: the same id and the same
+// blocks, in the same order. Only the version may change, so that a reload can ship fixed code. A
+// helper whose load fails or differs is killed.
+func (s *Supervisor) respawn() (*helper, Loaded, error) {
+	h, loaded, err := s.spawn()
+	if err != nil {
+		return nil, Loaded{}, err
+	}
+	if err := matchRegistration(s.registered, loaded); err != nil {
+		h.kill()
+		return nil, Loaded{}, fmt.Errorf("the artifact in %s no longer matches its registration: %w", s.dir, err)
 	}
 	return h, loaded, nil
 }
@@ -196,9 +219,9 @@ func (s *Supervisor) fault(cause error) {
 	}
 }
 
-// restart starts a fresh helper and loads the artifact again. The restart that makes more than
-// maxRestarts within restartWindow quarantines the Experience instead. A failed load is a fault:
-// a strike, with no helper running until the next Call retries.
+// restart starts a fresh helper with the registered artifact (see respawn). The restart that
+// makes more than maxRestarts within restartWindow quarantines the Experience instead. A failed
+// or differing load is a fault: a strike, with no helper running until the next Call retries.
 func (s *Supervisor) restart() error {
 	now := s.opts.now()
 	s.restarts = append(after(s.restarts, now.Add(-restartWindow)), now)
@@ -206,7 +229,7 @@ func (s *Supervisor) restart() error {
 		s.quarantine(fmt.Sprintf("%d restarts within %v", len(s.restarts), restartWindow))
 		return errQuarantined
 	}
-	proc, _, err := s.spawn()
+	proc, loaded, err := s.respawn()
 	if err != nil {
 		s.logger().Warn("helper restart failed", "err", err)
 		if s.strike() {
@@ -215,7 +238,7 @@ func (s *Supervisor) restart() error {
 		return fmt.Errorf("%w: restarting the helper: %v", errHelperFault, err)
 	}
 	s.proc = proc
-	s.logger().Info("helper restarted")
+	s.logger().Info("helper restarted", "version", loaded.Version)
 	return nil
 }
 
@@ -266,6 +289,49 @@ func checkResult(resp Response, seq uint64) error {
 		return errors.New("a result without an outcome")
 	}
 	return nil
+}
+
+// matchRegistration checks that loaded has the id and exactly the blocks of registered, in the
+// same order; the version may differ. The error names the first difference.
+func matchRegistration(registered, loaded Loaded) error {
+	if loaded.ID != registered.ID {
+		return fmt.Errorf("its id changed from %q to %q", registered.ID, loaded.ID)
+	}
+	if reflect.DeepEqual(loaded.Blocks, registered.Blocks) {
+		return nil
+	}
+	ids := func(blocks []BlockDef) []string {
+		out := make([]string, len(blocks))
+		for i, block := range blocks {
+			out[i] = block.ID
+		}
+		return out
+	}
+	if was, now := ids(registered.Blocks), ids(loaded.Blocks); !slices.Equal(was, now) {
+		return fmt.Errorf("its blocks changed from %q to %q", was, now)
+	}
+	for i, was := range registered.Blocks {
+		switch now := loaded.Blocks[i]; {
+		case now.DisplayName != was.DisplayName:
+			return fmt.Errorf("block %s: its display name changed from %q to %q", was.ID, was.DisplayName, now.DisplayName)
+		case !slices.Equal(now.Textures, was.Textures):
+			return fmt.Errorf("block %s: its textures changed from %v to %v", was.ID, was.Textures, now.Textures)
+		case !reflect.DeepEqual(now.Mining, was.Mining):
+			return fmt.Errorf("block %s: its mining changed from %s to %s", was.ID, miningText(was.Mining), miningText(now.Mining))
+		}
+	}
+	return errors.New("its block definitions changed")
+}
+
+// miningText describes m for a message.
+func miningText(m Mining) string {
+	switch {
+	case m.Unbreakable != nil:
+		return "unbreakable"
+	case m.Breakable != nil:
+		return fmt.Sprintf("breakable with hardness %v", m.Breakable.Hardness)
+	}
+	return "none"
 }
 
 // helperEnv is the helper's environment: nothing but what the OS needs to start a process, which
