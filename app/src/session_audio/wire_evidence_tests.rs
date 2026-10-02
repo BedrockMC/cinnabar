@@ -284,3 +284,12 @@ fn production_evidence_precedes_missing_catalog_without_changing_resolution() {
     assert_eq!(enabled.wire_evidence.rows.len(), 1);
     assert!(disabled.wire_evidence.rows.is_empty());
 }
+
+
+#[test]
+fn review_replaced_stream_audio_cannot_enter_the_new_session() {
+    let mut session = SessionAudio::default();
+    session.admit_from_stream(2, 10, 0, vec![event(1, 500), event(2, 1)], None);
+    assert_eq!(session.iter().next().unwrap().sequence(), Some(1));
+    assert_eq!(session.iter().count(), 1);
+}
