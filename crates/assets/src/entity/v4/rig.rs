@@ -75,6 +75,7 @@ pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<()
                 .flatten()
                 .chain(binding.scale_expressions.into_iter().flatten())
                 .any(|index| index as usize >= compiled.molang_expressions.len())
+            || !binding.scale.get().is_finite()
             || binding.scale.get() <= 0.0
         {
             return Err(invalid("entity rig binding index is out of range"));
