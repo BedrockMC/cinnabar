@@ -91,3 +91,31 @@ fn ingress_preserves_the_poll_deadline() {
     assert_eq!(stream.take_committed_controls().len(), 1);
     assert_eq!(stream.inventory_committed_through(), Some(2));
 }
+
+/// Spent commit time cannot reduce a bounded decode handoff to one job per frame.
+#[test]
+fn expired_commit_slice_keeps_decode_workers_fed() {
+    let (mut stream, _) = stream_with_one_expected_sub_chunk();
+    for sequence in 2..6 {
+        stream.enqueue_decode_job(DecodeJob::SubChunks {
+            sequence,
+            batch: SubChunkBatchEvent {
+                dimension: 0,
+                entries: Vec::new(),
+            },
+            ids: stream.decode_ids(0),
+        });
+    }
+    stream.poll_deadline = Some(Instant::now());
+    stream.dispatch_decode_jobs();
+    assert_eq!(stream.in_flight_decode_jobs, 4);
+    assert!(stream.pending_decode.is_empty());
+    for _ in 0..4 {
+        let completion = stream
+            .decode_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        stream.accept_decode_completion(completion);
+    }
+    assert_eq!(stream.in_flight_decode_jobs, 0);
+}

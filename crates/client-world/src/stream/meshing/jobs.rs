@@ -1,12 +1,14 @@
 use super::super::*;
 
 impl WorldStream {
-    pub(in crate::stream) fn dispatch_mesh_jobs(
+    /// Keeps zero-byte removals independent of the initial geometry preparation limit.
+    pub(in crate::stream) fn dispatch_mesh_jobs_with_limits(
         &mut self,
         camera_position: [f32; 3],
         budget: usize,
+        removal_budget: usize,
     ) -> usize {
-        if budget == 0 || self.pending_mesh.is_empty() {
+        if (budget == 0 && removal_budget == 0) || self.pending_mesh.is_empty() {
             return 0;
         }
 
@@ -15,7 +17,7 @@ impl WorldStream {
             forward: self.view_forward,
         };
         let pending_mesh = &self.pending_mesh;
-        self.mesh_scheduler_refresh.refresh(
+        let probe_near = self.mesh_scheduler_refresh.refresh(
             view,
             [
                 &mut self.pending_resident_mesh_ready,
@@ -100,7 +102,7 @@ impl WorldStream {
         let worker_budget = budget.min(
             super::admission::mesh_job_cap(rayon::current_num_threads()).saturating_sub(occupied),
         );
-        let mut resident_candidates =
+        let mut resident_candidates = if probe_near {
             scheduler_refresh::near_camera_keys(view, self.current_dimension)
                 .filter_map(|key| {
                     let pending = self.pending_mesh.get(&key).copied()?;
@@ -114,7 +116,10 @@ impl WorldStream {
                         false,
                     ))
                 })
-                .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
         resident_candidates.truncate(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
         let mut removal_candidates = Vec::new();
@@ -153,10 +158,10 @@ impl WorldStream {
         let removal_authority = self
             .publication_allowance
             .as_ref()
-            .map_or(budget, |allowance| {
+            .map_or(removal_budget, |allowance| {
                 allowance.zero_byte_admission_capacity_with_priority(true)
             })
-            .min(budget)
+            .min(removal_budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
         if removal_authority != 0 {
             for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
@@ -198,13 +203,14 @@ impl WorldStream {
         }
 
         let mut dispatched = 0;
+        let mut examined = false;
         let now = Instant::now();
         resident_candidates.sort_unstable_by(|left, right| right.0.cmp(&left.0));
         for (candidate, pending, queued) in resident_candidates {
             let key = candidate.key;
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
                 || dispatched >= worker_budget
-                || (dispatched != 0 && self.poll_budget_exhausted())
+                || (examined && self.poll_budget_exhausted())
             {
                 if queued {
                     self.pending_resident_mesh_ready.push(candidate);
@@ -219,6 +225,7 @@ impl WorldStream {
                 }
                 continue;
             }
+            examined = true;
             if self.mesh_neighbour_is_due(key, now) {
                 if queued {
                     self.pending_resident_mesh_deferred.push(candidate);
@@ -261,7 +268,7 @@ impl WorldStream {
             let runtime_assets = Arc::clone(&self.runtime_assets);
             let resolved_biome_tints = Arc::clone(&self.resolved_biome_tints);
             let tint_identity = self.biome_tint_identity();
-            rayon::spawn(move || {
+            workers::WORKERS.mesh.spawn(move || {
                 let started = Instant::now();
                 let queue_wait = queue_wait(pending.queued_at, started);
                 let source = Arc::clone(&snapshot.center);

@@ -18,24 +18,24 @@ impl<const N: usize> Default for SchedulerRefresh<N> {
 }
 
 impl<const N: usize> SchedulerRefresh<N> {
-    /// Keeps queue rounds intact while refreshing priorities without a map-wide scan.
+    /// Refreshes bounded queue work and reports whether the view still needs direct local probes.
     pub(super) fn refresh(
         &mut self,
         view: SchedulerView,
         mut queues: [&mut BinaryHeap<PendingSchedulerCandidate>; N],
         deadline: Option<Instant>,
         is_current: impl Fn(SubChunkKey, u64) -> bool,
-    ) {
-        if self.previous.iter().all(BinaryHeap::is_empty)
-            && self
-                .view
-                .is_none_or(|previous| previous.cell() != view.cell())
-        {
+    ) -> bool {
+        let moved = self
+            .view
+            .is_none_or(|previous| previous.cell() != view.cell());
+        if self.previous.iter().all(BinaryHeap::is_empty) && moved {
             for (old, current) in self.previous.iter_mut().zip(&mut queues) {
                 std::mem::swap(old, current);
             }
             self.view = Some(view);
         }
+        let probe_near = moved || self.previous.iter().any(|queue| !queue.is_empty());
         let mut refreshed = false;
         for _ in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
             if refreshed && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -51,6 +51,7 @@ impl<const N: usize> SchedulerRefresh<N> {
                 refreshed = true;
             }
         }
+        probe_near
     }
 }
 
@@ -100,6 +101,19 @@ pub(super) fn near_light_columns(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Once queue priorities match a stationary camera, local probes add no new information.
+    #[test]
+    fn stationary_view_does_not_repeat_local_probes() {
+        let view = SchedulerView {
+            position: [0.0; 3],
+            forward: None,
+        };
+        let mut queue = BinaryHeap::new();
+        let mut refresh = SchedulerRefresh::<1>::default();
+        assert!(refresh.refresh(view, [&mut queue], None, |_, _| true));
+        assert!(!refresh.refresh(view, [&mut queue], None, |_, _| true));
+    }
 
     #[test]
     fn camera_refresh_is_bounded_and_preserves_every_current_record() {

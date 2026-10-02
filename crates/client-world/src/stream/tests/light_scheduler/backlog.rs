@@ -1,5 +1,24 @@
 use super::*;
 
+/// Empty removals drain without consuming geometry worker capacity or exceeding their limit.
+#[test]
+fn empty_removals_have_separate_bounded_service() {
+    let mut stream = lit_stream(1);
+    let removal_budget = 64;
+    for x in 0..removal_budget + 1 {
+        let key = SubChunkKey::new(1, x as i32, 0, 0);
+        stream.record_known_air(key);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    assert_eq!(
+        stream.dispatch_mesh_jobs_with_limits([0.0; 3], 0, removal_budget),
+        0
+    );
+    assert_eq!(stream.mesh_changes.len(), removal_budget);
+    assert_eq!(stream.pending_mesh.len(), 1);
+    assert!(stream.in_flight.is_empty());
+}
+
 /// Times a mesh-heavy transfer after lighting converges, including frame-paced acceptance.
 #[test]
 fn ready_mesh_backlog_drains() {
@@ -209,4 +228,48 @@ fn acknowledge_mesh_changes(stream: &mut WorldStream) {
             }
         }
     }
+}
+
+/// Spending ingress's slice still leaves a full ready worker wave for this frame.
+#[test]
+fn ingress_cannot_spend_the_mesh_service_slice() {
+    let mut stream = lit_stream(1);
+    for x in 0..32 {
+        let key = SubChunkKey::new(1, x * 4, 0, 0);
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    stream.begin_frame_work();
+    stream.frame_deadline = Some(Instant::now() + Duration::from_secs(1));
+    stream.poll_deadline = Some(Instant::now());
+    let report = stream.poll([0.0; 3], 32);
+    assert!(
+        report.mesh_jobs_dispatched > 1,
+        "ingress starved ready meshes: {report:?}"
+    );
+}
+
+/// A burst touching an already pending snapshot cannot grow revision or scan history.
+#[test]
+fn arriving_neighbours_coalesce_before_mesh_snapshot() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .unwrap();
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_changed(key, Instant::now());
+    let pending = stream.pending_mesh[&key];
+    let queued = stream.pending_mesh_scan.len();
+    for _ in 0..100 {
+        stream.mark_changed(key, Instant::now());
+    }
+    assert_eq!(stream.pending_mesh[&key].revision, pending.revision);
+    assert_eq!(stream.pending_mesh[&key].queued_at, pending.queued_at);
+    assert_eq!(stream.pending_mesh_scan.len(), queued);
 }

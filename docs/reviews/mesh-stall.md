@@ -1,5 +1,8 @@
 # Offline mesh backlog investigation
 
+The [follow-up bisect and fixes](mesh-stall-followup.md) supersede the performance
+conclusions below. This report retains the first investigation's historical measurements.
+
 The owner log is from a release build. Local replay measurements use the repository's
 optimized development/test profile, through `cslot`, while other local builds may run.
 They are regression evidence, not release FPS or network-latency acceptance.

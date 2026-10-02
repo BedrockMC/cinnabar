@@ -3634,3 +3634,12 @@ isotropic face rotation, complete repeater/comparator geometry and per-species o
 are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
+
+### Mesh streaming follow-up (incomplete native acceptance)
+
+The offline load/teleport and burst fixtures exercise separate decode, light and mesh
+queues, bounded frame service and coalesced invalidations. Pool sizes, service shares
+and OS priority mappings are Cinnabar implementation choices; exact current-client
+scheduling parity remains incomplete. Native release frame and network-latency
+acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
+and local regression measurements.
