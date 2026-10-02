@@ -40,6 +40,35 @@ label only after initialization succeeds; a broken replacement keeps the previou
 instance. A runtime trap removes its label and disables callbacks until a changed,
 valid component is loaded.
 
+## Visual time changer
+
+`environment.set-time-override(option<u32>)` accepts a fixed tick within one
+Bedrock day; `none` immediately restores tracked server time. Access is denied by
+default; `ModGrants.environment` grants it per instance. The developer component
+switch grants it explicitly. Writes are bounded and transactional; quarantine
+clears the override and successful reload starts fresh. Only atmosphere and light
+inputs consume it: server clock updates and simulation continue, with no packets.
+The override stays fixed regardless of the server daylight-cycle rule.
+
+`examples/mods/time-changer` starts at `Time: Server`; F8 cycles Day, Sunset,
+Night, Midnight, then Server. Night uses the vanilla night preset, distinct from
+midnight. Build with the already installed `wasm32-unknown-unknown` target (otherwise
+install it separately with `rustup target add wasm32-unknown-unknown`):
+
+```sh
+cargo build -p time-changer-mod --target wasm32-unknown-unknown --locked
+cargo run -p mod-host --locked -- pack \
+  target/wasm32-unknown-unknown/debug/time_changer_mod.wasm /tmp/cinnabar-time-changer.wasm
+cargo run -p mod-host --locked -- probe-environment /tmp/cinnabar-time-changer.wasm
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p bedrock-client --locked
+```
+
+Use the shared build limiter for every cargo command, as for hello. The last
+command opens the launcher; the existing offline adapter and snapshot commands
+also accept this component. The dedicated offline cycle/no-packets test is
+`configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set.
+
+
 ## Contract and implementation
 
 `crates/mod-api/wit/extension.wit` is the single interface definition. The guest
@@ -47,12 +76,13 @@ SDK uses `wit-bindgen`; the host independently generates Wasmtime bindings from
 that same file. Copy `examples/mods/hello` to start a mod, adjust its dependency
 path, and implement its generated `Guest` trait. `pack` converts the core WASM
 module and embedded WIT metadata to a component. The guest's actual imports
-declare its requirements; unknown imports fail linking. The prototype's entire
-grant is the two imports selected by the developer environment switch. It has
+declare its requirements; unknown imports fail linking. The prototype's
+grant is HUD, the demo action and environment for the developer-selected mod. It has
 no permission prompt or install manifest yet.
 
 The host admits no WASI, filesystem, network, Bevy, world or GPU import. Each
-callback receives a fresh fuel budget and publishes at most one validated label.
+callback receives a fresh fuel budget and publishes at most one validated label
+and one visual time override.
 Resource limits are defined in `crates/mod-host/src/lib.rs` and `runtime.rs`.
 Invalid text is rejected; labels are plain text and cannot carry formatting codes.
 The label's original host-owned JSON template goes through the existing JSON-UI

@@ -9,6 +9,7 @@ publish = false
 publication-test-support = ["wgpu/noop"]
 
 [dependencies]
+mod-api = { path = "../mod-api" }
 assets = { path = "../assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_asset",
