@@ -11,6 +11,8 @@ mod experience;
 mod fallback;
 mod global_resources;
 mod hud;
+#[cfg(test)]
+mod inbox_tests;
 mod join_progress;
 mod loading_screen;
 #[cfg(test)]
