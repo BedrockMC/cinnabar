@@ -576,4 +576,19 @@ mod tests {
         assert_eq!(system.emitters[0].world_position(0), [0.0, 0.0, -1.0]);
     }
 
+    #[test]
+    fn review_render_stopped_manual_emitter_does_not_burst() {
+        let mut system = ParticleSystem::default();
+        let effect = EFFECT.replace(
+            "minecraft:emitter_rate_instant",
+            "minecraft:emitter_rate_manual",
+        );
+        assert!(system.register_effect(effect.as_bytes()));
+        let mut request = request("burst", 0.0);
+        request.manual_count = Some(3);
+        let id = system.spawn(&request).unwrap();
+        system.stop(id);
+        system.tick(0.01, &EmptyWorld);
+        assert_eq!(system.live_particles(), 0);
+    }
 }

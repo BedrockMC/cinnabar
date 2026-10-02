@@ -234,12 +234,14 @@ impl Emitter {
                 }
             }
             Rate::Manual { max } => {
-                let max = self.eval(max).clamp(0.0, MAX_PARTICLES_PER_BURST);
-                let room = (max - self.particles.len() as f32).max(0.0);
-                to_spawn = (self.manual_pending as f32).min(room);
-                self.manual_pending = 0;
-                // Manual emitters emit their requested burst, then only age out their particles.
-                self.done = true;
+                if active {
+                    let max = self.eval(max).clamp(0.0, MAX_PARTICLES_PER_BURST);
+                    let room = (max - self.particles.len() as f32).max(0.0);
+                    to_spawn = (self.manual_pending as f32).min(room);
+                    self.manual_pending = 0;
+                    // Manual emitters emit once, then only age out their particles.
+                    self.done = true;
+                }
             }
         }
         let count = (to_spawn as usize).min(live_budget.max(1));
