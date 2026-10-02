@@ -143,7 +143,7 @@ func TestCachePublicationNeverExposesPartialToken(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "oauth.json")
 	before, after := token("before", "before-refresh"), token("after", "after-refresh")
-	if err := save(path, before); err != nil {
+	if err := save(path, before, ""); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -154,7 +154,7 @@ func TestCachePublicationNeverExposesPartialToken(t *testing.T) {
 				done <- err
 				return
 			}
-			if !sameToken(got, before) && !sameToken(got, after) {
+			if !sameToken(&got.Token, before) && !sameToken(&got.Token, after) {
 				done <- errors.New("reader saw an incomplete token")
 				return
 			}
@@ -162,10 +162,10 @@ func TestCachePublicationNeverExposesPartialToken(t *testing.T) {
 		done <- nil
 	}()
 	for range 20 {
-		if err := save(path, after); err != nil {
+		if err := save(path, after, ""); err != nil {
 			t.Fatal(err)
 		}
-		if err := save(path, before); err != nil {
+		if err := save(path, before, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -119,7 +119,7 @@ func New(cfg Config) *Service {
 }
 
 func (s *Service) source() (*authcache.Account, error) {
-	if s.cfg.Account == nil || s.signedOut.Load() {
+	if s.cfg.Account == nil || s.signedOut.Load() || s.cfg.Account.Closed() {
 		return nil, control.ErrSignedOut
 	}
 	return s.cfg.Account, nil
@@ -336,7 +336,7 @@ func (s *Service) PublishSignedIn(ctx context.Context) {
 	if tag, err := s.cfg.Gamertag(ctx, s.cfg.Account); err == nil {
 		state.Gamertag = tag
 	}
-	if s.signedOut.Load() {
+	if _, err := s.source(); err != nil {
 		return
 	}
 	s.cfg.Store.SetAuth(state)

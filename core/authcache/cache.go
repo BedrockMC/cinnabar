@@ -10,12 +10,23 @@ import (
 	"io/fs"
 	"path/filepath"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
 )
 
 const maxCacheSize = 64 * 1024
+
+// errAccountChanged prevents an existing runtime from adopting a different sign-in.
+var errAccountChanged = errors.New("authentication: sign-in changed; reopen the account")
+
+// cachedToken adds a stable sign-in generation without changing the OAuth JSON fields.
+// Refreshes keep this value; an interactive sign-in starts a new generation.
+type cachedToken struct {
+	oauth2.Token
+	Generation string `json:"cinnabar_sign_in_generation,omitempty"`
+}
 
 // Config configures the Microsoft token cache and its authentication operations.
 type Config struct {
@@ -59,8 +70,12 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 		return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
 	}
 	if err == nil {
-		s.source = s.refresh(cached, s.writer)
-		s.last = cloneToken(cached)
+		s.generation, s.lastGeneration = cached.Generation, cached.Generation
+		if s.generation == "" {
+			s.generation = uuid.NewString()
+		}
+		s.source = s.refresh(&cached.Token, s.writer)
+		s.last = cloneToken(&cached.Token)
 		if s.source != nil {
 			current, refreshErr := s.source.Token()
 			if refreshErr == nil && validToken(current) {
@@ -78,6 +93,7 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request Microsoft token: %w", err)
 	}
+	s.generation = uuid.NewString()
 	if err := s.persist(current); err != nil {
 		return nil, err
 	}
@@ -91,13 +107,16 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 // persistingSource serializes local callers and holds a stable path.lock lease
 // across each refresh. Atomic token replacement never replaces the lock file.
 type persistingSource struct {
-	gate    chan struct{}
-	ctx     context.Context
-	path    string
-	writer  io.Writer
-	refresh func(*oauth2.Token, io.Writer) oauth2.TokenSource
-	source  oauth2.TokenSource
-	last    *oauth2.Token
+	gate           chan struct{}
+	ctx            context.Context
+	path           string
+	writer         io.Writer
+	refresh        func(*oauth2.Token, io.Writer) oauth2.TokenSource
+	source         oauth2.TokenSource
+	last           *oauth2.Token
+	generation     string
+	lastGeneration string
+	changed        bool
 }
 
 // Token reloads another process's rotation before attempting its own refresh.
@@ -120,18 +139,25 @@ func (s *persistingSource) token(ctx context.Context) (*oauth2.Token, error) {
 	case <-wait.Done():
 		return nil, wait.Err()
 	}
+	if s.changed {
+		return nil, errAccountChanged
+	}
 	lease, err := lockfile.AcquireContext(wait, s.path+cacheLockSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
 	}
 	defer lease.Close()
 	cached, err := load(s.path)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && cached.Generation != s.generation) {
+		s.changed = true
+		return nil, errAccountChanged
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reload Microsoft auth cache: %w", err)
 	}
-	if !sameToken(s.last, cached) {
-		s.source = s.refresh(cached, s.writer)
-		s.last = cloneToken(cached)
+	if !sameToken(s.last, &cached.Token) {
+		s.source = s.refresh(&cached.Token, s.writer)
+		s.last = cloneToken(&cached.Token)
 	}
 	if s.source == nil {
 		return nil, errors.New("create Microsoft refresh source: nil token source")
@@ -151,13 +177,14 @@ func (s *persistingSource) persist(token *oauth2.Token) error {
 	if !validToken(token) {
 		return errors.New("Microsoft token has no refresh token")
 	}
-	if sameToken(s.last, token) {
+	if sameToken(s.last, token) && s.lastGeneration == s.generation {
 		return nil
 	}
-	if err := save(s.path, token); err != nil {
+	if err := save(s.path, token, s.generation); err != nil {
 		return fmt.Errorf("persist Microsoft token: %w", err)
 	}
 	s.last = cloneToken(token)
+	s.lastGeneration = s.generation
 	return nil
 }
 
@@ -177,14 +204,14 @@ func cloneToken(token *oauth2.Token) *oauth2.Token {
 }
 
 // load decodes exactly one bounded OAuth token from a private regular file.
-func load(path string) (*oauth2.Token, error) {
+func load(path string) (*cachedToken, error) {
 	contents, err := loadPrivate(path, maxCacheSize)
 	if err != nil {
 		return nil, err
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(contents))
-	var tok oauth2.Token
+	var tok cachedToken
 	if err := decoder.Decode(&tok); err != nil {
 		return nil, fmt.Errorf("decode auth cache: %w", err)
 	}
@@ -195,15 +222,15 @@ func load(path string) (*oauth2.Token, error) {
 		}
 		return nil, fmt.Errorf("decode auth cache trailing data: %w", err)
 	}
-	if !validToken(&tok) {
+	if !validToken(&tok.Token) {
 		return nil, errors.New("decode auth cache: token has no refresh token")
 	}
 	return &tok, nil
 }
 
 // save atomically publishes the token after checking its serialized size.
-func save(path string, token *oauth2.Token) error {
-	serialized, err := serializeToken(token)
+func save(path string, token *oauth2.Token, generation string) error {
+	serialized, err := serializeToken(token, generation)
 	if err != nil {
 		return err
 	}
@@ -211,7 +238,7 @@ func save(path string, token *oauth2.Token) error {
 }
 
 // serializeToken bounds the credential before allocating its JSON representation.
-func serializeToken(tok *oauth2.Token) ([]byte, error) {
+func serializeToken(tok *oauth2.Token, generation string) ([]byte, error) {
 	if !validToken(tok) {
 		return nil, errors.New("refusing to persist token without refresh token")
 	}
@@ -222,7 +249,7 @@ func serializeToken(tok *oauth2.Token) ([]byte, error) {
 		}
 		remaining -= len(field)
 	}
-	serialized, err := json.Marshal(tok)
+	serialized, err := json.Marshal(cachedToken{Token: *tok, Generation: generation})
 	if err != nil {
 		return nil, err
 	}

@@ -207,17 +207,67 @@ func TestAccountLifetimeCancellationInterruptsOAuthWait(t *testing.T) {
 	}
 }
 
-// waitForAccountOperation waits until the test call holds the account mutex;
+// waitForAccountOperation waits until the test call holds the account gate;
 // the competing lease stays held until after shutdown has finished.
 func waitForAccountOperation(t *testing.T, account *Account) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if !account.mu.TryLock() {
+		if len(account.gate) != 0 {
 			return
 		}
-		account.mu.Unlock()
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("credential operation never acquired the account mutex")
+	t.Fatal("credential operation never acquired the account gate")
+}
+
+func TestAccountQueuedCallRespectsDeadline(t *testing.T) {
+	for _, name := range []string{"XSTS", "device", "service"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "oauth.json")
+			oauth, err := Source(context.Background(), Config{Path: path, Refresh: staticRefresh, Request: func(context.Context, io.Writer) (*oauth2.Token, error) { return testOAuthToken("account"), nil }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			account := newAccount(context.Background(), "", oauth, nil, derivedDeps{})
+			defer account.Close()
+			lease, err := lockfile.Acquire(path+cacheLockSuffix, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.Close()
+			first := make(chan error, 1)
+			go func() { _, err := account.Token(); first <- err }()
+			waitForAccountOperation(t, account)
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			second := make(chan error, 1)
+			go func() {
+				var err error
+				switch name {
+				case "XSTS":
+					_, err = account.XSTSToken(ctx, cachedRelyingParty)
+				case "device":
+					_, err = account.DeviceToken(ctx)
+				case "service":
+					_, err = account.ServiceToken(ctx)
+				}
+				second <- err
+			}()
+			select {
+			case err := <-second:
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("error = %v", err)
+				}
+			case <-time.After(250 * time.Millisecond):
+				t.Error("caller stayed blocked on the account gate for 250ms despite its 50ms deadline")
+			}
+			if err := lease.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-first; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

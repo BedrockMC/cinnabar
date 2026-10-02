@@ -12,7 +12,7 @@ import (
 
 // accountSession carries each XSTS request's context into SISU's synchronous,
 // context-free OAuth callback. PlayFab retains this session and may use it outside
-// the account mutex, so calls are serialized here rather than on the account.
+// the account gate, so calls are serialized here rather than on the account.
 type accountSession struct {
 	session *sisu.Session
 	account *Account

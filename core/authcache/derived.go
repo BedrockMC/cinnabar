@@ -16,7 +16,7 @@ import (
 	"io/fs"
 	"net/url"
 	"path/filepath"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/go-playfab/v2"
@@ -107,7 +107,7 @@ type derivedState struct {
 type Account struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
-	mu          sync.Mutex
+	gate        chan struct{}
 	path        string
 	diagnostics io.Writer
 	oauth       oauth2.TokenSource
@@ -121,7 +121,7 @@ type Account struct {
 	service     *service.Token
 	services    service.TokenSource // native source seeded with service; rebuilt after every restore
 	playfab     *playfab.Client     // logged in on first need; closed only by Close
-	closed      bool
+	closed      atomic.Bool
 	persisted   string
 	rejected    map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
 	deps        derivedDeps
@@ -147,7 +147,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 		diagnostics = io.Discard
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	source := &Account{ctx: ctx, cancel: cancel, diagnostics: diagnostics, oauth: oauth, client: clientBinding(), deps: deps}
+	source := &Account{ctx: ctx, cancel: cancel, gate: make(chan struct{}, 1), diagnostics: diagnostics, oauth: oauth, client: clientBinding(), deps: deps}
 	defer func() {
 		if source.session == nil {
 			source.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, nil)
@@ -196,16 +196,20 @@ func (s *Account) diagnostic(event, layer, reason string) {
 
 // Token returns the OAuth credential only while this account is open.
 func (s *Account) Token() (*oauth2.Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := s.lock(s.ctx); err != nil {
+		return nil, err
+	}
+	defer s.unlock()
 	return s.tokenLocked(s.ctx)
 }
 
 func (s *Account) DeviceToken(ctx context.Context) (*xasd.Token, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.unlock()
 	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
@@ -234,9 +238,11 @@ func (s *Account) DeviceToken(ctx context.Context) (*xasd.Token, error) {
 }
 
 func (s *Account) ProofKey() *ecdsa.PrivateKey {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if err := s.lock(s.ctx); err != nil {
+		return nil
+	}
+	defer s.unlock()
+	if s.closed.Load() {
 		return nil
 	}
 	return s.device.ProofKey()
@@ -245,8 +251,10 @@ func (s *Account) ProofKey() *ecdsa.PrivateKey {
 func (s *Account) XSTSToken(ctx context.Context, relyingParty string) (*xsts.Token, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.unlock()
 	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
@@ -288,9 +296,11 @@ func (s *Account) InvalidateXSTSToken(relyingParty string, rejected *xsts.Token)
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if err := s.lock(ctx); err != nil {
+		return
+	}
+	defer s.unlock()
+	if s.closed.Load() {
 		return
 	}
 	if s.rejected == nil {
@@ -333,8 +343,10 @@ func (s *Account) MultiplayerToken(ctx context.Context, key *ecdsa.PublicKey) (s
 func (s *Account) ServiceToken(ctx context.Context) (*service.Token, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.unlock()
 	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
@@ -380,9 +392,11 @@ func (s *Account) InvalidateServiceToken(rejected *service.Token) {
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if err := s.lock(ctx); err != nil {
+		return
+	}
+	defer s.unlock()
+	if s.closed.Load() {
 		return
 	}
 	lease, _ := s.acquireLeaseLocked(ctx)
@@ -405,8 +419,10 @@ func (s *Account) InvalidateServiceToken(rejected *service.Token) {
 func (s *Account) Environment(ctx context.Context) (*service.AuthorizationEnvironment, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.unlock()
 	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
@@ -420,8 +436,10 @@ func (s *Account) Environment(ctx context.Context) (*service.AuthorizationEnviro
 func (s *Account) PlayFab(ctx context.Context) (*playfab.Client, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer s.unlock()
 	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
@@ -431,12 +449,15 @@ func (s *Account) PlayFab(ctx context.Context) (*playfab.Client, error) {
 	return s.playFabLocked(ctx)
 }
 
+// Closed reports whether shutdown, cancellation or a replaced sign-in ended this runtime.
+func (s *Account) Closed() bool { return s.ctx.Err() != nil }
+
 // Close cancels account operations, ends the PlayFab session and refuses further calls.
 func (s *Account) Close() error {
 	s.cancel() // Wake credential and lease waits before waiting for the account lock.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closed = true
+	s.gate <- struct{}{}
+	defer s.unlock()
+	s.closed.Store(true)
 	s.services = nil
 	return s.closePlayFabLocked()
 }
@@ -477,6 +498,12 @@ func (s *Account) playFabLocked(ctx context.Context) (*playfab.Client, error) {
 		}
 		return nil, errors.New("authentication: PlayFab login")
 	}
+	if ctx.Err() != nil {
+		_ = client.Close()
+		return nil, ctx.Err()
+	}
+	// A source can detect account replacement outside the account gate during SISU refresh.
+	context.AfterFunc(s.ctx, func() { _ = client.Close() })
 	s.playfab = client
 	return client, nil
 }
@@ -510,6 +537,29 @@ func (s *Account) updateOAuthBindingLocked(ctx context.Context) {
 	}
 }
 
+// lock serializes account state while allowing queued callers to cancel their wait.
+func (s *Account) lock(ctx context.Context) error {
+	if s.closed.Load() {
+		return ErrAccountClosed
+	}
+	select {
+	case s.gate <- struct{}{}:
+		if s.closed.Load() {
+			s.unlock()
+			return ErrAccountClosed
+		}
+		return nil
+	case <-ctx.Done():
+		if s.closed.Load() {
+			return ErrAccountClosed
+		}
+		return ctx.Err()
+	}
+}
+
+// unlock lets the next queued account operation access the protected state.
+func (s *Account) unlock() { <-s.gate }
+
 // operationContext ends a caller's work when either it or the account closes.
 func (s *Account) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -533,6 +583,11 @@ func (s *Account) oauthToken(ctx context.Context) (*oauth2.Token, error) {
 	} else {
 		token, err = s.oauth.Token()
 	}
+	if errors.Is(err, errAccountChanged) {
+		s.closed.Store(true)
+		s.cancel()
+		return nil, err
+	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -541,7 +596,7 @@ func (s *Account) oauthToken(ctx context.Context) (*oauth2.Token, error) {
 
 // tokenLocked applies the account lifecycle and OAuth binding rules at one boundary.
 func (s *Account) tokenLocked(ctx context.Context) (*oauth2.Token, error) {
-	if s.closed {
+	if s.closed.Load() {
 		return nil, ErrAccountClosed
 	}
 	if err := ctx.Err(); err != nil {
@@ -549,6 +604,9 @@ func (s *Account) tokenLocked(ctx context.Context) (*oauth2.Token, error) {
 	}
 	token, err := s.oauthToken(ctx)
 	if err != nil || token == nil {
+		if errors.Is(err, errAccountChanged) {
+			return nil, err
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
