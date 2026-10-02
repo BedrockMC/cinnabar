@@ -359,7 +359,7 @@ func TestStoreInstalledRoundTrip(t *testing.T) {
 	if got := s.Installed(); len(got) != 0 {
 		t.Fatalf("fresh Installed = %v, want empty", got)
 	}
-	if err := s.SetInstalled([]string{"beta", "alpha", "beta"}); err != nil {
+	if err := s.SetInstalled([]Loaded{{ID: "beta"}, {ID: "alpha"}, {ID: "beta"}}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"alpha", "beta"}
@@ -396,7 +396,7 @@ func TestStoreExperienceNamedInstalledKeepsItsData(t *testing.T) {
 	if err := s.SetData("installed", k, []byte("mine"), true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetInstalled([]string{"installed", "alpha"}); err != nil {
+	if err := s.SetInstalled([]Loaded{{ID: "installed"}, {ID: "alpha"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Flush(); err != nil {

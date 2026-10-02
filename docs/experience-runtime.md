@@ -16,8 +16,9 @@ bedrock-local-server -dir <world> -addr <addr> -experiences <dir> -experience-ru
 
 `make local-server` builds both `bedrock-local-server` and `experience-runtime`
 (`cargo build -p experience-runtime --release --locked`). `-experience-runtime` is required with
-`-experiences`. Without `-experiences` the server behaves exactly as before: no helper is
-spawned and no Experience data is read or written.
+`-experiences`. Without `-experiences`, startup checks any existing installation manifest and
+refuses a world that requires Experiences. Fresh worlds create no Experience files and spawn no
+helper.
 
 Startup, all before the server listens and prints `ready`; any failure exits with an error:
 
@@ -25,8 +26,8 @@ Startup, all before the server listens and prints `ready`; any failure exits wit
    taken in byte order of the directory names.
 2. The private store opens at `<world>/experience-data`.
 3. One helper per artifact starts and loads it. Two artifacts with the same id fail startup.
-4. Every id recorded as installed in the store must have been started; a missing one fails
-   startup naming it, so saved blocks are never silently converted.
+4. Every recorded Experience and block ID must still be provided. A missing definition fails
+   startup before the world opens. Additions, ordering and presentation changes are allowed.
 5. The blocks are registered with Dragonfly before `server.Config.New`, which builds the
    resource pack from them, each Experience getting a creative group named after its id. The
    started ids are then recorded as installed.
@@ -177,8 +178,14 @@ dirty, and on shutdown. **Crash window:** a crash loses up to one flush interval
 The world and the store are saved independently, so after a crash a block can exist without its
 latest data.
 
-`_installed.json` in the same directory records the installed ids (the underscore cannot start an
-id). Removing an installed artifact fails startup.
+`_installed.json` records installed Experience IDs and their required block IDs together. Removing
+an artifact or one of its block definitions fails startup. Both lists are replaced atomically.
+
+An older ID-only manifest requires explicit migration: restore the original installed artifacts,
+then add a `"blocks"` object mapping each recorded Experience ID to all of its original block IDs
+(for example, `"blocks": {"probe": ["probe:counter"]}`). Do not infer these IDs from an updated
+artifact that may have removed definitions. Startup refuses an incomplete manifest instead of
+risking unreadable saved chunks.
 
 ## Strikes, quarantine and reload
 

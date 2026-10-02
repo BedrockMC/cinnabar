@@ -133,7 +133,7 @@ func TestMissingInstalledExperienceFailsStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetInstalled([]string{"gone"}); err != nil {
+	if err := store.SetInstalled([]experience.Loaded{{ID: "gone"}}); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{
