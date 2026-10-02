@@ -155,7 +155,10 @@ impl MovementTicker {
     /// whether this sample carries the assertion; the caller must consume the
     /// pending state only after the transport accepts the packet.
     pub(super) fn project_pending_teleport_ack(&self, sample: &mut QueuedPhysicsSample) -> bool {
-        sample.snapshot.flags = sample.snapshot.flags.with_mask(PlayerInputFlags::HANDLED_TELEPORT, false);
+        sample.snapshot.flags = sample
+            .snapshot
+            .flags
+            .with_mask(PlayerInputFlags::HANDLED_TELEPORT, false);
         if self.pending_teleport_ack.is_none() {
             return false;
         }
