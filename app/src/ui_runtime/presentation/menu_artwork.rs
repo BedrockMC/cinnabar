@@ -183,11 +183,14 @@ pub(super) fn rebase(refs: &HashMap<String, IconRef>, first_page: u16) -> HashMa
         .collect()
 }
 
+/// A source's name, side and content hash; packs reuse texture paths with other pixels.
+type DecodeKey = (String, u32, u64);
+
 /// Decoded art by source and side, plus sources that failed (both bounded).
 #[derive(Default)]
 struct DecodeCache {
-    decoded: HashMap<(String, u32), Arc<Artwork>>,
-    failed: VecDeque<(String, u32)>,
+    decoded: HashMap<DecodeKey, Arc<Artwork>>,
+    failed: VecDeque<DecodeKey>,
 }
 
 const MAX_DECODED: usize = 160;
@@ -226,14 +229,15 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
 #[derive(Clone)]
 enum Source {
     File(String, u32),
-    Bytes(String, Arc<[u8]>),
+    /// An engine texture under its art key, with its content hash.
+    Bytes(String, Arc<[u8]>, u64),
 }
 
 impl Source {
-    fn key(&self) -> (String, u32) {
+    fn key(&self) -> DecodeKey {
         match self {
-            Self::File(path, side) => (path.clone(), *side),
-            Self::Bytes(key, _) => (key.clone(), WHOLE_PAGE),
+            Self::File(path, side) => (path.clone(), *side, 0),
+            Self::Bytes(key, _, hash) => (key.clone(), WHOLE_PAGE, *hash),
         }
     }
 }
@@ -258,7 +262,7 @@ impl DecodeCache {
             .map(|source| {
                 let art = match source {
                     Source::File(path, side) => decode(Path::new(path), *side),
-                    Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_PAGE),
+                    Source::Bytes(_, bytes, _) => decode_bytes(bytes, WHOLE_PAGE),
                 };
                 (source.key(), art)
             })
@@ -302,10 +306,15 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .take(MAX_ARTWORKS)
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
         .map(|(path, side)| Source::File(path.clone(), (*side).min(MAX_ARTWORK_SIDE)));
-    let engine = set
-        .oversized
-        .iter()
-        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
+    let engine = set.oversized.iter().map(|(key, bytes)| {
+        let mut hash = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&**bytes, &mut hash);
+        Source::Bytes(
+            format!("{SERVER_ART_PREFIX}{key}"),
+            Arc::clone(bytes),
+            std::hash::Hasher::finish(&hash),
+        )
+    });
     let mut all: Vec<_> = files.collect();
     all.extend(engine.filter(|source| unique.insert(source.key().0)));
     all
@@ -562,6 +571,26 @@ mod tests {
         assert_eq!([u1 - u0, v1 - v0], [1022, 343]);
         // Cinnabar's logo keeps the plain title key.
         assert_ne!(atlas.refs[TITLE_KEY].uv, art.uv);
+    }
+
+    // Two packs' oversized images at one path must not share decoded pixels.
+    #[test]
+    fn replaced_oversized_bytes_at_the_same_key_decode_again() {
+        let set = |pixel| ArtworkSet {
+            paths: Vec::new(),
+            oversized: vec![(TITLE_KEY.to_owned(), png(1992, 669, pixel).into())],
+        };
+        let mut cache = DecodeCache::default();
+        let first = set([200, 30, 40, 255]);
+        cache.decode(&cache.missing(&first));
+        let second = set([10, 200, 40, 255]);
+        cache.decode(&cache.missing(&second));
+        let atlas = pack(&second, &cache, 1, true);
+        let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
+        let side = render::UI_ART_PAGE_SIDE as usize;
+        let at = (usize::from(art.uv[1]) * side + usize::from(art.uv[0])) * 4;
+        let pixels = atlas.pages[usize::from(art.page)].pixels();
+        assert_eq!(&pixels[at..at + 4], &[10, 200, 40, 255]);
     }
 
     // Artwork stays straight alpha, as the UI shader samples it.
