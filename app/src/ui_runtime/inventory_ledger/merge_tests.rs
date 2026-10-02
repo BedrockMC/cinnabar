@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 
+mod blocks;
+
 fn entry(
     network_id: i32,
     identifier: &str,
@@ -308,22 +310,6 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
     let cases = [
         (None, stack(6, 60, 60), stack(6, 33, 3)),
         (Some(apple_registry()), stack(7, 60, 60), stack(7, 33, 3)),
-        (
-            Some(apple_registry()),
-            NetworkItemStack {
-                metadata: 1,
-                ..stack(6, 60, 60)
-            },
-            stack(6, 33, 3),
-        ),
-        (
-            Some(apple_registry()),
-            NetworkItemStack {
-                block_runtime_id: 1,
-                ..stack(6, 60, 60)
-            },
-            stack(6, 33, 3),
-        ),
         (
             Some(apple_registry()),
             stack(6, 60, 60),

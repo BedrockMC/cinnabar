@@ -536,3 +536,40 @@ fn toggles_publish_their_grid_collection_name() {
         json!("rows")
     );
 }
+
+// Anonymous array entries (vanilla `"@ns.radio_with_label"` items) share a name, not hover.
+#[test]
+fn anonymous_siblings_hover_and_click_independently() {
+    let row = |index: usize| {
+        let mut core = toggle(
+            "core",
+            json!({
+                "toggle_name": format!("radio_{index}"),
+                "checked_control": format!("on_{index}"),
+                "unchecked_control": format!("off_{index}"),
+                "unchecked_hover_control": format!("hover_{index}"),
+            }),
+        );
+        core.children = ["on", "off", "hover"]
+            .iter()
+            .map(|state| ctrl(&format!("{state}_{index}"), "panel", json!({}), vec![]))
+            .collect();
+        ctrl(
+            "",
+            "panel",
+            json!({ "size": [20, 20], "offset": [0, 30 * index] }),
+            vec![core],
+        )
+    };
+    let mut screen = Screen::new(page(vec![row(0), row(1)]));
+    let regions = screen.regions();
+    assert_ne!(regions[0].key, regions[1].key);
+    screen.hover([5.0, 5.0]);
+    assert!(screen.visible("hover_0") && !screen.visible("hover_1"));
+    assert!(screen.visible("off_1"));
+    let events = screen.click([5.0, 35.0]);
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ScreenEvent::Toggle { name, checked: true, .. } if name == "radio_1"
+    )));
+}

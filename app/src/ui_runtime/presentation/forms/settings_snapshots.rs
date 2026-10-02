@@ -57,6 +57,11 @@ fn settings_category_button_pitch_matches_vanilla_toggle_height() {
 
 /// Render one desktop section selected by its controller variable.
 fn section(variable: &str) {
+    section_with(variable, &format!("settings-{variable}"), |_| {});
+}
+
+/// Render a section after adjusting the menu view, such as opening a dropdown.
+fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut crate::menu::MenuView)) {
     let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
     if variable == "storage_management_forced_index" {
         menu.activate(crate::menu::MenuAction::SettingsSection(
@@ -72,7 +77,8 @@ fn section(variable: &str) {
         .iter()
         .find_map(|(name, index)| (*name == variable).then_some(*index))
         .expect("known settings section");
-    super::play_flow_snapshots::snapshot(&view, &format!("settings-{variable}"));
+    adjust(&mut view);
+    super::play_flow_snapshots::snapshot(&view, name);
 }
 
 #[test]
@@ -106,6 +112,19 @@ fn settings_video() {
 }
 
 #[test]
+fn settings_video_graphics_mode_open() {
+    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "graphics_mode")
+        .unwrap();
+    section_with(
+        "video_forced_index",
+        "settings-video-graphics-open",
+        |view| view.settings_dropdown = Some(index as u16),
+    );
+}
+
+#[test]
 fn settings_audio() {
     section("sound_forced_index");
 }
@@ -128,4 +147,44 @@ fn settings_storage() {
 #[test]
 fn settings_language() {
     section("language_forced_index");
+}
+
+// Every row of an open settings dropdown is its own click target for its own choice.
+#[test]
+fn open_graphics_mode_rows_select_their_own_choice() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "graphics_mode")
+        .unwrap() as u16;
+    let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+    view.screen = MenuScreen::Settings;
+    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, at)| (*name == "video_forced_index").then_some(*at))
+        .unwrap();
+    view.settings_dropdown = Some(index);
+    presentation.set_menu_view(Some(view));
+    presentation
+        .build(
+            &crate::ui_runtime::UiRuntime::new(1),
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    for choice in 0..2 {
+        let action = crate::menu::MenuAction::SettingsOption(index, choice);
+        let row = presentation
+            .menu_hit_targets
+            .iter()
+            .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
+            .expect("a row for each choice");
+        let (min, max) = (row.min(), row.max());
+        let centre =
+            ui::UiPoint::new((min.x() + max.x()) / 2.0, (min.y() + max.y()) / 2.0).unwrap();
+        assert_eq!(presentation.hit_test_menu(centre), Some(action));
+    }
 }

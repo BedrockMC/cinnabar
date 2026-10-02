@@ -106,6 +106,35 @@ impl PlayerInventoryLedger {
         let Some(personal) = self.personal else {
             return;
         };
+        if matches!(
+            personal,
+            PersonalWindow::Closing { .. }
+                | PersonalWindow::Opening {
+                    desired_open: false,
+                    ..
+                }
+        ) {
+            return;
+        }
+        let returning = if matches!(
+            personal,
+            PersonalWindow::Open { .. }
+                | PersonalWindow::Opening {
+                    admitted: true,
+                    desired_open: true,
+                    ..
+                }
+        ) {
+            match self.return_crafting_on_close() {
+                Ok(returning) => returning,
+                Err(error) => {
+                    self.note_close_return_failure(error);
+                    return;
+                }
+            }
+        } else {
+            false
+        };
         let generation = match personal {
             PersonalWindow::Opening {
                 generation,
@@ -151,7 +180,11 @@ impl PlayerInventoryLedger {
             }
             PersonalWindow::Closing { generation, .. } => generation,
         };
-        self.cancel_unsent_personal_prediction(generation);
+        if returning {
+            self.retain_close_returns(PendingCloseOwner::Personal(generation));
+        } else {
+            self.cancel_unsent_personal_prediction(generation);
+        }
     }
 
     fn cancel_unsent_personal_prediction(&mut self, generation: u64) {
