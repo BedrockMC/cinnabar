@@ -101,6 +101,7 @@ impl PartialOrd for ChunkUploadPriority {
 }
 
 pub(in crate::chunk) struct PendingUpload {
+    pub(in crate::chunk) previous_generation: Option<u64>,
     pub(in crate::chunk) mesh: ChunkMesh,
     pub(in crate::chunk) biome: PackedBiomeRecord,
     pub(in crate::chunk) tint_identity: ChunkBiomeTintIdentity,
@@ -111,6 +112,7 @@ pub(in crate::chunk) struct PendingUpload {
 }
 
 pub(in crate::chunk) struct PendingRemoval {
+    pub(in crate::chunk) previous_generation: Option<u64>,
     pub(in crate::chunk) priority: ChunkUploadPriority,
     pub(in crate::chunk) token: Option<ChunkUploadToken>,
     pub(in crate::chunk) publication_permit: Option<PublicationPermit>,
