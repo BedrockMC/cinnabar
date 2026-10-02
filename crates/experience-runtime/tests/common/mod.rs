@@ -1,4 +1,5 @@
 //! Builds guest crates for wasm32 and assembles them into temporary server artifacts.
+#![allow(dead_code, reason = "each test binary uses only some of these helpers")]
 
 use std::fs;
 use std::path::{Path, PathBuf};

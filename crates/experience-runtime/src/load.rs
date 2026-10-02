@@ -38,7 +38,8 @@ pub struct Loaded {
     pub manifest: Manifest,
     /// Texture paths are absolute.
     pub blocks: Vec<protocol::BlockDef>,
-    #[expect(dead_code, reason = "callbacks instantiate from it; none run yet")]
+    /// The ids of `blocks`, shared by every callback.
+    pub(crate) block_ids: Arc<[String]>,
     pub(crate) pre: ServerPre<HostState>,
 }
 
@@ -115,9 +116,11 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     })?;
     let defs = register(engine, &pre, &manifest.id)?;
     let blocks = validate_blocks(dir, &manifest, defs)?;
+    let block_ids = blocks.iter().map(|block| block.id.clone()).collect();
     Ok(Loaded {
         manifest,
         blocks,
+        block_ids,
         pre,
     })
 }

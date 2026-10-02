@@ -15,7 +15,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockPos {
     pub x: i32,
