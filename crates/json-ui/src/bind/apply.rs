@@ -37,6 +37,7 @@ impl Binder<'_> {
                     memory.seen.insert(index, visible);
                     changed
                 }
+                Condition::Once if host_owned_text(control, binding) => true,
                 Condition::Once => {
                     let waiting = binding
                         .collection()
@@ -205,4 +206,11 @@ pub(super) fn widget_defaults(control: &ResolvedControl, own: &mut Bag) {
         own.entry("#toggle_state".to_owned())
             .or_insert(Scalar::Bool(checked));
     }
+}
+
+/// An edit box's content binding seeds the text vanilla's TextEditComponent then owns;
+/// here the host owns that text, so the binding reads it every refresh.
+fn host_owned_text(control: &ResolvedControl, binding: &Binding) -> bool {
+    control.control_type.as_deref() == Some("edit_box")
+        && matches!(&binding.kind, Kind::Global { rename, .. } | Kind::Collection { rename, .. } if rename == "#item_name")
 }

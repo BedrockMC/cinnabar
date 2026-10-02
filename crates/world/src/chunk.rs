@@ -133,7 +133,7 @@ impl SubChunkKey {
 /// Sparse block data for one chunk column.
 #[derive(Debug, Default)]
 pub struct Chunk {
-    pub(crate) sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
+    pub(crate) sub_chunks: Arc<BTreeMap<i32, Arc<SubChunk>>>,
     pub(crate) biomes: Option<DecodedBiomeColumn>,
     pub(crate) block_entities: BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>,
     pub(crate) block_entity_bytes: usize,
