@@ -18,6 +18,7 @@ mod fog_transition;
 mod font;
 mod fsb;
 mod glyph_sheet;
+pub mod gui_item;
 mod hud;
 mod hud_extras;
 mod icon;

@@ -1,7 +1,7 @@
 //! Worn armor and the held item on the preview model: the humanoid armor
 //! boxes (`geometry.humanoid.armor.*`: helmet and chestplate inflated one
 //! pixel, leggings half a pixel, left limbs mirrored) over their 64x32 armor
-//! textures, and the held item's icon in the right hand.
+//! textures. Native held model sources are separate from the CPU icon fallback.
 
 use std::sync::Arc;
 
@@ -39,7 +39,56 @@ impl PreviewTexture {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct PreviewEquipment {
     pub(crate) armor: [Option<PreviewTexture>; 4],
+    /// Small compatibility raster only; GPU previews use `hands` and real models.
     pub(crate) held: Option<PreviewTexture>,
+    pub(crate) hands: [Option<PreviewHandItem>; 2],
+}
+
+/// Identity and authoritative item state used to select each hand's native model.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PreviewHandItem {
+    pub(crate) identifier: Arc<str>,
+    pub(crate) metadata: u32,
+    pub(crate) charged_projectile: Option<Arc<str>>,
+}
+
+/// Real item-space geometry and the source atlas region, never a projected GUI icon.
+#[derive(Clone, Debug)]
+pub(crate) struct PreviewHeldModel {
+    pub(crate) source: super::IconRef,
+    pub(crate) vertices: Arc<[render::ActorRigVertex]>,
+    pub(crate) placements: [PreviewHeldPlacement; 2],
+    /// Native player `rightItem`/`leftItem` bind origins in mirrored rig blocks.
+    pub(crate) hand_pivots: [[f32; 3]; 2],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PreviewHeldPlacement {
+    Sprite {
+        hand_equipped: bool,
+    },
+    Block,
+    /// Authored bound-root channels, already in the native mirrored rig frame.
+    Authored {
+        bone: render::RenderBoneTransform,
+        pivot: [f32; 3],
+    },
+}
+
+impl PreviewHeldPlacement {
+    /// `setupAttachableNoChecks` preserves expression-bound ModelPart defaults:
+    /// its root origin is authored pivot Y minus the shared model-part height.
+    /// Keep the mesh's original bind pivot: it is still subtracted during skinning.
+    pub(crate) fn authored(
+        mut bone: render::RenderBoneTransform,
+        pivot: [f32; 3],
+        expression_bound: bool,
+    ) -> Self {
+        if expression_bound {
+            bone.translation_scale[1] -= client_world::MODEL_PART_ORIGIN_Y / 16.0;
+        }
+        Self::Authored { bone, pivot }
+    }
 }
 
 /// One armor box: biped part, min corner and size in pixels, inflation, UV

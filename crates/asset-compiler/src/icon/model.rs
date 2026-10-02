@@ -5,6 +5,7 @@
 
 use std::{borrow::Cow, sync::Arc};
 
+use assets::gui_item::{CUBE_FACES, GUI_ITEM_SIDE};
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
@@ -276,25 +277,19 @@ fn brightness(corners: [[f32; 3]; 4]) -> f32 {
         (u[0] * v[1] - u[1] * v[0]).abs(),
     ];
     if normal[1].abs() >= normal[0] && normal[1].abs() >= normal[2] {
-        1.
+        CUBE_FACES[0].3
     } else if normal[0] >= normal[2] {
-        f32::from_bits(0x3f3ae148)
+        CUBE_FACES[2].3
     } else {
-        0.5
+        CUBE_FACES[1].3
     }
 }
 
 /// The cube thumbnail's projection at twice its scale, plus a view depth (smaller is nearer).
-fn project([x, y, z]: [f32; 3]) -> [f32; 3] {
-    let (sx, cx) = (f32::from_bits(0xbeffffff), f32::from_bits(0xbf5db3d7));
-    let (sy, cy) = (f32::from_bits(0x3f3504f3), f32::from_bits(0x3f3504f3));
-    let rotated_x = cy * x + sy * z;
-    let rotated_z = -sy * x + cy * z;
-    [
-        2. * (1. + 10. * rotated_x),
-        2. * (f32::from_bits(0x4147ae14) + 10. * (cx * y - sx * rotated_z)),
-        sx * y + cx * rotated_z,
-    ]
+fn project(point: [f32; 3]) -> [f32; 3] {
+    let [x, y, z] = assets::gui_item::project_cube(point);
+    let scale = SIDE as f32 / GUI_ITEM_SIDE;
+    [scale * x, scale * y, z]
 }
 
 fn edge(a: [f32; 3], b: [f32; 3], p: [f32; 2]) -> f32 {

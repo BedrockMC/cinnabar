@@ -194,6 +194,8 @@ pub(super) struct ServerAtlas {
     pack: Option<PackTextures>,
     /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
     extra: RefCell<BTreeMap<String, Option<Source>>>,
+    /// Local vanilla sidecars inherit independently from the texture image.
+    extra_sidecars: RefCell<BTreeMap<String, Option<TextureMeta>>>,
     /// The local vanilla resource pack vanilla image paths read from.
     vanilla: Option<PathBuf>,
     remote: Option<RemoteImages>,
@@ -387,6 +389,36 @@ impl ServerAtlas {
         self.fallback(key)
             .as_ref()
             .map(|source| source.size.map(f64::from))
+    }
+
+    /// A local vanilla sidecar when neither the server pack nor carrier has it.
+    /// Cache misses as well as hits, matching the bounded image fallback cache.
+    pub(super) fn fallback_sidecar(&self, key: &str) -> Option<TextureMeta> {
+        if let Some(found) = self.extra_sidecars.borrow().get(key) {
+            return *found;
+        }
+        if is_remote(key) {
+            return None;
+        }
+        let root = self.vanilla.as_ref()?;
+        let relative = key.strip_prefix(VANILLA_IN_PACKAGE).unwrap_or(key);
+        let found = (key.starts_with("textures/") || relative != key)
+            .then(|| {
+                let path = root.join(format!("{relative}.json"));
+                exact_case(&path).then_some(())?;
+                (std::fs::metadata(&path).ok()?.len() <= MAX_PACK_TEXTURE_BYTES).then_some(())?;
+                let bytes = std::fs::read(path).ok()?;
+                let text = resource_pack::normalize_jsonc(&bytes)?;
+                let value = serde_json::from_slice(&text).ok()?;
+                parse_texture_meta(&value)
+            })
+            .flatten();
+        let mut extra = self.extra_sidecars.borrow_mut();
+        if extra.len() >= MAX_EXTRA {
+            extra.pop_first();
+        }
+        extra.insert(key.to_owned(), found);
+        found
     }
 
     /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
@@ -798,6 +830,32 @@ mod tests {
         let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(root.clone()), None);
         assert_eq!(atlas.fallback_size("textures/ui/white"), Some([2.0, 2.0]));
         assert_eq!(atlas.fallback_size("textures/ui/White"), None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn vanilla_sidecars_inherit_without_an_image_and_keep_exact_case() {
+        let root = std::env::temp_dir().join(format!(
+            "cinnabar-sidecar-case-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let ui = root.join("textures/ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        let path = ui.join("border.json");
+        std::fs::write(&path, br#"{"base_size":[16,16],"nineslice_size":4}"#).unwrap();
+        let atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(root.clone()), None);
+        assert!(atlas.fallback_size("textures/ui/border").is_none());
+        assert!(atlas.sidecar("textures/ui/border").is_none());
+        let meta = atlas.fallback_sidecar("textures/ui/border").unwrap();
+        assert_eq!(meta.base_size, [16.0, 16.0]);
+        assert_eq!(atlas.fallback_sidecar("textures/ui/Border"), None);
+        assert_eq!(
+            atlas.fallback_sidecar(&format!("{VANILLA_IN_PACKAGE}textures/ui/border")),
+            Some(meta)
+        );
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(atlas.fallback_sidecar("textures/ui/border"), Some(meta));
         let _ = std::fs::remove_dir_all(root);
     }
 }

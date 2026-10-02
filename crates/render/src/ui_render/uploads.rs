@@ -100,20 +100,24 @@ mod tests {
             position: [0.0; 2],
             clip_z: 0.0,
             clip_w: 1.0,
-            uv: [0; 2],
+            uv: [0.0; 2],
             color: [0; 4],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         };
         let old = [vertex; 3];
-        for field in 0..6 {
+        for field in 0..8 {
             let mut new = old;
             match field {
                 0 => new[1].position[0] = -0.0,
-                1 => new[1].uv[1] = 1,
+                1 => new[1].uv[1] = 0.5,
                 2 => new[1].color[3] = 1,
                 3 => new[1].style_flags = 1,
                 4 => new[1].clip_z = 0.5,
-                _ => new[1].clip_w = 2.0,
+                5 => new[1].clip_w = 2.0,
+                6 => new[1].alpha_cutoff = 0.1,
+                _ => new[1].model_light = 0.718_629,
             }
             assert_eq!(changed_range(&old, &new, false), 1..2);
         }
@@ -142,9 +146,11 @@ mod tests {
             position: [0.0; 2],
             clip_z: 0.0,
             clip_w: 1.0,
-            uv: [0; 2],
+            uv: [0.0; 2],
             color: [255; 4],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         };
         let old = vec![vertex; 12_000];
         let mut new = old.clone();

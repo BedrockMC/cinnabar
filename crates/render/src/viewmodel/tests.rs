@@ -390,10 +390,10 @@ fn fallback_input() -> crate::ui::UiRenderInput {
         viewport_size: test_token().viewport,
         safe_area: [0; 4],
         vertices: [
-            ([1., 2.], [4, 8]),
-            ([3., 2.], [12, 8]),
-            ([3., 4.], [12, 24]),
-            ([1., 4.], [4, 24]),
+            ([1., 2.], [4., 8.]),
+            ([3., 2.], [12., 8.]),
+            ([3., 4.], [12., 24.]),
+            ([1., 4.], [4., 24.]),
         ]
         .map(|(position, uv)| UiRenderVertex {
             position,
@@ -402,6 +402,8 @@ fn fallback_input() -> crate::ui::UiRenderInput {
             uv,
             color: [255; 4],
             style_flags: 0,
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         })
         .into(),
         indices: Arc::from([0, 1, 2, 0, 2, 3]),
@@ -485,7 +487,7 @@ fn cube_fallback_binds_rotated_edge_quad_but_never_relaxes_empty_hand() {
             }
             4 => {
                 let mut vertices = invalid.vertices.to_vec();
-                vertices[0].uv[0] += 1;
+                vertices[0].uv[0] += 1.0;
                 invalid.vertices = vertices.into();
             }
             5 => {
@@ -509,6 +511,20 @@ fn cube_fallback_binds_rotated_edge_quad_but_never_relaxes_empty_hand() {
     assert!(!empty.bind_cube_cpu_fallback(&fallback_input(), 0, [4, 8, 12, 24], &gate));
     assert!(empty.frame.is_none());
 }
+#[test]
+fn cpu_fallback_requires_exact_float_texel_edges_not_rounded_model_centers() {
+    let gate = ViewmodelCompletionGate::default();
+    let mut scene = fallback_scene(&gate);
+    let mut input = fallback_input();
+    assert!(scene.bind_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
+
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].uv[0] += 0.5;
+    input.vertices = vertices.into();
+    assert!(!scene.bind_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
+    assert!(scene.frame.is_none());
+}
+
 #[test]
 fn cpu_fallback_join_is_unique_bounded_and_ui_revision_does_not_reset_lifetime_completion() {
     let gate = ViewmodelCompletionGate::default();

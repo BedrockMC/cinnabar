@@ -4,6 +4,7 @@
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
 mod scene_policy;
+mod tooltip;
 
 use std::{borrow::Borrow, cell::RefCell, sync::Arc};
 
@@ -19,6 +20,7 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 
 mod fill_renderers;
 pub(crate) mod hud_renderers;
+mod item_renderer;
 mod menu_renderers;
 mod pack_catalog;
 pub(super) use pack_catalog::layer_pack_catalog;
@@ -418,6 +420,9 @@ fn render_with<R: Borrow<FormRender>>(
         .chain(out.overlay)
         .filter_map(|node| match &node.draw {
             Draw::Sprite { texture, .. } => Some(texture.as_str()),
+            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
+                Some(tooltip::BACKGROUND_TEXTURE)
+            }
             _ => None,
         })
         .chain(
@@ -567,7 +572,6 @@ impl Painter<'_> {
         dest: [f32; 4],
         alpha: impl Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
-        let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
         if let Some(hud) = self.art.hud
             && hud_renderers::paint(self, hud, renderer, data, dest, &alpha)
         {
@@ -575,13 +579,7 @@ impl Painter<'_> {
         }
         match renderer {
             "inventory_item_renderer" => {
-                let icon = match number("#item_renderer_data") {
-                    Some(index) => self.art.icons.get(index as usize)?,
-                    None => {
-                        let key = number("#item_id_aux")? as i64;
-                        &self.art.id_aux.iter().find(|(id, _)| *id == key)?.1
-                    }
-                };
+                let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;
                 Some((icon.visual(alpha([255; 4])), dest))
             }
             "progress_bar_renderer" => {
@@ -710,7 +708,7 @@ impl Painter<'_> {
         };
         // Tooltips ignore the hovered control's clip.
         let clip = match &node.draw {
-            Draw::Custom { renderer, .. } if renderer == "hover_text_renderer" => self.screen,
+            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => self.screen,
             _ => clip,
         };
         if let Draw::Text {
@@ -761,17 +759,14 @@ impl Painter<'_> {
             }
             // Drawn above.
             Draw::Text { .. } => return Ok(()),
-            Draw::Custom { renderer, data } if renderer == "hover_text_renderer" => {
+            Draw::Custom { renderer, data } if renderer == tooltip::RENDERER => {
                 let text = self
                     .art
                     .tooltip
                     .or_else(|| data.get("#hover_text")?.as_str())
                     .filter(|text| !text.is_empty());
-                let max_width = data
-                    .get("hover_text_max_width")
-                    .and_then(serde_json::Value::as_f64);
                 return match text {
-                    Some(text) => self.tooltip(text, dest, max_width, opacity),
+                    Some(text) => self.tooltip(text, data, dest, &alpha),
                     None => Ok(()),
                 };
             }

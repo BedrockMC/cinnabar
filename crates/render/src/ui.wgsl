@@ -22,14 +22,18 @@ struct UiVertexOutput {
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) texture_page: u32,
     @location(3) @interpolate(flat) style_flags: u32,
+    @location(4) @interpolate(flat) alpha_cutoff: f32,
+    @location(5) model_light: f32,
 };
 
 @vertex
 fn ui_vertex(
     @location(0) position: vec4<f32>,
-    @location(1) uv: vec2<u32>,
+    @location(1) uv: vec2<f32>,
     @location(2) color: vec4<f32>,
     @location(3) style_flags: u32,
+    @location(4) alpha_cutoff: f32,
+    @location(5) model_light: f32,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
     let ndc = vec2<f32>(
@@ -38,12 +42,14 @@ fn ui_vertex(
     );
     var output: UiVertexOutput;
     output.clip_position = vec4<f32>(ndc, position.z, position.w);
-    output.uv = vec2<f32>(uv);
+    output.uv = uv;
     // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
     // blends in gamma space, and the layer composites over the scene after.
     output.color = color;
     output.texture_page = texture_page;
     output.style_flags = style_flags;
+    output.alpha_cutoff = alpha_cutoff;
+    output.model_light = model_light;
     return output;
 }
 
@@ -65,12 +71,13 @@ fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
 
 fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(ui_pages));
-    // Vertex UVs address texel *edges*: a glyph spans x0..x0+width. Linear
+    // Sprite/glyph UVs address texel *edges*: a glyph spans x0..x0+width. Linear
     // interpolation across the quad therefore already lands on texel centres,
     // and adding half a texel here shifted the whole nearest-sampling grid by
     // half a texel. At a 1:1 draw that sampled one texel to the right; at a 2x
     // draw it gave the leading column one pixel, every other column two, and
-    // bled a column of the neighbouring glyph in on the right.
+    // bled a column of the neighbouring glyph in on the right. Model extrusion
+    // side faces instead supply native fractional texel centers; preserve those too.
     let normalized_uv = input.uv / dimensions;
     // Level 0 sampling keeps the per-vertex sampler choice legal in non-uniform flow.
     var sample: vec4<f32>;
@@ -84,7 +91,9 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         sample = vec4<f32>(vec3<f32>(dot(sample.rgb, vec3<f32>(0.299, 0.587, 0.114))), sample.a);
     }
     // Native alpha-tested name-tag glyphs threshold the texture, not the faded vertex alpha.
-    if (input.style_flags & STYLE_ALPHA_TEST) != 0u && sample.a < 0.5 {
+    if input.alpha_cutoff >= 0.0 {
+        if sample.a < input.alpha_cutoff { discard; }
+    } else if (input.style_flags & STYLE_ALPHA_TEST) != 0u && sample.a < 0.5 {
         discard;
     }
     var straight_color = input.color;
@@ -93,7 +102,7 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
     }
     let alpha = sample.a * straight_color.a;
-    var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a;
+    var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a * input.model_light;
     if (input.style_flags & STYLE_GLINT) != 0u {
         // L:1.26.50.26:0x213ce90 scales glint RGB without changing alpha.
         premultiplied_rgb += glint(input.clip_position.xy) * viewport.glint_strength * alpha;

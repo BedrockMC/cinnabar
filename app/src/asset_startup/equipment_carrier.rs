@@ -14,7 +14,7 @@ use super::{LoadedEntityAssets, shell_quote_path};
 
 const EQUIPMENT_ASSETS_FILENAME: &str = "vanilla-v1.mcbeeqp";
 
-fn equipment_asset_path(world: &Path) -> PathBuf {
+pub(crate) fn equipment_asset_path(world: &Path) -> PathBuf {
     world.with_file_name(EQUIPMENT_ASSETS_FILENAME)
 }
 

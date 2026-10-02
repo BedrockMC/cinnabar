@@ -185,7 +185,7 @@ pub(crate) fn prepare_ui_runtime(
             rgba8: Arc::clone(&menu_runtime.player_skin().rgba8),
         }),
     }
-    .and_then(|pixels| render::normalize_actor_skin_cached(&pixels));
+    .and_then(|pixels| player_preview::validated_ui_skin(&pixels));
     let pose = client_world
         .stream
         .as_ref()

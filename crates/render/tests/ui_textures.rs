@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use render::{MAX_UI_DYNAMIC_PAGES, UiTextureCatalog, UiTexturePage, UiTexturePlan};
+use render::{
+    MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, UI_DYNAMIC_PAGE_SIDE,
+    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET,
+    UI_SESSION_ICON_PAGE_OFFSET, UiRenderRejectReason, UiTextureCatalog, UiTexturePage,
+    UiTexturePlan,
+};
 
 #[test]
 fn mixed_dimensions_plan_native_bytes_before_materialization() {
@@ -84,6 +89,119 @@ fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
     assert!(UiTextureCatalog::new(pages.clone(), 0).is_ok());
     pages.push(art);
     assert!(UiTextureCatalog::new(pages, 0).is_err());
-    let odd = UiTexturePage::owned([512, 512], vec![0; 512 * 512 * 4].into()).unwrap();
-    assert!(UiTextureCatalog::new(vec![small, odd], 0).is_err());
+    let odd = rgba_page([UI_MODEL_ATLAS_SIDE; 2], 0);
+    assert!(UiTextureCatalog::new(vec![odd, small], 0).is_err());
+}
+
+fn rgba_page(dimensions: [u32; 2], value: u8) -> UiTexturePage {
+    UiTexturePage::owned(
+        dimensions,
+        vec![value; (dimensions[0] * dimensions[1] * 4) as usize].into(),
+    )
+    .unwrap()
+}
+
+fn model_catalog() -> UiTextureCatalog {
+    let mut pages = vec![rgba_page([16; 2], 255)];
+    pages.extend(vec![
+        rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
+        MAX_UI_DYNAMIC_PAGES
+    ]);
+    UiTextureCatalog::with_source_identity(pages, 1, [41; 32]).unwrap()
+}
+
+#[test]
+fn reserved_model_extents_roundtrip_without_changing_static_namespace_or_slot_count() {
+    let base = model_catalog();
+    let mut current = base.clone();
+    for side in [
+        client_world::CLASSIC_SKIN_SIDE as u32,
+        client_world::CLASSIC_SKIN_SIDE as u32 * 2,
+        UI_DYNAMIC_PAGE_SIDE,
+        client_world::MAX_STANDARD_SKIN_SIDE,
+    ] {
+        let mut pages = current.pages()[current.dynamic_start()..].to_vec();
+        pages[UI_PLAYER_SKIN_PAGE_OFFSET] = rgba_page([side; 2], 7);
+        pages[UI_MODEL_ATLAS_PAGE_OFFSET] = rgba_page([UI_MODEL_ATLAS_SIDE; 2], 11);
+        current = current.replace_dynamic(pages).unwrap();
+        assert_eq!(current.pages().len(), base.pages().len());
+        assert_eq!(current.static_identity(), base.static_identity());
+        assert_eq!(
+            current.pages()[1 + UI_PLAYER_SKIN_PAGE_OFFSET].dimensions(),
+            [side; 2]
+        );
+        let index = 1 + UI_MODEL_ATLAS_PAGE_OFFSET;
+        let location = current.plan().locations()[index];
+        assert_eq!(
+            current.plan().buckets()[location.bucket].dimensions,
+            [UI_MODEL_ATLAS_SIDE; 2]
+        );
+        assert!(std::ptr::eq(
+            current.pages()[0].pixels(),
+            base.pages()[0].pixels()
+        ));
+    }
+    let reset = current
+        .replace_dynamic(base.pages()[base.dynamic_start()..].to_vec())
+        .unwrap();
+    assert_eq!(reset, base);
+    assert_eq!(reset.plan(), base.plan());
+}
+
+#[test]
+fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extents() {
+    let base = model_catalog();
+    for (offset, dimensions) in [
+        (0, [UI_MODEL_ATLAS_SIDE; 2]),
+        (UI_SESSION_ICON_PAGE_OFFSET, [UI_MODEL_ATLAS_SIDE; 2]),
+        (UI_PLAYER_SKIN_PAGE_OFFSET, [63; 2]),
+        (
+            UI_PLAYER_SKIN_PAGE_OFFSET,
+            [client_world::MAX_STANDARD_SKIN_SIDE * 2; 2],
+        ),
+        (
+            UI_MODEL_ATLAS_PAGE_OFFSET,
+            [UI_MODEL_ATLAS_SIDE, UI_MODEL_ATLAS_SIDE / 2],
+        ),
+        (UI_MODEL_ATLAS_PAGE_OFFSET, [render::UI_ART_PAGE_SIDE; 2]),
+    ] {
+        let mut pages = base.pages()[base.dynamic_start()..].to_vec();
+        pages[offset] = rgba_page(dimensions, 0);
+        assert_eq!(
+            base.replace_dynamic(pages),
+            Err(UiRenderRejectReason::InvalidTextureExtent)
+        );
+    }
+    let mut shorter = base.pages()[base.dynamic_start()..].to_vec();
+    shorter.pop();
+    assert!(base.replace_dynamic(shorter).is_err());
+    let pixels = vec![0; (UI_MODEL_ATLAS_SIDE * UI_MODEL_ATLAS_SIDE * 4) as usize - 1];
+    assert!(UiTexturePage::owned([UI_MODEL_ATLAS_SIDE; 2], pixels.into()).is_err());
+}
+
+#[test]
+fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
+    let mut pages = vec![rgba_page([4096; 2], 0)];
+    pages.extend(vec![rgba_page([2048; 2], 0); 3]);
+    pages.extend(vec![rgba_page([1024; 2], 0); 3]);
+    let dynamic_start = pages.len();
+    pages.extend(vec![
+        rgba_page([UI_DYNAMIC_PAGE_SIDE; 2], 0);
+        UI_SESSION_ICON_PAGE_OFFSET
+    ]);
+    let base = UiTextureCatalog::new(pages, dynamic_start).unwrap();
+    let mut replacement = base.pages()[dynamic_start..].to_vec();
+    for page in &mut replacement
+        [UI_MODEL_ATLAS_PAGE_OFFSET..UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES]
+    {
+        *page = rgba_page([UI_MODEL_ATLAS_SIDE; 2], 0);
+    }
+    assert!(matches!(
+        base.replace_dynamic(replacement),
+        Err(UiRenderRejectReason::TextureByteLimitExceeded { .. })
+    ));
+    assert_eq!(
+        base.pages()[dynamic_start + UI_MODEL_ATLAS_PAGE_OFFSET].dimensions(),
+        [UI_DYNAMIC_PAGE_SIDE; 2]
+    );
 }

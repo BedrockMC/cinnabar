@@ -10,11 +10,17 @@ use crate::ui::{
 };
 
 pub const MAX_UI_TEXTURE_BUCKETS: usize = 8;
-/// Replaceable 256x256 pages after the static UI pages: ten general, the session
-/// glyph atlas, then server resource-pack UI textures.
+/// Replaceable pages after static UI: general/model slots, session glyphs, then server UI.
 pub const MAX_UI_DYNAMIC_PAGES: usize = 34;
-/// Side length shared by every general dynamic UI page.
+/// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
+/// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
+pub const UI_PLAYER_SKIN_PAGE_OFFSET: usize = 1;
+pub const UI_MODEL_ATLAS_PAGE_OFFSET: usize = UI_PLAYER_SKIN_PAGE_OFFSET + 1;
+pub const MAX_UI_MODEL_ATLAS_PAGES: usize = 7;
+pub const UI_SESSION_ICON_PAGE_OFFSET: usize =
+    UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES;
+pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
@@ -229,7 +235,7 @@ impl UiTextureCatalog {
         let dynamic = &pages[dynamic_start..];
         let small = dynamic
             .iter()
-            .filter(|page| page.dimensions == [UI_DYNAMIC_PAGE_SIDE; 2])
+            .filter(|page| page.dimensions != [UI_ART_PAGE_SIDE; 2])
             .count();
         let art = dynamic
             .iter()
@@ -237,10 +243,10 @@ impl UiTextureCatalog {
             .count();
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
-            || small + art != dynamic.len()
-            || dynamic
-                .iter()
-                .any(|page| matches!(&page.pixels, Pixels::Font { .. }))
+            || dynamic.iter().enumerate().any(|(offset, page)| {
+                matches!(&page.pixels, Pixels::Font { .. })
+                    || !valid_dynamic_dimensions(offset, page.dimensions)
+            })
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
@@ -255,10 +261,16 @@ impl UiTextureCatalog {
         static_pages.update(source_identity);
         all.update((dynamic_start as u64).to_le_bytes());
         static_pages.update((dynamic_start as u64).to_le_bytes());
+        // The number and identity of reserved logical slots are immutable, their model extents
+        // are not. Changing a skin cannot masquerade as changing the static catalog namespace.
+        all.update((pages.len() as u64).to_le_bytes());
+        static_pages.update((pages.len() as u64).to_le_bytes());
         for (index, page) in pages.iter().enumerate() {
             for side in page.dimensions {
                 all.update(side.to_le_bytes());
-                static_pages.update(side.to_le_bytes());
+                if index < dynamic_start || !is_model_slot(index - dynamic_start) {
+                    static_pages.update(side.to_le_bytes());
+                }
             }
             all.update(page.identity);
             if index < dynamic_start {
@@ -283,7 +295,8 @@ impl UiTextureCatalog {
             || replacement
                 .iter()
                 .zip(&self.pages[self.dynamic_start..])
-                .any(|(a, b)| a.dimensions != b.dimensions)
+                .enumerate()
+                .any(|(offset, (a, b))| !is_model_slot(offset) && a.dimensions != b.dimensions)
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
@@ -306,4 +319,25 @@ impl UiTextureCatalog {
     pub const fn dynamic_start(&self) -> usize {
         self.dynamic_start
     }
+}
+
+fn is_model_slot(offset: usize) -> bool {
+    (UI_PLAYER_SKIN_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+}
+
+fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
+    if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
+        return true;
+    }
+    if offset == UI_PLAYER_SKIN_PAGE_OFFSET {
+        let classic = client_world::CLASSIC_SKIN_SIDE as u32;
+        return (width == classic && height == classic / 2)
+            || (width == height
+                && width.is_power_of_two()
+                && (classic..=client_world::MAX_STANDARD_SKIN_SIDE).contains(&width));
+    }
+    if (UI_MODEL_ATLAS_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset) {
+        return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
+    }
+    [width, height] == [UI_ART_PAGE_SIDE; 2]
 }
