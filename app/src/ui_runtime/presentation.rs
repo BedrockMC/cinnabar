@@ -3,7 +3,6 @@ use std::{fmt, sync::Arc};
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::{
     camera::Camera,
-    math::Vec3,
     prelude::{Camera3d, GlobalTransform, Query, Res, ResMut, Resource, Time, With},
     time::Real,
     window::{PrimaryWindow, Window},
@@ -81,7 +80,7 @@ pub(crate) use publish::{
     PreparedUiPublication, observe_mount_jump_input, platform_safe_area_insets, prepare_ui_runtime,
     publish_ui_runtime,
 };
-use retained_hud::{BelowNameAnchor, PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
+use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::{StartupPresentationState, StartupReadinessInput};
 use text_metrics::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
@@ -144,9 +143,7 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
-    /// World-projected below-name score anchors for the current frame.
-    below_name_anchors: Vec<BelowNameAnchor>,
-    /// This frame's world-space name tags, and the atlas their lines rasterize into.
+    /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
@@ -260,7 +257,6 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
-            below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
             player_preview_page: None,
@@ -421,15 +417,6 @@ impl UiPresentationRuntime {
         &mut self.hud_frame
     }
 
-    fn set_below_name_anchors(&mut self, anchors: impl IntoIterator<Item = BelowNameAnchor>) {
-        self.below_name_anchors.clear();
-        self.below_name_anchors.extend(
-            anchors
-                .into_iter()
-                .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS),
-        );
-    }
-
     fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
         self.nametag_anchors = anchors;
     }
@@ -530,17 +517,6 @@ impl UiPresentationRuntime {
 
         if !inventory_open && !menu_visible {
             self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
-            retained_hud::append_below_name_nodes(
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                &self.below_name_anchors,
-            )?;
         }
 
         if !menu_visible && !inventory_open {

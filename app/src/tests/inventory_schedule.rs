@@ -393,7 +393,9 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
         .press(MouseButton::Left);
     app.update();
     let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&current));
+    let mut predicted = current.clone();
+    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
     assert_eq!(
         runtime.inventory_ledger().pending_state(),
         Some(InventoryPendingState::AwaitingTransport)
@@ -710,7 +712,9 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
     assert!(app.world().resource::<AdmissionObserved>().0);
     let runtime = app.world().resource::<UiRuntime>();
     assert!(runtime.inventory_open());
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&current));
+    let mut predicted = current.clone();
+    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
     assert_eq!(
         runtime.inventory_ledger().pending_state(),
         Some(InventoryPendingState::AwaitingResponse)
@@ -886,7 +890,9 @@ fn run_scheduled_ingress_click(complete: bool) {
 
     assert!(app.world().resource::<AdmissionObserved>().0);
     let runtime = app.world().resource::<UiRuntime>();
-    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&current));
+    let mut predicted = current.clone();
+    predicted.stack_network_id = runtime.inventory_ledger().pending_request_id().unwrap();
+    assert_eq!(runtime.inventory_ledger().cursor_stack(), Some(&predicted));
     assert_eq!(
         runtime.inventory_ledger().pending_state(),
         Some(InventoryPendingState::AwaitingResponse)

@@ -7,11 +7,8 @@ use protocol::{AbilitiesUpdate, AbilityLayersEvidence, ActorMetadataValue};
 
 use super::{fov::CameraFovInputs, presentation::ScreenEffectFacts};
 use crate::{
-    item_use::ItemUseRuntime,
-    local_player::{LOCAL_AVATAR_EYE_HEIGHT_BLOCKS, LocalViewPose},
-    movement::PhysicsCollisionRegistries,
-    runtime::world::ClientWorld,
-    ui_runtime::UiRuntime,
+    item_use::ItemUseRuntime, local_player::LocalViewPose, movement::PhysicsCollisionRegistries,
+    runtime::world::ClientWorld, ui_runtime::UiRuntime,
 };
 
 const FLAGS_METADATA_KEY: u32 = 0;
@@ -91,15 +88,13 @@ pub(super) fn collect_screen_effect_facts(
                 stream.current_dimension(),
             );
             let eye = view.eye_translation();
-            [eye.y, eye.y - LOCAL_AVATAR_EYE_HEIGHT_BLOCKS]
-                .into_iter()
-                .any(|y| {
-                    let block = [eye.x.floor() as i32, y.floor() as i32, eye.z.floor() as i32];
-                    world.primary_runtime_id(block).is_ok_and(|runtime_id| {
-                        collisions.block_identifier(stream.network_id_mode(), runtime_id)
-                            == Some(NETHER_PORTAL_IDENTIFIER)
-                    })
+            [eye.y, view.feet_translation().y].into_iter().any(|y| {
+                let block = [eye.x.floor() as i32, y.floor() as i32, eye.z.floor() as i32];
+                world.primary_runtime_id(block).is_ok_and(|runtime_id| {
+                    collisions.block_identifier(stream.network_id_mode(), runtime_id)
+                        == Some(NETHER_PORTAL_IDENTIFIER)
                 })
+            })
         }
         _ => false,
     };

@@ -28,7 +28,7 @@ pub use hud::{
 };
 pub use model::{
     FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_GLINT, UiBlendMode, UiDrawBatch,
-    UiDrawList, UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    UiDrawList, UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual, UiWorldProjection,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,

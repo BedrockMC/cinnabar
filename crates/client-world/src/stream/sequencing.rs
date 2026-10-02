@@ -754,6 +754,19 @@ impl WorldStream {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
+                let event = match event {
+                    UiEvent::PlayerGameMode {
+                        actor_unique_id,
+                        event,
+                        ..
+                    } => {
+                        if actor_unique_id != self.local_player_unique_id {
+                            return;
+                        }
+                        UiEvent::GameMode(event)
+                    }
+                    event => event,
+                };
                 let committed = match event {
                     UiEvent::Form(event) => CommittedUiEvent::Form {
                         sequence,

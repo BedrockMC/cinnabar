@@ -342,6 +342,8 @@ fn bones(value: Option<&Value>) -> Vec<EntityGeometryBone> {
                 inflate: None,
                 never_render: bone.get("neverRender").and_then(Value::as_bool),
                 reset: bone.get("reset").and_then(Value::as_bool),
+                binding: None,
+                texture_meshes: Box::new([]),
                 cubes: cubes.into(),
             })
         })

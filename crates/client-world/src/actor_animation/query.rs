@@ -150,7 +150,23 @@ pub(super) fn query(
             Some(ActorMetadataValue::String(name)) => Some(name.as_ref()),
             _ => None,
         }),
-        "owner_identifier" => text(None),
+        "owner_identifier" => text(evaluator.context.attachable.map(
+            |_| match &evaluator.actor.kind {
+                ActorKind::Player { .. } => "minecraft:player",
+                ActorKind::Entity { identifier } => identifier.as_ref(),
+            },
+        )),
+        // Native query025186e0 requires a string argument; unknown names pass through.
+        "item_slot_to_bone_name" => text(evaluator.context.attachable.and_then(|_| {
+            let Some(MolangValue::String(slot)) = arguments.first() else {
+                return None;
+            };
+            Some(match slot.as_ref() {
+                "main_hand" => "rightitem",
+                "off_hand" => "leftitem",
+                name => name,
+            })
+        })),
         "property" => property(evaluator, arguments.first()),
         "get_default_bone_pivot" => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
@@ -226,6 +242,23 @@ fn default_bone_pivot(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) ->
 
 fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> f32 {
     let (actor, input, context) = (evaluator.actor, evaluator.input, evaluator.context);
+    if let Some(attachable) = context.attachable {
+        let remaining = attachable.use_elapsed_ticks.map_or(0, |elapsed| {
+            attachable.max_use_ticks.saturating_sub(elapsed)
+        }) as f32;
+        match name {
+            "frame_alpha" => return attachable.frame_alpha,
+            "get_animation_frame" => return attachable.animation_frame as f32,
+            "main_hand_item_use_duration" | "item_remaining_use_duration" => return remaining,
+            "main_hand_item_max_duration" => return attachable.max_use_ticks as f32,
+            "is_using_item" => return truth(attachable.use_elapsed_ticks.is_some()),
+            "anim_time" => return (evaluator.anim_tick as f32 + attachable.frame_alpha) * 0.05,
+            "life_time" => {
+                return (attachable.owner_life_tick as f32 + attachable.frame_alpha) * 0.05;
+            }
+            _ => {}
+        }
+    }
     let argument = |index: usize| arguments.get(index).map(MolangValue::number);
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
@@ -288,6 +321,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             }
         }
         "hurt_time" => f32::from(actor.status.hurt_time),
+        "shake_time" => actor.status.shake_time as f32,
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
         "main_hand_item_use_duration" => {
@@ -337,7 +371,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "body_x_rotation" | "target_x_rotation" => input.pitch,
         "target_y_rotation" => {
             if actor.target_rotation_is_absolute() {
-                actor.yaw
+                input.yaw
             } else {
                 head_relative_yaw(input, TARGET_YAW_LIMIT)
             }
@@ -358,6 +392,10 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "has_player_rider" => truth(context.has_player_rider),
         _ => 0.0,
     }
+}
+
+pub(super) fn is_arrow(actor: &ActorSnapshot) -> bool {
+    matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:arrow")
 }
 
 fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::WornArmor> {

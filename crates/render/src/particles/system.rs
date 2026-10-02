@@ -21,6 +21,8 @@ pub const MAX_SPAWN_DISTANCE: f32 = 128.0;
 /// Longest single simulation step; larger frame gaps are split.
 const MAX_STEP: f32 = 1.0 / 30.0;
 const MAX_FRAME_SECONDS: f32 = 0.25;
+const TERRAIN_EMITTER_LIMIT: usize = 20;
+const TERRAIN_PARTICLE_LIMIT: usize = 500;
 const TILE_VARIABLE_NAMES: [(&str, &str); 5] = [
     ("emitter_texture_coordinate", "emitter_texture_size"),
     ("emittertexturecoord", "emittertexturesize"),
@@ -159,6 +161,27 @@ impl ParticleSystem {
         self.emitters
             .push(Emitter::new(id, def, texture, &request, seed));
         Some(id)
+    }
+
+    /// Native terrain-effect admission, independent of unrelated particle effects.
+    /// The threshold is not a clamp on this burst: an admitted burst may cross it.
+    pub fn spawn_terrain(&mut self, request: &SpawnRequest) -> Option<u64> {
+        let Some(def) = self.resolve(&request.effect) else {
+            return self.spawn(request);
+        };
+        let mut emitters = 0;
+        let mut particles = 0;
+        for emitter in &self.emitters {
+            if emitter.def.identifier == def.identifier {
+                emitters += 1;
+                particles += emitter.particles.len();
+            }
+        }
+        if emitters > TERRAIN_EMITTER_LIMIT || particles > TERRAIN_PARTICLE_LIMIT {
+            self.dropped_spawns += 1;
+            return None;
+        }
+        self.spawn(request)
     }
 
     fn resolve_texture(&mut self, source: &TextureSource, request: &mut SpawnRequest) -> Placement {
@@ -368,6 +391,49 @@ mod tests {
         }
         system.tick(0.02, &EmptyWorld);
         assert!(system.live_particles() <= MAX_LIVE_PARTICLES);
+    }
+
+    #[test]
+    fn terrain_admission_uses_strict_per_effect_emitter_threshold() {
+        let mut system = system();
+        let req = request("burst", 0.0);
+        for _ in 0..=TERRAIN_EMITTER_LIMIT {
+            assert!(system.spawn_terrain(&req).is_some());
+        }
+        assert!(system.spawn_terrain(&req).is_none());
+        assert_eq!(system.emitter_count(), TERRAIN_EMITTER_LIMIT + 1);
+        let other = EFFECT.replace("minecraft:burst", "minecraft:other");
+        assert!(system.register_effect(other.as_bytes()));
+        assert!(system.spawn_terrain(&request("other", 0.0)).is_some());
+    }
+
+    #[test]
+    fn terrain_admission_does_not_clamp_an_admitted_burst() {
+        let mut system = system();
+        let large = EFFECT.replace(
+            "\"num_particles\":4",
+            &format!("\"num_particles\":{TERRAIN_PARTICLE_LIMIT}"),
+        );
+        assert!(system.register_effect(large.as_bytes()));
+        let req = request("burst", 0.0);
+        assert!(system.spawn_terrain(&req).is_some());
+        system.tick(0.01, &EmptyWorld);
+        assert_eq!(system.live_particles(), TERRAIN_PARTICLE_LIMIT);
+        assert!(system.spawn_terrain(&req).is_some());
+        system.tick(0.01, &EmptyWorld);
+        assert!(system.live_particles() > TERRAIN_PARTICLE_LIMIT);
+        assert!(system.spawn_terrain(&req).is_none());
+    }
+
+    #[test]
+    fn replacing_a_pack_effect_does_not_reset_terrain_admission() {
+        let mut system = system();
+        let req = request("burst", 0.0);
+        for _ in 0..=TERRAIN_EMITTER_LIMIT {
+            assert!(system.spawn_terrain(&req).is_some());
+        }
+        assert!(system.register_effect(EFFECT.as_bytes()));
+        assert!(system.spawn_terrain(&req).is_none());
     }
 
     /// Starts bound and unbound emitters with identical seeded particles for comparisons.

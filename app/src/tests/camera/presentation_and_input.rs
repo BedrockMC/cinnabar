@@ -47,6 +47,7 @@ fn actor_culling_precedes_the_remote_cap_and_preserves_visible_high_id_and_local
     let mut local_frame = LocalPlayerFrameCarrier::default();
     let mut sample = frozen_local_player_sample();
     sample.eye = Vec3::new(0.0, 65.62, 0.0);
+    sample.feet = Vec3::new(0.0, 64.0, 0.0);
     sample.rotation = Quat::IDENTITY;
     sample.pose = perspective_pose(sample.eye, sample.rotation, sample.perspective);
     local_frame.publish(sample).unwrap();

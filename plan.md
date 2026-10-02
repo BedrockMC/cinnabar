@@ -3,6 +3,21 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-02 dev integration: the first-person item/block/attachable, grass material,
+arrow, name-tag, crouch/shield, offhand, inventory reopen, game-mode and inventory
+reconciliation corrections below are integrated with the upstream `dev` branch.
+The canonical macOS/Metal Retina-2 client was exercised against regenerated,
+offline loopback vanilla BDS. Offhand take/place and subsequent moves, repeated
+drop/pickup with fresh stack IDs, whole-stack drops, three inventory reopen
+cycles, and persistent charged-arrow inventory icons passed live acceptance.
+The full workspace suite (four test threads), formatting, strict all-target
+Clippy, architecture gate, Go tests and Go vet passed locally. Source records
+retain the tested executable hashes and frame identities; private runtime
+payloads remain outside git. Historical local/uncommitted statements below
+describe their original snapshots, not this integrated revision's Git state.
+All explicitly incomplete native visual/material, arbitrary-container and
+lifecycle parity gates remain open; this is not full vanilla-parity closure.
+
 2026-10-01 menu scene ownership: gameplay input uses the screen absorption policy;
 world queues and both first-person paths obey game visibility. Pack flags retain
 vanilla defaults and inheritance. The existing full-screen Settings panorama also
@@ -18,6 +33,104 @@ references. Incomplete: exact native rebuild timing, release frame spikes and ne
 latency acceptance. Offline drains do not close those gates.
 
 
+2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
+the native 0.35-block crouch offset, half-blended once per completed tick and
+interpolated per frame. Local actor feet, interaction eye and network anchor are
+kept distinct. Crossbow full-charge prediction persists per exact stack/slot
+write revision; a fresh loaded click clears it immediately, and every addressed
+authoritative write wins, even if byte-identical. Owner hand-item predicates now
+expose both real hands to held attachable queries. The owner accepted crouch
+camera, shield animation and crossbow charging. The canonical macOS/Metal Retina
+build joined regenerated offline vanilla BDS; fresh frames show dual-hand
+shields, shield inventory icons and loaded-arrow crossbow icons in the HUD and
+reopened inventory. Survival/creative updates consume server confirmations and
+change the UI without reconnecting. Provisional, labeled incomplete: crossbow
+predicted NBT/inventory observer reconstruction, full load/fire/native-frame
+comparisons, sleep/riding camera offsets, shield damage/cooldown/patterned/glint
+parity and nonzero-tick game-mode historical replay. Native `query.blocking` reads metadata flag 72,
+not the sneak key; the pinned Dragonfly fixture does not implement shield blocking.
+No synthetic blocking flag or server-incompatible crossbow transaction is used
+to mask fixture limitations. See [camera](docs/reference/crouch-camera.md) and
+[crossbow](docs/reference/crossbow-use.md) source records. Local, uncommitted.
+
+2026-10-01 destruction particles: ordinary block-break events now use the native
+100-piece default, cube-root intensity and effect-local strict pre-spawn limits.
+The native bottom-texture path selects untinted dirt for grass, replacing the
+old green top-face heuristic. Focused particle tests pass; the owner manually
+accepted block breaking. A controlled native grass/dirt frame comparison remains
+pending. Provisional, labeled incomplete: destruction-component
+overrides, special block/UV variant branches, seasonal colors, legacy Terrain
+events and native crack bounds/cadence. No complete particle parity gate is closed;
+see [source record](docs/reference/block-break-particles.md). Local, uncommitted.
+
+2026-10-01 actor name tags: native-port correction in progress. World-plane projection,
+eye-facing cubic-angle billboard, fixed font-pixel world size, ten-pixel line pitch,
+independent line centering, full multiline 0.25-black plate, multiline world lift and
+0.125-alpha depth-tested sneaking text follow the matching C++ reconstruction and Lens
+binary. Player tags use synced name metadata, not just their spawn username; scores share
+the same path and honor the native ten-block score gate. Provisional, labeled incomplete:
+exact matched shader-pack/sampler/alpha-target state, explicit orientation/backface/custom color
+branches, filtered names, mounted/riding anchor offsets and missing-data height/range
+defaults need native witnesses. Crosshair picking still inherits the existing provisional
+selection-shape/reach implementation. Near-patch IPA/app materials and the matched binary
+now ground plate no-depth-write, text depth-write, glyph alpha testing and the runtime
+environmental-text bias override. The final debug build has a live Zeqa/Metal rendering
+smoke pass at Retina scale 2; controlled near/far drift, sneak/occlusion/clipping and
+version-matched native frame comparisons remain pending. Workspace tests, formatting,
+strict Clippy and the architecture gate pass locally. Changes are uncommitted. No name-tag
+visual parity gate is closed; see [source record](docs/reference/nametag-rendering.md).
+
+2026-10-01 first-person item rendering: ordinary icons and opaque full-cube blocks now use
+their separate native camera-space stacks, not the third-person grip on the avatar's
+`rightItem` bone. Camera anchor/yaw/scale, cube centering and idle/swing/equip composition
+follow the current reconstruction and matching Lens binary. The owner reports ordinary
+icons render correctly. The block routing/avatar-scale regressions fail before the fix and
+pass afterward; the owner has now manually tested and accepted the held-block pose.
+Provisional, labeled incomplete: native sine-table rounding, non-cube block geometry,
+custom block display transforms, exact held-block face lighting/material state,
+item-specific legacy use/mirrored-art branches, custom render offsets and remaining
+attachable variants. No complete first-person visual parity gate is closed; see
+[source record](docs/reference/first-person-items.md).
+
+2026-10-01 held bow: source-backed modern attachable routing is implemented locally.
+Authored texture meshes, first-person scripts/controllers, owner animation variables,
+per-frame pose evaluation and native bow/crossbow frame timing replace the accidental
+third-person sprite grip. The same pipeline consumes trident/shield authored transforms;
+these variants are not all live-accepted. Workspace tests, formatting, strict Clippy and
+architecture checks pass; canonical carriers and debug executable are rebuilt. Live
+macOS/Metal Retina-scale-2 frames verify actual server-supplied bow idle, partial/full
+draw, release and return to standby in an isolated fixed-lighting loopback world.
+This is functional rendering/input acceptance, not a matched native frame comparison.
+The source-backed one-time session item-registry initialization also prevents a later
+empty/custom table from erasing item identities. Provisional, labeled incomplete: multilayer
+materials, custom binding parents, full offhand cached-stack equivalence,
+nonuniform scale shear and the separate legacy/custom item paths. Changes are uncommitted;
+no complete first-person parity gate is closed. See
+[attachable source record](docs/reference/held-attachables.md).
+
+2026-10-01 arrow entity rendering: native per-face UV defaults now use face
+dimensions, including fractional sizes, instead of a one-by-one texel region.
+The vanilla arrow's alpha-test/no-cull material samples its authored plane
+from both sides. Its animation receives absolute actor yaw, without the mob
+body-turn root or head/body clamp. Focused render and query regressions pass;
+changes are local and uncommitted, pending fresh flight/embedded-arrow frames.
+Provisional, labeled incomplete: the current carrier lacks general authored
+render-controller materials, so the no-cull correction is scoped to logically
+bound vanilla-arrow geometry. Native signed Shake-event state, positive-only
+tick countdown and Molang query are implemented; exact render-time frame-alpha
+queries, including nonlinear impact shake, remain missing. No arrow visual
+parity gate is closed;
+see [source record](docs/reference/arrow-rendering.md).
+
+2026-10-01 carried grass correction: the inventory thumbnail and held cube share the
+pack's carried face pixels, with alpha-mask overlay tint and opaque output following the
+matched C++ texture-atlas path. Grass is no longer unresolved. Compiler/carrier/runtime
+regressions and the workspace, formatting, strict Clippy and architecture checks pass.
+Live macOS/Metal frames at Retina scale 2 verify the hand, hotbar and open-inventory icon:
+green top/fringe, opaque brown soil, no missing geometry or clipped slot art. Changes are
+local and uncommitted. Provisional inventory shading and the broader material/display
+parity gaps above remain incomplete; see [source record](docs/reference/carried-block-textures.md).
+
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
 "/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
@@ -25,10 +138,31 @@ Provisional, labeled incomplete: the OreUI scroll thumb's look and shrinking a
 long side-menu label to fit are approximations (no OreUI stylesheet on hand), and
 unbacked settings show fixed vanilla defaults.
 
-2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
-(pipelined in-order requests, prediction groups, vanilla container addressing),
-with 2x2 and crafting-table crafting, creative take, number-key swap and drops;
-not live-accepted. Provisional, labeled incomplete: item tag membership comes
+2026-10-01 inventory reconciliation: the current native sparse-container audit
+replaces delta replay over mutable backing truth with absolute request-owned cell
+snapshots. Changed and emptied cells can be addressed by prior odd negative
+request IDs; responses use requested-slot history and retire only their own
+active predictions. This also repairs the offhand-empty push arriving before an
+accepted offhand-to-cursor response: the accepted transfer is not applied twice
+and cannot incorrectly put the cursor into global recovery. The previously
+ignored normal InventoryTransaction receive path now writes full final stacks
+(including new IDs and NBT) through ledger, HUD, crafting and identity consumers.
+The canonical macOS/Metal Retina-2 offline vanilla-BDS run passed two dirt
+drop/pickup/drop cycles, a whole-stack diamond drop/pickup and further move,
+the six-step offhand regression, and three inventory close/reopen cycles.
+Native references and bounded acceptance records:
+[sparse prediction](docs/reference/inventory-sparse-prediction.md) and
+[normal transactions](docs/reference/inventory-normal-transactions.md).
+Provisional, labeled incomplete: arbitrary open-window normal transactions,
+deferred UI output-50 actions, full native lifecycle recovery, and charged
+offhand attachable context. Focused tests and the full workspace, formatting,
+strict Clippy and architecture checks pass locally; this is part of the dev
+integration recorded above.
+
+2026-09-28 inventory and crafting: 2x2 and crafting-table crafting, creative take,
+number-key swap and drops are implemented. The older delta/prediction-group
+ledger model is superseded by the native sparse-container audit above.
+Provisional, labeled incomplete: item tag membership comes
 from Dragonfly's table and registry-declared tags are read from
 `components.item_tags` without a live capture; the workbench layout, shift-click
 destinations, drop bindings and CraftResultsDeprecated contents need
@@ -47,6 +181,20 @@ transitions and per-axis rotation objects are missing; `query.anim_time` reads t
 clip clock; queries without retained data read idle values; held items and most mob
 artwork are deferred. A first-person held item with no drawable layer shows the
 bare swinging arm instead (vanilla always draws the item).
+
+2026-10-01 placement prediction correction: stateless full cubes no longer lose local
+prediction when held and clicked block types match. Retained signed block-ID fields preserve
+unsigned wire hash bits for both prediction and collision checks; empty/air/uninitialized IDs
+remain rejected. The matching native placement and correction paths ground this change; see
+[source record](docs/reference/block-placement-prediction.md). Regressions reproduce both old
+blockers, and the local lighting/meshing test publishes an urgent placement mesh without a
+server acceptance event, then removes it on authoritative correction. Focused tests,
+workspace all-target tests, formatting, strict Clippy and architecture checks pass locally.
+The canonical debug build is rebuilt; changes are uncommitted. An 800-ms delayed loopback
+session now has a controlled grass-on-grass witness: the predicted block is visible in a
+PNG written 226 ms after right-click and persists in the post-reply frame. The selected
+grass item's hand, hotbar and open-inventory visuals also render. This is live functional
+acceptance of the reported bugs, not complete native placement parity.
 
 2026-09-30 block interaction: breaks (every game mode, both block-breaking
 authorities; Creative repeats while held), stateless full-cube placements and

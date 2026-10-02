@@ -717,6 +717,10 @@ fn decode_world_raw_with(
     current_dimension: i32,
     decode: impl FnOnce(RawPacket) -> Result<Packet, JolyneError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
+    if raw.id == McpePacketName::ItemRegistryPacket {
+        decode(raw)?;
+        return Ok(None);
+    }
     if raw.id == McpePacketName::UpdateAbilitiesPacket {
         return crate::decode_abilities_update(raw.body())
             .map(WorldEvent::Abilities)
@@ -759,17 +763,18 @@ fn decode_world_raw_with(
             | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
             | McpePacketName::PlayerSkinPacket
-            | McpePacketName::ItemRegistryPacket
             | McpePacketName::MobEquipmentPacket
             | McpePacketName::MobArmorEquipmentPacket
             | McpePacketName::MobEffectPacket
             | McpePacketName::SetActorLinkPacket
             | McpePacketName::SyncActorPropertyPacket
             | McpePacketName::SetPlayerGameTypePacket
+            | McpePacketName::UpdatePlayerGameTypePacket
             | McpePacketName::SetDefaultGameTypePacket
             | McpePacketName::InventoryContentPacket
             | McpePacketName::CreativeContentPacket
             | McpePacketName::InventorySlotPacket
+            | McpePacketName::InventoryTransactionPacket
             | McpePacketName::PlayerHotbarPacket
             | McpePacketName::ItemStackResponsePacket
             | McpePacketName::ContainerOpenPacket
@@ -957,3 +962,9 @@ mod recipe_ingress_tests;
 
 #[cfg(test)]
 mod ability_ingress_tests;
+
+#[cfg(test)]
+mod game_mode_ingress_tests;
+
+#[cfg(test)]
+mod inventory_transaction_ingress_tests;

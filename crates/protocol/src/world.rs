@@ -482,6 +482,9 @@ pub fn into_world_event(
                 update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
             }))
         }
+        McpePacketData::UpdatePlayerGameTypePacket(packet) => {
+            WorldEvent::Ui(game_mode::targeted_update(packet))
+        }
         McpePacketData::SetDefaultGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
                 update: PlayerGameMode::update_from_default_game_mode(packet.default_game_type),
@@ -498,6 +501,12 @@ pub fn into_world_event(
         }
         McpePacketData::InventorySlotPacket(packet) => {
             WorldEvent::Inventory(normalize_slot(*packet)?)
+        }
+        McpePacketData::InventoryTransactionPacket(packet) => {
+            let Some(event) = crate::inventory::normalize_transaction(*packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Inventory(event)
         }
         McpePacketData::PlayerHotbarPacket(packet) => {
             WorldEvent::Inventory(normalize_hotbar(packet)?)

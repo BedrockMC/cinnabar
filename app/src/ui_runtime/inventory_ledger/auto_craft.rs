@@ -42,7 +42,6 @@ impl PlayerInventoryLedger {
                 continue;
             };
             if !plain_stack(stack)
-                || stack.stack_network_id <= 0
                 || self.awaiting_identity(held)
                 || !ingredient.accepts(&entry.identifier, stack.metadata, &entry.item_tags)
             {

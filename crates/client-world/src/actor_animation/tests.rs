@@ -2,6 +2,22 @@ use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
 use crate::ActorPose;
 
 #[test]
+fn item_animation_interpolates_observations_before_rendering_and_wraps_the_swing() {
+    let previous = ItemAnimationState {
+        attack_time: 5.0 / 6.0,
+        arm_height: 0.2,
+    };
+    let current = ItemAnimationState {
+        attack_time: 0.0,
+        arm_height: 0.8,
+    };
+    let halfway = previous.interpolate(current, 0.5);
+    assert!((halfway.attack_time - 11.0 / 12.0).abs() < 1e-6);
+    assert!((halfway.arm_height - 0.5).abs() < 1e-6);
+    assert_eq!(previous.interpolate(current, 0.0), previous);
+}
+
+#[test]
 fn static_generation_exhaustion_fails_closed_without_consuming_animated_generation() {
     let mut store = ActorAnimationStore::diagnostic();
     let animated = store.next_reset_generation;
@@ -14,7 +30,7 @@ fn static_generation_exhaustion_fails_closed_without_consuming_animated_generati
     assert_eq!(store.take_rest_generation(), None);
 }
 
-fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
+pub(super) fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
     let pose = ActorPose {
         position: [0.0; 3],
         pitch: 0.0,
@@ -90,11 +106,13 @@ fn child_before_parent_composes_without_reindexing_channels() {
             parent: Some(1),
             pivot: [0.0, 2.0, 0.0],
             rotation: [0.0; 3],
+            ..RuntimeBone::default()
         },
         RuntimeBone {
             parent: None,
             pivot: [1.0, 0.0, 0.0],
             rotation: [0.0; 3],
+            ..RuntimeBone::default()
         },
     ];
     let pose = compose_pose(&bones, &[]).unwrap();
@@ -109,11 +127,13 @@ fn rotated_parent_uses_child_model_space_pivot_delta() {
             parent: None,
             pivot: [1.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 90.0],
+            ..RuntimeBone::default()
         },
         RuntimeBone {
             parent: Some(0),
             pivot: [3.0, 0.0, 0.0],
             rotation: [0.0; 3],
+            ..RuntimeBone::default()
         },
     ];
     let pose = compose_pose(&bones, &[]).unwrap();
@@ -128,11 +148,13 @@ fn nonuniform_scale_is_carried_per_axis_and_inherited_by_children() {
             parent: None,
             pivot: [0.0; 3],
             rotation: [0.0; 3],
+            ..RuntimeBone::default()
         },
         RuntimeBone {
             parent: Some(0),
             pivot: [2.0, 4.0, 0.0],
             rotation: [0.0; 3],
+            ..RuntimeBone::default()
         },
     ];
     let local = [
@@ -222,6 +244,38 @@ fn head_target_yaw_is_relative_to_the_body_and_wrapped() {
     };
     assert!((read(&actor, &input, 0, "query.target_y_rotation") - 20.0).abs() < 1.0e-4);
     assert_eq!(read(&actor, &input, 0, "query.target_x_rotation"), 30.0);
+}
+
+#[test]
+fn arrow_target_rotation_is_absolute_and_does_not_follow_a_mob_body() {
+    let mut arrow = actor_with_metadata(HashMap::new());
+    arrow.kind = ActorKind::Entity {
+        identifier: "minecraft:arrow".into(),
+    };
+    let input = ActorTickInput {
+        yaw: 150.0,
+        head_yaw: -20.0,
+        body_yaw: 70.0,
+        pitch: -35.0,
+        ..ActorTickInput::default()
+    };
+    assert_eq!(read(&arrow, &input, 0, "query.target_y_rotation"), 150.0);
+    assert_eq!(read(&arrow, &input, 0, "query.target_x_rotation"), -35.0);
+}
+
+#[test]
+fn shake_time_query_reads_the_signed_retained_native_countdown() {
+    let mut arrow = actor_with_metadata(HashMap::new());
+    arrow.kind = ActorKind::Entity {
+        identifier: "minecraft:arrow".into(),
+    };
+    for ticks in [i32::MIN, -1, 0, 1, 12, i32::MAX] {
+        arrow.status.shake_time = ticks;
+        assert_eq!(
+            read(&arrow, &ActorTickInput::default(), 0, "query.shake_time"),
+            ticks as f32
+        );
+    }
 }
 
 #[test]
@@ -722,6 +776,7 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
         parent: None,
         pivot: [5.0, 22.0, 1.0],
         rotation: [0.0; 3],
+        ..RuntimeBone::default()
     }];
     let names = [Box::<str>::from("rightarm")];
     let inputs = QueryInputs {
@@ -748,18 +803,21 @@ fn default_bone_pivot_reads_the_authored_rest_pivot() {
 }
 
 #[test]
-fn arrow_target_yaw_uses_actor_rotation_without_the_mob_head_limit() {
+fn arrow_target_yaw_uses_interpolated_absolute_rotation_not_the_latest_packet() {
     let mut actor = actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:arrow".into(),
     };
     actor.yaw = 135.0;
-    let input = ActorTickInput {
+    let mut input = ActorTickInput {
+        yaw: 135.0,
         body_yaw: 25.0,
         head_yaw: -40.0,
         ..ActorTickInput::default()
     };
     assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), 135.0);
     actor.yaw = -170.0;
-    assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), -170.0);
+    // The frame's interpolated sample owns the query, not the newest packet.
+    input.yaw = 165.0;
+    assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), 165.0);
 }

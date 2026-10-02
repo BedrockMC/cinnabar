@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use asset_compiler::{
-    compile_entity_assets_with_report, compile_equipment_textures, compile_item_use_durations,
+    compile_entity_assets_with_report, compile_equipment_textures_for_assets,
+    compile_item_use_durations,
 };
 use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
@@ -63,7 +64,7 @@ pub(super) fn compile_equipment_assets_command(
     let entity_blob = encode_entity_blob(&compilation.assets)?;
     let entity_blob_sha256: [u8; 32] = Sha256::digest(&entity_blob).into();
     let bindings = &compilation.equipment_bindings;
-    let textures = compile_equipment_textures(pack, &compilation.assets.sources, bindings)?;
+    let textures = compile_equipment_textures_for_assets(pack, &compilation.assets, bindings)?;
     let item_use = behavior_pack
         .map(compile_item_use_durations)
         .transpose()?
