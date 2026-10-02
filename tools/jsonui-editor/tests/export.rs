@@ -330,3 +330,82 @@ fn only_edited_or_owned_files_ship() {
         ["ui/example_common.json"]
     );
 }
+
+#[test]
+fn review_generated_child_operations_preserve_authored_modifications() {
+    let before = r#"{"namespace":"test","main":{"type":"panel","controls":[{"a":{"type":"label","text":"A"}}]}}"#;
+    let after = r#"{"namespace":"test","main":{"type":"panel","controls":[{"a":{"type":"label","text":"A"}},{"b":{"type":"label","text":"B"}}],"modifications":[{"array_name":"controls","operation":"remove","control_name":"a"}]}}"#;
+    let mut workspace = Workspace::default();
+    let layer = workspace.add_layer("base");
+    workspace.add_files(
+        layer,
+        vec![("ui/test.json".into(), before.as_bytes().to_vec())],
+        vec![],
+    );
+    workspace.edit(layer, "ui/test.json", after);
+    let plan = export::plan(&mut workspace, Mode::Overlay, None, false);
+    let exported = export::parse(&String::from_utf8_lossy(&plan.files["ui/test.json"])).unwrap();
+    let operations = exported["main"]["modifications"].as_array().unwrap();
+    assert!(operations.iter().any(|operation| operation["operation"] == "remove" && operation["control_name"] == "a"));
+    assert!(operations.iter().any(|operation| {
+        operation["operation"]
+            .as_str()
+            .is_some_and(|operation| operation.starts_with("insert_"))
+    }));
+}
+
+#[test]
+fn review_changed_existing_modifications_round_trip_with_child_edits() {
+    let before = r#"{"namespace":"test","main":{"controls":[{"a":{"type":"label","text":"A"}}],"modifications":[{"array_name":"controls","operation":"insert_back","value":[{"c":{"type":"label","text":"C"}}]}]}}"#;
+    let after = before.replace("\"c\"", "\"d\"").replace("\"C\"", "\"D\"").replace(
+        "\"controls\":[{\"a\":{\"type\":\"label\",\"text\":\"A\"}}]",
+        "\"controls\":[{\"a\":{\"type\":\"label\",\"text\":\"A\"}},{\"b\":{\"type\":\"label\",\"text\":\"B\"}}]",
+    );
+    let make = || {
+        let mut workspace = Workspace::default();
+        let base = workspace.add_layer("base");
+        workspace.add_files(
+            base,
+            vec![
+                (
+                    "ui/_ui_defs.json".into(),
+                    br#"{"ui_defs":["ui/test.json"]}"#.to_vec(),
+                ),
+                ("ui/_global_variables.json".into(), b"{}".to_vec()),
+                (
+                    "ui/test.json".into(),
+                    br#"{"namespace":"test","main":{"type":"panel"}}"#.to_vec(),
+                ),
+            ],
+            vec![],
+        );
+        let upper = workspace.add_layer("pack");
+        workspace.add_files(
+            upper,
+            vec![("ui/test.json".into(), before.as_bytes().to_vec())],
+            vec![],
+        );
+        workspace
+    };
+    let mut edited = make();
+    edited.edit(1, "ui/test.json", &after);
+    let plan = export::plan(&mut edited, Mode::Overlay, None, false);
+    let mut layered = make();
+    let overlay = layered.add_layer("export");
+    layered.add_files(overlay, plan.files.into_iter().collect(), vec![]);
+    let context = Context::desktop();
+    let want = resolve(&edited.catalog(), "test.main", &context)
+        .control
+        .unwrap();
+    let got = resolve(&layered.catalog(), "test.main", &context)
+        .control
+        .unwrap();
+    assert_eq!(
+        want.children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b", "d"]
+    );
+    assert_eq!(want, got);
+}
