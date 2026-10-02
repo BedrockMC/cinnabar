@@ -77,3 +77,21 @@ An isolated cancellation soak replaces one 64x64 texture 2,000 times. Baseline
 path without waiting for final packing. Harnesses and logs are under
 `/private/tmp/cinnabar-growth/`.
 
+
+## Large-image decode concurrency
+
+`f4a4d802` added float RGBA conversion for correct premultiplied downscaling.
+That scratch allocation is larger than the image reader's decoded-byte limit.
+The existing eight-image Rayon batch could hold eight such intermediates at once,
+on top of the world worker pools and Bevy's task pools. Decoding now stays on the
+already dedicated artwork worker; image conversion and output pixels are unchanged.
+A cold batch may finish later, while rendering continues on the previous atlas.
+
+The matched offline eight-image fixture uses 2048x2048 PNGs and identical image
+and Rayon versions. Sampled peak RSS is 430,816 KiB on `199e0856`, 923,888 KiB on
+`18f3509a`, and 134,752 KiB after serializing decoding. Sampled process thread
+counts are 14, 14 and 2 respectively. All three produce eight images totaling
+33,423,488 pixel bytes. These are isolated decoder process measurements, not
+whole-client thread counts or proof of a GPU-driver hang. The reconstruction's
+texture image cache is resource-location keyed
+(`R:t/TextureGroupImageCache.cpp:41`); no authored UI or texture selection changes.
