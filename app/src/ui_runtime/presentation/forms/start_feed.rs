@@ -39,6 +39,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     }
     data.set_global("#gathering_button_text", text(event.button_text.clone()));
     data.set_global("#gathering_badge", text(event.badge_path.clone()));
+    data.set_global("#gathering_badge_file_system", text("RawPath"));
     data.set_global(
         "#gathering_badge_visible",
         Scalar::Bool(!event.badge_path.is_empty()),

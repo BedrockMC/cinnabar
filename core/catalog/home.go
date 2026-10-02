@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/clientplatform"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -156,8 +157,14 @@ type LiveEvent struct {
 
 // MessagingSession holds the account's messaging session across home refreshes and reports.
 type MessagingSession struct {
-	mu     sync.Mutex
-	client *playermessaging.Client
+	mu       sync.Mutex
+	client   *playermessaging.Client
+	language string
+}
+
+// NewMessagingSession keeps the active UI language for refreshes and reports.
+func NewMessagingSession(language string) *MessagingSession {
+	return &MessagingSession{language: language}
 }
 
 // get returns the session's client, opening it on the discovered endpoint on first use.
@@ -169,15 +176,11 @@ func (s *MessagingSession) get(discovery *service.Discovery, account *authcache.
 		if err := discovery.Environment(env); err != nil {
 			return nil, fmt.Errorf("resolve messaging service: %w", err)
 		}
+		env.HTTPClient = messagingHTTPClient(env.HTTPClient, s.language)
 		s.client = env.New(account)
 	}
 	return s.client, nil
 }
-
-const (
-	clientPlatform = "Android"
-	clientSub      = "Google"
-)
 
 // HomeFeed gathers the start screen's service data; the persona head is
 // written into artworkDir.
@@ -304,13 +307,14 @@ func flatten(session *playermessaging.Session) ([]Message, Inbox) {
 	return messages, inbox
 }
 
-func liveEvents(ctx context.Context, discovery *service.Discovery, account *authcache.Account, now time.Time) ([]LiveEvent, error) {
+// liveEvents fetches the desktop public configuration from the discovered service.
+func liveEvents(ctx context.Context, discovery *service.Discovery, account service.TokenSource, now time.Time) ([]LiveEvent, error) {
 	client, err := gatheringsClient(discovery, account)
 	if err != nil {
 		return nil, err
 	}
 	configs, err := client.PublicConfig(ctx, gatherings.ConfigQuery{
-		ClientVersion: protocol.CurrentVersion, ClientPlatform: clientPlatform, ClientSubPlatform: clientSub,
+		ClientVersion: protocol.CurrentVersion, ClientPlatform: clientplatform.Platform, ClientSubPlatform: clientplatform.SubPlatform,
 	})
 	if err != nil {
 		return nil, err

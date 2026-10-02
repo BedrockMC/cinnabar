@@ -326,7 +326,7 @@ pub(crate) fn set_active_language(code: &str) {
 }
 
 /// Returns the same locale used by the language overlay and its font resources.
-pub(super) fn active_language_code() -> String {
+pub(crate) fn active_language_code() -> String {
     ACTIVE_LANG_PATH
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
