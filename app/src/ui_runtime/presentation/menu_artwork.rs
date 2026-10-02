@@ -210,7 +210,7 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
             let missing = cache.missing(&request.set);
             let mut decoded = 0;
             for batch in missing.chunks(FIRST_BATCH) {
-                cache.decode(batch);
+                cache.decode(batch, &request.set);
                 decoded += batch.len();
                 if !jobs.is_empty() {
                     continue 'request;
@@ -259,7 +259,7 @@ impl DecodeCache {
             .collect()
     }
 
-    fn decode(&mut self, batch: &[Source]) {
+    fn decode(&mut self, batch: &[Source], set: &ArtworkSet) {
         use rayon::prelude::*;
         let results: Vec<_> = batch
             .par_iter()
@@ -279,6 +279,9 @@ impl DecodeCache {
                         height,
                         pixels,
                     };
+                    // A replacement image supersedes the prior bytes at this path and size.
+                    self.decoded
+                        .retain(|old, _| old.0 != key.0 || old.1 != key.1);
                     self.decoded.insert(key, Arc::new(art));
                 }
                 None => {
@@ -289,6 +292,8 @@ impl DecodeCache {
                 }
             }
         }
+        // Cancellation must not bypass eviction after a finished batch.
+        self.trim(set);
     }
 
     /// Drops decoded art `set` no longer names once the cache outgrows its bound.
@@ -554,6 +559,38 @@ mod tests {
         bytes
     }
 
+    /// Every decode batch can be superseded before an atlas finishes packing.
+    #[test]
+    fn superseded_artwork_batches_keep_the_decode_cache_bounded() {
+        let mut cache = DecodeCache::default();
+        for revision in 0..2000_u32 {
+            let color = [revision as u8, (revision >> 8) as u8, 20, 255];
+            let set = ArtworkSet {
+                oversized: vec![("changing".into(), png(8, 8, color).into())],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set), &set);
+            assert_eq!(cache.decoded.len(), 1);
+            let source = sources(&set).pop().unwrap();
+            assert_eq!(&cache.decoded[&source.key()].pixels[..4], &color);
+        }
+    }
+
+    /// Churning distinct paths exercises eviction even when every batch is cancelled.
+    #[test]
+    fn cancelled_artwork_batches_evict_obsolete_paths() {
+        let mut cache = DecodeCache::default();
+        let bytes: Arc<[u8]> = png(8, 8, [10, 20, 30, 255]).into();
+        for revision in 0..2000 {
+            let set = ArtworkSet {
+                oversized: vec![(format!("changing-{revision}"), Arc::clone(&bytes))],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set), &set);
+            assert!(cache.decoded.len() <= MAX_DECODED);
+        }
+    }
+
     #[test]
     fn replacing_pack_bytes_invalidates_decoded_artwork() {
         let mut cache = DecodeCache::default();
@@ -562,7 +599,7 @@ mod tests {
                 oversized: vec![(TITLE_KEY.to_owned(), png(900, 300, color).into())],
                 ..Default::default()
             };
-            cache.decode(&cache.missing(&set));
+            cache.decode(&cache.missing(&set), &set);
             let atlas = pack(&set, &cache, 0, true);
             let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
             let page = &atlas.pages[usize::from(art.page)];
@@ -591,7 +628,7 @@ mod tests {
             oversized: vec![(TITLE_KEY.to_owned(), bytes)],
         };
         let mut cache = DecodeCache::default();
-        cache.decode(&cache.missing(&set));
+        cache.decode(&cache.missing(&set), &set);
         let atlas = pack(&set, &cache, 0, true);
         let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
         let [u0, v0, u1, v1] = art.uv;
