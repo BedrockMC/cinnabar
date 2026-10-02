@@ -322,6 +322,14 @@ PNG written 226 ms after right-click and persists in the post-reply frame. The s
 grass item's hand, hotbar and open-inventory visuals also render. This is live functional
 acceptance of the reported bugs, not complete native placement parity.
 
+2026-10-02 block selection: gameplay picks now publish the native black wire box
+when Outline Selection is enabled and a brightened model overlay when it is off.
+This omission also exists at 199e0856; it is not a regression in the first-parent
+history since that commit. Offline GPU regressions cover both depth-tested passes
+and clearing a lost target. Native visual parity remains incomplete: the existing
+pick-shape coverage excludes non-colliding plants, and cutout texture masks are not
+yet carried into the highlight overlay. No live visual gate is closed here.
+
 2026-09-30 block interaction: breaks (every game mode, both block-breaking
 authorities; Creative repeats while held), stateless full-cube placements and
 trapdoor/lever/button uses are predicted locally and replaced by the server's

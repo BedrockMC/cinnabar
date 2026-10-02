@@ -504,6 +504,13 @@ impl CollisionRegistry {
         self.physics(runtime_id).map(|physics| &*physics.shapes)
     }
 
+    /// Block-local bounds used by the pick ray and its selection outline.
+    #[must_use]
+    pub fn selection_shapes(&self, runtime_id: u32) -> Option<&[Aabb]> {
+        self.physics(runtime_id)
+            .map(|physics| physics.pick_shapes.as_deref().unwrap_or(&physics.shapes))
+    }
+
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }

@@ -945,6 +945,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
+    crate::block_selection::configure(&mut app);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);
