@@ -408,6 +408,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
     presentation.set_server_ui_pack(&ServerUiPack {
         ui_layers: Vec::new(),
         textures: vec![("textures/ui/big_logo.png".to_owned(), png)],
+        catalog: None,
         view: None,
     });
     let runtime = image_form(

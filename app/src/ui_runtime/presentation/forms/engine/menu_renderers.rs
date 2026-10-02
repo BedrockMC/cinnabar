@@ -12,7 +12,10 @@ use assets::RuntimeUiAssets;
 use serde_json::Value;
 use ui::{TextShadow, UiVisual};
 
-use super::{Painter, UNWRAPPED_LOGICAL, scaled_request, width_64};
+use super::{
+    Painter,
+    text_paint::{UNWRAPPED_LOGICAL, scaled_request, width_64},
+};
 
 /// Title panels shaped to Cinnabar's logo (1022x282) rather than the pack's
 /// title, so it draws unstretched and the splash meets its right edge.

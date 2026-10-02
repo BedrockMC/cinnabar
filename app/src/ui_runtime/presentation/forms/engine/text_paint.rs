@@ -131,6 +131,7 @@ impl TextMeasure for Measure<'_, '_> {
         }
     }
 
+    /// Keeps label shaping while selecting the pack's named font.
     fn named_label(
         &self,
         text: &str,
