@@ -79,6 +79,7 @@ impl ActorStore {
             max_players,
             max_player_skin_bytes,
             retained_player_skin_bytes: 0,
+            ignored_movement_components: 0,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             rider_to_ridden: HashMap::new(),
@@ -289,28 +290,45 @@ impl ActorStore {
                     } else {
                         0.0
                     };
+                let mut ignored = 0_u64;
+                let mut merge = |target: &mut f32, source: Option<f32>| {
+                    if let Some(value) = source {
+                        if value.is_finite() {
+                            *target = value;
+                        } else {
+                            ignored += 1;
+                        }
+                    }
+                };
                 for (axis, (target, source)) in received
                     .position
                     .iter_mut()
                     .zip(movement.position)
                     .enumerate()
                 {
-                    if let Some(source) = source {
-                        *target = if axis == 1 {
-                            source - network_position_offset
-                        } else {
-                            source
-                        };
+                    merge(
+                        target,
+                        source.map(|value| {
+                            if axis == 1 {
+                                value - network_position_offset
+                            } else {
+                                value
+                            }
+                        }),
+                    );
+                }
+                merge(&mut received.pitch, movement.pitch);
+                merge(&mut received.yaw, movement.yaw);
+                merge(&mut received.head_yaw, movement.head_yaw);
+                if ignored > 0 {
+                    let previous = self.ignored_movement_components;
+                    self.ignored_movement_components = previous.saturating_add(ignored);
+                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
+                        eprintln!(
+                            "ignored non-finite actor movement components: {}",
+                            self.ignored_movement_components
+                        );
                     }
-                }
-                if let Some(value) = movement.pitch {
-                    received.pitch = value;
-                }
-                if let Some(value) = movement.yaw {
-                    received.yaw = value;
-                }
-                if let Some(value) = movement.head_yaw {
-                    received.head_yaw = value;
                 }
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
