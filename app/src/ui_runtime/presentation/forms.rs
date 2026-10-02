@@ -29,6 +29,7 @@ mod pages;
 mod panorama;
 pub(crate) use panorama::{built_in_faces, launcher_view};
 mod enhanced_setting;
+mod graphics_expander;
 #[cfg(test)]
 mod play_flow_snapshots;
 mod play_screen;
