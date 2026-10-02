@@ -42,9 +42,9 @@ pack must keep that override; the small figures in the owner's corrupted frame
 are unrelated atlas pixels. A separate offline fixture removes only that override
 and checks vanilla bar pixels and animation. No pack files are changed on disk.
 
-The requested `zeqapacks` archives contain duplicate entity/art packs without the
-UI title. The existing `scratchpad/zq/ui` layer used by the earlier render script
-provides the Zeqa UI fixture. Pack files and screenshots remain outside git.
+The restored Zeqa archive set supplies both the asset and UI layers through
+`CINNABAR_FORM_PACK_DIR` (colon-separated, lowest first). Pack files and screenshots
+remain outside git.
 
 The art-page publication issue dates to `f4a4d802`, with the asynchronous end-of-frame
 installation added in merge `ad949ed8`. Unordered misses became visible omissions
@@ -95,3 +95,31 @@ counts are 14, 14 and 2 respectively. All three produce eight images totaling
 whole-client thread counts or proof of a GPU-driver hang. The reconstruction's
 texture image cache is resource-location keyed
 (`R:t/TextureGroupImageCache.cpp:41`); no authored UI or texture selection changes.
+
+## Startup page insertion and live-order replay
+
+`67041c853` inserts the optional OreUI originals page after JSON-UI initialization.
+That moves all dynamic slots, but the engine's fallback/server page base previously
+kept the old index until a server pack was applied. Before that pack arrives, dirt
+and the loading strip sample the preceding slot (the last glyph page). The slot
+base now follows the new dynamic start during insertion.
+
+`vanilla_loading_before_pack_arrival_survives_static_page_insertion` fails before
+this change on actual rendered dirt pixels, with a black backdrop, and uses a
+synthetic static page so it does not require an OreUI install. This establishes a
+pre-pack defect; it does not establish the cause of the supplied post-pack Zeqa
+screenshot.
+
+`zeqa_lazy_pages_survive_menu_join_reload_and_cancellation` mounts the real fixture
+textures through the production lazy archive reader, warms menu art, joins, cycles
+four pack generations and supersedes artwork requests during the first twelve
+frames of each generation. Every frame checks dirt/gradient texels, and settled
+frames must be pixel-identical. The native Metal replay
+`zeqa_late_pages_match_the_published_frame_on_gpu` compares grid samples against the
+CPU publication while pages, glyphs, skins and pack ownership change. The existing
+bar test independently checks Zeqa's fully transparent override.
+
+The supplied Zeqa page-grid corruption and 6 FPS did not reproduce in these
+replays. Current logo, backdrop and bar snapshots are correct; a live 1:1 parity
+and performance gate remains open. There is no evidence here to identify a later
+merge as reintroducing `646b710b`'s fixed publication-order defect.
