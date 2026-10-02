@@ -19,22 +19,14 @@ impl WorldStream {
         let mut candidate =
             PendingSchedulerCandidate::new(highest, pending.revision, view, pending.urgent);
         let mut priority = candidate;
-        if let Some(range) = vanilla_dimension_range(key.dimension) {
-            for offset in 0..range.sub_chunk_count {
-                let member = SubChunkKey::new(
-                    key.dimension,
-                    key.x,
-                    range.base_sub_chunk_y + offset as i32,
-                    key.z,
-                );
-                if let Some(pending) = self.pending_light.get(&member) {
-                    priority = priority.max(PendingSchedulerCandidate::new(
-                        member,
-                        pending.revision,
-                        view,
-                        pending.urgent,
-                    ));
-                }
+        for member in self.light_column_sources(key) {
+            if let Some(pending) = self.pending_light.get(&member) {
+                priority = priority.max(PendingSchedulerCandidate::new(
+                    member,
+                    pending.revision,
+                    view,
+                    pending.urgent,
+                ));
             }
         }
         candidate.distance_squared = priority.distance_squared;
@@ -645,12 +637,7 @@ impl WorldStream {
         if key.dimension != 0 || !self.known_air.contains(&key) {
             return false;
         }
-        let top_sub_chunk_y = vanilla_dimension_range(0).and_then(|range| {
-            range
-                .base_sub_chunk_y
-                .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
-                .checked_sub(1)
-        });
+        let top_sub_chunk_y = self.light_column_top_sub_chunk_y(key);
         if Some(key.y) == top_sub_chunk_y {
             return true;
         }
