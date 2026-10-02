@@ -162,8 +162,13 @@ fn mod_spike_snapshot_with_real_carrier() {
     };
     let before = frame(&mut presentation);
     snapshot::write(&before, "mod-spike-before");
-    let mut guest = std::env::var_os(SAMPLE_COMPONENT_ENV)
-        .map(|path| mod_host::ModHost::load(std::path::Path::new(&path)).unwrap());
+    let mut guest = std::env::var_os(SAMPLE_COMPONENT_ENV).map(|path| {
+        mod_host::ModHost::load_with_grants(
+            std::path::Path::new(&path),
+            mod_host::ModGrants { environment: true },
+        )
+        .unwrap()
+    });
     let text = guest
         .as_ref()
         .map(|host| host.label().expect("sample must publish a label"))
@@ -191,7 +196,11 @@ fn mod_spike_snapshot_with_real_carrier() {
 fn mod_spike_offline_frame_overhead() {
     let path = std::env::var_os(SAMPLE_COMPONENT_ENV)
         .unwrap_or_else(|| panic!("set {SAMPLE_COMPONENT_ENV} to the compiled sample"));
-    let mut host = mod_host::ModHost::load(std::path::Path::new(&path)).unwrap();
+    let mut host = mod_host::ModHost::load_with_grants(
+        std::path::Path::new(&path),
+        mod_host::ModGrants { environment: true },
+    )
+    .unwrap();
     let mut vanilla = pack_harness::engine_presentation().expect("real UI carrier required");
     let mut modded = pack_harness::engine_presentation().expect("real UI carrier required");
     for _ in 0..5 {

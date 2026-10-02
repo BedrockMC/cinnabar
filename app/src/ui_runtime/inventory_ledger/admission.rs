@@ -40,6 +40,7 @@ impl PlayerInventoryLedger {
         }
         self.admit(event);
         self.refold();
+        self.reconcile_crafting_close();
     }
 
     fn admit(&mut self, event: &InventoryEvent) {
@@ -472,6 +473,7 @@ impl PlayerInventoryLedger {
                 window_type: open.window_type,
             });
         } else {
+            let returning = self.close_return_needed();
             self.queue_close(
                 window_id,
                 open.window_type,
@@ -485,6 +487,9 @@ impl PlayerInventoryLedger {
                 // distinct Close wait only after its packet is admitted.
                 deadline_millis: None,
             });
+            if returning {
+                self.retain_close_returns(PendingCloseOwner::Personal(generation));
+            }
         }
     }
 

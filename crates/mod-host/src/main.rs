@@ -1,7 +1,7 @@
 //! Small SDK tools; none of these commands starts a client or network session.
 
 use anyhow::{Result, bail, ensure};
-use mod_host::ModHost;
+use mod_host::{ModGrants, ModHost};
 use std::{hint::black_box, path::Path, time::Instant};
 
 /// Dispatches packaging, an input smoke test, or the bounded callback benchmark.
@@ -17,8 +17,13 @@ fn main() -> Result<()> {
                 .encode()?;
             std::fs::write(output, component)?;
         }
-        [command, path] if command == "probe" => {
-            let mut host = ModHost::load(Path::new(path))?;
+        [command, path] if command == "probe" || command == "probe-environment" => {
+            let mut host = ModHost::load_with_grants(
+                Path::new(path),
+                ModGrants {
+                    environment: command == "probe-environment",
+                },
+            )?;
             let initial = host.label().map(str::to_owned);
             ensure!(initial.is_some(), "sample did not publish its label");
             host.frame(false)?;
@@ -31,11 +36,12 @@ fn main() -> Result<()> {
                 host.label().is_some() && host.label() != initial.as_deref(),
                 "sample did not react to input"
             );
+            println!("time_override={:?}", host.time_override());
             println!("initial={initial:?}\nafter_key={:?}", host.label());
         }
         [command, path] if command == "bench" => benchmark(Path::new(path))?,
         _ => bail!(
-            "usage: mod-host pack CORE.wasm COMPONENT.wasm | probe COMPONENT.wasm | bench COMPONENT.wasm"
+            "usage: mod-host pack CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | bench COMPONENT.wasm"
         ),
     }
     Ok(())

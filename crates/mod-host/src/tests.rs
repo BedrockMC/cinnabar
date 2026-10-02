@@ -12,6 +12,7 @@ fn fixture(frame: &str, text: &str) -> String {
     let (name, version) = package.split_once('@').unwrap();
     include_str!("tests/guest.wat")
         .replace("$HUD", &format!("{name}/hud@{version}"))
+        .replace("$ENVIRONMENT", &format!("{name}/environment@{version}"))
         .replace("$INPUT", &format!("{name}/input@{version}"))
         .replace("$TEXT", text)
         .replace("$LENGTH", &text.len().to_string())
@@ -160,4 +161,119 @@ fn trapping_reload_initialization_retains_previous_output_and_instance() {
     host.frame(false).unwrap();
     assert!(host.is_active());
     assert_eq!(host.label(), Some("Hello"));
+}
+
+/// Runs the environment import and checks its canonical result discriminant.
+fn time_call(ticks: Option<u32>, denied: bool) -> String {
+    format!(
+        "i32.const {} i32.const {} i32.const 128 call $time \
+         i32.const 128 i32.load8_u i32.const {} i32.ne if unreachable end",
+        u8::from(ticks.is_some()),
+        ticks.unwrap_or_default(),
+        u8::from(denied)
+    )
+}
+
+/// Loads a component with an explicit environment grant and optional init write.
+fn environment_fixture(init: &str, frame: &str, granted: bool) -> (tempfile::TempDir, ModHost) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mod.wat");
+    let source = fixture(frame, "Time").replacen(
+        "(export \"init\")",
+        &format!("(export \"init\") {init}"),
+        1,
+    );
+    std::fs::write(&path, source).unwrap();
+    let host = ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            environment: granted,
+        },
+    )
+    .unwrap();
+    (directory, host)
+}
+
+#[test]
+fn environment_grant_sets_and_none_clears_across_component_boundary() {
+    let frame = format!(
+        "call $pressed if {} else {} end",
+        time_call(Some(1_000), false),
+        time_call(None, false)
+    );
+    let (_directory, mut host) = environment_fixture("", &frame, true);
+    host.frame(true).unwrap();
+    assert_eq!(host.time_override(), Some(1_000));
+    host.frame(false).unwrap();
+    assert_eq!(host.time_override(), None);
+}
+
+#[test]
+fn environment_denial_returns_error_without_quarantining_guest() {
+    for ticks in [None, Some(1_000)] {
+        let (_directory, mut host) = environment_fixture("", &time_call(ticks, true), false);
+        host.frame(false).unwrap();
+        assert_eq!(host.time_override(), None);
+        assert!(host.is_active());
+    }
+}
+
+#[test]
+fn environment_rejects_out_of_range_and_accepts_both_boundaries() {
+    for ticks in [mod_api::BEDROCK_DAY_TICKS, u32::MAX] {
+        let (_directory, mut host) = environment_fixture(
+            &time_call(Some(0), false),
+            &time_call(Some(ticks), true),
+            true,
+        );
+        host.frame(false).unwrap();
+        assert_eq!(host.time_override(), Some(0));
+    }
+    let last = mod_api::BEDROCK_DAY_TICKS - 1;
+    let (_directory, mut host) = environment_fixture("", &time_call(Some(last), false), true);
+    host.frame(false).unwrap();
+    assert_eq!(host.time_override(), Some(last));
+}
+
+#[test]
+fn environment_trap_revokes_override_and_discards_pending_write() {
+    let frame = format!("{} unreachable", time_call(Some(1_000), false));
+    let (_directory, mut host) = environment_fixture(&time_call(Some(18_000), false), &frame, true);
+    assert_eq!(host.time_override(), Some(18_000));
+    assert!(host.frame(false).is_err());
+    assert_eq!(host.time_override(), None);
+}
+
+#[test]
+fn environment_import_budget_is_bounded() {
+    let frame = format!("(loop $spam {} br $spam)", time_call(None, false));
+    let (_directory, mut host) = environment_fixture("", &frame, true);
+    let error = host.frame(false).unwrap_err();
+    assert!(format!("{error:#}").contains("environment import budget exhausted"));
+    assert_eq!(host.time_override(), None);
+}
+
+#[test]
+fn environment_reload_preserves_grants_and_resets_committed_override() {
+    let (directory, mut host) = environment_fixture(&time_call(Some(1_000), false), "", true);
+    let path = directory.path().join("mod.wat");
+    std::fs::write(&path, "broken").unwrap();
+    assert!(host.reload_if_changed().is_err());
+    assert_eq!(host.time_override(), Some(1_000));
+    std::fs::write(&path, fixture(&time_call(Some(18_000), false), "Reloaded")).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    assert_eq!(host.time_override(), None);
+    host.frame(false).unwrap();
+    assert_eq!(host.time_override(), Some(18_000));
+}
+
+#[test]
+fn default_loader_denies_environment_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mod.wat");
+    std::fs::write(&path, fixture(&time_call(Some(1_000), true), "Time")).unwrap();
+    let mut host = ModHost::load(&path).unwrap();
+    host.frame(false).unwrap();
+    assert_eq!(host.time_override(), None);
+    assert!(host.is_active());
 }

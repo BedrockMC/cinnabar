@@ -88,6 +88,7 @@ impl TextureSet {
         let atlas = atlas.with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()));
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
+        self.full_res.clear();
     }
 
     /// Item icons by texture path and the local vanilla pack; the atlas

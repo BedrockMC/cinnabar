@@ -11,6 +11,7 @@ members = [
     "crates/mod-api",
     "crates/mod-host",
     "examples/mods/hello",
+    "examples/mods/time-changer",
     "crates/protocol",
     "crates/resource-pack",
     "crates/server-experience",
