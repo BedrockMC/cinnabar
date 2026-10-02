@@ -305,17 +305,12 @@ func (s *Service) SignOut() error {
 	s.snap = snapshot{}
 	s.mu.Unlock()
 	_ = s.cfg.Account.Close()
-	var paths []string
-	if s.cfg.AuthCache != "" {
-		paths = append(paths, s.cfg.AuthCache, authcache.DerivedCachePath(s.cfg.AuthCache))
-	}
-	if s.cfg.CacheFile != "" {
-		paths = append(paths, s.cfg.CacheFile)
-	}
-	var failed bool
 	s.disk.Lock()
-	for _, path := range paths {
-		if err := s.cfg.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	failed := authcache.Remove(wait, s.cfg.AuthCache, s.cfg.Remove) != nil
+	cancel()
+	if s.cfg.CacheFile != "" {
+		if err := s.cfg.Remove(s.cfg.CacheFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failed = true
 		}
 	}
