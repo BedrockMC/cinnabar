@@ -143,3 +143,27 @@ fn maximum_typed_payload_round_trips_through_dispatch_ipc() {
     let decoded: Dispatch = read_frame(&mut bytes.as_slice(), MAX_DISPATCH_IPC).unwrap();
     assert_eq!(decoded.record, request.record);
 }
+
+#[test]
+fn review_frame_serialization_stops_at_the_byte_limit() {
+    use serde::ser::SerializeSeq;
+    struct Large<'a>(&'a std::sync::atomic::AtomicUsize);
+    impl Serialize for Large<'_> {
+        fn serialize<S: serde::Serializer>(
+            &self,
+            serializer: S,
+        ) -> std::result::Result<S::Ok, S::Error> {
+            let mut sequence = serializer.serialize_seq(None)?;
+            for _ in 0..100 {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                sequence.serialize_element(&"large element".repeat(20))?;
+            }
+            sequence.end()
+        }
+    }
+    let visits = std::sync::atomic::AtomicUsize::new(0);
+    let mut written = Vec::new();
+    assert!(write_frame(&mut written, &Large(&visits), 64).is_err());
+    assert!(written.is_empty());
+    assert_eq!(visits.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
