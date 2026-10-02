@@ -26,6 +26,9 @@ pub const MAX_WASM_STACK_BYTES: usize = 256 * 1024;
 pub const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
 /// Blocks one Experience may register.
 pub const MAX_BLOCKS: usize = 64;
+/// Bytes in a block's name, the part of its id after `<experience id>:`; at least one is
+/// required.
+pub const MAX_BLOCK_NAME_BYTES: usize = 32;
 /// Bytes in a block's display name; at least one is required.
 pub const MAX_DISPLAY_NAME_BYTES: usize = 64;
 /// Host calls per callback; logs are counted separately.

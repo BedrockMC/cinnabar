@@ -20,14 +20,17 @@ use crate::hex;
 use crate::host::cinnabar::experience_server::types as wit;
 use crate::host::{self, HostState, Server, ServerPre};
 use crate::limits::{
-    EPOCH_PERIOD, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES, MAX_WASM_STACK_BYTES,
-    REGISTER_DEADLINE, REGISTER_FUEL,
+    EPOCH_PERIOD, MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES,
+    MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
 };
 use crate::manifest::{ASSETS_DIR, Manifest, SERVER_WASM, read_manifest, resolve};
 use crate::protocol;
 
-/// The texture slots a block may bind, each at most once.
-const SLOTS: [&str; 7] = ["*", "up", "down", "north", "south", "east", "west"];
+/// The texture slot for every face that a block does not bind on its own.
+const ALL_FACES: &str = "*";
+/// The face texture slots. A block binds each slot at most once, and binds [`ALL_FACES`] unless
+/// it binds all of these.
+const FACES: [&str; 6] = ["up", "down", "north", "south", "east", "west"];
 
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
 /// the `server` world, ready for a fresh instance per callback.
@@ -195,9 +198,13 @@ fn validate_blocks(
             textures,
             mining,
         } = def;
+        let Some(name) = id.strip_prefix(&namespace) else {
+            bail!("block \"{id}\" is outside namespace \"{namespace}\"");
+        };
         ensure!(
-            id.starts_with(&namespace),
-            "block \"{id}\" is outside namespace \"{namespace}\""
+            is_block_name(name),
+            "block \"{id}\" has an invalid name: the part after \"{namespace}\" must match \
+             ^[a-z0-9_]{{1,{MAX_BLOCK_NAME_BYTES}}}$"
         );
         ensure!(
             blocks.iter().all(|block| block.id != id),
@@ -214,6 +221,14 @@ fn validate_blocks(
         });
     }
     Ok(blocks)
+}
+
+/// `^[a-z0-9_]{1,MAX_BLOCK_NAME_BYTES}$`, the part of a block id after `<id>:`.
+fn is_block_name(name: &str) -> bool {
+    (1..=MAX_BLOCK_NAME_BYTES).contains(&name.len())
+        && name
+            .bytes()
+            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
 }
 
 /// Checks one block's display name, texture bindings and mining.
@@ -236,8 +251,8 @@ fn validate_block(
     let mut textures: Vec<protocol::Texture> = Vec::new();
     for wit::TextureBinding { slot, path } in bindings {
         ensure!(
-            SLOTS.contains(&slot.as_str()),
-            "texture slot \"{slot}\" is not one of {SLOTS:?}"
+            slot == ALL_FACES || FACES.contains(&slot.as_str()),
+            "texture slot \"{slot}\" is neither \"{ALL_FACES}\" nor one of {FACES:?}"
         );
         ensure!(
             textures.iter().all(|texture| texture.slot != slot),
@@ -255,6 +270,11 @@ fn validate_block(
             .map_err(|path| anyhow!("{} is not a UTF-8 path", path.display()))?;
         textures.push(protocol::Texture { slot, path });
     }
+    let bound = |slot: &str| textures.iter().any(|texture| texture.slot == slot);
+    ensure!(
+        bound(ALL_FACES) || FACES.into_iter().all(bound),
+        "textures bind neither \"{ALL_FACES}\" nor all of {FACES:?}"
+    );
     let mining = match mining {
         wit::Mining::Unbreakable => protocol::Mining::Unbreakable {},
         wit::Mining::Breakable(hardness) => {
@@ -275,8 +295,10 @@ mod tests {
     use wasmtime::Trap;
     use wasmtime::component::{Component, Linker};
 
-    use super::engine;
-    use crate::host::HostState;
+    use super::{engine, validate_blocks, wit};
+    use crate::host::{HostState, api_version};
+    use crate::limits::{MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_DISPLAY_NAME_BYTES};
+    use crate::manifest::{ASSETS_DIR, DATA_SCHEMA, Manifest, SERVER_WASM};
 
     /// The ticker keeps the epoch on wall time, so a store with fuel to spare still stops at its
     /// deadline, and not long before or after it.
@@ -310,5 +332,196 @@ mod tests {
             elapsed >= DEADLINE / 2 && elapsed < DEADLINE * 5,
             "stopped after {elapsed:?}"
         );
+    }
+
+    fn binding(slot: &str) -> wit::TextureBinding {
+        wit::TextureBinding {
+            slot: slot.to_owned(),
+            path: "counter.png".to_owned(),
+        }
+    }
+
+    /// A valid block: `probe:<name>` with the indexed texture bound to `*`.
+    fn block(name: &str) -> wit::BlockDef {
+        wit::BlockDef {
+            id: format!("probe:{name}"),
+            display_name: "Probe Counter".to_owned(),
+            textures: vec![binding("*")],
+            mining: wit::Mining::Breakable(1.0),
+        }
+    }
+
+    /// `count` valid blocks with distinct names.
+    fn blocks(count: usize) -> Vec<wit::BlockDef> {
+        (0..count).map(|i| block(&format!("b{i}"))).collect()
+    }
+
+    /// The valid block `probe:counter` after `edit`.
+    fn counter(edit: impl FnOnce(&mut wit::BlockDef)) -> Vec<wit::BlockDef> {
+        let mut def = block("counter");
+        edit(&mut def);
+        vec![def]
+    }
+
+    /// Each row changes a valid declaration in one way. `None` means it is still accepted;
+    /// otherwise the refusal must contain the cause and, for a single block, name that block.
+    #[test]
+    fn block_rules_accept_limits_and_refuse_violations() {
+        let faces = || ["up", "down", "north", "south", "east", "west"].map(binding);
+        let cases: Vec<(&str, Vec<wit::BlockDef>, Option<&str>)> = vec![
+            ("the baseline", counter(|_| {}), None),
+            ("MAX_BLOCKS blocks", blocks(MAX_BLOCKS), None),
+            (
+                "MAX_BLOCKS + 1 blocks",
+                blocks(MAX_BLOCKS + 1),
+                Some("the limit is"),
+            ),
+            (
+                "a duplicate id",
+                vec![block("counter"), block("counter")],
+                Some("declared twice"),
+            ),
+            (
+                "a foreign namespace",
+                counter(|def| def.id = "other:counter".to_owned()),
+                Some("outside namespace"),
+            ),
+            ("a name of digits and _", vec![block("cell_64k")], None),
+            (
+                "a name of MAX_BLOCK_NAME_BYTES",
+                vec![block(&"a".repeat(MAX_BLOCK_NAME_BYTES))],
+                None,
+            ),
+            (
+                "a name of MAX_BLOCK_NAME_BYTES + 1",
+                vec![block(&"a".repeat(MAX_BLOCK_NAME_BYTES + 1))],
+                Some("invalid name"),
+            ),
+            ("an empty name", vec![block("")], Some("invalid name")),
+            ("a name with /", vec![block("a/b")], Some("invalid name")),
+            ("the name ..", vec![block("..")], Some("invalid name")),
+            (
+                "an uppercase name",
+                vec![block("Counter")],
+                Some("invalid name"),
+            ),
+            (
+                "an empty display name",
+                counter(|def| def.display_name.clear()),
+                Some("display name has"),
+            ),
+            (
+                "a display name of MAX_DISPLAY_NAME_BYTES",
+                counter(|def| def.display_name = "a".repeat(MAX_DISPLAY_NAME_BYTES)),
+                None,
+            ),
+            (
+                "a display name of MAX_DISPLAY_NAME_BYTES + 1",
+                counter(|def| def.display_name = "a".repeat(MAX_DISPLAY_NAME_BYTES + 1)),
+                Some("display name has"),
+            ),
+            (
+                "a newline in the display name",
+                counter(|def| def.display_name = "Probe\nCounter".to_owned()),
+                Some("control character"),
+            ),
+            (
+                "the slot top",
+                counter(|def| def.textures.push(binding("top"))),
+                Some("slot \"top\""),
+            ),
+            (
+                "a repeated slot",
+                counter(|def| def.textures.push(binding("*"))),
+                Some("bound twice"),
+            ),
+            (
+                "an unindexed texture",
+                counter(|def| def.textures[0].path = "missing.png".to_owned()),
+                Some("not an indexed file"),
+            ),
+            (
+                "a texture outside assets/",
+                counter(|def| def.textures[0].path = "../server.wasm".to_owned()),
+                Some("not an indexed file"),
+            ),
+            (
+                "no textures",
+                counter(|def| def.textures.clear()),
+                Some("bind neither"),
+            ),
+            (
+                "five faces without *",
+                counter(|def| def.textures = faces().into_iter().take(5).collect()),
+                Some("bind neither"),
+            ),
+            (
+                "six faces without *",
+                counter(|def| def.textures = faces().into()),
+                None,
+            ),
+            (
+                "* and a face",
+                counter(|def| def.textures.push(binding("up"))),
+                None,
+            ),
+            (
+                "hardness 0",
+                counter(|def| def.mining = wit::Mining::Breakable(0.0)),
+                None,
+            ),
+            (
+                "unbreakable",
+                counter(|def| def.mining = wit::Mining::Unbreakable),
+                None,
+            ),
+            (
+                "hardness NaN",
+                counter(|def| def.mining = wit::Mining::Breakable(f32::NAN)),
+                Some("not a finite number"),
+            ),
+            (
+                "hardness inf",
+                counter(|def| def.mining = wit::Mining::Breakable(f32::INFINITY)),
+                Some("not a finite number"),
+            ),
+            (
+                "hardness -1",
+                counter(|def| def.mining = wit::Mining::Breakable(-1.0)),
+                Some("not a finite number"),
+            ),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        // `validate_blocks` consults only the index's paths, not the files or their hashes.
+        let manifest = Manifest {
+            id: "probe".to_owned(),
+            version: "0.1.0".to_owned(),
+            api: api_version().to_owned(),
+            data_schema: DATA_SCHEMA,
+            files: [format!("{ASSETS_DIR}/counter.png"), SERVER_WASM.to_owned()]
+                .into_iter()
+                .map(|path| (path, "0".repeat(64)))
+                .collect(),
+        };
+        let mut failures = Vec::new();
+        for (case, defs, refusal) in cases {
+            let culprit = match defs.as_slice() {
+                [def] => Some(format!("block \"{}\"", def.id)),
+                _ => None,
+            };
+            let outcome = validate_blocks(dir.path(), &manifest, defs);
+            match (outcome.map_err(|error| format!("{error:#}")), refusal) {
+                (Ok(_), None) => {}
+                (Ok(_), Some(cause)) => failures.push(format!("{case}: accepted, not {cause:?}")),
+                (Err(error), None) => failures.push(format!("{case}: refused: {error}")),
+                (Err(error), Some(cause)) => {
+                    let named = culprit.is_none_or(|culprit| error.contains(&culprit));
+                    if !named || !error.contains(cause) {
+                        failures.push(format!("{case}: {error:?} lacks the block or {cause:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 }
