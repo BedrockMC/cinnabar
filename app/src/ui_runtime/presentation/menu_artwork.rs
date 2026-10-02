@@ -259,10 +259,10 @@ impl DecodeCache {
             .collect()
     }
 
+    /// Keep large image scratch allocations on the existing artwork worker.
     fn decode(&mut self, batch: &[Source], set: &ArtworkSet) {
-        use rayon::prelude::*;
         let results: Vec<_> = batch
-            .par_iter()
+            .iter()
             .map(|source| {
                 let art = match source {
                     Source::File(path, side) => decode(Path::new(path), *side),
