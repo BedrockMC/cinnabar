@@ -425,12 +425,14 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
         icons: vec![
             SessionIcon {
                 identifier: "test:gem".into(),
+                metadata: 0,
                 width: 2,
                 height: 1,
                 rgba8: vec![255, 0, 0, 255, 0, 255, 0, 255].into(),
             },
             SessionIcon {
                 identifier: "test:bad".into(),
+                metadata: 0,
                 width: 4,
                 height: 4,
                 rgba8: vec![0; 3].into(),
@@ -468,6 +470,8 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         }
     }
     let sheets = Arc::new(SessionGlyphSheets {
+        named: Default::default(),
+        prepared: Default::default(),
         cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
@@ -483,7 +487,8 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     let page = &presentation.textures.pages()[usize::from(glyph.page)];
     let [left, top, ..] = glyph.uv;
     assert_eq!(
-        page.pixels()[(usize::from(top) * 256 + usize::from(left)) * 4 + 3],
+        page.pixels()
+            [(usize::from(top) * page.dimensions()[0] as usize + usize::from(left)) * 4 + 3],
         255
     );
     assert!(presentation.base_font.glyph('\u{e005}').is_none());
@@ -532,6 +537,7 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
     let icons = Arc::new(SessionIcons {
         icons: vec![SessionIcon {
             identifier: "test:gem".into(),
+            metadata: 0,
             width: 4,
             height: 4,
             rgba8: vec![255; 64].into(),
@@ -542,6 +548,8 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
     rgba8[..8 * 128 * 4].fill(255);
     let sheets = Arc::new(SessionGlyphSheets {
+        named: Default::default(),
+        prepared: Default::default(),
         cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
@@ -601,6 +609,8 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
     );
     assert_icon_drawable(&presentation, &sample);
     let sheets = Arc::new(SessionGlyphSheets {
+        named: Default::default(),
+        prepared: Default::default(),
         cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,

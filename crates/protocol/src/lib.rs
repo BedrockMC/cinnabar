@@ -20,6 +20,7 @@ mod packet;
 mod particle;
 mod permissions;
 mod raw_text;
+mod settings;
 mod socket_transport;
 pub mod store_control;
 mod transfer;
@@ -102,11 +103,12 @@ pub use inventory::{
     OFFHAND_WINDOW_ID, PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent,
     SlotIdentity, StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
     StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
-    VerifiedNetworkItemStack, container_close_packet, item_stack_request_packet,
-    item_stack_request_packet_filtered, normalize_authority, normalize_container_close,
-    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, open_inventory_packet, personal_craft_content_indices,
-    personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
+    VerifiedNetworkItemStack, container_close_packet, item_stack_request_batch,
+    item_stack_request_packet, item_stack_request_packet_filtered, normalize_authority,
+    normalize_container_close, normalize_container_data, normalize_container_open,
+    normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
+    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
+    validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
@@ -170,6 +172,7 @@ pub use raw_text::{
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
+pub use settings::request_chunk_radius_packet;
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use ui::{

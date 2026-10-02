@@ -242,7 +242,7 @@ impl Session {
                 control_type: None,
                 base: None,
                 unresolved_base: None,
-                properties: BTreeMap::new(),
+                properties: Default::default(),
                 children: Vec::new(),
                 factory: None,
             }),
@@ -276,7 +276,7 @@ fn flatten(node: &LaidOut, parent: Option<usize>, path: &mut Vec<usize>, out: &m
         visible: node.visible,
         layer: node.layer,
         parent,
-        animated: !node.fades.is_empty() || !node.motions.own.is_empty(),
+        animated: node.anim.is_some(),
         path: path.clone(),
     });
     for child in &node.children {

@@ -44,6 +44,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
                 drive_sign_editor.run_if(crate::server_experiences::input::ordinary_input),
                 drive_server_form_input.run_if(crate::server_experiences::input::ordinary_input),
                 drive_chat_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
@@ -56,6 +57,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 crate::menu::persist_video_settings,
                 drive_inventory_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
                 drive_menu_connection,
+                crate::settings_runtime::apply_window_settings,
+                crate::settings_runtime::apply_render_distance,
                 crate::store::drive_store,
                 synchronize_semantic_input_authority,
                 drive_world_inventory_keys.run_if(crate::server_experiences::input::ordinary_input),

@@ -459,7 +459,7 @@ impl EquipmentRuntime {
             super::first_person::offhand_pose(equipped, true)
         } else {
             let sprite = self
-                .session_sprite(&item.identifier)
+                .session_sprite(&item.identifier, item.metadata)
                 .and_then(|(index, _, _)| self.session_sprite_pixels(index))
                 .or_else(|| {
                     self.icons

@@ -10,11 +10,9 @@ use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
 use super::play_screen;
-use crate::menu::{
-    MenuAction, MenuDialog, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
-};
+use crate::menu::{MenuAction, MenuDialog, MenuScreen, MenuView, auth::AuthState};
 
-const SETTINGS_SECTIONS: &[(&str, u8)] = &[
+pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("server_forced_index", 1),
     ("accessibility_forced_index", 2),
     ("how_to_play_index", 3),
@@ -39,7 +37,10 @@ const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("view_subscriptions_forced_index", 22),
     ("sound_forced_index", 23),
     ("global_texture_pack_forced_index", 24),
-    ("storage_management_forced_index", 25),
+    (
+        "storage_management_forced_index",
+        crate::menu::settings_storage::SECTION_INDEX,
+    ),
     ("edu_cloud_storage_forced_index", 26),
     ("language_forced_index", 27),
     ("preview_forced_index", 28),
@@ -117,6 +118,21 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     }
 }
 
+/// The vanilla screen a menu state draws; `None` for the OreUI-only states. The
+/// Marketplace names its base screen here; its snapshot may pick another.
+pub(crate) fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
+    Some(match screen {
+        MenuScreen::Death => "death.death_screen",
+        MenuScreen::Pause => "pause.pause_screen",
+        MenuScreen::Home => "start.start_screen",
+        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => "play.play_screen",
+        MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
+        MenuScreen::Settings => SETTINGS_SCREEN,
+        MenuScreen::Store => crate::store::SDL_SCREEN,
+        MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+    })
+}
+
 /// The vanilla screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them).
 pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<MenuScreenData> {
@@ -147,6 +163,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         data.set_global("#code", text(code.clone()));
         "xbl_console_signin.xbl_console_signin"
     } else {
+        let reference = menu_reference(view.screen)?;
         match view.screen {
             MenuScreen::Death => {
                 flags(
@@ -159,7 +176,6 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                         "#quit_enabled",
                     ],
                 );
-                "death.death_screen"
             }
             MenuScreen::Pause => {
                 data.set_global("#playername", text(view.display_name.clone()));
@@ -172,38 +188,48 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                         "store_button_text",
                         Value::String(server_store_text(translate)),
                     );
-                "pause.pause_screen"
             }
             MenuScreen::Home => {
                 start_screen(view, &mut data, translate);
                 context = start_screen_vars(context);
-                "start.start_screen"
             }
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
                 super::play_screen::bind(view, &mut data);
-                "play.play_screen"
             }
             MenuScreen::AddServer => {
                 add_server_screen(view, &mut data, translate);
                 // The controller's edit mode swaps Play for Remove.
                 context = context.with_flag("edit_mode", view.editing.is_some());
-                "add_external_server.add_external_server_screen_new"
             }
             MenuScreen::Settings => {
                 settings_screen(view, &mut data, translate);
                 super::settings_defaults::bind(&mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
+                super::settings_controls::bind(view, &mut data, &|key: &str| {
+                    translated(translate, key, key)
+                });
+                super::settings_language::bind(view, &mut data);
+                super::settings_account::bind(view, &mut data);
+                super::settings_resources::bind(&mut data);
+                super::settings_storage::bind(view, &mut data, &|key| {
+                    translated(translate, key, key)
+                });
+                super::settings_keys::bind(view, &mut data, &|key: &str| {
+                    translated(translate, key, key)
+                });
+                super::global_resources::bind(&view.global_resources, &mut data);
                 return Some(MenuScreenData {
-                    reference: SETTINGS_SCREEN,
+                    reference,
                     context: settings_context(context),
                     data,
-                    overlay: None,
+                    overlay: super::global_resources::overlay(&view.global_resources),
                 });
             }
             MenuScreen::Store => return store_screen(view, &context, translate),
             MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
         }
+        reference
     };
     Some(MenuScreenData {
         reference,
@@ -376,6 +402,30 @@ pub(super) fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::SettingsResetGroup(group) => {
+            return super::settings_reset::dialog_model(group, translate);
+        }
+        MenuDialog::SettingsResetBindings(gamepad) => (
+            translated(
+                translate,
+                "controllerLayoutScreen.resetAllBindings",
+                "Reset to Default",
+            ),
+            translated(
+                translate,
+                "controllerLayoutScreen.confirmation.reset",
+                "Reset all bindings to their defaults?",
+            ),
+            translated(translate, "options.continue", "Continue"),
+            translated(translate, "controllerLayoutScreen.cancel", "Cancel"),
+            MenuAction::SettingsConfirmResetBindings(gamepad),
+        ),
+        MenuDialog::SettingsSupport(dialog) => {
+            return super::settings_support::dialog_model(dialog, translate);
+        }
+        MenuDialog::StorageDelete | MenuDialog::StorageError => {
+            return super::settings_storage::dialog_model(view, dialog, translate);
+        }
         MenuDialog::Exit => (
             translated(
                 translate,
@@ -445,7 +495,9 @@ fn split_address(address: &str) -> (String, String) {
     }
 }
 
+/// Select the section and the titles supplied by its vanilla toggle property bag.
 fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
+    super::enhanced_setting::bind(view, data);
     let section = match view.settings_section {
         0 => section_index(VIDEO_SECTION),
         picked => picked,
@@ -496,20 +548,34 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
     flags(data, &["#gui_scale_visible"]);
     data.set_global("#full_screen", Scalar::Bool(view.fullscreen));
     flags(data, &["#full_screen_enabled"]);
-    for ((slider, _), percent) in VOLUME_SLIDERS.iter().zip(view.volumes) {
-        let shown = percent.unwrap_or(100);
-        data.set_global(format!("#{slider}"), Scalar::Num(f64::from(shown) / 100.0));
-        data.set_global(format!("#{slider}_slider_label"), text(format!("{shown}%")));
-        data.set_global(
-            format!("#{slider}_enabled"),
-            Scalar::Bool(percent.is_some()),
-        );
-    }
+    let variable = SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*index == section).then_some(*name));
+    let title = match variable {
+        Some("accessibility_forced_index") => "options.accessibility.title",
+        Some("keyboard_and_mouse_forced_index") => "options.keyboardAndMouseSettings",
+        Some("controller_and_switch_forced_index") => "options.controllerSettings",
+        Some("general_forced_index") => "options.generalTitle",
+        Some("account_forced_index") => "options.accountTitle",
+        Some("creator_forced_index") => "options.creatorTitle",
+        Some("sound_forced_index") => "options.sounds.title",
+        Some("global_texture_pack_forced_index") => "menu.globalpacks",
+        Some("storage_management_forced_index") => "menu.storageManagement",
+        Some("language_forced_index") => "options.language",
+        Some("view_subscriptions_forced_index") => "options.viewSubscriptions",
+        _ => "options.videoTitle",
+    };
+    data.set_global("#section_title", text(translated(translate, title, title)));
+    data.set_global(
+        "#dialog_title",
+        text(translated(translate, "menu.settings", "menu.settings")),
+    );
 }
 
 const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";
 
-/// The settings screen and the context it opens with, to resolve at startup.
+/// Supplies the production settings context for offline layout checks.
+#[cfg(test)]
 pub(super) fn settings_target() -> (&'static str, Context) {
     (SETTINGS_SCREEN, settings_context(base_context()))
 }
@@ -565,9 +631,7 @@ fn settings_context(context: Context) -> Context {
         ("show_preview_app2_button", false),
         ("debug_settings", false),
         ("party_settings_enabled", false),
-        // Select the pack's compact layout. Retail derives this from the
-        // ngs-spatial-pattern-fix treatment and realm-edit context; forcing it
-        // on inserts 25px spacers even between unavailable video options.
+        // Select vanilla's compact treatment; the live retail flight remains unverified.
         ("settings_spatial_pattern_fix_enabled", false),
         ("display_copyright_info", false),
         ("is_pregame", true),
@@ -592,8 +656,24 @@ fn section_index(name: &str) -> u8 {
 
 /// The menu action a pressed region means on `view`'s screen.
 pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if view.screen == MenuScreen::Settings
+        && let Some(action) = super::settings_language::action(region)
+            .or_else(|| super::settings_account::action(region))
+            .or_else(|| super::settings_storage::action(region))
+            .or_else(|| super::settings_support::action(region))
+            .or_else(|| super::settings_reset::action(view, region))
+            .or_else(|| super::settings_keys::action(region))
+            .or_else(|| super::settings_controls::action(view, region))
+    {
+        return Some(action);
+    }
     if view.screen == MenuScreen::Store {
         return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
+    }
+    if view.screen == MenuScreen::Settings
+        && let Some(action) = super::global_resources::action(view, region)
+    {
+        return Some(action);
     }
     let index = region.collection_index;
     let collection = region.collection.as_deref();
@@ -667,7 +747,10 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
 }
 
 fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    match region.control_name.as_deref()? {
+    if let Some(action) = super::enhanced_setting::action(view, region) {
+        return Some(action);
+    }
+    match region.control_name.as_deref()?.trim_start_matches('#') {
         "full_screen" if view.screen == MenuScreen::Settings => {
             Some(MenuAction::SettingsFullscreen(!view.fullscreen))
         }
@@ -709,15 +792,7 @@ pub(super) fn slider_actions(view: &MenuView, region: &HitRegion) -> Option<Vec<
                 .collect(),
         );
     }
-    let slot = VOLUME_SLIDERS
-        .iter()
-        .position(|(slider, _)| *slider == name)?;
-    let last = u16::from(VOLUME_STEPS - 1);
-    Some(
-        (0..=last)
-            .map(|step| MenuAction::SettingsVolume(slot as u8, (step * 100 / last) as u8))
-            .collect(),
-    )
+    super::settings_controls::slider_actions(region)
 }
 
 impl MenuView {
@@ -727,264 +802,4 @@ impl MenuView {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::menu::MenuRuntime;
-    use json_ui::RectOut;
-
-    fn view(screen: MenuScreen) -> MenuView {
-        let mut view = MenuRuntime::new(true, 2, "Steve".to_owned()).view();
-        view.screen = screen;
-        view.auth_state = AuthState::SignedOut;
-        view
-    }
-
-    fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
-        let rect = RectOut {
-            x: 0.0,
-            y: 0.0,
-            w: 10.0,
-            h: 10.0,
-        };
-        HitRegion {
-            key: "/screen/button".to_owned(),
-            name: "button".to_owned(),
-            kind,
-            rect,
-            clip: rect,
-            layer: 0,
-            order: 0,
-            pressed: pressed.map(str::to_owned),
-            control_name: None,
-            collection_index: None,
-            collection: None,
-            enabled: true,
-            checked: None,
-            max_length: None,
-            group_index: None,
-            renderer: None,
-        }
-    }
-
-    fn reference(view: &MenuView) -> Option<&'static str> {
-        screen_data(view, &|_| None).map(|screen| screen.reference)
-    }
-
-    #[test]
-    fn the_pause_store_button_names_the_server_store() {
-        assert_eq!(server_store_text(&|_| None), "Server Store");
-    }
-
-    #[test]
-    fn the_version_reads_as_the_release_client_shows_it() {
-        assert_eq!(version_label("1.26.50"), "v26.50");
-        assert_eq!(version_label("26.60"), "v26.60");
-    }
-
-    #[test]
-    fn menu_states_open_their_vanilla_screens() {
-        assert_eq!(
-            reference(&view(MenuScreen::Pause)),
-            Some("pause.pause_screen")
-        );
-        assert_eq!(
-            reference(&view(MenuScreen::Home)),
-            Some("start.start_screen")
-        );
-        assert_eq!(
-            reference(&view(MenuScreen::Death)),
-            Some("death.death_screen")
-        );
-        assert_eq!(
-            reference(&view(MenuScreen::Servers)),
-            Some("play.play_screen")
-        );
-        let mut connecting = view(MenuScreen::Play);
-        connecting.connecting = true;
-        assert_eq!(
-            reference(&connecting),
-            Some("progress.world_loading_progress_screen")
-        );
-        connecting.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
-        assert_eq!(
-            reference(&connecting),
-            Some("progress.realms_stories_loading_progress_screen")
-        );
-        let mut dropped = view(MenuScreen::Play);
-        dropped.disconnect_message = Some("Kicked".into());
-        assert_eq!(reference(&dropped), Some("disconnect.disconnect_screen"));
-        let mut code = view(MenuScreen::Home);
-        code.auth_state = AuthState::AwaitingCode {
-            uri: "https://x".into(),
-            code: "ABC".into(),
-        };
-        assert_eq!(
-            reference(&code),
-            Some("xbl_console_signin.xbl_console_signin")
-        );
-    }
-
-    /// A local world's loading screen wins over the plain connecting screen and cancels the open.
-    #[test]
-    fn local_world_progress_opens_the_loading_screen_with_cancel() {
-        let mut opening = view(MenuScreen::Play);
-        opening.connecting = true;
-        opening.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
-        assert_eq!(reference(&opening), Some(LOCAL_WORLD_PROGRESS_SCREEN));
-        let cancel = action_for(&opening, &region(HitKind::Button, Some("button.menu_exit")));
-        assert_eq!(
-            cancel,
-            Some(MenuAction::LocalWorld(crate::menu::LocalWorldAction::Back))
-        );
-    }
-
-    #[test]
-    fn pressed_buttons_map_to_menu_actions() {
-        let pause = view(MenuScreen::Pause);
-        let press =
-            |view: &MenuView, id: &str| action_for(view, &region(HitKind::Button, Some(id)));
-        assert_eq!(
-            press(&pause, "button.menu_continue"),
-            Some(MenuAction::PauseResume)
-        );
-        assert_eq!(
-            press(&pause, "button.menu_quit"),
-            Some(MenuAction::PauseDisconnect)
-        );
-        let death = view(MenuScreen::Death);
-        assert_eq!(
-            press(&death, "button.respawn_button"),
-            Some(MenuAction::Respawn)
-        );
-        let home = view(MenuScreen::Home);
-        assert_eq!(
-            press(&home, "button.menu_exit"),
-            Some(MenuAction::OpenExitDialog)
-        );
-        let mut edit = region(
-            HitKind::Button,
-            Some("button.menu_network_server_world_edit"),
-        );
-        edit.collection_index = Some(3);
-        assert_eq!(
-            action_for(&view(MenuScreen::Servers), &edit),
-            Some(MenuAction::EditSaved(3))
-        );
-    }
-
-    #[test]
-    fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_it() {
-        let home = view(MenuScreen::Home);
-        assert_eq!(
-            action_for(&home, &region(HitKind::Button, Some("button.menu_store"))),
-            Some(MenuAction::Store(crate::store::StoreAction::Open))
-        );
-        let mut store = view(MenuScreen::Store);
-        assert!(
-            reference(&store).is_none(),
-            "no engine screen until the store publishes"
-        );
-        store.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot::empty()));
-        assert_eq!(
-            reference(&store),
-            Some("store_layout.store_data_driven_screen")
-        );
-        assert_eq!(
-            action_for(&store, &region(HitKind::Button, Some("button.menu_exit"))),
-            Some(MenuAction::Store(crate::store::StoreAction::Back))
-        );
-    }
-
-    #[test]
-    fn radio_tabs_pick_play_tabs_and_settings_sections() {
-        let mut tab = region(HitKind::Toggle, None);
-        tab.control_name = Some("navigation_tab".into());
-        tab.group_index = Some(1);
-        assert_eq!(
-            action_for(&view(MenuScreen::Play), &tab),
-            Some(MenuAction::Navigate(MenuScreen::Social))
-        );
-        tab.group_index = Some(8);
-        assert_eq!(
-            action_for(&view(MenuScreen::Settings), &tab),
-            Some(MenuAction::SettingsSection(8))
-        );
-    }
-
-    #[test]
-    fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
-        let mut view = view(MenuScreen::Settings);
-        view.fullscreen = false;
-        let mut toggle = region(HitKind::Toggle, None);
-        toggle.control_name = Some("full_screen".into());
-        assert_eq!(
-            action_for(&view, &toggle),
-            Some(MenuAction::SettingsFullscreen(true))
-        );
-        view.fullscreen = true;
-        assert_eq!(
-            action_for(&view, &toggle),
-            Some(MenuAction::SettingsFullscreen(false))
-        );
-        let data = screen_data(&view, &|_| None).unwrap().data;
-        let toggle = json_ui::ResolvedControl {
-            name: "full_screen".into(),
-            control_type: Some("toggle".into()),
-            base: None,
-            unresolved_base: None,
-            properties: serde_json::json!({"bindings": [
-                {"binding_name": "#full_screen", "binding_name_override": "#toggle_state"},
-                {"binding_name": "#full_screen_enabled", "binding_name_override": "#enabled"}
-            ]})
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-            children: Vec::new(),
-            factory: None,
-        };
-        let bound = json_ui::bind(&toggle, &data, &json_ui::EmptyLibrary);
-        assert_eq!(
-            bound.properties.get("#toggle_state"),
-            Some(&Value::Bool(true))
-        );
-        assert_eq!(bound.properties.get("#enabled"), Some(&Value::Bool(true)));
-    }
-
-    #[test]
-    fn sliders_split_into_their_settings_values() {
-        let mut view = MenuRuntime::new(true, 2, "Player".to_owned()).view();
-        view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
-            .offsets()
-            .collect();
-        let mut slider = region(HitKind::Slider, None);
-        slider.control_name = Some("gui_scale".to_owned());
-        let scale = slider_actions(&view, &slider).unwrap();
-        assert_eq!(
-            scale,
-            vec![
-                MenuAction::SettingsScale(-2),
-                MenuAction::SettingsScale(-1),
-                MenuAction::SettingsScale(0)
-            ]
-        );
-        slider.control_name = Some("music_volume".to_owned());
-        let music = slider_actions(&view, &slider).unwrap();
-        assert_eq!(music.len(), usize::from(VOLUME_STEPS));
-        assert_eq!(music[0], MenuAction::SettingsVolume(1, 0));
-        assert_eq!(music.last(), Some(&MenuAction::SettingsVolume(1, 100)));
-        slider.control_name = Some("fov".to_owned());
-        assert!(slider_actions(&view, &slider).is_none());
-    }
-
-    #[test]
-    fn addresses_split_into_the_ip_and_port_boxes() {
-        assert_eq!(
-            split_address("play.example:19133"),
-            ("play.example".into(), "19133".into())
-        );
-        assert_eq!(split_address("[::1]:19132"), ("::1".into(), "19132".into()));
-        assert_eq!(split_address("host"), ("host".into(), "19132".into()));
-    }
-}
+mod tests;

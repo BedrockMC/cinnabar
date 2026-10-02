@@ -30,7 +30,7 @@ pub const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 pub const HAND_OFFHAND_LAYER_FLAG: u32 = 0x4000_0000;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct HandRigLabel;
+pub(crate) struct HandRigLabel;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HandRigRenderPlugin;

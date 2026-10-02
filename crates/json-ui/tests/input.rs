@@ -46,7 +46,7 @@ fn ctrl(
         control_type: Some(control_type.to_owned()),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }
@@ -87,6 +87,21 @@ fn button() -> ResolvedControl {
 
 fn screen(children: Vec<ResolvedControl>) -> ResolvedControl {
     ctrl("root", "panel", top_left(json!([200, 100])), children)
+}
+
+#[test]
+fn decorative_modal_parent_keeps_its_child_input_scope() {
+    let root = screen(vec![ctrl(
+        "decoration",
+        "panel",
+        json!({"size": [100, 50], "modal": true}),
+        vec![button()],
+    )]);
+    let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), &ViewState::default());
+    let hits = hit_regions(&laid);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].modal_root.as_deref(), Some("/root/decoration"));
+    assert_eq!(hits[0].pressed.as_deref(), Some("button.go"));
 }
 
 #[test]
@@ -158,22 +173,35 @@ fn scroll_view(content_height: f64) -> ResolvedControl {
         vec![content],
     );
     let bar = ctrl(
-        "bar",
+        "bar_and_track",
         "panel",
         json!({ "size": [5, 50], "anchor_from": "top_right", "anchor_to": "top_right" }),
-        vec![ctrl(
-            "box",
-            "scrollbar_box",
-            json!({ "size": [5, "100%"] }),
-            vec![],
-        )],
+        vec![
+            ctrl(
+                "track",
+                "scroll_track",
+                json!({ "size": [5, "100%"] }),
+                vec![],
+            ),
+            ctrl(
+                "box",
+                "scrollbar_box",
+                json!({
+                    "size": [5, "100%"], "anchor_from": "top_left", "anchor_to": "top_left",
+                    "draggable": "vertical", "contained": true
+                }),
+                vec![],
+            ),
+        ],
     );
     ctrl(
         "scroll",
         "scroll_view",
         json!({
             "size": [100, 50], "anchor_from": "top_left", "anchor_to": "top_left",
-            "scroll_content": "scrolling_content", "scrollbar_box": "box", "scroll_speed": 15
+            "scroll_content": "scrolling_content", "scroll_view_port": "scrolling_view_port",
+            "scrollbar_track": "track", "scrollbar_box": "box",
+            "scroll_box_and_track_panel": "bar_and_track", "scroll_speed": 15
         }),
         vec![viewport, bar],
     )
@@ -187,28 +215,28 @@ fn scroll_view_offsets_content_and_sizes_its_box() {
         ..ViewState::default()
     };
     let (laid, report) = layout_with(&root, [200.0, 100.0], &env(), &state);
-    let metrics = report.scrolls["/root/scroll"];
+    let metrics = &report.scrolls["/root/scroll"];
     assert_eq!(metrics.offset, 150.0, "clamped to content - viewport");
     assert_eq!(find(&laid, "scrolling_content").rect.y, -150.0);
     let thumb = metrics.thumb.expect("overflow shows the box");
     assert_eq!(
-        thumb[3], 12.5,
-        "box height is the visible fraction of the track"
+        thumb[3], 13.0,
+        "the visible fraction of the track, rounded up"
     );
-    assert_eq!(thumb[1], 37.5, "fully scrolled puts the box at the bottom");
-    assert_eq!(metrics.offset_for_thumb(0.0), 0.0);
+    assert_eq!(thumb[1], 37.0, "fully scrolled puts the box at the bottom");
+    assert_eq!(metrics.thumb_drag_target(-50.0), 0.0);
     // A control above the viewport scrolls back up to it.
     assert_eq!(metrics.offset_revealing(-40.0, -20.0), 110.0);
 
     let fits = screen(vec![scroll_view(20.0)]);
     let (laid, report) = layout_with(&fits, [200.0, 100.0], &env(), &ViewState::default());
-    assert!(report.scrolls["/root/scroll"].thumb.is_none());
+    assert_eq!(report.scrolls["/root/scroll"].bar_visible, Some(false));
     assert!(
-        !find(&laid, "box").visible,
-        "content that fits hides the box"
+        !find(&laid, "bar_and_track").visible,
+        "content that fits hides the bar and track"
     );
     let regions = hit_regions(&laid);
-    assert!(scroll_target(&regions, [10.0, 10.0]).is_some());
+    assert!(scroll_target(&regions, &report, [10.0, 10.0]).is_some());
 }
 
 // A gated render lays out only the scroll content its viewport shows.
@@ -307,7 +335,7 @@ fn slider_box_travels_with_the_value_and_progress_clips() {
 
 #[test]
 fn fixed_grid_packs_cells_row_major() {
-    let cells = (0..4)
+    let mut cells: Vec<_> = (0..4)
         .map(|index| {
             ctrl(
                 "cell",
@@ -317,10 +345,17 @@ fn fixed_grid_packs_cells_row_major() {
             )
         })
         .collect();
+    cells.push(ctrl(
+        "template",
+        "panel",
+        json!({ "size": [18, 18], "grid_template_node": true }),
+        vec![],
+    ));
     let grid = ctrl(
         "grid",
         "grid",
-        json!({ "size": [36, 36], "anchor_from": "top_left", "anchor_to": "top_left", "grid_dimensions": [2, 2] }),
+        json!({ "size": [36, 36], "anchor_from": "top_left", "anchor_to": "top_left",
+                "grid_dimensions": [2, 2], "grid_item_template": "t.cell" }),
         cells,
     );
     let root = screen(vec![grid]);
@@ -397,6 +432,12 @@ fn innermost_global_mapping_wins() {
         "button_mappings".to_owned(),
         json!([{ "from_button_id": "button.menu_cancel", "to_button_id": "button.menu_exit", "mapping_type": "global" }]),
     );
+    let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), &ViewState::default());
+    assert_eq!(
+        global_mapping(&laid, "button.menu_cancel").as_deref(),
+        Some("popup.escape")
+    );
+    root.properties.remove("button_mappings");
     let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), &ViewState::default());
     assert_eq!(
         global_mapping(&laid, "button.menu_cancel").as_deref(),

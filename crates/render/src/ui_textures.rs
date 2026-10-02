@@ -13,6 +13,8 @@ pub const MAX_UI_TEXTURE_BUCKETS: usize = 8;
 /// Replaceable 256x256 pages after the static UI pages: ten general, the session
 /// glyph atlas, then server resource-pack UI textures.
 pub const MAX_UI_DYNAMIC_PAGES: usize = 34;
+/// Side length shared by every general dynamic UI page.
+pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
@@ -227,7 +229,7 @@ impl UiTextureCatalog {
         let dynamic = &pages[dynamic_start..];
         let small = dynamic
             .iter()
-            .filter(|page| page.dimensions == [256, 256])
+            .filter(|page| page.dimensions == [UI_DYNAMIC_PAGE_SIDE; 2])
             .count();
         let art = dynamic
             .iter()

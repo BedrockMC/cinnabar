@@ -7,6 +7,7 @@ use hand::{HandSource, hand_motion_matrix, hand_progress, publish_hand_rig};
 
 use std::sync::Arc;
 
+use bevy::prelude::DetectChanges;
 use bevy::{
     ecs::system::SystemParam,
     math::Mat4,
@@ -116,6 +117,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
     published_session: Local<'s, Option<u64>>,
+    published_pack: Local<'s, Option<Arc<super::entity_pack::SessionEntityPack>>>,
+    published_items: Local<'s, Option<Arc<super::entity_pack::SessionItems>>>,
     actor_clock: Local<'s, ActorFrameClock>,
     presentation: ActorPresentationState<'w, 's>,
     artwork: Res<'w, render::ActorArtworkPages>,
@@ -153,6 +156,8 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         mut scene,
         mut prepared,
         mut published_session,
+        mut published_pack,
+        mut published_items,
         mut actor_clock,
         presentation,
         artwork,
@@ -195,7 +200,8 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         .stream
         .as_ref()
         .map(WorldStream::actor_session_id);
-    if *published_session != session_id {
+    let new_session = *published_session != session_id;
+    if new_session {
         scene.reset();
         actor_clock.reset();
         *skin_layers = Default::default();
@@ -203,8 +209,23 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         if let Some(stream) = client_world.stream.as_mut() {
             stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
         }
-        let pack = session_id.and_then(|_| client_world.pack_entities.clone());
-        let items = session_id.and_then(|_| client_world.session_items.clone());
+    }
+    let pack = session_id.and_then(|_| client_world.pack_entities.clone());
+    let items = session_id.and_then(|_| client_world.session_items.clone());
+    let same = |left: Option<*const ()>, right: Option<*const ()>| left == right;
+    let pack_changed = !same(
+        published_pack.as_ref().map(|pack| Arc::as_ptr(pack).cast()),
+        pack.as_ref().map(|pack| Arc::as_ptr(pack).cast()),
+    );
+    let items_changed = !same(
+        published_items
+            .as_ref()
+            .map(|items| Arc::as_ptr(items).cast()),
+        items.as_ref().map(|items| Arc::as_ptr(items).cast()),
+    );
+    if new_session || pack_changed || items_changed || artwork.is_changed() {
+        *published_pack = pack.clone();
+        *published_items = items.clone();
         let staged = StagedSessionIcons::stage(items.as_deref());
         let (staged, locations) = if pack.is_some() || staged.is_some() || session_artwork.is_some()
         {
@@ -716,7 +737,10 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         &mut hand_builder.0,
         &mut hand_scene,
         &mut hand_revision,
-        hand_source,
+        hand_source.filter(|_| {
+            menu.as_ref()
+                .is_none_or(|menu| menu.settings_snapshot().0.value("hide_hand") == 0)
+        }),
         hand_camera_fov,
         hand_light,
         step.partial_tick,

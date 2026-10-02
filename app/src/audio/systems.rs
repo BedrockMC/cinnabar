@@ -49,6 +49,46 @@ pub(crate) fn ui_click() {
     });
 }
 
+/// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
+static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
+    std::sync::Mutex::new(Vec::new());
+/// Bounds one frame's queued control sounds.
+const MAX_PENDING_UI_SOUNDS: usize = 16;
+
+/// Plays a pressed launcher control's sound, holding back a repeat inside its
+/// `min_seconds_between_plays` (`SoundComponent`).
+pub(crate) fn ui_control_sound(sound: &json_ui::ControlSound) {
+    static LAST_PLAYED: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
+        std::sync::Mutex::new(Vec::new());
+    if sound.min_seconds > 0.0 {
+        let mut played = LAST_PLAYED
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let now = std::time::Instant::now();
+        match played.iter().position(|(name, _)| *name == sound.name) {
+            Some(index)
+                if now.duration_since(played[index].1).as_secs_f32() < sound.min_seconds =>
+            {
+                return;
+            }
+            Some(index) => played[index].1 = now,
+            None if played.len() < MAX_PENDING_UI_SOUNDS => played.push((sound.name.clone(), now)),
+            None => {}
+        }
+    }
+    ui_sound(&sound.name, sound.volume, sound.pitch);
+}
+
+/// Requests an interface sound a UI sound component names, at its volume and pitch.
+pub(crate) fn ui_sound(name: &str, volume: f32, pitch: f32) {
+    let mut pending = PENDING_UI_SOUNDS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    if pending.len() < MAX_PENDING_UI_SOUNDS {
+        pending.push((name.to_owned(), volume, pitch));
+    }
+}
+
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
 /// calling [`ui_click`].
 #[derive(Debug, Clone, PartialEq, Message)]
@@ -205,6 +245,14 @@ pub(super) fn ingest_audio_events(
     }
     if PENDING_UI_CLICKS.swap(0, Ordering::Relaxed) > 0 {
         engine.enqueue(SoundRequest::new(UI_CLICK));
+    }
+    let sounds = std::mem::take(
+        &mut *PENDING_UI_SOUNDS
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()),
+    );
+    for (name, volume, pitch) in sounds {
+        engine.enqueue(SoundRequest::new(name).scaled(volume, pitch));
     }
     let Some(stream) = world.stream.as_ref() else {
         messages.clear();

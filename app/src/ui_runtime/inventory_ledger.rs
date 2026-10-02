@@ -59,7 +59,7 @@ use helpers::valid_raw_window_id;
 use protocol::NO_CONTAINER_WINDOW_TYPE;
 use protocol::{
     ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NetworkItemStack, Packet,
-    container_close_packet, item_stack_request_packet_filtered, open_inventory_packet,
+    container_close_packet, open_inventory_packet,
 };
 use thiserror::Error;
 
@@ -455,13 +455,41 @@ impl PlayerInventoryLedger {
         self.skipped_unknown_containers
     }
 
+    #[cfg(test)]
     fn first_unsent(&self) -> Option<&PendingRequest> {
         self.queue
             .iter()
             .find(|pending| pending.state == InventoryPendingState::AwaitingTransport)
     }
 
-    pub fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
+    /// Places ready requests in one packet; window controls keep their existing queue priority.
+    pub fn pending_batch(&self) -> Result<Option<(Packet, usize)>, InventoryGestureError> {
+        if let Some(control) = self.pending_control_packet()? {
+            return Ok(Some((control, 1)));
+        }
+        let requests: Vec<_> = self
+            .queue
+            .iter()
+            .filter(|pending| pending.state == InventoryPendingState::AwaitingTransport)
+            .map(|pending| {
+                (
+                    pending.request_id,
+                    pending.actions.as_slice(),
+                    pending.filter_strings.as_slice(),
+                )
+            })
+            .collect();
+        if requests.is_empty() {
+            return Ok(None);
+        }
+        let count = requests.len();
+        protocol::item_stack_request_batch(requests)
+            .map(|packet| packet.map(|packet| (packet, count)))
+            .map_err(|_| InventoryGestureError::InvalidRequest)
+    }
+
+    /// Returns the next window lifecycle packet before inventory mutations.
+    fn pending_control_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
         if let Some(close) = self.pending_closes.front().copied() {
             return container_close_packet(close.window_id)
                 .map(Some)
@@ -477,16 +505,7 @@ impl PlayerInventoryLedger {
                 .map(Some)
                 .map_err(|_| InventoryGestureError::InvalidRequest);
         }
-        self.first_unsent()
-            .map(|pending| {
-                item_stack_request_packet_filtered(
-                    pending.request_id,
-                    &pending.actions,
-                    &pending.filter_strings,
-                )
-                .map_err(|_| InventoryGestureError::InvalidRequest)
-            })
-            .transpose()
+        Ok(None)
     }
 
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {

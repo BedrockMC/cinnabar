@@ -153,6 +153,7 @@ pub(crate) fn extract_nametag(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
     stream: &client_world::WorldStream,
@@ -161,6 +162,7 @@ pub(super) fn project_nametags(
     _logical_size: [f32; 2],
     collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
     partial_tick: f32,
+    show_players: bool,
 ) -> Vec<NametagAnchor> {
     let eye = camera_transform.translation();
     let direction = *camera_transform.forward();
@@ -189,6 +191,7 @@ pub(super) fn project_nametags(
     .map(|hit| hit.runtime_id);
     let mut anchors: Vec<_> = stream
         .remote_actors()
+        .filter(|actor| show_players || !matches!(actor.kind, ActorKind::Player { .. }))
         .filter_map(|actor| {
             extract_nametag(
                 actor,

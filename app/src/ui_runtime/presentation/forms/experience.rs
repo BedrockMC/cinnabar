@@ -148,6 +148,7 @@ impl UiPresentationRuntime {
     /// Draws trusted chrome last, including when server UI or the HUD is hidden.
     pub(in super::super) fn append_experience_chrome(
         &mut self,
+        runtime: &crate::ui_runtime::UiRuntime,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
         metrics: TextMetrics,
@@ -173,6 +174,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content,
             translate: &|_| None,
+            language: runtime.text_generation(),
         };
         let rollback = (nodes.len(), *next);
         let out = EngineOutput {
@@ -192,7 +194,7 @@ impl UiPresentationRuntime {
                 &chrome.catalog,
                 &Context::default(),
                 data,
-                (root, px),
+                (root, px, runtime.text_generation()),
                 env,
                 &chrome.view,
             )
@@ -327,6 +329,7 @@ mod tests {
             assert!(presentation.experience_approval_ready());
             let mut nodes = Vec::new();
             presentation.append_experience_chrome(
+                &runtime,
                 &mut nodes,
                 &mut 1,
                 TextMetrics::for_viewport(size, ui::DpiScale::new(1.0).unwrap(), None),

@@ -2,6 +2,10 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
+#ifdef ENHANCED
+#import cinnabar::enhanced_common::CLASS_WATER
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position}
+#endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
@@ -66,8 +70,16 @@ struct VertexOutput {
     @location(3) @interpolate(flat) frame_blend: f32,
     @location(4) @interpolate(flat) water_tint: vec4<f32>,
     @location(5) lighting: vec3<f32>,
+#ifdef ENHANCED
+    @location(6) sky_light: f32,
+    @location(7) ambient_occlusion: f32,
+#endif
     @location(8) @interpolate(flat) depth_write_route: u32,
     @location(9) world_position: vec3<f32>,
+#ifdef ENHANCED
+    @location(10) normal: vec3<f32>,
+    @location(11) @interpolate(flat) surface_class: u32,
+#endif
 }
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
@@ -217,8 +229,21 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         vec3<f32>(chunk_origin.value.xyz),
     );
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
+#ifdef ENHANCED
+    out.sky_light = sky_illumination(light_sample);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+#endif
     out.depth_write_route = packed_material >> 31u;
     out.world_position = world_position;
+#ifdef ENHANCED
+    out.normal = face_normal(face);
+    out.surface_class = material_class(packed_material & ~LIQUID_DEPTH_WRITE_BIT);
+    if ((out.surface_class & CLASS_WATER) != 0u) {
+        out.world_position = waved_water_position(world_position, out.normal.y > 0.5
+            || (abs(out.normal.y) < 0.5 && local_position.y > f32(block_coordinate.y)));
+        out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    }
+#endif
     return out;
 }
 
@@ -252,10 +277,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
+#ifdef ENHANCED
+    if ((in.surface_class & CLASS_WATER) != 0u) {
+        let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
+            in.world_position, in.clip_position, in.lighting, in.sky_light,
+            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
+        return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
+    }
+    let colour = shade_surface(
+        sampled.rgb * in.water_tint.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.surface_class,
+    );
+#else
     let colour = lit_colour(
         sampled.rgb * in.water_tint.rgb,
         in.lighting,
     );
+#endif
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
     return vec4(apply_distance_fog(colour, in.world_position), sampled.a * in.water_tint.a);
@@ -272,9 +316,22 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
         let next_sample = sample_texture_ref(in.next_texture, in.uv, dx, dy);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
+#ifdef ENHANCED
+    let lit = shade_surface(
+        sampled.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.surface_class,
+    );
+#else
     let lit = lit_colour(
         sampled.rgb,
         in.lighting,
     );
+#endif
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 }

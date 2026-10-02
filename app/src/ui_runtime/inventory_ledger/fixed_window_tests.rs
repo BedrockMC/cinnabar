@@ -125,7 +125,7 @@ fn offhand_place_uses_wire_slot_one_end_to_end() {
         1
     );
 
-    while ledger.pending_packet().unwrap().is_some() {
+    while ledger.pending_batch().unwrap().is_some() {
         assert!(ledger.mark_transport_enqueued(10));
     }
     let take = ledger.pending_request_id().unwrap();

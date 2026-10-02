@@ -55,6 +55,7 @@ impl TextMetrics {
             baseline_64: self.baseline_64,
             scale: self.scale,
             font,
+            wrap: Default::default(),
         }
     }
 

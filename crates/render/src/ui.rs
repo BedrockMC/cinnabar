@@ -54,7 +54,7 @@ pub const UI_BLEND_ALPHA: u32 = 0;
 /// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
 pub const UI_BLEND_INVERT: u32 = 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
-pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 2;
+pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]

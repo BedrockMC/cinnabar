@@ -3,9 +3,13 @@
 
 use std::{collections::HashSet, sync::Arc};
 
+mod catalog;
+mod vanilla;
+pub(crate) use vanilla::set_vanilla_item_paths;
+
 use resource_pack::LayeredPackView;
 
-use super::resource_packs::{DecodedTexture, decode_pack_texture, texture_key_paths};
+use super::resource_packs::{DecodedTexture, decode_pack_texture};
 use crate::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 
 /// One icon per registry item, the most a session can name.
@@ -19,9 +23,6 @@ pub(super) fn compile_session_icons(
     icon_keys: &[(Arc<str>, Arc<str>)],
     block_icons: BlockIcons,
 ) -> Option<Arc<SessionIcons>> {
-    if icon_keys.is_empty() && block_icons.icons.is_empty() && block_icons.misses.is_empty() {
-        return None;
-    }
     let block_rendered = block_icons
         .icons
         .iter()
@@ -33,7 +34,8 @@ pub(super) fn compile_session_icons(
                 .map(|(identifier, _)| Arc::clone(identifier)),
         )
         .collect::<HashSet<_>>();
-    let paths = texture_key_paths(view, "textures/item_texture.json");
+    let paths = catalog::paths(view);
+    let icon_keys = catalog::icon_keys(view, icon_keys);
     // Explicit icon components outrank short-name guesses when the icon cap bites.
     let short_name = |identifier: &str| {
         identifier
@@ -67,7 +69,16 @@ pub(super) fn compile_session_icons(
             break;
         }
         match resolve_key(view, &paths, key) {
-            Ok(texture) => icons.push(icon(Arc::clone(identifier), first_frame(texture))),
+            Ok(textures) => {
+                for (metadata, texture) in textures {
+                    if icons.len() >= MAX_SESSION_ICONS {
+                        break;
+                    }
+                    let mut sprite = icon(Arc::clone(identifier), first_frame(texture));
+                    sprite.metadata = metadata;
+                    icons.push(sprite);
+                }
+            }
             Err(reason) => {
                 // A short-name guess that misses is the normal vanilla-item case.
                 if key.as_ref() != short_name(identifier) && misses.len() < MAX_SESSION_ICONS {
@@ -77,6 +88,7 @@ pub(super) fn compile_session_icons(
         }
     }
     icons.extend(block_icons.take(MAX_SESSION_ICONS.saturating_sub(icons.len())));
+    vanilla::append(view, &mut icons);
     (!icons.is_empty() || !misses.is_empty()).then(|| Arc::new(SessionIcons { icons, misses }))
 }
 
@@ -154,6 +166,7 @@ pub(super) fn custom_block_icons(
         match icon {
             Some(sprite) => result.icons.push(SessionIcon {
                 identifier: Arc::clone(identifier),
+                metadata: 0,
                 width: u32::from(sprite.width),
                 height: u32::from(sprite.height),
                 rgba8: sprite.rgba8.to_vec().into_boxed_slice(),
@@ -170,15 +183,22 @@ pub(super) fn custom_block_icons(
 /// The image for icon `key`: the catalog's path, else `textures/items/<key>`.
 fn resolve_key(
     view: &LayeredPackView,
-    paths: &std::collections::HashMap<String, String>,
+    paths: &std::collections::HashMap<String, Vec<String>>,
     key: &str,
-) -> Result<DecodedTexture, String> {
+) -> Result<Vec<(u32, DecodedTexture)>, String> {
     let mut tried = Vec::new();
-    if let Some(path) = paths.get(key) {
-        if let Some(texture) = decode_pack_texture(view, path) {
-            return Ok(texture);
+    if let Some(variants) = paths.get(key) {
+        let textures: Vec<_> = variants
+            .iter()
+            .enumerate()
+            .filter_map(|(metadata, path)| {
+                decode_pack_texture(view, path).map(|texture| (metadata as u32, texture))
+            })
+            .collect();
+        if !textures.is_empty() {
+            return Ok(textures);
         }
-        tried.push(format!("catalog path {path} has no readable image"));
+        tried.push(format!("catalog key {key} has no readable images"));
     } else {
         tried.push(format!("key '{key}' not in the merged item_texture.json"));
     }
@@ -188,7 +208,7 @@ fn resolve_key(
         format!("textures/items/{bare}"),
     ] {
         if let Some(texture) = decode_pack_texture(view, &path) {
-            return Ok(texture);
+            return Ok(vec![(0, texture)]);
         }
     }
     tried.push(format!("no textures/items/{bare}"));
@@ -216,6 +236,7 @@ fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
     if longest <= MAX_SESSION_ICON_SIDE {
         return SessionIcon {
             identifier,
+            metadata: 0,
             width: texture.width,
             height: texture.height,
             rgba8: texture.rgba8,
@@ -234,6 +255,7 @@ fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
     }
     SessionIcon {
         identifier,
+        metadata: 0,
         width,
         height,
         rgba8: rgba8.into(),

@@ -376,3 +376,38 @@ fn menu_input_frames_cost_about_an_idle_frame() {
         "hover {sweep:?} vs idle {idle_settings:?}"
     );
 }
+
+/// An early Settings request keeps drawing while preparation completes, then publishes controls.
+#[test]
+fn early_settings_preparation_keeps_frames_responsive() {
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
+    bench.frame();
+    let early = bench.after(to(MenuScreen::Settings));
+    assert!(
+        early < Duration::from_millis(100),
+        "opening frame blocked: {early:?}"
+    );
+    let started = Instant::now();
+    while !bench
+        .hits()
+        .iter()
+        .any(|action| matches!(action, MenuAction::SettingsSection(_)))
+    {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "Settings never became ready"
+        );
+        assert!(
+            bench.hits().is_empty(),
+            "pending screen retained active hit targets"
+        );
+        std::thread::sleep(Duration::from_millis(16));
+        let frame = bench.frame();
+        assert!(
+            frame < Duration::from_millis(100),
+            "preparation blocked frame: {frame:?}"
+        );
+    }
+}

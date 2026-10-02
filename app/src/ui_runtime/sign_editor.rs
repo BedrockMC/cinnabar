@@ -266,6 +266,7 @@ impl SignEdit {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SignEditor {
     active: Option<SignEdit>,
+    finish_requested: bool, // closes and sends on the next input pass
 }
 
 impl SignEditor {
@@ -275,6 +276,16 @@ impl SignEditor {
 
     pub(crate) fn open(&mut self, edit: SignEdit) {
         self.active = Some(edit);
+        self.finish_requested = false;
+    }
+
+    /// Asks the input pass to finish the edit as Escape would.
+    pub(crate) fn close_on_hurt(&mut self) {
+        self.finish_requested = self.active.is_some();
+    }
+
+    pub(crate) fn take_finish_request(&mut self) -> bool {
+        std::mem::take(&mut self.finish_requested)
     }
 
     pub(crate) fn active(&self) -> Option<&SignEdit> {

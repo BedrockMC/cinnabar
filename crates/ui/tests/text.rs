@@ -108,6 +108,7 @@ fn layout_wraps_in_checked_fixed_point_and_uses_replacement_glyph() {
             baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
 
@@ -137,6 +138,7 @@ fn layout_wraps_at_word_boundaries() {
             baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
     let lines: Vec<(char, u16)> = layout
@@ -160,6 +162,7 @@ fn zero_width_and_control_characters_add_no_glyphs() {
             baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
 
@@ -217,6 +220,7 @@ fn visual_overhang_drives_wrapping_and_reported_bounds() {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &positive,
+            wrap: Default::default(),
         }),
         Err(TextError::VisualWidthExceeded {
             actual_64: 192,
@@ -253,6 +257,7 @@ fn explicit_newlines_and_layout_bounds_fail_closed() {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         }),
         Err(TextError::WrapLineLimitExceeded { .. })
     ));
@@ -267,6 +272,7 @@ fn explicit_newlines_and_layout_bounds_fail_closed() {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         }),
         Err(TextError::GlyphLimitExceeded { .. }) | Err(TextError::TextBytesExceeded { .. })
     ));
@@ -286,6 +292,7 @@ fn rejected_unbounded_text_does_not_hash_or_advance_cache_identity() {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         }),
         Err(TextError::TextBytesExceeded { .. })
     ));
@@ -371,6 +378,7 @@ fn layout(
             baseline_64: 0,
             scale: UiScale::new(scale).unwrap(),
             font,
+            wrap: Default::default(),
         })
         .unwrap()
 }
@@ -475,6 +483,7 @@ fn explicit_line_pitch_ignores_a_tall_outlier_glyph_in_the_catalog() {
             baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
 
@@ -497,6 +506,7 @@ fn line_pitch_scales_with_the_requested_scale_and_keys_the_cache() {
             baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
     let doubled = cache
@@ -508,6 +518,7 @@ fn line_pitch_scales_with_the_requested_scale_and_keys_the_cache() {
             baseline_64: 0,
             scale: UiScale::new(2.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
     assert_eq!(single.glyphs()[1].bounds_64[1], 8 * 64);
@@ -523,6 +534,7 @@ fn line_pitch_scales_with_the_requested_scale_and_keys_the_cache() {
             baseline_64: 0,
             scale: UiScale::new(1.0).unwrap(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap();
     assert_ne!(retightened.id(), single.id());
@@ -542,6 +554,7 @@ fn zero_line_height_fails_closed() {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         }),
         Err(TextError::ZeroLineHeight)
     ));
@@ -584,6 +597,7 @@ fn a_single_row_reports_exactly_the_line_pitch() {
         baseline_64,
         scale: UiScale::new(1.0).unwrap(),
         font: &font,
+        wrap: Default::default(),
     };
 
     let seated = cache.layout(request(3 * 64)).unwrap();
@@ -627,6 +641,7 @@ fn a_baseline_below_the_line_box_fails_closed() {
             baseline_64: 5 * 64,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         }),
         Err(TextError::BaselineOutsideLine { .. })
     ));

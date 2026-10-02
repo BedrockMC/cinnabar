@@ -9,14 +9,8 @@ use bevy::{
     log::{debug, error, info, warn},
     prelude::{Query, Res, ResMut, Transform, With},
 };
-#[cfg(test)]
-use client_world::{ActorSnapshot, PlayerProfile};
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
-#[cfg(test)]
-use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
-};
 use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
 use crate::{
@@ -50,16 +44,15 @@ use crate::{
     },
 };
 
-#[cfg(test)]
-use crate::local_player::FrozenLocalAvatarVisibility;
 pub(crate) use inventory::{
     publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
 };
+pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
-    set_active_language, set_base_material_keys,
+    set_active_language, set_base_material_keys, set_base_terrain_catalog,
 };
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
@@ -219,6 +212,7 @@ fn consume_equipment_route(
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
+    mut pack_reload: Option<ResMut<PackReload>>,
     mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
@@ -328,6 +322,9 @@ pub(crate) fn receive_network_events(
                         "StartGame inventory fanout was not an authority event".to_owned(),
                     );
                     continue;
+                }
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.begin_session(session_generation, &packs);
                 }
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.experiences.marker = packs.extension_marker;
@@ -627,6 +624,9 @@ pub(crate) fn receive_network_events(
                 UiRuntime::retire_crafting_observation();
                 render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.end_session();
+                }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
                 ui_runtime.clear_local_abilities();
@@ -652,6 +652,9 @@ pub(crate) fn receive_network_events(
                 UiRuntime::retire_crafting_observation();
                 render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.end_session();
+                }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
                 ui_runtime.clear_local_abilities();
@@ -672,6 +675,9 @@ pub(crate) fn receive_network_events(
                 UiRuntime::retire_crafting_observation();
                 render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
+                if let Some(reload) = pack_reload.as_mut() {
+                    reload.end_session();
+                }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
                 ui_runtime.clear_local_abilities();
@@ -893,71 +899,9 @@ pub(crate) fn receive_network_events(
 }
 
 #[cfg(test)]
-pub(crate) fn actor_render_source(
-    actor: &ActorSnapshot,
-    profile: Option<&PlayerProfile>,
-) -> ActorRenderSource {
-    let skin = profile.and_then(|profile| match &profile.skin {
-        protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
-            width: skin.width,
-            height: skin.height,
-            rgba8: Arc::clone(&skin.rgba8),
-        }),
-        protocol::PlayerSkin::Unavailable(_) => None,
-    });
-    ActorRenderSource {
-        runtime_id: actor.runtime_id,
-        unique_id: actor.unique_id,
-        spawn_revision: actor.spawn_revision,
-        movement_revision: actor.movement_revision,
-        previous_position: actor.previous_pose.position,
-        previous_pitch_degrees: actor.previous_pose.pitch,
-        previous_yaw_degrees: actor.previous_pose.yaw,
-        previous_head_yaw_degrees: actor.previous_pose.head_yaw,
-        position: actor.position,
-        pitch_degrees: actor.pitch,
-        yaw_degrees: actor.yaw,
-        head_yaw_degrees: actor.head_yaw,
-        teleported: actor.teleported,
-        skin,
-    }
-}
-
+mod actor_test_support;
 #[cfg(test)]
-pub(crate) fn update_actor_render_scene<'a>(
-    scene: &'a mut ActorRenderScene,
-    partial_tick: f32,
-    cull_view: Option<ActorCullView>,
-    mut remote_sources: Vec<ActorRenderSource>,
-    local: Option<&FrozenLocalAvatarVisibility>,
-) -> &'a ActorRenderFrame {
-    if let Some(local) = local {
-        remote_sources.retain(|source| source.runtime_id != local.runtime_id());
-    }
-    let local = local.filter(|local| local.visible()).map(|local| {
-        let (yaw, pitch, _) = local.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
-        let position = local.feet();
-        ActorRenderSource {
-            runtime_id: local.runtime_id(),
-            unique_id: i64::try_from(local.runtime_id()).unwrap_or(i64::MAX),
-            spawn_revision: local.session_generation(),
-            movement_revision: local.pose_generation(),
-            previous_position: position.to_array(),
-            previous_pitch_degrees: pitch_degrees,
-            previous_yaw_degrees: yaw_degrees,
-            previous_head_yaw_degrees: yaw_degrees,
-            position: position.to_array(),
-            pitch_degrees,
-            yaw_degrees,
-            head_yaw_degrees: yaw_degrees,
-            teleported: false,
-            skin: None,
-        }
-    });
-    scene.update_with_local(partial_tick, cull_view, remote_sources, local)
-}
+pub(crate) use actor_test_support::{actor_render_source, update_actor_render_scene};
 
 mod actor_publication;
 mod actor_sampling;
@@ -965,12 +909,23 @@ mod block_overlay;
 mod drain;
 mod dropped_items;
 pub(crate) mod entity_pack;
+mod entity_texture_reload;
 mod glyph_sheets;
 mod inventory;
 mod item_diagnostics;
 mod item_icons;
+pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;
+mod pack_reload;
+mod pack_reload_diff;
+mod pack_reload_geometry;
+#[cfg(test)]
+mod pack_reload_tests;
+#[cfg(test)]
+mod pack_reload_world_witness;
+pub(crate) use entity_texture_reload::set_base_actor_artwork;
+pub(crate) mod reload_environment;
 mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;

@@ -291,6 +291,11 @@ mod tests {
                 .iter()
                 .all(|vertex| { vertex.style_flags & render::UI_STYLE_ALPHA_TEST != 0 })
         );
+        assert_eq!(
+            render::UI_STYLE_ALPHA_TEST
+                & u32::from(ui::UI_STYLE_GRAYSCALE | ui::UI_STYLE_BILINEAR | ui::UI_STYLE_GLINT),
+            0
+        );
         assert_eq!(input.batches[0].depth_test, 1);
         assert_eq!(input.batches[0].depth_write, 1);
         assert_eq!(input.batches[0].world_projection, 1);

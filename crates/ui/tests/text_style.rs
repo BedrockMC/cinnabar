@@ -57,6 +57,7 @@ fn layout(text: &str, style: TextStyle, font: &CompiledFontCatalog) -> Arc<TextL
             baseline_64: 0,
             scale: UiScale::default(),
             font,
+            wrap: Default::default(),
         })
         .unwrap()
 }

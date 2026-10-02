@@ -1,3 +1,4 @@
+use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -169,11 +170,22 @@ pub(in crate::chunk) fn prepare_chunk_animation_clock(
     render_queue.write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
 }
 
+type PreparedReplacement = (
+    PreparedChunkTextureAssets,
+    ChunkTextureUploadStats,
+    Option<PreparedResourceGeometry>,
+);
+
+type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
+
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) attempted_identity: Option<ChunkTextureAssetIdentity>,
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
+    pending: Option<PendingTextures>,
+    pending_identity: Option<ChunkTextureAssetIdentity>,
+    staged: Option<PreparedReplacement>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -186,34 +198,132 @@ pub struct ChunkTextureUploadStats {
     pub padded_upload_bytes: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_chunk_texture_assets(
+    mut commands: Commands,
+    instances: Query<(Entity, &ChunkRenderInstance)>,
+    views: Query<(Entity, &ExtractedView), With<ExtractedCamera>>,
+    mut arena: ResMut<ChunkGpuArena>,
     assets: Res<ChunkTextureAssets>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu_assets: ResMut<ChunkGpuTextureAssets>,
     mut stats: ResMut<ChunkTextureUploadStats>,
+    reload: Res<ChunkTextureReload>,
 ) {
     let identity = assets.identity();
-    if !texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
+    let completed = gpu_assets.pending.as_ref().and_then(|pending| {
+        match pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .try_recv()
+        {
+            Ok(result) => Some(result),
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(None),
+        }
+    });
+    if let Some(completed) = completed {
+        gpu_assets.pending = None;
+        if let Some(pending) = gpu_assets.pending_identity.take() {
+            reload.finish(pending, completed.is_some());
+        }
+        gpu_assets.staged = completed;
+    }
+    let requested = reload.requested();
+    if gpu_assets.staged.as_ref().is_some_and(|(prepared, _, _)| {
+        prepared.identity != identity
+            && requested
+                .as_ref()
+                .is_none_or(|candidate| candidate.identity() != prepared.identity)
+    }) {
+        gpu_assets.staged = None;
+    }
+    if gpu_assets
+        .staged
+        .as_ref()
+        .is_some_and(|(prepared, _, _)| prepared.identity == identity)
+    {
+        let (prepared, uploaded, geometry) =
+            gpu_assets.staged.take().expect("matching staged atlas");
+        if let Some(geometry) = geometry {
+            geometry.publish(&mut commands, &instances, &mut arena);
+        }
+        reload.published();
+        gpu_assets.prepared = Some(prepared);
+        gpu_assets.attempted_identity = Some(identity);
+        gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+        *stats = uploaded;
+    }
+    // Bootstrap may publish without an optional reload transaction.
+    if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity) {
+        gpu_assets.attempted_identity = Some(identity);
+        gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+        if let Some((prepared, uploaded)) =
+            build_chunk_texture_assets(&assets, &render_device, &render_queue)
+        {
+            gpu_assets.prepared = Some(prepared);
+            *stats = uploaded;
+        }
+    }
+    let Some(candidate) = requested else {
+        return;
+    };
+    if candidate.identity() == identity
+        || gpu_assets.pending.is_some()
+        || reload.status(candidate.identity()).is_some()
+    {
         return;
     }
-    gpu_assets.attempted_identity = Some(identity);
-    gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+    let device = render_device.clone();
+    let queue = render_queue.clone();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    gpu_assets.pending_identity = Some(candidate.identity());
+    gpu_assets.pending = Some(std::sync::Mutex::new(receiver));
+    let geometry = reload.geometry();
+    let view = views
+        .iter()
+        .min_by_key(|(entity, _)| *entity)
+        .map(|(entity, view)| super::resource_sorts::ResourceView {
+            entity,
+            transform: view.world_from_view,
+        });
+    std::thread::spawn(move || {
+        let result =
+            build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {
+                let geometry = match geometry {
+                    Some(instances) => Some(PreparedResourceGeometry::build(
+                        &instances, candidate, device, queue, view,
+                    )?),
+                    None => None,
+                };
+                Some((atlas, stats, geometry))
+            });
+        let _ = sender.send(result);
+    });
+}
 
+/// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.
+fn build_chunk_texture_assets(
+    assets: &ChunkTextureAssets,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+) -> Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)> {
+    let identity = assets.identity();
     let pages = assets.assets().texture_pages();
     let Some(page_bindings) = plan_texture_page_bindings(pages.len()) else {
         bevy::log::error!(
             page_count = pages.len(),
             "chunk assets require one or two texture pages"
         );
-        return;
+        return None;
     };
     let diagnostic_fallback = if page_bindings.contains(&TexturePageBinding::DiagnosticFallback) {
         match diagnostic_texture_page(&pages[0].texture) {
             Ok(texture) => Some(texture),
             Err(error) => {
                 bevy::log::error!(?error, "invalid diagnostic texture-page fallback");
-                return;
+                return None;
             }
         }
     } else {
@@ -231,7 +341,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             supported = device_limits.max_sampled_textures_per_shader_stage,
             "chunk renderer requires two sampled texture bindings"
         );
-        return;
+        return None;
     }
     let limits = TextureArrayLimits {
         max_layers: device_limits.max_texture_array_layers,
@@ -242,14 +352,14 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
         if let Err(error) = limits.validate(texture.layers, tile_size) {
             bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
-            return;
+            return None;
         }
         let plans =
             match plan_texture_mip_uploads(texture, RenderDevice::align_copy_bytes_per_row(1)) {
                 Ok(plans) => plans,
                 Err(error) => {
                     bevy::log::error!(?error, "invalid chunk texture-page upload layout");
-                    return;
+                    return None;
                 }
             };
         upload_plans.push(plans);
@@ -310,7 +420,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             device_limits.max_storage_buffer_binding_size,
         ) {
             bevy::log::error!(label, bytes, "chunk asset table exceeds adapter limits");
-            return;
+            return None;
         }
     }
     let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -349,22 +459,25 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         usage: BufferUsages::STORAGE,
     });
     let (texture_0, view_0, padded_0) = upload_texture_page(
-        &render_device,
-        &render_queue,
+        render_device,
+        render_queue,
         bound_pages[0],
         &upload_plans[0],
         "global chunk texture page 0",
     );
     let (texture_1, view_1, padded_1) = upload_texture_page(
-        &render_device,
-        &render_queue,
+        render_device,
+        render_queue,
         bound_pages[1],
         &upload_plans[1],
         "global chunk texture page 1",
     );
     let sampler = render_device.create_sampler(&chunk_sampler_descriptor());
 
-    stats.upload_count = 1;
+    let mut stats = ChunkTextureUploadStats {
+        upload_count: 1,
+        ..Default::default()
+    };
     stats.material_bytes = material_bytes as u64;
     stats.animation_bytes = animation_bytes as u64;
     stats.animation_frame_bytes = animation_frame_bytes as u64;
@@ -374,7 +487,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         .map(|mip| mip.rgba8.len() as u64)
         .sum();
     stats.padded_upload_bytes = padded_0.saturating_add(padded_1);
-    gpu_assets.prepared = Some(PreparedChunkTextureAssets {
+    let prepared = PreparedChunkTextureAssets {
         identity,
         material_buffer,
         animation_buffer,
@@ -383,7 +496,8 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         _textures: [texture_0, texture_1],
         views: [view_0, view_1],
         sampler,
-    });
+    };
+    Some((prepared, stats))
 }
 
 pub(in crate::chunk) fn chunk_sampler_descriptor() -> SamplerDescriptor<'static> {

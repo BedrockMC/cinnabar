@@ -80,6 +80,7 @@ mod api;
 mod biome_tints;
 mod constants;
 mod draw;
+pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod pipeline;
@@ -88,7 +89,10 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+mod resource_geometry;
+mod texture_reload;
 mod textures;
+pub use texture_reload::ChunkTextureReload;
 mod transparent;
 
 use constants::{

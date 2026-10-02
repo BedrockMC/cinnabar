@@ -7,7 +7,7 @@ pub(super) struct UiViewportUniform {
     pub(super) viewport_size: [f32; 2],
     /// Seconds since the UI renderer started; animates the item glint.
     pub(super) time_seconds: f32,
-    pub(super) _padding: f32,
+    pub(super) glint_strength: f32,
 }
 
 pub(crate) fn source(raw: &str) -> String {

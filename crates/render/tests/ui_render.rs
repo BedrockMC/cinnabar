@@ -70,12 +70,38 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     )));
     assert!(source.contains("sample.a < 0.5"));
     assert!(source.find("discard;").unwrap() < source.find("let alpha =").unwrap());
+    let (_, viewport) = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("UiViewport"))
+        .unwrap();
+    let naga::TypeInner::Struct { members, span } = &viewport.inner else {
+        panic!("UI viewport must remain a uniform struct");
+    };
+    assert_eq!(*span, 16);
+    assert_eq!(members[2].name.as_deref(), Some("glint_strength"));
+    assert_eq!(members[2].offset, 12);
+}
+
+// The UI layer composites over the scene in sRGB-encoded values.
+#[test]
+fn composite_shader_blends_in_gamma_space() {
+    let source = include_str!("../src/ui_composite.wgsl");
+    let module = naga::front::wgsl::parse_str(source).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+    assert!(source.contains("ui.rgb + linear_to_srgb(under.rgb) * (1.0 - ui.a)"));
 }
 
 #[test]
 fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
-    assert_eq!(layout.entries.len(), 3);
+    // Viewport, pages, and the nearest and `bilinear` samplers.
+    assert_eq!(layout.entries.len(), 4);
     let descriptor = ui_pipeline_descriptor(layout);
     assert!(
         descriptor.depth_stencil.is_none(),

@@ -1,3 +1,7 @@
+mod chat;
+mod chat_coordinates;
+pub(crate) use chat::drive_chat_ui_actions;
+
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
@@ -20,6 +24,7 @@ use bevy::{
 };
 
 use crate::acceptance::markers::FAST_TRANSFER_ACTION;
+use crate::menu::settings_options::{binding_gamepad, binding_key, binding_mouse, binding_pressed};
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
@@ -39,9 +44,9 @@ pub fn flush_inventory_send<E>(
     runtime.poll_inventory_timeout(now_millis);
     let mut admitted_any = false;
     for _ in 0..MAX_INVENTORY_PACKETS_PER_FLUSH {
-        let Some(packet) = runtime
+        let Some((packet, entries)) = runtime
             .inventory_ledger()
-            .pending_packet()
+            .pending_batch()
             .expect("the ledger retains only validated protocol requests")
         else {
             break;
@@ -52,10 +57,12 @@ pub fn flush_inventory_send<E>(
                 .note_transport_pressure(now_millis);
             return Err(error);
         }
-        let admitted = runtime
-            .inventory_ledger_mut()
-            .mark_transport_enqueued(now_millis);
-        debug_assert!(admitted, "only an awaiting request can be transported");
+        for _ in 0..entries {
+            let admitted = runtime
+                .inventory_ledger_mut()
+                .mark_transport_enqueued(now_millis);
+            debug_assert!(admitted, "only an awaiting request can be transported");
+        }
         admitted_any = true;
     }
     Ok(admitted_any)
@@ -219,109 +226,6 @@ pub(crate) fn flush_chat_network(
                     "queued chat packet crossed a session boundary: expected {expected}, got {actual}"
                 ),
             );
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn drive_chat_ui_actions(
-    time: Res<Time<Real>>,
-    window: Single<&Window, With<PrimaryWindow>>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
-    wheel: Option<Res<AccumulatedMouseScroll>>,
-    touches: Res<Touches>,
-    gamepads: Query<&Gamepad>,
-    mut presentation: ResMut<presentation::UiPresentationRuntime>,
-    mut runtime: ResMut<UiRuntime>,
-) {
-    if runtime.server_forms().owns_input() {
-        return;
-    }
-    let pointer = window
-        .cursor_position()
-        .and_then(|position| UiPoint::new(position.x, position.y).ok());
-    let menu_visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
-    let bed =
-        !menu_visible && window.focused && runtime.local_sleeping() && !runtime.chat_focused();
-    presentation.set_bed_pointer(pointer.filter(|_| bed));
-    if bed && mouse_buttons.just_pressed(MouseButton::Left) {
-        match pointer.and_then(|position| presentation.hit_test_bed(position)) {
-            Some(presentation::BedHit::LeaveBed) => runtime.request_wake(),
-            Some(presentation::BedHit::OpenChat) => {
-                runtime.open_chat();
-            }
-            None => {}
-        }
-        return;
-    }
-    if menu_visible || !runtime.chat_focused() || !window.focused {
-        presentation.set_chat_pointer(None);
-        return;
-    }
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    presentation.set_chat_pointer(pointer);
-    if let Some(wheel) = wheel.as_deref()
-        && wheel.delta.y != 0.0
-    {
-        presentation.scroll_chat(wheel.delta.y, wheel.unit == MouseScrollUnit::Pixel);
-    }
-
-    let mut presses: Vec<UiPoint> = Vec::new();
-    if mouse_buttons.just_pressed(MouseButton::Left)
-        && let Some(position) = pointer
-    {
-        presses.push(position);
-    }
-    for touch in touches.iter_just_pressed() {
-        let position = touch.position();
-        if let Ok(position) = UiPoint::new(position.x, position.y) {
-            presses.push(position);
-        }
-    }
-    for position in presses {
-        let hit = presentation.hit_test_chat(position);
-        match hit {
-            Some(presentation::ChatHit::Send) => {
-                dispatch_chat_ui_action(&mut runtime, UiAction::Accept, None, now_millis);
-            }
-            Some(presentation::ChatHit::Close) => {
-                dispatch_chat_ui_action(&mut runtime, UiAction::Cancel, None, now_millis);
-            }
-            _ => {
-                let suggestion = match hit {
-                    Some(presentation::ChatHit::Suggestion(index)) => Some(index),
-                    _ => None,
-                };
-                dispatch_chat_ui_action(
-                    &mut runtime,
-                    UiAction::PointerPrimary {
-                        position,
-                        phase: PointerPhase::Pressed,
-                    },
-                    suggestion,
-                    now_millis,
-                );
-            }
-        }
-    }
-    for gamepad in &gamepads {
-        for button in [
-            GamepadButton::DPadUp,
-            GamepadButton::DPadDown,
-            GamepadButton::South,
-            GamepadButton::East,
-            GamepadButton::RightTrigger,
-            GamepadButton::LeftTrigger,
-        ] {
-            if gamepad.just_pressed(button) {
-                dispatch_chat_ui_action(
-                    &mut runtime,
-                    gamepad_chat_action(button).expect("the mapped button list is exhaustive"),
-                    None,
-                    now_millis,
-                );
-            }
         }
     }
 }
@@ -510,7 +414,7 @@ fn scroll_container(
     notches: &[(f32, MouseScrollUnit)],
 ) {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
-    let Some(view) = json_ui::scroll_target(&frame.hits, point) else {
+    let Some(view) = json_ui::scroll_target(&frame.hits, &frame.report, point) else {
         return;
     };
     let Some(metrics) = frame.report.scrolls.get(&view.key) else {
@@ -523,12 +427,17 @@ fn scroll_container(
         .copied()
         .unwrap_or(metrics.offset);
     for (notch, unit) in notches {
-        offset -= match unit {
-            MouseScrollUnit::Line => f64::from(*notch) * metrics.speed,
-            MouseScrollUnit::Pixel => f64::from(*notch / frame.scale),
+        let at = json_ui::ScrollMetrics {
+            offset,
+            ..metrics.clone()
+        };
+        offset = match unit {
+            MouseScrollUnit::Line => at.offset_for_wheel(f64::from(*notch)),
+            MouseScrollUnit::Pixel => {
+                (offset - f64::from(*notch / frame.scale)).clamp(0.0, metrics.max_offset())
+            }
         };
     }
-    let offset = offset.clamp(0.0, metrics.max_offset());
     if !notches.is_empty() {
         runtime
             .screen_state_mut()
@@ -540,6 +449,7 @@ fn scroll_container(
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
 /// (Control+Q the whole stack) and a right-click with a book in hand opens it.
 pub(crate) fn drive_world_inventory_keys(
+    gamepads: Query<&Gamepad>,
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -547,8 +457,9 @@ pub(crate) fn drive_world_inventory_keys(
     presentation: Option<Res<presentation::UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
 ) {
-    let drop = keys.just_pressed(KeyCode::KeyQ);
-    let use_book = mouse.just_pressed(MouseButton::Right);
+    let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
+        || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
+    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
     if !window.focused
         || crate::screen_policy::absorbs_input(
             Some(&runtime),
@@ -715,6 +626,7 @@ pub(crate) fn paste_chat_shortcut<C: ChatClipboard>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_chat_keyboard_input(
+    gamepads: Query<&Gamepad>,
     mut keyboard_messages: MessageReader<KeyboardInput>,
     time: Res<Time<Real>>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -723,6 +635,7 @@ pub(crate) fn drive_chat_keyboard_input(
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut runtime: ResMut<UiRuntime>,
+    mut presentation: Option<ResMut<presentation::UiPresentationRuntime>>,
 ) {
     let (window, mut cursor) = window.into_inner();
     if runtime.server_forms().owns_input() {
@@ -758,9 +671,39 @@ pub(crate) fn drive_chat_keyboard_input(
     let inventory_owned_pointer = runtime.inventory_open();
     let mut inventory_ownership_changed = false;
     let mut consumed_gameplay = runtime.ui_focused();
+    if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
+        if binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons)
+            || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
+        {
+            runtime.toggle_inventory();
+            inventory_ownership_changed = true;
+            consumed_gameplay = true;
+        } else if !runtime.inventory_open()
+            && (binding_mouse(menu.as_deref(), "key.chat", &mouse_buttons)
+                || binding_gamepad(menu.as_deref(), "key.chat", &gamepads))
+        {
+            runtime.open_chat();
+            consumed_gameplay = true;
+        } else if !runtime.inventory_open()
+            && binding_mouse(menu.as_deref(), "key.command", &mouse_buttons)
+        {
+            runtime.open_chat();
+            let _ = runtime.insert_chat_text("/");
+            consumed_gameplay = true;
+        }
+    }
     for input in keyboard_messages.read() {
         runtime.inventory_keys.track_modifier(input);
         if input.state != ButtonState::Pressed {
+            continue;
+        }
+        if let Some(presentation) = presentation.as_deref_mut()
+            && presentation.chat_settings_open()
+        {
+            consumed_gameplay = true;
+            if input.key_code == KeyCode::Escape {
+                presentation.set_chat_settings_open(false);
+            }
             continue;
         }
         if runtime.inventory_open() {
@@ -790,13 +733,16 @@ pub(crate) fn drive_chat_keyboard_input(
                 continue;
             }
             match input.key_code {
-                KeyCode::KeyE => {
+                key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory();
                     inventory_ownership_changed = true;
                 }
                 KeyCode::Escape => {
                     runtime.close_inventory();
                     inventory_ownership_changed = true;
+                }
+                key if binding_key(menu.as_deref(), "key.drop", key) => {
+                    runtime.inventory_keys.press(KeyCode::KeyQ)
                 }
                 key => runtime.inventory_keys.press(key),
             }
@@ -806,10 +752,10 @@ pub(crate) fn drive_chat_keyboard_input(
             // The bed screen: Escape leaves the bed, T opens chat over it.
             match input.key_code {
                 KeyCode::Escape => runtime.request_wake(),
-                KeyCode::KeyT => {
+                key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat();
                 }
-                KeyCode::Slash => {
+                key if binding_key(menu.as_deref(), "key.command", key) => {
                     runtime.open_chat();
                     let _ = runtime.insert_chat_text("/");
                 }
@@ -819,16 +765,16 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         if !runtime.chat_focused() {
             match input.key_code {
-                KeyCode::KeyE => {
+                key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory();
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
-                KeyCode::KeyT => {
+                key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat();
                     consumed_gameplay = true;
                 }
-                KeyCode::Slash => {
+                key if binding_key(menu.as_deref(), "key.command", key) => {
                     runtime.open_chat();
                     let _ = runtime.insert_chat_text("/");
                     consumed_gameplay = true;

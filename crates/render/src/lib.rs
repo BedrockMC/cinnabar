@@ -13,7 +13,10 @@ mod celestial;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+pub use cloud_render::CloudVisibility;
 mod dropped_item;
+mod enhanced;
+pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
 mod dropped_item_render;
 mod hand_rig_render;
 mod item_geometry;
@@ -35,7 +38,8 @@ mod ui_textures;
 
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
-    UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan,
+    UI_DYNAMIC_PAGE_SIDE, UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage,
+    UiTexturePlan,
 };
 mod ui_render;
 mod viewmodel;
@@ -118,7 +122,7 @@ pub use celestial::{
 pub use chunk::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet,
     ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue, ChunkRenderQueueLimits,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureUploadStats,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, ChunkTextureUploadStats,
     ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
     ChunkUploadPriority, ChunkUploadToken, DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
     MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V, MATERIAL_UV_ROTATE_90, MATERIAL_UV_ROTATE_180,
@@ -188,7 +192,7 @@ pub use ui::{
     UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene,
     UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
-pub use ui_render::UiRenderPlugin;
+pub use ui_render::{UiGlintSettings, UiRenderPlugin};
 pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
     MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
