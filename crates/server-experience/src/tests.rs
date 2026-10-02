@@ -333,7 +333,6 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
     assert!(ingress.pop(u64::MAX, 7).is_none());
 }
 
-
 #[test]
 fn review_quarantine_survives_a_bundle_generation_change() {
     let mut budget = runtime::Budget::default();
@@ -348,4 +347,28 @@ fn review_quarantine_survives_a_bundle_generation_change() {
     assert!(budget.reserve(owner.clone(), 1, 1).is_err());
     owner.session = "replacement".into();
     assert!(budget.reserve(owner, 1, 1).is_ok());
+}
+
+#[test]
+fn review_changing_trust_scope_preserves_the_prior_revision_floor() {
+    let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+    let mut offered = offer(&key);
+    let mut settings = trust::Settings::default();
+    offered.revision = 10;
+    settings
+        .remember(&offered, trust::Decision::Always)
+        .unwrap();
+    let original = offered.clone();
+    offered.revision = 11;
+    offered.scope.permissions.insert(manifest::Permission::Ui);
+    settings
+        .remember(&offered, trust::Decision::Always)
+        .unwrap();
+    let mut rollback = original;
+    rollback.revision = 9;
+    assert!(
+        settings
+            .remember(&rollback, trust::Decision::Always)
+            .is_err()
+    );
 }
