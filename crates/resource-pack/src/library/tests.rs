@@ -410,6 +410,57 @@ fn catalog_limit_rejection_does_not_publish_metadata_or_archive() {
 }
 
 #[test]
+fn review_subpack_selection_uses_the_active_revision() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let id = Uuid::from_u128(1);
+    for folder in ["old", "new"] {
+        let text = manifest(
+            1,
+            "resources",
+            &format!(
+                r#", "subpacks":[{{"folder_name":"{folder}","name":"Fixture","memory_tier":1}}]"#
+            ),
+        );
+        library
+            .import(&fixture.write("revision.zip", &zip(&[("manifest.json", text.as_bytes())])))
+            .unwrap();
+        if folder == "old" {
+            library.activate(id).unwrap();
+            library.apply().unwrap();
+        }
+    }
+    let mut reopened = fixture.library();
+    reopened.select_subpack(id, "old").unwrap();
+    assert!(reopened.select_subpack(id, "new").is_err());
+    reopened.preview().unwrap();
+}
+
+#[test]
+fn review_failed_archive_deletion_remains_retryable() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let text = manifest(1, "resources", "");
+    library
+        .import(&fixture.write("first.zip", &zip(&[("manifest.json", text.as_bytes())])))
+        .unwrap();
+    library
+        .import(&fixture.write("second.zip", &zip(&[("manifest.json", text.as_bytes())])))
+        .unwrap();
+    let obsolete = library.root.join(library.catalog.retained[0].filename());
+    let bytes = fs::read(&obsolete).unwrap();
+    fs::remove_file(&obsolete).unwrap();
+    fs::create_dir(&obsolete).unwrap();
+    assert!(storage::prune(&library.root, &mut library.catalog).is_err());
+    assert_eq!(library.catalog.retained.len(), 1);
+    fs::remove_dir(&obsolete).unwrap();
+    fs::write(&obsolete, bytes).unwrap();
+    storage::prune(&library.root, &mut library.catalog).unwrap();
+    assert!(!obsolete.exists());
+    assert!(library.catalog.retained.is_empty());
+}
+
+#[test]
 fn review_corrupt_nested_archive_keeps_valid_siblings() {
     let fixture = Fixture::new();
     let text = manifest(1, "resources", "");
