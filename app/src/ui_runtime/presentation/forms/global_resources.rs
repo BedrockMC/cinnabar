@@ -215,7 +215,7 @@ pub(super) fn extend_catalog(catalog: &mut json_ui::Catalog) {
 const EXTENSION: &str = r##"{
   "namespace": "general_section",
   "global_texture_pack_section": {
-    "modifications": [{ "array_name": "controls", "operation": "insert_front", "value": [
+    "controls": [
       { "cinnabar_pack_actions": {
         "type": "stack_panel", "orientation": "horizontal", "size": ["100%", 24],
         "controls": [
@@ -231,8 +231,9 @@ const EXTENSION: &str = r##"{
       { "cinnabar_pack_status": {
         "type": "label", "size": ["100%", "default"], "text": "#cinnabar_pack_status",
         "bindings": [{"binding_name": "#cinnabar_pack_status"}]
-      }}
-    ]}]
+      }},
+      { "cinnabar_pack_list@resource_packs.selected_stack_panel": {} }
+    ]
   }
 }"##;
 
