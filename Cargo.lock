@@ -3816,6 +3816,7 @@ name = "mod-host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "mod-api",
  "serde",
  "serde_json",
  "server-experience",
@@ -5105,6 +5106,7 @@ dependencies = [
  "client-world",
  "image",
  "meshing",
+ "mod-api",
  "naga",
  "naga_oil",
  "rayon",
@@ -5843,6 +5845,13 @@ dependencies = [
  "serde_core",
  "time-core",
  "time-macros",
+]
+
+[[package]]
+name = "time-changer-mod"
+version = "0.1.0"
+dependencies = [
+ "mod-api",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 use super::*;
-use crate::menu::MenuRuntime;
+use crate::menu::{MenuRuntime, split_address};
 use json_ui::RectOut;
 
 fn view(screen: MenuScreen) -> MenuView {

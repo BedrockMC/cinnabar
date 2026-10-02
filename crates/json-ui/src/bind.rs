@@ -679,6 +679,9 @@ fn native_grid(src: Src, native: &Native) -> Src {
     src.patched(|patch| patch.properties.extend(bound))
 }
 
+/// Control names vanilla authors as `#name` identifiers.
+const IDENTITY_NAMES: [&str; 3] = ["text_box_name", "dropdown_name", "slider_name"];
+
 /// Replace `#`-referencing property values with their bag values and carry the
 /// bag's `#names`. An unbound `text` becomes empty rather than the literal
 /// `#name`; a `##` text is literal.
@@ -698,6 +701,8 @@ fn bake_properties(properties: &BTreeMap<String, Value>, own: &Bag) -> BTreeMap<
                     match own.get(reference) {
                         Some(scalar) => scalar.to_json(),
                         None if key == "text" => Value::String(String::new()),
+                        // An unbound control name is the control's identity, not a data read.
+                        None if IDENTITY_NAMES.contains(&key.as_str()) => value.clone(),
                         None => return None,
                     }
                 }
