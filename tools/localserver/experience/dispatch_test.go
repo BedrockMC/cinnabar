@@ -448,6 +448,18 @@ func TestNeighborCapResetsEachTickTransaction(t *testing.T) {
 	f := newIdleFixture(t, log, map[string]*Supervisor{"probe": sup})
 	t.Cleanup(func() { f.host.Close() })
 	b, _ := registered(t).Lookup(probeCounter)
+	// A viewerless world still runs its first tick, which moves CurrentTick from 0 to 1; after
+	// that its tick stands still.
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		var tick int64
+		f.do(func(tx *world.Tx) { tick = tx.CurrentTick() })
+		if tick >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the world ran no first tick within 2s")
+		}
+	}
 	var ticks []int64
 	batch := func() {
 		f.do(func(tx *world.Tx) {
