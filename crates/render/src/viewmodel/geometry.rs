@@ -37,6 +37,8 @@ pub(super) fn validated_geometry(
             || b.inflate.is_some_and(|i| i.get() != 0.)
             || b.never_render == Some(true)
             || b.reset == Some(true)
+            || b.binding.is_some()
+            || !b.texture_meshes.is_empty()
         {
             return None;
         }
