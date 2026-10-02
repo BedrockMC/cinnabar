@@ -274,7 +274,11 @@ impl Emitter {
         set_var(&mut vars, V_PARTICLE_LIFETIME, lifetime);
 
         let (offset, direction) = self.sample_shape(&mut vars);
-        let offset = transform(&self.basis, offset);
+        let offset = if def.emitter.local_position {
+            offset
+        } else {
+            transform(&self.basis, offset)
+        };
         // Local-space velocity stays in the emitter frame and is rotated as the particle moves.
         let local_velocity = def.emitter.local_velocity;
         let direction = if local_velocity {
