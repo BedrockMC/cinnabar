@@ -332,3 +332,20 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
     );
     assert!(ingress.pop(u64::MAX, 7).is_none());
 }
+
+
+#[test]
+fn review_quarantine_survives_a_bundle_generation_change() {
+    let mut budget = runtime::Budget::default();
+    let mut owner = runtime::Principal {
+        session: "session".into(),
+        bundle: "bundle".into(),
+        generation: 1,
+    };
+    budget.reserve(owner.clone(), 1, 1).unwrap();
+    budget.quarantine(&owner);
+    owner.generation += 1;
+    assert!(budget.reserve(owner.clone(), 1, 1).is_err());
+    owner.session = "replacement".into();
+    assert!(budget.reserve(owner, 1, 1).is_ok());
+}
