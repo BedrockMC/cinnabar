@@ -42,6 +42,9 @@ mod hud_command;
 mod icon_command;
 #[path = "assetc/lang_command.rs"]
 mod lang_command;
+#[path = "assetc/output_bundle.rs"]
+mod output_bundle;
+use output_bundle::write_output_bundle;
 #[path = "assetc/output_validation.rs"]
 mod output_validation;
 #[path = "assetc/particle_command.rs"]
@@ -392,12 +395,13 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 biome_registry_sha256: Sha256::digest(&biome_registry_bytes).into(),
             };
             let blob = encode_blob(&compiled)?;
-            write_blob_atomic(&out, &blob)?;
-            // Sidecar for runtime retexturing; a stale or absent one only disables that.
-            write_blob_atomic(
-                &command_outputs::material_keys_output(&out),
-                &material_keys.to_json(compiled.materials.len() as u32),
-            )?;
+            write_output_bundle(&[
+                (&out, &blob),
+                (
+                    &command_outputs::material_keys_output(&out),
+                    &material_keys.to_json(compiled.materials.len() as u32),
+                ),
+            ])?;
             let cutout_materials = compiled
                 .materials
                 .iter()
@@ -498,7 +502,7 @@ fn compile_font_assets_command(
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
     }
-    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report, &[])
 }
 
 fn compile_outline_font_assets_command(
@@ -526,6 +530,7 @@ fn write_compiled_font_assets(
     compiled: asset_compiler::CompiledFontCarrier,
     out: &Path,
     report: &Path,
+    sidecars: &[(&Path, &[u8])],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
@@ -549,8 +554,12 @@ fn write_compiled_font_assets(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    let mut outputs = vec![
+        (out, compiled.bytes.as_ref()),
+        (report, report_bytes.as_slice()),
+    ];
+    outputs.extend_from_slice(sidecars);
+    write_output_bundle(&outputs)?;
     println!(
         "compiled {} bitmap-font glyphs across {} pages to {} and {}",
         report_data.counts.glyphs,
@@ -666,11 +675,12 @@ fn compile_entity_assets_command(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &blob)?;
-    write_blob_atomic(report, &report_bytes)?;
-    // Sidecar for session-time server-pack entities that reference vanilla definitions.
     let refs = compile_vanilla_entity_refs(pack)?;
-    write_blob_atomic(&command_outputs::entity_refs_output(out), &refs.to_json())?;
+    write_output_bundle(&[
+        (out, &blob),
+        (report, &report_bytes),
+        (&command_outputs::entity_refs_output(out), &refs.to_json()),
+    ])?;
     println!(
         "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
         report_data.counts.sources,
@@ -742,8 +752,7 @@ where
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &blob)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &blob), (report, &report_bytes)])?;
     println!(
         "compiled {} pinned atmosphere textures to {} and {}",
         report_data.textures.len(),
