@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+mod-api = { path = "../mod-api" }
 anyhow.workspace = true
 sha2 = "0.10"
 serde = { version = "=1.0.228", features = ["derive"] }
