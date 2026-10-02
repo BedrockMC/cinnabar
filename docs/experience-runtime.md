@@ -52,7 +52,7 @@ An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/
 ```toml
 id = "benergistics"   # owns the block namespace "benergistics:"
 version = "0.1.0"
-api = "0.1"           # server WIT major.minor
+api = "0.2"           # server WIT major.minor
 data-schema = 1       # block-data schema
 [files]               # every other file, '/'-separated, with its lowercase hex SHA-256
 "server.wasm" = "…"
@@ -60,16 +60,17 @@ data-schema = 1       # block-data schema
 ```
 
 `crates/experience-runtime/src/manifest.rs` is the authority on the manifest: the id and version
-rules, the accepted `api` and `data-schema`, and the index rules (every file indexed, no absolute
-paths, `..`, backslashes or symlinks). The hashes give integrity, not publisher trust. The id
-`minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter refuses an
-Experience with that id at registration, before anything is registered.
+rules, the accepted `api` (each server WIT version the runtime implements, see
+[Version matrix](#version-matrix)) and `data-schema`, and the index rules (every file indexed,
+no absolute paths, `..`, backslashes or symlinks). The hashes give integrity, not publisher
+trust. The id `minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter
+refuses an Experience with that id at registration, before anything is registered.
 
 `server.wasm` is the core module that cargo emits for `wasm32-unknown-unknown` with the WIT
 embedded by `experience-sdk`. The runtime componentizes it with `wit_component::ComponentEncoder`
-(the route `mod-host` uses) and instantiates it against the exact `server` world. A client
-component, a WASI import or any unknown import fails the load; serialized native Wasmtime
-artifacts are never accepted.
+(the route `mod-host` uses) and instantiates it against the exact `server` world of its manifest's
+`api`. A client component, a WASI import, another `api`'s world or any unknown import fails the
+load; serialized native Wasmtime artifacts are never accepted.
 
 ### Building and packaging
 
@@ -91,10 +92,13 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server.wit`, package
-`cinnabar:experience-server@0.1.0`, world `server`. The guest exports `register`, which runs once
-at startup and declares its blocks, and the callbacks `on-place`, `on-break`, `on-interact` and
-`on-neighbor-changed`. Every world method goes through the borrowed `callback` resource, valid for
-one callback only.
+`cinnabar:experience-server@0.2.0`, world `server`. The guest exports `register`, which runs once
+at startup and declares its blocks, the callbacks `on-place`, `on-break`, `on-interact` and
+`on-neighbor-changed`, and `client-message`. Every world method goes through the borrowed
+`callback` resource, valid for one callback only. The runtime still runs artifacts with
+`api = "0.1"` against the frozen 0.1 world in `crates/experience-runtime/wit/0.1/server.wit`,
+which has neither `send-client` nor `client-message`; a client message for such an Experience is
+rejected without running it.
 
 WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
 (`tools/localserver/experience`) both enforce them.
@@ -130,12 +134,25 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 - **`tell`.** Only to the event's actor, else `denied`; `player-unavailable` when the event has no
   actor. Control characters and `§` are `invalid-text`; text over `MAX_TELL_BYTES` is
   `too-large`; at most `MAX_TELLS` per callback.
+- **`send-client`.** Stages a typed record (a list of `scalar`s, the client wire protocol's field
+  values) for the actor's client part on a channel and schema revision; `denied` and
+  `player-unavailable` as for `tell`. A callback's channels and payloads hold at most
+  `MAX_CLIENT_SEND_BYTES` as JSON, else `too-large`; at most `MAX_CLIENT_SENDS` per callback. The
+  adapter sends a staged message only after the whole result commits, and only on a channel, in
+  the direction to the client, that the Experience's own client part declares; anything else, or
+  a player without an active client part, is dropped and counted. Without the server half of
+  client parts every staged message is dropped.
+- **`client-message`.** A typed record that a player's client part sent arrives through the same
+  queue as the block callbacks, with that player as the actor. Its `callback` has no snapshot, so
+  every block read and write is refused; it may `tell` and `send-client` to the player, and its
+  result commits like any other, in the world the player is in when it runs.
 - **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
 - **Fresh instance per callback.** Each callback runs on a new instance of the precompiled
   component, so guest memory never survives a callback; durable state belongs in block data.
 - **Commit.** The adapter commits a result in a fresh world task, whole or not at all. If any
   snapshotted block or data changed meanwhile, or the actor is no longer connected in that
-  world, the result is discarded as stale. Otherwise block and data ops apply, then the tells.
+  world, the result is discarded as stale. Otherwise block and data ops apply, then the tells,
+  and then, outside the world task, the client messages.
 - **Guest imports never call back into the live world.** Hooks on the world goroutine only
   enqueue; a full queue drops the event and counts it.
 
@@ -143,7 +160,8 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 
 - `crates/experience-runtime/src/limits.rs` is the only source of the guest limits: fuel, epoch
   and wall deadlines, memory, tables, instances, stack, component and manifest size, blocks per
-  Experience, host calls, staged ops and data, tells, block data, logs and the IPC frame.
+  Experience, host calls, staged ops and data, tells, client messages, block data, logs and the
+  IPC frame.
 - `tools/localserver/experience/limits.go` holds the adapter's limits: load and result deadlines,
   strikes and restarts, shutdown grace, queue and neighbor caps, flush interval, data quota and
   texture limits. The values that the commit check enforces again mirror Rust constants;
@@ -162,7 +180,9 @@ many bytes of JSON, at most `MAX_FRAME_BYTES`; bytes inside messages are lowerca
 `tools/localserver/experience/testdata/protocol` come from
 `experience-runtime write-fixtures <dir>`; the Go tests decode and re-encode each one and require
 identical JSON, and reject unknown fields. A helper that answers `load` with another protocol
-version fails the load.
+version fails the load. A client message is a `callback` whose `call` is `client_message` and
+whose snapshot is empty; a staged client message is a `send_client` op. Their `scalar` values
+have the client wire protocol's form, `{"type": "integer", "value": 42}`.
 
 ## Private data store
 
@@ -215,8 +235,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.1 | `crates/experience-sdk/wit/server.wit` |
-| IPC protocol | 1 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.2; 0.1 still accepted | `crates/experience-sdk/wit/server.wit`; 0.1 in `crates/experience-runtime/wit/0.1/server.wit` |
+| IPC protocol | 2 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema` | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT and wire protocol | unchanged from PR #34 | `crates/mod-api/wit/extension.wit` |
 | Bedrock target | | `assets/bedrock-target.json` |
@@ -238,10 +258,13 @@ Another server can host the same artifacts by speaking the protocol to `experien
 4. Commit a `committed` result in one world transaction, whole or not at all, after checking that
    no token or block id changed and that the actor is still there; enforce the write scope, the
    ownership rules and the commit limits again, since the helper is not trusted.
-5. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
+5. After the commit, send each `send_client` op to the actor's client part if that Experience's
+   client part declares the channel; drop and count the rest. Deliver a client part's messages
+   as `client_message` callbacks with the sender as actor and an empty snapshot.
+6. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
    described above.
-6. Own the store: generations, revisions, the quota and atomic flushes.
-7. Send `shutdown` on exit and kill a helper that outlives the grace period.
+7. Own the store: generations, revisions, the quota and atomic flushes.
+8. Send `shutdown` on exit and kill a helper that outlives the grace period.
 
 Check your implementation against the fixtures in `tools/localserver/experience/testdata/protocol`
 and the Go adapter's tests.

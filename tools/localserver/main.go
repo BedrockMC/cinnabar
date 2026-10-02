@@ -70,7 +70,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	runCtx, stopRunning := context.WithCancel(context.Background())
 	defer stopRunning()
 	if exps != nil {
-		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), logger)
+		// No server half for client parts yet, so staged client messages are dropped and counted.
+		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), nil, logger)
 		running.Go(func() { host.Run(runCtx) })
 		running.Go(func() { exps.store.RunFlusher(runCtx) })
 		cmds.pause = func(paused bool) {
