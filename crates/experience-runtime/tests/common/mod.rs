@@ -1,4 +1,6 @@
-//! Builds guest crates for wasm32 and assembles them into temporary server artifacts.
+//! Builds guest crates for wasm32 and assembles them into temporary server artifacts, and builds
+//! the probe's callback requests. The probe selects a behavior by the interacted block's x; `p(x)`
+//! is that block and `up(x)` the one above.
 #![allow(dead_code, reason = "each test binary uses only some of these helpers")]
 
 use std::fs;
@@ -6,9 +8,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
 
+use experience_runtime::callback::run;
+use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
+use experience_runtime::protocol::{BlockPos, Call, Cell, Face, Info, Op, Outcome, Request};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+use wasmtime::Engine;
+
+pub const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
+pub const COUNTER: &str = "probe:counter";
+pub const AIR: &str = "minecraft:air";
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
@@ -131,4 +141,107 @@ fn relative_files(dir: &Path) -> Vec<String> {
         }
     }
     files
+}
+
+/// The probe, loaded once per test binary.
+pub struct Probe {
+    pub engine: Engine,
+    pub loaded: Loaded,
+    _ticker: EpochTicker,
+}
+
+pub fn probe() -> &'static Probe {
+    static PROBE: LazyLock<Probe> = LazyLock::new(|| {
+        let (engine, ticker) = engine().unwrap();
+        // The artifact is only read while loading.
+        let dir = probe_dir();
+        let loaded = load(&engine, dir.path()).unwrap();
+        Probe {
+            engine,
+            loaded,
+            _ticker: ticker,
+        }
+    });
+    &PROBE
+}
+
+/// Runs `request` on the probe.
+pub fn outcome(request: &Request) -> Outcome {
+    let probe = probe();
+    run(&probe.engine, &probe.loaded, request)
+}
+
+pub fn p(x: i32) -> BlockPos {
+    BlockPos { x, y: 64, z: 0 }
+}
+
+pub fn up(x: i32) -> BlockPos {
+    BlockPos { x, y: 65, z: 0 }
+}
+
+/// A loaded cell; `data` is hex.
+pub fn cell(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
+    Cell {
+        pos,
+        loaded: true,
+        id: id.to_owned(),
+        owned,
+        data: data.map(str::to_owned),
+    }
+}
+
+/// A callback from the actor for `call` at `anchor`, with a 7-cell snapshot: the anchor is an
+/// owned probe:counter without data and its six neighbors are loaded air. The world height and the
+/// data budget leave room.
+pub fn callback(anchor: BlockPos, call: Call) -> Request {
+    let BlockPos { x, y, z } = anchor;
+    let neighbors = [
+        (x + 1, y, z),
+        (x - 1, y, z),
+        (x, y + 1, z),
+        (x, y - 1, z),
+        (x, y, z + 1),
+        (x, y, z - 1),
+    ];
+    let mut snapshot = vec![cell(anchor, COUNTER, true, None)];
+    snapshot.extend(
+        neighbors
+            .into_iter()
+            .map(|(x, y, z)| cell(BlockPos { x, y, z }, AIR, false, None)),
+    );
+    Request::Callback {
+        seq: 1,
+        info: Info {
+            world_id: "world".to_owned(),
+            dimension_id: "overworld".to_owned(),
+            tick: 1,
+            event_sequence: 1,
+        },
+        actor: Some(ACTOR.to_owned()),
+        world_min_y: -64,
+        world_max_y: 319,
+        data_budget: 1 << 20,
+        snapshot,
+        call,
+    }
+}
+
+/// The actor's interaction with `p(x)`.
+pub fn interact(x: i32) -> Request {
+    callback(
+        p(x),
+        Call::Interact {
+            player: ACTOR.to_owned(),
+            pos: p(x),
+            face: Face::Up,
+        },
+    )
+}
+
+/// A tell to the actor.
+pub fn tell(text: &str) -> Op {
+    Op::Tell {
+        player: ACTOR.to_owned(),
+        text: text.to_owned(),
+    }
 }

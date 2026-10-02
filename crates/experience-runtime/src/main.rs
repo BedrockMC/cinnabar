@@ -1,16 +1,25 @@
+use std::io;
 use std::path::Path;
+use std::process;
 
 use anyhow::{Context, bail};
 use experience_runtime::protocol::fixtures;
+use experience_runtime::serve::serve;
 
-const USAGE: &str = "usage: experience-runtime write-fixtures <dir>";
+const USAGE: &str = "usage: experience-runtime serve [--report-fuel]
+       experience-runtime write-fixtures <dir>";
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [command, dir] if command == "write-fixtures" => write_fixtures(Path::new(dir)),
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let report_fuel = match args.as_slice() {
+        ["serve"] => false,
+        ["serve", "--report-fuel"] => true,
+        ["write-fixtures", dir] => return write_fixtures(Path::new(dir)),
         _ => bail!(USAGE),
-    }
+    };
+    let code = serve(io::stdin().lock(), io::stdout().lock(), report_fuel)?;
+    process::exit(code)
 }
 
 fn write_fixtures(dir: &Path) -> anyhow::Result<()> {

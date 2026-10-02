@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use wasmtime::component::Resource;
-use wasmtime::{Engine, Trap};
+use wasmtime::{Engine, Store, Trap};
 
 use crate::hex::{self, HexError};
 use crate::host::cinnabar::experience_server::types::{
@@ -30,15 +30,24 @@ const FORMATTING_PREFIX: char = '§';
 /// only if the export returns `ok`. A request that is not a well-formed callback runs nothing
 /// and is rejected.
 pub fn run(engine: &Engine, loaded: &Loaded, request: &Request) -> Outcome {
+    run_metered(engine, loaded, request).0
+}
+
+/// [`run`], which also returns the fuel that the callback consumed.
+pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outcome, u64) {
     let (res, export) = match prepare(&loaded.block_ids, request) {
         Ok(prepared) => prepared,
         Err(reason) => {
-            return Outcome::Rejected {
-                reason: format!("malformed callback request: {reason}"),
-            };
+            let reason = format!("malformed callback request: {reason}");
+            return (Outcome::Rejected { reason }, 0);
         }
     };
-    match invoke(engine, loaded, res, &export) {
+    let id = &loaded.manifest.id;
+    let mut store = match HostState::store(engine, id, CALLBACK_FUEL, CALLBACK_DEADLINE) {
+        Ok(store) => store,
+        Err(error) => return (failed(&error), 0),
+    };
+    let outcome = match invoke(&mut store, loaded, res, &export) {
         Ok((Ok(()), ops)) => Outcome::Committed { ops },
         Ok((Err(GuestError::Rejected(reason) | GuestError::Failed(reason)), _)) => {
             Outcome::Rejected {
@@ -46,7 +55,10 @@ pub fn run(engine: &Engine, loaded: &Loaded, request: &Request) -> Outcome {
             }
         }
         Err(error) => failed(&error),
-    }
+    };
+    // The store meters fuel, so it always reports what is left.
+    let fuel = store.get_fuel().map_or(0, |left| CALLBACK_FUEL - left);
+    (outcome, fuel)
 }
 
 /// A guest's `reason` cut to [`MAX_REASON_BYTES`] at a char boundary, so the result fits in a
@@ -56,32 +68,26 @@ fn bounded_reason(mut reason: String) -> String {
     reason
 }
 
-/// Instantiates the guest in a fresh store, lends it `res` for one export call, and returns
-/// the export's result with the ops `res` staged. An error is a trap, or a failure to start.
+/// Instantiates the guest in `store`, lends it `res` for one export call, and returns the
+/// export's result with the ops `res` staged. An error is a trap, or a failure to start.
 fn invoke(
-    engine: &Engine,
+    store: &mut Store<HostState>,
     loaded: &Loaded,
     res: CallbackRes,
     export: &Export<'_>,
 ) -> Result<(Result<(), GuestError>, Vec<Op>)> {
-    let mut store = HostState::store(
-        engine,
-        &loaded.manifest.id,
-        CALLBACK_FUEL,
-        CALLBACK_DEADLINE,
-    )?;
-    let server = loaded.pre.instantiate(&mut store)?;
+    let server = loaded.pre.instantiate(&mut *store)?;
     let owned = store.data_mut().table.push(res)?;
     // The guest only borrows the callback, for this call; the host keeps `owned`.
     let ctx = Resource::new_borrow(owned.rep());
     let result = match export {
-        Export::Place(change) => server.call_on_place(&mut store, ctx, change),
-        Export::Break(change) => server.call_on_break(&mut store, ctx, change),
+        Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+        Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
         Export::Interact { player, pos, face } => {
-            server.call_on_interact(&mut store, ctx, player, *pos, *face)
+            server.call_on_interact(&mut *store, ctx, player, *pos, *face)
         }
         Export::Neighbor { pos, neighbor } => {
-            server.call_on_neighbor_changed(&mut store, ctx, *pos, *neighbor)
+            server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
         }
     }?;
     let res = store.data_mut().table.delete(owned)?;
@@ -159,8 +165,9 @@ enum Export<'a> {
 }
 
 /// The callback's host value and export for `request`, an Experience whose block ids are `own`.
-/// The anchor, whose chunk column bounds writes, is the call's position. Hex is decoded here, so
-/// a request that is not a callback or holds bad hex fails before anything runs.
+/// The anchor, whose chunk column bounds writes, is the call's position. Hex is decoded and player
+/// ids are checked here, so a request that is not a callback, holds bad hex or a player id that
+/// is not canonical fails before anything runs.
 fn prepare<'a>(
     own: &Arc<[String]>,
     request: &'a Request,
@@ -178,17 +185,19 @@ fn prepare<'a>(
     else {
         return Err("not a callback".to_owned());
     };
+    player_id("actor", actor.as_deref())?;
     let (anchor, export) = match call {
         Call::Place { change } => (change.pos, Export::Place(block_change(change)?)),
         Call::Break { change } => (change.pos, Export::Break(block_change(change)?)),
-        Call::Interact { player, pos, face } => (
-            *pos,
-            Export::Interact {
+        Call::Interact { player, pos, face } => {
+            player_id("player", Some(player))?;
+            let export = Export::Interact {
                 player,
                 pos: (*pos).into(),
                 face: (*face).into(),
-            },
-        ),
+            };
+            (*pos, export)
+        }
         Call::Neighbor { pos, neighbor } => (
             *pos,
             Export::Neighbor {
@@ -237,6 +246,7 @@ fn prepare<'a>(
 }
 
 fn block_change(change: &protocol::Change) -> Result<wit::BlockChange, String> {
+    player_id("change actor", change.actor.as_deref())?;
     let previous_data = decode(change.previous_data.as_deref())
         .map_err(|error| format!("previous data: {error}"))?;
     Ok(wit::BlockChange {
@@ -247,6 +257,16 @@ fn block_change(change: &protocol::Change) -> Result<wit::BlockChange, String> {
         after_id: change.after_id.clone(),
         previous_data,
     })
+}
+
+/// Refuses `id`, named `what`, when it is present but not a canonical player id.
+fn player_id(what: &str, id: Option<&str>) -> Result<(), String> {
+    match id {
+        Some(id) if !protocol::is_player_id(id) => Err(format!(
+            "{what} is not a canonical lowercase hyphenated UUID"
+        )),
+        _ => Ok(()),
+    }
 }
 
 fn decode(data: Option<&str>) -> Result<Option<Vec<u8>>, HexError> {

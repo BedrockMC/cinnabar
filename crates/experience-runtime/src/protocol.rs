@@ -94,6 +94,16 @@ pub enum Call {
     },
 }
 
+/// Whether `id` is a canonical player id: a UUID in lowercase hyphenated form, hex digits in
+/// groups of 8-4-4-4-12.
+pub(crate) fn is_player_id(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => matches!(byte, b'0'..=b'9' | b'a'..=b'f'),
+        })
+}
+
 /// Adapter → runtime. One request is decoded per frame and never stored in bulk, so the large
 /// `Callback` variant stays inline.
 #[allow(clippy::large_enum_variant)]
@@ -496,4 +506,38 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             }),
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_player_id;
+
+    #[test]
+    fn player_ids_are_canonical_uuids() {
+        let canonical = [
+            "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c",
+            "00000000-0000-0000-0000-000000000000",
+            "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        ];
+        for id in canonical {
+            assert!(is_player_id(id), "{id} is refused");
+        }
+        let other = [
+            "",
+            "3F2A7C1E-8B4D-4E6A-9C5F-1D2E3F4A5B6C",
+            "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6C",
+            "3f2a7c1e8b4d4e6a9c5f1d2e3f4a5b6c",
+            "{3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c}",
+            "urn:uuid:3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c",
+            "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6",
+            "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c0",
+            "3f2a7c1e8-b4d-4e6a-9c5f-1d2e3f4a5b6c",
+            "3f2a7c1g-8b4d-4e6a-9c5f-1d2e3f4a5b6c",
+            // 36 bytes, with a two-byte character.
+            "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5bé",
+        ];
+        for id in other {
+            assert!(!is_player_id(id), "{id} is accepted");
+        }
+    }
 }

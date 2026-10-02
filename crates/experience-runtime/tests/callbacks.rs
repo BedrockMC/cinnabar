@@ -3,114 +3,11 @@
 
 mod common;
 
-use std::sync::LazyLock;
-
-use common::probe_dir;
-use experience_runtime::callback::run;
+use common::{ACTOR, AIR, COUNTER, callback, cell, interact, outcome, p, tell, up};
 use experience_runtime::limits::MAX_REASON_BYTES;
-use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::protocol::{
-    BlockPos, Call, Cause, Cell, Change, Face, FailKind, Info, Op, Outcome, Request,
+    Call, Cause, Cell, Change, Face, FailKind, Op, Outcome, Request,
 };
-use wasmtime::Engine;
-
-const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
-const COUNTER: &str = "probe:counter";
-const AIR: &str = "minecraft:air";
-
-/// The probe, loaded once for every test in this binary.
-struct Probe {
-    engine: Engine,
-    loaded: Loaded,
-    _ticker: EpochTicker,
-}
-
-fn probe() -> &'static Probe {
-    static PROBE: LazyLock<Probe> = LazyLock::new(|| {
-        let (engine, ticker) = engine().unwrap();
-        // The artifact is only read while loading.
-        let dir = probe_dir();
-        let loaded = load(&engine, dir.path()).unwrap();
-        Probe {
-            engine,
-            loaded,
-            _ticker: ticker,
-        }
-    });
-    &PROBE
-}
-
-fn outcome(request: &Request) -> Outcome {
-    let probe = probe();
-    run(&probe.engine, &probe.loaded, request)
-}
-
-fn p(x: i32) -> BlockPos {
-    BlockPos { x, y: 64, z: 0 }
-}
-
-fn up(x: i32) -> BlockPos {
-    BlockPos { x, y: 65, z: 0 }
-}
-
-/// A loaded cell; `data` is hex.
-fn cell(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
-    Cell {
-        pos,
-        loaded: true,
-        id: id.to_owned(),
-        owned,
-        data: data.map(str::to_owned),
-    }
-}
-
-/// A callback from the actor for `call` at `anchor`, with a 7-cell snapshot: the anchor is an
-/// owned probe:counter without data and its six neighbors are loaded air. The world height and the
-/// data budget leave room.
-fn callback(anchor: BlockPos, call: Call) -> Request {
-    let BlockPos { x, y, z } = anchor;
-    let neighbors = [
-        (x + 1, y, z),
-        (x - 1, y, z),
-        (x, y + 1, z),
-        (x, y - 1, z),
-        (x, y, z + 1),
-        (x, y, z - 1),
-    ];
-    let mut snapshot = vec![cell(anchor, COUNTER, true, None)];
-    snapshot.extend(
-        neighbors
-            .into_iter()
-            .map(|(x, y, z)| cell(BlockPos { x, y, z }, AIR, false, None)),
-    );
-    Request::Callback {
-        seq: 1,
-        info: Info {
-            world_id: "world".to_owned(),
-            dimension_id: "overworld".to_owned(),
-            tick: 1,
-            event_sequence: 1,
-        },
-        actor: Some(ACTOR.to_owned()),
-        world_min_y: -64,
-        world_max_y: 319,
-        data_budget: 1 << 20,
-        snapshot,
-        call,
-    }
-}
-
-/// The actor's interaction with `p(x)`.
-fn interact(x: i32) -> Request {
-    callback(
-        p(x),
-        Call::Interact {
-            player: ACTOR.to_owned(),
-            pos: p(x),
-            face: Face::Up,
-        },
-    )
-}
 
 /// `request` with its snapshot cell at `new.pos` replaced by `new`.
 fn with_cell(mut request: Request, new: Cell) -> Request {
@@ -123,13 +20,6 @@ fn with_cell(mut request: Request, new: Cell) -> Request {
         .expect("the cell is in the snapshot");
     *old = new;
     request
-}
-
-fn tell(text: &str) -> Op {
-    Op::Tell {
-        player: ACTOR.to_owned(),
-        text: text.to_owned(),
-    }
 }
 
 fn committed(ops: Vec<Op>) -> Outcome {
@@ -349,4 +239,51 @@ fn malformed_request_is_rejected_unrun() {
     let request = with_cell(interact(0), cell(p(0), COUNTER, true, Some("zz")));
     let outcome = outcome(&request);
     assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+}
+
+/// A player id must be a canonical lowercase hyphenated UUID wherever it appears, or nothing runs:
+/// each of these callbacks would commit if it ran. An absent actor is fine.
+#[test]
+fn non_canonical_player_ids_are_rejected_unrun() {
+    let shouted = ACTOR.to_uppercase();
+    let place = |actor: Option<String>| {
+        callback(
+            p(0),
+            Call::Place {
+                change: Change {
+                    pos: p(0),
+                    actor,
+                    cause: Cause::Player,
+                    before_id: AIR.to_owned(),
+                    after_id: COUNTER.to_owned(),
+                    previous_data: None,
+                },
+            },
+        )
+    };
+    let with_actor = |mut request: Request, id: Option<String>| {
+        let Request::Callback { actor, .. } = &mut request else {
+            unreachable!("a callback request");
+        };
+        *actor = id;
+        request
+    };
+    let player = callback(
+        p(0),
+        Call::Interact {
+            player: shouted.clone(),
+            pos: p(0),
+            face: Face::Up,
+        },
+    );
+    let malformed = [
+        with_actor(interact(0), Some(shouted.clone())),
+        player,
+        place(Some(shouted)),
+    ];
+    for request in malformed {
+        let outcome = outcome(&request);
+        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    }
+    assert_eq!(outcome(&with_actor(place(None), None)), committed(vec![]));
 }
