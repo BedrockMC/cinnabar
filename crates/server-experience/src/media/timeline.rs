@@ -6,6 +6,11 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
+/// The media instance admitted by the initial routing contract.
+pub const INITIAL_MEDIA_INSTANCE: u32 = 1;
+/// The first route generation, independent of decoder discontinuity generations.
+pub const INITIAL_MEDIA_GENERATION: u64 = 1;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Surface {
@@ -80,8 +85,8 @@ impl Playback {
             &message.owner == owner
                 && message.world_epoch == epoch
                 && message.timeline == timeline
-                && message.instance == 1
-                && message.generation == 1,
+                && message.instance == INITIAL_MEDIA_INSTANCE
+                && message.generation == INITIAL_MEDIA_GENERATION,
             "stale media route"
         );
         ensure!(
@@ -196,13 +201,14 @@ impl Playback {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::INITIAL_BUNDLE_GENERATION;
 
     /// Builds one controlled future command without a network or decoder.
     fn message(owner: &Principal, revision: u64, at: u64, operation: Operation) -> Message {
         Message {
             owner: owner.clone(),
-            instance: 1,
-            generation: 1,
+            instance: INITIAL_MEDIA_INSTANCE,
+            generation: INITIAL_MEDIA_GENERATION,
             timeline: "cinema".into(),
             world_epoch: 1,
             revision,
@@ -212,11 +218,38 @@ mod tests {
     }
 
     #[test]
+    fn initial_route_rejects_other_media_instances_and_generations() {
+        let owner = Principal {
+            session: "session".into(),
+            bundle: "cinema".into(),
+            generation: INITIAL_BUNDLE_GENERATION,
+        };
+        let mut playback = Playback::default();
+        let initial = message(&owner, 1, 0, Operation::Stop);
+        let mut other_instance = initial.clone();
+        other_instance.instance = INITIAL_MEDIA_INSTANCE + 1;
+        assert!(
+            playback
+                .enqueue(other_instance, &owner, 1, "cinema", 0)
+                .is_err()
+        );
+        let mut other_generation = initial.clone();
+        other_generation.generation = INITIAL_MEDIA_GENERATION + 1;
+        assert!(
+            playback
+                .enqueue(other_generation, &owner, 1, "cinema", 0)
+                .is_err()
+        );
+        playback.enqueue(initial, &owner, 1, "cinema", 0).unwrap();
+        assert_eq!(playback.pending.len(), 1);
+    }
+
+    #[test]
     fn applied_controls_keep_the_last_accepted_timestamp() {
         let owner = Principal {
             session: "session".into(),
             bundle: "cinema".into(),
-            generation: 1,
+            generation: INITIAL_BUNDLE_GENERATION,
         };
         let mut playback = Playback::default();
         playback
@@ -261,7 +294,7 @@ mod tests {
         let owner = Principal {
             session: "session".into(),
             bundle: "cinema".into(),
-            generation: 1,
+            generation: INITIAL_BUNDLE_GENERATION,
         };
         let mut playback = Playback::default();
         playback

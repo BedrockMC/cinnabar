@@ -155,6 +155,14 @@ impl VerifiedBundle {
             .and_then(|path| self.file(path))
     }
 
+    /// Moves the verified component to its helper without copying the payload.
+    pub fn into_component(mut self) -> Option<Vec<u8>> {
+        self.manifest
+            .component
+            .as_deref()
+            .and_then(|path| self.files.remove(path))
+    }
+
     /// Counts actual retained file bytes for the aggregate session budget.
     pub fn expanded_bytes(&self) -> u64 {
         self.files.values().map(|bytes| bytes.len() as u64).sum()

@@ -12,10 +12,11 @@ use std::{
     collections::BTreeSet,
     io::{Read, Write},
     path::Path,
-    process::{Child, Command, Stdio},
-    sync::{Arc, Mutex, mpsc},
+    sync::{Mutex, mpsc},
     time::{Duration, Instant},
 };
+
+mod supervisor;
 
 const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
@@ -41,7 +42,7 @@ pub struct Dispatch {
 }
 
 pub struct Helper {
-    child: Arc<Mutex<Child>>,
+    process: supervisor::Process,
     requests: mpsc::SyncSender<Dispatch>,
     responses: Mutex<mpsc::Receiver<Result<Transaction>>>,
     pending_since: Option<Instant>,
@@ -60,10 +61,10 @@ impl Helper {
         bail!("restricted server helpers are unavailable on this build")
     }
 
-    /// Starts a developer-only worker with empty environment and piped, bounded IPC.
+    /// Returns a pending developer helper; its supervisor prepares and launches the process.
     pub fn spawn_developer(
         executable: &Path,
-        bytes: &[u8],
+        bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
@@ -73,54 +74,32 @@ impl Helper {
             "developer helper disabled"
         );
         ensure!(bytes.len() <= MAX_COMPONENT_BYTES, "component too large");
-        let startup = Start {
-            owner,
-            capabilities,
-            epoch,
-            component: crypto::hex(bytes),
-        };
-        let mut child = Command::new(executable)
-            .arg("server-helper")
-            .env_clear()
-            .env(DEVELOPER_ENV, "1")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let (Some(mut input), Some(mut output)) = (child.stdin.take(), child.stdout.take()) else {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("missing helper pipes");
-        };
-        let child = Arc::new(Mutex::new(child));
-        let (requests, receiver) = mpsc::sync_channel::<Dispatch>(1);
+        Self::spawn_pending(executable, move || {
+            Ok(Start {
+                owner,
+                capabilities,
+                epoch,
+                component: crypto::hex(&bytes),
+            })
+        })
+    }
+
+    /// Transfers startup work to supervision and begins the deadline before returning.
+    fn spawn_pending(
+        executable: &Path,
+        prepare: impl FnOnce() -> Result<Start> + Send + 'static,
+    ) -> Result<Self> {
+        let pending_since = Some(Instant::now());
+        let (requests, receiver) = mpsc::sync_channel(1);
         let (sender, responses) = mpsc::sync_channel(1);
-        let helper = Self {
-            child,
+        let process = supervisor::Process::start(executable.to_owned(), prepare, receiver, sender)?;
+        Ok(Self {
+            process,
             requests,
             responses: Mutex::new(responses),
-            pending_since: Some(Instant::now()),
+            pending_since,
             quarantined: false,
-        };
-        std::thread::Builder::new()
-            .name("experience-ipc".into())
-            .spawn(move || {
-                let result = write_frame(&mut input, &startup, MAX_STARTUP_IPC)
-                    .and_then(|()| read_frame(&mut output, MAX_HOST_OUTPUT));
-                let failed = result.is_err();
-                if sender.send(result).is_err() || failed {
-                    return;
-                }
-                while let Ok(request) = receiver.recv() {
-                    let result = write_frame(&mut input, &request, MAX_DISPATCH_IPC)
-                        .and_then(|()| read_frame(&mut output, MAX_HOST_OUTPUT));
-                    let failed = result.is_err();
-                    if sender.send(result).is_err() || failed {
-                        return;
-                    }
-                }
-            })?;
-        Ok(helper)
+        })
     }
 
     /// Sends one callback without ever waiting for the child from the render thread.
@@ -171,9 +150,7 @@ impl Helper {
     /// Revokes this process immediately; no automatic restart is allowed.
     fn kill(&mut self) {
         self.quarantined = true;
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
-        }
+        self.process.cancel();
     }
 }
 
@@ -181,14 +158,7 @@ impl Drop for Helper {
     /// Ends guest execution before deferring process reaping off the main thread.
     fn drop(&mut self) {
         self.kill();
-        let child = Arc::clone(&self.child);
-        let _ = std::thread::Builder::new()
-            .name("experience-reap".into())
-            .spawn(move || {
-                if let Ok(mut child) = child.lock() {
-                    let _ = child.wait();
-                }
-            });
+        self.process.reap();
     }
 }
 
@@ -257,29 +227,4 @@ pub(crate) fn write_frame(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maximum_typed_payload_round_trips_through_dispatch_ipc() {
-        let empty = serde_json::to_vec(&vec![server_experience::wire::Scalar::Text(String::new())])
-            .unwrap()
-            .len();
-        let record = serde_json::to_vec(&vec![server_experience::wire::Scalar::Text(
-            "x".repeat(MAX_PAYLOAD_BYTES - empty),
-        )])
-        .unwrap();
-        assert_eq!(record.len(), MAX_PAYLOAD_BYTES);
-        let request = Dispatch {
-            channel: "fixture.events".into(),
-            record,
-            actions: BTreeSet::new(),
-            epoch: u64::MAX,
-        };
-        assert!(serde_json::to_vec(&request).unwrap().len() > MAX_HOST_OUTPUT);
-        let mut bytes = Vec::new();
-        write_frame(&mut bytes, &request, MAX_DISPATCH_IPC).unwrap();
-        let decoded: Dispatch = read_frame(&mut bytes.as_slice(), MAX_DISPATCH_IPC).unwrap();
-        assert_eq!(decoded.record, request.record);
-    }
-}
+mod tests;

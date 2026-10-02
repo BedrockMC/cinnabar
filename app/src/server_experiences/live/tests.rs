@@ -15,7 +15,7 @@ struct FakeWorker {
 
 impl Worker for FakeWorker {
     /// Leaves initialization pending until the test supplies its completion.
-    fn spawn(_: &Path, _: &[u8], owner: Principal, _: Capabilities, epoch: u64) -> Result<Self> {
+    fn spawn(_: &Path, _: Vec<u8>, owner: Principal, _: Capabilities, epoch: u64) -> Result<Self> {
         Ok(Self {
             response: None,
             dispatched: Vec::new(),

@@ -9,7 +9,7 @@ pub(super) trait Worker: Sized {
     /// Starts a helper whose first response is its initialization transaction.
     fn spawn(
         executable: &Path,
-        bytes: &[u8],
+        bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
@@ -24,7 +24,7 @@ impl Worker for Helper {
     /// Starts the developer helper with the host-selected capabilities.
     fn spawn(
         executable: &Path,
-        bytes: &[u8],
+        bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
