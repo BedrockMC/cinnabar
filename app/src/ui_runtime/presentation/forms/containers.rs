@@ -699,7 +699,6 @@ fn held_stack(
                 h: 9.0,
             },
             Draw::Text {
-                font_type: "default".into(),
                 text: stack.count.to_string(),
                 color: [255; 4],
                 shadow: true,
