@@ -273,12 +273,17 @@ func (h *Host) useOnBlock(
 	return true
 }
 
-// activate queues on-interact for the user's interaction.
+// activate queues on-interact for the user's interaction. The clicked face comes from the
+// client unchecked, so a face out of range is ignored; the interaction stays consumed.
 func (h *Host) activate(
 	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, _ *item.UseContext,
 ) {
 	dim, ok := dimensionOf(tx)
 	if u == nil || !ok {
+		return
+	}
+	if clickedFace < 0 || int(clickedFace) >= len(faces) {
+		h.log.Debug("interaction with an invalid face ignored", "experience", b.t.exp, "face", int(clickedFace))
 		return
 	}
 	actor := u.H()
@@ -400,6 +405,11 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 	if ctx.Err() != nil || !h.resumed(ctx) {
 		return
 	}
+	// A quarantined Experience's events are dropped before they cost a world task.
+	if d.sup.Quarantined() {
+		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
+		return
+	}
 	d.seq++
 	snap, err := h.snapshot(ctx, d, ev)
 	if err != nil {
@@ -411,6 +421,7 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 	outcome, err := d.sup.Call(snap.req)
 	switch {
 	case errors.Is(err, errQuarantined):
+		// Quarantined between the check above and the call.
 		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
 		return
 	case err != nil:

@@ -411,6 +411,55 @@ func TestTellOnlyToConnectedActor(t *testing.T) {
 	f.assertData("probe", pos, nil)
 }
 
+// A clicked face comes from the client unchecked. One out of range consumes the interaction and
+// queues nothing, instead of panicking on the world goroutine.
+func TestActivateIgnoresFaceOutOfRange(t *testing.T) {
+	log, _ := testLog(t)
+	sup, _ := startFake(t, "ok", log, startOptions{})
+	f := newIdleFixture(t, log, map[string]*Supervisor{"probe": sup})
+	t.Cleanup(func() { f.host.Close() })
+	pos := probePos(probeCount)
+	f.place(probeCounter, pos, nil)
+	f.do(func(tx *world.Tx) {
+		p, b := f.player(tx), tx.Block(pos.cube()).(Block)
+		for _, face := range []cube.Face{-1, cube.Face(len(cube.Faces()))} {
+			if !b.Activate(pos.cube(), face, tx, p, nil) {
+				t.Errorf("Activate with face %d did not consume the interaction", face)
+			}
+		}
+	})
+	if n := len(f.host.dispatchers["probe"].events); n != 0 {
+		t.Fatalf("queued %d events for faces out of range", n)
+	}
+}
+
+// A quarantined Experience's events are dropped before their snapshot: they need no world task,
+// so they are dropped even while the world goroutine is busy.
+func TestQuarantinedEventsTakeNoSnapshot(t *testing.T) {
+	log, logs := testLog(t)
+	sup, _ := startFake(t, "ok", log, startOptions{})
+	f := newHostFixture(t, log, map[string]*Supervisor{"probe": sup})
+	pos := probePos(probeCount)
+	f.place(probeCounter, pos, nil)
+	f.host.Pause(true)
+	f.activate(pos)
+	sup.mu.Lock()
+	sup.quarantine("test")
+	sup.mu.Unlock()
+
+	started, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	f.w.Do(func(*world.Tx) {
+		close(started)
+		<-release
+	})
+	<-started
+	f.host.Pause(false)
+	waitForRecord(t, logs, func(r map[string]any) bool {
+		return r["msg"] == "event of a quarantined experience dropped"
+	})
+}
+
 // Neighbor events of one tick are deduplicated by position and capped per Experience.
 func TestNeighborEventsDedupedAndCapped(t *testing.T) {
 	log, _ := testLog(t)
