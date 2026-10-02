@@ -8,7 +8,7 @@ pub struct CollisionSnapshot(Arc<SnapshotData>);
 
 #[derive(Debug)]
 struct SnapshotData {
-    store: ChunkStore,
+    store: Arc<ChunkStore>,
     registry: CollisionRegistry,
     dimension: i32,
 }
