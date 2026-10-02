@@ -41,11 +41,11 @@ fn layer_boundaries_invalidate_ui_when_per_pack_ui_defs_change_effective_order()
         ("ui/a.json", a),
         ("ui/b.json", b),
     ]);
-    let lower = stack(&[("ui/_ui_defs.json", defs), ("ui/a.json", a)]);
-    let higher = stack(&[("ui/b.json", b)]);
+    let lower = stack(&[("ui/_ui_defs.json", defs), ("ui/b.json", b)]);
+    let higher = stack(&[("ui/a.json", a)]);
     let split = ValidatedPackStack::compose(&lower, &higher).unwrap();
-    assert_eq!(control_text(&together), "a");
-    assert_eq!(control_text(&split), "b");
+    assert_eq!(control_text(&together), "b");
+    assert_eq!(control_text(&split), "a");
     let previous = PackApplication {
         admission: PackAdmission::Validated(together),
         ..Default::default()
