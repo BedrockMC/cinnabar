@@ -408,3 +408,35 @@ fn catalog_limit_rejection_does_not_publish_metadata_or_archive() {
     assert_eq!(library.available()[0].id, Uuid::from_u128(2));
     assert!(!library.root.exists());
 }
+
+#[test]
+fn review_corrupt_nested_archive_keeps_valid_siblings() {
+    let fixture = Fixture::new();
+    let text = manifest(1, "resources", "");
+    let good = zip(&[("manifest.json", text.as_bytes())]);
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, bytes) in [
+        ("bad.mcpack", &b"corrupt-me"[..]),
+        ("good.mcpack", good.as_slice()),
+    ] {
+        writer
+            .start_file(
+                name,
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    let mut bundle = writer.finish().unwrap().into_inner();
+    let payload = bundle
+        .windows(10)
+        .position(|bytes| bytes == b"corrupt-me")
+        .unwrap();
+    bundle[payload] ^= 1;
+    let report = fixture
+        .library()
+        .import(&fixture.write("bundle.mcaddon", &bundle))
+        .unwrap();
+    assert_eq!(report.imported.len(), 1);
+    assert_eq!(report.rejected.len(), 1);
+}
