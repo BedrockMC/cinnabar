@@ -213,6 +213,22 @@ func TestDuplicateIDFails(t *testing.T) {
 	}
 }
 
+// An Experience may not take the vanilla namespace, whose blocks Dragonfly already holds. It
+// fails before anything is registered, the Experiences before it included.
+func TestReservedNamespaceFails(t *testing.T) {
+	path := writeTexture(t, "block.png", 1, 1)
+	loaded := []Loaded{
+		{ID: "early", Blocks: []BlockDef{testBlock("early:block", path)}},
+		{ID: "minecraft", Blocks: []BlockDef{testBlock("minecraft:counter", path)}},
+	}
+	_, err := Register(loaded)
+	if err == nil || !strings.Contains(err.Error(), `"minecraft"`) ||
+		!strings.Contains(err.Error(), "reserved") {
+		t.Fatalf(`Register: %v; want an error saying that Experience id "minecraft" is reserved`, err)
+	}
+	assertNothingRegistered(t, loaded)
+}
+
 // Breakable mining keeps its hardness and breaks as fast by hand as with any tool, which is the
 // time the client expects; unbreakable mining never breaks; either way the block drops itself. A
 // definition without mining is refused, naming its Experience and block.
