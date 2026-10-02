@@ -3,52 +3,13 @@
 
 mod common;
 
-use std::fs;
 use std::time::{Duration, Instant};
 
-use common::{interact, outcome, probe, probe_dir_with, rehash, tell};
+use common::{interact, looping_register_dir, outcome, probe, tell};
 use experience_runtime::limits::REGISTER_DEADLINE;
 use experience_runtime::load::{engine, load};
-use experience_runtime::manifest::SERVER_WASM;
 use experience_runtime::protocol::{FailKind, Outcome};
 use wasmtime::Trap;
-use wit_component::StringEncoding;
-use wit_component::metadata::Bindgen;
-
-/// The WIT that guests are built against.
-const SERVER_WIT: &str = include_str!("../../experience-sdk/wit/server.wit");
-
-/// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
-/// Each export takes the canonical ABI's flattening of its WIT signature, and returns a pointer
-/// to its result.
-const LOOPING_REGISTER: &str = r#"(module
-    (memory (export "memory") 1)
-    (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32) unreachable)
-    (func (export "register") (result i32)
-        (loop $spin (br $spin))
-        unreachable)
-    (func (export "on-place")
-        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
-        unreachable)
-    (func (export "on-break")
-        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
-        unreachable)
-    (func (export "on-interact") (param i32 i32 i32 i32 i32 i32 i32) (result i32) unreachable)
-    (func (export "on-neighbor-changed") (param i32 i32 i32 i32 i32 i32 i32) (result i32)
-        unreachable))"#;
-
-/// [`LOOPING_REGISTER`] with the `server` world embedded, the way wit-bindgen embeds it in a
-/// guest.
-fn looping_register() -> Vec<u8> {
-    let mut module = wat::parse_str(LOOPING_REGISTER).unwrap();
-    // wit-component hands out a `Resolve` only inside a `Bindgen`.
-    let mut resolve = Bindgen::default().resolve;
-    let package = resolve.push_source("server.wit", SERVER_WIT).unwrap();
-    let world = resolve.select_world(&[package], Some("server")).unwrap();
-    wit_component::embed_component_metadata(&mut module, &resolve, world, StringEncoding::UTF8)
-        .unwrap();
-    module
-}
 
 #[test]
 fn endless_loop_fails_with_fuel() {
@@ -141,10 +102,7 @@ fn fresh_instance_per_callback() {
 /// to load in time instead of hanging the helper.
 #[test]
 fn register_loop_is_refused() {
-    let dir = probe_dir_with(|dir| {
-        fs::write(dir.join(SERVER_WASM), looping_register()).unwrap();
-        rehash(dir);
-    });
+    let dir = looping_register_dir();
     let (engine, _ticker) = engine().unwrap();
     let start = Instant::now();
     let Err(error) = load(&engine, dir.path()) else {

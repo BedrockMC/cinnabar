@@ -14,11 +14,11 @@ use crate::host::cinnabar::experience_server::types::{
 };
 use crate::host::{HostState, LimitExceeded};
 use crate::limits::{
-    CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_REASON_BYTES,
-    MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
+    CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES,
+    MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS,
 };
 use crate::load::Loaded;
-use crate::protocol::{self, BlockPos, Call, FailKind, Op, Outcome, Request};
+use crate::protocol::{self, BlockPos, Call, FailKind, Op, Outcome, Request, bounded_reason};
 
 /// The one block id outside its own namespace that an Experience may place.
 const AIR: &str = "minecraft:air";
@@ -61,13 +61,6 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
     (outcome, fuel)
 }
 
-/// A guest's `reason` cut to [`MAX_REASON_BYTES`] at a char boundary, so the result fits in a
-/// frame.
-fn bounded_reason(mut reason: String) -> String {
-    reason.truncate(reason.floor_char_boundary(MAX_REASON_BYTES));
-    reason
-}
-
 /// Instantiates the guest in `store`, lends it `res` for one export call, and returns the
 /// export's result with the ops `res` staged. An error is a trap, or a failure to start.
 fn invoke(
@@ -96,7 +89,7 @@ fn invoke(
 
 /// The outcome of a callback that trapped or could not start: fuel, the deadline and limits
 /// each have their own kind, and anything else is a trap. The reason is the root cause alone,
-/// because the wasm backtrace around it grows with the guest's stack.
+/// which stays short whatever wraps it.
 fn failed(error: &anyhow::Error) -> Outcome {
     let kind = match error.downcast_ref::<Trap>() {
         Some(Trap::OutOfFuel) => FailKind::Fuel,
@@ -914,7 +907,7 @@ mod tests {
         assert!(limited(res.info()));
     }
 
-    /// A guest trap arrives wrapped in its backtrace, which the reason leaves out.
+    /// A trap is classified and reported by its root cause, whatever context wraps it.
     #[test]
     fn failures_are_classified_by_cause() {
         let cases: [(anyhow::Error, FailKind); 4] = [

@@ -2,13 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::limits::{MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use crate::{hex, host};
 
 /// The manifest's file name; `[files]` indexes every other file in the artifact.
@@ -34,19 +35,33 @@ pub struct Manifest {
     pub files: BTreeMap<String, String>,
 }
 
-/// Reads and verifies `dir/experience.toml`: the id, api and data schema, then the index. Every
-/// file except the manifest must be indexed under a relative `/`-separated path with its hash,
-/// and the artifact may hold nothing but regular files and directories.
+/// Reads and verifies `dir/experience.toml`: its size, the id, version, api and data schema, then
+/// the index. Every file except the manifest must be indexed under a relative `/`-separated path
+/// with its hash, and the artifact may hold nothing but regular files and directories.
 pub fn read_manifest(dir: &Path) -> Result<Manifest> {
     let found = artifact_files(dir)?;
-    let text = fs::read_to_string(dir.join(MANIFEST_FILE))
+    let mut bytes = Vec::new();
+    File::open(dir.join(MANIFEST_FILE))
+        .and_then(|file| {
+            file.take(MAX_MANIFEST_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+        })
         .with_context(|| format!("reading {MANIFEST_FILE}"))?;
+    ensure!(
+        bytes.len() <= MAX_MANIFEST_BYTES,
+        "{MANIFEST_FILE} exceeds {MAX_MANIFEST_BYTES} bytes"
+    );
+    let text = String::from_utf8(bytes).with_context(|| format!("{MANIFEST_FILE} is not UTF-8"))?;
     let manifest: Manifest =
         toml::from_str(&text).with_context(|| format!("parsing {MANIFEST_FILE}"))?;
     ensure!(
         is_id(&manifest.id),
         "invalid id \"{}\": ids match ^[a-z][a-z0-9_]{{0,31}}$",
         manifest.id
+    );
+    ensure!(
+        is_version(&manifest.version),
+        "invalid version: a version has 1 to {MAX_VERSION_BYTES} bytes and no control characters"
     );
     let api = host::api_version();
     ensure!(
@@ -104,6 +119,11 @@ fn is_id(id: &str) -> bool {
         && bytes
             .iter()
             .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
+}
+
+/// 1 to [`MAX_VERSION_BYTES`] bytes without a control character.
+fn is_version(version: &str) -> bool {
+    (1..=MAX_VERSION_BYTES).contains(&version.len()) && !version.chars().any(char::is_control)
 }
 
 /// A path that can only name something inside the artifact on every platform: `/`-separated

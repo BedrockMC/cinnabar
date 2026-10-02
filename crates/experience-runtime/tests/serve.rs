@@ -10,13 +10,16 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use common::{interact, p, probe_dir, tell};
-use experience_runtime::limits::CALLBACK_FUEL;
+use common::{edit_manifest, interact, looping_register_dir, p, probe_dir, probe_dir_with, tell};
+use experience_runtime::limits::{
+    CALLBACK_FUEL, MAX_FRAME_BYTES, MAX_MANIFEST_BYTES, MAX_REASON_BYTES,
+};
 use experience_runtime::load::{engine, load};
 use experience_runtime::protocol::{
     Op, Outcome, PROTOCOL_VERSION, Request, Response, read_frame, write_frame,
 };
 use experience_runtime::serve::{EXIT_LOAD_FAILED, EXIT_OK, EXIT_PROTOCOL};
+use wasmtime::Trap;
 
 /// How long a test waits for a frame or an exit before it gives up on the runtime.
 const PATIENCE: Duration = Duration::from_secs(60);
@@ -190,22 +193,87 @@ fn load_then_callback_round_trip() {
     assert_eq!(session.finish().0, EXIT_OK);
 }
 
+/// Loads `dir` in a fresh session, which must answer `load_failed` and then exit on its own with
+/// the load-failed code. Returns the reason.
+fn load_failure(dir: &Path) -> String {
+    let mut session = Session::start(&[]);
+    let reason = match session.load(dir) {
+        Response::LoadFailed { reason } => reason,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(session.finish().0, EXIT_LOAD_FAILED);
+    reason
+}
+
 /// The runtime answers a failed load with the reason, which names the directory, and exits on
 /// its own.
 #[test]
 fn load_failure_exits_1() {
     let empty = tempfile::tempdir().unwrap();
-    let mut session = Session::start(&[]);
-    let response = session.load(empty.path());
-    let Response::LoadFailed { reason } = &response else {
-        panic!("{response:?}");
-    };
+    let reason = load_failure(empty.path());
     let path = empty.path().display().to_string();
     assert!(
         reason.contains(&path),
         "the reason does not name {path}: {reason}"
     );
-    assert_eq!(session.finish().0, EXIT_LOAD_FAILED);
+}
+
+/// A load failure is answered with a reason cut to `MAX_REASON_BYTES`, however much the error
+/// echoes: here an `api` that the manifest limit admits, and one longer than a frame, which the
+/// limit refuses.
+#[test]
+fn load_failure_reason_is_bounded() {
+    for len in [MAX_MANIFEST_BYTES / 2, MAX_FRAME_BYTES + 1] {
+        let dir = probe_dir_with(|dir| {
+            edit_manifest(dir, |manifest| {
+                manifest.insert("api".to_owned(), "9".repeat(len).into());
+            });
+        });
+        let reason = load_failure(dir.path());
+        assert!(
+            reason.len() <= MAX_REASON_BYTES,
+            "an api of {len} bytes gave a reason of {} bytes",
+            reason.len()
+        );
+        let path = dir.path().display().to_string();
+        assert!(
+            reason.contains(&path),
+            "the reason does not name {path}: {reason}"
+        );
+    }
+}
+
+/// A trap in `register` is reported as its context and root cause. The wasm backtrace, which
+/// grows with the guest's stack and its names, is left out.
+#[test]
+fn register_trap_reason_has_no_backtrace() {
+    let dir = looping_register_dir();
+    let reason = load_failure(dir.path());
+    let ends_with_trap = [Trap::OutOfFuel, Trap::Interrupt]
+        .iter()
+        .any(|trap| reason.ends_with(&trap.to_string()));
+    assert!(ends_with_trap && !reason.contains('\n'), "{reason}");
+}
+
+/// A frame that cannot be written ends the session with the protocol code, because the
+/// load-failed code promises that `load_failed` was answered.
+#[test]
+fn unwritable_output_exits_2() {
+    let empty = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_experience-runtime"))
+        .arg("serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("starting the runtime");
+    // Nobody reads the answer.
+    drop(child.stdout.take());
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    write_frame(&mut stdin, &load_request(empty.path())).unwrap();
+    drop(stdin);
+    let status = child.wait().expect("waiting for the runtime");
+    assert_eq!(status.code(), Some(EXIT_PROTOCOL));
 }
 
 /// A first frame other than `load`, or a second `load`, ends the session unanswered.

@@ -24,6 +24,11 @@ pub const MAX_CORE_INSTANCES: usize = 16;
 pub const MAX_WASM_STACK_BYTES: usize = 256 * 1024;
 /// Size of `server.wasm`.
 pub const MAX_COMPONENT_BYTES: usize = 16 * 1024 * 1024;
+/// Size of `experience.toml`.
+pub const MAX_MANIFEST_BYTES: usize = 65_536;
+/// Bytes in an Experience's version; at least one is required, and none may be a control
+/// character.
+pub const MAX_VERSION_BYTES: usize = 64;
 /// Blocks one Experience may register.
 pub const MAX_BLOCKS: usize = 64;
 /// Bytes in a block's name, the part of its id after `<experience id>:`; at least one is
@@ -44,8 +49,8 @@ pub const MAX_TELLS: usize = 4;
 pub const MAX_TELL_BYTES: usize = 256;
 /// Bytes of data per block.
 pub const MAX_BLOCK_DATA_BYTES: usize = 65_536;
-/// UTF-8 bytes of a guest's error reason that reach the adapter; the rest is cut off at a char
-/// boundary.
+/// UTF-8 bytes of a reason that reaches the adapter, a guest's error or why a load failed; the
+/// rest is cut off at a char boundary.
 pub const MAX_REASON_BYTES: usize = 512;
 /// Logs per callback or `register`.
 pub const MAX_LOGS: usize = 32;

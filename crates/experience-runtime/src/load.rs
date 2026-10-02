@@ -87,11 +87,14 @@ impl Drop for EpochTicker {
 }
 
 /// The engine every Experience runs on: component model, fuel, epoch interruption and the wasm
-/// stack limit, plus the ticker that drives its epoch.
+/// stack limit, plus the ticker that drives its epoch. Traps carry no wasm backtrace: no answer
+/// shows one, and its size grows with the guest's stack and its names, so an error is just its
+/// context chain down to the root cause.
 pub fn engine() -> Result<(Engine, EpochTicker)> {
     let mut config = Config::new();
     config
         .wasm_component_model(true)
+        .wasm_backtrace(false)
         .consume_fuel(true)
         .epoch_interruption(true)
         .max_wasm_stack(MAX_WASM_STACK_BYTES);

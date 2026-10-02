@@ -4,7 +4,7 @@ use std::process;
 
 use anyhow::{Context, bail};
 use experience_runtime::protocol::fixtures;
-use experience_runtime::serve::serve;
+use experience_runtime::serve::{EXIT_PROTOCOL, serve};
 
 const USAGE: &str = "usage: experience-runtime serve [--report-fuel]
        experience-runtime write-fixtures <dir>";
@@ -18,7 +18,15 @@ fn main() -> anyhow::Result<()> {
         ["write-fixtures", dir] => return write_fixtures(Path::new(dir)),
         _ => bail!(USAGE),
     };
-    let code = serve(io::stdin().lock(), io::stdout().lock(), report_fuel)?;
+    // The load-failed code promises a `load_failed` answer, so a frame that cannot be written
+    // ends the session like one that cannot be read.
+    let code = match serve(io::stdin().lock(), io::stdout().lock(), report_fuel) {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("serve: writing a frame: {error:#}");
+            EXIT_PROTOCOL
+        }
+    };
     process::exit(code)
 }
 

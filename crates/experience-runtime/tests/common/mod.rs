@@ -15,12 +15,36 @@ use experience_runtime::protocol::{BlockPos, Call, Cell, Face, Info, Op, Outcome
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use wasmtime::Engine;
+use wit_component::StringEncoding;
+use wit_component::metadata::Bindgen;
 
 pub const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
 pub const COUNTER: &str = "probe:counter";
 pub const AIR: &str = "minecraft:air";
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
+
+/// The WIT that guests are built against.
+const SERVER_WIT: &str = include_str!("../../../experience-sdk/wit/server.wit");
+
+/// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
+/// Each export takes the canonical ABI's flattening of its WIT signature, and returns a pointer
+/// to its result.
+const LOOPING_REGISTER: &str = r#"(module
+    (memory (export "memory") 1)
+    (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32) unreachable)
+    (func (export "register") (result i32)
+        (loop $spin (br $spin))
+        unreachable)
+    (func (export "on-place")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        unreachable)
+    (func (export "on-break")
+        (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32)
+        unreachable)
+    (func (export "on-interact") (param i32 i32 i32 i32 i32 i32 i32) (result i32) unreachable)
+    (func (export "on-neighbor-changed") (param i32 i32 i32 i32 i32 i32 i32) (result i32)
+        unreachable))"#;
 
 /// The probe's `assets/counter.png`: a 1×1 opaque RGBA PNG.
 const COUNTER_PNG: &[u8] = &[
@@ -125,6 +149,22 @@ pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
         .expect("parse manifest");
     edit(&mut manifest);
     fs::write(&path, toml::to_string(&manifest).unwrap()).expect("write manifest");
+}
+
+/// A probe artifact whose `server.wasm` is [`LOOPING_REGISTER`] with the `server` world
+/// embedded, the way wit-bindgen embeds it in a guest.
+pub fn looping_register_dir() -> TempDir {
+    let mut module = wat::parse_str(LOOPING_REGISTER).unwrap();
+    // wit-component hands out a `Resolve` only inside a `Bindgen`.
+    let mut resolve = Bindgen::default().resolve;
+    let package = resolve.push_source("server.wit", SERVER_WIT).unwrap();
+    let world = resolve.select_world(&[package], Some("server")).unwrap();
+    wit_component::embed_component_metadata(&mut module, &resolve, world, StringEncoding::UTF8)
+        .unwrap();
+    probe_dir_with(|dir| {
+        fs::write(dir.join(SERVER_WASM), module).unwrap();
+        rehash(dir);
+    })
 }
 
 /// Every file below `dir`, as a `/`-separated path relative to it.
