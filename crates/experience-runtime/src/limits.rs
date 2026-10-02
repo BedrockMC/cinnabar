@@ -35,6 +35,12 @@ pub const MAX_DISPLAY_NAME_BYTES: usize = 64;
 pub const MAX_HOST_CALLS: usize = 256;
 /// Staged ops per callback.
 pub const MAX_STAGED_OPS: usize = 64;
+/// Tells per callback.
+pub const MAX_TELLS: usize = 4;
+/// UTF-8 bytes per tell.
+pub const MAX_TELL_BYTES: usize = 256;
+/// Bytes of data per block.
+pub const MAX_BLOCK_DATA_BYTES: usize = 65_536;
 /// Logs per callback or `register`.
 pub const MAX_LOGS: usize = 32;
 /// Bytes per log line.

@@ -139,6 +139,13 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
                 let _ = ctx.set_block(up, if step % 2 == 0 { AIR } else { COUNTER });
             }
         }
+        17 => {
+            let _ = ctx.set_block(up, COUNTER);
+            match ctx.block_data(up) {
+                Err(error) => tell(&format!("error {}", error.name())),
+                data => tell(presence(data)),
+            }
+        }
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())
