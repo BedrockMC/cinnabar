@@ -14,6 +14,23 @@ use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
 
 const PACK_ENV: &str = "CINNABAR_FORM_PACK_DIR";
 
+/// Resolves the installed placeholder text used by the input harness.
+pub(crate) fn menu_translation(runtime: &UiRuntime, key: &str) -> Option<Arc<str>> {
+    runtime.translation(key)
+}
+
+/// Loads the installed language catalog for real launcher input and GPU frames.
+pub(crate) fn menu_runtime() -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    if let Some(lang) = std::fs::read(local("assets/compiled/vanilla-v1.mcbelang"))
+        .ok()
+        .and_then(|bytes| assets::RuntimeLangCatalog::decode(&bytes).ok())
+    {
+        runtime.set_lang_catalog(Arc::new(lang));
+    }
+    runtime
+}
+
 fn local(path: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../.local")
@@ -654,4 +671,16 @@ fn start_screen_text_resolves_through_the_language_table() {
             "{text:?} in {texts:?}"
         );
     }
+}
+
+/// An isolated scratch directory for a carrier regression's writable fixtures.
+pub(crate) fn scratch_dir(label: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "cinnabar-{label}-{}-{sequence}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    root
 }

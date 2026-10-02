@@ -20,6 +20,8 @@ mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
 mod navigation;
+#[cfg(test)]
+mod server_input_tests;
 pub(crate) mod servers;
 pub(crate) mod settings_options;
 mod settings_paths;
@@ -395,6 +397,7 @@ impl MenuRuntime {
             server_tab: self.server_tab,
             dialog: self.dialog,
             field: self.field,
+            text_selected: self.text_selected,
             name: self.name.clone(),
             address: self.address.clone(),
             port: self.port.clone(),
