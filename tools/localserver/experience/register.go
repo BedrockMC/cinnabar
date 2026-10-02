@@ -124,7 +124,7 @@ func newBlockType(exp string, def BlockDef, decoded map[string]image.Image) (*bl
 			return []item.Stack{item.NewStack(b, 1)}
 		},
 		BreakHandler: func(pos cube.Pos, tx *world.Tx, u item.User) {
-			hooks.breakHandler(b, pos, tx, u)
+			currentHooks().breakHandler(b, pos, tx, u)
 		},
 	}
 	switch m := def.Mining; {

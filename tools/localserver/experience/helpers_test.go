@@ -203,7 +203,6 @@ const (
 const (
 	probeActor   = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c"
 	probeCounter = "probe:counter"
-	airID        = "minecraft:air"
 )
 
 // probePos is the block that the probe behavior x runs on.

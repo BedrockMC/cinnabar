@@ -2,6 +2,7 @@ package experience
 
 import (
 	"image"
+	"sync/atomic"
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
@@ -124,7 +125,7 @@ func (b Block) UseOnBlock(
 	pos cube.Pos, face cube.Face, clickPos mgl64.Vec3, tx *world.Tx, user item.User,
 	ctx *item.UseContext,
 ) bool {
-	return hooks.useOnBlock(b, pos, face, clickPos, tx, user, ctx)
+	return currentHooks().useOnBlock(b, pos, face, clickPos, tx, user, ctx)
 }
 
 // Activate hands an interaction with the block to the hook sink. It always consumes the
@@ -132,13 +133,13 @@ func (b Block) UseOnBlock(
 func (b Block) Activate(
 	pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, ctx *item.UseContext,
 ) bool {
-	hooks.activate(b, pos, clickedFace, tx, u, ctx)
+	currentHooks().activate(b, pos, clickedFace, tx, u, ctx)
 	return true
 }
 
 // NeighbourUpdateTick hands a change next to the block to the hook sink.
 func (b Block) NeighbourUpdateTick(pos, changedNeighbour cube.Pos, tx *world.Tx) {
-	hooks.neighbourUpdateTick(b, pos, changedNeighbour, tx)
+	currentHooks().neighbourUpdateTick(b, pos, changedNeighbour, tx)
 }
 
 // hookSink receives the hooks of every Experience block, with the block and the hook's own
@@ -161,9 +162,21 @@ type hookSink interface {
 	breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User)
 }
 
-// hooks is the hook sink that the block hooks call, which the world goroutines read. Until a
-// sink is installed, noHooks ignores every hook.
-var hooks hookSink = noHooks{}
+// sinkHolder lets an atomic.Pointer hold a hookSink.
+type sinkHolder struct{ hookSink }
+
+// installedHooks holds the hook sink that the block hooks call, which the world goroutines read.
+// A Host installs itself; until then, and after it closes, it is nil.
+var installedHooks atomic.Pointer[sinkHolder]
+
+// currentHooks returns the installed hook sink, or noHooks, which ignores every hook, when none
+// is installed.
+func currentHooks() hookSink {
+	if s := installedHooks.Load(); s != nil {
+		return s.hookSink
+	}
+	return noHooks{}
+}
 
 // noHooks ignores every hook. Its useOnBlock uses nothing, so the item places nothing.
 type noHooks struct{}

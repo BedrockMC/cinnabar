@@ -44,3 +44,27 @@ const maxTextureBytes = 4 << 20
 
 // maxTextureSide is the largest width and height of an Experience block's texture, in pixels.
 const maxTextureSide = 1024
+
+// eventQueueCap is how many events one Experience's queue holds; an event that finds it full is
+// dropped and counted.
+const eventQueueCap = 256
+
+// maxNeighborEventsPerTick is how many neighbor events, one per position, one Experience admits
+// per tick of a world.
+const maxNeighborEventsPerTick = 64
+
+// dropLogInterval is how often, at most, an Experience's dropped events are logged.
+const dropLogInterval = time.Second
+
+// The commit check enforces these runtime limits again. Each must equal its Rust constant, which
+// TestCommitLimitsMatchRust checks against the limits fixture.
+const (
+	// maxBlockDataBytes is the most data one block may hold: Rust's MAX_BLOCK_DATA_BYTES.
+	maxBlockDataBytes = 65_536
+	// maxStagedOps is the most ops one callback may commit: Rust's MAX_STAGED_OPS.
+	maxStagedOps = 64
+	// maxTells is the most tells one callback may send: Rust's MAX_TELLS.
+	maxTells = 4
+	// maxTellBytes is the most UTF-8 bytes of one tell: Rust's MAX_TELL_BYTES.
+	maxTellBytes = 256
+)
