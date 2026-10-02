@@ -209,7 +209,7 @@ pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> 
 
 /// Adds only Cinnabar's import/apply/status row to the vanilla global pack panel.
 pub(super) fn extend_catalog(catalog: &mut json_ui::Catalog) {
-    catalog.apply_pack([("ui/cinnabar_global_resources.json", EXTENSION.as_bytes())]);
+    catalog.overlay_text("ui/cinnabar_global_resources.json", EXTENSION);
 }
 
 const EXTENSION: &str = r##"{
