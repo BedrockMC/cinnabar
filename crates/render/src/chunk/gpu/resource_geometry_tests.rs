@@ -206,9 +206,11 @@ fn review_render_fairness_overflow_keeps_unchanged_uploads_discoverable() {
 #[test]
 fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let assets = ChunkTextureAssets::default();
+    let identity = assets.identity();
     let candidate = PreparedResourceGeometry::build(
         &[water(ChunkBiomeTintIdentity::default())],
-        ChunkTextureAssets::default(),
+        assets,
         RenderDevice::from(device),
         RenderQueue(Arc::new(WgpuWrapper::new(queue))),
         Some(ResourceView {
@@ -226,7 +228,7 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
         snapshot,
         arena.allocations.values().map(|allocation| &allocation.gpu),
         std::iter::empty(),
-        ChunkTextureAssets::default().identity(),
+        identity,
         ChunkBiomeTintIdentity::default()
     ));
     assert_eq!(transparent_frame_draws(snapshot, &arena).len(), 1);
