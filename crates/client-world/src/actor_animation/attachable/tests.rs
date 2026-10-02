@@ -283,6 +283,35 @@ fn authored_attachable_runs_pre_animation_and_context_pose_at_render_alpha() {
     );
 }
 
+/// Owners from ended sessions and departed actors must not exhaust the bounded state table.
+#[test]
+fn attachable_states_survive_more_owners_than_the_state_bound() {
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    let mut runtime = AttachablesRuntime::new(fixture());
+    let input = AttachableAnimationInput {
+        first_person: true,
+        ..AttachableAnimationInput::default()
+    };
+    let owners = MAX_ATTACHABLE_STATES as u64 * 2;
+    // Distinct actors of one session, then one owner per reconnected session.
+    for (session_id, runtime_id) in (0..owners)
+        .map(|index| (1, 2 + index))
+        .chain((0..owners).map(|index| (2 + index, 2 + owners + index)))
+    {
+        let mut rig = owner_rig();
+        rig.actor.session_id = session_id;
+        rig.actor.runtime_id = runtime_id;
+        assert!(
+            runtime
+                .evaluate("minecraft:test_item", &owner, &rig, input)
+                .is_some(),
+            "session {session_id} owner {runtime_id} lost its attachable"
+        );
+        assert!(runtime.states.len() <= MAX_ATTACHABLE_STATES);
+    }
+    assert_eq!(runtime.states.len(), 1, "ended sessions keep no state");
+}
+
 #[test]
 fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
     let assets = fixture();
