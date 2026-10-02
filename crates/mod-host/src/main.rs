@@ -8,6 +8,7 @@ use std::{hint::black_box, path::Path, time::Instant};
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
+        [command] if command == "server-helper" => mod_host::helper::serve_developer()?,
         [command, source, output] if command == "pack" => {
             let bytes = std::fs::read(source)?;
             let component = wit_component::ComponentEncoder::default()

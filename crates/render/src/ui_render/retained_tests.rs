@@ -12,6 +12,8 @@ fn retained_world() -> World {
         vertices: vec![
             UiRenderVertex {
                 position: [1.0; 2],
+                clip_z: 0.0,
+                clip_w: 1.0,
                 uv: [0; 2],
                 color: [255; 4],
                 style_flags: 0

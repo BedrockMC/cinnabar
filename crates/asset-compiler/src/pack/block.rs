@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, path::Path};
 
-use assets::{AssetError, BlockFace, RegistryRecord};
+use assets::{AssetError, BlockFace, RegistryRecord, legacy_resource_pack_block_alias};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -329,22 +329,6 @@ fn carried_or_world_key<'a>(
         None => return None,
     };
     (!key.is_empty()).then_some(key)
-}
-
-fn legacy_resource_pack_block_alias(block_name: &str) -> Option<&'static str> {
-    match block_name {
-        "grass_block" => Some("grass"),
-        "iron_chain" => Some("chain"),
-        "sea_lantern" => Some("seaLantern"),
-        "dandelion" => Some("yellow_flower"),
-        "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip" | "orange_tulip"
-        | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower" | "lily_of_the_valley" => {
-            Some("red_flower")
-        }
-        "oak_sapling" | "spruce_sapling" | "birch_sapling" | "jungle_sapling"
-        | "acacia_sapling" | "dark_oak_sapling" => Some("sapling"),
-        _ => None,
-    }
 }
 
 pub(super) fn model_variant_index(

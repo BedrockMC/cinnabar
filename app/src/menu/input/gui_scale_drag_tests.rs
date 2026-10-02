@@ -170,4 +170,26 @@ fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
         0,
         "release ends capture before subsequent pointer movement"
     );
+
+    use crate::server_experiences::input::{ConsentInput, consume};
+    app.insert_resource(ConsentInput(false))
+        .add_systems(Update, consume.before(drive_menu_input));
+    let track = frame(&mut app);
+    let middle = Vec2::new(
+        (track.min().x() + track.max().x()) / 2.0,
+        (track.min().y() + track.max().y()) / 2.0,
+    );
+    pointer(&mut app, window, middle, Some(ButtonState::Pressed));
+    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
+    relayout(&mut app);
+    app.world_mut().resource_mut::<ConsentInput>().0 = true;
+    pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Pressed));
+    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
+    app.world_mut().resource_mut::<ConsentInput>().0 = false;
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().gui_scale_offset(),
+        -1,
+        "consent cancels retained slider capture and consumes its dismissal click"
+    );
 }

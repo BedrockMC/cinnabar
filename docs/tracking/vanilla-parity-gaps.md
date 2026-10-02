@@ -110,11 +110,12 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   shield/pumpkin head.
 - **First person:** near-camera rig pass fed with arm-only masking per the pack's first-person
   part visibility (arm shows for empty hand/map only) plus a drawable held sprite or block cube
-  on the posed `rightItem` bone (item atlas bound to the pass). Placement follows the 26.30
+  in a separate camera-space legacy-icon stack (item atlas bound to the pass); cubes and
+  attachables still use the posed `rightItem` bone. The arm follows the 26.30
   reference: a zero-yaw actor in view space, feet one eye height below the camera, with the
   target/body/head rotation queries zeroed; `variable.player_arm_height` is the equip progress
   (its per-tick step and swap height are unresolved in the reference and need measurement).
-  Still missing: view bob and arm sway on the hand, and the hand FOV (uses the main camera FOV).
+  The hand pass has its own fixed FOV and receives view bob, hurt tilt and arm sway.
   Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
   poses are neutral: `query.main_hand_item_use_duration` now counts using-item flag ticks, but
   `max_duration` has no source (no item-use state; only food durations exist in pack data).
@@ -123,14 +124,16 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   pack's first-person attack rotation reads `variable.first_person_item_rotation_factor`, which
   neither the pack nor the 26.30 client assigns; it provisionally takes the pack's
   `first_person_rotation_factor`. Haste and fatigue do not yet change the rig's 6-tick swing.
-- **Held item placement:** third person seats sprites, hand-equipped tools/weapons and block
-  cubes on the `rightItem` bone by the 26.30 reference's held-item and default item transforms.
-  First person draws the item in camera space by `renderFirstPerson`'s own transforms (swing,
-  equip dip, eat/drink raise, 0.4 hand scale), as vanilla skips held items in the first-person
-  actor pass. Sprites use vanilla's held tessellation layout. Provisional: the hand-equipped and
-  mirrored-art lists mirror vanilla by identifier; first-person bow, crossbow, spyglass, spear and
-  map use poses, the narrow-aspect offset, the eat-raise aspect term and data-driven block display
-  transforms are not applied; a block with no plain cube sheet shows its icon sprite.
+- **Held item placement:** third-person sprites/tools/cubes follow the 26.30 reference's
+  held-item/default transforms on `rightItem`. Ordinary first-person icons use the current
+  reconstruction's camera stack (RVA `0x04fa7e50`) and default icon transform
+  (`0x04f9a2e0`), with numeric globals verified in the matching Lens catalog binary.
+  Swing/equip inputs are sampled at fixed ticks and interpolated before nonlinear evaluation;
+  they do not inherit avatar bones or model scale. Provisional: item-use/mirrored-art branches,
+  custom render offsets and native sine-table rounding are missing; the hand-equipped item
+  list mirrors vanilla by identifier, the block
+  mesh origin is assumed centred, and the narrow-aspect first-person offset is not applied.
+  `query.get_default_bone_pivot` now reads the rig's rest pivots.
 - **Block items:** plain opaque cubes in hand (third and first person) and on the head
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
@@ -230,7 +233,7 @@ animated rig remotes use. All three below flow from that.
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
 - Screen overlays: see the camera section (dedicated overlay pass landed uncompiled; underwater overlay not listed there) (MED). No red damage flash is correct.
-- Boss-bar colors/notches approximate; effect-blink approximate; boss-bar Java sprites (no source pack carries them; notches stay procedural) (LOW). Hardcore hearts ship via the optional `make hud-extras-assets` carrier. Heart jitter/regen wave, hunger shake, boxed sliding toasts, Name tags are world-space billboards matching `LevelNameTagRenderer` (1.6/60 scale, 0.25-alpha plates, see-through unless sneaking, which depth-tests at 0.125 text alpha); the nameplate-depth-tested flag (129) is not streamed and is ignored. Offhand handedness has no Bedrock source.
+- Boss-bar colors/notches approximate; effect-blink approximate; boss-bar Java sprites (no source pack carries them; notches stay procedural) (LOW). Hardcore hearts ship via the optional `make hud-extras-assets` carrier. Heart jitter/regen wave, hunger shake, boxed sliding toasts remain unaccepted. Name tags now use the native world-plane geometry, multiline background and independent centering; [source record and remaining branches](../reference/nametag-rendering.md). No native visual gate is closed. Offhand handedness has no Bedrock source.
 - Chat/killfeed glyphs: ranges widened (IPA/small caps, super/subscripts, number forms) and zero-width/control/variation-selector code points now lay out as nothing; needs `make assets` and live recheck of the garbling (MED).
 - Round 3, all uncompiled: AvailableCommands drives chat suggestions (names, enums, soft enums, targets, usage hint, permission filter, Tab cycling; Enter always sends); F2 screenshot to `screenshots/` with chat confirmation (UTC names); bed screen (sleep tint, Leave Bed, StopSleeping; tint timing/colour and button geometry need measurement); F3 debug overlay (targeted block shows runtime id only; no block-name lookup).
 - Faithful already: hotbar, hearts/armor/absorption, hunger, air, XP, crosshair.
@@ -333,7 +336,8 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 | 56 seat_offset | yes | rider placement; whether the mount's scale scales authored seats is unverified |
 | 5 owner, 6 target, 12 hurt_direction, 15 value, 16 display_block, 19 swell, 23 carry_block, 26 player_flags, 37 leash_holder, 89 sit_amount, 93 lie_amount | yes | ownership/leash ropes, look-at, hurt tilt, XP orb frame, minecart block, creeper swell, enderman block query, sleeping, pose blends |
 | 7 air, 42 max_air, 120 freezing | yes | HUD bubbles and freeze vignette (local player) |
-| 136 filtered_name | no | filtered tag text — missing |
+| 84 score, 140 nameplate_render_distance_max (current target) | yes | synced below-name score inside the native ten-block gate; per-actor tag range |
+| 136 filtered_name (older table's target) | no | filtered tag text — missing; current target key mapping still needs reconciliation |
 
 Missing presentation that the flags drive: the entity flame billboard (`ActorRenderer::renderFlame`)
 and `on_fire_color`, entity ground shadows (none are drawn at any scale), the charged-creeper

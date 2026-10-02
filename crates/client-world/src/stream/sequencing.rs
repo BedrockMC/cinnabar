@@ -752,8 +752,31 @@ impl WorldStream {
                     .apply_link(self.actor_session_id, sequence, event);
                 self.publish_local_mount_change(sequence, previous_mount);
             }
+            WorldEvent::Experience(event) => {
+                let sequence = sequence.expect("extension events commit through submit");
+                self.push_committed_ui(CommittedUiEvent::Experience {
+                    sequence,
+                    dimension_epoch: self.form_dimension_epoch,
+                    event,
+                });
+            }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
+                // Native ClientNetworkHandler::handle(UpdatePlayerGameType), 26.30
+                // RVA 03542aa0: only the matching local unique ID changes its UI mode.
+                let event = match event {
+                    UiEvent::PlayerGameMode {
+                        actor_unique_id,
+                        event,
+                        ..
+                    } => {
+                        if actor_unique_id != self.local_player_unique_id {
+                            return;
+                        }
+                        UiEvent::GameMode(event)
+                    }
+                    event => event,
+                };
                 let committed = match event {
                     UiEvent::Form(event) => CommittedUiEvent::Form {
                         sequence,

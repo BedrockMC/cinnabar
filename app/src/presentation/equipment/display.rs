@@ -43,10 +43,7 @@ fn rig_from_reference_bone() -> Mat4 {
 /// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
 /// and tilt that seat vanilla's held-sprite mesh (`held_sprite_vertices`) in the grip.
 fn item_default() -> Mat4 {
-    Mat4::from_scale(Vec3::splat(1.5))
-        * Mat4::from_rotation_y(degrees(50.0))
-        * Mat4::from_rotation_z(degrees(335.0))
-        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1))
+    sprite_item_transform()
 }
 
 /// Third-person main-hand placement of a flat sprite item on the `rightItem` bone, from the
@@ -87,6 +84,16 @@ pub(crate) struct FirstPersonHand {
     pub(crate) equip: f32,
     /// Ticks into an eat or drink use and its duration, while one runs.
     pub(crate) consume: Option<(f32, f32)>,
+}
+
+impl From<client_world::ItemAnimationState> for FirstPersonHand {
+    fn from(state: client_world::ItemAnimationState) -> Self {
+        Self {
+            swing: state.attack_time,
+            equip: state.arm_height,
+            consume: None,
+        }
+    }
 }
 
 /// Camera-space placement of the first-person held item, from `renderFirstPerson`'s own item
@@ -152,6 +159,14 @@ pub(super) fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
         axis_scale: render::UNIT_AXIS_SCALE,
     };
     bone.is_finite().then_some(bone)
+}
+
+/// Legacy icon transform shared by the item renderer, before its per-view placement.
+pub(super) fn sprite_item_transform() -> Mat4 {
+    Mat4::from_scale(Vec3::splat(1.5))
+        * Mat4::from_rotation_y(degrees(50.0))
+        * Mat4::from_rotation_z(degrees(335.0))
+        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1))
 }
 
 /// The item's single bone: the hand bone's pose with `display` applied in the hand frame, so

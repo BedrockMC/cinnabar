@@ -98,17 +98,20 @@ pub(crate) fn publish_local_actor_visibility(
     avatar: &LocalAvatarPresentation,
     perspective: semantic_input::PerspectiveMode,
     authoritative_subject_eye: Option<bevy::prelude::Vec3>,
+    authoritative_subject_feet: Option<bevy::prelude::Vec3>,
     rotation: bevy::prelude::Quat,
     carrier: &mut LocalAvatarVisibilityCarrier,
 ) {
     // LocalViewPose may contain the collision-resolved, boomed camera eye in
     // third person. The body instead follows the live physics/server subject;
     // the frozen interaction frame can legitimately lag both authorities.
-    let Some(subject_eye) = authoritative_subject_eye else {
+    let (Some(subject_eye), Some(subject_feet)) =
+        (authoritative_subject_eye, authoritative_subject_feet)
+    else {
         carrier.clear();
         return;
     };
-    avatar.publish_view_visibility(perspective, subject_eye, rotation, carrier);
+    avatar.publish_view_visibility(perspective, subject_eye, subject_feet, rotation, carrier);
 }
 
 pub(crate) fn authoritative_local_actor_eye(
@@ -324,6 +327,7 @@ pub(crate) fn receive_network_events(
                     reload.begin_session(session_generation, &packs);
                 }
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
+                ui_runtime.experiences.marker = packs.extension_marker;
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,

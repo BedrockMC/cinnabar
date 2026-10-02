@@ -7,7 +7,8 @@ use bedrock_client::ui_runtime::inventory_ledger::{
 use protocol::{
     ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
     InventoryContentEvent, InventoryEvent, InventorySlotEvent, ItemStackResponseEvent,
-    NetworkItemStack, SlotIdentity, StackResponse, StackResponseContainer, StackResponseStatus,
+    NetworkItemStack, SlotIdentity, StackResponse, StackResponseContainer, StackResponseSlot,
+    StackResponseStatus,
 };
 
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
@@ -63,6 +64,44 @@ fn response_with_storage_identity(request_id: i32, identity: ContainerIdentity) 
                 container: identity,
                 slots: Arc::from([]),
             }]),
+        }]),
+    })
+}
+
+/// Native accepted answers write backing explicitly; success alone never
+/// replays the local transfer. Both corrections belong to this take request.
+fn accepted_storage_take(request_id: i32, dynamic_id: u32) -> InventoryEvent {
+    let corrected_slot = |slot, count, item_stack_id| StackResponseSlot {
+        slot,
+        hotbar_slot: slot,
+        count,
+        item_stack_id,
+        custom_name: Arc::from(""),
+        filtered_custom_name: Arc::from(""),
+        durability_correction: 0,
+    };
+    InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id,
+            containers: Arc::from([
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                        dynamic_id: Some(dynamic_id),
+                    },
+                    slots: Arc::from([corrected_slot(2, 0, 0)]),
+                },
+                StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([corrected_slot(0, 3, 91)]),
+                },
+            ]),
         }]),
     })
 }
@@ -155,9 +194,10 @@ fn storage_gestures_pipeline_through_the_shared_cursor() {
     ledger.mark_transport_enqueued(10);
     ledger.apply(&response(take, StackResponseStatus::Rejected));
     assert!(ledger.cursor_stack().is_none());
-    assert!(
-        ledger.storage_stack(5).is_none(),
-        "the dependent place no longer applies"
+    assert_eq!(
+        ledger.storage_stack(5).unwrap().stack_network_id,
+        place,
+        "the later sparse owner stays until its own server answer"
     );
     assert_eq!(ledger.storage_stack(2).unwrap().count, 3);
     ledger.apply(&response(place, StackResponseStatus::Rejected));
@@ -201,7 +241,7 @@ fn player_cell_request_made_in_storage_ui_is_bound_to_that_open_generation() {
 }
 
 #[test]
-fn identity_and_revision_conflicts_fail_closed_until_full_authority_recovers() {
+fn authoritative_replacement_survives_an_empty_success_without_replay_or_recovery() {
     let mut ledger = ready(27, 300);
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
@@ -218,13 +258,13 @@ fn identity_and_revision_conflicts_fail_closed_until_full_authority_recovers() {
         storage_item: None,
     }));
     ledger.apply(&response(request, StackResponseStatus::Accepted));
-    assert!(ledger.resync_required());
+    assert!(!ledger.resync_required());
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert_eq!(ledger.storage_stack(2), Some(&stack(6, 1, 92)));
+    assert!(ledger.cursor_stack().is_none());
 
     ledger.apply(&content(1, 300, 27));
-    assert!(
-        ledger.resync_required(),
-        "cursor authority is still missing"
-    );
+    assert!(!ledger.resync_required());
     ledger.apply(&cursor_content());
     assert!(!ledger.resync_required());
 }
@@ -251,14 +291,7 @@ fn matching_response_full_identity_commits_without_a_window_field() {
     let mut ledger = ready(27, 300);
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
-    ledger.apply(&response_with_storage_identity(
-        request,
-        ContainerIdentity {
-            window_id: None,
-            slot_type: Some(7),
-            dynamic_id: Some(300),
-        },
-    ));
+    ledger.apply(&accepted_storage_take(request, 300));
     assert!(!ledger.resync_required());
     assert!(ledger.storage_stack(2).is_none());
     assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 91);
@@ -406,7 +439,7 @@ fn local_close_with_held_cursor_requires_player_and_cursor_authority() {
     let mut ledger = ready(27, 800);
     let request = ledger.begin_storage_click(2).unwrap();
     ledger.mark_transport_enqueued(10);
-    ledger.apply(&response(request, StackResponseStatus::Accepted));
+    ledger.apply(&accepted_storage_take(request, 800));
     assert!(ledger.cursor_stack().is_some());
     ledger.request_storage_close();
     assert!(ledger.resync_required());
@@ -446,7 +479,8 @@ fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() 
     );
     assert_eq!(
         ledger.cursor_stack().map(|stack| stack.stack_network_id),
-        Some(91)
+        Some(request),
+        "the visible sparse cursor carries its owning request id"
     );
     assert_eq!(ledger.pending_request_id(), Some(request));
     assert!(
@@ -473,7 +507,7 @@ fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() 
 #[test]
 fn accepted_response_reconciles_then_finishes_the_deferred_close() {
     let (mut ledger, request) = closing_with_pending(910);
-    ledger.apply(&response(request, StackResponseStatus::Accepted));
+    ledger.apply(&accepted_storage_take(request, 910));
 
     assert_eq!(
         ledger.cursor_stack().map(|stack| stack.stack_network_id),
@@ -605,7 +639,7 @@ fn server_close_with_held_cursor_requires_player_and_cursor_in_both_orders() {
         let mut ledger = ready(27, 801);
         let request = ledger.begin_storage_click(2).unwrap();
         ledger.mark_transport_enqueued(10);
-        ledger.apply(&response(request, StackResponseStatus::Accepted));
+        ledger.apply(&accepted_storage_take(request, 801));
         assert!(ledger.cursor_stack().is_some());
 
         ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {

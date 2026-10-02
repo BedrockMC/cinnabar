@@ -16,12 +16,14 @@ fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeome
         bones: vec![EntityGeometryBone {
             name: "body".into(),
             parent: None,
+            binding: None,
             pivot: None,
             rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,
             reset: None,
+            texture_meshes: Box::default(),
             cubes: vec![EntityGeometryCube {
                 origin: [Scalar::ZERO; 3],
                 size: size.map(|v| Scalar::new(v).unwrap()),

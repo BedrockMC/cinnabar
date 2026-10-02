@@ -475,7 +475,6 @@ pub(crate) fn produce_block_use(
                 &context.collisions,
                 stream,
                 observed.selection.item.block_runtime_id(),
-                surroundings.clicked_identifier.as_deref(),
             )
         })
         .flatten()
@@ -519,7 +518,13 @@ pub(crate) fn produce_block_use(
     if let (true, Some((position, block)), Some(stream)) =
         (sent, predicted, context.client_world.stream.as_mut())
     {
-        stream.predict_block(position, 0, block);
+        let applied = stream.predict_block(position, 0, block);
+        bevy::log::debug!(
+            ?position,
+            block,
+            applied,
+            "local block prediction committed"
+        );
     }
 }
 
@@ -579,35 +584,43 @@ fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
     stream: &client_world::WorldStream,
     item_block: i32,
-    clicked_identifier: Option<&str>,
 ) -> Option<u32> {
-    let block = u32::try_from(item_block).ok().filter(|block| *block != 0)?;
-    let resolved = stream.resolve_block_network_id(block);
+    let resolved = held_block_store_id(stream, item_block)?;
     let mode = stream.network_id_mode();
-    (resolved != stream.air_block_id()
-        && placement_state_is_certain(
-            collisions.block_is_full_cube(mode, resolved),
-            collisions.block_canonical_state(mode, resolved),
-            collisions.block_identifier(mode, resolved),
-            clicked_identifier,
-        ))
+    placement_state_is_certain(
+        collisions.block_is_full_cube(mode, resolved),
+        collisions.block_canonical_state(mode, resolved),
+        collisions.block_identifier(mode, resolved),
+    )
     .then_some(resolved)
+}
+
+fn held_block_store_id(stream: &client_world::WorldStream, item_block: i32) -> Option<u32> {
+    // BlockItem's descriptor (native RVA 0x09cc4df0) preserves all runtime-id bits.
+    // Our signed retained field is not a negative-id validity check: hashes may set bit 31.
+    let block = u32::from_ne_bytes(item_block.to_ne_bytes());
+    if block == 0 || block == u32::MAX {
+        return None;
+    }
+    let resolved = stream.resolve_block_network_id(block);
+    (resolved != stream.air_block_id()).then_some(resolved)
 }
 
 /// Only a stateless full cube places as the held state itself: oriented, sized
 /// and merging blocks resolve their state from the click, which is not modelled.
+/// Native RVA 0x09cc4aa0 offsets a nonreplaceable clicked block even when it has
+/// the same type as the held cube; RVA 0x09cc3660 then sets the block locally.
 fn placement_state_is_certain(
     full_cube: bool,
     canonical_state: Option<&str>,
     placed_identifier: Option<&str>,
-    clicked_identifier: Option<&str>,
 ) -> bool {
     let stateless = canonical_state
         .and_then(|state| {
             serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(state).ok()
         })
         .is_some_and(|states| states.is_empty());
-    full_cube && stateless && placed_identifier.is_some() && placed_identifier != clicked_identifier
+    full_cube && stateless && placed_identifier.is_some()
 }
 
 /// A successful local use swings before its transaction, which is always sent.
@@ -672,16 +685,13 @@ fn use_surroundings(
     let half_width = sim::PLAYER_WIDTH * 0.5;
     let height = sim::MovementMode::Walking.hitbox_height(sneaking);
     let placed_boxes = stream.and_then(|stream| {
-        let block = u32::try_from(observed.selection.item.block_runtime_id())
-            .ok()
-            .filter(|block| *block != 0)?;
         let shapes = context
             .collisions
             .registry(stream.network_id_mode())
-            .collision_shapes(
-                Some(stream.resolve_block_network_id(block))
-                    .filter(|resolved| *resolved != stream.air_block_id())?,
-            )?;
+            .collision_shapes(held_block_store_id(
+                stream,
+                observed.selection.item.block_runtime_id(),
+            )?)?;
         Some(
             shapes
                 .iter()

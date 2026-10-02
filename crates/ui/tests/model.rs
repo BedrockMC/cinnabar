@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 pub use ui::{
     BedrockColor, PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest,
     TextShadow, TextStyle, UiAction, UiDrawBatch, UiDrawList, UiError, UiLimits, UiNode, UiNodeId,
-    UiPoint, UiRect, UiScale, UiTree, UiVertex, UiVisual,
+    UiPoint, UiRect, UiScale, UiTree, UiVertex, UiVisual, UiWorldProjection,
 };
 
 #[test]
@@ -476,6 +476,252 @@ fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {
 
 #[allow(dead_code)]
 fn _assert_public_draw_contract(_: UiDrawList, _: UiVertex) {}
+
+#[test]
+fn world_projection_keeps_local_geometry_independent_of_hud_scale_and_safe_area() {
+    let projection = UiWorldProjection {
+        clip_from_local: [
+            [0.1, 0.0, 0.0, 0.0],
+            [0.0, -0.1, 0.0, 0.0],
+            [0.0; 4],
+            [0.0, 0.0, 1.0, 2.0],
+        ],
+        viewport_size: [100.0, 80.0],
+        depth_test: true,
+        depth_write: true,
+        alpha_test: true,
+    };
+    let solid = UiVisual::Solid {
+        texture_page: 0,
+        color: [255; 4],
+    };
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(-4.0, -2.0, 4.0, 2.0))
+            .with_visual(UiVisual::Gradient {
+                texture_page: 0,
+                colors: [[255, 0, 0, 255], [0, 0, 255, 128]],
+                horizontal: false,
+            })
+            .with_world_projection(projection),
+        UiNode::new(node(2), None, rect(4.0, 8.0, 8.0, 12.0)).with_visual(solid),
+    ])
+    .unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 100.0, 80.0),
+        UiScale::new(2.0).unwrap(),
+        SafeArea::new(7.0, 9.0, 3.0, 2.0).unwrap(),
+    )
+    .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.vertices[0].position, [80.0, 72.0]);
+    assert_eq!(draw.vertices[0].color, [255, 0, 0, 255]);
+    assert_eq!(draw.vertices[2].color, [0, 0, 255, 128]);
+    assert_eq!(draw.vertices[0].clip_z, 1.0);
+    assert_eq!(draw.vertices[0].clip_w, 2.0);
+    assert_eq!(draw.vertices[4].position, [15.0, 25.0]);
+    assert_eq!(draw.vertices[4].clip_z, 0.0);
+    assert_eq!(draw.vertices[4].clip_w, 1.0);
+    assert!(draw.vertices[..4].iter().all(|vertex| vertex.alpha_test));
+    assert!(draw.vertices[4..].iter().all(|vertex| !vertex.alpha_test));
+    assert_eq!(draw.batches.len(), 2);
+    assert!(draw.batches[0].depth_test && draw.batches[0].world_projection);
+    assert!(draw.batches[0].depth_write);
+    assert!(!draw.batches[1].depth_write);
+    assert!(!draw.batches[1].depth_test && !draw.batches[1].world_projection);
+    assert_eq!(draw.batches[0].clip, rect(0.0, 0.0, 100.0, 80.0));
+}
+
+#[test]
+fn world_projection_preserves_homogeneous_w_at_and_behind_the_camera() {
+    let projection = UiWorldProjection {
+        clip_from_local: [
+            [0.1, 0.0, 0.0, 0.25],
+            [0.0, -0.1, 0.0, 0.0],
+            [0.0; 4],
+            [0.0, 0.0, 0.5, 1.0],
+        ],
+        viewport_size: [100.0, 80.0],
+        depth_test: false,
+        depth_write: false,
+        alpha_test: false,
+    };
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(-8.0, -2.0, 4.0, 2.0))
+            .with_visual(UiVisual::Solid {
+                texture_page: 0,
+                color: [255; 4],
+            })
+            .with_world_projection(projection),
+    ])
+    .unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 100.0, 80.0),
+        UiScale::default(),
+        SafeArea::ZERO,
+    )
+    .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.vertices[0].clip_w, -1.0);
+    assert_eq!(draw.vertices[1].clip_w, 2.0);
+    assert!(
+        draw.vertices
+            .iter()
+            .all(|vertex| vertex.position.iter().all(|x| x.is_finite()))
+    );
+    assert_eq!(
+        draw.indices.len(),
+        6,
+        "GPU must clip a partially visible quad, not a CPU bound"
+    );
+    let mut at_camera = projection;
+    at_camera.clip_from_local[3][3] = 2.0;
+    let tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(-8.0, -2.0, 4.0, 2.0))
+            .with_visual(UiVisual::Solid {
+                texture_page: 0,
+                color: [255; 4],
+            })
+            .with_world_projection(at_camera),
+    ])
+    .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.vertices[0].clip_w, 0.0);
+    assert!(draw.vertices[0].position.iter().all(|x| x.is_finite()));
+}
+
+#[test]
+fn world_projection_applies_to_glyphs_and_shadows_without_rescaling_cached_layouts() {
+    let layout = text_layout();
+    let visual = UiVisual::Text {
+        layout,
+        color: [255; 4],
+        shadow: TextShadow::Offset64(64),
+    };
+    let local = draw_list(visual.clone());
+    let projection = UiWorldProjection {
+        clip_from_local: [
+            [0.01, 0.0, 0.0, 0.0],
+            [0.0, -0.02, 0.0, 0.0],
+            [0.0; 4],
+            [0.1, 0.2, 0.3, 2.0],
+        ],
+        viewport_size: [200.0, 100.0],
+        depth_test: true,
+        depth_write: false,
+        alpha_test: true,
+    };
+    let mut tree = UiTree::new(vec![
+        UiNode::new(node(1), None, rect(4.0, 8.0, 100.0, 40.0))
+            .with_visual(visual)
+            .with_world_projection(projection),
+    ])
+    .unwrap();
+    tree.layout(
+        rect(0.0, 0.0, 200.0, 100.0),
+        UiScale::new(3.0).unwrap(),
+        SafeArea::new(15.0, 10.0, 0.0, 0.0).unwrap(),
+    )
+    .unwrap();
+    let projected = tree.build_draw_list().unwrap();
+    assert_eq!(projected.vertices.len(), local.vertices.len());
+    for (local, projected) in local.vertices.iter().zip(projected.vertices.iter()) {
+        let expected = [
+            (0.01 * local.position[0] + 2.1) * 100.0,
+            (1.8 + 0.02 * local.position[1]) * 50.0,
+        ];
+        assert!((projected.position[0] - expected[0]).abs() < 0.0001);
+        assert!((projected.position[1] - expected[1]).abs() < 0.0001);
+        assert_eq!(projected.clip_z, 0.3);
+        assert_eq!(projected.clip_w, 2.0);
+        assert_eq!(projected.uv, local.uv);
+        assert_eq!(projected.color, local.color);
+        assert!(projected.alpha_test);
+        assert!(!local.alpha_test);
+    }
+}
+
+#[test]
+fn world_projection_keeps_depth_writing_text_separate_from_its_read_only_plate() {
+    let projection = UiWorldProjection {
+        clip_from_local: [
+            [0.01, 0.0, 0.0, 0.0],
+            [0.0, -0.01, 0.0, 0.0],
+            [0.0; 4],
+            [0.0, 0.0, 0.5, 1.0],
+        ],
+        viewport_size: [100.0, 80.0],
+        depth_test: true,
+        depth_write: false,
+        alpha_test: false,
+    };
+    let node_with_mode = |id, depth_write| {
+        UiNode::new(node(id), None, rect(0.0, 0.0, 10.0, 10.0))
+            .with_visual(UiVisual::Solid {
+                texture_page: 0,
+                color: [255, 255, 255, 32],
+            })
+            .with_world_projection(UiWorldProjection {
+                depth_write,
+                alpha_test: depth_write,
+                ..projection
+            })
+    };
+    let tree = UiTree::new(vec![
+        node_with_mode(1, false),
+        node_with_mode(2, true),
+        node_with_mode(3, false),
+    ])
+    .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.batches.len(), 3);
+    assert_eq!(
+        draw.batches
+            .iter()
+            .map(|batch| batch.depth_write)
+            .collect::<Vec<_>>(),
+        [false, true, false]
+    );
+    assert!(
+        draw.vertices[4..8]
+            .iter()
+            .all(|vertex| vertex.alpha_test && vertex.color[3] == 32)
+    );
+    assert!(
+        draw.vertices[..4]
+            .iter()
+            .chain(draw.vertices[8..].iter())
+            .all(|vertex| !vertex.alpha_test)
+    );
+}
+
+#[test]
+fn world_projection_rejects_non_finite_matrix_or_invalid_viewport() {
+    let mut projection = UiWorldProjection {
+        clip_from_local: [[0.0; 4]; 4],
+        viewport_size: [100.0, 80.0],
+        depth_test: false,
+        depth_write: false,
+        alpha_test: false,
+    };
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        projection.clip_from_local[0][1] = invalid;
+        assert!(matches!(
+            UiTree::new(vec![
+                UiNode::new(node(1), None, rect(0.0, 0.0, 1.0, 1.0))
+                    .with_world_projection(projection)
+            ]),
+            Err(UiError::InvalidWorldProjection { .. })
+        ));
+    }
+    projection.clip_from_local[0][1] = 0.0;
+    projection.viewport_size[0] = 0.0;
+    assert!(matches!(
+        UiTree::new(vec![
+            UiNode::new(node(1), None, rect(0.0, 0.0, 1.0, 1.0)).with_world_projection(projection)
+        ]),
+        Err(UiError::InvalidWorldProjection { .. })
+    ));
+}
 
 #[test]
 fn text_shadow_draws_a_darkened_offset_pass_before_the_glyph_pass() {

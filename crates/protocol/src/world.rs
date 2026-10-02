@@ -37,12 +37,14 @@ use crate::{
     },
 };
 
+mod biomes;
 mod block_side;
 mod custom_blocks;
 mod events;
 mod game_mode;
 mod game_rules;
 mod requests;
+
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
     CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
@@ -63,6 +65,7 @@ pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{daylight_cycle_rule_update, hud_rules};
 pub use self::requests::request_sub_chunk_column;
 use self::requests::{checked_sub_chunk_position, normalize_layer};
+use biomes::canonical_biome_name;
 
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
 pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
@@ -380,6 +383,12 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::ScriptMessagePacket(message) => {
+            if packet.header.from_subclient != 0 || packet.header.to_subclient != 0 {
+                return Ok(None);
+            }
+            return Ok(crate::experience::normalize(message).map(WorldEvent::Experience));
+        }
         McpePacketData::UpdateAbilitiesPacket(packet) => {
             WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
         }
@@ -482,6 +491,9 @@ pub fn into_world_event(
                 update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
             }))
         }
+        McpePacketData::UpdatePlayerGameTypePacket(packet) => {
+            WorldEvent::Ui(game_mode::targeted_update(packet))
+        }
         McpePacketData::SetDefaultGameTypePacket(packet) => {
             WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
                 update: PlayerGameMode::update_from_default_game_mode(packet.default_game_type),
@@ -498,6 +510,12 @@ pub fn into_world_event(
         }
         McpePacketData::InventorySlotPacket(packet) => {
             WorldEvent::Inventory(normalize_slot(*packet)?)
+        }
+        McpePacketData::InventoryTransactionPacket(packet) => {
+            let Some(event) = crate::inventory::normalize_transaction(*packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Inventory(event)
         }
         McpePacketData::PlayerHotbarPacket(packet) => {
             WorldEvent::Inventory(normalize_hotbar(packet)?)
@@ -969,19 +987,4 @@ pub(crate) fn normalize_borrowed_level_chunk(
         },
         payload,
     ))
-}
-
-fn canonical_biome_name(name: &str) -> Arc<str> {
-    if name.contains(':') {
-        return Arc::from(name);
-    }
-    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_50.txt");
-    let known_retail = RETAIL_BIOMES
-        .lines()
-        .any(|identifier| identifier.strip_prefix("minecraft:") == Some(name));
-    if known_retail {
-        Arc::from(format!("minecraft:{name}"))
-    } else {
-        Arc::from(name)
-    }
 }

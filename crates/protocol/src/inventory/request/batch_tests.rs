@@ -2,7 +2,7 @@ use super::*;
 use bytes::BytesMut;
 use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::McpePacketData};
 
-/// Produces a created-output consumption whose negative ID belongs to one request.
+/// Produces a created-output consumption with a current or earlier request ID.
 fn consume(id: i32) -> [StackRequestAction; 1] {
     [StackRequestAction::Consume {
         amount: 1,
@@ -54,12 +54,28 @@ fn batched_requests_keep_ids_actions_and_filter_origins_separate_on_wire() {
 }
 
 #[test]
-fn batch_cannot_borrow_another_requests_created_output_id() {
+fn batch_preserves_prior_sparse_ids_without_admitting_future_ids() {
     let first = consume(-3);
+    let packet = item_stack_request_batch([
+        (-3, first.as_slice(), &[][..]),
+        (-5, first.as_slice(), &[][..]),
+    ])
+    .unwrap()
+    .unwrap();
+    let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
+        panic!("request packet");
+    };
+    let mut bytes = BytesMut::new();
+    request.encode(&mut bytes).unwrap();
+    let decoded = ItemStackRequestPacket::decode(&mut bytes.freeze(), ()).unwrap();
+    assert_eq!(decoded, request);
+    assert_eq!(decoded.requests[0].client_request_id.id, -3);
+    assert_eq!(decoded.requests[1].client_request_id.id, -5);
+    let future = consume(-5);
     assert!(
         item_stack_request_batch([
-            (-3, first.as_slice(), &[][..]),
-            (-5, first.as_slice(), &[][..])
+            (-3, future.as_slice(), &[][..]),
+            (-5, future.as_slice(), &[][..])
         ])
         .is_err()
     );

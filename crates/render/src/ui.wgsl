@@ -8,6 +8,8 @@ struct UiViewport {
 const STYLE_GLINT: u32 = 2u;
 const STYLE_GRAYSCALE: u32 = 4u;
 const STYLE_BILINEAR: u32 = 8u;
+// Injected from the renderer's single Rust style-bit definition.
+const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 
 @group(0) @binding(0) var<uniform> viewport: UiViewport;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
@@ -24,18 +26,18 @@ struct UiVertexOutput {
 
 @vertex
 fn ui_vertex(
-    @location(0) position: vec2<f32>,
+    @location(0) position: vec4<f32>,
     @location(1) uv: vec2<u32>,
     @location(2) color: vec4<f32>,
     @location(3) style_flags: u32,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
     let ndc = vec2<f32>(
-        position.x / viewport.viewport_size.x * 2.0 - 1.0,
-        1.0 - position.y / viewport.viewport_size.y * 2.0,
+        position.x / viewport.viewport_size.x * 2.0 - position.w,
+        position.w - position.y / viewport.viewport_size.y * 2.0,
     );
     var output: UiVertexOutput;
-    output.clip_position = vec4<f32>(ndc, 0.0, 1.0);
+    output.clip_position = vec4<f32>(ndc, position.z, position.w);
     output.uv = vec2<f32>(uv);
     // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
     // blends in gamma space, and the layer composites over the scene after.
@@ -47,6 +49,21 @@ fn ui_vertex(
 
 @fragment
 fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
+    return shade_ui(input, false);
+}
+
+@fragment
+fn ui_world_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
+    return shade_ui(input, true);
+}
+
+fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
+    let low = srgb / 12.92;
+    let high = pow((srgb + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(high, low, srgb <= vec3<f32>(0.04045));
+}
+
+fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(ui_pages));
     // Vertex UVs address texel *edges*: a glyph spans x0..x0+width. Linear
     // interpolation across the quad therefore already lands on texel centres,
@@ -66,7 +83,15 @@ fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
         // Provisional luma weights (Rec. 601); the retail material is not inspected.
         sample = vec4<f32>(vec3<f32>(dot(sample.rgb, vec3<f32>(0.299, 0.587, 0.114))), sample.a);
     }
-    let straight_color = input.color;
+    // Native alpha-tested name-tag glyphs threshold the texture, not the faded vertex alpha.
+    if (input.style_flags & STYLE_ALPHA_TEST) != 0u && sample.a < 0.5 {
+        discard;
+    }
+    var straight_color = input.color;
+    if direct {
+        sample = vec4<f32>(srgb_to_linear(sample.rgb), sample.a);
+        straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
+    }
     let alpha = sample.a * straight_color.a;
     var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a;
     if (input.style_flags & STYLE_GLINT) != 0u {

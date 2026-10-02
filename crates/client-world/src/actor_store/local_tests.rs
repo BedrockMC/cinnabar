@@ -197,7 +197,25 @@ fn predicted_item_use_leaves_server_blocking_flag() {
     store.exclude_remote_state_for(1);
     let mut feed = local_feed(0.0, 0.0);
     store.sync_local_player(1, -100, &feed);
-    store.actors.get_mut(&1).unwrap().set_flag(72, true);
+    // Local movement exclusion must not drop the authoritative metadata word. Shield's
+    // vanilla render query reads this word; it does not reconstruct blocking from sneak.
+    assert_eq!(
+        store.apply(
+            1,
+            1,
+            ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 1,
+                metadata: Arc::from([protocol::ActorMetadata {
+                    key: super::EXTENDED_FLAGS_METADATA_KEY,
+                    value: protocol::ActorMetadataValue::FlagsExtended(1 << (72 - 64)),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            })
+        ),
+        ActorApplyResult::Updated
+    );
     feed.item_use = LocalItemUse::Idle;
     store.sync_local_player(1, -100, &feed);
     assert!(store.get(1).unwrap().flag(72));

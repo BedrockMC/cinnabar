@@ -1,6 +1,8 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+pub mod helper;
 mod runtime;
+pub mod server;
 
 use anyhow::{Context, Result, ensure};
 use runtime::Instance;

@@ -233,7 +233,7 @@ impl PlayerInventoryLedger {
                 .view()
                 .get(Cell::Craft(slots[cell]))
                 .expect("claimed cells are occupied");
-            if held.stack.stack_network_id <= 0 || self.awaiting_identity(held) {
+            if self.awaiting_identity(held) {
                 return Err(InventoryGestureError::AwaitingIdentity);
             }
             let amount = u8::try_from(u16::from(per_craft) * u16::from(crafts))
@@ -395,7 +395,7 @@ impl PlayerInventoryLedger {
                 && into.stack.block_runtime_id == created.block_runtime_id
                 && plain_stack(&into.stack)
                 && plain_stack(created);
-            if !same || into.stack.stack_network_id <= 0 || self.awaiting_identity(into) {
+            if !same || self.awaiting_identity(into) {
                 continue;
             }
             let amount = remaining.min(capacity.saturating_sub(into.stack.count));

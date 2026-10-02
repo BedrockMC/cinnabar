@@ -51,8 +51,7 @@ pub(crate) fn update_actor_render_scene<'a>(
         let (yaw, pitch, _) = local.rotation().to_euler(bevy::math::EulerRot::YXZ);
         let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
         let pitch_degrees = -pitch.to_degrees();
-        let mut position = local.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+        let position = local.feet();
         ActorRenderSource {
             runtime_id: local.runtime_id(),
             unique_id: i64::try_from(local.runtime_id()).unwrap_or(i64::MAX),

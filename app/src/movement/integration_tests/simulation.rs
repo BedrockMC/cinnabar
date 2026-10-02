@@ -297,7 +297,7 @@ fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     assert!(!state.on_ground);
     assert_eq!(physics.history_len(), 0);
     let eye = physics.render_eye_position().expect("corrected render eye");
-    assert!((eye[1] - 71.62).abs() < 1.0e-5);
+    assert!((eye[1] - (70.0 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-5);
 }
 
 #[derive(Default)]

@@ -459,6 +459,27 @@ impl GameplayHudState {
     /// mirror are dropped and counted until the Phase 5.5 container store
     /// takes over this drain.
     pub fn apply_inventory(&mut self, event: &InventoryEvent) {
+        for slot_event in event.slot_updates() {
+            match project_container_cell(&slot_event.identity.container, slot_event.identity.slot) {
+                Some(CanonicalCell::PlayerInventory(slot)) => {
+                    let slot = usize::from(slot);
+                    self.inventory.0[slot] = Some(slot_event.stack.clone());
+                    if slot < usize::from(HOTBAR_SLOT_COUNT) {
+                        self.hotbar[slot] = Some(slot_event.stack.clone());
+                        self.hotbar_known = true;
+                    }
+                }
+                Some(CanonicalCell::Offhand) => self.offhand = Some(slot_event.stack.clone()),
+                Some(_) => {
+                    self.diagnostics.dropped_inventory_events =
+                        self.diagnostics.dropped_inventory_events.saturating_add(1);
+                }
+                None => {
+                    self.diagnostics.unknown_container_events =
+                        self.diagnostics.unknown_container_events.saturating_add(1);
+                }
+            }
+        }
         match event {
             InventoryEvent::Content(content) => {
                 // A content payload addresses its surface from index zero,
@@ -490,32 +511,7 @@ impl GameplayHudState {
                     }
                 }
             }
-            InventoryEvent::Slot(slot_event) => {
-                match project_container_cell(
-                    &slot_event.identity.container,
-                    slot_event.identity.slot,
-                ) {
-                    Some(CanonicalCell::PlayerInventory(slot)) => {
-                        let slot = usize::from(slot);
-                        self.inventory.0[slot] = Some(slot_event.stack.clone());
-                        if slot < usize::from(HOTBAR_SLOT_COUNT) {
-                            self.hotbar[slot] = Some(slot_event.stack.clone());
-                            self.hotbar_known = true;
-                        }
-                    }
-                    Some(CanonicalCell::Offhand) => {
-                        self.offhand = Some(slot_event.stack.clone());
-                    }
-                    Some(_) => {
-                        self.diagnostics.dropped_inventory_events =
-                            self.diagnostics.dropped_inventory_events.saturating_add(1);
-                    }
-                    None => {
-                        self.diagnostics.unknown_container_events =
-                            self.diagnostics.unknown_container_events.saturating_add(1);
-                    }
-                }
-            }
+            InventoryEvent::Slot(_) | InventoryEvent::Transaction(_) => {}
             // SelectedSlot is consumed by the caller's slot-precedence logic;
             // the remaining container events are not modeled yet.
             InventoryEvent::SelectedSlot(_)

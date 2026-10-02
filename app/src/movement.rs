@@ -739,6 +739,11 @@ impl MovementTicker {
         self.next_tick
     }
 
+    /// Last admitted movement tick, shared by held-use timing and its rendered animation.
+    pub(crate) const fn completed_tick(&self) -> u64 {
+        self.next_tick.saturating_sub(1)
+    }
+
     #[must_use]
     pub fn take_authority_fault(&mut self) -> Option<PhysicsAuthorityFaultRecord> {
         self.pending_fault.take()

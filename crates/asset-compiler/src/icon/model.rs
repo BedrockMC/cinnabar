@@ -153,7 +153,7 @@ impl<'a> Model<'a> {
                     corners,
                     uvs,
                     tile: Cow::Owned(tile.into_vec()),
-                    side: 16,
+                    side: usize::from(assets::BLOCK_ITEM_FACE_SIDE),
                     blend: false,
                 }
             })

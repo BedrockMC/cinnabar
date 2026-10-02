@@ -330,6 +330,7 @@ pub struct NetworkHandle {
     shutdown: watch::Sender<bool>,
     thread: Option<JoinHandle<()>>,
     readiness_ingress: Arc<ReadinessIngressCounter>,
+    experience_gate: Arc<experience::ExperienceGate>,
 }
 
 impl NetworkHandle {
@@ -601,6 +602,7 @@ fn empty_network_channels() -> (NetworkHandle, watch::Receiver<u64>) {
             shutdown,
             thread: None,
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+            experience_gate: Arc::default(),
         },
         physics_reanchor_rx,
     )
@@ -848,6 +850,7 @@ use blob_cache_telemetry::{
     emit_blob_cache_telemetry, send_final_blob_cache_telemetry, try_emit_blob_cache_telemetry,
 };
 mod bootstrap;
+mod experience;
 mod forms;
 mod handle_state;
 mod latency_reply;

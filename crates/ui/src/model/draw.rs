@@ -1,6 +1,15 @@
 use crate::{BedrockColor, GlyphQuad, UiLimits, UiPoint, UiRect};
 
-use super::{TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiError, UiVertex, UiVisual};
+use super::{
+    TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiError, UiVertex, UiVisual,
+    UiWorldProjection,
+};
+
+#[derive(Clone, Copy)]
+pub(super) struct DrawSpace<'a> {
+    pub(super) clip: UiRect,
+    pub(super) projection: Option<&'a UiWorldProjection>,
+}
 
 /// Design-pixel lean of an italic glyph's top edge, scaled by the layout
 /// scale. Native visual confirmation pending.
@@ -12,7 +21,7 @@ const BOLD_OFFSET_PX: f32 = 1.0;
 pub(super) fn emit_visual(
     visual: &UiVisual,
     bounds: UiRect,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     effects: TextEffects<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
@@ -248,7 +257,7 @@ fn emit_text(
     shadow: TextShadow,
     rotation: Option<Rotation>,
     bounds: UiRect,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     effects: TextEffects<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
@@ -358,7 +367,7 @@ fn emit_text_glyph(
     shear: f32,
     bold_offset: Option<f32>,
     rotation: Option<Rotation>,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -405,7 +414,7 @@ fn emit_quad(
     color: [u8; 4],
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -439,7 +448,7 @@ fn emit_rotated_quad(
     angle_radians: f32,
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -489,7 +498,7 @@ fn emit_positioned_quad(
     color: [u8; 4],
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -517,7 +526,7 @@ fn emit_colored_quad(
     colors: [[u8; 4]; 4],
     style_flags: u8,
     blend: UiBlendMode,
-    clip: UiRect,
+    clip: DrawSpace<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -543,25 +552,41 @@ fn emit_colored_quad(
         });
     }
     let base = u32::try_from(vertices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
-    vertices.extend(
-        positions
-            .into_iter()
-            .zip(uv)
-            .zip(colors)
-            .map(|((position, uv), color)| UiVertex {
-                position,
-                uv,
-                color,
-                style_flags,
-            }),
-    );
+    for ((position, uv), color) in positions.into_iter().zip(uv).zip(colors) {
+        let (position, clip_z, clip_w) = match clip.projection {
+            Some(projection) => projection
+                .project(position)
+                .ok_or(UiError::DrawIndexOverflow)?,
+            None => (position, 0.0, 1.0),
+        };
+        vertices.push(UiVertex {
+            position,
+            clip_z,
+            clip_w,
+            uv,
+            color,
+            style_flags,
+            alpha_test: clip
+                .projection
+                .is_some_and(|projection| projection.alpha_test),
+        });
+    }
     indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     let start = u32::try_from(indices.len() - 6).map_err(|_| UiError::DrawIndexOverflow)?;
     let end = u32::try_from(indices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
     if let Some(batch) = batches.last_mut()
         && batch.texture_page == texture_page
-        && batch.clip == clip
+        && batch.clip == clip.clip
         && batch.blend == blend
+        && batch.depth_test
+            == clip
+                .projection
+                .is_some_and(|projection| projection.depth_test)
+        && batch.depth_write
+            == clip
+                .projection
+                .is_some_and(|projection| projection.depth_write)
+        && batch.world_projection == clip.projection.is_some()
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -579,8 +604,15 @@ fn emit_colored_quad(
     }
     batches.push(UiDrawBatch {
         texture_page,
-        clip,
+        clip: clip.clip,
         blend,
+        depth_test: clip
+            .projection
+            .is_some_and(|projection| projection.depth_test),
+        depth_write: clip
+            .projection
+            .is_some_and(|projection| projection.depth_write),
+        world_projection: clip.projection.is_some(),
         index_range: start..end,
     });
     Ok(())
