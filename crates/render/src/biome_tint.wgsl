@@ -111,7 +111,10 @@ fn blended_biome_tint(
     local_position: vec3<f32>,
     world_origin: vec3<f32>,
 ) -> vec4<f32> {
-    let coordinate = vec3<i32>(floor(local_position));
+    // Blend the block that owns the fragment, the domain `blend_samples` answers. Interpolated
+    // positions leave the sub-chunk at face edges and in derivative helper lanes extrapolated
+    // past the horizon; unclamped, their lattice index reads unrelated words as sample counts.
+    let coordinate = clamp(vec3<i32>(floor(local_position)), vec3(0), vec3(BIOME_QUERY_SIDE - 1));
     let uniform_tint = biome_records[record + 1u];
     if (uniform_tint != 0xffffffffu) {
         return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags, coordinate + vec3<i32>(world_origin));

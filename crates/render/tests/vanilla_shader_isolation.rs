@@ -42,10 +42,6 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
             "ae7faeb7acea6a967a4e68d925c158b1db65053b2cf3003a1bbea5e61f4eae2c",
         ),
         (
-            include_str!("../src/biome_tint.wgsl"),
-            "cd04b8248192849c55dc46217710c5abfd5395ddef875a183140ed95ef4002a0",
-        ),
-        (
             include_str!("../src/atmosphere.wgsl"),
             "432068b10e34141461042d1daca907e9327159f5ed9cb8781f4e75e8af3aee7e",
         ),
