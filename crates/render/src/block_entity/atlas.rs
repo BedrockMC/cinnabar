@@ -52,7 +52,7 @@ impl TextureRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockEntityAtlas {
     size: [u32; 2],
     static_height: u32,
