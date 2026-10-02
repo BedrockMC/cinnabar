@@ -11,6 +11,8 @@ const MAX_STATES_PER_BLOCK: u64 = 1 << 16;
 const MAX_PERMUTATIONS: usize = 1024;
 /// Material instances one component set may define before extras are ignored.
 const MAX_MATERIAL_INSTANCES: usize = 64;
+/// The namespace of vanilla's own blocks.
+const VANILLA_NAMESPACE: &str = "minecraft";
 
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
@@ -231,8 +233,10 @@ impl CustomBlocks {
     }
 
     /// Parses `(name, network NBT)` block definitions as StartGame carries them.
-    /// Vanilla's own data-driven blocks ride along marked `vanilla_block_data`;
-    /// the vanilla palette already holds their states, so they are not server blocks.
+    /// Every definition carries `vanilla_block_data`; vanilla's own data-driven blocks
+    /// are the ones in the vanilla namespace (`Util::isVanillaNamespace` in
+    /// `BlockDefinitionGroup::digestServerBlockProperties`). The vanilla palette already
+    /// holds their states, so they are not server blocks.
     #[must_use]
     pub fn from_definitions<'a>(
         definitions: impl IntoIterator<Item = (&'a str, &'a [u8])>,
@@ -240,13 +244,16 @@ impl CustomBlocks {
         let mut blocks = Vec::new();
         let mut skipped = 0;
         for (name, bytes) in definitions {
+            if name
+                .split_once(':')
+                .is_some_and(|(namespace, _)| namespace == VANILLA_NAMESPACE)
+            {
+                continue;
+            }
             let Some(root) = read_root(bytes) else {
                 skipped += 1;
                 continue;
             };
-            if root.field("vanilla_block_data").is_some() {
-                continue;
-            }
             match parse_definition(&root) {
                 Some(definition) => blocks.push(CustomBlock {
                     name: Arc::from(name),
@@ -730,25 +737,36 @@ mod tests {
         assert!(parse_definition(&[10, 0, 9]).is_none());
     }
 
-    // StartGame repeats vanilla's data-driven blocks marked `vanilla_block_data`
-    // (BDS and Dragonfly both do); the vanilla palette already holds their states.
+    // Every StartGame definition carries `vanilla_block_data` with its block id: vanilla
+    // asserts on a missing one and numbers server blocks from 10000, as Dragonfly does.
+    // Vanilla's own data-driven blocks are those in the vanilla namespace; the vanilla
+    // palette already holds their states, while a server block adds its own.
     #[test]
-    fn vanilla_data_driven_definitions_are_not_server_blocks() {
-        let mut vanilla = named(10, "");
-        vanilla.extend(named(10, "vanilla_block_data"));
-        vanilla.extend(string_field("material", "solid"));
-        vanilla.extend([0, 0]);
-        let server = [10, 0, 0];
+    fn only_vanilla_namespace_definitions_are_not_server_blocks() {
+        let definition = |block_id: &[u8]| {
+            let mut nbt = named(10, "");
+            nbt.extend(named(10, "vanilla_block_data"));
+            nbt.extend(named(3, "block_id"));
+            nbt.extend_from_slice(block_id);
+            nbt.extend([0, 0]);
+            nbt
+        };
+        // Zigzag varints of 1464 and 10000.
+        let vanilla = definition(&[0xf0, 0x16]);
+        let server = definition(&[0xa0, 0x9c, 0x01]);
         let blocks = super::CustomBlocks::from_definitions([
             ("minecraft:light_gray_concrete_stairs", vanilla.as_slice()),
-            ("ns:server_block", server.as_slice()),
+            ("benergistics:controller", server.as_slice()),
         ]);
         let names = blocks
             .blocks
             .iter()
             .map(|block| block.name.as_ref())
             .collect::<Vec<_>>();
-        assert_eq!((names, blocks.skipped), (vec!["ns:server_block"], 0));
+        assert_eq!(
+            (names, blocks.skipped),
+            (vec!["benergistics:controller"], 0)
+        );
     }
 
     #[test]
