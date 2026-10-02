@@ -13,6 +13,7 @@ const FRAME: Duration = Duration::from_millis(8);
 const REPLY_LATENCY_FRAMES: u64 = 3;
 const MESH_JOBS_PER_FRAME: usize = 64;
 const MAX_FRAMES: u64 = 4_000;
+const BACKLOG_FRAME_LIMIT: Duration = Duration::from_millis(4);
 const NEAR_CHUNKS: f32 = 4.0;
 
 /// Floating island one sub-chunk thick with pillars, void everywhere else.
@@ -79,6 +80,8 @@ struct Harness {
     withheld: BTreeSet<ChunkKey>,
     held: Vec<(ChunkKey, WorldEvent)>,
     poll_times: Vec<Duration>,
+    frame_work_times: Vec<Duration>,
+    peak_light_jobs: usize,
 }
 
 impl Harness {
@@ -108,6 +111,8 @@ impl Harness {
             withheld: BTreeSet::new(),
             held: Vec::new(),
             poll_times: Vec::new(),
+            frame_work_times: Vec::new(),
+            peak_light_jobs: 0,
         }
     }
 
@@ -386,12 +391,24 @@ impl Harness {
     }
 
     fn step(&mut self) {
+        let work_started = Instant::now();
         self.stream.begin_frame_work();
         self.deliver();
         self.stream.set_view_forward([0.0, 0.0, 1.0]);
         let poll_started = Instant::now();
         let _ = self.stream.poll(self.camera, MESH_JOBS_PER_FRAME);
         self.poll_times.push(poll_started.elapsed());
+        let work_time = work_started.elapsed();
+        self.frame_work_times.push(work_time);
+        if work_time > BACKLOG_FRAME_LIMIT && std::env::var_os("CINNABAR_HARNESS_TRACE").is_some() {
+            eprintln!(
+                "slow_frame frame={} ingress_us={} poll_us={}",
+                self.frame,
+                poll_started.duration_since(work_started).as_micros(),
+                poll_started.elapsed().as_micros()
+            );
+        }
+        self.peak_light_jobs = self.peak_light_jobs.max(self.stream.in_flight_light.len());
         let _ = self.stream.take_committed_controls();
         self.answer_requests();
         self.present();
@@ -765,6 +782,32 @@ fn teleport_eviction_timing() {
     println!("teleport_eviction_us {times:?}");
 }
 
+/// Single-column retirement keeps other Z coordinates and dimensions at every stored height.
+#[test]
+fn single_column_retirement_keeps_other_z_and_dimension_at_custom_heights() {
+    let mut harness = Harness::for_tests();
+    let columns = [
+        ChunkKey::new(0, 3, 4),
+        ChunkKey::new(0, 3, 5),
+        ChunkKey::new(1, 3, 4),
+    ];
+    for column in columns {
+        for y in [-2_000, 2_000] {
+            harness
+                .stream
+                .record_known_air(SubChunkKey::from_chunk(column, y));
+        }
+    }
+    harness.stream.evict_column(columns[0]);
+    for (index, column) in columns.into_iter().enumerate() {
+        for y in [-2_000, 2_000] {
+            let key = SubChunkKey::from_chunk(column, y);
+            assert_eq!(harness.stream.resident.contains(&key), index != 0);
+            assert_eq!(harness.stream.known_air.contains(&key), index != 0);
+        }
+    }
+}
+
 /// Batch retirement preserves overlap and snapshots while invalidating removed authority.
 #[test]
 fn batch_eviction_preserves_overlap_and_snapshot() {
@@ -820,5 +863,66 @@ fn mesh_stall_stream_timing() {
         );
         assert!(harness.idle(), "{phase} did not drain");
         assert_eq!((report.dark_meshes, report.geometry_meshes), (0, 0));
+    }
+}
+
+/// Bursty replies overlap repeated lighting waves and a disjoint view replacement.
+#[test]
+#[ignore = "offline burst and lighting saturation timing"]
+fn mesh_stall_burst_timing() {
+    let mut harness = Harness::new(48, 4);
+    for (phase, center, teleport) in [
+        ("initial", ChunkKey::new(0, 0, 0), false),
+        ("teleport", ChunkKey::new(0, 125, 137), true),
+    ] {
+        harness.send_view(center, teleport);
+        harness.frame_work_times.clear();
+        harness.peak_light_jobs = 0;
+        let started = Instant::now();
+        let mut waves = 0;
+        let mut polls = 0;
+        while waves < 3 || !harness.idle() {
+            if waves < 3 && polls % 16 == 15 && harness.stream.resident.len() > 1_000 {
+                let sources = harness
+                    .stream
+                    .resident
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                harness.stream.mark_light_changed_sources(sources);
+                waves += 1;
+            }
+            harness.step();
+            polls += 1;
+            assert!(started.elapsed() < Duration::from_secs(60), "burst stalled");
+        }
+        assert!(
+            harness
+                .stream
+                .resident
+                .iter()
+                .all(|key| harness.stream.light_is_current(*key))
+        );
+        harness.frame_work_times.sort_unstable();
+        let times = &harness.frame_work_times;
+        println!(
+            "mesh_stall_burst {phase} drain_ms={} slots={} waves={waves} peak_light={} frame_p99_us={} frame_max_us={}",
+            started.elapsed().as_millis(),
+            harness.stream.resident.len(),
+            harness.peak_light_jobs,
+            times[times.len() * 99 / 100].as_micros(),
+            times.last().unwrap().as_micros()
+        );
+        assert!(
+            *times.last().unwrap() < BACKLOG_FRAME_LIMIT,
+            "{phase} backlog frame exceeded {BACKLOG_FRAME_LIMIT:?}"
+        );
+        assert!(
+            harness.peak_light_jobs
+                >= 99.min(
+                    initial_light_job_cap()
+                        * vanilla_dimension_range(0).unwrap().sub_chunk_count as usize
+                )
+        );
     }
 }

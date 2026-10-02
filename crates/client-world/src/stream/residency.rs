@@ -76,12 +76,8 @@ impl WorldStream {
         }
         self.block_entity_visuals.remove_chunks(&columns);
         self.purge_sub_chunk_columns_state(&columns);
-        let mut changed = self
-            .resident
-            .iter()
-            .copied()
-            .filter(|key| columns.contains(&key.chunk()))
-            .collect::<BTreeSet<_>>();
+        let mut changed = self.resident_keys_in_columns(&columns);
+        let removing_all = changed.len() == self.resident.len();
         let mut biome_dirty = BTreeSet::new();
         for &column in &columns {
             if let Some(range) = vanilla_dimension_range(column.dimension) {
@@ -90,37 +86,86 @@ impl WorldStream {
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
                     if self.store.biome_storage(key).is_some() {
                         changed.insert(key);
-                        biome_dirty.extend(key.biome_mesh_dependents());
+                        if !removing_all {
+                            biome_dirty.extend(key.biome_mesh_dependents());
+                        }
                     }
                 }
             }
         }
         let (removed, retired) = self.store.detach_chunks(&columns);
         changed.extend(removed);
-        self.resident.retain(|key| !columns.contains(&key.chunk()));
-        self.known_air.retain(|key| !columns.contains(&key.chunk()));
-        self.applied_mesh_generations
-            .retain(|key, _| !columns.contains(&key.chunk()));
-        self.mesh_dependency_masks
-            .retain(|key, _| !columns.contains(&key.chunk()));
         let old_connectivity_len = self.connectivity.len();
-        self.connectivity
-            .retain(|key, _| !columns.contains(&key.chunk()));
+        let retired_indexes = removing_all.then(|| {
+            (
+                std::mem::take(&mut self.resident),
+                std::mem::take(&mut self.known_air),
+                std::mem::take(&mut self.applied_mesh_generations),
+                std::mem::take(&mut self.mesh_dependency_masks),
+                std::mem::take(&mut self.connectivity),
+            )
+        });
+        if !changed.is_empty() {
+            self.resident.retain(|key| !columns.contains(&key.chunk()));
+            self.known_air.retain(|key| !columns.contains(&key.chunk()));
+            self.applied_mesh_generations
+                .retain(|key, _| !columns.contains(&key.chunk()));
+            self.mesh_dependency_masks
+                .retain(|key, _| !columns.contains(&key.chunk()));
+            self.connectivity
+                .retain(|key, _| !columns.contains(&key.chunk()));
+        }
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
         }
-        for &key in &changed {
-            if self.light_store.light(key).is_some()
-                || self.light_ownership.contains_key(&key)
-                || self.direct_sky.contains_key(&key)
-            {
-                biome_dirty.extend(key.mesh_neighbourhood_dependents());
-            }
-            self.remove_light_key_without_invalidation(key);
+        let now = Instant::now();
+        let mut light_dirty = BTreeSet::new();
+        if removing_all {
+            self.retire_all_lighting();
         }
-        self.mark_changed_sources_with_mesh_dirty(changed, biome_dirty, Instant::now());
-        if !retired.is_empty() {
-            rayon::spawn(move || drop(retired));
+        for key in changed {
+            if !removing_all {
+                light_dirty.extend(
+                    key.mesh_dependents()
+                        .filter(|key| self.resident.contains(key)),
+                );
+                biome_dirty.extend(
+                    key.mesh_neighbourhood_dependents()
+                        .filter(|key| self.resident.contains(key)),
+                );
+                self.remove_light_key_without_invalidation(key);
+            }
+            self.mark_dirty_exact(key, now);
+        }
+        for key in light_dirty {
+            self.mark_light_dirty_exact_with_priority(key, false);
+        }
+        for key in biome_dirty {
+            if self.resident.contains(&key) {
+                self.mark_dirty_exact(key, now);
+            }
+        }
+        if !retired.is_empty() || retired_indexes.is_some() {
+            rayon::spawn(move || drop((retired, retired_indexes)));
+        }
+    }
+    /// Fresh column arrivals search one ordered X range instead of every resident slot.
+    fn resident_keys_in_columns(&self, columns: &BTreeSet<ChunkKey>) -> BTreeSet<SubChunkKey> {
+        if columns.len() == 1 {
+            let column = *columns.first().unwrap();
+            let first = SubChunkKey::new(column.dimension, column.x, i32::MIN, i32::MIN);
+            let last = SubChunkKey::new(column.dimension, column.x, i32::MAX, i32::MAX);
+            self.resident
+                .range(first..=last)
+                .filter(|key| key.z == column.z)
+                .copied()
+                .collect()
+        } else {
+            self.resident
+                .iter()
+                .copied()
+                .filter(|key| columns.contains(&key.chunk()))
+                .collect()
         }
     }
     pub(super) fn evict_all_resident(&mut self) {

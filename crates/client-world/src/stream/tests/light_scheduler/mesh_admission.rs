@@ -18,12 +18,9 @@ fn light_waits_for_requested_above_during_partial_column_commit() {
     assert!(!stream.light_dispatch_ready(key));
 }
 
+/// A cancelled snapshot cannot publish even when its worker wins the cancellation race.
 #[test]
-fn queued_mesh_cancellation_skips_superseded_geometry() {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build()
-        .unwrap();
+fn superseded_mesh_completion_cannot_publish_geometry() {
     let mut stream = lit_stream(1);
     let key = SubChunkKey::new(1, 0, 0, 0);
     stream
@@ -31,13 +28,12 @@ fn queued_mesh_cancellation_skips_superseded_geometry() {
         .commit_sub_chunk(key, super::uniform_sub_chunk(2))
         .unwrap();
     install_current_light(&mut stream, key, 0, 0, false);
-    pool.install(|| {
-        stream.mark_dirty_exact(key, Instant::now());
-        assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
-        stream.mark_dirty_exact(key, Instant::now());
-    });
+    stream.mark_dirty_exact(key, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    let cancelled = Arc::clone(&stream.mesh_cancellations[&key]);
+    stream.mark_dirty_exact(key, Instant::now());
+    assert!(cancelled.load(Ordering::Acquire));
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert!(completion.mesh.is_empty());
     assert_eq!(stream.admitted_mesh_jobs.load(Ordering::Acquire), 1);
     stream.accept_mesh_completion(completion);
     assert_eq!(stream.admitted_mesh_jobs.load(Ordering::Acquire), 0);
@@ -108,6 +104,44 @@ fn expired_poll_still_dispatches_one_ready_mesh() {
     assert_eq!(stream.pending_mesh.len(), 1);
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(2)).unwrap();
     stream.accept_mesh_completion(completion);
+}
+
+/// An expired slice advances one blocked candidate instead of checking the whole window.
+#[test]
+fn expired_mesh_slice_bounds_blocked_readiness_work() {
+    let mut stream = lit_stream(1);
+    let view = SchedulerView {
+        position: [0.0; 3],
+        forward: None,
+    };
+    stream.mesh_scheduler_refresh.refresh(
+        view,
+        [
+            &mut stream.pending_resident_mesh_ready,
+            &mut stream.pending_resident_mesh_deferred,
+            &mut stream.pending_mesh_removal_ready,
+            &mut stream.pending_mesh_removal_deferred,
+        ],
+        None,
+        |_, _| true,
+    );
+    for x in 10..42 {
+        let key = SubChunkKey::new(1, x, 0, 0);
+        stream
+            .store
+            .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+            .unwrap();
+        stream.resident.insert(key);
+        let revision = stream.mark_dirty_exact(key, Instant::now());
+        stream
+            .pending_resident_mesh_ready
+            .push(PendingSchedulerCandidate::new(key, revision, view, false));
+    }
+    stream.pending_mesh_scan.clear();
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 0);
+    assert_eq!(stream.pending_resident_mesh_deferred.len(), 1);
+    assert_eq!(stream.pending_resident_mesh_ready.len(), 31);
 }
 
 #[test]

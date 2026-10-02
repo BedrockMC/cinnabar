@@ -1079,6 +1079,7 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
         .collect::<std::collections::BTreeSet<_>>();
     let evicted_dependents = key
         .mesh_neighbourhood_dependents()
+        .filter(|candidate| *candidate == key || stream.resident.contains(candidate))
         .collect::<std::collections::BTreeSet<_>>();
     assert!(evicted_dependents.is_subset(&actual));
     for y in -3..=19 {
@@ -1100,6 +1101,7 @@ fn changed_sub_chunk_dirties_center_and_six_face_neighbours_once() {
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 4, -2, 9);
+    stream.resident.extend(key.mesh_dependents());
 
     stream.mark_changed(key, Instant::now());
     let expected = key

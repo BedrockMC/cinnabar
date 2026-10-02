@@ -30,6 +30,13 @@ use world::{
 use super::*;
 use crate::server_position;
 
+impl WorldStream {
+    /// Existing admission fixtures use the same count limit for geometry and removals.
+    fn dispatch_mesh_jobs(&mut self, camera: [f32; 3], budget: usize) -> usize {
+        self.dispatch_mesh_jobs_with_limits(camera, budget, budget)
+    }
+}
+
 /// Decode registries that keep every id, for fixtures committed straight to the store.
 const RAW_IDS: RawBlockIds = RawBlockIds { air: 12_530 };
 const RAW_BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };

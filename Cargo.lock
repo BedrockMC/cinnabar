@@ -1715,11 +1715,13 @@ dependencies = [
  "bytes",
  "crossbeam-channel",
  "hashbrown 0.16.1",
+ "libc",
  "meshing",
  "protocol",
  "rayon",
  "sha2",
  "thiserror 2.0.18",
+ "windows-sys 0.61.2",
  "world",
 ]
 

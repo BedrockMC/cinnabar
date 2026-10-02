@@ -49,8 +49,14 @@ impl WorldStream {
                 floor_to_i32(camera_position[2]).div_euclid(16),
             ));
         }
+        let now = Instant::now();
+        let frame_deadline = self.frame_deadline.take().unwrap_or_else(|| {
+            self.poll_deadline
+                .unwrap_or(now + commit_budget::WORLD_POLL_BUDGET)
+        });
+        let remaining = frame_deadline.saturating_duration_since(now);
         self.poll_deadline
-            .get_or_insert_with(|| Instant::now() + commit_budget::WORLD_POLL_BUDGET);
+            .get_or_insert(now + remaining - remaining / commit_budget::WORLD_SCHEDULING_SHARE);
         self.polling = true;
         let mut report = WorldStreamPoll::default();
         while report.decoded_results == 0 || !self.poll_budget_exhausted() {
@@ -65,6 +71,9 @@ impl WorldStream {
         self.pump_deferred_retries();
         self.dispatch_decode_jobs();
 
+        let now = Instant::now();
+        let remaining = frame_deadline.saturating_duration_since(now);
+        self.poll_deadline = Some(now + remaining - remaining / commit_budget::WORLD_MESH_SHARE);
         while report.light_results == 0 || !self.poll_budget_exhausted() {
             let Ok(completion) = self.light_rx.try_recv() else {
                 break;
@@ -75,6 +84,7 @@ impl WorldStream {
         report.light_jobs_dispatched =
             self.dispatch_light_jobs(camera_position, LIGHT_DISPATCH_BUDGET_PER_POLL);
 
+        self.poll_deadline = Some(frame_deadline);
         self.retry_staged_mesh_completions();
         while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
             && (report.mesh_results == 0 || !self.poll_budget_exhausted())
@@ -113,7 +123,12 @@ impl WorldStream {
         {
             dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);
         }
-        report.mesh_jobs_dispatched = self.dispatch_mesh_jobs(camera_position, dispatch_budget);
+        let removal_budget = max_mesh_jobs
+            .min(live_publication_items)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()))
+            .max(dispatch_budget);
+        report.mesh_jobs_dispatched =
+            self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
         self.poll_deadline = None;
         self.polling = false;
         report
