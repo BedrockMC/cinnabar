@@ -420,3 +420,23 @@ fn packed_actor_light_reaches_the_gpu_instance() {
     );
     assert_eq!(frame.instances[0].light, light);
 }
+
+#[test]
+fn review_render_invalid_skin_layer_skips_only_its_actor() {
+    let mut scene = ActorRenderScene::default();
+    scene.insert_geometry(geometry()).unwrap();
+    let valid = submission(1, 1);
+    let mut invalid = submission(2, 1);
+    invalid.texture_layer = 1;
+    let frame = scene.update_rigs(
+        0.5,
+        None,
+        [valid, invalid],
+        vec![255; STANDARD_SKIN_BYTES].into(),
+    );
+    assert_eq!(frame.rig.manifest.len(), 1);
+    assert_eq!(frame.rig.manifest[0].identity.runtime_id, 1);
+    assert_eq!(frame.rig.rejects.invalid_geometry, 1);
+    assert_eq!(frame.rig.instances.len(), 1);
+    assert_eq!(frame.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+}
