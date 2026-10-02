@@ -61,6 +61,14 @@ impl PlayerInventoryLedger {
         destination: &NetworkItemStack,
     ) -> OccupiedStackRelation {
         let distinct_network_ids = source.network_id != destination.network_id;
+        // Native ItemStackBase::matchesItem compares block/aux identity; a
+        // nonzero block identity is an ordinary block stack, not an unknown
+        // stack shape. Count and sparse/server stack ids are not item identity.
+        if source.metadata != destination.metadata
+            || source.block_runtime_id != destination.block_runtime_id
+        {
+            return OccupiedStackRelation::Incompatible;
+        }
         if !plain_stack(source) || !plain_stack(destination) {
             return if distinct_network_ids {
                 OccupiedStackRelation::Incompatible
@@ -189,9 +197,9 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
 
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
-    stack.metadata == 0
-        && stack.block_runtime_id == 0
-        && (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
+    // Plainness describes user data, not aux or block identity. Recipes match
+    // aux independently and vanilla accepts block ingredients with runtime ids.
+    (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
         && stack.nbt_digest == digest
 }
 
