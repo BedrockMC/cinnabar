@@ -90,8 +90,8 @@ Unsigned outer wrappers do not require canonical object order, but reject unknow
 fields. `cinnabar-cxb write-fixtures <dir>` writes golden offer, marker, hello,
 accept, ready, envelope, channel and manifest documents with their signatures from
 fixed seeds into `tools/localserver/extension/testdata`; a Rust test keeps them
-current and verifies them with this crate. No signer in another language has been
-validated against them yet.
+current and verifies them with this crate. The Go package `tools/localserver/extension`
+decodes, re-encodes and re-signs every one of them byte for byte (`go test ./extension`).
 
 ## Deployment advertisement
 
