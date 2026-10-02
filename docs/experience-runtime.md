@@ -60,7 +60,9 @@ data-schema = 1       # block-data schema
 
 `crates/experience-runtime/src/manifest.rs` is the authority on the manifest: the id and version
 rules, the accepted `api` and `data-schema`, and the index rules (every file indexed, no absolute
-paths, `..`, backslashes or symlinks). The hashes give integrity, not publisher trust.
+paths, `..`, backslashes or symlinks). The hashes give integrity, not publisher trust. The id
+`minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter refuses an
+Experience with that id at registration, before anything is registered.
 
 `server.wasm` is the core module that cargo emits for `wasm32-unknown-unknown` with the WIT
 embedded by `experience-sdk`. The runtime componentizes it with `wit_component::ComponentEncoder`
