@@ -67,7 +67,7 @@ fn one_call_is_exactly_one_bedrock_tick_and_ground_gravity_is_post_move() {
 }
 
 #[test]
-fn ground_acceleration_and_drag_match_bedsim_constants() {
+fn ground_acceleration_rounds_steering_before_retained_drag() {
     let world = StaticWorld::floor();
     let mut state = grounded_state(Vec3::new(0.0, 1.0, 0.0));
     let input = MovementInput {
@@ -79,9 +79,9 @@ fn ground_acceleration_and_drag_match_bedsim_constants() {
         .tick(&mut state, input, &world)
         .unwrap();
 
-    assert_close(result.movement.z, 0.098_000_014_449_718_6);
-    assert_close(state.position.z, 0.098_000_014_449_718_6);
-    assert_close(state.velocity.z, 0.053_508_007_889_546_3);
+    assert_close(result.movement.z, 0.098_000_004_887_580_87);
+    assert_close(state.position.z, 0.098_000_004_887_580_87);
+    assert_close(state.velocity.z, 0.053_508_002_668_619_16);
     assert_close(state.velocity.y, -0.0784);
 }
 

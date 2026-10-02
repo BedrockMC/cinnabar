@@ -15,7 +15,7 @@ use crate::{
     runtime::world::ClientWorld,
 };
 
-pub const LOCAL_AVATAR_EYE_HEIGHT_BLOCKS: f32 = 1.62;
+pub const LOCAL_AVATAR_EYE_HEIGHT_BLOCKS: f32 = protocol::STANDING_PLAYER_EYE_HEIGHT;
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LocalPlayerFrameSet {
@@ -35,6 +35,7 @@ pub enum LocalPlayerFrameReset {
 pub enum LocalPlayerFrameError {
     NonFinitePose,
     NonFiniteEye,
+    NonFiniteFeet,
     InvalidRotation,
     PoseGenerationExhausted,
 }
@@ -42,18 +43,21 @@ pub enum LocalPlayerFrameError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFrameSample {
     pub session_generation: u64,
+    pub actor_session_id: u64,
     pub fifo_sequence: u64,
     pub physics_tick: u64,
     pub perspective: PerspectiveMode,
     pub world_collision_identity: WorldCollisionIdentity,
     pub pose: Transform,
     pub eye: Vec3,
+    pub feet: Vec3,
     pub rotation: Quat,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrozenLocalPlayerFrame {
     session_generation: u64,
+    actor_session_id: u64,
     fifo_sequence: u64,
     physics_tick: u64,
     pose_generation: u64,
@@ -61,6 +65,7 @@ pub struct FrozenLocalPlayerFrame {
     world_collision_identity: WorldCollisionIdentity,
     pose: Transform,
     eye: Vec3,
+    feet: Vec3,
     rotation: Quat,
     direction: Vec3,
 }
@@ -69,6 +74,11 @@ impl FrozenLocalPlayerFrame {
     #[must_use]
     pub const fn session_generation(&self) -> u64 {
         self.session_generation
+    }
+
+    #[must_use]
+    pub const fn actor_session_id(&self) -> u64 {
+        self.actor_session_id
     }
 
     #[must_use]
@@ -107,6 +117,11 @@ impl FrozenLocalPlayerFrame {
     }
 
     #[must_use]
+    pub const fn feet(&self) -> Vec3 {
+        self.feet
+    }
+
+    #[must_use]
     pub const fn rotation(&self) -> Quat {
         self.rotation
     }
@@ -137,6 +152,9 @@ impl LocalPlayerFrameCarrier {
         if !sample.eye.is_finite() {
             return Err(LocalPlayerFrameError::NonFiniteEye);
         }
+        if !sample.feet.is_finite() {
+            return Err(LocalPlayerFrameError::NonFiniteFeet);
+        }
         if !sample.rotation.is_finite() || sample.rotation.length_squared() <= f32::EPSILON {
             return Err(LocalPlayerFrameError::InvalidRotation);
         }
@@ -147,6 +165,7 @@ impl LocalPlayerFrameCarrier {
         let rotation = sample.rotation.normalize();
         let snapshot = FrozenLocalPlayerFrame {
             session_generation: sample.session_generation,
+            actor_session_id: sample.actor_session_id,
             fifo_sequence: sample.fifo_sequence,
             physics_tick: sample.physics_tick,
             pose_generation,
@@ -154,6 +173,7 @@ impl LocalPlayerFrameCarrier {
             world_collision_identity: sample.world_collision_identity,
             pose: sample.pose,
             eye: sample.eye,
+            feet: sample.feet,
             rotation,
             direction: (rotation * Vec3::NEG_Z).normalize_or_zero(),
         };
@@ -181,6 +201,7 @@ impl LocalPlayerFrameCarrier {
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct LocalViewPose {
     eye_translation: Vec3,
+    feet_translation: Vec3,
     rotation: Quat,
 }
 
@@ -188,6 +209,7 @@ impl Default for LocalViewPose {
     fn default() -> Self {
         Self {
             eye_translation: Vec3::new(0.0, 80.0, 0.0),
+            feet_translation: Vec3::new(0.0, 80.0 - protocol::PLAYER_NETWORK_OFFSET, 0.0),
             rotation: Quat::IDENTITY,
         }
     }
@@ -208,13 +230,27 @@ impl LocalViewPose {
     }
 
     #[must_use]
+    pub const fn feet_translation(self) -> Vec3 {
+        self.feet_translation
+    }
+
+    #[must_use]
     pub const fn rotation(self) -> Quat {
         self.rotation
     }
 
     pub fn set_eye_translation(&mut self, translation: Vec3) {
         if translation.is_finite() {
+            self.feet_translation += translation - self.eye_translation;
             self.eye_translation = translation;
+        }
+    }
+
+    /// Physics publishes both origins together: visual eye lowering never moves actor feet.
+    pub fn set_subject_position(&mut self, eye: Vec3, feet: Vec3) {
+        if eye.is_finite() && feet.is_finite() {
+            self.eye_translation = eye;
+            self.feet_translation = feet;
         }
     }
 
@@ -258,6 +294,7 @@ impl CameraPose {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrozenInteractionOrigin {
     session_generation: u64,
+    actor_session_id: u64,
     fifo_sequence: u64,
     physics_tick: u64,
     pose_generation: u64,
@@ -271,6 +308,11 @@ impl FrozenInteractionOrigin {
     #[must_use]
     pub const fn session_generation(&self) -> u64 {
         self.session_generation
+    }
+
+    #[must_use]
+    pub const fn actor_session_id(&self) -> u64 {
+        self.actor_session_id
     }
 
     #[must_use]
@@ -319,6 +361,7 @@ impl InteractionOriginSnapshot {
     pub fn publish_from_local_player_frame(&mut self, carrier: &LocalPlayerFrameCarrier) {
         self.0 = carrier.snapshot().map(|frame| FrozenInteractionOrigin {
             session_generation: frame.session_generation(),
+            actor_session_id: frame.actor_session_id(),
             fifo_sequence: frame.fifo_sequence(),
             physics_tick: frame.physics_tick(),
             pose_generation: frame.pose_generation(),
@@ -364,6 +407,7 @@ pub struct FrozenLocalAvatarVisibility {
     pose_generation: u64,
     visible: bool,
     eye: Vec3,
+    feet: Vec3,
     rotation: Quat,
 }
 
@@ -391,6 +435,11 @@ impl FrozenLocalAvatarVisibility {
     #[must_use]
     pub const fn eye(self) -> Vec3 {
         self.eye
+    }
+
+    #[must_use]
+    pub const fn feet(self) -> Vec3 {
+        self.feet
     }
 
     #[must_use]
@@ -454,6 +503,7 @@ impl LocalAvatarPresentation {
             pose_generation: frame.pose_generation(),
             visible: frame.perspective() != PerspectiveMode::FirstPerson,
             eye: frame.eye(),
+            feet: frame.feet(),
             rotation: frame.rotation(),
         });
     }
@@ -465,6 +515,7 @@ impl LocalAvatarPresentation {
         &self,
         perspective: PerspectiveMode,
         eye: Vec3,
+        feet: Vec3,
         rotation: Quat,
         carrier: &mut LocalAvatarVisibilityCarrier,
     ) {
@@ -475,6 +526,7 @@ impl LocalAvatarPresentation {
         let rotation_length_squared = rotation.length_squared();
         if self.session_generation == 0
             || !eye.is_finite()
+            || !feet.is_finite()
             || !rotation.is_finite()
             || !rotation_length_squared.is_finite()
             || rotation_length_squared <= f32::EPSILON
@@ -489,7 +541,10 @@ impl LocalAvatarPresentation {
                 && snapshot.runtime_id == runtime_id
         });
         if prior.is_some_and(|snapshot| {
-            snapshot.visible == visible && snapshot.eye == eye && snapshot.rotation == rotation
+            snapshot.visible == visible
+                && snapshot.eye == eye
+                && snapshot.feet == feet
+                && snapshot.rotation == rotation
         }) {
             return;
         }
@@ -505,6 +560,7 @@ impl LocalAvatarPresentation {
             pose_generation,
             visible,
             eye,
+            feet,
             rotation,
         });
     }
@@ -519,7 +575,8 @@ pub fn reset_local_player_session(
     avatar: &mut LocalAvatarPresentation,
 ) {
     settings.reset_perspective();
-    view.set_eye_translation(Vec3::from_array(eye_position));
+    let eye = Vec3::from_array(eye_position);
+    view.set_subject_position(eye, eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET);
     avatar.begin_session(session_generation, runtime_id);
 }
 
@@ -624,12 +681,14 @@ pub(crate) fn publish_local_player_frame(
     };
     let sample = LocalPlayerFrameSample {
         session_generation: clock.session_generation(),
+        actor_session_id: stream.actor_session_id(),
         fifo_sequence: stream.committed_sequence(),
         physics_tick: state.tick,
         perspective: settings.perspective(),
         world_collision_identity,
         pose: *camera.transform(),
         eye: view.eye_translation(),
+        feet: view.feet_translation(),
         rotation: view.rotation(),
     };
     if carrier.publish(sample).is_err() {

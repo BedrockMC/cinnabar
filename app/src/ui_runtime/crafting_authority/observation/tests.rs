@@ -67,6 +67,39 @@ fn slot(name: u8, position: u16) -> InventoryAuthorityEvent {
 }
 
 #[test]
+fn transaction_origins_keep_one_fifo_source_for_crafting_and_cursor() {
+    let fixture = Fixture::new();
+    let mut state = state();
+    let updates = [(0, 28), (0, 29), (protocol::CONTAINER_NAME_CURSOR, 0)].map(|(name, index)| {
+        let InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(update)) = slot(name, index)
+        else {
+            panic!()
+        };
+        update
+    });
+    let event = InventoryAuthorityEvent::Inventory(InventoryEvent::Transaction(
+        protocol::InventoryTransactionEvent {
+            slots: Arc::from(updates),
+            skipped_actions: 0,
+        },
+    ));
+    state.observe(1, 1, &event);
+    state.synchronize(Some((1, 0, Some(1))));
+    state.advance();
+    let probe = fixture.0.probe.lock().unwrap();
+    assert!(!probe.retired);
+    for index in [0, 1, 4] {
+        let source = probe.origins[index].unwrap();
+        assert_eq!(source.kind, 3);
+        assert_eq!(source.sequence, 1);
+        assert_eq!(source.mask, 19);
+        assert_eq!(source.epoch, Some(0));
+    }
+    assert_eq!(probe.origins[0].unwrap().slots, [28, 29, 0, 0]);
+    assert!(probe.origins[2..4].iter().all(Option::is_none));
+}
+
+#[test]
 fn origins_join_actual_apply_prefix_and_epoch_not_latest_ingress() {
     let fixture = Fixture::new();
     let mut state = state();

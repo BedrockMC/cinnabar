@@ -3,7 +3,7 @@ mod budget;
 mod observation;
 mod projection;
 
-use projection::{Observation, Queue, Record, RegistryOwner, StackOwner};
+use projection::{Observation, Queue, Record, RegistryOwner, StackOwner, transaction_cell_index};
 use protocol::{
     InventoryAuthority, InventoryEvent, ManualCraftCell, ManualCraftMatch, RecipeCatalog,
     VerifiedNetworkItemStack,
@@ -314,6 +314,23 @@ impl CraftingAuthority {
                     Observation::Cursor(stack)
                 }
             }
+            InventoryAuthorityEvent::Inventory(event @ InventoryEvent::Transaction(_)) => {
+                let mut cells = std::array::from_fn(|_| None);
+                for update in event.slot_updates() {
+                    let Some(index) = transaction_cell_index(update.identity) else {
+                        continue;
+                    };
+                    let Some(stack) = StackOwner::with_credits(&update.stack, &self.credits) else {
+                        self.lose(sequence, 0);
+                        return;
+                    };
+                    cells[index] = Some(stack);
+                }
+                if cells.iter().all(Option::is_none) {
+                    return;
+                }
+                Observation::Cells(cells)
+            }
             InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
                 if protocol::personal_craft_content_indices(
                     &content.container,
@@ -434,7 +451,27 @@ impl CraftingAuthority {
                     self.changed_cells();
                     observation::cells(self.session, record.sequence, self.epoch, 16);
                 }
-                Observation::Grid(_) | Observation::Cell { .. } | Observation::Cursor(_) => {}
+                Observation::Cells(cells)
+                    if record.sequence > self.epoch.max(self.authority_loss) =>
+                {
+                    let mut mask = 0;
+                    for (index, stack) in cells.iter().enumerate() {
+                        if let Some(stack) = stack {
+                            if index < self.grid.len() {
+                                self.grid[index] = Some(Arc::clone(stack));
+                            } else {
+                                self.cursor = Some(Arc::clone(stack));
+                            }
+                            mask |= 1 << index;
+                        }
+                    }
+                    self.changed_cells();
+                    observation::cells(self.session, record.sequence, self.epoch, mask);
+                }
+                Observation::Grid(_)
+                | Observation::Cell { .. }
+                | Observation::Cursor(_)
+                | Observation::Cells(_) => {}
             }
             observation::discard(record.sequence);
         }

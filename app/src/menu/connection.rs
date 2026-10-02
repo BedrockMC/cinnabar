@@ -644,7 +644,7 @@ mod transfer_follow_tests {
             let root = TempRoot::new();
             let mut menu = MenuRuntime::new_with_layout(
                 true,
-                2,
+                Some(2),
                 "Player".to_owned(),
                 missing_core_layout(root.path()),
                 crate::player_skin::LocalPlayerSkin::generated_default("Player"),
@@ -693,7 +693,7 @@ mod transfer_follow_tests {
         let root = TempRoot::new();
         let mut menu = MenuRuntime::new_with_layout(
             true,
-            2,
+            Some(2),
             "Player".to_owned(),
             missing_core_layout(root.path()),
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),
@@ -766,7 +766,7 @@ mod transfer_follow_tests {
         fs::set_permissions(&layout.core_executable, fs::Permissions::from_mode(0o755)).unwrap();
         let menu = MenuRuntime::new_with_layout(
             true,
-            2,
+            Some(2),
             "Player".to_owned(),
             layout,
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),
@@ -850,7 +850,7 @@ mod transfer_follow_tests {
         let root = TempRoot::new();
         let mut menu = MenuRuntime::new_with_layout(
             true,
-            2,
+            Some(2),
             "Player".to_owned(),
             missing_core_layout(root.path()),
             crate::player_skin::LocalPlayerSkin::generated_default("Player"),

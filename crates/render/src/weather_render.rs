@@ -284,7 +284,7 @@ impl FromWorld for WeatherPipeline {
         );
         let descriptor = RenderPipelineDescriptor {
             label: Some("precipitation pipeline".into()),
-            layout: vec![bind_group_layout.clone()],
+            layout: vec![bind_group_layout.clone(), crate::lighting::layout()],
             vertex: VertexState {
                 shader: WEATHER_SHADER_HANDLE,
                 entry_point: Some("weather_vertex".into()),
@@ -448,7 +448,12 @@ fn queue_weather(
     }
 }
 
-type DrawWeatherCommands = (SetItemPipeline, SetWeatherBindGroup<0>, DrawWeather);
+type DrawWeatherCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    SetWeatherBindGroup<0>,
+    DrawWeather,
+);
 
 struct SetWeatherBindGroup<const I: usize>;
 

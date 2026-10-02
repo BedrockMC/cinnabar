@@ -6,6 +6,7 @@ mod attachable;
 mod blocks;
 mod display;
 mod elytra;
+mod first_person;
 #[cfg(test)]
 mod frames;
 mod input;
@@ -17,6 +18,4 @@ pub(crate) use display::FirstPersonHand;
 pub(crate) use input::{local_input, remote_input};
 #[cfg(test)]
 pub(crate) use runtime::{ActorEquipmentInput, HeldKind, WornItem};
-pub(crate) use runtime::{
-    EquipmentPresentation, EquipmentRuntime, FirstPersonArms, FirstPersonItem, StagedSessionIcons,
-};
+pub(crate) use runtime::{EquipmentRuntime, FirstPersonArms, FirstPersonItem, StagedSessionIcons};

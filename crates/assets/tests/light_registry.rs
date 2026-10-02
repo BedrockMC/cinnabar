@@ -83,3 +83,32 @@ fn checked_in_reserved_states_have_neutral_light() {
         light.emission() == 0 && light.filter() == 0
     }));
 }
+
+#[test]
+fn shipped_trial_spawners_follow_all_twelve_state_combinations() {
+    let breg = include_bytes!("../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    let expected = [0, 4, 8, 8, 8, 0];
+    let mut count = 0;
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:trial_spawner")
+    {
+        let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
+        let index = state["trial_spawner_state"]["value"].as_u64().unwrap() as usize;
+        assert_eq!(
+            lights[record.sequential_id as usize].emission(),
+            expected[index]
+        );
+        count += 1;
+    }
+    assert_eq!(count, 12);
+}

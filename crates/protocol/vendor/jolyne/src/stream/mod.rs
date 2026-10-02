@@ -137,6 +137,7 @@ impl State for StartGame {}
 /// Final State: Fully authenticated, in-game. Ready to exchange game packets.
 #[derive(Default)]
 pub struct Play {
+    pending_initialization: Option<u64>,
     resource_pack_handoff: Option<ResourcePackHandoff>,
 }
 impl State for Play {}

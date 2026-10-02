@@ -9,10 +9,10 @@ use crate::{
 };
 
 use super::{
-    AxisCollisions, COLLISION_EPSILON, ControlledTickResult, INPUT_IMPULSE_MULTIPLIER,
-    MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState, SimulationError, TickResult,
-    apply_relative_movement, collision::resolve_motion, controls, effects,
-    environment::SampledEnvironment, scaffolding::ScaffoldingView,
+    AxisCollisions, COLLISION_EPSILON, ControlledTickResult, MovementInput, MovementMode,
+    NORMAL_GRAVITY, PlayerState, SimulationError, TickResult, apply_relative_movement,
+    collision::resolve_motion, controls, effects, environment::SampledEnvironment,
+    scaffolding::ScaffoldingView,
 };
 
 const DEFAULT_FLY_SPEED: f64 = 0.05;
@@ -68,6 +68,7 @@ pub(super) fn tick_mode(
         return Ok(ControlledTickResult {
             tick_result: result,
             controls,
+            jump_initiated: false,
         });
     }
     let mut controls = controls;
@@ -87,8 +88,8 @@ pub(super) fn tick_mode(
             };
             apply_relative_movement(
                 &mut next.velocity,
-                controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
-                controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
+                super::movement_impulse(controls.move_vector[0]),
+                super::movement_impulse(controls.move_vector[1]),
                 input.yaw_degrees,
                 speed,
             );
@@ -111,8 +112,8 @@ pub(super) fn tick_mode(
         MovementMode::Swimming if in_water => {
             apply_relative_movement(
                 &mut next.velocity,
-                controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
-                controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
+                super::movement_impulse(controls.move_vector[0]),
+                super::movement_impulse(controls.move_vector[1]),
                 input.yaw_degrees,
                 super::water_travel_speed(
                     &input,
@@ -222,6 +223,7 @@ pub(super) fn tick_mode(
     Ok(ControlledTickResult {
         tick_result: result,
         controls,
+        jump_initiated: false,
     })
 }
 

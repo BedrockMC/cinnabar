@@ -91,12 +91,12 @@ fn stone_terrain_tile_uses_the_resolved_block_region() {
 }
 
 #[test]
-fn grass_terrain_uses_the_bottom_texture_and_independent_biome_tint() {
+fn grass_terrain_uses_the_untinted_bottom_texture() {
     let assets = fixture();
     let (tile, flags) = resolved_tile(&assets, NetworkIdMode::Sequential, 2).unwrap();
     assert_eq!(tile.key, 2);
     assert_eq!(&tile.pixels[..4], &[95, 65, 40, 255]);
-    assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_GRASS_TINT);
+    assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, 0);
     assert_eq!(flags & MATERIAL_FLAG_OVERLAY_MASK, 0);
 }
 
@@ -157,7 +157,7 @@ fn real_carrier_terrain_tiles_resolve_stone_deepslate_and_grass() {
                     .any(|rgba| rgba == [255, 0, 255, 255])
             );
             if name == "minecraft:grass_block" {
-                assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_GRASS_TINT);
+                assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, 0);
             }
         }
     }

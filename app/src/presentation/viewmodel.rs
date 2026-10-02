@@ -376,6 +376,7 @@ type ViewmodelCameras<'w, 's> = Query<
 #[derive(SystemParam)]
 pub(crate) struct ViewmodelPublish<'w, 's> {
     scene: Option<ResMut<'w, ViewmodelScene>>,
+    menu: Option<Res<'w, crate::menu::MenuRuntime>>,
     gate: Option<Res<'w, ViewmodelCompletionGate>>,
     adapter: Option<ResMut<'w, HandAdapter>>,
     geometry: Option<Res<'w, ViewmodelGeometry>>,
@@ -639,6 +640,7 @@ impl ViewmodelPublish<'_, '_> {
         viewport: [u32; 2],
     ) -> Result<ViewmodelToken, HandFallback> {
         if hidden
+            || !crate::screen_policy::renders_game(Some(runtime), self.menu.as_deref(), None)
             || !first_person
             || runtime.ui_focused()
             || runtime

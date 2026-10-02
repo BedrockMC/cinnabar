@@ -216,6 +216,10 @@ fn face_uv_quad(
     })
 }
 
+#[cfg(test)]
+#[path = "geometry_uv_tests.rs"]
+mod uv_tests;
+
 fn cuboid_corners(min: [f32; 3], max: [f32; 3]) -> [[f32; 3]; 8] {
     [
         [min[0], min[1], min[2]],

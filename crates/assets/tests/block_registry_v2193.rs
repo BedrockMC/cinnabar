@@ -34,7 +34,12 @@ fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(LREG)),
-        "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"
+        serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../../assets/bedrock-target.json"
+        ))
+        .unwrap()["hashes"]["light_registry"]
+            .as_str()
+            .unwrap()
     );
 }
 

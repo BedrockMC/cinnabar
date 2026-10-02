@@ -68,8 +68,7 @@ fn drive_mod(
     let focused = windows.single().is_ok_and(|window| window.focused);
     let pressed = keybind_allowed(
         focused,
-        ui.ui_focused(),
-        menu.as_ref().is_some_and(|menu| menu.is_visible()),
+        crate::screen_policy::absorbs_input(Some(&ui), menu.as_deref(), Some(&presentation)),
     ) && keys.just_pressed(DEMO_KEY);
     if extension.host.is_active()
         && let Err(error) = extension.host.frame(pressed)
@@ -82,8 +81,8 @@ fn drive_mod(
 }
 
 /// A mod keybind is unavailable while another UI or an unfocused window owns input.
-fn keybind_allowed(window_focused: bool, ui_focused: bool, menu_visible: bool) -> bool {
-    window_focused && !ui_focused && !menu_visible
+fn keybind_allowed(window_focused: bool, input_absorbed: bool) -> bool {
+    window_focused && !input_absorbed
 }
 
 #[cfg(test)]
@@ -101,10 +100,9 @@ mod tests {
 
     #[test]
     fn keybind_respects_existing_input_authority() {
-        assert!(keybind_allowed(true, false, false));
-        assert!(!keybind_allowed(false, false, false));
-        assert!(!keybind_allowed(true, true, false));
-        assert!(!keybind_allowed(true, false, true));
+        assert!(keybind_allowed(true, false));
+        assert!(!keybind_allowed(false, false));
+        assert!(!keybind_allowed(true, true));
     }
 
     #[test]

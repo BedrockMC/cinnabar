@@ -141,6 +141,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libasound2-dev
+      - name: Test manual release preparation
+        env:
+          PYTHONDONTWRITEBYTECODE: 1
+        run: python3 -m unittest discover -s packaging/tests -p 'test_*.py'
+      - name: Test DMG retry and cleanup
+        run: bash packaging/tests/make-dmg.sh
+      - name: Test MSI payload extraction
+        shell: pwsh
+        run: ./packaging/tests/extract-msi.Tests.ps1
       - name: Verify Linux window backends
         shell: bash
         run: |

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -244,6 +245,14 @@ func withResourcePackAcquisitionBudget(dialer minecraft.Dialer, budget *resource
 	return dialer
 }
 
+// accountTokenSource keeps an offline (nil) account a nil interface.
+func accountTokenSource(account *authcache.Account) oauth2.TokenSource {
+	if account == nil {
+		return nil
+	}
+	return account
+}
+
 // decodeInboundPacket decodes a payload with the connection's own protocol;
 // false means the packet cannot be trusted for budgeting.
 func decodeInboundPacket[T packet.Packet](proto minecraft.Protocol, id uint32, payload []byte) (decoded T, ok bool) {
@@ -280,7 +289,7 @@ func (*preparationCancellationError) Error() string {
 func (err *preparationCancellationError) Unwrap() error { return err.cause }
 
 func (err *PackAdmissionError) Error() string {
-	return fmt.Sprintf("proxy: upstream requires %d resource pack(s), but pack application is unavailable", err.PackCount)
+	return fmt.Sprintf("proxy: upstream requires %d resource pack(s), but not all of them could be acquired", err.PackCount)
 }
 
 type resourcePackOfferConnection interface {
@@ -290,15 +299,15 @@ type resourcePackOfferConnection interface {
 }
 
 // configureResourcePackOffer hands off the upstream offer and stack projected onto the admitted
-// packs, always optional so an unavailable pack never blocks login.
+// packs with the server's own required bits, as vanilla would receive them.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable
 	}
-	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, false); err != nil {
+	if err := downstream.ConfigureResourcePackOfferSnapshot(stack.offer, stack.offer.TexturePackRequired()); err != nil {
 		return err
 	}
-	return downstream.ConfigureResourcePackStack(stack.snapshot, false)
+	return downstream.ConfigureResourcePackStack(stack.snapshot, stack.snapshot.Required())
 }
 
 var (
@@ -323,7 +332,8 @@ type selectedResourcePackStack struct {
 }
 
 // captureSelectedResourcePackStack admits the stack's downloaded packs within the bounds, less
-// those excluded, and projects the upstream offer and stack onto them.
+// those excluded, and projects the upstream offer and stack onto them. A server that requires its
+// packs must acquire the required offer and retain every selected offered identity.
 func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*resource.Pack) bool) (*selectedResourcePackStack, error) {
 	source, ok := upstream.(resourcePackStackSource)
 	if !ok {
@@ -341,10 +351,27 @@ func captureSelectedResourcePackStack(upstream upstreamSession, excluded func(*r
 	for _, pack := range admitResourcePacks(snapshot.Packs(), excluded, resourcePackSize) {
 		admitted[packIdentity(pack)] = true
 	}
+	offered, required := len(offer.TexturePacks()), offer.TexturePackRequired() || snapshot.Required()
+	offerIDs := map[string]bool{}
+	for _, entry := range offer.TexturePacks() {
+		info := entry.Info()
+		offerIDs[info.UUID.String()+"_"+info.Version] = true
+		if offer.TexturePackRequired() && entry.Pack() == nil {
+			return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+		}
+	}
+	if required {
+		for _, entry := range snapshot.Entries() {
+			id := entry.UUID() + "_" + entry.Version()
+			if offerIDs[id] && !admitted[id] {
+				return nil, &PackAdmissionError{Reason: PackAdmissionRequiredUnsupported, PackCount: offered}
+			}
+		}
+	}
 	offer, snapshot = minecraft.ProjectResourcePacks(offer, snapshot, func(pack *resource.Pack) bool {
 		return admitted[packIdentity(pack)]
 	})
-	return &selectedResourcePackStack{packs: offer.Packs(), required: snapshot.Required(), offer: offer, snapshot: snapshot}, nil
+	return &selectedResourcePackStack{packs: offer.Packs(), required: required, offer: offer, snapshot: snapshot}, nil
 }
 
 func packIdentity(pack *resource.Pack) string {
@@ -473,7 +500,7 @@ type preparedSlot struct {
 // preparedConnections retains a prepared upstream by the exact downstream
 // *minecraft.Conn identity until Accept transfers ownership to the session.
 type preparedConnections struct {
-	tokenSource                 oauth2.TokenSource
+	account                     *authcache.Account
 	logger                      *slog.Logger
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
@@ -499,10 +526,10 @@ type preparedConnections struct {
 	entries  map[*minecraft.Conn]*preparedSlot
 }
 
-func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSource, logger *slog.Logger) *preparedConnections {
+func newPreparedConnections(upstreamAddress string, account *authcache.Account, logger *slog.Logger) *preparedConnections {
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	connections := &preparedConnections{
-		tokenSource:    tokenSource,
+		account:        account,
 		logger:         logger,
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
@@ -510,10 +537,10 @@ func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSour
 	}
 	connections.connectPrepared = connections.connect
 	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, upstreamAddress, tokenSource, logger)
+		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
-		return connectUpstream(ctx, target.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
+		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dialer.DialContextNetwork)
 		})
 	}
@@ -657,13 +684,8 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if connections.resourcePackCache != nil {
 		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
 	}
-	dialer := newUpstreamDialerForAdmission(downstream, connections.tokenSource, telemetry, cache, packAdmission, connections.upstreamClientCache)
-	if target.xbl != nil {
-		dialer.XBLClient = target.xbl
-	}
-	if target.playFab != nil {
-		dialer.PlayFabClient = target.playFab
-	}
+	// The account is the Dialer's multiplayer token source, so it needs no Xbox or PlayFab client.
+	dialer := newUpstreamDialerForAdmission(downstream, accountTokenSource(connections.account), telemetry, cache, packAdmission, connections.upstreamClientCache)
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}
@@ -681,6 +703,10 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	}
 	packStack, err = connections.captureResourcePackStack(upstream, budget.excludes)
 	if err != nil {
+		var admission *PackAdmissionError
+		if errors.As(err, &admission) {
+			packAdmission.observeRejectedRequired()
+		}
 		return nil, err
 	}
 	packAdmission.observeOffer(upstream)
@@ -802,9 +828,6 @@ func servePreparedConnection(ctx context.Context, downstream downstreamSession, 
 		}
 		err = errors.Join(err, shutdownSession(downstream), prepared.close())
 	}()
-	if err := spawnBarrier(ctx, downstream, prepared.upstream); err != nil {
-		return err
-	}
 	err = relayPacketsWithCacheTelemetry(ctx, downstream, prepared.upstream, prepared.telemetry)
 	relayCompleted = true
 	return err

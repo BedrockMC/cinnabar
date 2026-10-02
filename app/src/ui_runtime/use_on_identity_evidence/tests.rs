@@ -59,6 +59,31 @@ fn push(runtime: &mut UiRuntime, sequence: u64, event: InventoryAuthorityEvent) 
 }
 
 #[test]
+fn normal_transaction_observes_the_final_stack_at_its_single_fifo_sequence() {
+    let mut runtime = runtime(true);
+    push(&mut runtime, 1, registry());
+    let InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(update)) = slot(64) else {
+        panic!()
+    };
+    push(
+        &mut runtime,
+        2,
+        InventoryAuthorityEvent::Inventory(InventoryEvent::Transaction(
+            protocol::InventoryTransactionEvent {
+                slots: Arc::from([update]),
+                skipped_actions: 0,
+            },
+        )),
+    );
+    let (sequence, identity) = runtime.use_on_identity_evidence.stack_sources[0]
+        .as_ref()
+        .unwrap();
+    assert_eq!(*sequence, 2);
+    assert_eq!(identity.count, 64);
+    assert_eq!(identity.stack_network_id, 41);
+}
+
+#[test]
 fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
     let mut original = runtime(true);
     push(&mut original, 1, registry());

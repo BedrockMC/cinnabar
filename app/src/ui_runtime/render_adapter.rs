@@ -60,9 +60,16 @@ pub fn adapt_ui_draw_list(
             }
             Ok(UiRenderVertex {
                 position,
+                clip_z: vertex.clip_z,
+                clip_w: vertex.clip_w,
                 uv: vertex.uv,
                 color: vertex.color,
-                style_flags: u32::from(vertex.style_flags),
+                style_flags: u32::from(vertex.style_flags)
+                    | if vertex.alpha_test {
+                        render::UI_STYLE_ALPHA_TEST
+                    } else {
+                        0
+                    },
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -86,16 +93,21 @@ pub fn adapt_ui_draw_list(
         let index_count = u32::try_from(source_indices.len())
             .map_err(|_| UiRenderAdapterError::InvalidIndexRange { batch: batch_index })?;
         indices.extend_from_slice(source_indices);
-        batches.push(UiRenderBatch::new(
-            u32::from(batch.texture_page),
-            scissor,
-            first_index,
-            index_count,
-            match batch.blend {
-                ui::UiBlendMode::Alpha => render::UI_BLEND_ALPHA,
-                ui::UiBlendMode::Invert => render::UI_BLEND_INVERT,
-            },
-        ));
+        batches.push(
+            UiRenderBatch::new(
+                u32::from(batch.texture_page),
+                scissor,
+                first_index,
+                index_count,
+                match batch.blend {
+                    ui::UiBlendMode::Alpha => render::UI_BLEND_ALPHA,
+                    ui::UiBlendMode::Invert => render::UI_BLEND_INVERT,
+                },
+            )
+            .with_depth_test(batch.depth_test)
+            .with_depth_write(batch.depth_write)
+            .with_world_projection(batch.world_projection),
+        );
     }
     let input = UiRenderInput {
         revision: draw_list.revision,
@@ -168,9 +180,12 @@ mod tests {
             vertices: (0..8)
                 .map(|index| UiVertex {
                     position: [index as f32, index as f32],
+                    clip_z: 0.0,
+                    clip_w: 1.0,
                     uv: [0, 0],
                     color: [255; 4],
                     style_flags: 0,
+                    alpha_test: false,
                 })
                 .collect(),
             indices: vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7],
@@ -179,12 +194,18 @@ mod tests {
                     texture_page: 0,
                     clip: rect(200.0, 200.0, 220.0, 220.0),
                     blend: ui::UiBlendMode::Alpha,
+                    depth_test: false,
+                    depth_write: false,
+                    world_projection: false,
                     index_range: 0..6,
                 },
                 UiDrawBatch {
                     texture_page: 0,
                     clip: rect(0.0, 0.0, 100.0, 100.0),
                     blend: ui::UiBlendMode::Invert,
+                    depth_test: false,
+                    depth_write: false,
+                    world_projection: false,
                     index_range: 6..12,
                 },
             ],
@@ -211,8 +232,69 @@ mod tests {
         assert_eq!(input.batches.len(), 1);
         assert_eq!(input.batches[0].first_index, 0);
         assert_eq!(input.batches[0].index_count, 6);
+        assert!(input.vertices.iter().all(|vertex| vertex.style_flags == 0));
         // The surviving batch keeps its declared blend on the render side.
         assert_eq!(input.batches[0].blend_mode, render::UI_BLEND_INVERT);
+    }
+
+    #[test]
+    fn world_projection_keeps_homogeneous_depth_through_dpi_conversion() {
+        let mut tree = ui::UiTree::new(vec![
+            ui::UiNode::new(ui::UiNodeId::new(1), None, rect(-4.0, -2.0, 4.0, 2.0))
+                .with_visual(ui::UiVisual::Solid {
+                    texture_page: 0,
+                    color: [0, 0, 0, 64],
+                })
+                .with_world_projection(ui::UiWorldProjection {
+                    clip_from_local: [
+                        [0.1, 0.0, 0.0, 0.0],
+                        [0.0, -0.1, 0.0, 0.0],
+                        [0.0; 4],
+                        [0.0, 0.0, 0.5, 2.0],
+                    ],
+                    viewport_size: [100.0, 80.0],
+                    depth_test: true,
+                    depth_write: true,
+                    alpha_test: true,
+                }),
+        ])
+        .unwrap();
+        tree.layout(
+            rect(0.0, 0.0, 100.0, 80.0),
+            ui::UiScale::new(2.0).unwrap(),
+            SafeArea::new(8.0, 6.0, 0.0, 0.0).unwrap(),
+        )
+        .unwrap();
+        let draw = tree.build_draw_list().unwrap();
+        let input = adapt_ui_draw_list(
+            &draw,
+            Arc::new(
+                UiRenderTextureArray::new(
+                    vec![render::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
+            UiRenderViewport {
+                physical_size: [200, 160],
+                dpi_scale: DpiScale::new(2.0).unwrap(),
+                safe_area: SafeArea::new(8.0, 6.0, 0.0, 0.0).unwrap(),
+            },
+        )
+        .unwrap();
+        assert_eq!(input.vertices[0].position, [160.0, 144.0]);
+        assert_eq!(input.vertices[0].clip_z, 0.5);
+        assert_eq!(input.vertices[0].clip_w, 2.0);
+        assert!(
+            input
+                .vertices
+                .iter()
+                .all(|vertex| { vertex.style_flags & render::UI_STYLE_ALPHA_TEST != 0 })
+        );
+        assert_eq!(input.batches[0].depth_test, 1);
+        assert_eq!(input.batches[0].depth_write, 1);
+        assert_eq!(input.batches[0].world_projection, 1);
+        assert_eq!(input.batches[0].scissor, UiScissor::new(0, 0, 200, 160));
     }
 
     fn rect(left: f32, top: f32, right: f32, bottom: f32) -> UiRect {

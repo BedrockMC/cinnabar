@@ -43,6 +43,8 @@ type Aes256Ctr = ctr::Ctr32BE<Aes256>;
 mod camera_instructions;
 #[path = "login_state/disconnect_reason.rs"]
 mod disconnect_reason;
+#[path = "login_state/item_registry.rs"]
+mod item_registry;
 #[path = "login_state/level_chunk_wire_failure.rs"]
 mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
@@ -382,6 +384,15 @@ impl ServerScript {
                     packets.as_slice(),
                     [
                         McpePacket {
+                            data: McpePacketData::RequestChunkRadiusPacket(
+                                RequestChunkRadiusPacket {
+                                    chunk_radius: 16,
+                                    max_chunk_radius: 16,
+                                }
+                            ),
+                            ..
+                        },
+                        McpePacket {
                             // The raw `type_` int is a named enum in 1.26.40;
                             // 1 was StartLoadingScreen.
                             data: McpePacketData::ServerboundLoadingScreenPacket(
@@ -389,15 +400,6 @@ impl ServerScript {
                                     loading_screen_packet_type:
                                         ServerboundLoadingScreenPacketLoadingScreenPacketType::Startloadingscreen,
                                     ..
-                                }
-                            ),
-                            ..
-                        },
-                        McpePacket {
-                            data: McpePacketData::RequestChunkRadiusPacket(
-                                RequestChunkRadiusPacket {
-                                    chunk_radius: 16,
-                                    max_chunk_radius: 16,
                                 }
                             ),
                             ..

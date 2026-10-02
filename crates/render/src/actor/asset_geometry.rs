@@ -13,6 +13,8 @@ use super::{
     MAX_RENDER_BONES_PER_ACTOR,
 };
 
+#[path = "material.rs"]
+mod material;
 #[cfg(test)]
 #[path = "skin_geometry_tests.rs"]
 mod skin_geometry_tests;
@@ -106,6 +108,7 @@ pub(super) fn geometry_from_geometry_index(
             vertex.back_uv = vertex.uv;
         }
     }
+    material::apply_native_arrow_material(assets, geometry_index, &mut vertices);
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
@@ -237,7 +240,7 @@ pub fn find_geometry_index(assets: &RuntimeEntityAssets, identifier: &str) -> Op
         .and_then(|index| u32::try_from(index).ok())
 }
 
-fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
+pub(super) fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
     // Pivots share the vertices' rig frame, where authored X is mirrored.
     bone.pivot.map_or([0.0; 3], |pivot| {
         [
@@ -248,7 +251,7 @@ fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
     })
 }
 
-fn resolve_geometry_bones(
+pub(super) fn resolve_geometry_bones(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
 ) -> Result<Vec<EntityGeometryBone>, ActorRigGeometryError> {
@@ -296,6 +299,9 @@ fn resolve_geometry_bones(
 }
 
 fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
+    if child.binding.is_some() {
+        base.binding.clone_from(&child.binding);
+    }
     if child.parent.is_some() {
         base.parent.clone_from(&child.parent);
     }
@@ -320,6 +326,15 @@ fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBo
     // `reset` drops the cubes a bone inherited; it is how derived geometries hide a bone.
     if child.reset == Some(true) {
         base.cubes = Box::default();
+        base.texture_meshes = Box::default();
+    }
+    if !child.texture_meshes.is_empty() {
+        base.texture_meshes = base
+            .texture_meshes
+            .iter()
+            .chain(child.texture_meshes.iter())
+            .cloned()
+            .collect();
     }
     if !child.cubes.is_empty() {
         base.cubes.clone_from(&child.cubes);
@@ -378,6 +393,8 @@ mod tests {
         };
         EntityGeometryBone {
             name: "body".into(),
+            binding: None,
+            texture_meshes: Box::new([]),
             parent: None,
             pivot: None,
             rotation: None,

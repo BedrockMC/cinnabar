@@ -47,7 +47,9 @@ fn foliage_variants_select_their_palette_inside_the_shared_average() {
     assert!(source.contains("case 0x200u: { return unpack_linear_rgb10(tint.birch); }"));
     assert!(source.contains("case 0x400u: { return unpack_linear_rgb10(tint.evergreen); }"));
     assert!(source.contains("case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }"));
-    assert!(source.contains("tint_domain_colour(tint, tint_kind, material_flags)"));
+    assert!(source.contains(
+        "tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))"
+    ));
     assert!(!source.contains("if (tint_kind == 0x20u"));
 }
 

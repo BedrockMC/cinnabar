@@ -3,6 +3,7 @@
 //! in virtual UI pixels, and their draw nodes become retained UI nodes over the
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
+mod scene_policy;
 
 use std::{
     borrow::{Borrow, Cow},
@@ -509,7 +510,7 @@ fn scaled_request<'a>(
 ) -> TextLayoutRequest<'a> {
     let mut request = metrics.request(text, width_64, font);
     if factor != 1.0
-        && let Ok(scale) = UiScale::new(metrics.scale.get() * factor)
+        && let Ok(scale) = UiScale::new_display(metrics.scale.get() * factor)
     {
         request.scale = scale;
     }

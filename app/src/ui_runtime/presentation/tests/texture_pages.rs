@@ -111,55 +111,25 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
 }
 
 #[test]
-fn mixed_font_shadow_and_fill_keep_logical_page_order() {
+fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let runtime = UiRuntime::new(1);
-    presentation.set_below_name_anchors([super::super::retained_hud::BelowNameAnchor {
-        x: 400.0,
-        y: 300.0,
-        name: Arc::from("A一A"),
-        score: 7,
-        objective: Arc::from(""),
-    }]);
+    presentation.set_nametag_anchors(vec![super::super::nametags::tests::anchor("A一A")]);
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    let glyphs = input
-        .indices
-        .chunks_exact(6)
-        .enumerate()
-        .filter_map(|(quad, indices)| {
-            let vertex = input.vertices[indices[0] as usize];
-            let first = (quad * 6) as u32;
-            let batch = input
-                .batches
-                .iter()
-                .find(|b| first >= b.first_index && first < b.first_index + b.index_count)
-                .unwrap();
-            if batch.texture_page >= 2 || !matches!(vertex.uv, [16, 0] | [32, 0]) {
-                return None;
-            }
-            Some((batch.texture_page, vertex.color, vertex.position))
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        glyphs.iter().map(|g| g.0).collect::<Vec<_>>(),
-        [0, 1, 0, 0, 1, 0]
+    // The world glyphs now rasterize into the retained GPU line atlas, not HUD vertices.
+    let scene = presentation.nametag_scene();
+    assert_eq!(scene.records.len(), 2);
+    assert_eq!(scene.records[1].color, [1.0; 4]);
+    assert_eq!(scene.atlas.len(), 1);
+    assert!(
+        scene.atlas[0]
+            .rgba8
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] != 0)
+            .all(|pixel| pixel == [255; 4])
     );
-    let shadow_offset = gui_scale([800, 600], None) as f32;
-    for index in 0..3 {
-        for channel in 0..3 {
-            assert_eq!(glyphs[index].1[channel], glyphs[index + 3].1[channel] / 4);
-        }
-        assert_eq!(glyphs[index].1[3], glyphs[index + 3].1[3]);
-        assert_eq!(
-            glyphs[index].2,
-            [
-                glyphs[index + 3].2[0] + shadow_offset,
-                glyphs[index + 3].2[1] + shadow_offset
-            ]
-        );
-    }
     for batch in input.batches.iter() {
         let logical = batch.texture_page as usize;
         let physical = input.textures.plan().locations()[logical];

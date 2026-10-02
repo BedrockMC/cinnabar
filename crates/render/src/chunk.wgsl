@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct PackedQuad {
     geometry: u32,
@@ -92,9 +92,7 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) world_position: vec3<f32>,
-    @location(9) block_light: f32,
-    @location(10) sky_light: f32,
-    @location(11) ambient_occlusion: f32,
+    @location(9) lighting: vec3<f32>,
 }
 
 fn quad_corner(face: u32, corner: u32, origin: vec3<f32>, width: f32, height: f32) -> vec3<f32> {
@@ -257,9 +255,7 @@ fn vertex(
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
-    out.block_light = light_brightness(light_sample & 15u);
-    out.sky_light = light_brightness((light_sample >> 4u) & 15u);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 3u);
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
     return out;
 }
 
@@ -269,6 +265,7 @@ fn apply_material_tint(
     biome_record: u32,
     local_position: vec3<f32>,
     normal: vec3<f32>,
+    world_origin: vec3<f32>,
 ) -> vec4<f32> {
     let tint_kind = material_flags & 0x30u;
     if (tint_kind != 0u) {
@@ -277,7 +274,8 @@ fn apply_material_tint(
             material_flags,
             biome_record,
             local_position - normal * 0.001,
-        );
+            world_origin,
+        ).rgb;
         if ((material_flags & (1u << 6u)) != 0u) {
             // Grass-side alpha is an overlay weight, not transparency. Its
             // alpha-zero RGB contains the opaque dirt base.
@@ -332,13 +330,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.biome_record,
         in.local_position,
         in.normal,
+        in.world_position - in.local_position,
     );
     let lit = lit_colour(
         colour.rgb,
-        in.block_light,
-        in.sky_light,
-        in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 }

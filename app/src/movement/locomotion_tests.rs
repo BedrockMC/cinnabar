@@ -16,6 +16,40 @@ use super::{
 
 const TICK: Duration = Duration::from_millis(50);
 
+/// A render frame without a fixed tick must retain the flight toggle.
+#[test]
+fn flight_toggle_survives_a_frame_without_a_tick() {
+    let mut physics = grounded_controller();
+    let context = PhysicsSampleContext {
+        mode_intent: ModeIntent {
+            can_fly: true,
+            fly_toggle: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let frame = physics.advance_with_context(
+        Duration::from_millis(10),
+        MovementInput::default(),
+        context,
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.completed_ticks, 0);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(40),
+        MovementInput::default(),
+        PhysicsSampleContext {
+            mode_intent: ModeIntent {
+                fly_toggle: false,
+                ..context.mode_intent
+            },
+            ..context
+        },
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples[0].processed.mode, MovementMode::Flying);
+}
+
 /// Floor top at y=1 plus a ceiling whose underside sits at the given height.
 struct LowCeiling(f64);
 
@@ -139,6 +173,43 @@ fn flight_without_permission_never_starts() {
         &VersionedFloor(1),
     );
     assert_eq!(sample.processed.mode, MovementMode::Walking);
+}
+
+#[test]
+fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
+    let mut physics = grounded_controller();
+    let input = MovementInput {
+        jumping: true,
+        ..Default::default()
+    };
+    let world = VersionedFloor(1);
+    let flying = step(
+        &mut physics,
+        input,
+        ModeIntent {
+            can_fly: true,
+            server_flying: true,
+            ..Default::default()
+        },
+        &world,
+    );
+    assert_eq!(flying.processed.mode, MovementMode::Flying);
+    assert!(!flying.grounded_after_tick);
+    let stopped = step(
+        &mut physics,
+        input,
+        ModeIntent {
+            can_fly: true,
+            server_flying: false,
+            ..Default::default()
+        },
+        &world,
+    );
+    assert_eq!(stopped.processed.mode, MovementMode::Walking);
+    assert!(has(
+        input_flags(&stopped, HeldInput::from(&flying)),
+        PlayerInputFlags::STOP_FLYING
+    ));
 }
 
 #[test]
