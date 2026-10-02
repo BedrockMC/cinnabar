@@ -537,7 +537,9 @@ impl ActorRenderScene {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from(compatibility_instances);
         }
-        if self.frame.skins_rgba8 != skins_rgba8 {
+        if !Arc::ptr_eq(&self.frame.skins_rgba8, &skins_rgba8)
+            && self.frame.skins_rgba8 != skins_rgba8
+        {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             self.frame.skins_rgba8 = skins_rgba8;
         }
