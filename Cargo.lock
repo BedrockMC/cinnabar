@@ -2589,7 +2589,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "toml",
+ "toml 0.9.12+spec-1.1.0",
  "wasmtime",
  "wat",
  "wit-component",
