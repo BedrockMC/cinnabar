@@ -479,11 +479,9 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
             "light_colour"
         ));
     }
-    assert!(plugin.contains("binding: 13,\n                    visibility: ShaderStages::VERTEX"));
-    assert!(
-        plugin.contains("binding: 15,\n                    visibility: ShaderStages::FRAGMENT")
-    );
-    assert!(!plugin.contains("binding: 15,\n                    visibility: ShaderStages::VERTEX"));
+    assert!(plugin.contains("binding: 13,\n                visibility: ShaderStages::VERTEX"));
+    assert!(plugin.contains("binding: 15,\n                visibility: ShaderStages::FRAGMENT"));
+    assert!(!plugin.contains("binding: 15,\n                visibility: ShaderStages::VERTEX"));
 }
 
 #[test]

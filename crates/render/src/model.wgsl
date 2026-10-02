@@ -55,7 +55,7 @@ struct VertexOutput {
     @location(12) @interpolate(flat) two_sided: u32,
     @location(13) world_position: vec3<f32>,
 #ifdef ENHANCED
-    @location(14) @interpolate(flat) material_class: u32,
+    @location(14) @interpolate(flat) surface_class: u32,
 #endif
 }
 
@@ -232,8 +232,8 @@ fn vertex(
     out.world_position = world;
     out.world_origin = vec3<f32>(origin.value.xyz);
 #ifdef ENHANCED
-    out.material_class = material_class(material_id);
-    out.world_position = waved_position(world, out.material_class, clamp(template_position.y, 0.0, 1.0));
+    out.surface_class = material_class(material_id);
+    out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
     out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
     out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
 #endif
@@ -314,7 +314,7 @@ fn fragment(
         in.block_light,
         in.sky_light,
         in.ambient_occlusion,
-        in.material_class,
+        in.surface_class,
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
@@ -351,7 +351,7 @@ fn fragment_blend(
         in.block_light,
         in.sky_light,
         in.ambient_occlusion,
-        in.material_class,
+        in.surface_class,
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
