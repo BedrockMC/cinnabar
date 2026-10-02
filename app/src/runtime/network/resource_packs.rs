@@ -289,6 +289,8 @@ fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
         }
         pack.ui_layers.push(files);
     }
+    // Textures are read on first draw, after this compile, so all of their bytes are inputs.
+    view.track_contents("textures/");
     // A pack that only restyles textures still overrides vanilla UI art.
     if pack.is_empty() && view.list("textures/").is_empty() {
         return None;

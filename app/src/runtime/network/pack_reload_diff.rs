@@ -118,6 +118,16 @@ fn dependency_fingerprint(
                         populated = true;
                     }
                 }
+                PackDependency::Contents(prefix) => {
+                    for path in pack.files_under(prefix) {
+                        layer.update([2]);
+                        hash_part(&mut layer, path.as_bytes());
+                        if let Ok(Some(bytes)) = pack.read_file(path) {
+                            hash_part(&mut layer, &bytes);
+                        }
+                        populated = true;
+                    }
+                }
             }
         }
         if populated {
