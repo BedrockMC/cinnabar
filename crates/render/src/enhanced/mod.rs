@@ -64,6 +64,10 @@ pub struct EnhancedRendering {
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
 
+/// Enhanced is disabled until the GPU faults and system freezes are resolved.
+/// Settings, launch flags and camera components cannot override this switch.
+pub const ENHANCED_RENDERING_ENABLED: bool = false;
+
 impl Default for EnhancedRendering {
     fn default() -> Self {
         Self {
@@ -84,6 +88,9 @@ pub struct EnhancedRenderPlugin;
 
 /// Registers conditional shader imports without installing Enhanced passes.
 pub(crate) fn load_shader_imports(app: &mut App) {
+    if !ENHANCED_RENDERING_ENABLED {
+        return;
+    }
     if app
         .world()
         .resource::<Assets<Shader>>()
@@ -113,6 +120,9 @@ pub(crate) fn load_shader_imports(app: &mut App) {
 
 impl Plugin for EnhancedRenderPlugin {
     fn build(&self, app: &mut App) {
+        if !ENHANCED_RENDERING_ENABLED {
+            return;
+        }
         load_shader_imports(app);
         load_internal_asset!(
             app,
@@ -133,6 +143,9 @@ impl Plugin for EnhancedRenderPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        if !ENHANCED_RENDERING_ENABLED {
+            return;
+        }
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
