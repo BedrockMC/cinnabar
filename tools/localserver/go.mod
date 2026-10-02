@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/df-mc/dragonfly v0.0.0-20260919192252-3d29a693c54b
 	github.com/go-gl/mathgl v1.2.0
+	github.com/google/uuid v1.6.0
 )
 
 require (
@@ -21,7 +22,6 @@ require (
 	github.com/df-mc/worldupgrader v1.0.22 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/pion/datachannel v1.6.3 // indirect
 	github.com/pion/dtls/v3 v3.1.9 // indirect
