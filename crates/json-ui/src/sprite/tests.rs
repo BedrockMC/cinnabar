@@ -141,6 +141,28 @@ fn tiling_repeats_the_uv_region() {
     assert!(quads.iter().all(|(_, uv)| uv.u1 == 0.5 && uv.v1 == 0.5));
 }
 
+// A tiled 1x1 fill (vanilla `dropDownSelectBG`) covers a wide row whole, not up to the tile cap.
+#[test]
+fn tiled_single_texel_stretches_across_the_rect() {
+    let rect = [400.0, 19.0];
+    let quads = draw(
+        json!({ "tiled": true }),
+        rect,
+        TextureMeta::plain([1.0, 1.0]),
+    );
+    assert_eq!(
+        quads,
+        vec![(Rect::new(0.0, 0.0, 400.0, 19.0), uv(0.0, 0.0, 1.0, 1.0))]
+    );
+    let strip = draw(
+        json!({ "tiled": true }),
+        [32.0, 32.0],
+        TextureMeta::plain([8.0, 1.0]),
+    );
+    assert_eq!(strip.len(), 4);
+    assert!(strip.iter().all(|(dest, _)| dest.h == 32.0));
+}
+
 // Tiling a nine-slice texture keeps its corners.
 #[test]
 fn tiled_nine_slice_keeps_the_border() {
