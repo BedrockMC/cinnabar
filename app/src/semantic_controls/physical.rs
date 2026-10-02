@@ -180,16 +180,17 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             .collect::<Vec<_>>();
         buttons.sort_unstable();
         buttons.dedup();
+        let sampled_key = |key| keys.pressed(key) || keys.just_pressed(key);
         KeyboardMouseFrame {
             activity_sequence: 0,
             keys: keyboard_keys,
             mouse_buttons: buttons,
             mouse_motion: mouse_motion.delta.to_array(),
             modifiers: ModifierChord {
-                shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
-                control: keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
-                alt: keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight),
-                super_key: keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight),
+                shift: sampled_key(KeyCode::ShiftLeft) || sampled_key(KeyCode::ShiftRight),
+                control: sampled_key(KeyCode::ControlLeft) || sampled_key(KeyCode::ControlRight),
+                alt: sampled_key(KeyCode::AltLeft) || sampled_key(KeyCode::AltRight),
+                super_key: sampled_key(KeyCode::SuperLeft) || sampled_key(KeyCode::SuperRight),
             },
         }
     });
@@ -509,6 +510,48 @@ mod tests {
         usages.sort_unstable();
         usages.dedup();
         assert_eq!(usages.len(), translated);
+    }
+
+    #[test]
+    fn review_same_frame_released_modifier_keeps_the_preserved_chord() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<Touches>()
+            .init_resource::<SemanticTouchTargets>()
+            .init_resource::<PendingDeviceFrame>()
+            .add_systems(Update, collect_raw_input);
+        app.world_mut().spawn((
+            Window::default(),
+            CursorOptions {
+                grab_mode: CursorGrabMode::Locked,
+                visible: false,
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ));
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::ShiftLeft);
+        keys.press(KeyCode::KeyW);
+        keys.release(KeyCode::ShiftLeft);
+        keys.release(KeyCode::KeyW);
+        drop(keys);
+        app.update();
+        let pending = app.world().resource::<PendingDeviceFrame>();
+        let keyboard = pending
+            .frame
+            .as_ref()
+            .unwrap()
+            .keyboard_mouse
+            .as_ref()
+            .unwrap();
+        assert!(
+            keyboard
+                .keys
+                .contains(&keyboard_usage(KeyCode::KeyW).unwrap())
+        );
+        assert!(keyboard.modifiers.shift);
     }
 
     #[test]
