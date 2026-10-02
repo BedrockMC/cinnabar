@@ -219,8 +219,8 @@ fn production_forwarding_rejects_old_buffered_stream_after_fifo_restart() {
     assert_eq!(audio.wire_evidence.rows[0].observed_fifo_sequence, 1);
     assert_eq!(
         audio.catalog_unavailable_total(),
-        3,
-        "observer must not filter resolver input"
+        2,
+        "replaced-stream events cannot reach catalog resolution"
     );
     let mut events = Vec::new();
     {
@@ -260,10 +260,12 @@ fn production_forwarding_rejects_old_buffered_stream_after_fifo_restart() {
 fn production_evidence_precedes_missing_catalog_without_changing_resolution() {
     let mut origin = stream();
     let events = forwarded(&mut origin, 1);
+    let mut comparison = stream();
+    let comparison_events = forwarded(&mut comparison, 1);
     let mut enabled = app(origin, true);
-    let mut disabled = app(stream(), false);
-    write(&mut enabled, events.clone());
-    write(&mut disabled, events);
+    let mut disabled = app(comparison, false);
+    write(&mut enabled, events);
+    write(&mut disabled, comparison_events);
     enabled.update();
     disabled.update();
     let enabled = enabled.world().resource::<SessionAudio>();
