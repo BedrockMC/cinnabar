@@ -9,6 +9,7 @@ mod environment;
 mod first_run;
 mod fullscreen;
 mod game_mode_capabilities;
+mod global_resources;
 mod hotbar;
 mod hud_tools;
 mod install_layout;

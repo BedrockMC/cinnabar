@@ -94,7 +94,10 @@ impl Binder<'_> {
                     if name == "#collection_total_items" {
                         return items.map(|items| Scalar::Int(items.len() as i64));
                     }
-                    item?.values.get(name).cloned()
+                    item.map(|item| &item.values)
+                        .or_else(|| self.data.collection_defaults.get(key))?
+                        .get(name)
+                        .cloned()
                 });
             }
             Kind::Details { collection, prefix } => details(collection, prefix, scope, own),

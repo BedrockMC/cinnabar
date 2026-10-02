@@ -632,7 +632,15 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     mut entities: ResMut<ChunkEntities>,
     existing_instances: Query<&ChunkRenderInstance>,
     runtime: RenderQueueRuntime,
+    reload: Option<Res<ChunkTextureReload>>,
 ) {
+    if !queue.session_reset_pending
+        && reload
+            .as_ref()
+            .is_some_and(|reload| reload.geometry_pending())
+    {
+        return;
+    }
     let RenderQueueRuntime {
         gpu_removals,
         acknowledgements,

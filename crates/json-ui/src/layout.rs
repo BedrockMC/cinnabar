@@ -71,6 +71,17 @@ pub trait TextMeasure {
         self.extent(text)
     }
 
+    /// Measures a label in a named font; default-only backends keep their label metrics.
+    fn named_label(
+        &self,
+        text: &str,
+        _font: &str,
+        width: Option<f64>,
+        shape: crate::label::LabelShape,
+    ) -> [f64; 2] {
+        self.label(text, width, shape)
+    }
+
     /// A localizing label's text as it will draw; measurers without a language
     /// table measure it as written.
     fn localize<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {

@@ -68,6 +68,7 @@ impl Plugin for ChunkRenderPlugin {
             return;
         }
 
+        app.init_resource::<ChunkTextureReload>();
         install_chunk_extraction(app);
 
         crate::lighting::install(app);
@@ -147,10 +148,14 @@ impl Plugin for ChunkRenderPlugin {
                     queue_transparent_chunks
                         .run_if(crate::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),
-                    prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
+                    prepare_chunk_texture_assets
+                        .in_set(RenderSystems::PrepareAssets)
+                        .before(RenderSystems::Queue),
                     prepare_chunk_animation_clock.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_biome_tints.in_set(RenderSystems::PrepareResources),
-                    prepare_gpu_chunks.in_set(RenderSystems::PrepareResources),
+                    prepare_gpu_chunks
+                        .in_set(RenderSystems::PrepareResources)
+                        .after(prepare_chunk_texture_assets),
                     prepare_transparent_sorts
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),

@@ -161,6 +161,51 @@ fn factory_instantiates_one_control_per_collection_index() {
 }
 
 #[test]
+fn empty_collection_defaults_keep_headers_without_creating_factory_rows() {
+    // Vanilla resource_packs_screen.json:3195 binds section visibility to the pack collection.
+    let section = ctrl_children(
+        "section",
+        Some("stack_panel"),
+        json!({ "bindings": [{
+            "binding_type": "collection", "binding_collection_name": "items",
+            "binding_name": "#section_visible", "binding_name_override": "#visible"
+        }] }),
+        vec![
+            ctrl("header", Some("label"), json!({ "text": "Available" })),
+            factory_panel("list", "items", &[("button", ControlRef::new("ns", "row"))]),
+        ],
+    );
+    let lib = StubLibrary(
+        [("ns.row".to_owned(), ctrl("row", Some("label"), json!({})))]
+            .into_iter()
+            .collect(),
+    );
+    let mut data = DataSource::new();
+    data.set_strict(true);
+    data.set_collection("items", Vec::new());
+    data.set_collection_defaults(
+        "items",
+        [("#section_visible".to_owned(), Scalar::Bool(true))].into(),
+    );
+
+    let bound = bind(&section, &data, &lib);
+    assert_eq!(prop(&bound, "visible"), &json!(true));
+    assert_eq!(bound.children[0].name, "header");
+    assert!(bound.children[1].children.is_empty());
+
+    data.set_collection(
+        "items",
+        vec![CollectionItem::new("button").with("#section_visible", Scalar::Bool(false))],
+    );
+    let bound = bind(&section, &data, &lib);
+    assert_eq!(prop(&bound, "visible"), &json!(false));
+
+    data.set_collection("items", vec![CollectionItem::new("button")]);
+    let bound = bind(&section, &data, &lib);
+    assert_eq!(prop(&bound, "visible"), &json!(false));
+}
+
+#[test]
 fn factory_selects_the_control_for_each_item_role() {
     let label = ctrl(
         "label_ctrl",

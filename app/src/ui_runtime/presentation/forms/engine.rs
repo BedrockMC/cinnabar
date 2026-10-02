@@ -20,13 +20,15 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 mod fill_renderers;
 pub(crate) mod hud_renderers;
 mod menu_renderers;
+mod pack_catalog;
+pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 pub(super) use text_paint::active_codes;
-use text_paint::{Measure, TextPaint, UNWRAPPED_LOGICAL, scaled_request, width_64};
+use text_paint::{Measure, TextPaint};
 
 pub(crate) struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
@@ -93,7 +95,8 @@ pub(super) struct EngineInputs<'a> {
 }
 
 impl FormEngine {
-    pub(super) fn new(assets: Arc<RuntimeUiAssets>, catalog: Catalog, first_page: u16) -> Self {
+    pub(super) fn new(assets: Arc<RuntimeUiAssets>, mut catalog: Catalog, first_page: u16) -> Self {
+        super::global_resources::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
         let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
         Self {
@@ -202,35 +205,24 @@ impl FormEngine {
     /// Apply a server pack's ui files over vanilla and the Java HUD pack; none restores the base.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
-            self.catalog = Arc::clone(&self.base);
+            self.install_pack_catalog(Arc::clone(&self.base));
             return;
         }
-        let touched = layers
-            .iter()
-            .flat_map(|files| {
-                self.vanilla.overlay_namespaces(
-                    files
-                        .iter()
-                        .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
-                )
-            })
-            .collect();
-        let mut catalog = hud_renderers::with_java_hud(&self.vanilla, &touched);
-        for files in layers {
-            catalog.apply_pack(
-                files
-                    .iter()
-                    .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
-            );
-        }
-        for note in catalog
-            .diagnostics()
-            .iter()
-            .skip(self.vanilla.diagnostics().len())
-        {
-            bevy::log::debug!(note, "server ui pack");
-        }
-        self.catalog = Arc::new(catalog);
+        self.catalog = Arc::new(layer_pack_catalog(&self.vanilla, layers));
+        self.cache = None;
+        self.screens = screen_cache::ScreenCache::default();
+    }
+
+    /// Returns the original catalog used by background pack compilation.
+    pub(super) fn pack_catalog_base(&self) -> Arc<Catalog> {
+        self.vanilla.clone()
+    }
+
+    /// Publishes a worker-resolved catalog and retires caches holding the previous one.
+    pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+        self.catalog = catalog;
+        self.cache = None;
+        self.screens = screen_cache::ScreenCache::default();
     }
 
     /// Render `model`; `Ok(None)` without its template. Layout holds until model or scroll change.
@@ -722,6 +714,7 @@ impl Painter<'_> {
             _ => clip,
         };
         if let Draw::Text {
+            font_type,
             text,
             color,
             shadow,
@@ -743,7 +736,7 @@ impl Painter<'_> {
                 localize: *localize,
                 options: options.clone(),
             };
-            return self.text(text, dest, clip, style);
+            return self.text(text, dest, clip, style, font_type);
         }
         self.group(clip)?;
         let (visual, bounds) = match &node.draw {

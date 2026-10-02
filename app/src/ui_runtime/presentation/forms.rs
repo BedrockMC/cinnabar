@@ -8,6 +8,7 @@ mod container_kinds;
 mod containers;
 mod engine;
 mod fallback;
+mod global_resources;
 mod hud;
 mod join_progress;
 mod loading_screen;
@@ -120,6 +121,14 @@ pub(super) struct FormPresentation {
 }
 
 impl UiPresentationRuntime {
+    /// Shares immutable carrier definitions with the optional-pack reload worker.
+    pub(crate) fn pack_catalog_base(&self) -> Option<Arc<json_ui::Catalog>> {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map(|engine| engine.pack_catalog_base())
+    }
+
     /// Bind the compiled UI carrier: its atlas pages join the texture array and
     /// its catalog drives server forms. On failure the fallback dialog stays.
     pub(crate) fn enable_json_ui(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
@@ -155,7 +164,11 @@ impl UiPresentationRuntime {
         let Some(engine) = self.form_presentation.engine.as_mut() else {
             return;
         };
-        engine.set_server_pack(&pack.ui_layers);
+        if let Some(catalog) = &pack.catalog {
+            engine.install_pack_catalog(catalog.clone());
+        } else {
+            engine.set_server_pack(&pack.ui_layers);
+        }
         let atlas = server_pack::ServerAtlas::new(
             &pack.textures,
             pack.view.clone(),

@@ -247,6 +247,12 @@ impl InstallLayout {
         self.resource_root.join(vanilla_pack_relative())
     }
 
+    /// Imported optional packs and the applied global selection.
+    #[must_use]
+    pub fn global_resource_packs_dir(&self) -> PathBuf {
+        self.user_data_root.join("resource-packs/global")
+    }
+
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")

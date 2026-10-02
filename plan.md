@@ -33,8 +33,22 @@ labels follow `TextComponent` (0.5/1/2/4 font sizes, line padding, locked
 colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
 in sRGB-encoded values through an offscreen layer. Not live-accepted.
 Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
-material not inspected); placeholder hiding ignores focus; `font_type` and
-`enable_profanity_filter` reach the host but select nothing.
+material not inspected); placeholder hiding ignores focus; `enable_profanity_filter` reaches the host but selects nothing.
+2026-10-01 resource packs (in progress, not parity-accepted): Global Resources imports
+optional packs above the pinned base and below world/server packs. Applying resource
+changes in a live world is an intentional Cinnabar extension; vanilla forbids it.
+Worker preparation and revision-stamped publication preserve the connection.
+Resident block geometry, biome records and transparent draw references now stage
+with the atlas; GPU-wide atomicity still needs a native pass, including non-block
+uploads. Actual compiler reads drive subscriber invalidation. Immutable imported
+revisions, pack thumbnails, automatic hardware tiers, item metadata sprites and
+named bitmap/outline fonts are implemented but not parity-accepted.
+Incomplete: native frame/GPU/process-memory acceptance, full remote gates,
+TTFMSDF/precomputed MSDF rendering, contextual item icon routes, verified retail
+missing-icon fallback, and native font alias/metric comparison. Outline MSDF
+fonts currently use provisional alpha rasterization. No visual gate is closed.
+See [continuation references](docs/resource-pack-continuation-references.md) and
+[original resource-pack references](docs/resource-pack-references.md).
 
 
 2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI

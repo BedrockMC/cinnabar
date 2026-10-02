@@ -262,6 +262,23 @@ fn operand_token(value: &Value) -> String {
 mod tests {
     use super::{Env, evaluate, substitute};
     use serde_json::json;
+    #[test]
+    fn dotted_controller_variables_resolve_labels_and_button_targets() {
+        // Vanilla global resources declares `$button.remove` and `$button.move_left`.
+        let mut env = Env::new();
+        env.set("button.remove", json!("resourcePack.selected.remove"));
+        env.set("button.move_left", json!("button.move_left_global"));
+        let mut missing = Vec::new();
+        assert_eq!(
+            substitute(&json!("$button.remove"), &env, &mut missing),
+            json!("resourcePack.selected.remove")
+        );
+        assert_eq!(
+            substitute(&json!("$button.move_left"), &env, &mut missing),
+            json!("button.move_left_global")
+        );
+        assert!(missing.is_empty());
+    }
 
     fn env() -> Env {
         let mut env = Env::new();

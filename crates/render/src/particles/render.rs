@@ -114,8 +114,15 @@ pub fn update_particle_frame(
     system.tick(dt, world);
     let lists = system.build_draw(view, world);
     frame.set_lists(lists, view.position);
-    if frame.base.is_none() {
-        frame.base = Some(system.atlas_base());
+    let base = system.atlas_base();
+    if frame
+        .base
+        .as_ref()
+        .is_none_or(|old| !Arc::ptr_eq(old, &base))
+    {
+        frame.base = Some(base);
+        frame.patch_seq = 0;
+        frame.patches = Arc::default();
     }
     let seq = system.atlas().patch_seq();
     if seq != frame.patch_seq {
@@ -164,6 +171,7 @@ struct ParticleGpu {
     sampler: Sampler,
     texture_view: Option<TextureView>,
     texture: Option<Texture>,
+    base: Option<Arc<[u8]>>,
     uploaded_seq: u64,
     buffer: Option<Buffer>,
     capacity: usize,
@@ -189,6 +197,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         texture_view: None,
         texture: None,
+        base: None,
         uploaded_seq: 0,
         buffer: None,
         capacity: 0,
@@ -206,8 +215,8 @@ fn prepare_particle_resources(
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ParticleGpu>,
 ) {
-    if gpu.texture.is_none()
-        && let Some(base) = &frame.base
+    if let Some(base) = &frame.base
+        && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
         && base.len() == (ATLAS_SIDE * ATLAS_SIDE * 4) as usize
     {
         let texture = render_device.create_texture(&TextureDescriptor {
@@ -233,6 +242,7 @@ fn prepare_particle_resources(
         );
         gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
         gpu.texture = Some(texture);
+        gpu.base = Some(Arc::clone(base));
         gpu.uploaded_seq = 0;
         gpu.bind_group = None;
     }

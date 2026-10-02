@@ -137,7 +137,16 @@ pub(crate) fn natural(
     } else {
         std::borrow::Cow::Borrowed(text.as_str())
     };
-    env.text.label(&text, width, LabelShape::of(control))
+    env.text.named_label(
+        &text,
+        control
+            .properties
+            .get("font_type")
+            .and_then(Value::as_str)
+            .unwrap_or("default"),
+        width,
+        LabelShape::of(control),
+    )
 }
 
 /// Whether `control` draws text: a `label` or a `label_cycler`.

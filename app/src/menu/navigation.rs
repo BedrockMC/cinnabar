@@ -62,6 +62,11 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        if self.screen == MenuScreen::Settings && self.global_resources.settings.is_some() {
+            self.global_resource_actions
+                .push(crate::global_resources::Action::CloseSettings);
+            return;
+        }
         if self.dialog.take().is_some() {
             return;
         }

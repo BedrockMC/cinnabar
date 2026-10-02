@@ -361,6 +361,12 @@ fn text_draw(control: &ResolvedControl, enabled: bool) -> Draw {
         text.push('_');
     }
     Draw::Text {
+        font_type: control
+            .properties
+            .get("font_type")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_owned(),
         text,
         color: crate::label::color(control, enabled),
         shadow: matches!(control.properties.get("shadow"), Some(Value::Bool(true))),

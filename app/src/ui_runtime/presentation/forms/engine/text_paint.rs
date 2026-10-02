@@ -131,6 +131,20 @@ impl TextMeasure for Measure<'_, '_> {
         }
     }
 
+    fn named_label(
+        &self,
+        text: &str,
+        font: &str,
+        width: Option<f64>,
+        shape: LabelShape,
+    ) -> [f64; 2] {
+        let measure = Measure {
+            font: self.font.font_named(font),
+            ..*self
+        };
+        measure.label(text, width, shape)
+    }
+
     fn localize<'t>(&self, text: &'t str) -> Cow<'t, str> {
         localized(text, self.translate)
     }
@@ -145,6 +159,7 @@ impl Painter<'_> {
         dest: [f32; 4],
         clip: [f32; 4],
         style: TextPaint,
+        font_type: &str,
     ) -> Result<(), UiPresentationError> {
         let text = if style.localize {
             localized(text, self.translate)
@@ -163,7 +178,7 @@ impl Painter<'_> {
             &self.metrics,
             &text,
             f64::from(dest[2] - dest[0]),
-            self.font,
+            self.font.font_named(font_type),
             shape,
             self.px,
         );

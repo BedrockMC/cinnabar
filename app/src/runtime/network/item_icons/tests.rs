@@ -68,11 +68,15 @@ fn icon_keys_resolve_to_bounded_sprites() {
         sizes,
         [
             ("lifeboat:gem", 16, 16),
-            ("lifeboat:strip", 16, 16),
-            ("lifeboat:huge", 64, 32)
+            ("lifeboat:huge", 64, 32),
+            ("lifeboat:strip", 16, 16)
         ]
     );
-    let strip = &icons.icons[1];
+    let strip = icons
+        .icons
+        .iter()
+        .find(|icon| icon.identifier.as_ref() == "lifeboat:strip")
+        .unwrap();
     assert_eq!(strip.rgba8[(15 * 16) * 4], 15, "first frame rows only");
 }
 
@@ -176,6 +180,7 @@ fn block_items_beat_short_name_guesses() {
     let key = |identifier: &str, key: &str| (Arc::<str>::from(identifier), Arc::<str>::from(key));
     let block = SessionIcon {
         identifier: "t:crate".into(),
+        metadata: 0,
         width: 32,
         height: 32,
         rgba8: vec![7; 32 * 32 * 4].into(),
@@ -288,4 +293,44 @@ fn icon_count_is_bounded_by_the_item_registry_not_a_fixed_cap() {
         .collect();
     let icons = compile_session_icons(&view(), &keys, BlockIcons::default()).expect("icons");
     assert_eq!(icons.icons.len(), 600);
+}
+
+#[test]
+fn array_variants_keep_metadata_and_pack_item_declarations_override_registry_keys() {
+    let view = stack(&[&[
+        ("textures/item_texture.json", br#"{"texture_data":{"custom":{"textures":["textures/items/zero","textures/items/missing","textures/items/two"]}}}"#.to_vec()),
+        ("items/example.json", br#"{"minecraft:item":{"description":{"identifier":"test:variant"},"components":{"minecraft:icon":{"textures":{"default":"custom"}}}}}"#.to_vec()),
+        ("textures/items/zero.png", png(8, 8)),
+        ("textures/items/two.png", png(16, 16)),
+    ]]);
+    let icons = compile_session_icons(
+        &view,
+        &[(Arc::from("test:variant"), Arc::from("old"))],
+        BlockIcons::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        icons
+            .icons
+            .iter()
+            .map(|icon| (icon.identifier.as_ref(), icon.metadata, icon.width))
+            .collect::<Vec<_>>(),
+        [("test:variant", 0, 8), ("test:variant", 2, 16)]
+    );
+}
+
+#[test]
+fn upper_catalog_replaces_the_complete_variant_list() {
+    let view = stack(&[
+        &[("textures/item_texture.json", br#"{"texture_data":{"gem":{"textures":["textures/items/zero","textures/items/one"]}}}"#.to_vec()), ("textures/items/zero.png", png(8, 8)), ("textures/items/one.png", png(16, 16))],
+        &[("textures/item_texture.json", br#"{"texture_data":{"gem":{"textures":"textures/items/one"}}}"#.to_vec())],
+    ]);
+    let icons = compile_session_icons(
+        &view,
+        &[(Arc::from("test:gem"), Arc::from("gem"))],
+        BlockIcons::default(),
+    )
+    .unwrap();
+    assert_eq!(icons.icons.len(), 1);
+    assert_eq!((icons.icons[0].metadata, icons.icons[0].width), (0, 16));
 }
