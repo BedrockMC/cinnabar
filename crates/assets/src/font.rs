@@ -110,6 +110,12 @@ impl CompiledFontCatalog {
                 hash.update(value.to_le_bytes());
             }
             hash.update(glyph.metrics.advance_64.to_le_bytes());
+            for value in glyph.metrics.bearing {
+                hash.update(value.to_le_bytes());
+            }
+            for value in glyph.draw_size_64 {
+                hash.update(value.to_le_bytes());
+            }
         }
         Self {
             identity: FontCatalogIdentity {
