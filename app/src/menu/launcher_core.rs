@@ -148,6 +148,7 @@ impl LauncherCore {
             &socket_dir,
             auth_cache,
             upstream_client_cache,
+            Some(&crate::runtime::network::active_language_code()),
         ))
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
@@ -182,6 +183,7 @@ fn launcher_command(
     socket_dir: &Path,
     auth_cache: Option<&Path>,
     upstream_client_cache: bool,
+    language: Option<&str>,
 ) -> Command {
     let mut command = Command::new(executable);
     command
@@ -205,6 +207,9 @@ fn launcher_command(
     }
     if let Some(auth_cache) = auth_cache {
         command.arg("-auth-cache").arg(auth_cache);
+    }
+    if let Some(language) = language {
+        command.arg("-language").arg(language.replace('_', "-"));
     }
     command
 }
@@ -325,6 +330,7 @@ mod tests {
                 Path::new("/run/s"),
                 auth,
                 false,
+                Some("pt_BR"),
             )
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
@@ -332,6 +338,11 @@ mod tests {
         };
         let offline = args(None);
         assert!(offline.iter().any(|arg| arg == "-control-status"));
+        assert!(
+            offline
+                .windows(2)
+                .any(|args| args == ["-language", "pt-BR"])
+        );
         assert!(
             !offline
                 .iter()

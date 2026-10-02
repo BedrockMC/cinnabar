@@ -16,6 +16,14 @@ fallback. T5 GTAO/TAA/motion vectors are deferred. Native visual calibration and
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-10-01 home promo: incomplete. The gathering query now uses the desktop
+`Windows10`/`Win32` identity, and downloaded badges bind `RawPath`. Empty button
+labels use vanilla's localization fallback. Messaging sends the selected UI
+language as `Accept-Language`. The offline fixture is authored; a recorded
+response, the exact current public-config request and complete gathering click
+behavior remain unverified. No visual parity gate is closed. See
+[the investigation](docs/home-promo-investigation.md).
+
 2026-10-02 dev integration: the first-person item/block/attachable, grass material,
 arrow, name-tag, crouch/shield, offhand, inventory reopen, game-mode and inventory
 reconciliation corrections below are integrated with the upstream `dev` branch.
