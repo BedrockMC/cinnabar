@@ -133,8 +133,9 @@ fn tab_focus_and_edit_destination_stay_in_lockstep() {
     app.world_mut()
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::AddName);
-    press_key(&mut app, window, KeyCode::Tab, None);
-    press_key(&mut app, window, KeyCode::Tab, None);
+    for _ in 0..3 {
+        press_key(&mut app, window, KeyCode::Tab, None);
+    }
     let view = app.world().resource::<MenuRuntime>().view();
     assert_eq!(view.focused_action, Some(MenuAction::AddSave));
     assert_eq!(view.field, None);
