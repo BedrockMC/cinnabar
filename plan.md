@@ -1,5 +1,9 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
+passes a populated graph and 120-frame lobby actor replay, but the reported
+post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
+
 2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
 persisted default. This work never closes a vanilla parity gate. T0 adds the
 setting, camera marker and pipeline key isolation. Visual acceptance and all
