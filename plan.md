@@ -1,5 +1,11 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
+WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
+Enhanced shader specialization and effect passes. The toggle is hidden, and saved
+settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
+unresolved; Enhanced visual and performance gates remain incomplete.
+
 2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
 passes a populated graph and 120-frame lobby actor replay, but the reported
 post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
