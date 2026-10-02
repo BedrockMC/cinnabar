@@ -121,3 +121,52 @@ fn publication_keeps_complete_transparent_addresses_and_biome_identity() {
         current
     );
 }
+
+#[test]
+fn review_render_stale_resource_geometry_preserves_active_arena() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut app = App::new();
+    app.insert_resource(ChunkGpuArena::new(&device));
+    let old_buffer = app
+        .world()
+        .resource::<ChunkGpuArena>()
+        .geometry_stream_buffer
+        .id();
+    let view = app.world_mut().spawn_empty().id();
+    let instance = water(ChunkBiomeTintIdentity::default());
+    let entity = app.world_mut().spawn(instance.clone()).id();
+    let mut candidate = PreparedResourceGeometry::build(
+        &[instance.clone()],
+        ChunkTextureAssets::default(),
+        device,
+        queue,
+        None,
+    )
+    .unwrap();
+    candidate.models.committed = Some(TransparentModelSortKey {
+        view_entity: view,
+        rotation_bits: [0; 4],
+        address: TransparentModelAddressIdentity {
+            asset_identity: ChunkTextureAssets::default().identity(),
+            allocations: Arc::from([TransparentModelAllocationIdentity {
+                entity,
+                key: instance.key,
+                generation: instance.generation,
+                model_range: 0..4,
+                draw_range: 0..2,
+            }]),
+        },
+    });
+    app.world_mut().despawn(entity);
+    app.insert_resource(Candidate(Some(candidate)));
+    app.world_mut().run_system_once(publish).unwrap();
+    assert_eq!(
+        app.world()
+            .resource::<ChunkGpuArena>()
+            .geometry_stream_buffer
+            .id(),
+        old_buffer
+    );
+}
