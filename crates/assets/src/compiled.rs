@@ -80,9 +80,28 @@ pub struct Material {
     pub texture: TextureRef,
     pub flags: u32,
     pub animation: u32,
+    /// Contiguous weighted materials selected after the block state and face.
+    pub variation_start: u32,
+    pub variation_count: u32,
+    /// Normalized f32 weight bits; zero for ordinary materials.
+    pub variation_weight: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<Material>() == 12);
+impl Material {
+    /// Returns an ordinary diagnostic material with no positional alternatives.
+    pub const fn unvaried() -> Self {
+        Self {
+            texture: TextureRef::DIAGNOSTIC,
+            flags: 0,
+            animation: NO_ANIMATION,
+            variation_start: 0,
+            variation_count: 0,
+            variation_weight: 0,
+        }
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<Material>() == 24);
 
 /// Per-face material IDs and registry facts for one sequential block ID.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

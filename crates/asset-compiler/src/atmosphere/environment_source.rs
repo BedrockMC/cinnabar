@@ -81,6 +81,38 @@ pub(super) struct FogDistanceSource {
     pub(super) fog_end: f32,
     pub(super) fog_color: String,
     pub(super) render_distance_type: String,
+    pub(super) transition_fog: Option<FogTransitionSource>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct FogTransitionSource {
+    pub(super) init_fog: Box<FogDistanceSource>,
+    pub(super) min_percent: f32,
+    pub(super) mid_seconds: f32,
+    pub(super) mid_percent: f32,
+    pub(super) max_seconds: f32,
+}
+
+/// Retains the initial setting and timing fields from a classic fog transition.
+pub(super) fn compile_transition(
+    source: FogTransitionSource,
+) -> Result<assets::FogTransition, AssetError> {
+    let initial = source.init_fog;
+    let transition = assets::FogTransition {
+        mode: assets::FogDistanceMode::from_source_name(&initial.render_distance_type)
+            .ok_or_else(|| invalid("unsupported initial fog distance mode"))?,
+        start_bits: initial.fog_start.to_bits(),
+        end_bits: initial.fog_end.to_bits(),
+        rgb8: parse_environment_rgb(&initial.fog_color)?,
+        min_percent_bits: source.min_percent.to_bits(),
+        mid_seconds_bits: source.mid_seconds.to_bits(),
+        mid_percent_bits: source.mid_percent.to_bits(),
+        max_seconds_bits: source.max_seconds.to_bits(),
+    };
+    if initial.transition_fog.is_some() || !transition.is_valid() {
+        return Err(invalid("invalid fog transition"));
+    }
+    Ok(transition)
 }
 
 pub(super) fn sorted_environment_files(
@@ -164,4 +196,45 @@ pub(super) fn parse_environment_rgb(value: &str) -> Result<u32, AssetError> {
         .ok_or_else(|| invalid(format!("invalid environment RGB colour {value}")))?;
     u32::from_str_radix(digits, 16)
         .map_err(|_| invalid(format!("invalid environment RGB colour {value}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transition_retains_initial_color_distance_and_profile_timing() {
+        let source: FogDistanceSource = serde_json::from_str(
+            r##"{
+            "fog_start": 0, "fog_end": 60, "fog_color": "#44AFF5",
+            "render_distance_type": "fixed", "transition_fog": {
+                "init_fog": {"fog_start": 2, "fog_end": 3,
+                    "fog_color": "#123456", "render_distance_type": "render"},
+                "min_percent": 0.1, "mid_seconds": 4,
+                "mid_percent": 0.7, "max_seconds": 12
+            }}"##,
+        )
+        .unwrap();
+        let transition = compile_transition(source.transition_fog.unwrap()).unwrap();
+        assert_eq!(transition.mode, assets::FogDistanceMode::RenderRelative);
+        assert_eq!(f32::from_bits(transition.start_bits), 2.0);
+        assert_eq!(f32::from_bits(transition.end_bits), 3.0);
+        assert_eq!(transition.rgb8, 0x123456);
+        assert_eq!(f32::from_bits(transition.min_percent_bits), 0.1);
+        assert_eq!(f32::from_bits(transition.mid_seconds_bits), 4.0);
+        assert_eq!(f32::from_bits(transition.mid_percent_bits), 0.7);
+        assert_eq!(f32::from_bits(transition.max_seconds_bits), 12.0);
+        let bytes = serde_json::to_vec(&transition).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<assets::FogTransition>(&bytes).unwrap(),
+            transition
+        );
+        assert!(
+            !assets::FogTransition {
+                max_seconds_bits: 1.0_f32.to_bits(),
+                ..transition
+            }
+            .is_valid()
+        );
+    }
 }

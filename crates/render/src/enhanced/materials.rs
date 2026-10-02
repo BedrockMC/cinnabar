@@ -143,6 +143,9 @@ mod tests {
             texture: assets::TextureRef::DIAGNOSTIC,
             flags,
             animation: assets::NO_ANIMATION,
+            variation_start: 0,
+            variation_count: 0,
+            variation_weight: 0,
         };
         let compiled = assets::CompiledAssets {
             visuals: vec![

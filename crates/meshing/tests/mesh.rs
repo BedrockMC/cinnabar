@@ -15,3 +15,4 @@ include!("mesh/invisible_blocks.rs");
 include!("mesh/stairs.rs");
 include!("mesh/support.rs");
 include!("mesh/core.rs");
+include!("mesh/variations.rs");

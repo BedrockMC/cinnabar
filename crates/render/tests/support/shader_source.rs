@@ -61,6 +61,8 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
                 ("view", VIEW)
             } else if module.starts_with("bevy_core_pipeline::fullscreen_vertex_shader::") {
                 ("fullscreen", FULLSCREEN)
+            } else if module.starts_with("cinnabar::material") {
+                ("material", include_str!("../../src/material.wgsl"))
             } else if module.starts_with("cinnabar::lighting") {
                 ("lighting", include_str!("../../src/lighting.wgsl"))
             } else if module.starts_with("cinnabar::biome_tint") {
@@ -99,6 +101,10 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
         (
             "bevy_core_pipeline::fullscreen_vertex_shader",
             FULLSCREEN.to_owned(),
+        ),
+        (
+            "cinnabar::material",
+            include_str!("../../src/material.wgsl").to_owned(),
         ),
         (
             "cinnabar::lighting",

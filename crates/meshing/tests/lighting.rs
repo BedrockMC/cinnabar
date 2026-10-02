@@ -161,6 +161,7 @@ fn runtime_assets_with_model_geometry(
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         light_properties: light_properties.into_boxed_slice(),

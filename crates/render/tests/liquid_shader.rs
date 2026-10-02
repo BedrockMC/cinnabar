@@ -9,7 +9,7 @@ use meshing::Face;
 
 const SHADER: &str = include_str!("../src/liquid.wgsl");
 
-/// Resolve the unchanged vanilla shader for standalone validation.
+/// Resolve the vanilla shader for standalone validation.
 fn shader_for_naga() -> String {
     shader_source::standalone(SHADER, &[])
 }
@@ -232,7 +232,11 @@ fn liquid_shader_has_mutually_exclusive_water_and_depth_writing_entries() {
     assert!(SHADER.contains("fn fragment_depth("));
     assert!(SHADER.contains("@interpolate(flat) depth_write_route: u32"));
     assert!(SHADER.contains("LIQUID_DEPTH_WRITE_BIT"));
-    assert!(SHADER.contains("let material = materials[packed_material & ~LIQUID_DEPTH_WRITE_BIT]"));
+    assert!(
+        SHADER.contains(
+            "let material = positional_material(packed_material & ~LIQUID_DEPTH_WRITE_BIT,"
+        )
+    );
     assert!(
         SHADER.contains("let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u)")
     );

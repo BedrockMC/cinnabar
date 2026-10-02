@@ -70,6 +70,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
             texture: TextureRef::new(0, layer).unwrap(),
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         })
         .collect::<Vec<_>>();
     let page = TexturePage::new(TextureArray {

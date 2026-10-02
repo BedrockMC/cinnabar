@@ -13,6 +13,8 @@ mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
+mod fog_layers;
+mod fog_transition;
 mod font;
 mod fsb;
 mod glyph_sheet;
@@ -23,6 +25,7 @@ mod item;
 mod lang;
 mod light_registry;
 mod material_keys;
+mod material_variations;
 mod model;
 mod ogg;
 mod particle;
@@ -56,6 +59,9 @@ pub use actor::{
     neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
     neutral_actor_pose_mode,
 };
+pub use fog_layers::resolve_fog_layers;
+pub use fog_transition::FogTransition;
+
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
     BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
@@ -81,7 +87,7 @@ pub use biome::{
     RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
     TintMapId, TintSource, colormap_coordinate, read_biome_registry,
 };
-pub use blob::{BLOB_MAGIC, BLOB_VERSION, encode_blob, write_blob_atomic};
+pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
     BLOCK_ENTITY_CARRIER_MAGIC, BLOCK_ENTITY_CARRIER_VERSION, BLOCK_ENTITY_ROUTES,
     BlockEntityPlacement, BlockEntityRouteKind, MAX_BLOCK_ENTITY_ATLAS_SIDE,

@@ -92,6 +92,7 @@ pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
     Some([
         (
             Descriptor {
+                state_variant: 0,
                 path: front[0].into(),
                 texture_key: "chiseled_bookshelf_front".into(),
                 flags: 0,
@@ -100,6 +101,7 @@ pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
         ),
         (
             Descriptor {
+                state_variant: 1,
                 path: front[1].into(),
                 texture_key: "chiseled_bookshelf_front".into(),
                 flags: 0,
@@ -108,6 +110,7 @@ pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
         ),
         (
             Descriptor {
+                state_variant: 0,
                 path: side.into(),
                 texture_key: "chiseled_bookshelf_side".into(),
                 flags: 0,
@@ -116,6 +119,7 @@ pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
         ),
         (
             Descriptor {
+                state_variant: 0,
                 path: top.into(),
                 texture_key: "chiseled_bookshelf_top".into(),
                 flags: 0,

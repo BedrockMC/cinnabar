@@ -1,3 +1,4 @@
+#import cinnabar::material::{MaterialGpu, materials, positional_material}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -5,11 +6,10 @@
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{light_brightness, material_class, shade_surface, waved_position}
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
-struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
 struct AtmosphereUniform {
@@ -22,7 +22,6 @@ struct AtmosphereUniform {
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> cube_quads: array<u32>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
@@ -44,12 +43,10 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visible: u32,
+    @location(9) lighting: vec3<f32>,
 #ifdef ENHANCED
-    @location(9) block_light: f32,
     @location(11) sky_light: f32,
     @location(15) ambient_occlusion: f32,
-#else
-    @location(9) lighting: vec3<f32>,
 #endif
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) @interpolate(flat) two_sided: u32,
@@ -73,13 +70,11 @@ fn invisible_vertex() -> VertexOutput {
     invisible.next_texture = 0u;
     invisible.frame_blend = 0.0;
     invisible.visible = 0u;
+    invisible.lighting = vec3(0.0);
 #ifdef ENHANCED
-    invisible.block_light = 0.0;
     invisible.sky_light = 0.0;
     invisible.ambient_occlusion = 0.0;
     invisible.surface_class = 0u;
-#else
-    invisible.lighting = vec3(0.0);
 #endif
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
@@ -200,7 +195,7 @@ fn vertex(
     let origin = chunk_origins[metadata_index];
     let material_id = model_templates[template_quad_base + 10u];
     let quad_flags = model_templates[template_quad_base + 11u];
-    let material = materials[material_id];
+    let material = positional_material(material_id, origin.value.xyz + vec3<i32>(block_position));
     let frame = animation_sample(material);
     let uv_component = corner * 2u;
 
@@ -228,12 +223,10 @@ fn vertex(
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
-#ifdef ENHANCED
-    out.block_light = light_brightness(light_sample & 15u);
-    out.sky_light = light_brightness((light_sample >> 4u) & 15u);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
-#else
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+#ifdef ENHANCED
+    out.sky_light = sky_illumination(light_sample);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #endif
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
@@ -318,7 +311,7 @@ fn fragment(
         in.normal,
         in.world_position,
         in.clip_position.xy,
-        in.block_light,
+        in.lighting,
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
@@ -355,7 +348,7 @@ fn fragment_blend(
         in.normal,
         in.world_position,
         in.clip_position.xy,
-        in.block_light,
+        in.lighting,
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,

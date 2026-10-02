@@ -1,4 +1,4 @@
-//! Frozen vanilla shader bytes from 471eaf88, after removing extension branches.
+//! Vanilla shader bytes from 134348eb, including RGB lighting and weighted variants.
 use sha2::{Digest, Sha256};
 
 /// Removes only Enhanced preprocessor blocks, preserving every vanilla byte.
@@ -27,15 +27,15 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
     for (source, digest) in [
         (
             include_str!("../src/chunk.wgsl"),
-            "174e3339512fd062ca2bffc582f66193849f59261da645f738591b7c4ecb1554",
+            "0931cbb32cd4c8ff94a1b839b0c22b837a5dbb992314f887f50c00d050ae9642",
         ),
         (
             include_str!("../src/model.wgsl"),
-            "f1b3b99c5d7eebe80599695f1a18a96e6638cd64dd0289c98006c7872ad0f85a",
+            "717662986ec8c5e089f9e4be585244ae0c99002ab772dda0b324646cf63a8dce",
         ),
         (
             include_str!("../src/liquid.wgsl"),
-            "c81777dea15f56558aca67c1871985a7d44890b513be8a23413f1d1a2d62a5f1",
+            "315e9b9d1f19b0e1889bebdbf340b986215e190c1c62c3f72948b48ca6545f49",
         ),
         (
             include_str!("../src/lighting.wgsl"),
@@ -48,6 +48,22 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
         (
             include_str!("../src/atmosphere.wgsl"),
             "1bc2f8de37b6ac1fb6428586bca7f967b9884e1a175e138d99eb04024dae5feb",
+        ),
+        (
+            include_str!("../src/material.wgsl"),
+            "70d1a13ff2e1414be8a72139408487910276c6b15e10ac44dcbd028584abec69",
+        ),
+        (
+            include_str!("../src/actor.wgsl"),
+            "88d0fe5aab6f43108e03730a79f1d207b38479e19bbd27c695700e36b29f308c",
+        ),
+        (
+            include_str!("../src/dropped_item.wgsl"),
+            "a5bc82c300e55eeaab410ab1e535163a7590cec7c997fdf4d838002ac3a1517a",
+        ),
+        (
+            include_str!("../src/hand_rig.wgsl"),
+            "80d79cf47ef81fa2fbf0e4c6f49308cf59cb73deb962fd9e36564aa9410682e8",
         ),
     ] {
         assert_eq!(

@@ -27,6 +27,7 @@ fn grass_fixture(side_flags: u32) -> RuntimeAssets {
             texture: TextureRef::new(0, layer as u32).unwrap(),
             flags,
             animation: NO_ANIMATION,
+            ..Material::unvaried()
         })
         .collect();
     let compiled = CompiledAssets {

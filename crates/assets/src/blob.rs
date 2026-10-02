@@ -24,8 +24,13 @@ use crate::{
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_MAGIC: [u8; 8] = *b"MCBEAS07";
-pub const BLOB_VERSION: u32 = 7;
+pub const BLOB_VERSION: u32 = 8;
+pub const BLOB_MAGIC: [u8; 8] = {
+    let mut magic = *b"MCBEAS00";
+    magic[6] += (BLOB_VERSION / 10) as u8;
+    magic[7] += (BLOB_VERSION % 10) as u8;
+    magic
+};
 pub(crate) const HEADER_BYTES: usize = 296;
 /// Header offset of the embedded source-manifest SHA-256 identity.
 pub(crate) const MANIFEST_SHA_OFFSET: usize = 64;
@@ -37,7 +42,7 @@ pub(crate) const OFFSETS_OFFSET: usize = 192;
 pub(crate) const HASH_BYTES: usize = 32;
 pub(crate) const VISUAL_BYTES: usize = 44;
 pub(crate) const HASH_ENTRY_BYTES: usize = 8;
-pub(crate) const MATERIAL_BYTES: usize = 12;
+pub const MATERIAL_BYTES: usize = std::mem::size_of::<crate::Material>();
 pub(crate) const TEMPLATE_BYTES: usize = 12;
 pub(crate) const QUAD_BYTES: usize = 48;
 pub(crate) const ANIMATION_BYTES: usize = 28;
@@ -46,10 +51,11 @@ pub(crate) const PAGE_BYTES: usize = 64;
 pub(crate) const BIOME_RULE_BYTES: usize = 36;
 pub(crate) const MAX_VISUALS: usize = 65_536;
 
-/// Serializes canonical, bounded `MCBEAS07` compiler output with embedded
+/// Serializes canonical, bounded world-carrier compiler output with embedded
 /// source provenance and a trailing SHA-256.
 pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
     validate_compiled(compiled)?;
+    crate::material_variations::validate(&compiled.materials)?;
     let sizes = [
         size(compiled.visuals.len(), VISUAL_BYTES, "visual")?,
         size(compiled.hashed.len(), HASH_ENTRY_BYTES, "hash")?,
@@ -154,6 +160,9 @@ pub fn encode_blob(compiled: &CompiledAssets) -> Result<Box<[u8]>, AssetError> {
         push_u32(&mut bytes, material.texture.raw());
         push_u32(&mut bytes, material.flags);
         push_u32(&mut bytes, material.animation);
+        push_u32(&mut bytes, material.variation_start);
+        push_u32(&mut bytes, material.variation_count);
+        push_u32(&mut bytes, material.variation_weight);
     }
     for template in &compiled.model_templates {
         push_u32(&mut bytes, template.quad_start);
@@ -284,6 +293,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         .first()
         .ok_or_else(|| invalid("missing diagnostic material"))?;
     if diagnostic.texture != TextureRef::DIAGNOSTIC
+        || diagnostic.variation_count != 0
+        || diagnostic.variation_weight != 0
         || diagnostic.flags != 0
         || diagnostic.animation != NO_ANIMATION
     {

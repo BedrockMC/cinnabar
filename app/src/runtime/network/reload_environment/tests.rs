@@ -78,3 +78,56 @@ fn particle_definitions_reload_and_removal_revert_to_base() {
     let removed = particles::prepare_particles(&view(&[]), None);
     assert!(!removed.has_effect("test:effect"));
 }
+
+#[test]
+fn reloaded_fog_preserves_initial_fields_and_transition_timeline() {
+    let json = serde_json::json!({"minecraft:fog_settings": {
+        "description": {"identifier":"test:transition"}, "distance": {
+            "water": {"fog_start": -0.2, "fog_end": 0.8, "fog_color":"#8899AA",
+                "render_distance_type":"render", "transition_fog": {
+                    "init_fog": {"fog_start": -1, "fog_end": 4, "fog_color":"#112233",
+                        "render_distance_type":"fixed"},
+                    "min_percent": 0.1, "mid_seconds": 3, "mid_percent": 0.5, "max_seconds": 8
+                }}
+        }
+    }});
+    let fog = fog_profile(&json).unwrap();
+    let distance = fog.distances[0];
+    assert_eq!(distance.mode, assets::FogDistanceMode::RenderRelative);
+    assert_eq!(distance.start(), -0.2);
+    let transition = distance.transition.unwrap();
+    assert_eq!(transition.mode, assets::FogDistanceMode::Fixed);
+    assert_eq!(transition.rgb8, 0x112233);
+    let fields = [
+        transition.start_bits,
+        transition.end_bits,
+        transition.min_percent_bits,
+        transition.mid_seconds_bits,
+        transition.mid_percent_bits,
+        transition.max_seconds_bits,
+    ];
+    assert_eq!(fields.map(f32::from_bits), [-1.0, 4.0, 0.1, 3.0, 0.5, 8.0]);
+
+    for malformed in [
+        serde_json::json!({"mid_seconds": 8}),
+        serde_json::json!({"min_percent": 2}),
+        serde_json::json!({"init_fog": {"transition_fog": {}}}),
+    ] {
+        let mut invalid = json.clone();
+        let target = &mut invalid["minecraft:fog_settings"]["distance"]["water"]["transition_fog"];
+        for (key, value) in malformed.as_object().unwrap() {
+            if key == "init_fog" {
+                target[key]["transition_fog"] = value["transition_fog"].clone();
+            } else {
+                target[key] = value.clone();
+            }
+        }
+        invalid["minecraft:fog_settings"]["distance"]["air"] = serde_json::json!({
+            "fog_start":0, "fog_end":10, "fog_color":"#010203", "render_distance_type":"fixed"
+        });
+        let retained = fog_profile(&invalid).unwrap();
+        assert_eq!(retained.distances.len(), 1);
+        assert_eq!(retained.distances[0].medium, assets::FogMedium::Air);
+        assert_eq!(retained.distances[0].transition, None);
+    }
+}

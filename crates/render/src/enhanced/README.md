@@ -4,6 +4,11 @@ Vanilla is the default. Enhanced is a deliberate non-parity look and never close
 a vanilla parity gate. No shader-pack source is used. The earlier Cinnabar WIP
 provided the starting point for the independent WGSL implementation.
 
+Terrain, models and liquids share vanilla RGB lightmap, corner AO, face shade,
+biome tint/fog and positional texture selection. Enhanced adds HDR illumination,
+shadows, emission and water optics to that shared base; it has no separate scalar
+light curve or dark floor. Disabling it preserves the vanilla shader bytes.
+
 Technique references:
 
 - [Microsoft: cascaded shadow maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps): cascades, texel snapping and filtering.

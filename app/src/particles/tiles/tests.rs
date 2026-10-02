@@ -52,6 +52,7 @@ fn fixture() -> RuntimeAssets {
                 _ => 0,
             },
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();

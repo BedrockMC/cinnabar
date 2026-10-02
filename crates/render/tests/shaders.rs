@@ -15,7 +15,7 @@ mod nametag_shader;
 #[path = "../src/ui_render/shader.rs"]
 mod ui_shader;
 
-/// Resolve the unchanged vanilla shader for standalone validation.
+/// Resolve the vanilla shader for standalone validation.
 fn standalone(source: &str) -> String {
     shader_source::standalone(source, &[])
 }
@@ -27,7 +27,11 @@ fn every_shader_parses_and_validates() {
     for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if !name.ends_with(".wgsl") || name == "lighting.wgsl" || name == "biome_tint.wgsl" {
+        if !name.ends_with(".wgsl")
+            || name == "lighting.wgsl"
+            || name == "biome_tint.wgsl"
+            || name == "material.wgsl"
+        {
             continue;
         }
         let raw = std::fs::read_to_string(&path).unwrap();

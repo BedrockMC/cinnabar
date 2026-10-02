@@ -639,7 +639,7 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
             .count(),
         3
     );
-    assert_eq!(size_of::<Material>(), 12);
+    assert_eq!(size_of::<Material>(), assets::MATERIAL_BYTES);
     assert_eq!(size_of::<PackedQuad>(), 8);
     assert_eq!(
         plugin
