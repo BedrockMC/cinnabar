@@ -337,3 +337,36 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         );
     }
 }
+
+// Packaged installs delete the unpacked pack, so the sidecar must carry every vanilla alias.
+#[test]
+fn material_keys_carry_every_vanilla_terrain_alias() {
+    let directory = tempfile::tempdir().expect("create alias fixture");
+    write(directory.path().join("blocks.json"), "{}");
+    write(
+        directory.path().join("textures/terrain_texture.json"),
+        r#"{"texture_data":{
+                "stone":{"textures":"textures/blocks/stone"},
+                "variants":{"textures":["textures/blocks/first","textures/blocks/second"]}
+            }}"#,
+    );
+    write(
+        directory.path().join("textures/flipbook_textures.json"),
+        "[]",
+    );
+    let (_, keys) = super::compile_pack_inner(
+        directory.path(),
+        &[synthetic_air_record(0, 0)],
+        &[assets::LightProperties::default()],
+        assets::CompiledBiomeAssets::diagnostic(),
+        super::LEGACY_REGISTRY_PROTOCOL,
+    )
+    .expect("compile alias fixture");
+    assert_eq!(
+        keys.aliases().collect::<Vec<_>>(),
+        [
+            ("stone", "textures/blocks/stone"),
+            ("variants", "textures/blocks/first")
+        ]
+    );
+}

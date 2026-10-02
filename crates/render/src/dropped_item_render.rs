@@ -75,6 +75,7 @@ fn install(app: &mut App) {
         "dropped_item.wgsl",
         Shader::from_wgsl
     );
+    crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<ItemPipeline>()
