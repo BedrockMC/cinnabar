@@ -467,7 +467,6 @@ pub(super) fn dialog_model(
 }
 
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
-    let (ip, port) = split_address(&view.address);
     let title = if view.editing.is_some() {
         translated(translate, "addServer.title.edit", "Edit Server")
     } else {
@@ -475,8 +474,8 @@ fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translat
     };
     data.set_global("#title_text", text(title));
     data.set_global("#name_text_box_content", text(view.name.clone()));
-    data.set_global("#ip_text_box_content", text(ip));
-    data.set_global("#port_text_box_content", text(port));
+    data.set_global("#ip_text_box_content", text(view.address.clone()));
+    data.set_global("#port_text_box_content", text(view.port.clone()));
     let ready = !view.name.trim().is_empty() && !view.address.trim().is_empty();
     data.set_global("#save_button_enabled", Scalar::Bool(ready));
     data.set_global("#save_button_disabled", Scalar::Bool(!ready));
@@ -486,15 +485,6 @@ fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translat
 
 /// `host:port` split for the separate IP and port boxes (a bare host keeps the
 /// default Bedrock port shown).
-fn split_address(address: &str) -> (String, String) {
-    match address.rsplit_once(':') {
-        Some((host, port)) if !host.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => {
-            (host.trim_matches(['[', ']']).to_owned(), port.to_owned())
-        }
-        _ => (address.to_owned(), "19132".to_owned()),
-    }
-}
-
 /// Select the section and the titles supplied by its vanilla toggle property bag.
 fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     super::enhanced_setting::bind(view, data);
@@ -683,7 +673,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
     if region.kind == HitKind::EditBox {
         return match region.control_name.as_deref() {
             Some("#name_text_box") => Some(MenuAction::AddName),
-            Some("#ip_text_box" | "#port_text_box") => Some(MenuAction::AddAddress),
+            Some("#ip_text_box") => Some(MenuAction::AddAddress),
+            Some("#port_text_box") => Some(MenuAction::AddPort),
             _ => None,
         };
     }
