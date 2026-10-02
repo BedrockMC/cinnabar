@@ -185,6 +185,12 @@ impl ParticleSystem {
     }
 
     fn resolve_texture(&mut self, source: &TextureSource, request: &mut SpawnRequest) -> Placement {
+        self.atlas.set_live_placements(
+            self.emitters
+                .iter()
+                .filter(|emitter| !emitter.done || !emitter.particles.is_empty())
+                .map(|emitter| emitter.texture),
+        );
         let fallback = self.atlas.fallback();
         match source {
             TextureSource::Path(path) => self.atlas.placement(path).unwrap_or(fallback),
@@ -192,9 +198,10 @@ impl ParticleSystem {
                 let Some(tile) = request.tile.as_ref() else {
                     return fallback;
                 };
-                let Some(placement) = self.atlas.tile(tile.key, tile.size, &tile.pixels) else {
-                    return fallback;
-                };
+                let placement = self
+                    .atlas
+                    .tile(tile.key, tile.size, &tile.pixels)
+                    .unwrap_or(fallback);
                 let [u, v, du, dv] = placement.normalized();
                 // Vanilla effects name the same tile rectangle several ways.
                 for (coordinate, size) in TILE_VARIABLE_NAMES {
