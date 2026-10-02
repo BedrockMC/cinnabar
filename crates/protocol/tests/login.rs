@@ -48,6 +48,11 @@ async fn login_reaches_start_game_through_bds() {
         )
     });
 
+    session
+        .finish_loading()
+        .await
+        .expect("headless presentation ready");
+
     assert_eq!(PROTOCOL_VERSION, 2193);
     assert_eq!(GAME_VERSION, "1.26.50");
     // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
@@ -113,6 +118,88 @@ async fn login_reaches_start_game_through_bds() {
         "Go live harness exited with {status}\nGo harness output:\n{}",
         harness_output
     );
+}
+
+/// Exercises the actual Rust login across both production Go relay legs without a game server.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn offline_core_preserves_spawn_order_and_startup_transfer() {
+    for scenario in ["spawn", "transfer", "transfer-batch"] {
+        let socket_dir = TestSocketDir::new().expect("socket directory");
+        let mut harness =
+            GoHarness::spawn_mode(socket_dir.path(), None, Some(scenario)).expect("offline core");
+        wait_for_endpoint(&mut harness, socket_dir.path())
+            .await
+            .expect("endpoint");
+        let login = tokio::time::timeout(
+            LOGIN_TIMEOUT,
+            LoginSequence::connect(socket_dir.path(), "StartupFixture", None),
+        )
+        .await
+        .expect("login timeout");
+        if scenario.starts_with("transfer") {
+            let error = match login {
+                Err(error) => error,
+                Ok(_) => panic!("startup transfer became a spawned session"),
+            };
+            let target = error
+                .server_transfer()
+                .unwrap_or_else(|| panic!("{scenario}: {error}\n{}", harness.output()));
+            assert_eq!(
+                (target.host.as_str(), target.port),
+                ("next.example.test", 19133)
+            );
+        } else {
+            let (mut session, _) =
+                login.unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+            session
+                .send(startup_marker(100))
+                .await
+                .expect("pre-readiness marker");
+            wait_for_startup_marker(&mut session, 200, &harness).await;
+            session.finish_loading().await.expect("presentation ready");
+            session
+                .finish_loading()
+                .await
+                .expect("completion is one shot");
+            session
+                .send(startup_marker(300))
+                .await
+                .expect("completion marker");
+            wait_for_startup_marker(&mut session, 400, &harness).await;
+        }
+        let status = harness.finish(CHILD_EXIT_TIMEOUT).expect("harness exit");
+        assert!(status.success(), "{}", harness.output());
+    }
+}
+
+/// Waits for proof that the upstream has checked the preceding client messages.
+async fn wait_for_startup_marker(
+    session: &mut protocol::PlaySession,
+    time: i32,
+    harness: &GoHarness,
+) {
+    tokio::time::timeout(LOGIN_TIMEOUT, async {
+        loop {
+            let packet = session
+                .recv()
+                .await
+                .unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
+            if matches!(packet.data, McpePacketData::SetTimePacket(value) if value.time == time) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("upstream barrier timeout\n{}", harness.output()));
+}
+
+/// Builds an application-owned barrier that the upstream can observe on the wire.
+fn startup_marker(timestamp: u64) -> protocol::Packet {
+    jolyne::valentine::NetworkStackLatencyPacket {
+        creation_time: timestamp,
+        is_from_server: false,
+    }
+    .into()
 }
 
 async fn wait_for_endpoint(harness: &mut GoHarness, socket_dir: &Path) -> Result<(), String> {
@@ -209,6 +296,15 @@ fn validate_live_bds_configuration(
 
 impl GoHarness {
     fn spawn(socket_dir: &Path, bds_configuration: &LiveBdsConfiguration) -> io::Result<Self> {
+        Self::spawn_mode(socket_dir, Some(bds_configuration), None)
+    }
+
+    /// Starts either the offline scripted relay or the explicitly configured live harness.
+    fn spawn_mode(
+        socket_dir: &Path,
+        bds_configuration: Option<&LiveBdsConfiguration>,
+        scenario: Option<&str>,
+    ) -> io::Result<Self> {
         let core_dir = project_root().join("core");
         #[cfg(windows)]
         let executable = socket_dir.join("proxy-live-harness.test.exe");
@@ -221,21 +317,28 @@ impl GoHarness {
             .current_dir(core_dir)
             .args([
                 OsStr::new("-test.run"),
-                OsStr::new(EXTERNAL_HARNESS_TEST),
+                OsStr::new(if scenario.is_some() {
+                    "^TestProxyRustStartupHarness$"
+                } else {
+                    EXTERNAL_HARNESS_TEST
+                }),
                 OsStr::new("-test.count=1"),
                 OsStr::new("-test.v"),
             ])
             .env("RUST_MCBE_EXTERNAL_RUST_CLIENT", "1")
             .env("RUST_MCBE_PROXY_SOCKET_DIR", socket_dir)
-            .env("BEDROCK_BDS_DIR", &bds_configuration.source_directory)
-            .env(
-                "BEDROCK_BDS_RUNTIME_DIR",
-                &bds_configuration.runtime_directory,
-            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        if let Some(config) = bds_configuration {
+            command
+                .env("BEDROCK_BDS_DIR", &config.source_directory)
+                .env("BEDROCK_BDS_RUNTIME_DIR", &config.runtime_directory);
+        }
+        if let Some(scenario) = scenario {
+            command.env("CINNABAR_STARTUP_FIXTURE", scenario);
+        }
         let mut child = command.spawn()?;
         let stdin = child
             .stdin
@@ -338,6 +441,7 @@ fn build_go_harness(core_dir: &Path, executable: &Path) -> io::Result<()> {
     let mut command = Command::new("go");
     command
         .current_dir(core_dir)
+        .env("GOWORK", "off")
         .args([OsStr::new("test"), OsStr::new("-c"), OsStr::new("-o")])
         .arg(executable)
         .arg("./proxy")

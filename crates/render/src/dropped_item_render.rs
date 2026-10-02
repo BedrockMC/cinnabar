@@ -2,7 +2,7 @@
 use crate::dropped_item::{
     DroppedItemModel, DroppedItemScene, ITEM_MESH_VERTEX_BYTES, ItemMeshVertex,
     MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
-    cube_mesh, extruded_sprite_mesh,
+    cube_mesh, extruded_sprite_mesh, native_dropped_sprite_mesh,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -61,6 +61,7 @@ struct Installed;
 
 fn install(app: &mut App) {
     app.init_resource::<DroppedItemScene>();
+    crate::lighting::install(app);
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -185,7 +186,7 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
     let side = MAX_ITEM_SPRITE_SIDE;
     let layers_used = atlas.len() / (side * side * 4) as usize;
     match model {
-        DroppedItemModel::Sprite(sprite) => {
+        DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
             let (width, height) = (sprite.width as usize, sprite.height as usize);
             if layers_used >= MAX_ITEM_LAYERS
                 || sprite.width > side
@@ -194,7 +195,12 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
             {
                 return None;
             }
-            let mesh = extruded_sprite_mesh(
+            let build = if matches!(model, DroppedItemModel::NativeSprite(_)) {
+                native_dropped_sprite_mesh
+            } else {
+                extruded_sprite_mesh
+            };
+            let mesh = build(
                 sprite.width,
                 sprite.height,
                 &sprite.rgba8,
@@ -403,7 +409,7 @@ fn item_bind_group_layout() -> BindGroupLayoutDescriptor {
 fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("dropped item pipeline".into()),
-        layout: vec![layout],
+        layout: vec![layout, crate::lighting::layout()],
         vertex: VertexState {
             shader: ITEM_SHADER_HANDLE,
             entry_point: Some("item_vertex".into()),
@@ -625,7 +631,11 @@ fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) 
     }
 }
 
-type DrawItemCommands = (SetItemPipeline, DrawItems);
+type DrawItemCommands = (
+    SetItemPipeline,
+    crate::lighting::SetWorldLightmap,
+    DrawItems,
+);
 
 struct DrawItems;
 

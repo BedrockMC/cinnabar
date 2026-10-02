@@ -168,10 +168,9 @@ impl WorldStream {
                 && self.resident.contains(&dependent)
                 && self.store.sub_chunk(dependent).is_some()
             {
-                if !self.in_flight.contains_key(&dependent)
-                    && let Some(pending) = self.pending_mesh.get_mut(&dependent)
-                {
-                    if urgent {
+                if let Some(pending) = self.pending_mesh.get_mut(&dependent) {
+                    // A cancelled predecessor does not own its pending successor's snapshot.
+                    if urgent && !pending.urgent {
                         pending.urgent = true;
                         self.pending_mesh_scan
                             .push_front((dependent, pending.revision));

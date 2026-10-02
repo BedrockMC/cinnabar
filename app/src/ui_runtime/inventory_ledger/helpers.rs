@@ -1,6 +1,78 @@
-use protocol::{StackRequestContainer, StackRequestSlot};
+use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 
-use super::{Cell, ContainerIdentity, InventoryGestureError, StorageWindow};
+use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger, StorageWindow};
+
+impl PlayerInventoryLedger {
+    /// Even a predicted empty cell carries the owning request id in vanilla's
+    /// sparse container. Bind both source and destination before the new write
+    /// replaces that ownership.
+    pub(super) fn bind_request_dependencies(
+        &self,
+        actions: &mut [StackRequestAction],
+        request_id: i32,
+    ) {
+        for action in actions {
+            let (first, second) = match action {
+                StackRequestAction::Take {
+                    source,
+                    destination,
+                    ..
+                }
+                | StackRequestAction::Place {
+                    source,
+                    destination,
+                    ..
+                }
+                | StackRequestAction::Swap {
+                    source,
+                    destination,
+                } => (Some(source), Some(destination)),
+                StackRequestAction::Drop { source, .. }
+                | StackRequestAction::Destroy { source, .. }
+                | StackRequestAction::Consume { source, .. } => (Some(source), None),
+                _ => (None, None),
+            };
+            for slot in first.into_iter().chain(second) {
+                if slot.stack_network_id == request_id {
+                    continue;
+                }
+                let Some(cell) = self.request_cell(*slot) else {
+                    continue;
+                };
+                if let Some(owner) = self.queue.iter().rev().find(|pending| {
+                    pending
+                        .predicted
+                        .iter()
+                        .any(|prediction| prediction.cell == cell && prediction.active)
+                }) {
+                    slot.stack_network_id = owner.request_id;
+                }
+            }
+        }
+    }
+
+    fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
+        Some(match slot.container {
+            StackRequestContainer::PlayerInventory => Cell::Inventory(slot.slot),
+            StackRequestContainer::Cursor => Cell::Cursor,
+            StackRequestContainer::Armor => Cell::Armor(slot.slot),
+            StackRequestContainer::Offhand => Cell::Offhand,
+            StackRequestContainer::CraftingInput => Cell::Craft(slot.slot),
+            StackRequestContainer::CreatedOutput => Cell::CreatedOutput,
+            StackRequestContainer::LevelEntity { .. } => Cell::Storage(slot.slot),
+            StackRequestContainer::OpenWindow { name, dynamic_id } => {
+                return self.retained_response_cell(
+                    &ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(name),
+                        dynamic_id,
+                    },
+                    u16::from(slot.slot),
+                );
+            }
+        })
+    }
+}
 
 pub(super) const fn valid_raw_window_id(window_id: i32) -> bool {
     matches!(window_id, -128..=255)

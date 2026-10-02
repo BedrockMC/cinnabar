@@ -297,7 +297,7 @@ fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     assert!(!state.on_ground);
     assert_eq!(physics.history_len(), 0);
     let eye = physics.render_eye_position().expect("corrected render eye");
-    assert!((eye[1] - 71.62).abs() < 1.0e-5);
+    assert!((eye[1] - (70.0 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-5);
 }
 
 #[derive(Default)]
@@ -667,7 +667,7 @@ fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
 
     assert_eq!(
         physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
-        MovementInput::default()
+        MovementInput { yaw_degrees: 90.0, ..MovementInput::default() }
     );
 }
 

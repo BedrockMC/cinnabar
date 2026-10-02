@@ -11,7 +11,7 @@ struct BiomeTintGpu {
     dry_foliage: u32,
     water: u32,
     flags: u32,
-    padding: u32,
+    water_opacity: f32,
 }
 
 @group(0) @binding(7) var<storage, read> biome_records: array<u32>;
@@ -65,14 +65,18 @@ fn safe_biome_tint(index: u32) -> BiomeTintGpu {
     return biome_tints[safe_index];
 }
 
-fn tint_domain_colour(tint: BiomeTintGpu, tint_kind: u32, material_flags: u32) -> vec3<f32> {
+fn tint_domain_colour(tint: BiomeTintGpu, tint_kind: u32, material_flags: u32, world_position: vec3<i32>) -> vec4<f32> {
     if (tint_kind == 0x10u) {
-        return unpack_linear_rgb10(tint.grass);
+        if ((tint.flags & BIOME_SWAMP_GRASS) != 0u) {
+            let index = grass_palette_index(world_position.xz);
+            return vec4(unpack_linear_rgb10(biome_tints[arrayLength(&biome_tints) - BIOME_TINT_MAP_SIZE + index].grass), 1.0);
+        }
+        return vec4(unpack_linear_rgb10(tint.grass), 1.0);
     }
     if (tint_kind == 0x30u) {
-        return unpack_linear_rgb10(tint.water);
+        return vec4(unpack_linear_rgb10(tint.water), tint.water_opacity);
     }
-    return special_foliage_tint(tint, material_flags);
+    return vec4(special_foliage_tint(tint, material_flags), 1.0);
 }
 
 fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
@@ -85,12 +89,14 @@ fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
 }
 
 // Tint tables are linear; vanilla averages normalized palette RGB before lighting.
-fn tint_to_gamma(linear: vec3<f32>) -> vec3<f32> {
-    return select(12.92 * linear, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055, linear > vec3(0.0031308));
+fn tint_to_gamma(rgba: vec4<f32>) -> vec4<f32> {
+    let linear = rgba.rgb;
+    return vec4(select(12.92 * linear, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055, linear > vec3(0.0031308)), rgba.a);
 }
 
-fn tint_to_linear(gamma: vec3<f32>) -> vec3<f32> {
-    return select(gamma / 12.92, pow((gamma + 0.055) / 1.055, vec3(2.4)), gamma > vec3(0.04045));
+fn tint_to_linear(rgba: vec4<f32>) -> vec4<f32> {
+    let gamma = rgba.rgb;
+    return vec4(select(gamma / 12.92, pow((gamma + 0.055) / 1.055, vec3(2.4)), gamma > vec3(0.04045)), rgba.a);
 }
 
 fn lattice_point_index(position: vec3<i32>) -> u32 {
@@ -103,29 +109,55 @@ fn blended_biome_tint(
     material_flags: u32,
     record: u32,
     local_position: vec3<f32>,
-) -> vec3<f32> {
+    world_origin: vec3<f32>,
+) -> vec4<f32> {
     let coordinate = vec3<i32>(floor(local_position));
     let uniform_tint = biome_records[record + 1u];
     if (uniform_tint != 0xffffffffu) {
-        return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags);
+        return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags, coordinate + vec3<i32>(world_origin));
     }
     let base = (coordinate - vec3(BIOME_CACHE_ORIGIN)) / BIOME_LATTICE_STEP * BIOME_LATTICE_STEP + vec3(BIOME_CACHE_ORIGIN);
     let residue = vec3<u32>(coordinate - base + vec3(BIOME_RESIDUE_RADIUS));
     let query = ((residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z) * BIOME_QUERY_POINTS;
-    var sum = vec3(0.0);
+    var sum = vec4(0.0);
     var denominator = 0.0;
     for (var point = 0; point < i32(BIOME_QUERY_POINTS); point += 1) {
         let sample = BIOME_POINTS[query + u32(point)];
         let weight = sample.w;
         let position = base + vec3<i32>(sample.xyz);
         let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * BIOME_POINT_WORDS;
-        var colour = vec3(0.0);
+        var colour = vec4(0.0);
         for (var i = 0u; i < biome_records[start]; i += 1u) {
             let tint = safe_biome_tint(biome_records[start + 1u + i]);
-            colour += tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags)) * bitcast<f32>(biome_records[start + 1u + BIOME_BIOME_LIMIT + i]);
+            colour += tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))) * bitcast<f32>(biome_records[start + 1u + BIOME_BIOME_LIMIT + i]);
         }
-        sum += clamp(colour, vec3(0.0), vec3(1.0)) * weight;
+        sum += clamp(colour, vec4(0.0), vec4(1.0)) * weight;
         denominator += weight;
     }
     return tint_to_linear(sum / denominator);
+}
+
+// Lens 0xa772a80 and 0xa7b3fe0: float simplex coordinates and the 12-entry gradient order.
+fn grass_corner(cell: vec2<i32>, offset: vec2<f32>) -> f32 {
+    let gradients = array<vec2<f32>, 12>(vec2(1.0,1.0),vec2(-1.0,1.0),vec2(1.0,-1.0),vec2(-1.0,-1.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(1.0,0.0),vec2(-1.0,0.0),vec2(0.0,1.0),vec2(0.0,-1.0),vec2(0.0,1.0),vec2(0.0,-1.0));
+    let hash = GRASS_PERMUTATION[(u32(cell.x) + GRASS_PERMUTATION[u32(cell.y) & GRASS_PERMUTATION_MASK]) & GRASS_PERMUTATION_MASK] % 12u;
+    let t = max(0.0, (0.5 - offset.x * offset.x) - offset.y * offset.y);
+    let gradient = gradients[hash];
+    return (offset.y * gradient.y + offset.x * gradient.x) * t * t * t * t;
+}
+
+// Lens 0x1dcd030 samples row 255 at clamp(int((noise + .6) * 255)).
+fn grass_palette_index(world_xz: vec2<i32>) -> u32 {
+    let p = vec2<f32>(world_xz) * 0.0225;
+    let skew = (p.x + p.y) * bitcast<f32>(0x3ebb67aeu);
+    let skewed = p + vec2(skew);
+    let cell = vec2<i32>(skewed) - select(vec2(0), vec2(1), skewed <= vec2(0.0));
+    let unskew = f32(cell.x + cell.y) * bitcast<f32>(0x3e58658cu);
+    let first = p - (vec2<f32>(cell) - vec2(unskew));
+    let step = select(vec2(0, 1), vec2(1, 0), first.x > first.y);
+    let second = first - vec2<f32>(step) + vec2(bitcast<f32>(0x3e58658cu));
+    let third = first - vec2(1.0) + vec2(bitcast<f32>(0x3e58658cu)) + vec2(bitcast<f32>(0x3e58658cu));
+    let noise = (grass_corner(cell, first) + grass_corner(cell + step, second) + grass_corner(cell + vec2(1), third)) * 70.0;
+    let maximum = i32(BIOME_TINT_MAP_SIZE - 1u);
+    return u32(clamp(i32((noise + 0.6) * f32(maximum)), 0, maximum));
 }

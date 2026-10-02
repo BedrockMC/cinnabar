@@ -26,8 +26,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
-$ExpectedGophertunnelCommit = 'b725d82563e93308fd1f92d27da5e97301ad5040'
-$ExpectedGophertunnelVersion = 'v1.25.3-0.20260929084839-b725d82563e9'
 $ExpectedBdsSha256 = '19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
 $ExpectedBdsRelease = '1.26.52.3'
 $PinnedAxolotlStackCommit = 'c4540512dc47833bb40363da7ad1161110d64b67'
@@ -49,10 +47,7 @@ foreach ($libraryPath in Get-AcceptanceLibraryPaths -EntryPath $PSCommandPath) {
     . $libraryPath
 }
 $ProjectRootForDependencyResolution = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$PinnedGophertunnelCommit = Get-PinnedGophertunnelCommit `
-    -ProjectRoot $ProjectRootForDependencyResolution `
-    -ExpectedVersion $ExpectedGophertunnelVersion `
-    -ExpectedCommit $ExpectedGophertunnelCommit
+$PinnedGophertunnelCommit = Get-PinnedGophertunnelCommit -ProjectRoot $ProjectRootForDependencyResolution
 
 if ($env:RUST_MCBE_ACCEPTANCE_TEST_LIBRARY_ONLY -eq '1') {
     return

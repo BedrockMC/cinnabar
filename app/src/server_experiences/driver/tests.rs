@@ -70,6 +70,14 @@ fn controller_follows_committed_drain_before_semantic_input() {
             .graph()
             .contains_edge(system_node(graph, drive), semantic)
     );
+
+    let mut schedules = app.world_mut().remove_resource::<Schedules>().unwrap();
+    let result = schedules
+        .get_mut(Update)
+        .unwrap()
+        .initialize(app.world_mut());
+    app.world_mut().insert_resource(schedules);
+    assert!(result.is_ok(), "experience schedule: {result:?}");
 }
 
 #[test]
@@ -155,4 +163,67 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     assert!(matches!(extension.session.state, State::Disabled));
     assert!(!extension.active);
     assert!(app.world().resource::<ExperienceService>().live.is_none());
+}
+
+#[test]
+fn unadvertised_experience_preserves_input_and_rendered_menu() {
+    use crate::ui_runtime::presentation::forms::{pack_harness, snapshot};
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = UiRuntime::new(1);
+    let menu = MenuRuntime::new(true, 2, "Test".into());
+    presentation.set_menu_view(Some(menu.view()));
+    let before = presentation
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    snapshot::write(&before, "experience-unadvertised-before");
+    let mut app = App::new();
+    app.insert_resource(menu)
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .insert_resource(NetworkHandle::disconnected())
+        .init_resource::<ClientWorld>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .add_message::<bevy::input::mouse::MouseWheel>();
+    configure(&mut app);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<super::super::input::ConsentInput>()
+            .0
+    );
+    assert!(
+        app.world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_pressed(KeyCode::Escape)
+    );
+    assert!(
+        app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .just_pressed(MouseButton::Left)
+    );
+    let service = app.world().resource::<ExperienceService>();
+    assert!(service.settings.is_none());
+    assert!(service.download.is_none());
+    assert!(service.live.is_none());
+    let runtime = app.world().resource::<UiRuntime>().clone();
+    let after = app
+        .world_mut()
+        .resource_mut::<UiPresentationRuntime>()
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    snapshot::write(&after, "experience-unadvertised-after");
+    assert_eq!(snapshot::rasterize(&before), snapshot::rasterize(&after));
 }

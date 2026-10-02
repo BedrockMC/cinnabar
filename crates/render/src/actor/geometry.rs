@@ -210,11 +210,17 @@ fn face_uv_quad(
     face.map(|face| {
         quad(
             face.uv.map(|value| value.get()),
+            // Geometry::_parseBoxFaceUV (26.50 RVA 06af9220) first copies the cube's
+            // face dimensions, then optionally replaces them with authored uv_size.
             face.uv_size
                 .map_or(dimensions, |size| size.map(|value| value.get())),
         )
     })
 }
+
+#[cfg(test)]
+#[path = "geometry_uv_tests.rs"]
+mod uv_tests;
 
 fn cuboid_corners(min: [f32; 3], max: [f32; 3]) -> [[f32; 3]; 8] {
     [

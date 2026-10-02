@@ -13,7 +13,11 @@ pub const TINT_MAP_SIZE: u32 = 256;
 pub const TINT_MAP_COUNT: usize = 8;
 pub const TINT_MAP_BYTES: usize = TINT_MAP_COUNT * 256 * 256 * 3;
 pub const BIOME_RULE_FLAG_GRASS_SHADED: u16 = 1;
-pub const BIOME_RULE_FLAGS_MASK: u16 = BIOME_RULE_FLAG_GRASS_SHADED;
+// Upper-byte transparency preserves opaque defaults in existing biome records.
+const WATER_TRANSPARENCY_SHIFT: u32 = 8;
+pub const BIOME_RULE_FLAGS_MASK: u16 =
+    BIOME_RULE_FLAG_GRASS_SHADED | (255 << WATER_TRANSPARENCY_SHIFT);
+pub const BIOME_TINT_FLAG_SWAMP_GRASS: u32 = 1 << 16;
 pub const RAW_BIOME_ID_COUNT: usize = u16::MAX as usize + 1;
 pub const MISSING_BIOME_DENSE_INDEX: u32 = 0;
 
@@ -192,6 +196,21 @@ pub struct BiomeRule {
 }
 
 impl BiomeRule {
+    /// Stores the reference byte opacity while preserving independent appearance flags.
+    pub fn set_water_opacity(&mut self, opacity: f32) -> Result<(), AssetError> {
+        if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
+            return Err(invalid("water surface opacity must be in 0..=1"));
+        }
+        let alpha = (255.0 * opacity) as u16;
+        self.flags = (self.flags & 0xff) | ((255 - alpha) << WATER_TRANSPARENCY_SHIFT);
+        Ok(())
+    }
+
+    /// Decodes the water vertex alpha independently of RGB transfer.
+    pub fn water_opacity(&self) -> f32 {
+        f32::from(255 - (self.flags >> WATER_TRANSPARENCY_SHIFT)) / 255.0
+    }
+
     pub fn temperature(&self) -> f32 {
         f32::from_bits(self.temperature_bits)
     }
@@ -246,6 +265,7 @@ pub struct LinearBiomeTints {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedBiomeTints {
     pub records: Box<[LinearBiomeTints]>,
+    pub swamp_grass_palette: Box<[[f32; 4]]>,
     pub raw_id_to_dense: Box<[u32]>,
 }
 
@@ -345,6 +365,22 @@ impl CompiledBiomeAssets {
         }
         Ok(ResolvedBiomeTints {
             records: records.into_boxed_slice(),
+            swamp_grass_palette: self
+                .tint_maps_rgb8
+                .chunks_exact(3)
+                .skip(
+                    (TintMapId::SwampGrass as usize * TINT_MAP_SIZE as usize
+                        + TINT_MAP_SIZE as usize
+                        - 1)
+                        * TINT_MAP_SIZE as usize,
+                )
+                .take(TINT_MAP_SIZE as usize)
+                .map(|c| {
+                    rgb_to_linear(
+                        (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2]),
+                    )
+                })
+                .collect(),
             raw_id_to_dense: raw_id_to_dense.into_boxed_slice(),
         })
     }
@@ -355,10 +391,22 @@ impl CompiledBiomeAssets {
         temperature: f32,
         downfall: f32,
     ) -> Result<LinearBiomeTints, AssetError> {
+        let mut grass = self.resolve_source_rgb(rule.grass, temperature, downfall)?;
+        if rule.flags & BIOME_RULE_FLAG_GRASS_SHADED != 0
+            && rule.grass.map_id() == Some(TintMapId::Grass)
+        {
+            // Lens 1.26.50.26 0x1dcd030: shade bytes before color-space conversion.
+            grass = ((grass & 0x00fe_fefe) + 0x0028_340a) >> 1;
+        }
         Ok(LinearBiomeTints {
             raw_id: rule.id,
-            flags: u32::from(rule.flags),
-            grass: self.resolve_source(rule.grass, temperature, downfall)?,
+            flags: u32::from(rule.flags)
+                | if rule.grass.map_id() == Some(TintMapId::SwampGrass) {
+                    BIOME_TINT_FLAG_SWAMP_GRASS
+                } else {
+                    0
+                },
+            grass: rgb_to_linear(grass),
             foliage: self.resolve_source(rule.foliage, temperature, downfall)?,
             birch: self.resolve_source(TintSource::map(TintMapId::Birch), temperature, downfall)?,
             evergreen: self.resolve_source(
@@ -366,17 +414,33 @@ impl CompiledBiomeAssets {
                 temperature,
                 downfall,
             )?,
-            water: self.resolve_source(rule.water, temperature, downfall)?,
+            water: {
+                let mut color = self.resolve_source(rule.water, temperature, downfall)?;
+                color[3] = rule.water_opacity();
+                color
+            },
             dry_foliage: self.resolve_source(rule.dry_foliage, temperature, downfall)?,
         })
     }
 
+    /// Resolves palette bytes before the material's linear color conversion.
     fn resolve_source(
         &self,
         source: TintSource,
         temperature: f32,
         downfall: f32,
     ) -> Result<[f32; 4], AssetError> {
+        self.resolve_source_rgb(source, temperature, downfall)
+            .map(rgb_to_linear)
+    }
+
+    /// Selects either an explicit packed color or a climate palette entry.
+    fn resolve_source_rgb(
+        &self,
+        source: TintSource,
+        temperature: f32,
+        downfall: f32,
+    ) -> Result<u32, AssetError> {
         let rgb = if let Some(rgb) = source.direct_rgb() {
             rgb
         } else {
@@ -391,7 +455,7 @@ impl CompiledBiomeAssets {
                 .ok_or_else(|| invalid("tint map lookup exceeds validated storage"))?;
             (u32::from(channels[0]) << 16) | (u32::from(channels[1]) << 8) | u32::from(channels[2])
         };
-        Ok(rgb_to_linear(rgb))
+        Ok(rgb)
     }
 }
 

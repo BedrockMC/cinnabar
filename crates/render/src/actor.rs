@@ -11,6 +11,9 @@ use bytemuck::{Pod, Zeroable};
 mod artwork;
 #[path = "actor/asset_geometry.rs"]
 mod asset_geometry;
+#[path = "actor/texture_mesh.rs"]
+mod texture_mesh;
+pub use texture_mesh::attachable_geometry;
 #[path = "actor/geometry.rs"]
 mod geometry;
 #[path = "actor/skin_poly_mesh.rs"]
@@ -21,7 +24,7 @@ pub use artwork::{
 };
 #[cfg(test)]
 pub(crate) use geometry::ONE_SIDED_BACK_UV;
-pub use item_mesh::{held_sprite_vertices, textured_cube_vertices};
+pub use item_mesh::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
 #[path = "actor/item_mesh.rs"]

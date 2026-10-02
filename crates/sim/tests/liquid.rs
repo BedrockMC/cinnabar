@@ -226,6 +226,30 @@ fn submerged() -> PlayerState {
 }
 
 #[test]
+fn grounded_liquid_uses_liquid_acceleration_and_ascent_instead_of_land_jump() {
+    for flag in [BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA] {
+        let world = fluid(flag, SurfaceResponse::None);
+        let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
+        state.on_ground = true;
+        let result = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    jumping: true,
+                    jump_pressed: true,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!((result.movement.z - 0.0196).abs() < 1.0e-7, "{result:?}");
+        assert!((result.movement.y - 0.04).abs() < 1.0e-7, "{result:?}");
+        assert_eq!(state.jump_delay, 0);
+    }
+}
+
+#[test]
 fn water_applies_flowless_buoyancy_and_drag_while_lava_is_slower() {
     let mut water_state = submerged();
     let water_tick = Simulator::default()

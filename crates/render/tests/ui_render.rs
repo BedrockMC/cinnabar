@@ -1,3 +1,5 @@
+#[path = "../src/nametag.rs"]
+pub mod nametag;
 #[path = "../src/ui.rs"]
 pub mod ui;
 #[path = "../src/ui_textures.rs"]
@@ -51,8 +53,8 @@ fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
 
 #[test]
 fn shader_parses_and_declares_premultiplied_texture_sampling() {
-    let source = include_str!("../src/ui.wgsl");
-    let module = naga::front::wgsl::parse_str(source).unwrap();
+    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -62,6 +64,12 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     assert!(source.contains("textureSample"));
     assert!(source.contains("sample.rgb * sample.a"));
     assert!(source.contains("viewport_size"));
+    assert!(source.contains(&format!(
+        "const STYLE_ALPHA_TEST: u32 = {}u;",
+        ui::UI_STYLE_ALPHA_TEST
+    )));
+    assert!(source.contains("sample.a < 0.5"));
+    assert!(source.find("discard;").unwrap() < source.find("let alpha =").unwrap());
 }
 
 #[test]
@@ -82,6 +90,62 @@ fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     assert_eq!(blend.color.dst_factor, BlendFactor::OneMinusSrcAlpha);
     assert_eq!(blend.alpha.src_factor, BlendFactor::One);
     assert_eq!(blend.alpha.dst_factor, BlendFactor::OneMinusSrcAlpha);
+}
+
+#[test]
+fn homogeneous_world_vertices_validate_without_dividing_at_the_camera() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].clip_w = 0.0;
+    vertices[1].clip_w = -1.0;
+    vertices[2].clip_z = 0.25;
+    input.vertices = vertices.clone().into();
+    let mut batches = input.batches.to_vec();
+    batches[0] = batches[0].with_depth_test(true);
+    batches[1] = batches[1].with_world_projection(true);
+    input.batches = batches.into();
+    input.validate().unwrap();
+    vertices[0].clip_w = f32::NAN;
+    input.vertices = vertices.into();
+    assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+}
+
+#[test]
+fn world_depth_and_projection_batch_modes_are_validated_separately() {
+    let mut input = fixture_draw_list(1);
+    let mut batches = input.batches.to_vec();
+    batches[0].depth_test = 2;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedDepthTest { batch: 0 })
+    );
+    batches[0].depth_test = 1;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: 0 })
+    );
+    batches[0].world_projection = 1;
+    batches[1] = batches[1].with_depth_write(true);
+    input.batches = batches.clone().into();
+    input.validate().unwrap();
+    batches[1].depth_write = 2;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedDepthWrite { batch: 1 })
+    );
+    batches[1].depth_write = 1;
+    batches[1].world_projection = 0;
+    input.batches = batches.clone().into();
+    assert_eq!(
+        input.validate(),
+        Err(UiRenderRejectReason::UnsupportedWorldProjection { batch: 1 })
+    );
+    batches[1].world_projection = 1;
+    input.batches = batches.into();
+    input.validate().unwrap();
 }
 
 #[test]
@@ -475,6 +539,8 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
     let vertices = (0..12)
         .map(|index| UiRenderVertex {
             position: [index as f32, index as f32 + 0.5],
+            clip_z: 0.0,
+            clip_w: 1.0,
             uv: [index as u16, index as u16],
             color: [255, 128, 64, 192],
             style_flags: 0,
@@ -572,6 +638,15 @@ fn ui_only_plugin_never_registers_a_duplicate_transparent_draw() {
             .get_sub_graph(Core3d)
             .unwrap()
             .get_node_state(ui_render::UiOverlayLabel)
+            .is_ok()
+    );
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<RenderGraph>()
+            .get_sub_graph(Core3d)
+            .unwrap()
+            .get_node_state(ui_render::UiWorldLabel)
             .is_ok()
     );
 }

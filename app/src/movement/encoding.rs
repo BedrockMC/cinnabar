@@ -198,3 +198,9 @@ pub(super) fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
         vector
     }
 }
+
+/// Converts processed right-positive controls to the wire's left-positive vector.
+pub(super) fn wire_move_vector(vector: [f32; 2]) -> [f32; 2] {
+    let [right, forward] = normalize_move_vector(vector);
+    [if right == 0.0 { 0.0 } else { -right }, forward]
+}

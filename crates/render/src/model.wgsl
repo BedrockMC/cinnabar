@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
@@ -38,9 +38,8 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visible: u32,
-    @location(9) block_light: f32,
-    @location(10) sky_light: f32,
-    @location(11) ambient_occlusion: f32,
+    @location(9) lighting: vec3<f32>,
+    @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) @interpolate(flat) two_sided: u32,
     @location(13) world_position: vec3<f32>,
 }
@@ -59,10 +58,9 @@ fn invisible_vertex() -> VertexOutput {
     invisible.next_texture = 0u;
     invisible.frame_blend = 0.0;
     invisible.visible = 0u;
-    invisible.block_light = 0.0;
-    invisible.sky_light = 0.0;
-    invisible.ambient_occlusion = 0.0;
+    invisible.lighting = vec3(0.0);
     invisible.two_sided = 0u;
+    invisible.world_origin = vec3(0.0);
     invisible.world_position = vec3(0.0);
     return invisible;
 }
@@ -189,9 +187,6 @@ fn vertex(
     }
     let light_word = geometry_streams[(lighting_base_index + quad_index) * 2u + corner / 2u];
     let light_sample = select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
-    let block_light = f32(light_sample & 15u);
-    let sky_light = f32((light_sample >> 4u) & 15u);
-    let ao = f32((light_sample >> 8u) & 3u);
     var out: VertexOutput;
     let world = vec3<f32>(origin.value.xyz) + local_position;
     out.clip_position = view.clip_from_world * vec4(world, 1.0);
@@ -200,25 +195,25 @@ fn vertex(
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
     out.current_texture = frame.current;
-    out.normal = vec3(0.0, 1.0, 0.0);
+    let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
+    out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), packed_transform >> 12u) - vec3(0.5,0.0,0.5);
     out.material_flags = material.flags;
     out.local_position = block_position;
     out.biome_record = u32(origin.value.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
-    out.block_light = light_brightness(u32(block_light));
-    out.sky_light = light_brightness(u32(sky_light));
-    out.ambient_occlusion = light_ao_factor(u32(ao));
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
+    out.world_origin = vec3<f32>(origin.value.xyz);
     return out;
 }
 
-fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>) -> vec4<f32> {
+fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, world_origin: vec3<f32>) -> vec4<f32> {
     let tint_kind = flags & 0x30u;
     if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
-    return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position), sampled.a);
+    return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);
 }
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
@@ -254,13 +249,10 @@ fn fragment(
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
-    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     let lit = lit_colour(
         colour.rgb,
-        in.block_light,
-        in.sky_light,
-        in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 }
@@ -278,15 +270,12 @@ fn fragment_blend(
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
-    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position);
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
     let lit = lit_colour(
         colour.rgb,
-        in.block_light,
-        in.sky_light,
-        in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
 }

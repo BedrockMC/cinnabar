@@ -73,8 +73,10 @@ fn hotbar_swap_uses_swap_or_place() {
         Some(StackRequestAction::Swap { source, destination })
             if source.slot == 20 && destination.slot == 2
     ));
-    assert_eq!(ledger.displayed_stack(2).unwrap().stack_network_id, 100);
-    assert_eq!(ledger.displayed_stack(20).unwrap().stack_network_id, 55);
+    assert_eq!(ledger.displayed_stack(2).unwrap().stack_network_id, -3);
+    assert_eq!(ledger.displayed_stack(20).unwrap().stack_network_id, -3);
+    assert_eq!(ledger.displayed_stack(2).unwrap().network_id, 8);
+    assert_eq!(ledger.displayed_stack(20).unwrap().network_id, 9);
 
     ledger
         .begin_hotbar_swap(InventoryTarget::Player(21), 4)
@@ -169,7 +171,7 @@ fn quick_move_prefers_compatible_partial_stacks() {
         panic!("a single place");
     };
     assert_eq!((destination.slot, destination.stack_network_id), (10, 0));
-    assert_eq!(ledger.displayed_stack(10).unwrap().stack_network_id, 12);
+    assert_eq!(ledger.displayed_stack(10).unwrap().stack_network_id, -5);
 }
 
 /// With storage open, player stacks quick-move into the storage window.
@@ -203,7 +205,7 @@ fn quick_move_from_player_targets_open_storage() {
             dynamic_id: Some(91)
         }
     );
-    assert_eq!(ledger.storage_stack(0).unwrap().stack_network_id, 100);
+    assert_eq!(ledger.storage_stack(0).unwrap().stack_network_id, -3);
 }
 
 /// The in-world drop key needs no open window, unlike a screen drop.

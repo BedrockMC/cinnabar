@@ -54,3 +54,10 @@ opt-level = 3
 [profile.release]
 codegen-units = 1
 lto = "thin"
+
+# `make play`: release speed with parallel codegen and incremental rebuilds; shipped builds use release.
+[profile.play]
+inherits = "release"
+codegen-units = 16
+lto = false
+incremental = true

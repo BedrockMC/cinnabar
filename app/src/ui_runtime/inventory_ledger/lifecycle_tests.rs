@@ -245,7 +245,7 @@ fn personal_ack_retains_dynamic_window_identity_for_exact_close() {
 }
 
 #[test]
-fn none_type_client_ack_only_completes_an_admitted_personal_close() {
+fn client_ack_only_completes_an_admitted_personal_close_without_payload_correlation() {
     let close = |window_id, window_type, server_initiated| {
         InventoryEvent::Close(ContainerCloseEvent {
             container: ContainerIdentity::window(window_id),
@@ -261,18 +261,21 @@ fn none_type_client_ack_only_completes_an_admitted_personal_close() {
 
     ledger.request_personal_close();
     ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    ledger.apply(&close(2, PERSONAL_INVENTORY_WINDOW_TYPE, false));
     assert!(ledger.personal.is_some(), "a queued close is not admitted");
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(
+        ledger.pending_packet().unwrap().is_some(),
+        "even an exact-payload stale response cannot consume the unsent close"
+    );
 
     assert!(ledger.mark_transport_enqueued(20));
-    ledger.apply(&close(3, NO_CONTAINER_WINDOW_TYPE, false));
     ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, true));
     assert!(
         ledger.personal.is_some(),
         "unmatched close shapes stay isolated"
     );
 
-    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
+    ledger.apply(&close(3, GENERIC_STORAGE_WINDOW_TYPE, false));
     assert!(ledger.personal.is_none());
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(30));
@@ -732,7 +735,10 @@ fn close_ack_clears_unrestated_cursor_and_session_reset_drops_all_personal_work(
         responses: Arc::from([StackResponse {
             status: StackResponseStatus::Accepted,
             request_id,
-            containers: Arc::from([]),
+            containers: Arc::from([
+                correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, 0),
+                correction(CONTAINER_NAME_CURSOR, 0, 32, 10),
+            ]),
         }]),
     }));
     assert!(ledger.cursor_stack().is_some());

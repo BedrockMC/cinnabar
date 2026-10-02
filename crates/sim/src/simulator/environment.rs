@@ -62,12 +62,15 @@ pub(super) fn sample(
             {
                 movement.surface_response = active_response;
             }
-            movement.horizontal_speed_factor = movement
-                .horizontal_speed_factor
-                .min(facts.horizontal_speed_factor);
-            movement.vertical_speed_factor = movement
-                .vertical_speed_factor
-                .min(facts.vertical_speed_factor);
+            // Web slowdown belongs to the displacement phase, not ground acceleration.
+            if !facts.flags.contains(BlockPhysicsFlags::COBWEB) {
+                movement.horizontal_speed_factor = movement
+                    .horizontal_speed_factor
+                    .min(facts.horizontal_speed_factor);
+                movement.vertical_speed_factor = movement
+                    .vertical_speed_factor
+                    .min(facts.vertical_speed_factor);
+            }
             movement.on_climbable |= facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
             movement.in_water |= facts.flags.contains(BlockPhysicsFlags::WATER)
                 && fluid_intersects(player, block, facts.fluid_height_blocks);

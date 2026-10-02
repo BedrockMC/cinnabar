@@ -590,8 +590,9 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("if (draw_ref_word + 1u >= geometry_word_count)"));
     assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 0x3fffffffu)"));
     assert!(shader.contains("if (ref_word + 3u >= geometry_word_count)"));
-    assert!(shader.contains("block_light"));
-    assert!(shader.contains("sky_light"));
+    assert!(shader.contains("light_colour(light_sample)"));
+    assert!(!shader.contains("block_light"));
+    assert!(!shader.contains("sky_light"));
     assert!(!shader.contains("safe_quad_index"));
     let masked_guard = shader
         .find("if (is_visible == 0u) {")
@@ -687,7 +688,7 @@ fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader
-                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position), sampled.a);"),
+                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);"),
         "biome tinting must preserve sampled alpha for the blend entry point"
     );
     assert!(

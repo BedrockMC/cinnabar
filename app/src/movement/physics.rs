@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, time::Duration};
 
 use bevy::prelude::Resource;
-use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode, STANDING_PLAYER_EYE_HEIGHT};
+use protocol::{PLAYER_NETWORK_OFFSET, PlayerInputMode};
 use sim::{
     CollisionWorld, MovementInput, PlayerState, PredictionHistory, SimulationError, Simulator,
     TICKS_PER_SECOND, Vec3, WorldCollisionIdentity,
@@ -9,6 +9,7 @@ use sim::{
 use thiserror::Error;
 
 mod correction;
+mod eye;
 mod timeline;
 
 pub(crate) use timeline::ServerControlFlags;
@@ -70,7 +71,10 @@ pub fn physics_movement_input(
     item_use_movement_modifier: Option<f64>,
 ) -> MovementInput {
     if !active {
-        return MovementInput::default();
+        return MovementInput {
+            yaw_degrees: f64::from(yaw_degrees),
+            ..MovementInput::default()
+        };
     }
     let sprinting = sprint_request && right_forward[1] > 0.0;
     MovementInput {
@@ -181,6 +185,7 @@ pub(super) struct PhysicsCorrectionPlan {
     pub(super) corrected_tick: u64,
     pub(super) final_tick: u64,
     pub(super) final_position: [f32; 3],
+    pub(super) anchor_input: super::encoding::HeldInput,
     pub(super) replayed_samples: Vec<PhysicsMovementSample>,
 }
 
@@ -205,10 +210,12 @@ pub struct LocalPhysicsController {
     history: PredictionHistory,
     state: Option<PlayerState>,
     previous_position: Vec3,
+    eye_offset: eye::LocalEyeOffset,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    fly_toggle_pending: bool,
     /// Open processed-jump-arc fold state carried across ticks. Reset with the
     /// rest of prediction state; rebuilt across correction replays.
     processed_jump_arc_active: bool,
@@ -227,8 +234,7 @@ pub struct LocalPhysicsController {
     /// Locomotion mode selector and the previous tick's sampled environment it reads.
     modes: ModeTracker,
     last_environment: sim::MovementEnvironment,
-    /// Server corrections applied to this controller; drives the prediction sync.
-    corrections_applied: u64,
+    pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
 }
 
 impl Default for LocalPhysicsController {
@@ -239,10 +245,12 @@ impl Default for LocalPhysicsController {
                 .expect("local physics history capacity is non-zero"),
             state: None,
             previous_position: Vec3::ZERO,
+            eye_offset: eye::LocalEyeOffset::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            fly_toggle_pending: false,
             processed_jump_arc_active: false,
             dropped_tick_count: 0,
             last_world_identity: None,
@@ -253,7 +261,7 @@ impl Default for LocalPhysicsController {
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
-            corrections_applied: 0,
+            prediction_sync: Default::default(),
         }
     }
 }
@@ -282,11 +290,14 @@ impl LocalPhysicsController {
     }
 
     pub fn deactivate(&mut self) {
+        self.prediction_sync.clear();
         self.state = None;
+        self.eye_offset = eye::LocalEyeOffset::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
@@ -330,10 +341,12 @@ impl LocalPhysicsController {
         state.on_ground = on_ground;
         self.state = Some(state);
         self.previous_position = feet;
+        self.eye_offset = eye::LocalEyeOffset::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
@@ -408,6 +421,7 @@ impl LocalPhysicsController {
         }
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
+        self.fly_toggle_pending ^= context.mode_intent.fly_toggle;
 
         if self.discard_next_elapsed {
             self.discard_next_elapsed = false;
@@ -429,7 +443,6 @@ impl LocalPhysicsController {
 
         let sprint_request = input.sprinting;
         let sneak_request = input.sneaking;
-        let mut fly_toggle = context.mode_intent.fly_toggle;
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
@@ -454,15 +467,6 @@ impl LocalPhysicsController {
             // latch for taps shorter than one fixed tick, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             let grounded_before_tick = state.on_ground;
-            // The simulator clears a retained post-jump cooldown whenever the
-            // button is not held and then consumes requests only while
-            // grounded with that cooldown expired (`jump_pressed` +
-            // pre-tick ground contact + zero effective delay). Capture the
-            // same pre-tick facts so the initiation fold below claims exactly
-            // the requests the simulator can consume: a fresh press edge
-            // arriving inside the cooldown is refused by the simulator and
-            // must not assert an initiation here.
-            let jump_cooldown_cleared = !input.jumping || state.jump_delay == 0;
             let jump_repeated = input.jumping
                 && grounded_before_tick
                 && state.jump_delay == 0
@@ -472,9 +476,10 @@ impl LocalPhysicsController {
             input.sprinting = sprint_request;
             let mut forced_sneak = false;
             let mut mode_error = None;
+            let previous_modes = self.modes;
             match self.modes.select(
                 context.mode_intent,
-                std::mem::take(&mut fly_toggle),
+                self.fly_toggle_pending,
                 ModeObservation {
                     feet: state.position,
                     on_ground: state.on_ground,
@@ -547,18 +552,15 @@ impl LocalPhysicsController {
                     self.last_environment = result.environment;
                     effects.commit_successful_tick();
                     self.previous_position = before;
+                    self.eye_offset.tick(input.mode, input.sneaking);
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
-                    // The simulator can only consume a jump request from the
-                    // ground with its post-jump cooldown expired, so
-                    // initiation is the consumed request on a tick that
-                    // started grounded and clear of the cooldown. The arc
-                    // then rides the airborne window until the simulator
-                    // reports ground contact again.
+                    self.prediction_sync.tick();
+                    // The simulator owns initiation; held inputs alone cannot prove a jump.
                     let mut processed = ProcessedMovementState::next(
                         self.processed_jump_arc_active,
-                        input.jump_pressed && grounded_before_tick && jump_cooldown_cleared,
+                        output.jump_initiated,
                         state.on_ground,
                         input.sneaking,
                         input.sprinting,
@@ -630,9 +632,11 @@ impl LocalPhysicsController {
                             .clone(),
                     );
                     self.jump_edge_pending = false;
+                    self.fly_toggle_pending = false;
                     input.jump_pressed = false;
                 }
                 Err(error) => {
+                    self.modes = previous_modes;
                     let transient_collision_blocked = matches!(
                         &error,
                         sim::PredictionError::Simulation(error)
@@ -677,14 +681,19 @@ impl LocalPhysicsController {
 
     #[must_use]
     pub fn render_eye_position(&self) -> Option<[f32; 3]> {
+        let mut feet = self.render_feet_position()?;
+        let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
+        feet[1] += self.eye_offset.height(alpha as f32);
+        Some(feet)
+    }
+
+    /// The interpolated actor origin, independent of the camera's stance offset.
+    #[must_use]
+    pub fn render_feet_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
         let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
         let feet = self.previous_position + (state.position - self.previous_position) * alpha;
-        Some([
-            feet.x as f32,
-            feet.y as f32 + STANDING_PLAYER_EYE_HEIGHT,
-            feet.z as f32,
-        ])
+        Some([feet.x as f32, feet.y as f32, feet.z as f32])
     }
 
     #[must_use]
@@ -709,11 +718,6 @@ impl LocalPhysicsController {
         self.sample_history
             .iter()
             .find(|sample| sample.tick == tick)
-    }
-
-    #[must_use]
-    pub const fn corrections_applied(&self) -> u64 {
-        self.corrections_applied
     }
 
     #[must_use]

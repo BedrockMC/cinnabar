@@ -3,11 +3,14 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use std::sync::Arc;
 
 mod mesh;
+mod native;
 mod rope;
 
 pub use mesh::{
     ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, OPAQUE_WHITE, cube_mesh, extruded_sprite_mesh,
+    native_dropped_sprite_mesh,
 };
+pub use native::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
 pub use rope::{rope_color, rope_point, rope_ribbon};
 
 /// Side length of every layer on the GPU; larger textures are rejected.
@@ -39,7 +42,10 @@ pub struct DroppedItemCube {
 /// Geometry an instance can reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DroppedItemModel {
+    /// Legacy centered slab used by static placements, not native item actors.
     Sprite(DroppedItemSprite),
+    /// Native TextureTessellator frame after the ordinary dropped-item default transform.
+    NativeSprite(DroppedItemSprite),
     Cube(DroppedItemCube),
 }
 

@@ -1,4 +1,8 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+mod lighting;
+mod lightmap;
+pub use lighting::WorldLighting;
+pub use lightmap::{LightmapInputs, darkness_pulse};
 
 mod actor;
 mod actor_render;
@@ -37,7 +41,10 @@ mod ui_render;
 mod viewmodel;
 mod viewmodel_render;
 
-pub use hand_rig_render::{HandItemAtlas, HandRigLight, HandRigRenderPlugin, HandRigScene};
+pub use hand_rig_render::{
+    HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAtlas, HandRigLight,
+    HandRigRenderPlugin, HandRigScene,
+};
 pub use particles::{
     ATLAS_SIDE as PARTICLE_ATLAS_SIDE, DrawLists as ParticleDrawLists,
     EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
@@ -74,13 +81,13 @@ pub use actor::{
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    entity_geometry, equipment_geometry, equipment_rig_id, find_geometry_index,
-    geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, install_default_player_skin,
-    item_mesh_rig_id, layer_geometry_rig_id, normalize_actor_skin, normalize_actor_skin_cached,
-    pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skin_geometry,
-    skin_rig_id, skull_geometry, standard_biped_overlay_vertices, standard_biped_vertices,
-    textured_cube_vertices,
+    actor_bounds_are_visible, actor_rig_submission_is_visible, attachable_geometry,
+    default_actor_skin_rgba8, entity_geometry, equipment_geometry, equipment_rig_id,
+    extruded_sprite_vertices, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
+    held_sprite_vertices, install_default_player_skin, item_mesh_rig_id, layer_geometry_rig_id,
+    normalize_actor_skin, normalize_actor_skin_cached, pack_actor_light, pack_equipment_rig_id,
+    pack_overlay_rgba8, pack_rig_id, skin_geometry, skin_rig_id, skull_geometry,
+    standard_biped_overlay_vertices, standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
@@ -143,10 +150,10 @@ pub use cloud_config::{
     CloudMatchingView, CloudQuality, CloudRenderConfig,
 };
 pub use dropped_item::{
-    DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemSprite,
-    ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS,
-    MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER, dropped_item_transform, rope_color,
-    rope_point, rope_ribbon,
+    DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
+    DroppedItemSpawnPose, DroppedItemSprite, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES,
+    MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER,
+    dropped_item_transform, native_dropped_item_transform, rope_color, rope_point, rope_ribbon,
 };
 pub use dropped_item_render::DroppedItemRenderPlugin;
 pub use lightning::{
@@ -155,8 +162,8 @@ pub use lightning::{
     push_bolt_records,
 };
 pub use nametag::{
-    MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
-    NAMETAG_TEXT_LIFT_BLOCKS, NametagAtlasRect, NametagRecord, NametagScene,
+    MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL, NametagAtlasRect,
+    NametagRecord, NametagScene,
 };
 pub use panorama::{
     MAX_PANORAMA_FACE_SIDE, PANORAMA_WGSL, PanoramaFaces, PanoramaScene, PanoramaView,
@@ -177,9 +184,9 @@ pub use screen_overlay::{
 pub use screen_overlay_render::ScreenOverlayRenderPlugin;
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
-    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UiRenderBatch,
-    UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene, UiRenderStats,
-    UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
+    MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST,
+    UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene,
+    UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
 };
 pub use ui_render::UiRenderPlugin;
 pub use visibility_diagnostics::{
@@ -197,3 +204,5 @@ pub use weather::{
     average_precipitation, classify_precipitation, column_heights, particle_mesh,
     particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
 };
+
+mod stars;

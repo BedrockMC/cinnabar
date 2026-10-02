@@ -406,9 +406,9 @@ fn uv_anim_submission_reaches_the_gpu_instance() {
 // World light reaches the instance packed as block, sky and daylight with the lit bit set.
 #[test]
 fn packed_actor_light_reaches_the_gpu_instance() {
-    let light = render::pack_actor_light(3, 12, 1.0);
-    assert_eq!(light, 0x8000_0000 | (255 << 8) | (12 << 4) | 3);
-    assert_eq!(render::pack_actor_light(99, 99, 0.0), 0x8000_0000 | 0xff);
+    let light = render::pack_actor_light(3, 12);
+    assert_eq!(light, 0x8000_0000 | (12 << 4) | 3);
+    assert_eq!(render::pack_actor_light(99, 99), 0x8000_0000 | 0xff);
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let frame = builder.build(
         0.0,

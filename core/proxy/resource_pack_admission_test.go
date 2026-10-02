@@ -37,6 +37,7 @@ type offerTestDownstream struct {
 	offered         []*resource.Pack
 	stack           minecraft.ResourcePackStackSnapshot
 	required        bool
+	offerRequired   bool
 	err             error
 	writes          []packet.Packet
 	writeErr        error
@@ -54,6 +55,7 @@ func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(offer 
 	downstream.configured = true
 	downstream.configuredOffer = true
 	downstream.offered = offer.Packs()
+	downstream.offerRequired = required
 	downstream.required = required
 	return downstream.err
 }
@@ -126,49 +128,6 @@ func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
 	}
 	if len(snapshots) != 1 || snapshots[0].Offer != ResourcePackOfferOptional || snapshots[0].DownstreamOutcome != ResourcePackDownstreamNone {
 		t.Fatalf("failed configure snapshot = %#v", snapshots)
-	}
-}
-
-func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibilityStack(t *testing.T) {
-	upstream := newFakeUpstream(nil)
-	upstream.packs = []*resource.Pack{new(resource.Pack)}
-	upstream.required = true
-	downstream := new(offerTestDownstream)
-
-	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true}); err != nil {
-		t.Fatalf("configureResourcePackOffer() error = %v", err)
-	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, downstream.required)
-	}
-	if len(downstream.writes) != 0 {
-		t.Fatalf("downstream packet count = %d, want no pre-login Disconnect", len(downstream.writes))
-	}
-}
-
-func TestConfigureRequiredCompatibilityStackPreservesConfigureFailure(t *testing.T) {
-	upstream := newFakeUpstream(nil)
-	upstream.packs = []*resource.Pack{new(resource.Pack)}
-	upstream.required = true
-	configureErr := errors.New("configure failed")
-	downstream := &offerTestDownstream{err: configureErr}
-
-	err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true})
-	if !errors.Is(err, configureErr) {
-		t.Fatalf("configureResourcePackOffer() error = %v, want configure failure", err)
-	}
-}
-
-func TestConfigureResourcePackOfferAllowsEmptyRequiredBitAsEmptyOptional(t *testing.T) {
-	upstream := newFakeUpstream(nil)
-	upstream.required = true
-	downstream := new(offerTestDownstream)
-
-	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{required: true}); err != nil {
-		t.Fatalf("configureResourcePackOffer() error = %v", err)
-	}
-	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required {
-		t.Fatalf("downstream offer = (offer=%t, stack=%t, required=%t), want configured empty optional offer", downstream.configuredOffer, downstream.configuredStack, downstream.required)
 	}
 }
 
@@ -390,7 +349,7 @@ func TestListenerBoundaryPreparesBeforeLoginAndHandsOffExactConnection(t *testin
 	if err != nil || taken != prepared {
 		t.Fatalf("takePreparedAfterAccept = (%p, %v), want (%p, nil)", taken, err, prepared)
 	}
-	if err := accepted.StartGameContext(ctx, prepared.upstream.GameData()); err != nil {
+	if err := accepted.StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 1}); err != nil {
 		t.Fatalf("start downstream game: %v", err)
 	}
 	clientResult := <-clientDone
@@ -2010,18 +1969,14 @@ func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 	if entries := stack.offer.TexturePacks(); len(entries) != 1 || entries[0].Info().UUID != pack.UUID() || entries[0].Info().Size != uint64(pack.Size()) {
 		t.Fatalf("projected offer entries = %+v", entries)
 	}
-	// An excluded pack is gone from both the offer and the stack, so configuring them cannot restore it.
-	excluded, err := captureSelectedResourcePackStack(result.conn, func(*resource.Pack) bool { return true })
-	if err != nil {
-		t.Fatalf("capture excluded stack: %v", err)
+	forwarded := new(offerTestDownstream)
+	if err := configureResourcePackOffer(forwarded, stack); err != nil || !forwarded.required {
+		t.Fatalf("forwarded required = %t (%v), want the server's required bit", forwarded.required, err)
 	}
-	for _, entry := range excluded.snapshot.Entries() {
-		if entry.UUID() == pack.UUID().String() {
-			t.Fatal("the excluded pack stayed in the stack")
-		}
-	}
-	if len(excluded.packs) != 0 || len(excluded.offer.TexturePacks()) != 0 {
-		t.Fatalf("excluded capture kept %d packs", len(excluded.packs))
+	// A required pack that admission drops refuses the join, as vanilla cannot join without it.
+	var admission *PackAdmissionError
+	if _, err := captureSelectedResourcePackStack(result.conn, func(*resource.Pack) bool { return true }); !errors.As(err, &admission) {
+		t.Fatalf("capture without a required pack = %v, want PackAdmissionError", err)
 	}
 	telemetry := newResourcePackAdmissionTelemetry(1, nil)
 	telemetry.observeOffer(result.conn)
@@ -2100,5 +2055,41 @@ func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
 	defer mu.Unlock()
 	if want := []ConnectStage{ConnectStageRealm, ConnectStageConnecting, ConnectStagePacks, ""}; !slices.Equal(stages, want) {
 		t.Fatalf("stages = %q, want %q", stages, want)
+	}
+}
+
+// With gophertunnel's flush ticker off, a chunk-downloaded pack must still complete: the
+// download's own requests and completion reach the server.
+func TestUnflushedDialerCompletesChunkPackDownload(t *testing.T) {
+	pack := testAdmissionPack(t)
+	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
+	})
+	go func() {
+		accepted, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_ = accepted.(*minecraft.Conn).WritePacketImmediate(&packet.StartGame{EntityRuntimeID: 1, EntityUniqueID: 1})
+	}()
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{network: network}, nil
+	}
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		if dialer.FlushRate >= 0 {
+			t.Errorf("production dialer FlushRate = %v, want the ticker disabled", dialer.FlushRate)
+		}
+		return dialer.DialContextNetwork(ctx, target.network, "")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	prepared, err := connections.connect(ctx, dialerTestDownstream{protocol: minecraft.DefaultProtocol, identity: login.IdentityData{DisplayName: "Unflushed"}})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer prepared.close()
+	if len(prepared.packStack.packs) != 1 {
+		t.Fatalf("acquired %d packs, want the chunk-downloaded pack", len(prepared.packStack.packs))
 	}
 }

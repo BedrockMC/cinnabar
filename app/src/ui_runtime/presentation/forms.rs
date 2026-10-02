@@ -29,6 +29,7 @@ mod play_flow_snapshots;
 mod play_screen;
 mod recipe_book;
 mod remote_images;
+mod scene_policy;
 mod server_pack;
 mod settings_defaults;
 mod sign_editor;

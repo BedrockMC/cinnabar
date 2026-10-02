@@ -50,6 +50,7 @@ use crate::valentine::{
 // Backstop only: the local core cancels a join whose resource-pack download stalls, and slow
 // servers can take several minutes to stream their packs on a first join.
 const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+const START_GAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
 const EXEMPTED_RESOURCE_PACKS: &[(&str, &str)] = &[
     ("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"),
@@ -266,7 +267,7 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
         };
         self.transport.send_raw(McpePacket::from(req)).await?;
 
-        let settings_raw = self.transport.recv_packet_raw().await?;
+        let settings_raw = recv_login_packet(&mut self.transport).await?;
         if settings_raw.id == McpePacketName::DisconnectPacket {
             let packet = settings_raw.decode(&self.transport.session)?;
             let McpePacketData::DisconnectPacket(disconnect) = packet.data else {
@@ -459,6 +460,55 @@ struct ServerHandshakeClaims {
     salt: String,
 }
 
+/// Surfaces terminal transfers during every login phase, skipping unusable destinations.
+async fn recv_login_packet<T: Transport>(
+    transport: &mut BedrockTransport<T>,
+) -> Result<RawPacket, JolyneError> {
+    let mut skipped = 0_u64;
+    loop {
+        let raw = transport.recv_packet_raw().await?;
+        if raw.id != McpePacketName::TransferPacket {
+            return Ok(raw);
+        }
+        let packet = raw.decode(&transport.session)?;
+        match crate::transfer::ServerTransferEvent::from_packet_data(&packet.data) {
+            Ok(Some(target)) => return Err(ProtocolError::ServerTransfer(target).into()),
+            Err(reason) => {
+                skipped = skipped.saturating_add(1);
+                tracing::warn!(?reason, skipped, "ignoring unusable login transfer");
+            }
+            Ok(None) => unreachable!("transfer packet ID agrees with its body"),
+        }
+    }
+}
+
+/// Drains terminal input after a failed startup write within the remaining startup deadline.
+async fn startup_write_failure<T: Transport>(
+    transport: &mut BedrockTransport<T>,
+    write_error: JolyneError,
+    remaining: std::time::Duration,
+) -> JolyneError {
+    let deadline = tokio::time::Instant::now() + remaining;
+    loop {
+        match tokio::time::timeout_at(deadline, recv_login_packet(transport)).await {
+            Ok(Err(error @ JolyneError::Protocol(ProtocolError::ServerTransfer(_)))) => {
+                return error;
+            }
+            Err(_) | Ok(Err(_)) => return write_error,
+            Ok(Ok(raw)) if raw.id == McpePacketName::DisconnectPacket => {
+                return match raw.decode(&transport.session) {
+                    Ok(McpePacket {
+                        data: McpePacketData::DisconnectPacket(dc),
+                        ..
+                    }) => server_disconnect("StartGame", &dc),
+                    _ => write_error,
+                };
+            }
+            Ok(Ok(_)) => {}
+        }
+    }
+}
+
 /// The error a join-time Disconnect ends with, keeping the server's texts.
 fn server_disconnect(stage: &'static str, disconnect: &DisconnectPacket) -> JolyneError {
     ProtocolError::ServerDisconnect {
@@ -511,7 +561,7 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
         client_cache_enabled: bool,
     ) -> Result<BedrockStream<ResourcePacks, Client, T>, JolyneError> {
         tracing::debug!("Waiting for ServerToClientHandshake...");
-        let next_raw = self.transport.recv_packet_raw().await?;
+        let next_raw = recv_login_packet(&mut self.transport).await?;
         if !matches!(
             next_raw.id,
             McpePacketName::ServerToClientHandshakePacket
@@ -663,7 +713,7 @@ impl<T: Transport> BedrockStream<SecurePending, Client, T> {
 
                 // Loop until we get PlayStatus (LoginSuccess)
                 while !received_play_status {
-                    let raw = self.transport.recv_packet_raw().await?;
+                    let raw = recv_login_packet(&mut self.transport).await?;
                     tracing::debug!("Received packet: {:?}", raw.id);
                     if matches!(
                         raw.id,
@@ -754,6 +804,7 @@ mod tests {
     struct ScriptedTransport {
         inbound: VecDeque<TransportRecvMessage>,
         sent: Arc<Mutex<Vec<TransportMessage>>>,
+        fail_send: bool,
     }
 
     impl ScriptedTransport {
@@ -764,6 +815,7 @@ mod tests {
                     .map(TransportRecvMessage::Contiguous)
                     .collect(),
                 sent,
+                fail_send: false,
             }
         }
     }
@@ -778,6 +830,9 @@ mod tests {
             _cx: &mut Context<'_>,
             msg: TransportMessage,
         ) -> Poll<Result<(), Self::Error>> {
+            if self.fail_send {
+                return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+            }
             self.sent.lock().expect("sent lock").push(msg);
             Poll::Ready(Ok(()))
         }
@@ -873,6 +928,37 @@ mod tests {
                 status: PlayStatusPacketStatus::Playerspawn,
             }),
         ]
+    }
+
+    #[tokio::test]
+    async fn start_game_keeps_first_registry_and_shield_id_across_repeats() {
+        let registry = |identifier: &str, item_id| {
+            McpePacket::from(ItemRegistryPacket {
+                item_data: vec![crate::valentine::ItemData {
+                    item_name: identifier.into(),
+                    item_id,
+                    ..Default::default()
+                }],
+            })
+        };
+        let mut packets = vec![
+            start_game_packet(),
+            registry("minecraft:shield", 355),
+            McpePacket::from(ItemRegistryPacket::default()),
+            registry("minecraft:shield", 900),
+        ];
+        packets.extend(spawn_completion_packets());
+        let (stream, data) = start_game_stream(vec![uncompressed_frame(&packets)])
+            .await_start_game()
+            .await
+            .expect("repeated registries remain nonfatal");
+        assert_eq!(data.item_registry.item_data.len(), 1);
+        assert_eq!(
+            data.item_registry.item_data[0].item_name,
+            "minecraft:shield"
+        );
+        assert_eq!(data.item_registry.item_data[0].item_id, 355);
+        assert_eq!(stream.transport.session.shield_item_id, 355);
     }
 
     #[tokio::test]
@@ -979,6 +1065,145 @@ mod tests {
             JolyneError::Protocol(ProtocolError::UnexpectedHandshake(ref message))
                 if message.contains("SetTitlePacket")
         ));
+    }
+
+    /// Builds the same terminal destination for login and resource-pack fixtures.
+    fn startup_transfer() -> McpePacket {
+        crate::valentine::TransferPacket {
+            server_address: "next.example.test".into(),
+            server_port: 19133,
+            reload_world: false,
+            ..Default::default()
+        }
+        .into()
+    }
+
+    #[tokio::test]
+    async fn startup_transfer_precedes_spawn_and_transport_closure() {
+        for fail_send in [false, true] {
+            for same_batch in [false, true] {
+                let frames = if same_batch {
+                    vec![uncompressed_frame(&[
+                        start_game_packet(),
+                        startup_transfer(),
+                    ])]
+                } else {
+                    vec![
+                        uncompressed_frame(&[start_game_packet()]),
+                        uncompressed_frame(&[startup_transfer()]),
+                    ]
+                };
+                // The scripted transport closes immediately after its final frame.
+                let mut transport =
+                    ScriptedTransport::new(frames, Arc::new(Mutex::new(Vec::new())));
+                transport.fail_send = fail_send;
+                let stream = BedrockStream {
+                    transport: BedrockTransport::new(transport),
+                    state: StartGame::with_resource_pack_handoff(ResourcePackHandoff::default()),
+                    _role: PhantomData::<Client>,
+                };
+                let error = match stream.await_start_game().await {
+                    Ok(_) => panic!("transfer must terminate startup without spawn prerequisites"),
+                    Err(error) => error,
+                };
+                assert!(
+                    matches!(error, JolyneError::Protocol(ProtocolError::ServerTransfer(target))
+                if target.host == "next.example.test" && target.port == 19133)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_write_failure_without_transfer_keeps_original_error() {
+        let mut packets = vec![start_game_packet()];
+        packets.extend(spawn_completion_packets());
+        let mut transport = ScriptedTransport::new(
+            vec![uncompressed_frame(&packets)],
+            Arc::new(Mutex::new(Vec::new())),
+        );
+        transport.fail_send = true;
+        let stream = BedrockStream {
+            transport: BedrockTransport::new(transport),
+            state: StartGame::with_resource_pack_handoff(ResourcePackHandoff::default()),
+            _role: PhantomData::<Client>,
+        };
+        assert!(matches!(
+            stream.await_start_game().await,
+            Err(JolyneError::Transport(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn startup_write_failure_preserves_disconnect() {
+        let mut transport = BedrockTransport::new(ScriptedTransport::new(
+            vec![uncompressed_frame(&[DisconnectPacket::default().into()])],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        assert!(matches!(
+            startup_write_failure(
+                &mut transport,
+                JolyneError::ConnectionClosed,
+                START_GAME_TIMEOUT
+            )
+            .await,
+            JolyneError::Protocol(ProtocolError::ServerDisconnect { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn startup_write_failure_drain_obeys_deadline_and_cancellation() {
+        let mut transport = BedrockTransport::new(PendingTransport);
+        let error = startup_write_failure(
+            &mut transport,
+            JolyneError::ConnectionClosed,
+            std::time::Duration::ZERO,
+        )
+        .await;
+        assert!(matches!(error, JolyneError::ConnectionClosed));
+        let mut drain = std::pin::pin!(startup_write_failure(
+            &mut transport,
+            JolyneError::ConnectionClosed,
+            START_GAME_TIMEOUT,
+        ));
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(drain.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+    }
+
+    #[tokio::test]
+    async fn resource_pack_wait_surfaces_transfer() {
+        let transport = BedrockTransport::new(ScriptedTransport::new(
+            vec![uncompressed_frame(&[startup_transfer()])],
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        let stream = BedrockStream {
+            transport,
+            state: ResourcePacks { early_packet: None },
+            _role: PhantomData::<Client>,
+        };
+        assert!(matches!(
+            stream.handle_packs().await,
+            Err(JolyneError::Protocol(ProtocolError::ServerTransfer(_)))
+        ));
+    }
+
+    #[tokio::test]
+    async fn startup_wait_remains_cancellable_without_spawn() {
+        let stream = BedrockStream {
+            transport: BedrockTransport::new(PendingTransport),
+            state: StartGame::with_resource_pack_handoff(ResourcePackHandoff::default()),
+            _role: PhantomData::<Client>,
+        };
+        let mut join = std::pin::pin!(stream.await_start_game());
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(join.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        // Dropping the pending join is the owner's cancellation path.
     }
 
     #[tokio::test]
@@ -1339,7 +1564,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pack_handoff_rejects_required_duplicate_and_malformed_inputs_secret_safely() {
+    async fn pack_handoff_accepts_required_and_rejects_duplicate_and_malformed_inputs_secret_safely()
+     {
         let id = Uuid::new_v4();
         let required = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
             resource_pack_required: true,
@@ -1362,12 +1588,13 @@ mod tests {
                 ..Default::default()
             },
         )]));
-        let error = resource_pack_stream(required_inbound)
+        let start = resource_pack_stream(required_inbound)
             .handle_packs()
             .await
-            .err()
-            .expect("required offer must fail");
-        assert!(error.to_string().contains("required resource-pack handoff"));
+            .expect("a required offer is handed off");
+        let handoff = start.state.resource_pack_handoff.unwrap();
+        assert!(handoff.required());
+        assert_eq!(handoff.len(), 1);
 
         let duplicate = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
             resource_packs: vec![
@@ -1484,7 +1711,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optional_offer_with_required_stack_is_rejected() {
+    async fn optional_offer_with_required_stack_hands_off_required() {
         let id = Uuid::new_v4();
         let data = b"archive";
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
@@ -1508,12 +1735,43 @@ mod tests {
                 ..Default::default()
             },
         )]));
-        let error = resource_pack_stream(inbound)
+        let start = resource_pack_stream(inbound)
             .handle_packs()
             .await
-            .err()
-            .expect("required stack must fail");
-        assert!(error.to_string().contains("required resource-pack handoff"));
+            .expect("a required stack is handed off");
+        let handoff = start.state.resource_pack_handoff.unwrap();
+        assert!(handoff.required());
+        assert_eq!(handoff.len(), 1);
+    }
+
+    // A required offer makes a selected pack it never advertised fatal, as a required stack does.
+    #[tokio::test]
+    async fn required_offer_missing_a_selected_pack_is_rejected() {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_pack_required: true,
+            ..Default::default()
+        });
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            texture_pack_list: vec![crate::valentine::PackInstanceId {
+                pack_id: Uuid::new_v4().to_string(),
+                version: "1.0.0".into(),
+                sub_pack_name: String::new(),
+            }],
+            ..Default::default()
+        });
+        let error = resource_pack_stream(vec![
+            uncompressed_frame(&[info]),
+            uncompressed_frame(&[stack]),
+        ])
+        .handle_packs()
+        .await
+        .err()
+        .expect("a required selection must be available");
+        assert!(
+            error
+                .to_string()
+                .contains("unadvertised or missing selected pack")
+        );
     }
 
     #[tokio::test]
@@ -1580,6 +1838,7 @@ mod tests {
             )),
             state: Play {
                 resource_pack_handoff: Some(ResourcePackHandoff::new(vec![archive])),
+                ..Play::default()
             },
             _role: PhantomData::<Client>,
         };
@@ -1628,7 +1887,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         } else {
             let raw = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
-                self.transport.recv_packet_raw(),
+                recv_login_packet(&mut self.transport),
             )
             .await
             .map_err(|_| {
@@ -1697,7 +1956,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         tracing::debug!("Waiting for ResourcePackStack...");
         let stack_raw = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            self.transport.recv_packet_raw(),
+            recv_login_packet(&mut self.transport),
         )
         .await
         .map_err(|_| {
@@ -1727,16 +1986,10 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 stack.base_game_version,
                 stack.texture_pack_list.len()
             );
-            handoff = select_resource_pack_stack(
-                handoff,
-                &stack.texture_pack_list,
-                stack.texture_pack_required,
-            )?;
-            if (offer_required || stack.texture_pack_required) && !handoff.is_empty() {
-                return Err(pack_handoff_error(
-                    "required resource-pack handoff is unavailable",
-                ));
-            }
+            // Either required bit makes the selection strict and travels with the handoff.
+            let required = offer_required || stack.texture_pack_required;
+            handoff = select_resource_pack_stack(handoff, &stack.texture_pack_list, required)?
+                .with_required(required);
         } else {
             return Err(ProtocolError::UnexpectedHandshake(format!(
                 "Expected ResourcePackStack, got {:?}",
@@ -1818,7 +2071,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         for _ in 0..offered.len() {
             let raw = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
-                self.transport.recv_packet_raw(),
+                recv_login_packet(&mut self.transport),
             )
             .await
             .map_err(|_| pack_handoff_error("timed out waiting for pack metadata"))??;
@@ -1863,7 +2116,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                     .await?;
                 let raw = tokio::time::timeout(
                     std::time::Duration::from_secs(30),
-                    self.transport.recv_packet_raw(),
+                    recv_login_packet(&mut self.transport),
                 )
                 .await
                 .map_err(|_| pack_handoff_error("timed out waiting for pack chunk"))??;
@@ -1987,7 +2240,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 
         let start_time = std::time::Instant::now();
         loop {
-            if start_time.elapsed() > std::time::Duration::from_secs(120) {
+            if start_time.elapsed() > START_GAME_TIMEOUT {
                 return Err(ProtocolError::UnexpectedHandshake(
                     "Timeout waiting for PlayerSpawn during StartGame".into(),
                 )
@@ -1996,7 +2249,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 
             let raw = match tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                self.transport.recv_packet_raw(),
+                recv_login_packet(&mut self.transport),
             )
             .await
             {
@@ -2030,6 +2283,12 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         unreachable!("packet ID and decoded variant must agree")
                     };
                     tracing::debug!(items = %registry.item_data.len(), "ItemRegistry received");
+                    // Native ItemRegistry::matchServerItemIds (1.26.50 RVA
+                    // 0x03984630) initializes once. A later empty/custom-only
+                    // packet must not replace the first table or shield ID.
+                    if item_registry.is_some() {
+                        continue;
+                    }
                     if let Some(shield) = registry
                         .item_data
                         .iter()
@@ -2082,19 +2341,26 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
             }
 
             if !sent_chunk_radius && start_game.is_some() {
-                self.transport
+                if let Err(error) = self.transport
                     .send_batch(&[
+                        McpePacket::from(RequestChunkRadiusPacket {
+                            chunk_radius: 16,
+                            max_chunk_radius: 16,
+                        }),
                         McpePacket::from(ServerboundLoadingScreenPacket {
                             loading_screen_packet_type:
                                 ServerboundLoadingScreenPacketLoadingScreenPacketType::Startloadingscreen,
                             loading_screen_id: None,
                         }),
-                        McpePacket::from(RequestChunkRadiusPacket {
-                            chunk_radius: 16,
-                            max_chunk_radius: 16,
-                        }),
                     ])
-                    .await?;
+                    .await
+                {
+                    return Err(startup_write_failure(
+                        &mut self.transport,
+                        error,
+                        START_GAME_TIMEOUT.saturating_sub(start_time.elapsed()),
+                    ).await);
+                }
                 sent_chunk_radius = true;
             }
 
@@ -2110,21 +2376,6 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
         let runtime_entity_id = runtime_entity_id.ok_or_else(|| {
             ProtocolError::UnexpectedHandshake("Never received StartGame runtime entity ID".into())
         })?;
-
-        self.transport
-            .send_batch(&[
-                McpePacket::from(ServerboundLoadingScreenPacket {
-                    loading_screen_packet_type:
-                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
-                    loading_screen_id: None,
-                }),
-                McpePacket::from(SetLocalPlayerAsInitializedPacket {
-                    player_id: ActorRuntimeId {
-                        actor_runtime_id: runtime_entity_id,
-                    },
-                }),
-            ])
-            .await?;
 
         // Build GameData from captured packets
         let game_data = GameData {
@@ -2149,6 +2400,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                 transport: self.transport,
                 state: Play {
                     resource_pack_handoff: self.state.resource_pack_handoff.take(),
+                    pending_initialization: Some(runtime_entity_id),
                 },
                 _role: PhantomData,
             },
@@ -2160,6 +2412,29 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
 // --- State: Play ---
 
 impl<T: Transport> BedrockStream<Play, Client, T> {
+    /// Completes spawn once terrain is ready and the owner closes the loading screen.
+    pub async fn finish_loading(&mut self) -> Result<(), JolyneError> {
+        let Some(runtime_entity_id) = self.state.pending_initialization.take() else {
+            return Ok(());
+        };
+        self.transport
+            .send_batch(&[
+                McpePacket::from(ServerboundLoadingScreenPacket {
+                    loading_screen_packet_type:
+                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
+                    loading_screen_id: None,
+                }),
+                McpePacket::from(SetLocalPlayerAsInitializedPacket {
+                    player_id: ActorRuntimeId {
+                        actor_runtime_id: runtime_entity_id,
+                    },
+                }),
+            ])
+            .await?;
+
+        Ok(())
+    }
+
     /// Receive the next packet with only its header decoded.
     #[instrument(skip_all, level = "trace")]
     pub async fn recv_packet_raw(&mut self) -> Result<RawPacket, JolyneError> {

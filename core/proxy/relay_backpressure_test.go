@@ -3,10 +3,12 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"reflect"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -37,14 +39,14 @@ func newGatedSink() *gatedSink {
 	return &gatedSink{fakeUpstream: newFakeUpstream(nil), gate: make(chan struct{}), entered: make(chan struct{}, 64)}
 }
 
-func (s *gatedSink) WritePacketImmediate(packets ...packet.Packet) error {
+func (s *gatedSink) WritePacket(value packet.Packet) error {
 	s.entered <- struct{}{}
 	select {
 	case <-s.gate:
 	case <-s.closed:
 		return net.ErrClosed
 	}
-	return s.fakeUpstream.WritePacketImmediate(packets...)
+	return s.fakeUpstream.WritePacket(value)
 }
 
 func stamps(n int) [][]packet.Packet {
@@ -69,8 +71,9 @@ func TestRelaySlowReaderBoundsReadAheadAndStaysLossless(t *testing.T) {
 	go func() { done <- pumpPackets(src, sink, true) }()
 	<-sink.entered
 	time.Sleep(50 * time.Millisecond)
-	if got := src.reads.Load(); got != 1 {
-		t.Fatalf("source batches read while sink stalled = %d, want 1", got)
+	// The reader keeps reading while it forwards so it can serve flushes, holding at most one batch ahead.
+	if got := src.reads.Load(); got != 2 {
+		t.Fatalf("source batches read while sink stalled = %d, want 2", got)
 	}
 	close(sink.gate)
 	if err := <-done; !errors.Is(err, io.EOF) {
@@ -145,26 +148,6 @@ func TestRelaySkipsEmptyBatchesWithoutFlushing(t *testing.T) {
 	}
 }
 
-func TestRelayFlushesDeferredLoadingStartOnSourceClose(t *testing.T) {
-	for name, terminal := range map[string]error{"eof": io.EOF, "transport": errors.New("reset")} {
-		t.Run(name, func(t *testing.T) {
-			down := newFakeDownstream(nil)
-			up := newFakeUpstream(nil)
-			down.useBatchReads = true
-			start := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
-			down.batchReads <- batchResult{packets: []packet.Packet{start}}
-			down.batchReads <- batchResult{err: terminal}
-			if err := pumpPackets(down, up, true); !errors.Is(err, terminal) {
-				t.Fatalf("pumpPackets() error = %v, want %v", err, terminal)
-			}
-			batches := up.flushedBatches()
-			if len(batches) != 1 || len(batches[0]) != 1 || batches[0][0] != start {
-				t.Fatalf("deferred Start was lost or merged: %#v", batches)
-			}
-		})
-	}
-}
-
 func TestRelayKeepsBatchBoundaryBeforeUpstreamDisconnect(t *testing.T) {
 	down := newFakeDownstream(nil)
 	up := newFakeUpstream(nil)
@@ -179,5 +162,61 @@ func TestRelayKeepsBatchBoundaryBeforeUpstreamDisconnect(t *testing.T) {
 	batches := down.flushedBatches()
 	if len(batches) != 2 || !slices.Equal(batches[0], before) || len(batches[1]) != 1 || !reflect.DeepEqual(batches[1][0], reason.Packet()) {
 		t.Fatalf("batches = %#v, want [pre-disconnect batch][disconnect]", batches)
+	}
+}
+
+// eventSink records writes and flushes in order; a write of slow stalls first.
+type eventSink struct {
+	*fakeUpstream
+	mu     sync.Mutex
+	events []string
+	slow   packet.Packet
+	stall  time.Duration
+}
+
+func (s *eventSink) WritePacket(value packet.Packet) error {
+	if value == s.slow {
+		time.Sleep(s.stall)
+	}
+	s.record(fmt.Sprintf("write %d", value.(*packet.NetworkStackLatency).Timestamp))
+	return s.fakeUpstream.WritePacket(value)
+}
+
+func (s *eventSink) Flush() error {
+	s.record("flush")
+	return s.fakeUpstream.Flush()
+}
+
+func (s *eventSink) record(event string) {
+	s.mu.Lock()
+	s.events = append(s.events, event)
+	s.mu.Unlock()
+}
+
+func (s *eventSink) recorded() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.events)
+}
+
+// A batch whose forwarding stalls past the idle flush still leaves as one batch, flushed once after its last packet.
+func TestRelayKeepsAStalledBatchWhole(t *testing.T) {
+	src := newFakeDownstream(nil)
+	src.useBatchReads = true
+	batch := stamps(1)[0]
+	batch = append(batch, &packet.NetworkStackLatency{Timestamp: 7})
+	sink := &eventSink{fakeUpstream: newFakeUpstream(nil), slow: batch[1], stall: 3 * relayIdleFlush}
+	src.batchReads <- batchResult{packets: batch}
+	src.batchReads <- batchResult{err: io.EOF}
+	if err := pumpPackets(src, sink, true); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	if got := sink.flushedBatches(); len(got) != 1 || !slices.Equal(got[0], batch) {
+		t.Fatalf("batches = %v, want the source batch whole", batchSizes(got))
+	}
+	events := sink.recorded()
+	first := slices.Index(events, "write 0")
+	if want := []string{"write 0", "write 100", "write 7", "flush"}; first < 0 || !slices.Equal(events[first:first+4], want) {
+		t.Fatalf("events = %v, want the batch's writes then one flush", events)
 	}
 }

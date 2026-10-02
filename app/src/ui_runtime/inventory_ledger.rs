@@ -1,9 +1,8 @@
 //! Server-authoritative player-inventory gestures.
 //!
-//! Requests pipeline up to [`queue::MAX_PENDING_REQUESTS`] deep. Each one
-//! contributes delta groups folded over confirmed server truth in queue order;
-//! responses settle strictly in wire order and a rejection simply deletes its
-//! groups.
+//! Requests pipeline up to [`queue::MAX_PENDING_REQUESTS`] deep. Each writes
+//! absolute sparse cells stamped with its request id; server pushes update
+//! backing truth underneath them, and each answer reconciles its own snapshot.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -37,6 +36,7 @@ mod queue;
 mod quick_move;
 mod registry;
 mod response;
+mod revisions;
 mod screen_actions;
 #[cfg(test)]
 mod screens_tests;
@@ -55,6 +55,8 @@ pub use screen_actions::ScreenCraft;
 
 use helpers::valid_raw_window_id;
 
+#[cfg(test)]
+use protocol::NO_CONTAINER_WINDOW_TYPE;
 use protocol::{
     ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NetworkItemStack, Packet,
     container_close_packet, item_stack_request_packet_filtered, open_inventory_packet,
@@ -73,8 +75,6 @@ pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
 /// The crafting-table window; its 3x3 grid lives in UI slots 32..=40.
 pub const WORKBENCH_WINDOW_TYPE: i8 = 1;
 pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
-/// A close acknowledgement sent after the addressed window no longer exists.
-const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 /// Maximum opt-in storage-content identity diagnostics emitted per ledger
@@ -179,9 +179,10 @@ pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
     /// Server truth only; predictions never write here.
     confirmed: Cells,
-    /// `confirmed` with pending groups folded on top; `None` while idle.
+    /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
+    slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>>,
     creative: Option<protocol::CreativeContentEvent>,
     /// Enchanting-table options for the current input item.
@@ -215,6 +216,7 @@ impl Default for PlayerInventoryLedger {
             confirmed: Cells::default(),
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
+            slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
             creative: None,
             enchant_options: None,
@@ -461,7 +463,7 @@ impl PlayerInventoryLedger {
 
     pub fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
         if let Some(close) = self.pending_closes.front().copied() {
-            return container_close_packet(close.window_id, close.window_type)
+            return container_close_packet(close.window_id)
                 .map(Some)
                 .map_err(|_| InventoryGestureError::InvalidRequest);
         }
@@ -521,6 +523,8 @@ impl PlayerInventoryLedger {
             return false;
         };
         pending.state = InventoryPendingState::AwaitingResponse;
+        bevy::log::debug!(target: "bedrock_client::inventory_requests",
+            request_id = pending.request_id, "inventory request admitted to transport");
         pending.transport_deadline_millis = None;
         pending.deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
         true

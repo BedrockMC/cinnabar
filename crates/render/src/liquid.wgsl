@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct MaterialGpu { texture: u32, flags: u32, animation: u32 }
@@ -65,10 +65,8 @@ struct VertexOutput {
     @location(1) @interpolate(flat) current_texture: u32,
     @location(2) @interpolate(flat) next_texture: u32,
     @location(3) @interpolate(flat) frame_blend: f32,
-    @location(4) @interpolate(flat) water_tint: vec3<f32>,
-    @location(5) block_light: f32,
-    @location(6) sky_light: f32,
-    @location(7) ambient_occlusion: f32,
+    @location(4) @interpolate(flat) water_tint: vec4<f32>,
+    @location(5) lighting: vec3<f32>,
     @location(8) @interpolate(flat) depth_write_route: u32,
     @location(9) world_position: vec3<f32>,
 }
@@ -187,9 +185,6 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         lighting_word >> 16u,
         (corner & 1u) != 0u,
     );
-    let block_light = f32(light_sample & 15u);
-    let sky_light = f32((light_sample >> 4u) & 15u);
-    let ao = f32((light_sample >> 8u) & 3u);
     let face = (geometry >> 12u) & 7u;
     let local_position = liquid_corner(geometry, height_word, corner);
     let chunk_origin = chunk_origins[draw_ref.metadata_index];
@@ -219,10 +214,9 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         0u,
         u32(chunk_origin.value.w),
         vec3<f32>(block_coordinate),
+        vec3<f32>(chunk_origin.value.xyz),
     );
-    out.block_light = light_brightness(u32(block_light));
-    out.sky_light = light_brightness(u32(sky_light));
-    out.ambient_occlusion = light_ao_factor(u32(ao));
+    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(face_normal(face), (light_sample & 2048u) != 0u);
     out.depth_write_route = packed_material >> 31u;
     out.world_position = world_position;
     return out;
@@ -259,15 +253,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
     let colour = lit_colour(
-        sampled.rgb * in.water_tint,
-        in.block_light,
-        in.sky_light,
-        in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        sampled.rgb * in.water_tint.rgb,
+        in.lighting,
     );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
-    return vec4(apply_distance_fog(colour, in.world_position), sampled.a);
+    return vec4(apply_distance_fog(colour, in.world_position), sampled.a * in.water_tint.a);
 }
 
 @fragment
@@ -283,10 +274,7 @@ fn fragment_depth(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     let lit = lit_colour(
         sampled.rgb,
-        in.block_light,
-        in.sky_light,
-        in.ambient_occlusion,
-        atmosphere.sun_direction_daylight.w,
+        in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 }

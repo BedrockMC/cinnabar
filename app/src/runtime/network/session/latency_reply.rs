@@ -70,7 +70,9 @@ mod tests {
 
     /// Checks the next packet's bytes against the expected probe identity.
     fn assert_probe(receiver: &mut mpsc::Receiver<NetworkCommand>, timestamp: u64) {
-        let NetworkCommand::Send { packet, .. } = receiver.try_recv().unwrap();
+        let NetworkCommand::Send { packet, .. } = receiver.try_recv().unwrap() else {
+            panic!("expected a latency reply, received loading completion");
+        };
         let session = protocol::BedrockSession { shield_item_id: 0 };
         assert_eq!(
             protocol::encode(&packet, &session).unwrap(),

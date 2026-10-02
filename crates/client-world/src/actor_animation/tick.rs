@@ -1,4 +1,5 @@
 use super::{query::FLAG_BABY, *};
+use assets::EntityControllerAnimationTarget;
 
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
@@ -31,6 +32,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) skin_geometry: Option<Arc<protocol::SkinGeometrySource>>,
     /// The actor type's synced property definitions, in wire index order.
     pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
+    /// Item-render query units and contexts differ from ordinary actor queries.
+    pub(crate) attachable: Option<super::attachable::AttachableQueryContext>,
 }
 
 /// One worn armor stack as the armor queries read it.
@@ -43,8 +46,8 @@ pub(crate) struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
-// Per-tick equip progress step and the height at which the new item is taken; the reference
-// reconstruction leaves both unresolved, so they need independent measurement.
+// Native ItemInHandRenderer::tick, current RVA 04f8c0f0: ±0.4 clamp and cached
+// stack replacement at height <= 0.1 (PE VAs 1500d39f0, 14feff2a0, 14ffab644).
 const ARM_HEIGHT_STEP: f32 = 0.4;
 const ARM_SWAP_HEIGHT: f32 = 0.1;
 
@@ -79,6 +82,13 @@ pub(super) fn advance_motion(
         yaw: actor.yaw,
         head_yaw: actor.head_yaw,
     });
+    // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
+    // a mob: Actor::getInterpolatedBodyYaw returns 0 (26.30 RVA 0997c220), while
+    // query.target_y_rotation reads the actor's absolute rotation (26.50 024d3560).
+    if query::is_arrow(actor) {
+        motion.body_yaw = 0.0;
+        motion.previous_body_yaw = 0.0;
+    }
     let baby_scale = if query::actor_flag(actor, FLAG_BABY) {
         BABY_MOVE_SPEED_SCALE
     } else {
@@ -104,21 +114,23 @@ pub(super) fn advance_motion(
     });
     // The arm lowers while the held item differs from the equipped one, swaps it low, then rises.
     let arm_height = match state.history.back() {
-        Some(previous) => {
-            let swapping = state.equipped_main != context.main_hand;
-            let target = if swapping { 0.0 } else { 1.0 };
-            let height = previous.arm_height
-                + (target - previous.arm_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
-            if swapping && height <= ARM_SWAP_HEIGHT {
-                state.equipped_main.clone_from(&context.main_hand);
-            }
-            height
-        }
+        Some(previous) => advance_equip_height(
+            &mut state.equipped_main,
+            &context.main_hand,
+            previous.arm_height,
+        ),
         None => {
             state.equipped_main.clone_from(&context.main_hand);
             1.0
         }
     };
+    state.off_hand_animation[0] = state.off_hand_animation[1];
+    let off_hand_arm_height = advance_equip_height(
+        &mut state.equipped_off,
+        &context.off_hand,
+        state.off_hand_animation[0].arm_height,
+    );
+    state.off_hand_animation[1].arm_height = off_hand_arm_height;
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
     }
@@ -128,6 +140,7 @@ pub(super) fn advance_motion(
         velocity: actor.velocity,
         on_ground: actor.on_ground.unwrap_or(false),
         body_yaw: motion.body_yaw,
+        yaw: actor.yaw,
         head_yaw: actor.head_yaw,
         pitch: actor.pitch,
         is_riding: context.is_riding,
@@ -137,9 +150,27 @@ pub(super) fn advance_motion(
         item_use_ticks,
         swim_amount,
         arm_height,
+        off_hand_arm_height,
         attack_time: motion.attack_time(),
     };
     state.history.push_back(input);
+}
+
+/// Identifier changes request the native lowering transition. Item-specific stack
+/// equivalence/instant-update predicates need stack data beyond the current actor feed.
+fn advance_equip_height(
+    equipped: &mut Option<Arc<str>>,
+    requested: &Option<Arc<str>>,
+    previous_height: f32,
+) -> f32 {
+    let swapping = equipped != requested;
+    let target = if swapping { 0.0 } else { 1.0 };
+    let height =
+        previous_height + (target - previous_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
+    if swapping && height <= ARM_SWAP_HEIGHT {
+        equipped.clone_from(requested);
+    }
+    height
 }
 
 impl ActorRigState {
@@ -156,6 +187,12 @@ impl ActorRigState {
     }
 }
 
+pub(super) struct EvaluationInheritance<'a> {
+    pub variables: ActorAnimationVariables<'a>,
+    pub overrides: &'a [(&'a str, f32)],
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn evaluate_state(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
@@ -164,6 +201,7 @@ pub(super) fn evaluate_state(
     context: &ActorTickContext,
     tick: u64,
     budget: &mut EvalBudget<'_>,
+    inheritance: Option<EvaluationInheritance<'_>>,
 ) -> Result<EvaluatedState, EvalError> {
     let reset = state.reset_pending;
     let anim_tick = if reset {
@@ -178,6 +216,7 @@ pub(super) fn evaluate_state(
     let input = if context.is_local_first_person {
         ActorTickInput {
             body_yaw: 0.0,
+            yaw: 0.0,
             head_yaw: 0.0,
             pitch: 0.0,
             ..observed
@@ -214,6 +253,30 @@ pub(super) fn evaluate_state(
     }
     apply_engine_variables(engine, &mut variables, actor, context, &observed, &motion);
     super::skin_layers::seed(state, &evaluator, &mut variables);
+    if let Some(inheritance) = inheritance {
+        inheritance
+            .variables
+            .copy_to(assets, layout, &mut variables);
+        for &(name, value) in inheritance.overrides {
+            variables.set(layout.named_slot(assets, name), value);
+        }
+    }
+    if let Some(attachable) = context.attachable {
+        variables.set(
+            engine.context_first_person,
+            f32::from(attachable.first_person),
+        );
+        variables.set(engine.context_paperdoll, f32::from(attachable.is_paperdoll));
+        variables.set_string(
+            engine.context_item_slot,
+            if attachable.off_hand {
+                "off_hand"
+            } else {
+                "main_hand"
+            },
+        );
+        variables.set(engine.attack_time, observed.attack_time);
+    }
     variables.clear_temporaries();
     variables.clear(engine.first_person_item_rotation_factor);
     if let Some(script) = rig.pre_animation {
@@ -413,6 +476,10 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
     variables.set(engine.player_x_rotation, input.pitch);
     variables.set(engine.player_arm_height, input.arm_height);
+    variables.set(
+        engine.context_player_offhand_arm_height,
+        input.off_hand_arm_height,
+    );
     // View bobbing is on by default; the first-person walk/breathing bob weigh against this.
     variables.set(engine.bob_animation, 1.0);
 }

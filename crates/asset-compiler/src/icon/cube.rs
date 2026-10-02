@@ -8,8 +8,8 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 pub(super) const POLICY: &str = "opaque-cube-thumbnail-v1";
-pub(super) const MAX_BLOCK_ICONS: usize = 1024;
-pub(super) const PIXEL_BYTES: usize = 16 * 16 * 4;
+pub(super) const PIXEL_BYTES: usize =
+    assets::BLOCK_ITEM_FACE_SIDE as usize * assets::BLOCK_ITEM_FACE_SIDE as usize * 4;
 type FaceSpec = (BlockFace, [[f32; 3]; 4], [[f32; 2]; 4], f32);
 const FACES: [FaceSpec; 3] = [
     (
@@ -103,7 +103,9 @@ impl<'a> Cube<'a> {
                 .get(material.texture.page() as usize)
                 .ok_or(Reject::Texture)?;
             let mip = page.texture.mips.first().ok_or(Reject::Texture)?;
-            if mip.size != 16 || material.texture.layer() >= page.texture.layers {
+            if mip.size != u32::from(assets::BLOCK_ITEM_FACE_SIDE)
+                || material.texture.layer() >= page.texture.layers
+            {
                 return Err(Reject::Texture);
             }
             let start = (material.texture.layer() as usize)

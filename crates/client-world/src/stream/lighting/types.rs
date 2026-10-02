@@ -176,7 +176,7 @@ impl LightBlockAccess for LightBlockSnapshot {
     fn sky_seed(&self, position: BlockPos) -> u8 {
         if self.overworld_top_y == Some(position.y)
             && matches!(self.profile, DimensionLightProfile::Overworld { .. })
-            && self.sample(position) == LightBlockSample::KnownAir
+            && self.sample(position) != LightBlockSample::Unknown
         {
             15
         } else {

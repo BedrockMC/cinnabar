@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -276,6 +277,10 @@ func missingStrings(values []MissingProjection) []string {
 }
 
 func validReadyFoundation() string {
+	lightHash, err := targetpin.LightHash()
+	if err != nil {
+		panic(err)
+	}
 	ready := strings.Replace(validBlockedFoundation, `"status": "blocked"`, `"status": "ready"`, 1)
 	ready = strings.Replace(ready, `,
   "missing": [
@@ -288,7 +293,7 @@ func validReadyFoundation() string {
   "projection_bindings": {
     "block": {"sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"},
     "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"},
-    "light": {"sha256": "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"}
+    "light": {"sha256": "`+lightHash+`"}
   }`, 1)
 	return ready
 }
