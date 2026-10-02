@@ -22,12 +22,23 @@ use std::sync::{
 };
 
 fn menu_input_app(clipboard: MenuClipboard) -> (App, Entity) {
+    menu_input_app_with(
+        clipboard,
+        UiPresentationRuntime::new(fixture_font()).unwrap(),
+    )
+}
+
+/// A focused 1280x720 window driving `drive_menu_input` over `presentation`.
+pub(crate) fn menu_input_app_with(
+    clipboard: MenuClipboard,
+    presentation: UiPresentationRuntime,
+) -> (App, Entity) {
     let mut app = App::new();
     app.add_message::<KeyboardInput>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<Touches>()
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(presentation)
         .insert_resource(MenuRuntime::new(true, 2, "test".into()))
         .insert_resource(clipboard)
         .add_systems(Update, drive_menu_input);
@@ -45,7 +56,7 @@ fn menu_input_app(clipboard: MenuClipboard) -> (App, Entity) {
     (app, window)
 }
 
-fn press_key(app: &mut App, window: Entity, key_code: KeyCode, text: Option<&str>) {
+pub(crate) fn press_key(app: &mut App, window: Entity, key_code: KeyCode, text: Option<&str>) {
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(key_code);
@@ -218,6 +229,109 @@ fn modifier_selection_and_paste_are_bounded_unicode_safe_and_input_owned() {
     assert_eq!(view.screen, MenuScreen::AddServer);
     assert_eq!(view.name, "server-🌍");
     assert_eq!(read_count.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn caret_keys_move_inside_the_focused_field_and_edits_land_at_the_caret() {
+    let (mut app, window) =
+        menu_input_app(MenuClipboard::with_access(|_| Some("Z".to_owned()), |_| {}));
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::PlayAddServer);
+    for (key, text) in [
+        (KeyCode::KeyA, "a"),
+        (KeyCode::KeyB, "b"),
+        (KeyCode::KeyC, "c"),
+    ] {
+        press_key(&mut app, window, key, Some(text));
+    }
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    press_key(&mut app, window, KeyCode::KeyX, Some("x"));
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.name, "axbc");
+    assert_eq!(view.caret.byte, 2);
+    assert_eq!(
+        view.field,
+        Some(MenuField::Name),
+        "Left/Right stay in the box"
+    );
+    assert_eq!(view.focused_action, Some(MenuAction::AddName));
+
+    press_key(&mut app, window, KeyCode::Home, None);
+    press_key(&mut app, window, KeyCode::Comma, Some("<"));
+    press_key(&mut app, window, KeyCode::End, None);
+    press_key(&mut app, window, KeyCode::Period, Some(">"));
+    assert_eq!(app.world().resource::<MenuRuntime>().view().name, "<axbc>");
+
+    press_key(&mut app, window, KeyCode::Home, None);
+    press_key(&mut app, window, KeyCode::ArrowRight, None);
+    press_key(&mut app, window, KeyCode::Delete, None);
+    assert_eq!(app.world().resource::<MenuRuntime>().view().name, "<xbc>");
+    press_key(&mut app, window, KeyCode::Backspace, None);
+    assert_eq!(app.world().resource::<MenuRuntime>().view().name, "xbc>");
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ControlLeft);
+    press_key(&mut app, window, KeyCode::KeyV, Some("v"));
+    release_key(&mut app, window, KeyCode::ControlLeft);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.name, "Zxbc>", "paste lands at the caret");
+    assert_eq!(view.caret.byte, 1);
+
+    press_key(&mut app, window, KeyCode::ArrowDown, None);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(
+        view.field,
+        Some(MenuField::Address),
+        "Up/Down still move focus"
+    );
+    press_key(&mut app, window, KeyCode::KeyQ, Some("q"));
+    assert_eq!(app.world().resource::<MenuRuntime>().view().address, "q");
+}
+
+#[test]
+fn shift_arrows_select_characters_that_copy_and_typing_replace() {
+    let (copies, copied) = std::sync::mpsc::channel();
+    let (mut app, window) = menu_input_app(MenuClipboard::with_access(
+        |_| None,
+        move |text| copies.send(text).unwrap(),
+    ));
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::PlayAddServer);
+    press_key(&mut app, window, KeyCode::KeyA, Some("ab🙂d"));
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    release_key(&mut app, window, KeyCode::ShiftLeft);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ControlLeft);
+    press_key(&mut app, window, KeyCode::KeyC, Some("c"));
+    release_key(&mut app, window, KeyCode::ControlLeft);
+    assert_eq!(copied.try_recv().as_deref(), Ok("b🙂"));
+    press_key(&mut app, window, KeyCode::KeyY, Some("y"));
+    assert_eq!(app.world().resource::<MenuRuntime>().view().name, "ayd");
+}
+
+#[test]
+fn arrows_move_focus_when_no_text_box_is_focused() {
+    let (mut app, window) = menu_input_app(MenuClipboard::default());
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::PlayAddServer);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::AddSave);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.focused_action, Some(MenuAction::AddPort));
+    assert_eq!(view.field, Some(MenuField::Port));
 }
 
 #[test]

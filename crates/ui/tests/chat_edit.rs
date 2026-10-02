@@ -57,6 +57,35 @@ fn selection_replacement_and_deletion_use_character_boundaries() {
 }
 
 #[test]
+fn placed_cursor_snaps_back_to_a_character_boundary_inside_the_text() {
+    let mut editor = ChatEditor::new(16).unwrap();
+    editor.insert("a🙂b").unwrap();
+    editor.move_home(false);
+    editor.move_end(true);
+    editor.place_cursor(3);
+    assert_eq!(editor.cursor_byte(), 1, "inside the emoji lands before it");
+    assert!(editor.selection().is_none());
+    editor.place_cursor(usize::MAX);
+    assert_eq!(editor.cursor_byte(), editor.len_bytes());
+}
+
+#[test]
+fn loaded_text_past_the_maximum_stays_whole_and_only_refuses_growth() {
+    let mut editor = ChatEditor::new(4).unwrap();
+    editor.set_text("abcdef");
+    assert_eq!((editor.as_str(), editor.cursor_byte()), ("abcdef", 6));
+    assert_eq!(editor.remaining_insert_capacity(), 0);
+    assert!(editor.insert("g").is_err());
+    editor.backspace();
+    assert_eq!(editor.as_str(), "abcde");
+    editor.move_home(false);
+    editor.move_end(true);
+    assert_eq!(editor.remaining_insert_capacity(), 4);
+    editor.insert("xy").unwrap();
+    assert_eq!(editor.as_str(), "xy");
+}
+
+#[test]
 fn clipboard_is_bounded_by_remaining_capacity_before_read() {
     let mut editor = ChatEditor::new(8).unwrap();
     editor.insert("abc").unwrap();

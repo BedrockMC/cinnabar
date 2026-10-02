@@ -9,8 +9,8 @@ use std::sync::Arc;
 use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
-use super::play_screen;
-use crate::menu::{MenuAction, MenuDialog, MenuScreen, MenuView, auth::AuthState};
+use super::{menu_caret::with_caret, play_screen};
+use crate::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 
 /// Settings selector index vars as 1.26.50's `SettingsScreenController`
 /// assigns them (RVA 0x0550bab0).
@@ -475,9 +475,14 @@ fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translat
         translated(translate, "addServer.title", "Add Server")
     };
     data.set_global("#title_text", text(title));
-    data.set_global("#name_text_box_content", text(view.name.clone()));
-    data.set_global("#ip_text_box_content", text(view.address.clone()));
-    data.set_global("#port_text_box_content", text(view.port.clone()));
+    let boxes = [
+        ("#name_text_box_content", MenuField::Name, &view.name),
+        ("#ip_text_box_content", MenuField::Address, &view.address),
+        ("#port_text_box_content", MenuField::Port, &view.port),
+    ];
+    for (key, field, value) in boxes {
+        data.set_global(key, text(with_caret(view, field, value).into_owned()));
+    }
     let ready = !view.name.trim().is_empty() && !view.address.trim().is_empty();
     data.set_global("#save_button_enabled", Scalar::Bool(ready));
     data.set_global("#save_button_disabled", Scalar::Bool(!ready));

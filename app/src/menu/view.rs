@@ -282,6 +282,8 @@ pub(crate) struct MenuView {
     pub(crate) server_tab: MenuServerTab,
     pub(crate) dialog: Option<MenuDialog>,
     pub(crate) field: Option<MenuField>,
+    /// The focused field's caret.
+    pub(crate) caret: MenuCaret,
     pub(crate) name: String,
     pub(crate) address: String,
     pub(crate) port: String,
@@ -324,6 +326,17 @@ pub(crate) struct MenuView {
     pub(crate) feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub(crate) store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+}
+
+/// The focused text field's caret.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuCaret {
+    /// Byte offset into the focused field's text.
+    pub(crate) byte: usize,
+    /// Changes with every edit and caret move, restarting the blink.
+    pub(crate) revision: u64,
+    /// The blink phase, which the presentation sets from its clock.
+    pub(crate) shown: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

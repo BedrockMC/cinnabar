@@ -133,8 +133,9 @@ impl UiPresentationRuntime {
             }
             _ => friends::draw(&mut canvas, view, size)?,
         }
-        let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+        let (hits, scrolls, spots) = (canvas.hits, canvas.scrolls, canvas.spots);
         self.menu_scrolls.set_areas(scrolls);
+        self.add_menu_text_spots(spots);
         Ok(Some(hits))
     }
 }

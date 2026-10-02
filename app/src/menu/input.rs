@@ -15,10 +15,11 @@ use bevy::{
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatClipboard, UiPoint};
+use ui::{ChatClipboard, ChatEditor, UiPoint};
 
 use super::{
     MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MAX_SERVER_PORT_BYTES, MenuField, MenuRuntime,
+    view::MenuCaret,
 };
 use crate::local_worlds::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
 use crate::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
@@ -136,27 +137,34 @@ impl MenuModifiers {
     }
 }
 
+/// The editor `field` types into, bounded by its byte budget. The menu boxes share the
+/// chat box's caret model: a byte caret on character boundaries plus a selection.
+pub(super) fn field_editor(field: MenuField) -> ChatEditor {
+    ChatEditor::new(max_bytes(field)).expect("menu field budgets are valid editor bounds")
+}
+
 impl MenuRuntime {
+    /// Focus `field` with its caret after the text, as a newly selected box.
     pub(super) fn focus_field(&mut self, field: MenuField) {
         self.field = Some(field);
-        self.text_selected = false;
+        self.edit_field(|editor| editor.move_end(false));
     }
 
     fn has_focused_field(&self) -> bool {
         self.field.is_some()
     }
 
-    fn selected_text_target(&self) -> Option<&str> {
-        match self.field? {
-            MenuField::Name => Some(&self.name),
-            MenuField::Address => Some(&self.address),
-            MenuField::Port => Some(&self.port),
-            MenuField::WorldName => Some(&self.local_ui.name),
-            MenuField::WorldSeed => Some(&self.local_ui.seed),
+    fn editor(&self, field: MenuField) -> &ChatEditor {
+        match field {
+            MenuField::Name => &self.name,
+            MenuField::Address => &self.address,
+            MenuField::Port => &self.port,
+            MenuField::WorldName => &self.local_ui.name,
+            MenuField::WorldSeed => &self.local_ui.seed,
         }
     }
 
-    fn text_target(&mut self, field: MenuField) -> &mut String {
+    fn editor_mut(&mut self, field: MenuField) -> &mut ChatEditor {
         match field {
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
@@ -166,77 +174,109 @@ impl MenuRuntime {
         }
     }
 
-    fn select_all_text(&mut self) {
-        self.text_selected = self
-            .selected_text_target()
-            .is_some_and(|text| !text.is_empty());
+    /// `field`'s current text.
+    pub(crate) fn field_text(&self, field: MenuField) -> &str {
+        self.editor(field).as_str()
     }
 
-    fn selected_text(&self) -> Option<&str> {
-        self.text_selected
-            .then(|| self.selected_text_target())
-            .flatten()
-    }
-
-    fn remaining_text_capacity(&self) -> usize {
-        let Some(field) = self.field else {
-            return 0;
-        };
-        let maximum = max_bytes(field);
-        if self.text_selected {
-            maximum
-        } else {
-            maximum.saturating_sub(self.selected_text_target().map_or(0, str::len))
+    pub(super) fn caret(&self) -> MenuCaret {
+        MenuCaret {
+            byte: self
+                .field
+                .map_or(0, |field| self.editor(field).cursor_byte()),
+            revision: self.caret_revision,
+            shown: true,
         }
     }
 
+    /// Apply `edit` to the focused field; every edit or caret move restarts the blink,
+    /// as vanilla's `TextEditComponent` shows its caret again after typing.
+    fn edit_field(&mut self, edit: impl FnOnce(&mut ChatEditor)) {
+        let Some(field) = self.field else {
+            return;
+        };
+        edit(self.editor_mut(field));
+        self.caret_revision = self.caret_revision.wrapping_add(1);
+    }
+
+    /// A press inside the focused field puts its caret at `byte`.
+    pub(crate) fn place_caret(&mut self, byte: usize) {
+        self.edit_field(|editor| editor.place_cursor(byte));
+    }
+
+    fn select_all_text(&mut self) {
+        self.edit_field(|editor| {
+            editor.move_home(false);
+            editor.move_end(true);
+        });
+    }
+
+    fn selected_text(&self) -> Option<&str> {
+        let editor = self.editor(self.field?);
+        editor.selection().map(|range| &editor.as_str()[range])
+    }
+
+    fn remaining_text_capacity(&self) -> usize {
+        self.field
+            .map_or(0, |field| self.editor(field).remaining_insert_capacity())
+    }
+
+    /// Insert what fits of `text` at the caret, replacing any selection.
     fn edit_text(&mut self, text: &str) {
         let Some(field) = self.field else {
             return;
         };
-        let maximum = max_bytes(field);
-        let selected = self.text_selected;
-        let target = self.text_target(field);
-        let mut insertion = String::new();
-        let base_length = if selected { 0 } else { target.len() };
         // The port box takes number characters only, as vanilla's `NumberChars` text type.
         let accepts = |character: &char| field != MenuField::Port || character.is_ascii_digit();
-        for character in text
-            .chars()
-            .filter(|character| !character.is_control())
-            .filter(accepts)
-        {
-            if base_length
-                .saturating_add(insertion.len())
-                .saturating_add(character.len_utf8())
-                > maximum
+        self.edit_field(|editor| {
+            let capacity = editor.remaining_insert_capacity();
+            let mut insertion = String::new();
+            for character in text
+                .chars()
+                .filter(|character| !character.is_control())
+                .filter(accepts)
             {
-                break;
+                if insertion.len() + character.len_utf8() > capacity {
+                    break;
+                }
+                insertion.push(character);
             }
-            insertion.push(character);
-        }
-        if insertion.is_empty() {
-            return;
-        }
-        if selected {
-            target.clear();
-        }
-        target.push_str(&insertion);
-        self.text_selected = false;
+            // Within the remaining capacity, so the insert cannot be refused; nothing
+            // accepted leaves a selection standing.
+            if !insertion.is_empty() {
+                let _ = editor.insert(&insertion);
+            }
+        });
     }
 
-    fn backspace_text(&mut self) {
-        let Some(field) = self.field else {
-            return;
+    /// A caret or deletion key in the focused field; `false` leaves it to focus navigation.
+    fn edit_key(&mut self, key: KeyCode, selecting: bool) -> bool {
+        let edit: fn(&mut ChatEditor, bool) = match key {
+            KeyCode::ArrowLeft => |editor, selecting| {
+                if selecting {
+                    editor.select_left();
+                } else {
+                    editor.move_left();
+                }
+            },
+            KeyCode::ArrowRight => |editor, selecting| {
+                if selecting {
+                    editor.select_right();
+                } else {
+                    editor.move_right();
+                }
+            },
+            KeyCode::Home => ChatEditor::move_home,
+            KeyCode::End => ChatEditor::move_end,
+            KeyCode::Backspace => |editor, _| editor.backspace(),
+            KeyCode::Delete => |editor, _| editor.delete(),
+            _ => return false,
         };
-        let selected = self.text_selected;
-        let target = self.text_target(field);
-        if selected {
-            target.clear();
-        } else {
-            let _ = target.pop();
+        if !self.has_focused_field() {
+            return false;
         }
-        self.text_selected = false;
+        self.edit_field(|editor| edit(editor, selecting));
+        true
     }
 }
 
@@ -450,12 +490,15 @@ pub(crate) fn drive_menu_input(
             menu.pressed = Some(action);
         }
     }
+    // A press inside a text box also puts its caret at the nearest character.
+    let mut caret_press = None;
     if pointer_just_pressed
         && !on_scrollbar
         && !gui_scale_drag.captured
         && let Some(action) = menu.hovered
     {
         press(&mut menu, action);
+        caret_press = pointer.zip(action.text_field());
     }
     for touch in touches.iter_just_pressed() {
         let position = touch.position();
@@ -463,7 +506,14 @@ pub(crate) fn drive_menu_input(
             && let Some(action) = presentation.hit_test_menu(position)
         {
             press(&mut menu, action);
+            caret_press = action.text_field().map(|field| (position, field));
         }
+    }
+    if let Some((point, field)) = caret_press
+        && menu.field == Some(field)
+        && let Some(byte) = presentation.menu_caret_at(point, field, menu.field_text(field))
+    {
+        menu.place_caret(byte);
     }
     for gamepad in &gamepads {
         if gamepad.just_pressed(GamepadButton::DPadUp)
@@ -513,13 +563,15 @@ pub(crate) fn drive_menu_input(
                 continue;
             }
         }
+        if menu.edit_key(input.key_code, modifiers.shift()) {
+            continue;
+        }
         match input.key_code {
             KeyCode::Escape => menu.go_back_from_input(),
             KeyCode::ArrowUp | KeyCode::ArrowLeft => menu.move_focus(-1),
             KeyCode::ArrowDown | KeyCode::ArrowRight => menu.move_focus(1),
             KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
             KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
-            KeyCode::Backspace if menu.field.is_some() => menu.backspace_text(),
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
                     menu.edit_text(text);
