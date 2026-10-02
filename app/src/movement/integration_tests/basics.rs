@@ -155,12 +155,7 @@ fn start_game_world_time_does_not_seed_prediction_and_replacement_restarts_local
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
 
-    for (expected_session, world_time) in [
-        (1, 0),
-        (2, 123_456_789),
-        (3, i64::MAX),
-        (4, i64::MIN),
-    ] {
+    for (expected_session, world_time) in [(1, 0), (2, 123_456_789), (3, i64::MAX), (4, i64::MIN)] {
         replace_session(
             &mut clock,
             &mut weather,
@@ -191,19 +186,12 @@ fn start_game_world_time_does_not_seed_prediction_and_replacement_restarts_local
         PhysicsAuthorityGate::CandidateEvidence
             .apply_start_game(false, true, &mut ticker, &mut physics)
             .unwrap();
-        let discarded = physics.advance(
-            Duration::from_millis(50),
-            MovementInput::default(),
-            &Floor,
-        );
+        let discarded =
+            physics.advance(Duration::from_millis(50), MovementInput::default(), &Floor);
         assert_eq!(discarded.completed_ticks, 0);
         assert!(discarded.samples.is_empty());
 
-        let first = physics.advance(
-            Duration::from_millis(50),
-            MovementInput::default(),
-            &Floor,
-        );
+        let first = physics.advance(Duration::from_millis(50), MovementInput::default(), &Floor);
         assert_eq!(first.completed_ticks, 1);
         assert_eq!(first.samples[0].tick, 1);
         ticker
@@ -254,14 +242,14 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     assert_eq!(first.delta, pressed.velocity);
     assert_eq!(
         first.move_vector,
-        [std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]
+        [
+            std::f32::consts::FRAC_1_SQRT_2,
+            std::f32::consts::FRAC_1_SQRT_2
+        ]
     );
     assert_eq!(first.position, pressed.position);
     assert_ne!(first.flags.bits() & PlayerInputFlags::UP.bits(), 0);
-    assert_ne!(
-        first.flags.bits() & PlayerInputFlags::UP_LEFT.bits(),
-        0
-    );
+    assert_ne!(first.flags.bits() & PlayerInputFlags::UP_LEFT.bits(), 0);
     assert_ne!(
         first.flags.bits() & PlayerInputFlags::HORIZONTAL_COLLISION.bits(),
         0,
@@ -472,10 +460,7 @@ fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
 
     assert!((snapshot.move_vector[0] + component).abs() < 1e-6);
     assert!((snapshot.move_vector[1] - component).abs() < 1e-6);
-    assert_ne!(
-        snapshot.flags.bits() & PlayerInputFlags::UP_RIGHT.bits(),
-        0
-    );
+    assert_ne!(snapshot.flags.bits() & PlayerInputFlags::UP_RIGHT.bits(), 0);
 }
 
 struct Floor;
@@ -623,6 +608,59 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     assert_eq!(second.delta, expected_deltas[1]);
 }
 
+#[test]
+fn review_encode_failure_keeps_the_exact_pending_sample() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 10, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(completed_sample(11, [1.0, 2.0, 3.0]))
+        .unwrap();
+    ticker.outbox.front_mut().unwrap().snapshot.flags |= PlayerInputFlags::PERFORM_BLOCK_ACTIONS;
+    let expected = ticker.peek_pending().unwrap().clone();
+    let result = flush_player_auth_inputs(
+        &mut ticker,
+        1,
+        Some(evidence_context()),
+        |_identity, _packet| Ok::<_, ()>(()),
+    );
+    assert!(matches!(result, Err(MovementSendError::Encode(_))));
+    assert_eq!(ticker.peek_pending(), Some(&expected));
+    assert!(ticker.physics_is_authorized());
+}
+
+#[test]
+fn review_full_send_evidence_does_not_fault_an_empty_outbox() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 10, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    for tick in 11..11 + OUTBOX_CAPACITY as u64 {
+        ticker
+            .enqueue_completed_physics(completed_sample(tick, [1.0, 2.0, 3.0]))
+            .unwrap();
+    }
+    let mut identities = Vec::new();
+    let result = flush_player_auth_inputs(
+        &mut ticker,
+        OUTBOX_CAPACITY,
+        Some(evidence_context()),
+        |identity, _packet| {
+            identities.push(identity);
+            Ok::<_, ()>(())
+        },
+    );
+    assert_eq!(result, Ok(OUTBOX_CAPACITY));
+    for identity in identities {
+        assert!(ticker.acknowledge_physics_send(identity));
+    }
+    assert_eq!(ticker.tick_evidence.len(), OUTBOX_CAPACITY);
+    assert_eq!(ticker.pending_count(), 0);
+    assert_eq!(
+        flush_player_auth_inputs(&mut ticker, 1, None, |_identity, _packet| Ok::<_, ()>(())),
+        Ok(0)
+    );
+    assert!(ticker.physics_is_authorized());
+}
 
 #[test]
 fn review_invalid_correction_preserves_live_prediction_and_authority() {
@@ -632,8 +670,18 @@ fn review_invalid_correction_preserves_live_prediction_and_authority() {
     ticker.reset(1, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
     let before = physics.network_position();
-    assert!(reconcile_candidate_physics_correction(&mut ticker, &mut physics,
-        [f32::NAN, 2.620_01, 0.0], 100, true, PhysicsCorrectionMode::Snap, &VersionedFloor(1)).is_err());
+    assert!(
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            [f32::NAN, 2.620_01, 0.0],
+            100,
+            true,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1)
+        )
+        .is_err()
+    );
     assert!(ticker.physics_is_authorized());
     assert_eq!(physics.network_position(), before);
 }
