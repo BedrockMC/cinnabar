@@ -317,6 +317,24 @@ fn review_render_appended_atlas_pixels_change_identity() {
 }
 
 #[test]
+fn review_render_static_gateway_reuses_geometry_across_ticks() {
+    let mut scene = scene();
+    let gateway = BlockEntitySubmission {
+        block: [0; 3],
+        light: 1.0,
+        kind: BlockEntityKind::EndGateway,
+    };
+    scene.update(
+        SceneClock { ticks: 1.0 },
+        &[],
+        std::slice::from_ref(&gateway),
+    );
+    let revision = scene.frame.revision;
+    scene.update(SceneClock { ticks: 2.0 }, &[], &[gateway]);
+    assert_eq!(scene.frame.revision, revision);
+}
+
+#[test]
 fn review_render_atlas_snapshot_does_not_block_mob_installation() {
     let temporary = tempfile::tempdir().unwrap();
     for family in [

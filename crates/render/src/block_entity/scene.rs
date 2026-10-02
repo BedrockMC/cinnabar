@@ -67,7 +67,6 @@ impl BlockEntityKind {
                 | Self::Beacon(_)
                 | Self::Spawner(_)
                 | Self::EndPortal
-                | Self::EndGateway
         )
     }
 }
