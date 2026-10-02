@@ -1,6 +1,6 @@
 #define_import_path cinnabar::enhanced_view
 
-#import cinnabar::lighting::{light_colour, lit_colour}
+#import cinnabar::lighting::lit_colour
 
 #import cinnabar::enhanced_common::{
     EnhancedFrame, CLASS_EMISSION_MASK, CLASS_LEAVES, CLASS_PLANT, FEATURE_SHADOWS,
@@ -267,8 +267,8 @@ fn shade_water(
     return vec4(radiance / max(coverage, 1.0e-3), coverage);
 }
 
-// Use the shared sky-only lightmap for sun visibility and water reflections.
+// Raw sky exposure gates direct sun/moon light; the lightmap already applies time and brightness.
 fn sky_illumination(sample: u32) -> f32 {
-    let sky = max(light_colour(sample & 240u) - light_colour(0u), vec3(0.0));
-    return max(sky.r, max(sky.g, sky.b));
+    let value = f32((sample >> 4u) & 15u) / 15.0;
+    return value / (4.0 - 3.0 * value);
 }

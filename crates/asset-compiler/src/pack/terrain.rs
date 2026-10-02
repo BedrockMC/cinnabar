@@ -253,6 +253,13 @@ impl TerrainTextureMap {
         }
     }
 
+    /// Every key with its variant-zero path, as the runtime's base catalog resolves it.
+    pub(crate) fn first_paths(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.entries
+            .iter()
+            .map(|(key, paths)| (key.as_ref(), paths.first()))
+    }
+
     pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
         self.entries.values().flat_map(TerrainPaths::paths).chain(
             self.position_variations

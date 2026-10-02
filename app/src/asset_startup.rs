@@ -708,6 +708,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             })?,
         );
     if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
+        crate::runtime::network::set_base_terrain_catalog(keys.aliases());
         crate::runtime::network::set_base_material_keys(keys);
     }
     if let Some(refs) = load_vanilla_entity_refs(&selection.path) {

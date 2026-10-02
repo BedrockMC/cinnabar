@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, Weak},
 };
 
 use crate::{
@@ -75,7 +75,7 @@ pub struct ChunkStore {
     authoritative_sub_chunks: HashMap<ChunkKey, BTreeSet<i32>>,
     collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
-    collision_snapshot: OnceLock<Arc<ChunkStore>>,
+    collision_snapshot: Mutex<Weak<Self>>,
 }
 
 impl Default for ChunkStore {
@@ -86,7 +86,7 @@ impl Default for ChunkStore {
             authoritative_sub_chunks: HashMap::new(),
             collision_revisions: HashMap::new(),
             collision_revision_allocator: process_collision_revisions(),
-            collision_snapshot: OnceLock::new(),
+            collision_snapshot: Mutex::default(),
         }
     }
 }
@@ -223,6 +223,7 @@ impl ChunkStore {
             return Ok(None);
         }
         let revision = self.reserve_loaded_change(key)?;
+        self.invalidate_collision_snapshot();
         Arc::make_mut(&mut self.chunks.entry(key.chunk()).or_default().sub_chunks)
             .insert(key.y, Arc::new(decoded));
         self.apply_reserved_revision(key.chunk(), revision);
@@ -453,7 +454,7 @@ impl ChunkStore {
             changed.push(mutation.key);
         }
         if !changed.is_empty() {
-            self.collision_snapshot.take();
+            self.invalidate_collision_snapshot();
         }
         for (chunk, revision) in revisions {
             self.set_collision_revision(chunk, revision);
@@ -471,7 +472,9 @@ impl ChunkStore {
     pub fn detach_chunks(&mut self, keys: &BTreeSet<ChunkKey>) -> (Vec<SubChunkKey>, Vec<Chunk>) {
         let mut removed = Vec::new();
         let mut retired = Vec::new();
-        self.collision_snapshot.take();
+        if !keys.is_empty() {
+            self.invalidate_collision_snapshot();
+        }
         for &key in keys {
             self.authoritative_sub_chunks.remove(&key);
             self.loaded_chunks.remove(&key);
@@ -507,6 +510,7 @@ impl ChunkStore {
     }
 
     fn remove_sub_chunk_without_revision(&mut self, key: SubChunkKey) -> Option<SubChunkKey> {
+        self.invalidate_collision_snapshot();
         let chunk_key = key.chunk();
         let chunk = self.chunks.get_mut(&chunk_key)?;
         let removed = Arc::make_mut(&mut chunk.sub_chunks)
@@ -529,14 +533,13 @@ impl ChunkStore {
     }
 
     fn apply_reserved_revision(&mut self, key: ChunkKey, revision: Option<u64>) {
-        self.collision_snapshot.take();
         if let Some(revision) = revision {
             self.set_collision_revision(key, revision);
         }
     }
 
     fn set_collision_revision(&mut self, key: ChunkKey, revision: u64) {
-        self.collision_snapshot.take();
+        self.invalidate_collision_snapshot();
         self.collision_revisions.insert(
             key,
             ChunkCollisionRevision {
@@ -776,7 +779,14 @@ impl ChunkStore {
             self.chunks.insert(
                 key,
                 Chunk {
-                    sub_chunks: Arc::new(sub_chunks),
+                    sub_chunks: if collision_changed {
+                        Arc::new(sub_chunks)
+                    } else {
+                        old.map_or_else(
+                            || Arc::new(sub_chunks),
+                            |chunk| Arc::clone(&chunk.sub_chunks),
+                        )
+                    },
                     biomes,
                     block_entity_bytes: block_entities
                         .values()

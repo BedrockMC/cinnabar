@@ -322,3 +322,65 @@ fn static_publication_observes_actors_before_actor_and_world_budget_branches() {
         );
     }
 }
+
+/// A texture-only reload republishes base artwork; the scene must validate against the same pages
+/// presentation selects from, or it rejects the whole actor batch.
+#[test]
+fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
+    use bevy::{math::Vec3, prelude::World, time::Real};
+    let (_pack, artwork, entities) =
+        compiled_fixture("1.0", 1, assets::ActorPoseMode::CompiledLiteral);
+    let (_replaced_pack, replaced, _) = compiled_fixture("1.0", 1, assets::ActorPoseMode::RestPose);
+    assert_ne!(artwork.identity(), replaced.identity());
+    let mut stream = stream(Arc::clone(&entities));
+    stream.submit(1, spawn_runtime(100, -100)).unwrap();
+    let mut scene =
+        render::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[]).unwrap();
+    scene.configure_artwork(artwork.clone());
+    let mut client_world = crate::runtime::world::ClientWorld::new_with_entity_assets(
+        Arc::new(RuntimeAssets::diagnostic()),
+        Arc::clone(&entities),
+    );
+    client_world.stream = Some(stream);
+    let mut world = super::actor_frame_allocations::actor_frame_world(
+        client_world,
+        scene,
+        artwork,
+        crate::runtime::network::HandRigBuilder::from_runtime_assets(&entities).unwrap(),
+        (Vec3::new(0.0, 66.0, -12.0), Vec3::new(0.0, 64.0, 4.0)),
+    );
+    let mut clock = std::time::Instant::now();
+    let mut drawn = |world: &mut World| {
+        for _ in 0..4 {
+            clock += std::time::Duration::from_millis(50);
+            world
+                .resource_mut::<bevy::time::Time<Real>>()
+                .update_with_instant(clock);
+            world
+                .run_system_cached(crate::runtime::network::prepare_actor_render_frame)
+                .unwrap();
+            world
+                .run_system_cached(crate::runtime::network::publish_actor_render_frame)
+                .unwrap();
+        }
+        world
+            .resource::<render::ActorRenderFrame>()
+            .rig
+            .instances
+            .len()
+    };
+    assert_eq!(drawn(&mut world), 1);
+    world.insert_resource(replaced.clone());
+    assert_eq!(
+        drawn(&mut world),
+        1,
+        "the replaced artwork rejected the actor"
+    );
+    assert_eq!(
+        world
+            .resource::<render::ActorRenderFrame>()
+            .artwork_pages()
+            .identity(),
+        replaced.identity()
+    );
+}

@@ -91,6 +91,7 @@ impl<'a> Binder<'a> {
             return Vec::new();
         };
         let mut nodes = Vec::new();
+        let mut siblings = crate::layout::SiblingKeys::default();
         for item in items {
             let (reference, vars) = match &factory.control_name {
                 Some(template) => (template.clone(), BTreeMap::new()),
@@ -132,7 +133,8 @@ impl<'a> Binder<'a> {
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
             item_scope.values = std::sync::Arc::new(values);
-            nodes.push(self.build(instance, &item_scope));
+            let repeat = siblings.of(instance.get());
+            nodes.push(self.build(instance, &item_scope, repeat));
         }
         nodes
     }
@@ -188,7 +190,7 @@ impl<'a> Binder<'a> {
                 continue;
             };
             let child_scope = scope.enter(collection, key.clone(), index);
-            nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope));
+            nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope, 0));
         }
         nodes
     }

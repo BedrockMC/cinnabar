@@ -188,7 +188,13 @@ fn carrier_format(key: &str) -> Vec<u8> {
         "mcbehxt" => (&assets::HUD_EXTRAS_MAGIC, assets::HUD_EXTRAS_VERSION),
         _ => (b"", 0),
     };
-    [magic, &version.to_le_bytes()].concat()
+    // The world carrier's sidecar is read beside it; its schema rebuilds the carrier too.
+    let sidecar = if magic == assets::BLOB_MAGIC.as_slice() {
+        assets::MATERIAL_KEYS_SCHEMA
+    } else {
+        0
+    };
+    [magic, &version.to_le_bytes(), &sidecar.to_le_bytes()].concat()
 }
 
 fn file_sha256(path: &Path) -> Result<String> {

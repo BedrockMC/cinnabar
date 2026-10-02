@@ -8,8 +8,13 @@ use std::{
 /// A content read or directory listing that can affect a compiled subscriber.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PackDependency {
-    File { path: String, limit: u64 },
+    File {
+        path: String,
+        limit: u64,
+    },
     Directory(String),
+    /// Names and bytes of every file under the prefix, for a subscriber that reads lazily.
+    Contents(String),
 }
 
 /// Shared only within one compilation; clones record into the same dependency set.
@@ -50,5 +55,12 @@ impl PackDependencies {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(PackDependency::Directory(prefix.to_owned()));
+    }
+
+    pub(crate) fn contents(&self, prefix: &str) {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(PackDependency::Contents(prefix.to_owned()));
     }
 }

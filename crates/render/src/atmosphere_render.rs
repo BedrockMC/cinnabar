@@ -97,6 +97,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     install_weather_render(app);
     install_lightning_render(app);
 
+    crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)
         .init_resource::<AtmospherePipeline>()
