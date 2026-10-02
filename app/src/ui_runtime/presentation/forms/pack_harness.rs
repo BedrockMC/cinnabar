@@ -78,10 +78,9 @@ pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
         );
         all.extend(files);
     }
-    let wanted = ServerUiPack::referenced_texture_dirs(&pack.ui_layers);
     let mut textures = BTreeMap::new();
     for (path, bytes) in all {
-        if ServerUiPack::wants_texture(&wanted, &path) {
+        if path.starts_with("textures/") {
             textures.insert(path, bytes);
         }
     }
@@ -279,7 +278,7 @@ fn visible_text_rects(nodes: &[UiNode]) -> Vec<[f32; 4]> {
         .collect()
 }
 
-// Multi-line labels stack one line apart and drop lines past the label's height
+// Multi-line labels stack one line apart and end in `...` at the label's height
 // instead of spilling over the next button.
 #[test]
 fn multi_line_button_labels_never_overlap() {
@@ -302,10 +301,12 @@ fn multi_line_button_labels_never_overlap() {
             assert!(!overlap, "{a:?} overlaps {b:?}");
         }
     }
+    let texts = drawn_texts(&nodes);
+    assert!(texts.iter().any(|text| text == "Free For AllPlaying - 12"));
     assert!(
-        drawn_texts(&nodes)
+        texts
             .iter()
-            .any(|text| text == "Playing - 12")
+            .any(|text| text == "Updates In - 2m 24sKills - 7...")
     );
 }
 
@@ -392,9 +393,74 @@ fn vanilla_form_button_images_resolve() {
     assert!(missing.is_empty());
 }
 
+// A server-pack image bigger than a server page (Zeqa's 1992x669 title) draws
+// from its full-resolution art copy, point-sampled, not the 256px downscale.
+#[test]
+fn large_server_pack_images_draw_at_full_resolution() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(1992, 669, image::Rgba([200, 30, 40, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    presentation.set_server_ui_pack(&ServerUiPack {
+        ui_layers: Vec::new(),
+        textures: vec![("textures/ui/big_logo.png".to_owned(), png)],
+        catalog: None,
+        view: None,
+    });
+    let runtime = image_form(
+        "Logo",
+        &["Logo"],
+        vec![Some(protocol::FormButtonImage::Path(
+            "textures/ui/big_logo".into(),
+        ))],
+    );
+    render(&mut presentation, &runtime, [1280, 720], 1.0);
+    presentation.finish_menu_artwork();
+    let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
+    let widths: Vec<u16> = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            UiVisual::Sprite { uv, .. } => Some(uv[2] - uv[0]),
+            _ => None,
+        })
+        .collect();
+    assert!(widths.contains(&1022), "{widths:?}");
+    assert!(!widths.contains(&256), "{widths:?}");
+}
+
 /// Button text shaped like a server's two-line entries plus a description.
 fn entry(name: &str) -> String {
     format!("§e{name}\n§7PRACTICE\n§eDESCRIPTION\n§7Practice {name} here")
+}
+
+/// The snapshot's Zeqa training fixture keeps the full second-line word before dots.
+#[test]
+fn training_labels_keep_practice_before_the_ellipsis() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    let Some(pack) = env_pack() else {
+        eprintln!("skipping: server pack absent");
+        return;
+    };
+    presentation.set_server_ui_pack(&pack);
+    let button = entry("BRIDGING");
+    let runtime = action_form("Training", &[&button]);
+    let nodes = render(&mut presentation, &runtime, [1280, 720], 1.0);
+    let texts = drawn_texts(&nodes);
+    assert!(
+        texts.iter().any(|text| text.contains("PRACTICE...")),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|text| text.contains("PRACTIC...")),
+        "{texts:?}"
+    );
 }
 
 // Writes PNG snapshots of pack forms for visual inspection (local only).

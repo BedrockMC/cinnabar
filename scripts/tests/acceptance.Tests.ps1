@@ -2,6 +2,7 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 . (Join-Path $PSScriptRoot 'acceptance\Assertions.ps1')
 . (Join-Path $PSScriptRoot 'acceptance\Fixtures.ps1')
+. (Join-Path $ProjectRoot 'scripts\acceptance\Common.ps1')
 
 $AcceptanceScript = Join-Path $ProjectRoot 'scripts\acceptance.ps1'
 $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("rust-mcbe acceptance tests {0}" -f [guid]::NewGuid().ToString('N'))
@@ -11,7 +12,8 @@ $Assets = Join-Path $TempRoot 'vanilla assets with spaces.mcpack'
 $CrossCropAssets = Join-Path $TempRoot 'compiled cross crop assets.mcbea'
 $AquaticAssets = Join-Path $TempRoot 'compiled aquatic assets.mcbea'
 $SlabStairAssets = Join-Path $TempRoot 'compiled slab stair assets.mcbea'
-$BlockRegistry = Join-Path $ProjectRoot 'crates\assets\data\block-registry-v2168.bin'
+$BlockRegistry = Resolve-BedrockTargetArtifact -ProjectRoot $ProjectRoot `
+    -Target (Get-BedrockTargetManifest -ProjectRoot $ProjectRoot) -Artifact block_registry
 $PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
 $testFailure = $null

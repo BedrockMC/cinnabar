@@ -61,6 +61,95 @@ fn ability_update(owner: i64, count: u32) -> protocol::AbilitiesUpdate {
     protocol::decode_abilities_update(&body).unwrap()
 }
 
+#[test]
+fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_commit() {
+    use protocol::{GameModeEvent, GameModeUpdate, PlayerGameMode};
+    let (mut app, _) = fixture_app();
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .publish_bootstrap_game_modes(PlayerGameMode::Survival, PlayerGameMode::Adventure, false);
+    let targeted = |actor_unique_id, update| {
+        WorldEvent::Ui(UiEvent::PlayerGameMode {
+            actor_unique_id,
+            tick: 0,
+            event: GameModeEvent { update },
+        })
+    };
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            2,
+            targeted(1, GameModeUpdate::Explicit(PlayerGameMode::Creative)),
+        )
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().player_game_mode(),
+        Some(PlayerGameMode::Survival)
+    );
+    // An update addressed to the runtime ID rather than unique ID must not change the local UI.
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            1,
+            targeted(42, GameModeUpdate::Explicit(PlayerGameMode::Spectator)),
+        )
+        .unwrap();
+    app.update();
+    let runtime = app.world().resource::<UiRuntime>();
+    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Creative));
+    assert!(!runtime.survival_stats_visible());
+    assert!(runtime.game_mode_capabilities().unwrap().creative_inventory);
+    assert!(runtime.game_mode_capabilities().unwrap().can_fly);
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(3, targeted(1, GameModeUpdate::Unknown(77)))
+        .unwrap();
+    app.update();
+    let runtime = app.world().resource::<UiRuntime>();
+    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Creative));
+    assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(4, targeted(1, GameModeUpdate::WorldDefault))
+        .unwrap();
+    app.update();
+    let runtime = app.world().resource::<UiRuntime>();
+    assert_eq!(runtime.player_game_mode(), Some(PlayerGameMode::Adventure));
+    assert!(runtime.survival_stats_visible());
+    assert!(!runtime.game_mode_capabilities().unwrap().creative_inventory);
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            5,
+            WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
+                update: GameModeUpdate::Explicit(PlayerGameMode::Survival),
+            })),
+        )
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().player_game_mode(),
+        Some(PlayerGameMode::Survival)
+    );
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+}
+
 fn bind_ability_fixture(app: &mut App) {
     let stream = app
         .world()

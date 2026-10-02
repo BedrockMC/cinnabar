@@ -9,6 +9,7 @@ use assets::{
 use serde_json::Value;
 
 use super::{PendingGeometry, PendingSymbol, insert_symbol, invalid};
+mod texture_mesh;
 
 pub(super) fn parse_geometry(
     relative_path: &str,
@@ -223,6 +224,7 @@ fn parse_geometry_bones_with_inheritance(
     }
     let mut parsed = Vec::with_capacity(bones.len());
     let mut total_cubes = 0usize;
+    let mut total_texture_meshes = 0usize;
     for bone in bones {
         validate_object_fields(
             bone,
@@ -255,6 +257,12 @@ fn parse_geometry_bones_with_inheritance(
         let inflate = optional_scalar(bone, "inflate", path)?;
         let never_render = optional_bool(bone, "neverRender", path)?;
         let reset = optional_bool(bone, "reset", path)?;
+        let binding = optional_string(bone, "binding", path)?.map(Into::into);
+        let texture_meshes = texture_mesh::parse(bone.get("texture_meshes"), path)?;
+        total_texture_meshes = total_texture_meshes
+            .checked_add(texture_meshes.len())
+            .filter(|count| *count <= assets::MAX_ENTITY_GEOMETRY_TEXTURE_MESHES)
+            .ok_or_else(|| invalid("entity geometry texture mesh count exceeds bound"))?;
         let cubes = bone
             .get("cubes")
             .map(|cubes| {
@@ -282,6 +290,8 @@ fn parse_geometry_bones_with_inheritance(
             inflate,
             never_render,
             reset,
+            binding,
+            texture_meshes,
             cubes,
         });
     }

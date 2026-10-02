@@ -13,6 +13,7 @@ fn finalize_interaction_packet(
 
 struct NetworkPumpRuntime<F, W> {
     readiness_ingress: Arc<ReadinessIngressCounter>,
+    experience_gate: Arc<experience::ExperienceGate>,
     trace_line: F,
     write_trace: W,
 }
@@ -33,7 +34,7 @@ pub(super) async fn run_network_pump<S: NetworkSession>(
         control_event_tx,
         world_event_tx,
         shutdown_rx,
-        Arc::new(ReadinessIngressCounter::default()),
+        (Arc::default(), Arc::default()),
     )
     .await;
 }
@@ -62,6 +63,7 @@ pub(super) async fn run_network_pump_with_trace<S, F, W>(
         shutdown_rx,
         NetworkPumpRuntime {
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
+            experience_gate: Arc::default(),
             trace_line,
             write_trace,
         },
@@ -76,8 +78,12 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
     control_event_tx: mpsc::Sender<NetworkControlEvent>,
     world_event_tx: mpsc::Sender<WorldIngress>,
     shutdown_rx: watch::Receiver<bool>,
-    readiness_ingress: Arc<ReadinessIngressCounter>,
+    gates: (
+        Arc<ReadinessIngressCounter>,
+        Arc<experience::ExperienceGate>,
+    ),
 ) {
+    let (readiness_ingress, experience_gate) = gates;
     run_network_pump_with_readiness_ingress_and_trace(
         session,
         sequencer,
@@ -87,6 +93,7 @@ pub(super) async fn run_network_pump_with_readiness_ingress<S: NetworkSession>(
         shutdown_rx,
         NetworkPumpRuntime {
             readiness_ingress,
+            experience_gate,
             trace_line: pending_trace_line,
             write_trace: write_trace_line,
         },
@@ -109,9 +116,12 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
 {
     let NetworkPumpRuntime {
         readiness_ingress,
+        experience_gate,
         mut trace_line,
         mut write_trace,
     } = runtime;
+    let experience_start = Instant::now();
+    let mut experience_rate = None;
     let mut pump_preference = NetworkPumpPreference::Inbound;
     let mut pending_world_event = None;
     let mut last_blob_cache_stats = None;
@@ -183,6 +193,24 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
         {
             NetworkPumpWork::Shutdown => break,
             NetworkPumpWork::Command(command) => match command {
+                Some(NetworkCommand::FinishLoading) => {
+                    if let Some(Err(error)) =
+                        wait_for_send_or_cancel(session.finish_loading(), &mut shutdown_rx).await
+                    {
+                        let _ = send_control_event_or_cancel(
+                            &control_event_tx,
+                            &mut shutdown_rx,
+                            NetworkControlEvent::Failed {
+                                message: error.to_string(),
+                                decode_error_count: session.decode_error_count(),
+                                server_disconnect: session.take_server_disconnect(),
+                                origin: NetworkFailureOrigin::Send,
+                            },
+                        )
+                        .await;
+                        return;
+                    }
+                }
                 Some(NetworkCommand::Send {
                     packet,
                     sub_chunk,
@@ -191,6 +219,9 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
                     physics_reanchor,
                     interaction,
                 }) => {
+                    if protocol::is_experience_packet(&packet) && !experience_gate.enabled() {
+                        continue;
+                    }
                     if let (Some(identity), Some(reanchor)) = (physics, physics_reanchor.as_ref())
                         && *reanchor.borrow() != identity.reanchor_epoch
                     {
@@ -389,6 +420,11 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {
+                let now_ms =
+                    u64::try_from(experience_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if !experience_gate.admit(&event, &mut experience_rate, now_ms) {
+                    continue;
+                }
                 emit_packet_id_trace(&mut session);
                 try_emit_blob_cache_telemetry(
                     &session,

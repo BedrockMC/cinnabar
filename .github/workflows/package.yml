@@ -1,6 +1,6 @@
 name: Package
 
-# main pushes refresh the rolling `nightly` prerelease; v* tags draft a stable release.
+# main pushes refresh `nightly`; manual runs and v* tags publish stable releases.
 # Signing and the update manifest are optional: missing secrets yield unsigned artifacts.
 on:
   push:
@@ -9,10 +9,17 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Release the current version, or increment patch, minor, or major
+        required: true
+        default: current
+        type: choice
+        options: [current, patch, minor, major]
 
 concurrency:
-  group: package-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && 'package-release' || format('package-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -23,8 +30,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      ref: ${{ steps.release.outputs.ref }}
+      commit: ${{ steps.release.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || github.sha }}
+      - name: Resolve the version, tag, and build commit
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BUMP: ${{ inputs.bump || 'current' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 packaging/prepare-release.py
+
   macos:
     name: macOS ${{ matrix.arch }}
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -35,6 +69,9 @@ jobs:
           - { arch: x86_64, runner: macos-15-intel }
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -101,6 +138,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: prepare
     runs-on: windows-2025
     timeout-minutes: 120
     defaults:
@@ -108,6 +146,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -144,8 +185,7 @@ jobs:
         run: |
           $image = Join-Path $env:RUNNER_TEMP "msi-image"
           $msi = Join-Path $env:RUNNER_TEMP "Cinnabar-x64.msi"
-          $process = Start-Process msiexec.exe -ArgumentList "/a", "`"$msi`"", "/qn", "TARGETDIR=`"$image`"" -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "msiexec /a exited with $($process.ExitCode)" }
+          & ./packaging/windows/extract-msi.ps1 -Msi $msi -Out $image
       - name: Check the MSI against the payload allowlist
         run: bash packaging/check-payload.sh windows "$(cygpath -u "$RUNNER_TEMP")/msi-image"
       - uses: actions/upload-artifact@v4
@@ -155,6 +195,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -166,6 +207,9 @@ jobs:
       APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -208,8 +252,7 @@ jobs:
 
   release:
     name: Publish
-    needs: [macos, windows, linux]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare, macos, windows, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -218,10 +261,14 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       MACOS_SIGNED: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.CODESIGN_IDENTITY != '' }}
       WINDOWS_SIGNED: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.ref }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -230,7 +277,7 @@ jobs:
         working-directory: dist
         run: sha256sum -- * > SHA256SUMS.txt
       - name: Publish the nightly prerelease
-        if: github.ref == 'refs/heads/main'
+        if: needs.prepare.outputs.channel == 'nightly'
         run: |
           previous="$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)"
           bash packaging/release-notes.sh nightly "$previous" > "$RUNNER_TEMP/notes.md"
@@ -241,20 +288,20 @@ jobs:
               [[ -e "dist/$name" ]] || gh release delete-asset nightly "$name" --yes
             done
           else
-            gh release create nightly dist/* --prerelease --latest=false --target "$GITHUB_SHA" \
+            gh release create nightly dist/* --prerelease --latest=false --target "$RELEASE_COMMIT" \
               --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
           fi
-          git tag -f nightly "$GITHUB_SHA"
+          git tag -f nightly "$RELEASE_COMMIT"
           git push -f origin refs/tags/nightly
           gh release edit nightly --title "$title" --notes-file "$RUNNER_TEMP/notes.md" \
             --prerelease --latest=false --draft=false
       - uses: actions/setup-go@v6
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.prepare.outputs.channel == 'stable'
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
       - name: Sign the update manifest
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.prepare.outputs.channel == 'stable'
         env:
           CINNABAR_UPDATE_SIGNING_KEY: ${{ secrets.CINNABAR_UPDATE_SIGNING_KEY }}
         run: |
@@ -262,18 +309,25 @@ jobs:
             echo "::warning::CINNABAR_UPDATE_SIGNING_KEY is unset; releasing without update-stable.json"
             exit 0
           fi
-          base="${{ github.server_url }}/${{ github.repository }}/releases/download/$GITHUB_REF_NAME"
+          base="${{ github.server_url }}/${{ github.repository }}/releases/download/$RELEASE_TAG"
           args=()
           for spec in macos-arm64=Cinnabar-arm64.dmg macos-x86_64=Cinnabar-x86_64.dmg \
             windows-x86_64=Cinnabar-x64.msi linux-x86_64=Cinnabar-x86_64.AppImage; do
             file="${spec#*=}"
             args+=(-artifact "${spec%%=*}=$base/$file=$GITHUB_WORKSPACE/dist/$file")
           done
-          go -C core run ./cmd/release-manifest sign -version "${GITHUB_REF_NAME#v}" -channel stable "${args[@]}" \
+          go -C core run ./cmd/release-manifest sign -version "$RELEASE_VERSION" -channel stable "${args[@]}" \
             > "$RUNNER_TEMP/update-stable.json"
           mv "$RUNNER_TEMP/update-stable.json" dist/
-      - name: Draft the release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the stable release
+        if: needs.prepare.outputs.channel == 'stable'
         run: |
           bash packaging/release-notes.sh release > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" --draft --generate-notes --notes-file "$RUNNER_TEMP/notes.md" dist/*
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md" --draft=false --prerelease=false
+          else
+            gh release create "$RELEASE_TAG" dist/* --verify-tag --target "$RELEASE_COMMIT" \
+              --title "$RELEASE_TAG" --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
+          fi

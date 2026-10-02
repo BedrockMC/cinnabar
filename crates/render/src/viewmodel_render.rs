@@ -5,7 +5,7 @@ use crate::viewmodel::{
 };
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::core_3d::graph::Core3d,
     ecs::system::{SystemChangeTick, SystemParam},
     mesh::VertexBufferLayout,
     prelude::*,
@@ -91,7 +91,7 @@ pub(crate) fn install_hand_graph(world: &mut World) {
         graph.add_node(HandLabel, runner);
     }
     graph.add_node_edges((
-        Node3d::MainTransparentPass,
+        crate::ui_render::UiWorldLabel,
         HandLabel,
         crate::ui_render::UiOverlayLabel,
     ));
@@ -177,6 +177,7 @@ fn init_gpu(
 #[derive(SystemParam)]
 struct PrepareViewmodel<'w, 's> {
     scene: Res<'w, ViewmodelScene>,
+    background: Option<Res<'w, crate::panorama::PanoramaScene>>,
     device: Res<'w, RenderDevice>,
     adapter: Res<'w, RenderAdapter>,
     queue: Res<'w, RenderQueue>,
@@ -192,6 +193,7 @@ struct PrepareViewmodel<'w, 's> {
 fn prepare(params: PrepareViewmodel) {
     let PrepareViewmodel {
         scene,
+        background,
         device,
         adapter,
         queue,
@@ -217,6 +219,10 @@ fn prepare(params: PrepareViewmodel) {
             gate.reject(frame.token);
         }
         invalidate_hand_resources(&mut gpu);
+        return;
+    }
+    if background.is_some_and(|background| !background.game_visible()) {
+        deactivate_hand(&mut gpu);
         return;
     }
     let Some(frame) = &scene.frame else {

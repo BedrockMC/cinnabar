@@ -63,7 +63,11 @@ impl LayerPoseCache {
         self.hidden.retain(|_, entry| entry.3 >= oldest);
     }
 
-    fn convert(&mut self, pose: &Arc<[BoneTransform]>) -> Option<Arc<[RenderBoneTransform]>> {
+    /// Converts a shared source pose once while its allocation remains in use.
+    pub(super) fn convert(
+        &mut self,
+        pose: &Arc<[BoneTransform]>,
+    ) -> Option<Arc<[RenderBoneTransform]>> {
         let frame = self.frame;
         let key = Arc::as_ptr(pose).cast::<u8>() as usize;
         match self.converted.get_mut(&key) {
@@ -80,7 +84,8 @@ impl LayerPoseCache {
         }
     }
 
-    fn hide(
+    /// Reuses the zero-scale variant of a pose for an unchanged hidden-bone list.
+    pub(super) fn hide(
         &mut self,
         poses: &Arc<[RenderBoneTransform]>,
         hidden: &Arc<[u32]>,

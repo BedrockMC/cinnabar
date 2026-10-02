@@ -18,11 +18,14 @@ use valentine::{
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
 mod skin;
+mod skin_update;
+pub(crate) use skin_update::normalize_skin_update;
 mod status;
 use skin::normalize_player_skin;
 pub use skin::{
-    CapeImage, MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable,
-    SkinGeometrySource, StandardSkin,
+    CLASSIC_SKIN_SIDE, CapeImage, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS,
+    MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
+    SkinAnimationKind, SkinGeometrySource, StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
@@ -40,8 +43,13 @@ pub const MAX_ACTOR_ATTRIBUTE_MODIFIERS: usize = 64;
 pub const MAX_ACTOR_METADATA_STRING_BYTES: usize = 4_096;
 pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
 pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
-pub const MAX_STANDARD_SKIN_SIDE: u32 = 256;
+pub const MAX_STANDARD_SKIN_SIDE: u32 = 512;
 pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
+
+/// Native ItemActor origin above collision-box feet. Current ctor 0383fdc0 sets
+/// collision height to .25 and this offset to half that height. AddItemActor and
+/// both absolute/delta movement carry the native origin, not collision feet.
+pub const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.125;
 
 /// Actor-data id of the primary 64-bit actor flag word.
 ///
@@ -153,15 +161,15 @@ pub struct ActorMoveEvent {
 
 /// Coordinate space carried by an actor movement position.
 ///
-/// Spawn positions and partial actor movement values use the actor store's
-/// retained coordinate space. Absolute actor and player movement packets use a
-/// network coordinate whose player offset can be removed once actor kind is known.
+/// Normalized spawn positions use the actor store's retained coordinate space.
+/// Absolute and partial wire movement share the native actor origin; its offset
+/// can be removed once actor kind is known.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ActorPositionOrigin {
     /// The position is already in the actor store's retained coordinate space.
     #[default]
     Feet,
-    /// The position came from an absolute Bedrock network movement packet.
+    /// The position came from an absolute or delta Bedrock movement packet.
     NetworkOffset,
 }
 
@@ -256,6 +264,7 @@ pub enum ActorEvent {
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
     PlayerList(PlayerListUpdateEvent),
+    Skin { uuid: [u8; 16], skin: PlayerSkin },
     Status(ActorStatusEvent),
     TakeItem(ActorTakeItemEvent),
 }

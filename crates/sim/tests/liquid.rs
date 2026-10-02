@@ -226,6 +226,30 @@ fn submerged() -> PlayerState {
 }
 
 #[test]
+fn grounded_liquid_uses_liquid_acceleration_and_ascent_instead_of_land_jump() {
+    for flag in [BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA] {
+        let world = fluid(flag, SurfaceResponse::None);
+        let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
+        state.on_ground = true;
+        let result = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    forward: 1.0,
+                    jumping: true,
+                    jump_pressed: true,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!((result.movement.z - 0.0196).abs() < 1.0e-7, "{result:?}");
+        assert!((result.movement.y - 0.04).abs() < 1.0e-7, "{result:?}");
+        assert_eq!(state.jump_delay, 0);
+    }
+}
+
+#[test]
 fn water_applies_flowless_buoyancy_and_drag_while_lava_is_slower() {
     let mut water_state = submerged();
     let water_tick = Simulator::default()
@@ -274,7 +298,7 @@ fn liquid_vertical_order_is_drag_then_gravity_or_levitation() {
             .tick(&mut gravity, MovementInput::default(), &world)
             .unwrap();
         let expected_gravity = -0.3 * drag - gravity_per_tick;
-        assert!((gravity.velocity.y - expected_gravity).abs() <= 1.0e-12);
+        assert!((gravity.velocity.y - expected_gravity).abs() <= f64::from(f32::EPSILON));
 
         let mut levitation = submerged();
         Simulator::default()
@@ -292,7 +316,7 @@ fn liquid_vertical_order_is_drag_then_gravity_or_levitation() {
             .unwrap();
         let after_drag = -0.3 * drag;
         let expected_levitation = after_drag + (0.05 - after_drag) * 0.2;
-        assert!((levitation.velocity.y - expected_levitation).abs() <= 1.0e-12);
+        assert!((levitation.velocity.y - expected_levitation).abs() <= f64::from(f32::EPSILON));
     }
 }
 
@@ -306,7 +330,7 @@ fn mixed_water_and_lava_uses_water_drag_and_gravity_precedence() {
 
     assert!(result.environment.in_water && result.environment.in_lava);
     assert!(
-        (result.velocity.y - (-0.3 * 0.8 - 0.005)).abs() <= 1.0e-12,
+        (result.velocity.y - (-0.3 * 0.8 - 0.005)).abs() <= f64::from(f32::EPSILON),
         "mixed-liquid vertical velocity = {}",
         result.velocity.y
     );

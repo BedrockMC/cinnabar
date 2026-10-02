@@ -107,12 +107,11 @@ pub(crate) fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
-    if !actor_bounds_are_visible(feet, scale, Some(view)) {
+    let bounds = rig.culling_bounds();
+    if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
     }
-    let half = 0.5 * scale.max(1.0);
-    let low = [feet[0] - half, feet[1], feet[2] - half];
-    let high = [feet[0] + half, feet[1] + 4.0 * half, feet[2] + half];
+    let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)
 }
 
@@ -263,6 +262,7 @@ fn actor_rig_presentation_inner(
     let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: rig.culling_bounds(),
             input: ActorRigRenderInput {
                 identity,
                 rig: EntityRigId(rig.rig.0),
@@ -331,6 +331,7 @@ pub(crate) fn local_diagnostic_presentation(
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
                     session_id: actor_session_id,
@@ -485,17 +486,16 @@ pub(crate) fn select_actor_presentations_for_view(
     }
 }
 
-/// Lights each body by the solved world light at its feet; a body without solved light yet
+/// Lights each body at the reference body-height point; a body without solved light yet
 /// keeps drawing unlit rather than black.
-pub(crate) fn light_bodies(
-    batch: &mut ActorPresentationBatch,
-    stream: &client_world::WorldStream,
-    daylight: f32,
-) {
+pub(crate) fn light_bodies(batch: &mut ActorPresentationBatch, stream: &client_world::WorldStream) {
     for submission in &mut batch.submissions {
         let feet = submission.world_from_actor.map(|row| row[3]);
-        if let Some((block, sky)) = stream.solved_light_at(feet) {
-            submission.light = render::pack_actor_light(block, sky, daylight);
+        let position = stream
+            .actor(submission.input.identity.runtime_id)
+            .map_or(feet, |actor| actor.brightness_sample_position(feet));
+        if let Some((block, sky)) = stream.solved_light_at(position) {
+            submission.light = render::pack_actor_light(block, sky);
         }
     }
 }

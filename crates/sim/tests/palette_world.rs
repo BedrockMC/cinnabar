@@ -310,12 +310,48 @@ fn collision_registry_rejects_non_finite_and_inverted_shapes() {
 fn collision_registry_rejects_shapes_outside_the_one_block_query_halo() {
     let mut registry = CollisionRegistry::new();
     for (runtime_id, shape) in [
-        (13, Aabb::new(Vec3::new(-1.000_000_01, 0.0, 0.0), Vec3::ONE)),
-        (14, Aabb::new(Vec3::new(0.0, -1.000_000_01, 0.0), Vec3::ONE)),
-        (15, Aabb::new(Vec3::new(0.0, 0.0, -1.000_000_01), Vec3::ONE)),
-        (16, Aabb::new(Vec3::ZERO, Vec3::new(2.000_000_01, 1.0, 1.0))),
-        (17, Aabb::new(Vec3::ZERO, Vec3::new(1.0, 2.000_000_01, 1.0))),
-        (18, Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 2.000_000_01))),
+        (
+            13,
+            Aabb::new(
+                Vec3::new(f64::from((-1.0_f32).next_down()), 0.0, 0.0),
+                Vec3::ONE,
+            ),
+        ),
+        (
+            14,
+            Aabb::new(
+                Vec3::new(0.0, f64::from((-1.0_f32).next_down()), 0.0),
+                Vec3::ONE,
+            ),
+        ),
+        (
+            15,
+            Aabb::new(
+                Vec3::new(0.0, 0.0, f64::from((-1.0_f32).next_down())),
+                Vec3::ONE,
+            ),
+        ),
+        (
+            16,
+            Aabb::new(
+                Vec3::ZERO,
+                Vec3::new(f64::from(2.0_f32.next_up()), 1.0, 1.0),
+            ),
+        ),
+        (
+            17,
+            Aabb::new(
+                Vec3::ZERO,
+                Vec3::new(1.0, f64::from(2.0_f32.next_up()), 1.0),
+            ),
+        ),
+        (
+            18,
+            Aabb::new(
+                Vec3::ZERO,
+                Vec3::new(1.0, 1.0, f64::from(2.0_f32.next_up())),
+            ),
+        ),
     ] {
         assert_eq!(
             registry.register(runtime_id, [shape]),

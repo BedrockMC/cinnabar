@@ -53,6 +53,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn transaction_credit_refusal_releases_all_cells_without_partial_publication() {
+        use super::super::projection::StackOwner;
+        use protocol::{
+            ContainerIdentity, InventoryEvent, InventorySlotEvent, InventoryTransactionEvent,
+            NetworkItemStack, SlotIdentity,
+        };
+        let credits = Arc::new(Credits {
+            maximum: MAX_RETAINED_BYTES,
+            used: AtomicUsize::new(0),
+        });
+        let stack = NetworkItemStack::empty();
+        let charge = std::mem::size_of::<StackOwner>() + stack.extra_data.len() + 64;
+        let held = credits.reserve(MAX_RETAINED_BYTES - charge).unwrap();
+        let update = |slot| InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity {
+                    window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                    slot_type: Some(0),
+                    dynamic_id: None,
+                },
+                slot,
+            },
+            stack: stack.clone(),
+            storage_item: None,
+        };
+        let event = crate::ui_runtime::InventoryAuthorityEvent::Inventory(
+            InventoryEvent::Transaction(InventoryTransactionEvent {
+                slots: Arc::from([update(28), update(29)]),
+                skipped_actions: 0,
+            }),
+        );
+        let before = Arc::strong_count(&stack.extra_data);
+        let mut state = super::super::CraftingAuthority::with_credits(1, Arc::clone(&credits));
+        state.observe(1, 1, &event);
+        assert!(state.queue.is_none());
+        assert!(state.grid.iter().all(Option::is_none));
+        assert!(state.cursor.is_none());
+        assert_eq!(state.barrier, 1);
+        assert_eq!(
+            credits.used.load(Ordering::Acquire),
+            MAX_RETAINED_BYTES - charge
+        );
+        assert_eq!(Arc::strong_count(&stack.extra_data), before);
+        drop(held);
+        assert_eq!(credits.used.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
     fn complete_grid_reserves_before_cloning_and_releases_all_four_permits_once() {
         use super::super::projection::StackOwner;
         let credits = Arc::new(Credits {

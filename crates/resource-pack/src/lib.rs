@@ -11,14 +11,22 @@ use protocol::ResourcePackHandoff;
 use thiserror::Error;
 
 mod crypto;
+mod dependencies;
+mod import;
 mod jsonc;
+mod library;
 mod manifest;
 mod merge;
 mod pack;
 mod parser;
 mod view;
 
+pub use dependencies::{PackDependencies, PackDependency};
+pub use import::is_pack_import_path;
 pub use jsonc::normalize_jsonc;
+pub use library::{
+    ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
+};
 pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
 pub use parser::validate_archive_bytes;

@@ -80,6 +80,7 @@ mod api;
 mod biome_tints;
 mod constants;
 mod draw;
+pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod pipeline;
@@ -88,15 +89,18 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+mod resource_geometry;
+mod texture_reload;
 mod textures;
+pub use texture_reload::ChunkTextureReload;
 mod transparent;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
     FALLBACK_BIOME_RECORD, FALLBACK_BIOME_WORDS, GEOMETRY_STREAM_WORD_BYTES,
-    INDEXED_INDIRECT_BYTES, LIGHTING_SHADER_HANDLE, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE,
-    PACKED_LIQUID_QUAD_BYTES, PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES,
-    PACKED_QUAD_BYTES, PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES,
+    INDEXED_INDIRECT_BYTES, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE, PACKED_LIQUID_QUAD_BYTES,
+    PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES, PACKED_QUAD_BYTES,
+    PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES,
 };
 
 #[allow(unused_imports)]

@@ -1,3 +1,6 @@
+#[path = "support/shader_source.rs"]
+mod shader_source;
+
 #[path = "support/liquid_shader_contract.rs"]
 mod liquid_shader_contract;
 
@@ -6,30 +9,9 @@ use meshing::Face;
 
 const SHADER: &str = include_str!("../src/liquid.wgsl");
 
+/// Resolve the unchanged vanilla shader for standalone validation.
 fn shader_for_naga() -> String {
-    let lighting = include_str!("../src/lighting.wgsl").replacen(
-        "#define_import_path cinnabar::lighting",
-        "",
-        1,
-    );
-    let biome_tint = meshing::biome_lattice::shader_source(include_str!("../src/biome_tint.wgsl"))
-        .replacen("#define_import_path cinnabar::biome_tint", "", 1);
-    SHADER
-        .replacen(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-            1,
-        )
-        .replacen(
-            "#import cinnabar::lighting::{light_ao_factor, light_brightness, lit_colour}",
-            &lighting,
-            1,
-        )
-        .replacen(
-            "#import cinnabar::biome_tint::blended_biome_tint",
-            &biome_tint,
-            1,
-        )
+    shader_source::standalone(SHADER, &[])
 }
 
 fn assert_uv_close(actual: [f32; 2], expected: [f32; 2], context: &str) {
@@ -237,8 +219,9 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
     assert!(SHADER.contains("out.water_tint = blended_biome_tint("));
     assert!(SHADER.contains("let colour = lit_colour("));
-    assert!(SHADER.contains("sampled.rgb * in.water_tint,"));
+    assert!(SHADER.contains("sampled.rgb * in.water_tint.rgb,"));
     assert!(SHADER.contains("apply_distance_fog(colour, in.world_position)"));
+    assert!(SHADER.contains("sampled.a * in.water_tint.a"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
 }
@@ -269,7 +252,7 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
         .nth(1)
         .expect("liquid shader must retain a fragment stage");
 
-    assert!(SHADER.contains("@location(4) @interpolate(flat) water_tint: vec3<f32>"));
+    assert!(SHADER.contains("@location(4) @interpolate(flat) water_tint: vec4<f32>"));
     assert!(vertex.contains("let block_coordinate = vec3<u32>("));
     assert!(vertex.contains("geometry & 15u"));
     assert!(vertex.contains("(geometry >> 4u) & 15u"));
@@ -289,5 +272,5 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
         );
     }
     assert!(fragment.contains("let colour = lit_colour("));
-    assert!(fragment.contains("sampled.rgb * in.water_tint,"));
+    assert!(fragment.contains("sampled.rgb * in.water_tint.rgb,"));
 }

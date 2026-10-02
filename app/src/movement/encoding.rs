@@ -88,24 +88,19 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
 
     // Raw jump-button carriers track the physical button exactly.
     if sample.jumping {
-        flags |= PlayerInputFlags::JUMP_DOWN | PlayerInputFlags::JUMP_CURRENT_RAW;
+        flags |= PlayerInputFlags::JUMP_DOWN
+            | PlayerInputFlags::JUMP_CURRENT_RAW
+            | PlayerInputFlags::JUMPING;
         if !previous.jumping {
-            flags |= PlayerInputFlags::START_JUMPING | PlayerInputFlags::JUMP_PRESSED_RAW;
+            flags |= PlayerInputFlags::JUMP_PRESSED_RAW;
         }
     } else if previous.jumping {
         flags |= PlayerInputFlags::JUMP_RELEASED_RAW;
     }
-    // Processed `Jumping` describes the simulated jump arc (VPA-011), not the
-    // held button: it opens on a ground takeoff, rides the airborne window,
-    // and closes when the simulator reports ground contact again. The exact
-    // vanilla assertion rule is still an open native measurement; this
-    // provisional contract is pinned witness-for-witness in `state_tests`.
-    // Every takeoff is a jump trigger, including a repeat from a held button.
+    // 1.26.50.26: 0x07108cc0 -> 0x070fcfd0 maps held jump to Jumping.
+    // 0x0a5db340 -> 0x0435a250 maps actual takeoff to StartJumping.
     if sample.processed.jump_initiated {
         flags |= PlayerInputFlags::START_JUMPING;
-    }
-    if sample.processed.jump_arc_active {
-        flags |= PlayerInputFlags::JUMPING;
     }
 
     if sample.processed.sneaking {
@@ -202,4 +197,10 @@ pub(super) fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
     } else {
         vector
     }
+}
+
+/// Converts processed right-positive controls to the wire's left-positive vector.
+pub(super) fn wire_move_vector(vector: [f32; 2]) -> [f32; 2] {
+    let [right, forward] = normalize_move_vector(vector);
+    [if right == 0.0 { 0.0 } else { -right }, forward]
 }

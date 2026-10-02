@@ -570,7 +570,7 @@ fn task7_streams_share_one_physical_buffer_with_binding_headroom() {
 #[test]
 fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     let plugin = CHUNK_RENDERER_SOURCE;
-    let shader = include_str!("../../src/model.wgsl");
+    let shader = shader_source::preprocess(include_str!("../../src/model.wgsl"), &[]);
     assert!(plugin.contains("load_internal_asset!(app, MODEL_SHADER_HANDLE, \"../model.wgsl\""));
     assert!(plugin.contains("\"packed model pipeline\""));
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
@@ -590,8 +590,9 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(shader.contains("if (draw_ref_word + 1u >= geometry_word_count)"));
     assert!(shader.contains("if (quad_index >= 32u || model_ref_index > 0x3fffffffu)"));
     assert!(shader.contains("if (ref_word + 3u >= geometry_word_count)"));
-    assert!(shader.contains("block_light"));
-    assert!(shader.contains("sky_light"));
+    assert!(shader.contains("light_colour(light_sample)"));
+    assert!(!shader.contains("block_light"));
+    assert!(!shader.contains("sky_light"));
     assert!(!shader.contains("safe_quad_index"));
     let masked_guard = shader
         .find("if (is_visible == 0u) {")
@@ -668,7 +669,7 @@ fn crossed_model_direct_and_mdi_commands_have_identical_output_addressing() {
 #[test]
 fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
     let plugin = CHUNK_RENDERER_SOURCE;
-    let shader = include_str!("../../src/model.wgsl");
+    let shader = shader_source::preprocess(include_str!("../../src/model.wgsl"), &[]);
 
     assert!(plugin.contains("packed transparent model pipeline"));
     assert!(plugin.contains("transparent_model_descriptor"));
@@ -687,7 +688,7 @@ fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader
-                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position), sampled.a);"),
+                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);"),
         "biome tinting must preserve sampled alpha for the blend entry point"
     );
     assert!(
@@ -808,7 +809,7 @@ fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
     }
 
     let plugin = CHUNK_RENDERER_SOURCE;
-    let shader = include_str!("../../src/model.wgsl");
+    let shader = shader_source::preprocess(include_str!("../../src/model.wgsl"), &[]);
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
     assert!(shader.contains("sampled.a < 0.5"));
 }

@@ -7,6 +7,7 @@ mod audio_pcm;
 mod biome;
 mod blob;
 mod block_entity;
+mod block_names;
 mod compiled;
 mod entity;
 mod environment_settings;
@@ -43,8 +44,9 @@ pub use hud_extras::{
     MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
 };
 pub use skin_geometry::{
-    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, SkinGeometry, SkinGeometryError,
-    parse_skin_geometry, skin_geometry_name,
+    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
+    SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
+    parse_skin_geometry_layer, skin_geometry_name,
 };
 
 pub use actor::{
@@ -73,11 +75,11 @@ pub use audio_pcm::{
     reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
 };
 pub use biome::{
-    BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,
-    CompiledBiomeAssets, LinearBiomeTints, LiveBiomeDefinition, MAX_BIOME_NAME_BYTES,
-    MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT,
-    ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TintMapId, TintSource,
-    colormap_coordinate, read_biome_registry,
+    BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SWAMP_GRASS,
+    BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets, LinearBiomeTints, LiveBiomeDefinition,
+    MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MISSING_BIOME_DENSE_INDEX,
+    RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
+    TintMapId, TintSource, colormap_coordinate, read_biome_registry,
 };
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, encode_blob, write_blob_atomic};
 pub use block_entity::{
@@ -86,6 +88,7 @@ pub use block_entity::{
     MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_KEY_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
     RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };
+pub use block_names::legacy_resource_pack_block_alias;
 pub use compiled::{
     BlockFace, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
@@ -103,26 +106,27 @@ pub use entity::{
     EntityControllerState, EntityControllerTransition, EntityDependency, EntityDependencyKind,
     EntityDependencyResolution, EntityGeometry, EntityGeometryBone, EntityGeometryCube,
     EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,
-    EntityGeometryUv, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
-    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
-    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
-    MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS,
-    MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING,
-    MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
-    MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES, MAX_ENTITY_GEOMETRY_BONES,
-    MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_GEOMETRY_SCALAR,
-    MAX_ENTITY_IDENTIFIER_BYTES, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
-    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
-    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
-    MAX_ENTITY_RIG_GEOMETRIES, MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION,
-    MAX_ENTITY_TOTAL_SOURCE_BYTES, MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL,
-    MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH,
-    MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION,
-    MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH, MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES,
-    MolangBranch, MolangCall, MolangCollection, MolangCollectionItem, MolangEaseCurve,
-    MolangEaseMode, MolangFunction, MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
-    encode_entity_blob, molang_call, molang_program_stack, validate_entity_geometry_inheritance,
+    EntityGeometryTextureMesh, EntityGeometryUv, EntityRenderCandidate, EntityRenderData,
+    EntityRenderGeometry, EntityRenderLayer, EntityRenderSlot, EntityRenderVisibility,
+    EntityRigAnimationBinding, EntityRigBinding, EntityRigControllerBinding, EntityRigFallback,
+    EntityRigGeometryBinding, MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS,
+    MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_ASSET_PATH_BYTES, MAX_ENTITY_ASSET_SOURCES,
+    MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_CONTROLLER_ANIMATIONS,
+    MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS,
+    MAX_ENTITY_CONTROLLERS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
+    MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES,
+    MAX_ENTITY_GEOMETRY_SCALAR, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES, MAX_ENTITY_IDENTIFIER_BYTES,
+    MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES,
+    MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY, MAX_ENTITY_RIG_ANIMATIONS,
+    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
+    MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
+    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
+    MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
+    MolangSymbolKind, RuntimeEntityAssets, encode_entity_blob, molang_call, molang_program_stack,
+    validate_entity_geometry_inheritance,
 };
 pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
@@ -151,9 +155,11 @@ pub use hud::{
     HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
 };
 pub use icon::{
-    ICON_CARRIER_MAGIC, ICON_CARRIER_VERSION, IconEntry, IconSprite, MAX_ICON_CARRIER_BYTES,
-    MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog,
-    encode_icon_catalog,
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
+    ICON_CARRIER_VERSION, IconBlockSheet, IconEntry, IconSprite, MAX_ICON_BLOCK_SHEETS,
+    MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES,
+    RuntimeIconCatalog, compose_block_item_sheet, encode_icon_catalog,
+    encode_icon_catalog_with_block_sheets,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
@@ -224,3 +230,6 @@ pub use weather_textures::{
     WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,
     decode_weather_textures, encode_weather_textures,
 };
+
+mod biome_noise;
+pub use biome_noise::{ClientRandom, grass_noise_permutation};

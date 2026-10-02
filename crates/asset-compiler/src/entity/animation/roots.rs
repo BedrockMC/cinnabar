@@ -1,6 +1,14 @@
 //! Activation roots a rig plays, distinct from the alias lookup dictionary.
 use serde_json::Value;
 
+pub(crate) fn description(value: &Value) -> Option<&serde_json::Map<String, Value>> {
+    value
+        .get("minecraft:client_entity")
+        .or_else(|| value.get("minecraft:attachable"))?
+        .get("description")?
+        .as_object()
+}
+
 /// One `scripts.animate` entry: an alias, optionally gated by a blend-weight expression.
 pub(crate) struct ActivationRoot {
     pub alias: String,
@@ -9,7 +17,7 @@ pub(crate) struct ActivationRoot {
 
 /// Returns the aliases a rig plays each tick, or `None` for an unrecognized schema.
 pub(crate) fn activation_roots(value: &Value) -> Option<Vec<ActivationRoot>> {
-    let description = value.get("minecraft:client_entity")?.get("description")?;
+    let description = description(value)?;
     let version = value.get("format_version")?.as_str()?;
     let mut parts = version.split('.').map(str::parse::<u32>);
     let (major, minor) = (parts.next()?.ok()?, parts.next()?.ok()?);

@@ -23,7 +23,10 @@ fn production_form_enqueue_binds_generation_and_distinguishes_definite_backpress
     ));
     let NetworkCommand::Send {
         packet: accepted, ..
-    } = receiver.try_recv().unwrap();
+    } = receiver.try_recv().unwrap()
+    else {
+        panic!("form enqueue must submit a packet");
+    };
     let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
         protocol::encode(&accepted, &session).unwrap(),
@@ -38,4 +41,36 @@ fn production_form_enqueue_binds_generation_and_distinguishes_definite_backpress
         network.send_form_packet(42, packet()),
         Err(PacketSendError::Closed(_))
     ));
+}
+
+#[test]
+fn render_distance_settings_send_is_session_fenced_and_retries_after_backpressure() {
+    let (mut network, _) = NetworkHandle::stub();
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    network.commands = sender;
+    network.session_generation = 42;
+    let packet = || {
+        protocol::request_chunk_radius_packet(8, client_world::PHASE0_MAX_VIEW_RADIUS_CHUNKS as u8)
+    };
+    assert!(matches!(
+        network.send_settings_packet(41, packet()),
+        Err(PacketSendError::Closed(_))
+    ));
+    network.send_settings_packet(42, packet()).unwrap();
+    assert!(matches!(
+        network.send_settings_packet(42, packet()),
+        Err(PacketSendError::Full(_))
+    ));
+    let NetworkCommand::Send {
+        packet: accepted, ..
+    } = receiver.try_recv().unwrap()
+    else {
+        panic!("settings must enqueue a packet send");
+    };
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    assert_eq!(
+        protocol::encode(&accepted, &session).unwrap(),
+        protocol::encode(&packet(), &session).unwrap()
+    );
+    network.send_settings_packet(42, packet()).unwrap();
 }

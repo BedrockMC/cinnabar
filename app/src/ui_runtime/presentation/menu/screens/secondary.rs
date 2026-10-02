@@ -242,14 +242,20 @@ pub(super) fn settings(
         font,
         metrics,
         solid_page,
-        "Choose a fixed Java-style GUI scale. Auto scaling remains available from the command line for reference captures.",
+        "Adjust the interface size for this window.",
         [area.left + SPACE_LG, top + 54.0],
         area.width - SPACE_LG * 2.0,
         MUTED,
     )?;
     let gap = SPACE_SM;
-    let button_width = ((area.width - SPACE_LG * 2.0 - gap * 3.0) / 4.0).max(1.0);
-    for scale in 1..=4u8 {
+    let count = view.gui_scale_choices.len().max(1) as f32;
+    let button_width = ((area.width - SPACE_LG * 2.0 - gap * (count - 1.0)) / count).max(1.0);
+    for (index, offset) in view.gui_scale_choices.iter().copied().enumerate() {
+        let label = if view.gui_scale_offset == offset {
+            format!("{offset}  Selected")
+        } else {
+            offset.to_string()
+        };
         button(
             view,
             nodes,
@@ -259,24 +265,10 @@ pub(super) fn settings(
             font,
             metrics,
             solid_page,
-            MenuAction::SettingsScale(scale),
+            MenuAction::SettingsScale(offset),
             usize::MAX,
-            if view.gui_scale == scale {
-                match scale {
-                    1 => "1×  Selected",
-                    2 => "2×  Selected",
-                    3 => "3×  Selected",
-                    _ => "4×  Selected",
-                }
-            } else {
-                match scale {
-                    1 => "1×",
-                    2 => "2×",
-                    3 => "3×",
-                    _ => "4×",
-                }
-            },
-            area.left + SPACE_LG + (scale - 1) as f32 * (button_width + gap),
+            &label,
+            area.left + SPACE_LG + index as f32 * (button_width + gap),
             top + 116.0,
             button_width,
             TOUCH_CONTROL_HEIGHT,

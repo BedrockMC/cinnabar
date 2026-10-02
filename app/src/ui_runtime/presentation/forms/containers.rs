@@ -64,7 +64,7 @@ impl ScreenLayout {
         })
     }
 
-    fn screen(self) -> (&'static str, &'static str) {
+    pub(super) fn screen(self) -> (&'static str, &'static str) {
         match self {
             Self::Personal { .. } => ("crafting.inventory_screen", "container.crafting"),
             Self::Workbench { .. } => ("crafting.crafting_screen", "container.crafting"),
@@ -133,7 +133,14 @@ impl UiPresentationRuntime {
             _ => context = super::recipe_book::context(context),
         }
         let mut icons = Vec::new();
-        let data = screen_data(runtime, &self.hud_frame, layout, &title, &mut icons);
+        let data = screen_data(
+            runtime,
+            &self.hud_frame,
+            layout,
+            &title,
+            &mut icons,
+            &mut self.form_presentation.book_cache,
+        );
         let pointer = runtime.inventory_pointer_gui();
         let view = ViewState {
             hovered: previous
@@ -183,6 +190,8 @@ impl UiPresentationRuntime {
             preview: self.hud_frame.player_preview,
             preview_view: Some(&preview_view),
             pointer,
+            now: self.menu_seconds,
+            clocks: Some(&self.scene_clock),
             ..engine::ScreenArt::default()
         };
         let translate = |key: &str| runtime.translation(key);
@@ -195,6 +204,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content: [width, height],
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = engine::EngineOutput {
             nodes: &mut *nodes,
@@ -298,6 +308,8 @@ pub(super) struct ScreenCache {
     /// The tree's measurements at the laid root size, reused while scrolling.
     measures: json_ui::MeasureCache,
     laid: Option<(ViewState, [f64; 2], Arc<json_ui::FormRender>)>,
+    /// The open screen's live bindings across data refreshes.
+    binding: json_ui::BindState,
     /// Layouts run for this screen, for cache tests.
     layouts: usize,
 }
@@ -329,6 +341,7 @@ impl ScreenCache {
                 tree: None,
                 measures: json_ui::MeasureCache::default(),
                 laid: None,
+                binding: json_ui::BindState::new(),
                 layouts: 0,
             });
         }
@@ -339,6 +352,7 @@ impl ScreenCache {
                 catalog,
                 context,
                 data,
+                &mut cached.binding,
             ));
             cached.data = Some(data.clone());
             cached.measures = json_ui::MeasureCache::default();
@@ -365,6 +379,10 @@ impl ScreenCache {
                 }
             };
             let render = json_ui::render_bound_gated(tree, root, env, view, &mut cached.measures);
+            // Scroll views publish their end state; views reading it rebind next frame.
+            if cached.binding.publish_scrolls(&render.report) && cached.binding.observes_scroll() {
+                cached.data = None;
+            }
             cached.layouts += 1;
             cached.laid = Some((view.clone(), root, Arc::new(render)));
         }
@@ -378,6 +396,11 @@ impl ScreenCache {
 /// Whether the engine has a vanilla screen for the open inventory or window.
 pub(crate) fn engine_screen_for(runtime: &UiRuntime) -> bool {
     ScreenLayout::of(runtime, None).is_some()
+}
+
+/// The vanilla screen the open inventory or container draws.
+pub(crate) fn container_screen_reference(runtime: &UiRuntime) -> Option<&'static str> {
+    ScreenLayout::of(runtime, None).map(|layout| layout.screen().0)
 }
 
 /// Whether a point lies on the engine-drawn container's `root_panel`.
@@ -427,6 +450,9 @@ impl Cells<'_> {
         )
         .with("#hover_text", Scalar::Text(name))
         .with("#is_selected_slot", Scalar::Bool(false))
+        // The classic cell art; the controller always answers the background.
+        .with("#container_item_background", Scalar::Int(0))
+        .with("#container_item_modifier", Scalar::Int(0))
         .with(
             "#item_durability_visible",
             Scalar::Bool(durability.is_some()),
@@ -445,6 +471,7 @@ fn screen_data(
     layout: ScreenLayout,
     title: &str,
     icons: &mut Vec<IconRef>,
+    book_cache: &mut Option<super::recipe_book::BookCache>,
 ) -> DataSource {
     let ledger = runtime.inventory_ledger();
     let mut data = DataSource::new();
@@ -475,7 +502,7 @@ fn screen_data(
     survival_globals(&mut data, title);
     match layout {
         ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
-            super::recipe_book::book_data(&mut data, runtime, frame, cells.icons, book);
+            super::recipe_book::book_data(&mut data, runtime, frame, cells.icons, book, book_cache);
             let width = if matches!(layout, ScreenLayout::Workbench { .. }) {
                 3
             } else {
@@ -642,9 +669,7 @@ fn held_stack(
         clip,
         layer: i32::MAX,
         alpha: 1.0,
-        fades: Vec::new(),
-        flip_book: None,
-        motions: Default::default(),
+        anim: None,
         draw,
         gates: Vec::new(),
     };
@@ -680,6 +705,7 @@ fn held_stack(
                 align: TextAlign::Right,
                 scale: 1.0,
                 localize: false,
+                options: Default::default(),
             },
         ));
     }

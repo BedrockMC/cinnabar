@@ -81,7 +81,10 @@ fn natural_measurements_run_once_per_width_and_reset_for_each_layout() {
         assert_eq!(laid.rect.w, 180.0);
         assert_eq!(laid.rect.h, 10.0);
     }
-    assert_eq!(text.0.borrow().get(&None), Some(&2));
+    assert!(
+        !text.0.borrow().contains_key(&None),
+        "an explicit width needs no unconstrained measure"
+    );
     assert_eq!(text.0.borrow().get(&Some(180.0_f64.to_bits())), Some(&1));
     let scaled = CountingText::default();
     let new_env = LayoutEnv {
@@ -134,7 +137,7 @@ fn ctrl(
         control_type: control_type.map(str::to_owned),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }
@@ -352,8 +355,7 @@ fn fill_child_absorbs_leftover_main_axis() {
     assert_eq!(child_named(&placed, "c").rect.y, 90.0);
 }
 
-/// `100%c` sizes a container to its children's content extent (a stack sums, a
-/// plain panel takes the max).
+/// `100%c` sizes a container to the sum of its children's extents.
 #[test]
 fn percent_children_measures_content_extent() {
     let panel = ctrl(
@@ -370,7 +372,7 @@ fn percent_children_measures_content_extent() {
     );
     let placed = layout(&root, [200.0, 200.0], &zero_env());
     let rect = child_named(&placed, "panel").rect;
-    assert_eq!([rect.w, rect.h], [40.0, 30.0]);
+    assert_eq!([rect.w, rect.h], [65.0, 45.0]);
 }
 
 /// A label's `default` width comes from its measured text extent.
@@ -525,6 +527,7 @@ fn nine_slice_image_emits_nine_sprites() {
         "textures/ui/panel".to_owned(),
         TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: Some(json_ui::NineSlice {
                 left: 4.0,
                 top: 4.0,
@@ -760,12 +763,12 @@ fn a_flip_book_uv_resolves_to_its_first_frame() {
     let icon = resolve(&catalog, "s.icon", &Context::desktop())
         .control
         .unwrap();
-    assert_eq!(icon.properties.get("uv"), Some(&json!([0.0, 0.0])));
-    let book = icon
+    assert_eq!(icon.properties.get("uv"), Some(&json!([0, 0])));
+    let graph = icon
         .properties
-        .get("anim_flip_book")
+        .get("anim_graph")
         .expect("the flip-book rides along");
-    assert_eq!(book["frame_count"], json!(28));
+    assert_eq!(graph["nodes"][0]["frame_count"], json!(28));
 }
 
 // `{ "$layout": {} }` with `$layout: "@s.panel"` instances that panel by name.
@@ -830,17 +833,22 @@ fn an_offset_animation_moves_the_draw_inside_a_still_clip() {
         (shine.dest.x, shine.dest.y, shine.dest.w),
         (-20.0, -20.0, 80.0)
     );
-    let at = |now: f64| {
-        let (dest, clip) = shine.animated_rects(now, None);
-        ([dest.x, dest.y], [clip.x, clip.y, clip.w, clip.h])
+    let mut animator = json_ui::Animator::new();
+    let mut at = |now: f64| {
+        let drawn = shine.animate(&mut animator, now, None, None);
+        (
+            [drawn.dest.x, drawn.dest.y],
+            [drawn.clip.x, drawn.clip.y, drawn.clip.w, drawn.clip.h],
+        )
     };
     assert_eq!(
         at(0.0).0,
         [-40.0, -40.0],
         "starts at from: -50% of 40, -25% of 80"
     );
-    assert_eq!(at(1.0).0, [-20.0, -20.0]);
+    let (dest, clip) = at(1.0);
+    assert_eq!(dest, [-20.0, -20.0]);
+    assert_eq!(clip, [0.0, 0.0, 40.0, 40.0], "the clip never moves");
     assert_eq!(at(2.5).0, [0.0, 0.0], "holds `to` through the wait");
     assert_eq!(at(3.0).0, [-40.0, -40.0], "and loops");
-    assert_eq!(at(1.0).1, [0.0, 0.0, 40.0, 40.0], "the clip never moves");
 }

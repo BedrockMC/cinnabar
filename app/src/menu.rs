@@ -10,6 +10,7 @@ mod account;
 mod account_control;
 pub(crate) mod auth;
 mod connection;
+mod construction;
 pub(crate) mod core_process;
 pub(crate) mod disconnect;
 #[cfg(test)]
@@ -18,12 +19,19 @@ mod focus;
 mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
+mod navigation;
 pub(crate) mod servers;
+pub(crate) mod settings_options;
+mod settings_paths;
+pub(crate) mod settings_storage;
+pub(crate) mod settings_support;
 mod settings_values;
+mod video_settings;
 mod view;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
+use ui::RenderMode;
 
 pub(crate) use connection::{
     drive_menu_connection, follow_server_transfer, recover_menu_session_failure,
@@ -33,7 +41,7 @@ use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
-pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
+pub(crate) use video_settings::persist_video_settings;
 pub(crate) use view::{
     ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
     MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
@@ -106,6 +114,11 @@ pub(crate) enum MenuServerTab {
 pub(crate) enum MenuDialog {
     Exit,
     RemoveSaved(usize),
+    StorageDelete,
+    StorageError,
+    SettingsSupport(settings_support::SupportDialog),
+    SettingsResetBindings(bool),
+    SettingsResetGroup(settings_options::SettingsGroup),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,7 +154,22 @@ pub(crate) enum MenuAction {
     AddSave,
     AddSaveConnect,
     AddBack,
-    SettingsScale(u8),
+    SettingsScale(i8),
+    SettingsFullscreen(bool),
+    SettingsStorage(settings_storage::StorageAction),
+    SettingsSupport(settings_support::SupportAction),
+    SettingsOption(u16, i32),
+    SettingsDropdown(u16),
+    SettingsLanguage(u16),
+    SettingsKey(u16),
+    SettingsResetKey(u16),
+    SettingsResetBindings(bool),
+    SettingsResetGroup(settings_options::SettingsGroup),
+    SettingsConfirmResetBindings(bool),
+    SettingsConfirmResetGroup(settings_options::SettingsGroup),
+    SettingsResetChat,
+    SettingsAdvancedGraphics,
+    ToggleRenderMode,
     PauseResume,
     PauseDisconnect,
     PauseSettings,
@@ -154,8 +182,6 @@ pub(crate) enum MenuAction {
     /// A press on a local-world screen (create, edit, templates) or its modals.
     LocalWorld(LocalWorldAction),
     SignOut,
-    /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
-    SettingsVolume(u8, u8),
     /// Show a featured server in the Servers tab's info panel.
     SelectFeatured(usize),
     /// Show a saved server's details on the Servers tab.
@@ -168,6 +194,7 @@ pub(crate) enum MenuAction {
     OpenLiveEvent,
     /// A press on a Marketplace screen.
     Store(crate::store::StoreAction),
+    GlobalResources(crate::global_resources::Action),
 }
 
 #[derive(Debug, Resource)]
@@ -182,11 +209,21 @@ pub(crate) struct MenuRuntime {
     dialog: Option<MenuDialog>,
     field: Option<MenuField>,
     text_selected: bool,
-    settings_return_to_pause: bool,
+    /// Screens opened on the way here; back returns to the one below.
+    history: json_ui::ScreenNav<MenuScreen>,
     name: String,
     address: String,
     message: Option<String>,
-    gui_scale: u8,
+    gui_scale_preference: Option<u8>,
+    gui_scale_offset: i8,
+    gui_scale_display_offset: i8,
+    gui_scale_choices: Vec<i8>,
+    fullscreen: bool,
+    fullscreen_change: Option<bool>,
+    last_saved_video_settings: video_settings::SavedVideoSettings,
+    failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
+    render_mode: RenderMode,
+    render_mode_request: Option<RenderMode>,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -227,10 +264,21 @@ pub(crate) struct MenuRuntime {
     sign_out_requested: bool,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
+    pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
+    pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
     store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
-    volumes: settings_values::Volumes,
-    volume_change: Option<(u8, u8)>,
+    settings_options: std::sync::Arc<settings_options::SettingsOptions>,
+    storage: std::sync::Arc<settings_storage::StorageView>,
+    settings_dropdown: Option<u16>,
+    settings_dirty: bool,
+    settings_apply: bool,
+    language_choices: std::sync::Arc<[(String, String)]>,
+    language_pending: bool,
+    language_asset_path: PathBuf,
+    settings_slider_drag: Option<u16>,
+    key_remap: Option<u16>,
+    settings_advanced_graphics: bool,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
@@ -252,94 +300,30 @@ struct PendingConnect {
 }
 
 impl MenuRuntime {
-    #[cfg(test)]
-    pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
-        let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
-        Self::new_with_layout(
-            visible,
-            gui_scale,
-            display_name,
-            InstallLayout::discover().expect("test executable must have a development layout"),
-            player_skin,
-        )
+    /// Mirrors the applied mode; a pending menu toggle wins until taken.
+    pub(crate) fn sync_render_mode(&mut self, applied: RenderMode) {
+        if self.render_mode_request.is_none() {
+            self.render_mode = applied;
+        }
     }
 
-    pub(crate) fn new_with_layout(
-        visible: bool,
-        gui_scale: u8,
-        display_name: String,
-        layout: InstallLayout,
-        player_skin: crate::player_skin::LocalPlayerSkin,
-    ) -> Self {
-        let config_path = layout.server_file();
-        let loaded = load_servers(&config_path);
-        Self {
-            // The launcher owns the session lifecycle only when the client
-            // started on the menu. `--address` keeps the historical behaviour
-            // of exiting the process when its one session fails.
-            launcher: visible,
-            visible,
-            screen: MenuScreen::Home,
-            focused: 0,
-            hovered: None,
-            pressed: None,
-            pointer_down: false,
-            server_tab: MenuServerTab::Featured,
-            dialog: None,
-            field: None,
-            text_selected: false,
-            settings_return_to_pause: false,
-            name: String::new(),
-            address: String::new(),
-            message: loaded.recovery_message,
-            gui_scale: gui_scale.clamp(1, 4),
-            display_name,
-            servers: loaded.servers,
-            saves: ServerWriter::new(config_path.clone()),
-            config_path,
-            pending_connect: None,
-            connecting: false,
-            disconnect_requested: false,
-            exit_requested: false,
-            session_generation: 1,
-            transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
-            featured: Vec::new(),
-            gatherings: Vec::new(),
-            realms: Vec::new(),
-            friends: Vec::new(),
-            catalog_message: None,
-            catalog_started: false,
-            catalog_path: layout.catalog_file(std::process::id()),
-            catalog_process: None,
-            auth_process: None,
-            auth_attempted: false,
-            auth_restart_requested: false,
-            layout,
-            player_skin,
-            session_directory: None,
-            join: None,
-            editing: None,
-            settings_section: 0,
-            disconnect_message: None,
-            death_shown: false,
-            respawn_requested: false,
-            local_worlds: Vec::new(),
-            local_world_requested: None,
-            local_ui: Default::default(),
-            control_auth: None,
-            sign_out_requested: false,
-            store_actions: Vec::new(),
-            store_snapshot: None,
-            volumes: Default::default(),
-            volume_change: None,
-            local_world_joined: false,
-            local_world_active: false,
-            feeds: MenuFeeds::default(),
-        }
+    /// Consume the pending Video-section change.
+    pub(crate) fn take_render_mode_request(&mut self) -> Option<RenderMode> {
+        self.render_mode_request.take()
+    }
+
+    /// Return the extension settings file alongside the other user settings.
+    pub(crate) fn graphics_file(&self) -> PathBuf {
+        self.layout.graphics_file()
     }
 
     pub(crate) fn is_visible(&self) -> bool {
         self.visible
+    }
+
+    /// Full-screen launcher backgrounds replace the world; pause and death keep it visible.
+    pub(crate) fn uses_panorama(&self) -> bool {
+        self.visible && !matches!(self.screen, MenuScreen::Pause | MenuScreen::Death)
     }
 
     pub(crate) fn screen(&self) -> MenuScreen {
@@ -385,6 +369,7 @@ impl MenuRuntime {
             && (!self.catalog_started || self.catalog_process.is_some()));
         MenuView {
             visible: self.visible,
+            over_world: self.over_world(),
             screen: self.screen,
             focused_action: self.focus_actions().get(self.focused).copied(),
             hovered: self.hovered,
@@ -395,7 +380,10 @@ impl MenuRuntime {
             name: self.name.clone(),
             address: self.address.clone(),
             message: self.message.clone(),
-            gui_scale: self.gui_scale,
+            gui_scale_offset: self.gui_scale_display_offset,
+            gui_scale_choices: self.gui_scale_choices.clone(),
+            fullscreen: self.fullscreen,
+            render_mode: self.render_mode,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
@@ -417,9 +405,15 @@ impl MenuRuntime {
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
             local: self.local_view(),
-            volumes: self.volumes,
+            settings_options: std::sync::Arc::clone(&self.settings_options),
+            storage: std::sync::Arc::clone(&self.storage),
+            settings_dropdown: self.settings_dropdown,
+            language_choices: std::sync::Arc::clone(&self.language_choices),
+            key_remap: self.key_remap,
+            settings_advanced_graphics: self.settings_advanced_graphics,
             feeds: self.feeds.clone(),
             store: self.store_snapshot.clone(),
+            global_resources: self.global_resources.clone(),
         }
     }
 
@@ -447,11 +441,6 @@ impl MenuRuntime {
         }
     }
 
-    /// Where the Marketplace settings file lives.
-    pub(crate) fn store_settings_path(&self) -> PathBuf {
-        self.config_path.with_file_name(crate::store::SETTINGS_FILE)
-    }
-
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
     pub(crate) fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
         self.local_worlds = worlds;
@@ -468,7 +457,8 @@ impl MenuRuntime {
             return;
         }
         self.death_shown = true;
-        self.enter(MenuScreen::Death);
+        self.history.reset(MenuScreen::Death);
+        self.show_top();
     }
 
     /// Health came back above zero: a later death shows the screen again.
@@ -476,6 +466,7 @@ impl MenuRuntime {
         self.death_shown = false;
         if self.screen == MenuScreen::Death && self.visible {
             self.set_visible(false);
+            self.history.reset(MenuScreen::Home);
             self.screen = MenuScreen::Home;
         }
     }
@@ -489,9 +480,9 @@ impl MenuRuntime {
         if self.visible || self.connecting {
             return;
         }
+        self.history.reset(MenuScreen::Pause);
         self.screen = MenuScreen::Pause;
         self.focused = 0;
-        self.settings_return_to_pause = false;
         self.message = None;
         self.visible = true;
     }
@@ -510,29 +501,30 @@ impl MenuRuntime {
     pub(crate) fn mark_connected(&mut self) {
         self.connecting = false;
         self.visible = false;
+        self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.message = None;
         self.field = None;
         self.text_selected = false;
-        self.settings_return_to_pause = false;
     }
 
     pub(crate) fn mark_connecting(&mut self) {
         self.connecting = true;
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
-        self.settings_return_to_pause = false;
         self.message = Some("Connecting…".to_owned());
     }
 
     pub(crate) fn mark_disconnected(&mut self) {
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
         self.focused = 0;
         self.connecting = false;
         self.field = None;
         self.text_selected = false;
-        self.settings_return_to_pause = false;
         self.dialog = None;
     }
 
@@ -546,11 +538,12 @@ impl MenuRuntime {
         }
         self.connecting = false;
         self.visible = true;
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
         self.screen = MenuScreen::Play;
         self.dialog = None;
         self.field = None;
         self.text_selected = false;
-        self.settings_return_to_pause = false;
         // The raw chain is for the log; the disconnect screen words it as vanilla does.
         bevy::log::warn!(error, "session ended");
         self.message = None;
@@ -606,7 +599,6 @@ impl MenuRuntime {
         self.disconnect_message = None;
         match action {
             MenuAction::Navigate(screen) => {
-                self.settings_return_to_pause = false;
                 self.enter(screen);
             }
             MenuAction::OpenExitDialog => {
@@ -719,9 +711,15 @@ impl MenuRuntime {
                 }
             }
             MenuAction::AddBack => self.go_back(),
-            MenuAction::SettingsScale(scale) => self.gui_scale = scale.clamp(1, 4),
+            MenuAction::ToggleRenderMode => {
+                self.render_mode = self.render_mode.toggled();
+                self.render_mode_request = Some(self.render_mode);
+            }
             // The game menu opened from the death screen returns to it.
-            MenuAction::PauseResume if self.death_shown => self.enter(MenuScreen::Death),
+            MenuAction::PauseResume if self.death_shown => {
+                self.history.reset(MenuScreen::Death);
+                self.show_top();
+            }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
                 self.disconnect_requested = true;
@@ -729,7 +727,6 @@ impl MenuRuntime {
             }
             MenuAction::PauseSettings => {
                 self.enter(MenuScreen::Settings);
-                self.settings_return_to_pause = true;
             }
             MenuAction::EditSaved(index) => {
                 if let Some(server) = self.servers.get(index) {
@@ -740,18 +737,33 @@ impl MenuRuntime {
                     self.focus_field(MenuField::Name);
                 }
             }
-            MenuAction::SettingsSection(section) => self.settings_section = section,
+            MenuAction::SettingsStorage(action) => self.activate_storage(action),
+            MenuAction::SettingsSupport(action) => self.activate_support(action),
+            action @ (MenuAction::SettingsScale(_)
+            | MenuAction::SettingsFullscreen(_)
+            | MenuAction::SettingsSection(_)
+            | MenuAction::SettingsOption(..)
+            | MenuAction::SettingsLanguage(_)
+            | MenuAction::SettingsDropdown(_)
+            | MenuAction::SettingsResetBindings(_)
+            | MenuAction::SettingsResetGroup(_)
+            | MenuAction::SettingsConfirmResetGroup(_)
+            | MenuAction::SettingsConfirmResetBindings(_)
+            | MenuAction::SettingsKey(_)
+            | MenuAction::SettingsResetKey(_)
+            | MenuAction::SettingsResetChat
+            | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {
                 self.respawn_requested = true;
                 self.set_visible(false);
             }
             MenuAction::SignOut => self.sign_out_requested = true,
-            MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
             MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
+            MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Store(action) => {
                 if action == crate::store::StoreAction::Open {
                     self.enter(MenuScreen::Store);
@@ -764,54 +776,6 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
-        }
-    }
-
-    fn enter(&mut self, screen: MenuScreen) {
-        if screen != MenuScreen::Store {
-            self.store_snapshot = None;
-        }
-        self.screen = screen;
-        self.focused = 0;
-        self.hovered = None;
-        self.field = None;
-        self.text_selected = false;
-        self.dialog = None;
-        self.message = None;
-        self.visible = true;
-    }
-
-    fn go_back(&mut self) {
-        if self.dialog.take().is_some() {
-            return;
-        }
-        if self.local_screen_open() {
-            self.queue_local_action(LocalWorldAction::Back);
-            return;
-        }
-        // Back on the join progress screen is its cancel button, where vanilla offers one.
-        if self.connecting {
-            self.disconnect_requested |= self.feeds.join.cancellable();
-            return;
-        }
-        match self.screen {
-            // Death has no way back; only respawn or leaving ends it.
-            MenuScreen::Home | MenuScreen::Death => {}
-            MenuScreen::Pause if self.death_shown => self.enter(MenuScreen::Death),
-            MenuScreen::Pause => self.set_visible(false),
-            MenuScreen::Store => self.store_actions.push(crate::store::StoreAction::Back),
-            MenuScreen::Settings if self.settings_return_to_pause => {
-                self.settings_return_to_pause = false;
-                self.enter(MenuScreen::Pause);
-            }
-            _ => {
-                self.settings_return_to_pause = false;
-                self.enter(if self.screen == MenuScreen::AddServer {
-                    MenuScreen::Servers
-                } else {
-                    MenuScreen::Home
-                });
-            }
         }
     }
 

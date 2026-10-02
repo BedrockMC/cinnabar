@@ -378,7 +378,7 @@ fn bundle_extract_takes_the_newest_item_from_the_dynamic_container() {
         }
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 81);
+    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, -3);
 }
 
 /// Insert appends after the last content slot and empties the cursor.

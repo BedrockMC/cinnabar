@@ -392,6 +392,7 @@ impl ActorStore {
             }
             ActorEvent::Status(status) => self.apply_status(status),
             ActorEvent::TakeItem(take) => self.apply_take_item(take),
+            ActorEvent::Skin { uuid, skin } => self.apply_skin_update(uuid, skin),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
                 for entry in update.entries.iter() {
@@ -687,6 +688,11 @@ impl ActorStore {
         assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
     ) {
         self.animation.set_pack(assets);
+        // Cinnabar live reload also rebinds actors already present in the world.
+        for actor in self.actors.values() {
+            self.animation
+                .insert(self.session_id, self.dimension, actor);
+        }
     }
 
     pub(crate) fn set_item_use_durations(

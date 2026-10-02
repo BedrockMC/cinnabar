@@ -26,6 +26,7 @@ use crate::{
 };
 
 mod classify;
+mod crossbow;
 pub(crate) use classify::{AirUse, Cooldown, Needs, classify};
 
 const QUICK_CHARGE_ENCHANTMENT_ID: i16 = 35;
@@ -38,6 +39,7 @@ struct ActiveUse {
     started_tick: u64,
     max_ticks: u32,
     slowdown: f64,
+    crossbow: bool,
 }
 
 /// A throw's locally consumed stack, shown until the server restates the slot.
@@ -61,6 +63,9 @@ pub(crate) struct UseFrame {
     /// The use's `Needs` are met (always true in creative).
     pub(crate) ready: bool,
     pub(crate) creative: bool,
+    /// Authoritative writes, including identical rejected-charge corrections.
+    pub(crate) inventory_revision: Option<u64>,
+    pub(crate) charge_projectile: Option<&'static str>,
     /// A block interaction or recent attack consumed this press.
     pub(crate) press_consumed: bool,
 }
@@ -88,6 +93,7 @@ pub(crate) struct ItemUseRuntime {
     repeat_armed: bool,
     /// `TypedClientNetId<ItemStackLegacyRequestIdTag>`'s process-wide counter.
     last_legacy_request_id: i32,
+    crossbows: crossbow::CrossbowPredictions,
 }
 
 impl ItemUseRuntime {
@@ -96,9 +102,89 @@ impl ItemUseRuntime {
         self.active.is_some()
     }
 
+    /// Native attachables read remaining ticks, not the actor animation's elapsed seconds.
+    pub(crate) fn render_input(
+        &self,
+        stream: &WorldStream,
+        ui: &UiRuntime,
+        tick: u64,
+        frame_alpha: f32,
+    ) -> client_world::AttachableAnimationInput<'static> {
+        let max_use_ticks = self.active.as_ref().map_or_else(
+            // Native CrossbowItem::getMaxUseDuration remains its charge duration
+            // when loaded; Instant describes the next action, not that query.
+            || match selected_air_use_with_projectile(stream, ui, Some(None)) {
+                Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
+                _ => 0,
+            },
+            |active| active.max_ticks,
+        );
+        let use_elapsed_ticks = self.active.as_ref().map(|active| {
+            tick.saturating_sub(active.started_tick)
+                .min(u64::from(active.max_ticks)) as u32
+        });
+        let selected = ui
+            .selected_stack()
+            .and_then(|stack| stream.canonical_item_stack(stack));
+        let projectile = self.crossbows.selected_projectile(ui).unwrap_or_else(|| {
+            selected
+                .as_ref()
+                .and_then(|item| item.charged_projectile.as_deref())
+        });
+        let charged = projectile.is_some();
+        let animation_frame = if selected
+            .as_ref()
+            .and_then(|item| item.identifier.as_deref())
+            == Some("minecraft:crossbow")
+        {
+            let firework = ui
+                .gameplay_hud()
+                .offhand_stack()
+                .and_then(|stack| stream.canonical_item_stack(stack))
+                .is_some_and(|item| {
+                    item.identifier.as_deref() == Some("minecraft:firework_rocket")
+                });
+            crossbow_animation_frame(use_elapsed_ticks, max_use_ticks, projectile, firework)
+        } else {
+            ranged_animation_frame(use_elapsed_ticks)
+        };
+        client_world::AttachableAnimationInput {
+            first_person: true,
+            frame_alpha,
+            use_elapsed_ticks,
+            max_use_ticks,
+            hand_charged: charged,
+            animation_frame,
+            ..Default::default()
+        }
+    }
+
     /// Movement-input factor while a use runs; `None` when idle.
     pub(crate) fn movement_modifier(&self) -> Option<f64> {
         self.active.as_ref().map(|active| active.slowdown)
+    }
+
+    /// The same native frame used by the attachable, for a player-inventory cell.
+    pub(crate) fn inventory_animation_frame(
+        &self,
+        stream: &WorldStream,
+        ui: &UiRuntime,
+        slot: u8,
+        tick: u64,
+    ) -> Option<u32> {
+        let stack = ui.inventory_ledger().displayed_stack(slot)?;
+        let canonical = stream.canonical_item_stack(stack)?;
+        if canonical.identifier.as_deref() != Some("minecraft:crossbow") {
+            return None;
+        }
+        if ui.selected_hotbar_slot() == Some(slot) {
+            return Some(self.render_input(stream, ui, tick, 0.0).animation_frame);
+        }
+        let projectile = self
+            .crossbows
+            .slot_projectile(ui, slot)
+            .unwrap_or(canonical.charged_projectile.as_deref());
+        Some(crossbow_animation_frame(None, 0, projectile, false))
     }
 
     /// A new session drops the press, the use, cooldowns and the prediction without packets.
@@ -110,6 +196,7 @@ impl ItemUseRuntime {
             self.cooldowns.clear();
             self.predicted = None;
             self.repeat_armed = false;
+            self.crossbows.clear();
         }
         self.session = Some(session);
     }
@@ -158,11 +245,22 @@ impl ItemUseRuntime {
             // An in-flight inventory request hides the stack; keep the one the use began with.
             None => active.selection.clone(),
         };
-        if frame.held {
-            // A depleted use completes locally; the client sends nothing for it.
-            if frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks) {
-                self.active = None;
+        let depleted =
+            frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);
+        if depleted && (frame.held || active.crossbow) {
+            // `completeUsingItem` finishes locally, without a release transaction.
+            // CrossbowItem stores its loaded projectile for the next press's pose/action.
+            if active.crossbow && frame.charge_projectile.is_some() {
+                self.crossbows.predict(
+                    &selection,
+                    frame.inventory_revision,
+                    frame.charge_projectile,
+                );
             }
+            self.active = None;
+            return;
+        }
+        if frame.held {
             return;
         }
         self.active = None;
@@ -198,15 +296,14 @@ impl ItemUseRuntime {
     }
 
     fn try_use(&mut self, frame: &UseFrame, pressed: bool, outcome: &mut UseOutcome) {
+        let air_use = self.crossbows.air_use(frame);
         if frame.press_consumed
             || self
                 .rearm_millis
                 .is_some_and(|rearm| frame.now_millis <= rearm)
             || (!pressed
                 && (!self.repeat_armed
-                    || frame
-                        .air_use
-                        .is_some_and(|air_use| !air_use.repeats_while_held())))
+                    || air_use.is_some_and(|air_use| !air_use.repeats_while_held())))
         {
             return;
         }
@@ -216,34 +313,36 @@ impl ItemUseRuntime {
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
         // `baseUseItem` opens a legacy request scope on every air use.
         let legacy_request_id = self.next_legacy_request_id();
-        let on_cooldown = frame
-            .air_use
+        let on_cooldown = air_use
             .and_then(AirUse::cooldown)
             .is_some_and(|cooldown| self.on_cooldown(cooldown.category));
         let mut change = None;
-        match frame.air_use {
+        let mut active_use = None;
+        let mut predicted_stack = None;
+        let mut throw_cooldown = None;
+        let mut swung = false;
+        match air_use {
             Some(AirUse::Hold {
                 max_ticks,
                 slowdown,
                 ..
             }) if frame.ready => {
-                self.active = Some(ActiveUse {
+                active_use = Some(ActiveUse {
                     selection: selection.clone(),
                     started_tick: frame.tick,
                     max_ticks,
                     slowdown,
+                    crossbow: crossbow::is_crossbow(air_use),
                 });
-                outcome.started = true;
             }
             Some(AirUse::Throw { cooldown }) if !on_cooldown => {
-                outcome.swung = true;
+                swung = true;
                 if let Some(Cooldown { category, ticks }) = cooldown {
-                    self.cooldowns
-                        .push((category, frame.tick.saturating_add(u64::from(ticks))));
+                    throw_cooldown = Some((category, frame.tick.saturating_add(u64::from(ticks))));
                 }
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
-                    self.predicted = frame.selection.as_ref().map(|server| PredictedStack {
+                    predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
                         slot: selection.slot,
                         server: server.item.clone(),
                         stack: to.clone(),
@@ -259,6 +358,19 @@ impl ItemUseRuntime {
         }
         if let Ok(packet) = protocol::click_air_packet(held_request(&selection, frame), change) {
             outcome.packets.push(packet);
+            outcome.started = active_use.is_some();
+            self.active = active_use;
+            outcome.swung = swung;
+            if let Some(cooldown) = throw_cooldown {
+                self.cooldowns.push(cooldown);
+            }
+            if predicted_stack.is_some() {
+                self.predicted = predicted_stack;
+            }
+            if air_use == Some(AirUse::Instant) {
+                self.crossbows
+                    .predict(&selection, frame.inventory_revision, None);
+            }
         }
     }
 
@@ -302,10 +414,45 @@ impl ItemUseRuntime {
         if self.active.is_some() {
             return LocalItemUse::Using;
         }
-        match selected_air_use(stream, ui) {
-            Some(AirUse::Hold { .. }) => LocalItemUse::Idle,
-            Some(AirUse::Instant | AirUse::Throw { .. }) | None => LocalItemUse::Unpredicted,
+        match selected_air_use_with_projectile(stream, ui, self.crossbows.selected_projectile(ui)) {
+            Some(AirUse::Hold { .. } | AirUse::Instant) => LocalItemUse::Idle,
+            Some(AirUse::Throw { .. }) | None => LocalItemUse::Unpredicted,
         }
+    }
+}
+
+fn ranged_animation_frame(elapsed: Option<u32>) -> u32 {
+    let Some(elapsed) = elapsed else {
+        return 0;
+    };
+    let seconds = elapsed as f32 / 20.0;
+    let power = ((seconds * seconds + 2.0 * seconds) / 3.0).min(1.0);
+    (3.0 * power * 0.99) as u32 + 1
+}
+
+pub(crate) fn crossbow_animation_frame(
+    elapsed: Option<u32>,
+    duration: u32,
+    projectile: Option<&str>,
+    offhand_firework: bool,
+) -> u32 {
+    if let Some(elapsed) = elapsed.filter(|_| duration > 0) {
+        let fraction = elapsed as f32 / duration as f32;
+        let power = ((fraction * fraction + 2.0 * fraction) / 3.0).min(1.0);
+        let frame = (power * 0.99 * 5.0) as u32;
+        if frame >= 4 && power < 1.0 && offhand_firework {
+            5
+        } else {
+            frame
+        }
+    } else {
+        projectile.map_or(0, |projectile| {
+            if projectile == "minecraft:arrow" {
+                4
+            } else {
+                5
+            }
+        })
     }
 }
 
@@ -317,8 +464,16 @@ fn held_request(selection: &FrozenMiningSelection, frame: &UseFrame) -> HeldItem
     }
 }
 
-/// The selected stack's air use.
+/// The selected stack's authoritative air use, if supported.
 pub(crate) fn selected_air_use(stream: &WorldStream, ui: &UiRuntime) -> Option<AirUse> {
+    selected_air_use_with_projectile(stream, ui, None)
+}
+
+fn selected_air_use_with_projectile(
+    stream: &WorldStream,
+    ui: &UiRuntime,
+    projectile_override: Option<Option<&str>>,
+) -> Option<AirUse> {
     let stack = ui.selected_stack()?;
     let canonical = stream.canonical_item_stack(stack)?;
     let identifier = canonical.identifier.as_deref()?;
@@ -330,7 +485,9 @@ pub(crate) fn selected_air_use(stream: &WorldStream, ui: &UiRuntime) -> Option<A
     });
     classify(
         identifier,
-        canonical.charged_projectile.is_some(),
+        projectile_override.map_or(canonical.charged_projectile.is_some(), |projectile| {
+            projectile.is_some()
+        }),
         quick_charge,
         pack_ticks,
     )
@@ -439,7 +596,11 @@ pub(crate) fn produce_item_use(
         return;
     };
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let air_use = selected_air_use(stream, &context.ui);
+    let air_use = selected_air_use_with_projectile(
+        stream,
+        &context.ui,
+        runtime.crossbows.selected_projectile(&context.ui),
+    );
     let creative = context.ui.player_game_mode() == Some(PlayerGameMode::Creative);
     let frame = UseFrame {
         tick: sample.tick,
@@ -453,6 +614,13 @@ pub(crate) fn produce_item_use(
             _ => false,
         },
         creative,
+        inventory_revision: context.ui.selected_hotbar_slot().and_then(|slot| {
+            context
+                .ui
+                .inventory_ledger()
+                .authoritative_slot_revision(slot)
+        }),
+        charge_projectile: crossbow::loading_projectile(stream, &context.ui, creative),
         press_consumed: context.melee.blocks_use_at(now_millis)
             || context.block_use.interacted_at(sample.tick),
     };

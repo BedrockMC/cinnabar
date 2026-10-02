@@ -16,6 +16,7 @@ use render::{
 };
 
 mod diagnostics;
+mod modern;
 mod pack;
 mod push;
 mod session;
@@ -97,7 +98,7 @@ pub(crate) struct EquipmentRuntime {
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
     placements: Vec<Option<Placement>>,
-    /// Block visual id to its sheet's index in `placements` (after the icon sprites).
+    /// Block visual id to its carried or fallback sheet's index in `placements`.
     block_sheets: BTreeMap<u32, usize>,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
@@ -122,6 +123,8 @@ pub(crate) struct EquipmentRuntime {
     /// `(identifier, reason)` pairs already logged as drawing no layer.
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
+    attachables: client_world::AttachablesRuntime,
+    attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
 }
 
 impl EquipmentRuntime {
@@ -148,6 +151,21 @@ impl EquipmentRuntime {
             |world| blocks::collect(world, &assets),
         );
         let icon_count = icons.sprites().len();
+        let mut block_sheets = by_visual
+            .into_iter()
+            .map(|(visual, sheet)| (visual, icon_count + sheet))
+            .collect::<BTreeMap<_, _>>();
+        // Authored carried textures override world faces: grass uses an opaque
+        // alpha-mask overlay here, not the biome-tinted terrain material.
+        if icons.source_manifest_sha256() == assets.source_manifest_sha256() {
+            block_sheets.extend(
+                icons
+                    .block_sheets()
+                    .iter()
+                    .filter(|sheet| sheet.visual.0 < assets.block_visual_count())
+                    .map(|sheet| (sheet.visual.0, sheet.sprite as usize)),
+            );
+        }
         let packed = icons
             .sprites()
             .iter()
@@ -220,13 +238,12 @@ impl EquipmentRuntime {
                 .collect(),
         );
         let runtime = Self {
+            attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
+            attachable_meshes: BTreeMap::new(),
             assets,
             icons,
             placements: atlas.placements,
-            block_sheets: by_visual
-                .into_iter()
-                .map(|(visual, sheet)| (visual, icon_count + sheet))
-                .collect(),
+            block_sheets,
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
             body_bones: BTreeMap::new(),
@@ -388,7 +405,7 @@ impl EquipmentRuntime {
         &mut self,
         body: &ActorRigSubmission,
         item: &WornItem,
-        hand: FirstPersonHand,
+        hand: impl Into<FirstPersonHand>,
     ) -> Option<FirstPersonItem> {
         let (_, bones) = self.body_bones_for(body.input.rig)?;
         let pose_len = bones.names.len();
@@ -396,20 +413,8 @@ impl EquipmentRuntime {
         {
             return None;
         }
-        let mut layers = Vec::new();
-        if self.push_attachable(
-            body,
-            item,
-            LAYER_MAIN_HAND,
-            bones.right_item,
-            false,
-            &mut layers,
-        ) {
-            return layers.pop().map(|layer| FirstPersonItem {
-                layer,
-                view_space: false,
-            });
-        }
+        // Modern attachables are evaluated in their own first-person state before this
+        // fallback. Never substitute a third-person grip for their camera-space animation.
         let (mesh, location, block) = self.held_mesh(item, true)?;
         let shape = if block {
             FirstPersonShape::Block
@@ -418,13 +423,57 @@ impl EquipmentRuntime {
                 mirrored_art: is_mirrored_art(&item.identifier),
             }
         };
-        let bone = view_bone(first_person_display(shape, hand))?;
+        let hand = hand.into();
+        let state = client_world::ItemAnimationState {
+            attack_time: hand.swing,
+            arm_height: hand.equip,
+        };
+        let bone = match (shape, hand.consume) {
+            (FirstPersonShape::Block, None) => super::first_person::block_pose(state),
+            (
+                FirstPersonShape::Sprite {
+                    mirrored_art: false,
+                },
+                None,
+            ) => super::first_person::sprite_pose(state),
+            _ => view_bone(first_person_display(shape, hand)),
+        }?;
         let poses = self
             .poses
             .share(body, FIRST_PERSON_ITEM_LAYER, [&[bone], &[bone]]);
         Some(FirstPersonItem {
-            layer: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
-            view_space: true,
+            presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
+            camera_space: true,
+        })
+    }
+
+    /// Ordinary offhand geometry follows the separate native offhand stack.
+    pub(crate) fn first_person_offhand(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, block) = self.held_mesh(item, true)?;
+        let equipped = self.hand_equipped(&item.identifier);
+        let bone = if block {
+            super::first_person::offhand_pose(equipped, true)
+        } else {
+            let sprite = self
+                .session_sprite(&item.identifier, item.metadata)
+                .and_then(|(index, _, _)| self.session_sprite_pixels(index))
+                .or_else(|| {
+                    self.icons
+                        .lookup_index(&item.identifier, item.metadata)
+                        .and_then(|index| self.icons.sprites().get(index))
+                })?;
+            super::first_person::offhand_sprite_pose(equipped, [sprite.width, sprite.height])
+        }?;
+        let poses = self
+            .poses
+            .share(body, FIRST_PERSON_OFFHAND_LAYER, [&[bone], &[bone]]);
+        Some(FirstPersonItem {
+            presentation: layer_presentation(body, LAYER_OFF_HAND, mesh, poses, location, 0),
+            camera_space: true,
         })
     }
 
@@ -534,6 +583,7 @@ impl EquipmentRuntime {
 /// Memo keys of the first-person arm mask and held item, which no worn layer uses.
 const FIRST_PERSON_MASK_LAYER: u8 = u8::MAX;
 const FIRST_PERSON_ITEM_LAYER: u8 = u8::MAX - 1;
+const FIRST_PERSON_OFFHAND_LAYER: u8 = u8::MAX - 2;
 
 /// Frames an actor layer may go undrawn before its poses are released.
 const POSE_MEMO_RETENTION_FRAMES: u64 = 4;
@@ -588,6 +638,7 @@ pub(super) fn layer_presentation(
     identity.layer = layer;
     EquipmentPresentation {
         submission: ActorRigSubmission {
+            culling_bounds: body.culling_bounds,
             input: ActorRigRenderInput {
                 identity,
                 rig,
@@ -607,3 +658,6 @@ pub(super) fn layer_presentation(
         location,
     }
 }
+
+#[cfg(test)]
+mod tests;

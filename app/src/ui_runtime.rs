@@ -27,6 +27,7 @@ mod platform_clipboard;
 pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
+pub(crate) mod scene_stack;
 mod scoreboard_adapter;
 mod screen_recipes;
 mod screen_state;
@@ -162,6 +163,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug, Resource)]
 pub struct UiRuntime {
+    pub(crate) experiences: crate::server_experiences::ExperienceSession,
     local_abilities: local_abilities::LocalAbilities,
     session_id: u64,
     last_fifo_sequence: Option<u64>,
@@ -174,6 +176,7 @@ pub struct UiRuntime {
     chat_focused: bool,
     inventory_open: bool,
     hud: HudStore,
+    toast_display_millis: u64,
     chat: ChatStore,
     scoreboards: ScoreboardStore,
     boss_bars: BossBarStore,
@@ -238,6 +241,10 @@ pub struct UiRuntime {
     /// Sorted usernames on the authoritative player list, the retained
     /// answer for the `@a` selector.
     known_player_names: Vec<Arc<str>>,
+    /// The live catalog's screen settings, which the scene stack reads.
+    screen_settings: Arc<scene_stack::ScreenSettingsTable>,
+    loading_screen: bool,
+    hurt_pending: bool, // a health drop the scene stack has not yet answered
 }
 
 impl UiRuntime {
@@ -246,6 +253,7 @@ impl UiRuntime {
         inventory_ledger.begin_session(session_id);
         Self {
             session_id,
+            experiences: Default::default(),
             local_abilities: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
@@ -256,7 +264,11 @@ impl UiRuntime {
             inventory_open: false,
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
+            screen_settings: Arc::default(),
+            loading_screen: false,
+            hurt_pending: false,
             hud: HudStore::default(),
+            toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
             chat: ChatStore::default(),
             scoreboards: ScoreboardStore::default(),
             boss_bars: BossBarStore::default(),
@@ -481,12 +493,9 @@ impl UiRuntime {
         self.inventory_pointer_gui = position;
     }
 
+    /// Whether a scene over the game, menus aside, takes gameplay input.
     pub fn ui_focused(&self) -> bool {
-        self.chat_focused
-            || self.local_sleeping
-            || self.inventory_open
-            || self.forms.owns_input()
-            || self.sign_editor.is_open()
+        !self.gameplay_input(None)
     }
 
     pub const fn chat_editor(&self) -> &ChatEditor {
@@ -602,6 +611,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.experiences.reset();
         self.clear_local_abilities();
         self.server_lang = None;
         self.session_icons = None;
@@ -657,6 +667,7 @@ impl UiRuntime {
         self.forms.clear();
         self.inventory_pointer_gui = None;
         self.last_health_drop_millis = None;
+        self.hurt_pending = false;
         self.last_selected_identity_change_millis = None;
         self.last_selected_identity = None;
         self.mount_jump_hold_started_millis = None;
@@ -803,6 +814,12 @@ impl UiRuntime {
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
             UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
+            // Targeted mode updates must pass the world stream's local-unique-ID
+            // admission first; a direct UI injection cannot establish that identity.
+            UiEvent::PlayerGameMode { .. } => {
+                self.gameplay_hud.note_odd_hud_packet();
+                UiApplyOutcome::IgnoredByReceiveStore
+            }
             UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
             UiEvent::HudRules(rules) => {
                 self.apply_hud_rules(rules);

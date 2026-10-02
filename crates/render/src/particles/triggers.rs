@@ -11,10 +11,12 @@ use super::{
 /// Level events at or above this bit carry a legacy particle type in the low bits.
 pub const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 
-/// Break pieces per block; needs independent measurement against the native client.
-pub const BLOCK_BREAK_PARTICLES: f32 = 32.0;
-/// Pieces emitted per crack tick while mining; needs independent measurement.
-pub const BLOCK_CRACK_PARTICLES: f32 = 3.0;
+/// Default destruction count from vanilla BlockDestructionParticlesComponent.
+pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
+/// One piece per vanilla hit-particle event.
+pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;
+/// Vanilla keeps hits this far from the edge and outside the selected face.
+const CRACK_FACE_INSET: f32 = 0.1;
 
 /// Effect identifier for a legacy particle type (`LevelEventParticleLegacyEvent | type`).
 #[must_use]
@@ -297,6 +299,8 @@ pub fn block_break_request(
         position: block.map(|c| c as f32 + 0.5),
         variables: variables(&[
             ("emitter_particles_count", BLOCK_BREAK_PARTICLES),
+            // Native _addTerrainEffect (04e96080), matched exponent DAT_14feff29c.
+            ("emitter_intensity", BLOCK_BREAK_PARTICLES.powf(1.0 / 3.0)),
             ("emitter_radius", 0.5),
             ("velocity_scalar", 1.0),
             ("color.r", tint[0]),
@@ -307,6 +311,25 @@ pub fn block_break_request(
         tile: Some(tile),
         ..SpawnRequest::default()
     }
+}
+
+/// One legacy terrain fragment at the block centre, with no emitter radius.
+#[must_use]
+pub fn terrain_request(
+    effect: &str,
+    block: [i32; 3],
+    tile: TileRequest,
+    tint: [f32; 4],
+) -> SpawnRequest {
+    let mut request = block_break_request(effect, block, tile, tint);
+    for (name, value) in &mut request.variables {
+        match name.as_str() {
+            "emitter_particles_count" => *value = 1.0,
+            "emitter_radius" => *value = 0.0,
+            _ => {}
+        }
+    }
+    request
 }
 
 /// Item-icon pieces at `position` (item break, eating crumbs, snowball and egg impacts).
@@ -345,13 +368,20 @@ pub fn block_crack_request(
     };
     let mut request = block_break_request(effect, block, tile, tint);
     for (component, direction) in request.position.iter_mut().zip(normal) {
-        *component += direction * 0.55;
+        *component += direction * (0.5 + CRACK_FACE_INSET);
     }
+    request.position_spread = normal.map(|component| {
+        if component == 0.0 {
+            0.5 - CRACK_FACE_INSET
+        } else {
+            0.0
+        }
+    });
     for (name, value) in &mut request.variables {
         match name.as_str() {
             "emitter_particles_count" => *value = BLOCK_CRACK_PARTICLES,
-            "emitter_radius" => *value = 0.4,
-            "velocity_scalar" => *value = 0.4,
+            "emitter_radius" => *value = 0.0,
+            "velocity_scalar" => *value = 0.7,
             _ => {}
         }
     }
@@ -474,5 +504,36 @@ mod tests {
                 .any(|(name, value)| name == "emitter_particles_count"
                     && *value == BLOCK_CRACK_PARTICLES)
         );
+    }
+
+    #[test]
+    fn destruction_request_drives_the_native_default_burst() {
+        use crate::particles::{system::ParticleSystem, world::EmptyWorld};
+        let mut system = ParticleSystem::default();
+        // Synthetic emitter checks the real request through the live engine.
+        assert!(system.register_effect(br#"{"particle_effect":{"description":{
+          "identifier":"minecraft:test_terrain","basic_render_parameters":{"material":"particles_alpha","texture":"atlas.terrain"}},
+          "components":{"minecraft:emitter_lifetime_once":{"active_time":1},
+          "minecraft:emitter_rate_instant":{"num_particles":"variable.emitter_particles_count"},
+          "minecraft:particle_appearance_billboard":{"size":[0.1,0.1]},
+          "minecraft:particle_lifetime_expression":{"max_lifetime":1}}}}"#));
+        let request = block_break_request(
+            "minecraft:test_terrain",
+            [-2, 3, 4],
+            TileRequest {
+                key: 1,
+                size: 16,
+                pixels: vec![255; 16 * 16 * 4].into(),
+            },
+            [1.0; 4],
+        );
+        assert_eq!(request.position, [-1.5, 3.5, 4.5]);
+        assert!(request.variables.contains(&(
+            "emitter_intensity".into(),
+            BLOCK_BREAK_PARTICLES.powf(1.0 / 3.0)
+        )));
+        assert!(system.spawn_terrain(&request).is_some());
+        system.tick(0.01, &EmptyWorld);
+        assert_eq!(system.live_particles(), BLOCK_BREAK_PARTICLES as usize);
     }
 }

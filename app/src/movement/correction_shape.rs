@@ -152,8 +152,8 @@ pub(crate) fn reconcile_committed_correction(
 
 /// Enters one `CorrectPlayerMovePrediction` into prediction.
 ///
-/// Vanilla drops a zero, future or older-than-history tick outright
-/// (`ClientNetworkHandler` has no fallback once the rewind listener declines).
+/// Cinnabar drops ticks outside retained history. The current vanilla client
+/// has a separate missing-frame path; matching it remains open in `plan.md`.
 pub(crate) fn reconcile_prediction_correction(
     ticker: &mut MovementTicker,
     physics: &mut LocalPhysicsController,
@@ -316,6 +316,11 @@ pub fn reconcile_physics_anchor(
                 | PhysicsAuthorityFault::PendingWorldIdentityMismatch { .. })
         )
     {
+        bevy::log::warn!(
+            tick,
+            error = ?result.as_ref().err(),
+            "movement replay failed; snapping correction to the current tick"
+        );
         // A delayed correction can outlive local history, and replaying from a
         // changed anchor or after a newly committed subchunk can legitimately
         // encounter different immutable chunk revisions. The server position

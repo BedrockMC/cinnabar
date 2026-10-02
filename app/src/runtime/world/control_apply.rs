@@ -8,16 +8,7 @@ use crate::runtime::telemetry::bedrock_camera_rotation;
 /// Applies one committed local-player control event to the view pose, camera
 /// authority, and pending spawn anchor.
 ///
-/// Position-bearing events rotate and translate the view; environment-only and
-/// impulse events carry no resolved position and return unchanged.
-///
-/// Rotation authority: `LocalViewPose.rotation` is the single camera-facing
-/// state. Render interpolation consumes it through the frozen local-player
-/// frame, and each fixed simulation sample re-derives its outbound yaw, pitch,
-/// head yaw, and camera orientation from the same rotation, so applying a
-/// corrected rotation here updates both presentation and the next outbound
-/// movement samples without touching velocity or replay history. The
-/// correction packet carries no head-yaw field; head yaw follows transitively.
+/// MovePlayer owns rotation; prediction corrections only reconcile movement.
 pub(crate) fn apply_committed_control(
     control: CommittedControlEvent,
     view: &mut LocalViewPose,
@@ -48,16 +39,6 @@ pub(crate) fn apply_committed_control(
                 position = ?correction.position,
                 "applying committed server-authoritative movement correction"
             );
-            // The wire proves server-authoritative rotation for every
-            // admitted correction shape; non-finite values were already
-            // rejected upstream and are guarded again defensively. Applying it
-            // mid-look can briefly yank the camera toward the server's lagged
-            // angles (the same exposure the MovePlayer path already has); this
-            // provisional policy stays until live observation proves whether
-            // correction-heavy servers need a bounded rotation-blend window.
-            if correction.yaw.is_finite() && correction.pitch.is_finite() {
-                view.set_rotation(bedrock_camera_rotation(correction.yaw, correction.pitch));
-            }
             resolved
         }
         CommittedControlEvent::ChangeDimension { resolved, .. } => {
@@ -81,6 +62,7 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
+        | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return,

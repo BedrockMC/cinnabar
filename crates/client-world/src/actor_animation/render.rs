@@ -27,10 +27,18 @@ pub struct RenderTextureLayer {
 }
 
 /// Bones of a geometry a render controller draws beside the rig's own.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct LayerSkeleton {
     bones: Vec<RuntimeBone>,
     names: Vec<Box<str>>,
+}
+
+pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Box<str>]) {
+    attachable::bind_roots(&mut state.bones, &state.bone_names, owner_names);
+    for skeleton in state.layer_skeletons.values_mut().flatten() {
+        let skeleton = Arc::make_mut(skeleton);
+        attachable::bind_roots(&mut skeleton.bones, &skeleton.names, owner_names);
+    }
 }
 
 /// The rig whose render controllers are evaluated.

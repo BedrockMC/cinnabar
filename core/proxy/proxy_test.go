@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"path/filepath"
 	"runtime/pprof"
 	"slices"
 	"strings"
@@ -393,82 +394,6 @@ func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testi
 	}
 }
 
-func TestSpawnBarrierPreventsEarlyRelay(t *testing.T) {
-	downReady := make(chan struct{})
-	upReady := make(chan struct{})
-	down := newFakeDownstream(func(ctx context.Context, _ minecraft.GameData) error {
-		select {
-		case <-downReady:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-	up := newFakeUpstream(func(ctx context.Context) error {
-		select {
-		case <-upReady:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-	p := &packet.NetworkStackLatency{Timestamp: 7}
-	down.reads <- packetResult{packet: p}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- serveConnections(ctx, down, up) }()
-
-	assertNoWrites(t, up)
-	close(downReady)
-	assertNoWrites(t, up)
-	close(upReady)
-	waitForWrites(t, up, 1)
-	if got := up.written()[0]; got != p {
-		t.Fatalf("forwarded packet = %T %p, want %T %p", got, got, p, p)
-	}
-	cancel()
-	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("serveConnections() error = %v", err)
-	}
-}
-
-func TestSpawnBarrierFailureCancelsOther(t *testing.T) {
-	wantErr := errors.New("downstream spawn failed")
-	otherCancelled := make(chan struct{})
-	down := newFakeDownstream(func(context.Context, minecraft.GameData) error { return wantErr })
-	up := newFakeUpstream(func(ctx context.Context) error {
-		<-ctx.Done()
-		close(otherCancelled)
-		return ctx.Err()
-	})
-
-	err := serveConnections(context.Background(), down, up)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("serveConnections() error = %v, want %v", err, wantErr)
-	}
-	select {
-	case <-otherCancelled:
-	default:
-		t.Fatal("other spawn operation was not cancelled")
-	}
-}
-
-func TestSpawnBarrierReturnsRuntimeIDMismatch(t *testing.T) {
-	wantErr := errors.New("runtime entity ID mismatch")
-	down := newFakeDownstream(func(context.Context, minecraft.GameData) error { return wantErr })
-	up := newFakeUpstream(func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
-	})
-
-	err := serveConnections(context.Background(), down, up)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("serveConnections() error = %v, want runtime mismatch", err)
-	}
-}
-
 func TestRelayFIFO(t *testing.T) {
 	down := newFakeDownstream(nil)
 	up := newFakeUpstream(nil)
@@ -493,38 +418,6 @@ func TestRelayFIFO(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("forwarded packet %d out of order", i)
-		}
-	}
-}
-
-func TestRelayDoesNotForwardDownstreamSpawnLoadingScreens(t *testing.T) {
-	down := newFakeDownstream(nil)
-	up := newFakeUpstream(nil)
-	wantFirst := &packet.NetworkStackLatency{Timestamp: 7}
-	wantLaterLoading := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
-	wantLast := &packet.NetworkStackLatency{Timestamp: 8}
-	down.useBatchReads = true
-	down.batchReads <- batchResult{packets: []packet.Packet{
-		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart},
-		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
-	}}
-	down.batchReads <- batchResult{packets: []packet.Packet{wantFirst}}
-	down.batchReads <- batchResult{packets: []packet.Packet{wantLaterLoading}}
-	down.batchReads <- batchResult{packets: []packet.Packet{wantLast}}
-	down.batchReads <- batchResult{err: io.EOF}
-
-	err := pumpPackets(down, up, true)
-	if !errors.Is(err, io.EOF) {
-		t.Fatalf("pumpPackets() error = %v, want EOF", err)
-	}
-	got := up.written()
-	want := []packet.Packet{wantFirst, wantLaterLoading, wantLast}
-	if len(got) != len(want) {
-		t.Fatalf("forwarded packets = %#v, want %#v", got, want)
-	}
-	for index := range want {
-		if got[index] != want[index] {
-			t.Fatalf("forwarded packet %d = %#v, want %#v", index, got[index], want[index])
 		}
 	}
 }
@@ -695,54 +588,6 @@ func TestRelayPreservesDownstreamWireBatchBoundaries(t *testing.T) {
 	}
 	if got, want := batchSizes(up.flushedBatches()), []int{2, 1}; !slices.Equal(got, want) {
 		t.Fatalf("batch sizes = %v, want %v", got, want)
-	}
-}
-
-func TestRelayDoesNotMergeLoadingScreenStartAcrossWireBoundary(t *testing.T) {
-	down := newFakeDownstream(nil)
-	up := newFakeUpstream(nil)
-	down.useBatchReads = true
-	start := &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}
-	normal := &packet.NetworkStackLatency{Timestamp: 1}
-	down.batchReads <- batchResult{packets: []packet.Packet{start}}
-	down.batchReads <- batchResult{packets: []packet.Packet{normal}}
-	down.batchReads <- batchResult{err: io.EOF}
-
-	if err := pumpPackets(down, up, true); !errors.Is(err, io.EOF) {
-		t.Fatalf("pumpPackets() error = %v, want EOF", err)
-	}
-	batches := up.flushedBatches()
-	if got, want := batchSizes(batches), []int{1, 1}; !slices.Equal(got, want) {
-		t.Fatalf("batch sizes = %v, want %v", got, want)
-	}
-	if batches[0][0] != start || batches[1][0] != normal {
-		t.Fatal("loading-screen boundary packets were reordered")
-	}
-}
-
-func TestRelayDropsInitialLoadingScreenPairAcrossAdjacentWireBatches(t *testing.T) {
-	down := newFakeDownstream(nil)
-	up := newFakeUpstream(nil)
-	down.useBatchReads = true
-	down.batchReads <- batchResult{packets: []packet.Packet{
-		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart},
-	}}
-	down.batchReads <- batchResult{packets: []packet.Packet{
-		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
-	}}
-	want := &packet.NetworkStackLatency{Timestamp: 17}
-	down.batchReads <- batchResult{packets: []packet.Packet{want}}
-	down.batchReads <- batchResult{err: io.EOF}
-
-	if err := pumpPackets(down, up, true); !errors.Is(err, io.EOF) {
-		t.Fatalf("pumpPackets() error = %v, want EOF", err)
-	}
-	batches := up.flushedBatches()
-	if got, sizes := batchSizes(batches), []int{1}; !slices.Equal(got, sizes) {
-		t.Fatalf("batch sizes = %v, want %v", got, sizes)
-	}
-	if batches[0][0] != want {
-		t.Fatalf("forwarded packet = %#v, want %#v", batches[0][0], want)
 	}
 }
 
@@ -1577,3 +1422,213 @@ type proxyTestAddr string
 
 func (a proxyTestAddr) Network() string { return "test" }
 func (a proxyTestAddr) String() string  { return string(a) }
+
+// relayFixtureStartup is a recorded-session-shaped startup carrying StartGame fields GameData drops.
+func relayFixtureStartup() []packet.Packet {
+	return []packet.Packet{
+		&packet.StartGame{
+			WorldName: "Fixture", LevelID: "fixture-level", ServerID: "server-id", WorldID: "world-id",
+			ScenarioID: "scenario", OwnerID: "owner", EntityUniqueID: 42, EntityRuntimeID: 42,
+			BaseGameVersion: "1.26.50", GameVersion: "1.26.50", Trial: true, EducationFeaturesEnabled: true,
+			TemplateContentIdentity: "template", EnchantmentSeed: 1234, MultiPlayerCorrelationID: "correlation",
+		},
+		&packet.ItemRegistry{Items: []protocol.ItemEntry{{Name: "minecraft:shield", RuntimeID: 355}}},
+		&packet.CreativeContent{},
+		&packet.ChunkRadiusUpdated{ChunkRadius: 7},
+		&packet.PlayStatus{Status: packet.PlayStatusPlayerSpawn},
+	}
+}
+
+// The client receives the upstream startup byte for byte, owns the spawn sequence alone (one chunk radius
+// request with its own radius, one loading-screen pair, one initialisation), and the core adds nothing.
+func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
+	var mu sync.Mutex
+	upstreamSent := map[uint32][]byte{}
+	var upstreamReceived []packet.Packet
+	upstreamNetwork := streamnet.New(filepath.Join(t.TempDir(), "upstream"))
+	upstreamListener, err := minecraft.ListenConfig{
+		AuthenticationDisabled: true,
+		ErrorLog:               slog.New(slog.DiscardHandler),
+		PacketFunc: func(header packet.Header, payload []byte, src, _ net.Addr) {
+			if header.PacketID == packet.IDStartGame || header.PacketID == packet.IDItemRegistry || header.PacketID == packet.IDCreativeContent {
+				mu.Lock()
+				if _, seen := upstreamSent[header.PacketID]; !seen {
+					upstreamSent[header.PacketID] = bytes.Clone(payload)
+				}
+				mu.Unlock()
+			}
+		},
+	}.ListenNetwork(upstreamNetwork, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = upstreamListener.Close() })
+	go func() {
+		accepted, err := upstreamListener.Accept()
+		if err != nil {
+			return
+		}
+		conn := accepted.(*minecraft.Conn)
+		_ = conn.WritePacketImmediate(relayFixtureStartup()...)
+		for {
+			pk, err := conn.ReadPacket()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			upstreamReceived = append(upstreamReceived, pk)
+			mu.Unlock()
+		}
+	}()
+
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{network: upstreamNetwork}, nil
+	}
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		return dialer.DialContextNetwork(ctx, target.network, "")
+	}
+	listener, network := newAdmissionTestListener(t, connections.prepare)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		accepted, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		downstream := accepted.(*minecraft.Conn)
+		prepared, err := takePreparedAfterAccept(connections, downstream)
+		if err != nil || prepared == nil {
+			return
+		}
+		_ = servePreparedConnection(ctx, downstream, prepared)
+	}()
+
+	clientReceived := map[uint32][]byte{}
+	client, err := minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "RustClient"},
+		Protocol:     minecraft.DefaultProtocol,
+		RelayStartup: true,
+		PacketFunc: func(header packet.Header, payload []byte, src, _ net.Addr) {
+			mu.Lock()
+			if _, seen := clientReceived[header.PacketID]; !seen {
+				clientReceived[header.PacketID] = bytes.Clone(payload)
+			}
+			mu.Unlock()
+		},
+	}.DialContextNetwork(ctx, network, "")
+	if err != nil {
+		t.Fatalf("client dial: %v", err)
+	}
+	defer client.Close()
+	for range relayFixtureStartup() {
+		if _, err := client.ReadPacket(); err != nil {
+			t.Fatalf("read startup: %v", err)
+		}
+	}
+	_ = client.WritePacket(&packet.RequestChunkRadius{ChunkRadius: 7, MaxChunkRadius: 7})
+	_ = client.WritePacket(&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart})
+	_ = client.WritePacket(&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd})
+	_ = client.WritePacket(&packet.SetLocalPlayerAsInitialised{EntityRuntimeID: 42})
+	_ = client.Flush()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(upstreamReceived)
+		mu.Unlock()
+		if n >= 4 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond) // let any stray duplicate arrive
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range []uint32{packet.IDStartGame, packet.IDItemRegistry, packet.IDCreativeContent} {
+		if sent, got := upstreamSent[id], clientReceived[id]; sent == nil || !bytes.Equal(sent, got) {
+			t.Fatalf("packet %d reached the client changed (%d upstream bytes, %d client bytes)", id, len(sent), len(got))
+		}
+	}
+	var radii []int32
+	loading, initialised := 0, 0
+	for _, pk := range upstreamReceived {
+		switch pk := pk.(type) {
+		case *packet.RequestChunkRadius:
+			radii = append(radii, pk.ChunkRadius)
+		case *packet.ServerBoundLoadingScreen:
+			loading++
+		case *packet.SetLocalPlayerAsInitialised:
+			initialised++
+		}
+	}
+	if !slices.Equal(radii, []int32{7}) || loading != 2 || initialised != 1 {
+		t.Fatalf("upstream saw radii=%v loading=%d initialised=%d, want only the client's single sequence", radii, loading, initialised)
+	}
+}
+
+// The private listener negotiates no compression, so local batches are neither compressed nor decompressed.
+func TestLocalListenerNegotiatesNoCompression(t *testing.T) {
+	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
+	config := localListenConfig(nil)
+	config.ErrorLog = slog.New(slog.DiscardHandler)
+	listener, err := config.ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1})
+		}
+	}()
+	settings := make(chan uint16, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Local"},
+		PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
+			if header.PacketID == packet.IDNetworkSettings {
+				var pk packet.NetworkSettings
+				pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+				settings <- pk.CompressionAlgorithm
+			}
+		},
+	}.DialContextNetwork(ctx, network, "")
+	if err != nil {
+		t.Fatalf("dial local listener: %v", err)
+	}
+	_ = conn.Close()
+	if got := <-settings; got != packet.CompressionAlgorithmNone {
+		t.Fatalf("local NetworkSettings compression = %#x, want none (%#x)", got, packet.CompressionAlgorithmNone)
+	}
+}
+
+// BenchmarkLocalLegCompression measures the per-MB encode and decode work each side of the local leg does.
+func BenchmarkLocalLegCompression(b *testing.B) {
+	payload := make([]byte, 1<<20)
+	for index := range payload {
+		payload[index] = byte(index*31) ^ byte(index>>9) // skin- and chunk-like: structured, partly compressible
+	}
+	for _, test := range []struct {
+		name        string
+		compression packet.Compression
+	}{{"deflate", packet.FlateCompression}, {"none", packet.NopCompression}} {
+		b.Run(test.name, func(b *testing.B) {
+			var wire bytes.Buffer
+			encoder, decoder := packet.NewEncoder(&wire), packet.NewDecoder(&wire)
+			encoder.EnableCompression(test.compression, 256)
+			decoder.EnableCompression(test.compression, math.MaxInt)
+			b.SetBytes(int64(len(payload)))
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := encoder.Encode([][]byte{payload}); err != nil {
+					b.Fatal(err)
+				}
+				if _, err := decoder.Decode(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

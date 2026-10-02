@@ -118,8 +118,9 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     );
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.set_server_ui_pack(&super::ServerUiPack {
+        catalog: None,
         ui_layers: vec![vec![("ui/x.json".to_owned(), b"{}".to_vec())]],
-        textures: Vec::new(),
+        ..Default::default()
     });
     presentation
         .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
@@ -171,6 +172,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let pack = super::ServerUiPack {
+        catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),
             br#"{ "namespace": "server_form", "form_button": { "modifications": [
@@ -179,6 +181,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
                 .to_vec(),
         )]],
         textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
+        view: None,
     };
     let mut presentation = mini_engine_presentation();
     let runtime = super::pack_harness::action_form("Menu", &["A"]);
@@ -307,6 +310,7 @@ impl json_ui::TextureSource for NoTextures {
     fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
         Some(json_ui::TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: None,
         })
     }
@@ -483,6 +487,86 @@ fn retail_settings_hide_debug_and_automation_sections() {
     ] {
         assert!(!names.contains(&hidden), "{hidden} shown");
     }
+}
+
+// Exercise the actual pinned templates: the desktop selector rows are adjacent,
+// and hidden advanced video options leave only the panel's normal bottom inset.
+#[test]
+fn retail_settings_keep_navigation_and_video_options_compact() {
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let catalog = json_ui::Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .unwrap();
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.screen = crate::menu::MenuScreen::Settings;
+    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
+        .control
+        .unwrap();
+    let bound = json_ui::bind(
+        &resolved,
+        &screen.data,
+        &json_ui::CatalogLibrary {
+            catalog: &catalog,
+            context: &screen.context,
+        },
+    );
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    fn rect(node: &json_ui::LaidOut<'_>, name: &str) -> Option<json_ui::Rect> {
+        if !node.visible {
+            return None;
+        }
+        if node.control.name == name {
+            return Some(node.rect);
+        }
+        node.children.iter().find_map(|child| rect(child, name))
+    }
+    for size in [[480.0, 270.0], [3840.0 / 7.0, 2560.0 / 7.0]] {
+        let layout = json_ui::layout(&bound, size, &env);
+        for (above, below) in [
+            ("keyboard_and_mouse_button", "controller_button"),
+            ("general_button", "video_button"),
+            ("video_button", "sound_button"),
+            ("sound_button", "account_button"),
+        ] {
+            let upper = rect(&layout, above).expect(above);
+            let lower = rect(&layout, below).expect(below);
+            let gap = lower.y - upper.y - upper.h;
+            assert!((0.0..=2.0).contains(&gap), "{above} to {below}: {gap}");
+        }
+        let video = layout_section(&layout, "video_section").unwrap();
+        for (above, below) in [
+            ("graphics_mode", "advanced_graphics_options_button"),
+            ("advanced_graphics_options_button", "render_distance_slider"),
+            ("render_distance_slider", "brightness_slider"),
+        ] {
+            let upper = rect(video, above).expect(above);
+            let lower = rect(video, below).expect(below);
+            let gap = lower.y - upper.y - upper.h;
+            assert!((0.0..=8.0).contains(&gap), "{above} to {below}: {gap}");
+        }
+    }
+}
+
+fn layout_section<'a, 'b>(
+    node: &'b json_ui::LaidOut<'a>,
+    name: &str,
+) -> Option<&'b json_ui::LaidOut<'a>> {
+    if node.control.name == name {
+        return Some(node);
+    }
+    node.children
+        .iter()
+        .find_map(|child| layout_section(child, name))
 }
 
 // The Servers tab builds only the saved rows its list shows, however long the list.

@@ -1,13 +1,14 @@
 //! Per-frame HUD observation and publication.
-
 use super::*;
 use bevy::prelude::Transform;
 
 mod commit;
+mod item_icons;
 #[cfg(test)]
 pub(crate) use commit::refresh_hud_frame;
 use commit::{PendingUiPublication, PreviewCapture};
 pub(crate) use commit::{PreparedUiPublication, publish_ui_runtime};
+use item_icons::{ItemIconFrames, stack_icon};
 
 pub(crate) fn observe_mount_jump_input(
     input: Res<crate::semantic_controls::SemanticInputSnapshot>,
@@ -21,7 +22,6 @@ pub(crate) fn observe_mount_jump_input(
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
-
 /// Resources beyond Bevy's sixteen-parameter limit.
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
@@ -34,6 +34,10 @@ type PublishExtras<'w> = (
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
+        Res<'w, crate::runtime::network::NetworkHandle>,
+        Option<ResMut<'w, render::UiGlintSettings>>,
+        Res<'w, crate::item_use::ItemUseRuntime>,
+        Res<'w, crate::movement::MovementTicker>,
     ),
 );
 
@@ -60,7 +64,7 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather),
+        (actor_partial, local_frame, clock, weather, network, glint_settings, item_use, movement),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -68,6 +72,10 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     prepared.0 = None;
+    runtime.toast_display_millis = menu_runtime.settings_snapshot().0.toast_lifetime_millis();
+    if let Some(mut glint_settings) = glint_settings {
+        *glint_settings = menu_runtime.ui_glint_settings();
+    }
     let Ok(window) = windows.single() else {
         hand.clear();
         return;
@@ -154,6 +162,9 @@ pub(crate) fn prepare_ui_runtime(
         } else {
             Some(LoadingStage::BuildingTerrain)
         });
+        if startup_released && !presentation.startup.completion_queued {
+            presentation.startup.completion_queued = network.finish_loading();
+        }
     }
     runtime.expire_gameplay_effects(now_millis);
     // Off-world the launcher's paper doll wears the local skin.
@@ -199,6 +210,7 @@ pub(crate) fn prepare_ui_runtime(
             .canonical_item_stack(stack)?
             .identifier
     });
+    let hide_hand = menu_runtime.settings_snapshot().0.value("hide_hand") != 0;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
@@ -206,7 +218,7 @@ pub(crate) fn prepare_ui_runtime(
         skin,
         pose,
         shown: runtime.inventory_open() || menu_runtime.is_visible(),
-        hands: first_person && !hand_rig.is_active(),
+        hands: first_person && !hide_hand && !hand_rig.is_active(),
     };
     super::forms::observe_station_block(
         &mut runtime,
@@ -220,6 +232,7 @@ pub(crate) fn prepare_ui_runtime(
         client_world.stream.as_ref(),
         &camera_settings,
         now_millis,
+        Some((&item_use, movement.completed_tick())),
     );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.
     presentation.hud_frame.player_block = local_frame.snapshot().map(|frame| {
@@ -238,6 +251,7 @@ pub(crate) fn prepare_ui_runtime(
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
+    presentation.hud_frame.first_person &= !hide_hand;
     presentation.hud_frame.hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
@@ -246,32 +260,17 @@ pub(crate) fn prepare_ui_runtime(
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
-            menu_runtime.is_visible() || presentation.loading_stage.is_some(),
+            hide_hand
+                || !presentation.renders_game_behind(&runtime, &menu_runtime)
+                || presentation.loading_stage.is_some(),
             physical_size,
         );
     }
-    let anchors = client_world
-        .stream
-        .as_ref()
-        .zip(
-            cameras
-                .single()
-                .ok()
-                .map(|(camera, transform)| (camera, GlobalTransform::from(*transform))),
-        )
-        .map(|(stream, (camera, transform))| {
-            project_below_name_anchors(
-                runtime.scoreboards(),
-                stream,
-                camera,
-                &transform,
-                [logical_width, logical_height],
-                presentation.safe_area,
-                actor_partial.0,
-            )
-        })
-        .unwrap_or_default();
-    presentation.set_below_name_anchors(anchors);
+    let show_names = menu_runtime
+        .settings_snapshot()
+        .0
+        .value("ingame_player_names")
+        != 0;
     let nametags = client_world
         .stream
         .as_ref()
@@ -288,12 +287,14 @@ pub(crate) fn prepare_ui_runtime(
                 camera,
                 &transform,
                 [logical_width, logical_height],
-                presentation.safe_area,
+                collisions.as_deref(),
                 actor_partial.0,
+                show_names,
             )
         })
         .unwrap_or_default();
     presentation.set_nametag_anchors(nametags);
+    presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));
@@ -311,6 +312,7 @@ pub(crate) fn prepare_ui_runtime(
     presentation.set_menu_view(menu_view);
     presentation
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    presentation.publish_scene_inputs(&mut runtime);
     prepared.0 = Some(PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(),
         preview,
@@ -321,17 +323,6 @@ pub(crate) fn prepare_ui_runtime(
     });
 }
 
-/// `stack`'s icon, glinting as `Item::isGlint` decides.
-fn stack_icon(
-    runtime: &UiRuntime,
-    presentation: &UiPresentationRuntime,
-    stack: &protocol::NetworkItemStack,
-    identifier: &str,
-) -> Option<super::IconRef> {
-    let icon = presentation.item_icon(identifier, stack.metadata)?;
-    Some(icon.with_glint(runtime.item_glint(stack, identifier)))
-}
-
 /// Captures HUD display values and applies its required local authority observations.
 fn capture_hud_frame(
     runtime: &mut UiRuntime,
@@ -339,7 +330,9 @@ fn capture_hud_frame(
     stream: Option<&client_world::WorldStream>,
     camera_settings: &CameraSettingsAuthority,
     now_millis: u64,
+    item_use: Option<(&crate::item_use::ItemUseRuntime, u64)>,
 ) -> (Option<IconRef>, Option<IconRef>) {
+    let icon_frames = ItemIconFrames::capture(item_use, stream, runtime);
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
     };
@@ -364,9 +357,15 @@ fn capture_hud_frame(
     let mut inventory_icons = super::hud_layout::InventoryIcons::default();
     for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
         if let Some(stack) = runtime.inventory_ledger().displayed_stack(slot as u8) {
-            *icon = resolve_identifier(stack)
-                .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id));
+            *icon = resolve_identifier(stack).as_deref().and_then(|id| {
+                stack_icon(
+                    runtime,
+                    presentation,
+                    stack,
+                    id,
+                    icon_frames.slot(slot as u8),
+                )
+            });
         }
     }
     let mut storage_icons = super::hud_layout::StorageIcons::default();
@@ -374,7 +373,7 @@ fn capture_hud_frame(
         if let Some(stack) = runtime.inventory_ledger().storage_stack(slot as u8) {
             *icon = resolve_identifier(stack)
                 .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id));
+                .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
         }
     }
     let mut crafting = super::hud_layout::CraftingFrame::default();
@@ -389,7 +388,7 @@ fn capture_hud_frame(
             if let Some(stack) = ledger.target_stack(target) {
                 *icon = resolve_identifier(stack)
                     .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, stack, id));
+                    .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
             }
         }
         if let protocol::CraftGridMatch::Unique(recipe) = runtime.crafting_match() {
@@ -403,7 +402,7 @@ fn capture_hud_frame(
             };
             let icon = resolve_identifier(&stack)
                 .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, &stack, id));
+                .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
             crafting.output = Some((icon, stack));
         }
     }
@@ -467,7 +466,7 @@ fn capture_hud_frame(
                 durability.ui[usize::from(slot)] = fraction(stack, None);
                 window_icons.ui[usize::from(slot)] = resolve_identifier(stack)
                     .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, stack, id));
+                    .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
             }
         }
     }
@@ -607,7 +606,7 @@ fn capture_hud_frame(
             {
                 window_icons.creative[cell] = resolve_identifier(&item.stack)
                     .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, &item.stack, id));
+                    .and_then(|id| stack_icon(runtime, presentation, &item.stack, id, None));
             }
             for (tab, id) in [
                 "minecraft:brick",
@@ -642,7 +641,7 @@ fn capture_hud_frame(
                         let stack = output_stack(output);
                         window_icons.recipe[cell] = resolve_identifier(&stack)
                             .as_deref()
-                            .and_then(|id| stack_icon(runtime, presentation, &stack, id));
+                            .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
                     }
                 }
             }
@@ -652,7 +651,7 @@ fn capture_hud_frame(
                 let stack = output_stack(output);
                 let icon = resolve_identifier(&stack)
                     .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, &stack, id));
+                    .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
                 window_icons.recipe_output = Some((icon, stack));
             }
         }
@@ -680,7 +679,7 @@ fn capture_hud_frame(
                     };
                     window_icons.book[cell] = resolve_identifier(&stack)
                         .as_deref()
-                        .and_then(|id| stack_icon(runtime, presentation, &stack, id));
+                        .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
                 }
             }
         }
@@ -773,7 +772,7 @@ fn capture_hud_frame(
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
-            .and_then(|id| stack_icon(runtime, presentation, stack, id))
+            .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
     });
     let selected_snapshot = runtime.selected_stack_snapshot();
     let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
@@ -802,9 +801,9 @@ fn capture_hud_frame(
                 runtime.item_max_durability(identifier.as_deref()),
                 overlay.and_then(|overlay| overlay.durability_correction),
             );
-            hotbar_icons[usize::from(slot)] = identifier
-                .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id));
+            hotbar_icons[usize::from(slot)] = identifier.as_deref().and_then(|id| {
+                stack_icon(runtime, presentation, stack, id, icon_frames.slot(slot))
+            });
             hotbar_stacks[usize::from(slot)] = Some(stack.clone());
             logged_hotbar[usize::from(slot)] = Some((
                 identifier
@@ -822,7 +821,7 @@ fn capture_hud_frame(
         let identifier = resolve_identifier(stack);
         identifier
             .as_deref()
-            .and_then(|id| stack_icon(runtime, presentation, stack, id))
+            .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
     });
     let armor_icons = {
         let armor = runtime.local_armor();
@@ -835,13 +834,19 @@ fn capture_hud_frame(
         .map(|stack| {
             resolve_identifier(stack)
                 .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id))
+                .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
         })
     };
     let held_item_icon = selected_stack.and_then(|stack| {
-        resolve_identifier(stack)
-            .as_deref()
-            .and_then(|id| stack_icon(runtime, presentation, stack, id))
+        resolve_identifier(stack).as_deref().and_then(|id| {
+            stack_icon(
+                runtime,
+                presentation,
+                stack,
+                id,
+                selected_slot.and_then(|slot| icon_frames.slot(slot)),
+            )
+        })
     });
     let selected_item_name = runtime.selected_stack_custom_name().or_else(|| {
         selected_stack.and_then(|stack| {
@@ -923,50 +928,6 @@ fn capture_hud_frame(
         presentation.last_hud_diagnostics = diagnostics;
     }
     (held_item_icon, offhand_icon)
-}
-
-fn project_below_name_anchors(
-    scoreboards: &ui::ScoreboardStore,
-    stream: &client_world::WorldStream,
-    camera: &Camera,
-    camera_transform: &GlobalTransform,
-    logical_size: [f32; 2],
-    safe_area: SafeArea,
-    partial_tick: f32,
-) -> Vec<BelowNameAnchor> {
-    let content_width = (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0);
-    let content_height = (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0);
-    stream
-        .render_players()
-        .into_iter()
-        .filter_map(|(actor, _profile)| {
-            let below_name = scoreboards
-                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
-                .or_else(|| {
-                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
-                })?;
-            let name = stream.actor_display_name(actor.unique_id)?;
-            let position =
-                Vec3::from_array(actor.interpolated_position(partial_tick)?) + Vec3::Y * 2.35;
-            let viewport = camera.world_to_viewport(camera_transform, position).ok()?;
-            let x = viewport.x - safe_area.left();
-            let y = viewport.y - safe_area.top();
-            (x.is_finite()
-                && y.is_finite()
-                && x >= 0.0
-                && x <= content_width
-                && y >= 0.0
-                && y <= content_height)
-                .then_some(BelowNameAnchor {
-                    x,
-                    y,
-                    name,
-                    score: below_name.0,
-                    objective: below_name.1,
-                })
-        })
-        .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
-        .collect()
 }
 
 impl UiPresentationRuntime {

@@ -285,7 +285,7 @@ func TestRunAuthFailureDoesNotStartProxy(t *testing.T) {
 	}
 }
 
-func TestRunAuthenticatedPassesTokenSourceToProxy(t *testing.T) {
+func TestRunAuthenticatedPassesTheAccountToProxy(t *testing.T) {
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
 	serveCalls := 0
 	err := run(
@@ -298,10 +298,10 @@ func TestRunAuthenticatedPassesTokenSourceToProxy(t *testing.T) {
 		},
 		func(_ context.Context, cfg proxy.Config) error {
 			serveCalls++
-			if cfg.TokenSource == nil {
-				t.Fatal("proxy token source was not configured")
+			if cfg.Account == nil {
+				t.Fatal("proxy account was not configured")
 			}
-			token, err := cfg.TokenSource.Token()
+			token, err := cfg.Account.Token()
 			if err != nil {
 				t.Fatalf("wrapped source Token: %v", err)
 			}
@@ -331,8 +331,8 @@ func TestRunAuthenticatedWrapsPersistentDerivedSource(t *testing.T) {
 		io.Discard,
 		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return source, nil },
 		func(_ context.Context, cfg proxy.Config) error {
-			if _, ok := cfg.TokenSource.(minecraft.MultiplayerTokenSource); !ok {
-				t.Fatal("authenticated proxy source does not persist derived join authentication")
+			if cfg.Account == nil {
+				t.Fatal("authenticated proxy has no account to persist derived join authentication")
 			}
 			return nil
 		},
@@ -396,8 +396,8 @@ func TestRunOfflineSkipsAuthSource(t *testing.T) {
 		},
 		func(_ context.Context, cfg proxy.Config) error {
 			serveCalls++
-			if cfg.TokenSource != nil {
-				t.Fatal("offline proxy token source is non-nil")
+			if cfg.Account != nil {
+				t.Fatal("offline proxy account is non-nil")
 			}
 			return nil
 		},

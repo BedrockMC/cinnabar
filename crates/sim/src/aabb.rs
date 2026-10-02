@@ -4,8 +4,6 @@ use crate::Vec3;
 
 pub const PLAYER_WIDTH: f64 = 0.6;
 pub const PLAYER_HEIGHT: f64 = 1.8;
-/// bedsim shrinks each horizontal half-extent by this amount.
-pub const PLAYER_HORIZONTAL_EPSILON: f64 = 1.0e-4;
 
 /// Axis-aligned collision box with inclusive contact faces.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -28,10 +26,20 @@ impl Aabb {
     /// Player box with a pose-dependent height (sneaking, swimming, crawling).
     #[must_use]
     pub fn player_with_height_at(feet: Vec3, height: f64) -> Self {
-        let half_width = PLAYER_WIDTH * 0.5 - PLAYER_HORIZONTAL_EPSILON;
+        // 1.26.50.26: 0x04b047e0 builds full-width faces; 0x09000dc0 keeps them.
+        let half_width = PLAYER_WIDTH as f32 * 0.5;
+        let [x, y, z] = [feet.x as f32, feet.y as f32, feet.z as f32];
         Self::new(
-            Vec3::new(feet.x - half_width, feet.y, feet.z - half_width),
-            Vec3::new(feet.x + half_width, feet.y + height, feet.z + half_width),
+            Vec3::new(
+                f64::from(x - half_width),
+                f64::from(y),
+                f64::from(z - half_width),
+            ),
+            Vec3::new(
+                f64::from(x + half_width),
+                f64::from(y + height as f32),
+                f64::from(z + half_width),
+            ),
         )
     }
 
@@ -57,12 +65,12 @@ impl Aabb {
 
     #[must_use]
     pub fn intersects(self, rhs: Self) -> bool {
-        self.max.x > rhs.min.x
-            && self.min.x < rhs.max.x
-            && self.max.y > rhs.min.y
-            && self.min.y < rhs.max.y
-            && self.max.z > rhs.min.z
-            && self.min.z < rhs.max.z
+        (self.max.x as f32) > (rhs.min.x as f32)
+            && (self.min.x as f32) < (rhs.max.x as f32)
+            && (self.max.y as f32) > (rhs.min.y as f32)
+            && (self.min.y as f32) < (rhs.max.y as f32)
+            && (self.max.z as f32) > (rhs.min.z as f32)
+            && (self.min.z as f32) < (rhs.max.z as f32)
     }
 
     #[must_use]
@@ -85,8 +93,8 @@ impl Aabb {
         let mut separating_axis = 0;
 
         for axis in 0..3 {
-            let mut min_penetration = self.max[axis] - stationary.min[axis];
-            let mut max_penetration = stationary.max[axis] - self.min[axis];
+            let mut min_penetration = self.max[axis] as f32 - stationary.min[axis] as f32;
+            let mut max_penetration = stationary.max[axis] as f32 - self.min[axis] as f32;
             if min_penetration.abs() <= 1.0e-7 {
                 min_penetration = 0.0;
             }
@@ -133,21 +141,21 @@ impl Aabb {
             let desired = axis_penetrations[best_axis] * normal_directions[best_axis];
             let mut depenetrated = velocity;
             depenetrated[best_axis] = if desired > 0.0 {
-                desired.max(velocity[best_axis])
+                f64::from(desired.max(velocity[best_axis] as f32))
             } else {
-                desired.min(velocity[best_axis])
+                f64::from(desired.min(velocity[best_axis] as f32))
             };
             return depenetrated;
         }
 
         let swept_penetration = signed_penetrations[separating_axis]
-            - normal_directions[separating_axis] * velocity[separating_axis];
+            - normal_directions[separating_axis] * velocity[separating_axis] as f32;
         if swept_penetration <= 0.0 {
             return velocity;
         }
         let mut clipped = velocity;
         clipped[separating_axis] =
-            signed_penetrations[separating_axis] * normal_directions[separating_axis];
+            f64::from(signed_penetrations[separating_axis] * normal_directions[separating_axis]);
         clipped
     }
 
@@ -168,8 +176,8 @@ impl Aabb {
         let mut axis_penetrations = [0.0; 3];
         let mut normal_directions = [0.0; 3];
         for axis in 0..3 {
-            let mut min_penetration = self.max[axis] - stationary.min[axis];
-            let mut max_penetration = stationary.max[axis] - self.min[axis];
+            let mut min_penetration = self.max[axis] as f32 - stationary.min[axis] as f32;
+            let mut max_penetration = stationary.max[axis] as f32 - self.min[axis] as f32;
             if min_penetration.abs() <= 1.0e-7 {
                 min_penetration = 0.0;
             }
@@ -199,7 +207,8 @@ impl Aabb {
             }
         }
         let mut translation = Vec3::ZERO;
-        translation[best_axis] = axis_penetrations[best_axis] * normal_directions[best_axis];
+        translation[best_axis] =
+            f64::from(axis_penetrations[best_axis] * normal_directions[best_axis]);
         Some(translation)
     }
 }

@@ -62,17 +62,20 @@ pub(super) fn sample(
             {
                 movement.surface_response = active_response;
             }
-            movement.horizontal_speed_factor = movement
-                .horizontal_speed_factor
-                .min(facts.horizontal_speed_factor);
-            movement.vertical_speed_factor = movement
-                .vertical_speed_factor
-                .min(facts.vertical_speed_factor);
+            // Web slowdown belongs to the displacement phase, not ground acceleration.
+            if !facts.flags.contains(BlockPhysicsFlags::COBWEB) {
+                movement.horizontal_speed_factor = movement
+                    .horizontal_speed_factor
+                    .min(facts.horizontal_speed_factor);
+                movement.vertical_speed_factor = movement
+                    .vertical_speed_factor
+                    .min(facts.vertical_speed_factor);
+            }
             movement.on_climbable |= facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
             movement.in_water |= facts.flags.contains(BlockPhysicsFlags::WATER)
-                && fluid_intersects(player, block, facts.fluid_height_blocks);
+                && liquid_contact(player, block, true);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
-                && fluid_intersects(player, block, facts.fluid_height_blocks);
+                && liquid_contact(player, block, false);
             // Cobwebs occupy a full block volume even without solid collision
             // boxes. Swept/support samples alone do not establish body contact.
             movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
@@ -163,6 +166,26 @@ fn active_surface_response(
     }
 }
 
+/// Tests the native shrunken liquid probe against material cells, independent of surface height.
+fn liquid_contact(player: Aabb, block: [i32; 3], water: bool) -> bool {
+    // Lens 0xa5d5c40 shrinks these boxes; 0xa5dd330 tests floored cell coordinates.
+    let shrink = if water {
+        [0.001_f32, 0.401, 0.001]
+    } else {
+        [0.1_f32, 0.4, 0.1]
+    };
+    (0..3).all(|axis| {
+        let min = player.min[axis] as f32;
+        let max = player.max[axis] as f32;
+        let center = (min + max) * 0.5;
+        let low = (min + shrink[axis]).min(center).floor();
+        let high = (max - shrink[axis]).max(center);
+        let coordinate = block[axis] as f32;
+        low <= coordinate && coordinate <= high
+    })
+}
+
+/// Tests body contact with a block volume used by non-liquid effects.
 fn fluid_intersects(player: Aabb, block: [i32; 3], height: f64) -> bool {
     height > 0.0
         && player.min.x < f64::from(block[0]) + 1.0
@@ -202,4 +225,22 @@ fn inclusive_max_block_at(maximum: Vec3) -> Result<[i32; 3], WorldQueryError> {
         blocks[index] = block as i32;
     }
     Ok(blocks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two liquid probes have different vertical and horizontal contact margins.
+    #[test]
+    fn liquid_contact_uses_native_shrink_and_clamps_low_poses_to_their_center() {
+        let near_surface = Aabb::player_at(Vec3::new(0.5, 0.5995, 0.5));
+        assert!(!liquid_contact(near_surface, [0, 0, 0], true));
+        assert!(liquid_contact(near_surface, [0, 0, 0], false));
+        let near_side = Aabb::player_at(Vec3::new(1.25, 0.0, 0.5));
+        assert!(liquid_contact(near_side, [0, 0, 0], true));
+        assert!(!liquid_contact(near_side, [0, 0, 0], false));
+        let swimmer = Aabb::player_with_height_at(Vec3::new(0.5, 0.6, 0.5), 0.6);
+        assert!(liquid_contact(swimmer, [0, 0, 0], true));
+    }
 }

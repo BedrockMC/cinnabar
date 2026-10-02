@@ -488,6 +488,7 @@ impl UiRuntime {
                 < u32::from(previous.current()) * u32::from(next.scale())
         {
             self.last_health_drop_millis = Some(envelope.local_millis);
+            self.note_player_hurt();
         }
         self.hud
             .set_stats(health, hunger, self.hud.armor(), self.hud.air());
@@ -664,6 +665,19 @@ impl UiRuntime {
 
     pub(crate) fn server_ui(&self) -> Option<&Arc<super::presentation::ServerUiPack>> {
         self.server_ui.as_ref()
+    }
+
+    /// Identifies the language tables [`Self::translation`] reads; any
+    /// replacement changes it, so text laid out before is measured again.
+    pub(crate) fn text_generation(&self) -> [usize; 3] {
+        fn address<T: ?Sized>(table: Option<&Arc<T>>) -> usize {
+            table.map_or(0, |table| Arc::as_ptr(table).cast::<()>().addr())
+        }
+        [
+            address(self.lang_catalog.as_ref()),
+            address(self.active_lang.as_ref()),
+            address(self.server_lang.as_ref()),
+        ]
     }
 
     pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {

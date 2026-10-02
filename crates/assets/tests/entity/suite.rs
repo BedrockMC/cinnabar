@@ -122,6 +122,8 @@ fn geometry_fixture() -> CompiledEntityAssets {
             inflate: None,
             never_render: None,
             reset: None,
+            binding: None,
+            texture_meshes: Box::new([]),
             cubes: vec![EntityGeometryCube {
                 origin: [scalar(0.5), scalar(-1.0), scalar(1.0)],
                 size: [scalar(0.0), scalar(5.0), scalar(8.0)],
@@ -237,6 +239,8 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
         inflate: None,
         never_render: None,
         reset: None,
+        binding: None,
+        texture_meshes: Box::new([]),
         cubes: Box::new([]),
     }]
     .into_boxed_slice();
@@ -500,6 +504,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 inflate: None,
                 never_render: None,
                 reset: None,
+                binding: None,
+                texture_meshes: Box::new([]),
                 cubes: Box::new([]),
             }]
             .into_boxed_slice(),

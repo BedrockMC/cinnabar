@@ -155,3 +155,44 @@ compiling but the remote pod entered `Failed`. Subsequent SSH polls returned
 The local poll was interrupted with exit 130. There is no green rcheck result;
 architecture, Rust tests and the remaining remote gates are unverified. Focused
 offline Go tests passed locally. No new PNGs could be captured.
+
+## Dev integration, October 2
+
+Merged `origin/dev` at `8201d6e0`, preserving its JSON-UI stack and both sets of
+incomplete parity notes. Launcher service localization now reads dev's existing
+current-language state, rather than a second state that retained only the first
+selected language. Desktop service identity, downloaded badge filesystem,
+fallback labels and offline recording replay remain in place.
+
+References rechecked for this integration: Lens artifact 6, client 1.26.50.26,
+source-backed raw RVAs `0x94f40` and `0x94f70` produce Windows10 and Win32;
+`0x558aa50` chooses configured text or `gathering.button.liveEventFallback`.
+The query is identified by `R:g/GatheringServiceRequestHandler.cpp:33` and the
+controller bindings by `R:s/StartMenuScreenController.cpp:2645`. The installed
+vanilla pack's `ui/start_screen.json:816` binds the badge texture and filesystem,
+and `texts/en_US.lang:11964` supplies the Join Game fallback. Current public
+request and click parity remain incomplete as described above.
+
+Five alternating focused latency runs on clean dev and the merged promo tree all
+passed with the same installed carriers and limiter. Prepared Settings took
+5.9–8.1 ms on dev and 5.9–13.1 ms on the merged tree, below the unchanged 16 ms
+limit. Median warm Home frames were 0.5 and 0.6 ms respectively. Samples included
+the existing live-event fixture; these are local test timings, not release
+performance acceptance. The fresh offline before/after PNG regression also
+passed, with the caption, badge and button visible without clipping.
+
+Historical cross-check: five runs each on the old common base `11c02e49` and
+original promo HEAD `3e325007` also passed. Prepared Settings measured 0.6–2.6 ms
+on the base and 0.7–3.3 ms with the promo changes. Their settings cache, menu
+rendering and original latency test are identical. No promo-specific regression
+was reproduced. The earlier seconds-long failure is consistent with load-sensitive
+shared preparation: the old engine could wait for background work and then do
+layout synchronously if its three-second warmup was insufficient. This is an
+inference from the source and repeated runs, not a reproduction of the earlier
+machine load. Dev's current engine prepares Settings without that blocking wait.
+
+The full local `lcheck` completed with exit 0 using four Rust test threads:
+formatting, strict all-target Clippy, architecture, workspace tests, and both Go
+vet/test suites passed. The app library had 2,119 passed, zero failed and 18
+ignored. Recorded public-config replay still skips without a genuine recording;
+the synthetic render does not close native visual or complete click acceptance.

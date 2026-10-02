@@ -207,6 +207,7 @@ pub const MOLANG_QUERIES: &[&str] = &[
     "query.is_using_item",
     "query.item_is_charged",
     "query.item_remaining_use_duration",
+    "query.item_slot_to_bone_name",
     "query.key_frame_lerp_time",
     "query.kinetic_weapon_damage_duration",
     "query.kinetic_weapon_delay",

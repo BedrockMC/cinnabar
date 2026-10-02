@@ -45,14 +45,14 @@ fn ladder_ascend_descend_and_sneak_hold_use_climb_velocity_clamps() {
         .unwrap();
     assert!(up.environment.on_climbable);
     assert!(up.movement.y > 0.0);
-    assert!(up.movement.y <= 0.2);
+    assert!(up.movement.y <= f64::from(0.2_f32));
 
     let mut descending = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
     descending.velocity.y = -1.0;
     let down = Simulator::default()
         .tick(&mut descending, MovementInput::default(), &world)
         .unwrap();
-    assert!((down.movement.y + 0.2).abs() <= 1.0e-12);
+    assert!((down.movement.y + 0.2).abs() <= f64::from(f32::EPSILON));
 
     let mut holding = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
     holding.velocity.y = -1.0;
@@ -86,5 +86,5 @@ fn scaffolding_uses_the_same_bounded_vertical_controls() {
         )
         .unwrap();
     assert!(tick.environment.in_scaffolding);
-    assert!((tick.movement.y - 0.2).abs() <= 1.0e-12);
+    assert!((tick.movement.y - 0.2).abs() <= f64::from(f32::EPSILON));
 }

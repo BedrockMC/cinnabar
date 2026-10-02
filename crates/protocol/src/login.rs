@@ -7,9 +7,7 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::version::v1_26_51::{
-    McpePacketData, McpePacketName, NetworkStackLatencyPacket,
-};
+use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName};
 use valentine::protocol::wire;
 
 use crate::blob_cache::ResolverReady;
@@ -24,6 +22,7 @@ mod boundary;
 mod latency_probe;
 mod packet_trace;
 use boundary::boundary_wakeup;
+pub use latency_probe::network_stack_latency_reply;
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
 #[cfg(test)]
@@ -35,7 +34,7 @@ const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 pub struct LoginSequence;
 
 impl LoginSequence {
-    /// Connects to the Go core and completes the encrypted Bedrock spawn sequence.
+    /// Connects to the core; the owner calls `finish_loading` after presenting the world.
     pub async fn connect(
         socket_dir: &Path,
         display_name: &str,
@@ -60,23 +59,29 @@ impl LoginSequence {
         Self::connect_transport_inner(transport, display_name, Some(cache), skin).await
     }
 
-    /// Generic transport seam used by deterministic protocol state tests.
+    /// Headless test seam that treats the received spawn prerequisites as presentation readiness.
     #[doc(hidden)]
     pub async fn connect_transport<T: Transport>(
         transport: T,
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
-        Self::connect_transport_inner(transport, display_name, None, None).await
+        let (mut session, data) =
+            Self::connect_transport_inner(transport, display_name, None, None).await?;
+        session.finish_loading().await?;
+        Ok((session, data))
     }
 
-    /// Deterministic enabled negotiation seam used by protocol tests and live integration.
+    /// Headless cache test seam that completes loading immediately after negotiation.
     #[doc(hidden)]
     pub async fn connect_transport_with_blob_cache<T: Transport>(
         transport: T,
         display_name: &str,
         cache: ClientBlobCache,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
-        Self::connect_transport_inner(transport, display_name, Some(cache), None).await
+        let (mut session, data) =
+            Self::connect_transport_inner(transport, display_name, Some(cache), None).await?;
+        session.finish_loading().await?;
+        Ok((session, data))
     }
 
     async fn connect_transport_inner<T: Transport>(
@@ -138,6 +143,14 @@ impl WorldIngress {
 }
 
 impl<T: Transport> PlaySession<T> {
+    /// Sends loading-end and initialization once the client can present the world.
+    pub async fn finish_loading(&mut self) -> Result<(), ProtocolError> {
+        self.stream
+            .finish_loading()
+            .await
+            .map_err(ProtocolError::from)
+    }
+
     fn new(stream: BedrockStream<Play, Client, T>, cache: Option<ClientBlobCache>) -> Self {
         Self {
             stream,
@@ -224,9 +237,18 @@ impl<T: Transport> PlaySession<T> {
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldEvent, ProtocolError> {
-        self.recv_world_ingress(current_dimension)
-            .await
-            .map(WorldIngress::into_world_event)
+        loop {
+            let event = self
+                .recv_world_ingress(current_dimension)
+                .await?
+                .into_world_event();
+            if let WorldEvent::NetworkStackLatency(creation_time) = event {
+                self.send(network_stack_latency_reply(creation_time))
+                    .await?;
+            } else {
+                return Ok(event);
+            }
+        }
     }
 
     /// Receives world work while allowing the app to retain an uncopied LevelChunk payload.
@@ -264,10 +286,6 @@ impl<T: Transport> PlaySession<T> {
                 }
             };
             self.packet_id_trace.observe(raw.id);
-            if raw.id == McpePacketName::NetworkStackLatencyPacket {
-                self.answer_network_stack_latency_probe(raw).await?;
-                continue;
-            }
             if raw.id == McpePacketName::LevelChunkPacket {
                 let raw = raw.into_retention_bounded();
                 let borrowed = raw
@@ -319,31 +337,6 @@ impl<T: Transport> PlaySession<T> {
         crate::codec::validate_packet(&packet)?;
         self.stream.send_packet(packet).await?;
         Ok(())
-    }
-
-    /// Answers one from-server latency probe immediately with its provisionally
-    /// scaled creation time (`latency_probe::scaled_creation_time`) and the
-    /// from-server flag cleared. Probes not marked from-server are ignored.
-    /// Malformed probe wire stays fatal like every other decode failure.
-    async fn answer_network_stack_latency_probe(
-        &mut self,
-        raw: RawPacket,
-    ) -> Result<(), ProtocolError> {
-        let packet = match self.stream.decode_raw_packet(raw) {
-            Ok(packet) => packet,
-            Err(error) => return Err(self.fail_session(error)),
-        };
-        let McpePacketData::NetworkStackLatencyPacket(probe) = packet.data else {
-            unreachable!("NetworkStackLatency packet ID decoded to another variant")
-        };
-        if !probe.is_from_server {
-            return Ok(());
-        }
-        let echo = NetworkStackLatencyPacket {
-            creation_time: latency_probe::scaled_creation_time(probe.creation_time),
-            is_from_server: false,
-        };
-        self.send(echo.into()).await
     }
 
     /// Starts a bounded, secret-safe packet-ID trace for native acceptance.
@@ -504,10 +497,6 @@ impl<T: Transport> PlaySession<T> {
             self.packet_id_trace.observe(raw.id);
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
-            if packet_name == McpePacketName::NetworkStackLatencyPacket {
-                self.answer_network_stack_latency_probe(raw).await?;
-                continue;
-            }
             let raw = if packet_name == McpePacketName::LevelChunkPacket {
                 raw.into_retention_bounded()
             } else {
@@ -728,6 +717,10 @@ fn decode_world_raw_with(
     current_dimension: i32,
     decode: impl FnOnce(RawPacket) -> Result<Packet, JolyneError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
+    if raw.id == McpePacketName::ItemRegistryPacket {
+        decode(raw)?;
+        return Ok(None);
+    }
     if raw.id == McpePacketName::UpdateAbilitiesPacket {
         return crate::decode_abilities_update(raw.body())
             .map(WorldEvent::Abilities)
@@ -769,17 +762,19 @@ fn decode_world_raw_with(
             | McpePacketName::AddItemActorPacket
             | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
-            | McpePacketName::ItemRegistryPacket
+            | McpePacketName::PlayerSkinPacket
             | McpePacketName::MobEquipmentPacket
             | McpePacketName::MobArmorEquipmentPacket
             | McpePacketName::MobEffectPacket
             | McpePacketName::SetActorLinkPacket
             | McpePacketName::SyncActorPropertyPacket
             | McpePacketName::SetPlayerGameTypePacket
+            | McpePacketName::UpdatePlayerGameTypePacket
             | McpePacketName::SetDefaultGameTypePacket
             | McpePacketName::InventoryContentPacket
             | McpePacketName::CreativeContentPacket
             | McpePacketName::InventorySlotPacket
+            | McpePacketName::InventoryTransactionPacket
             | McpePacketName::PlayerHotbarPacket
             | McpePacketName::ItemStackResponsePacket
             | McpePacketName::ContainerOpenPacket
@@ -803,6 +798,7 @@ fn decode_world_raw_with(
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
             | McpePacketName::SetActorMotionPacket
+            | McpePacketName::NetworkStackLatencyPacket
             | McpePacketName::SetTimePacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
@@ -966,3 +962,9 @@ mod recipe_ingress_tests;
 
 #[cfg(test)]
 mod ability_ingress_tests;
+
+#[cfg(test)]
+mod game_mode_ingress_tests;
+
+#[cfg(test)]
+mod inventory_transaction_ingress_tests;

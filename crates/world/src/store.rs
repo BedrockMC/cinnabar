@@ -11,6 +11,7 @@ use crate::{
     collision_revision::{CollisionRevisionAllocator, process_collision_revisions},
 };
 
+mod collision_snapshot;
 mod helpers;
 mod level_chunk;
 use self::helpers::*;

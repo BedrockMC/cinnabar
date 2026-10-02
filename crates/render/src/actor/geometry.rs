@@ -41,15 +41,15 @@ pub(super) fn append_entity_cube_vertices(
     let zero_axes: Vec<_> = size
         .iter()
         .enumerate()
-        .filter(|(_, value)| **value == 0.0)
+        .filter(|(_, value)| **value + 2.0 * inflate == 0.0)
         .map(|(axis, _)| axis)
         .collect();
-    if zero_axes.len() > 1 || (!zero_axes.is_empty() && inflate != 0.0) {
+    if zero_axes.len() > 1 {
         return Err(ActorRigGeometryError::InvalidAssetGeometry);
     }
     let min = std::array::from_fn(|axis| (origin[axis] - inflate) / 16.0);
     let max = std::array::from_fn(|axis| (origin[axis] + size[axis] + inflate) / 16.0);
-    if (0..3).any(|axis| size[axis] != 0.0 && min[axis] >= max[axis]) {
+    if (0..3).any(|axis| min[axis] > max[axis]) {
         return Err(ActorRigGeometryError::InvalidAssetGeometry);
     }
     let mut corners = cuboid_corners(min, max);
@@ -215,6 +215,10 @@ fn face_uv_quad(
         )
     })
 }
+
+#[cfg(test)]
+#[path = "geometry_uv_tests.rs"]
+mod uv_tests;
 
 fn cuboid_corners(min: [f32; 3], max: [f32; 3]) -> [[f32; 3]; 8] {
     [
@@ -472,7 +476,42 @@ mod tests {
     }
 
     #[test]
-    fn planar_geometry_rejects_lines_points_and_inflate() {
+    fn captured_skin_inflated_plane_keeps_its_authored_face() {
+        let geometry = assets::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.test"}}"#,
+            r#"{"format_version":"1.14.0","minecraft:geometry":[{
+                "description":{"identifier":"geometry.test","texture_width":256,"texture_height":256},
+                "bones":[{"name":"helmet","cubes":[{
+                    "origin":[-6,29.60000038146973,-6],"size":[12,0,12],
+                    "pivot":[0,29.60000038146973,0],"inflate":0.6800000071525574,
+                    "uv":{"up":{"uv":[13,13],"uv_size":[-12,-12]}}
+                }]}]}]}"#,
+        )
+        .unwrap()
+        .unwrap();
+        let built = crate::actor::skin_geometry(&geometry, crate::actor::EntityRigId(1))
+            .expect("inflation gives the zero-height cube a drawable top face");
+        assert_eq!(built.vertices.len(), 6);
+        let expected_y = (29.6_f32 + 0.68) / 16.0;
+        assert!(built.vertices.iter().all(|vertex| {
+            (vertex.position[1] - expected_y).abs() < 1.0e-6 && vertex.normal == [0.0, 1.0, 0.0]
+        }));
+        assert!(
+            built
+                .vertices
+                .iter()
+                .any(|vertex| vertex.uv == [13.0 / 256.0; 2])
+        );
+        assert!(
+            built
+                .vertices
+                .iter()
+                .any(|vertex| vertex.uv == [1.0 / 256.0; 2])
+        );
+    }
+
+    #[test]
+    fn planar_geometry_rejects_lines_points_and_negative_size() {
         let mut cube = plane(0, false);
         for size in [[0.0, 0.0, 3.0], [0.0; 3], [-1.0, 2.0, 3.0]] {
             cube.size = size.map(scalar);
@@ -481,11 +520,6 @@ mod tests {
                     .is_err()
             );
         }
-        cube = plane(0, false);
-        cube.inflate = scalar(0.1);
-        assert!(
-            append_entity_cube_vertices(&mut Vec::new(), &cube, 0, (16, 16), false, 0.0).is_err()
-        );
     }
 
     // A plane with one textured face (display text, logos) draws that face one-sided instead of

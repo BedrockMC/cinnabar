@@ -6,6 +6,18 @@ use valentine::bedrock::version::v1_26_51::{
 
 use jolyne::GameData;
 
+pub(super) fn targeted_update(
+    packet: valentine::bedrock::version::v1_26_51::UpdatePlayerGameTypePacket,
+) -> crate::UiEvent {
+    crate::UiEvent::PlayerGameMode {
+        actor_unique_id: packet.targetplayer.actor_unique_id,
+        tick: packet.tick.inputtick,
+        event: crate::GameModeEvent {
+            update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
+        },
+    }
+}
+
 /// One Bedrock `GameType` wire value, independent of which packet carried it.
 ///
 /// 1.26.30 exposed a single `GameMode` enum. 1.26.40 generates one structurally

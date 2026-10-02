@@ -44,6 +44,28 @@ impl MenuRuntime {
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
         if let Some(dialog) = self.dialog {
             return match dialog {
+                MenuDialog::SettingsResetGroup(group) => vec![
+                    MenuAction::SettingsConfirmResetGroup(group),
+                    MenuAction::DismissDialog,
+                ],
+                MenuDialog::SettingsResetBindings(gamepad) => vec![
+                    MenuAction::SettingsConfirmResetBindings(gamepad),
+                    MenuAction::DismissDialog,
+                ],
+                MenuDialog::SettingsSupport(super::settings_support::SupportDialog::Help) => vec![
+                    MenuAction::SettingsSupport(super::settings_support::SupportAction::Open(
+                        super::settings_support::SupportLink::Help,
+                    )),
+                    MenuAction::DismissDialog,
+                ],
+                MenuDialog::SettingsSupport(_) => vec![MenuAction::DismissDialog],
+                MenuDialog::StorageError => vec![MenuAction::DismissDialog],
+                MenuDialog::StorageDelete => vec![
+                    MenuAction::SettingsStorage(
+                        super::settings_storage::StorageAction::ConfirmDelete,
+                    ),
+                    MenuAction::DismissDialog,
+                ],
                 MenuDialog::Exit => vec![MenuAction::ConfirmExit, MenuAction::DismissDialog],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
@@ -152,12 +174,14 @@ impl MenuRuntime {
             }
             MenuScreen::Settings => {
                 let mut actions = nav();
-                actions.extend([
-                    MenuAction::SettingsScale(1),
-                    MenuAction::SettingsScale(2),
-                    MenuAction::SettingsScale(3),
-                    MenuAction::SettingsScale(4),
-                ]);
+                actions.push(MenuAction::SettingsFullscreen(!self.fullscreen));
+                actions.extend(
+                    self.gui_scale_choices
+                        .iter()
+                        .copied()
+                        .map(MenuAction::SettingsScale),
+                );
+                actions.push(MenuAction::ToggleRenderMode);
                 actions
             }
             MenuScreen::AddServer => vec![
