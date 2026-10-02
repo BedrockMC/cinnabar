@@ -32,6 +32,10 @@ var (
 	effectiveWithNoTool = func(item.Tool) bool { return false }
 )
 
+// vanillaNamespace is the namespace of vanilla blocks and items. It is no Experience's id: a block
+// in it would collide with a vanilla block, which Dragonfly refuses with a panic, or pose as one.
+const vanillaNamespace = "minecraft"
+
 // Registry holds the registered Experience blocks.
 type Registry struct {
 	types map[string]*blockType // by block id
@@ -39,9 +43,9 @@ type Registry struct {
 
 // Register checks the blocks of every loaded Experience and decodes their textures. Then it
 // registers each block and its item with Dragonfly, and for each Experience a construction
-// creative group named after it, which holds its blocks and shows the first. A bad definition or
-// texture fails before anything is registered, with an error naming the Experience and the block
-// or file.
+// creative group named after it, which holds its blocks and shows the first. A reserved or
+// repeated Experience id, or a bad definition or texture, fails before anything is registered,
+// with an error naming the Experience and the block or file.
 //
 // Dragonfly's registries are global: Register may succeed once per process, before
 // server.Config.New finalizes them and builds the resource pack from the registered blocks. It is
@@ -53,6 +57,9 @@ func Register(loaded []Loaded) (*Registry, error) {
 	// blocks[i] holds the types of loaded[i]'s blocks in their order.
 	blocks := make([][]*blockType, len(loaded))
 	for i, l := range loaded {
+		if l.ID == vanillaNamespace {
+			return nil, fmt.Errorf("experience id %q is reserved", l.ID)
+		}
 		if experiences[l.ID] {
 			return nil, fmt.Errorf("experience %q is loaded twice", l.ID)
 		}
