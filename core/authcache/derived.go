@@ -15,7 +15,6 @@ import (
 	"io"
 	"io/fs"
 	"net/url"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -56,16 +55,14 @@ func NewAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 }
 
 type derivedDeps struct {
-	canonicalize func(string) (string, error)
-	discover     func(context.Context) (*service.AuthorizationEnvironment, error)
-	login        func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*playfab.Client, error)
-	services     func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token) service.TokenSource
-	mint         func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error)
+	discover func(context.Context) (*service.AuthorizationEnvironment, error)
+	login    func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*playfab.Client, error)
+	services func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token) service.TokenSource
+	mint     func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error)
 }
 
 func defaultDerivedDeps() derivedDeps {
 	return derivedDeps{
-		canonicalize: canonicalizeCachePath,
 		discover: func(ctx context.Context) (*service.AuthorizationEnvironment, error) {
 			discovery, err := service.Default(ctx)
 			if err != nil {
@@ -167,14 +164,6 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 	if err != nil {
 		return source
 	}
-	canonicalize := deps.canonicalize
-	if canonicalize == nil {
-		canonicalize = canonicalizeCachePath
-	}
-	path, err = canonicalize(filepath.Clean(path))
-	if err != nil {
-		return source
-	}
 	source.path = path
 	binding, client := source.binding, source.client
 	state, err := loadDerived(source.path)
@@ -203,27 +192,17 @@ func (s *Account) diagnostic(event, layer, reason string) {
 	_, _ = fmt.Fprintf(s.diagnostics, "AUTH_ACCEL_CACHE event=%s layer=%s reason=%s\n", event, layer, reason)
 }
 
+// Token returns the OAuth credential only while this account is open.
 func (s *Account) Token() (*oauth2.Token, error) {
-	tok, err := s.oauth.Token()
-	if err != nil {
-		return nil, err
-	}
-	if tok == nil {
-		return nil, errors.New("authentication: OAuth source returned nil token")
-	}
-	next := oauthBinding(tok)
 	s.mu.Lock()
-	if next != s.binding {
-		s.resetLocked(next)
-	}
-	s.mu.Unlock()
-	return tok, nil
+	defer s.mu.Unlock()
+	return s.tokenLocked(context.Background())
 }
 
 func (s *Account) DeviceToken(ctx context.Context) (*xasd.Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensureOAuthLocked(ctx); err != nil {
+	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
 	lease, err := s.acquireLeaseLocked(ctx)
@@ -253,13 +232,16 @@ func (s *Account) DeviceToken(ctx context.Context) (*xasd.Token, error) {
 func (s *Account) ProofKey() *ecdsa.PrivateKey {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
 	return s.device.ProofKey()
 }
 
 func (s *Account) XSTSToken(ctx context.Context, relyingParty string) (*xsts.Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensureOAuthLocked(ctx); err != nil {
+	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
 	lease, err := s.acquireLeaseLocked(ctx)
@@ -302,6 +284,9 @@ func (s *Account) InvalidateXSTSToken(relyingParty string, rejected *xsts.Token)
 	defer cancel()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	if s.rejected == nil {
 		s.rejected = make(map[string]*xsts.Token)
 	}
@@ -340,7 +325,7 @@ func (s *Account) MultiplayerToken(ctx context.Context, key *ecdsa.PublicKey) (s
 func (s *Account) ServiceToken(ctx context.Context) (*service.Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.prepareLocked(ctx); err != nil {
+	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
 	lease, err := s.acquireLeaseLocked(ctx)
@@ -387,6 +372,9 @@ func (s *Account) InvalidateServiceToken(rejected *service.Token) {
 	defer cancel()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	lease, _ := s.acquireLeaseLocked(ctx)
 	if lease != nil {
 		defer lease.Close()
@@ -407,7 +395,7 @@ func (s *Account) InvalidateServiceToken(rejected *service.Token) {
 func (s *Account) Environment(ctx context.Context) (*service.AuthorizationEnvironment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.prepareLocked(ctx); err != nil {
+	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
 	if err := s.ensureEnvironmentLocked(ctx); err != nil {
@@ -420,7 +408,7 @@ func (s *Account) Environment(ctx context.Context) (*service.AuthorizationEnviro
 func (s *Account) PlayFab(ctx context.Context) (*playfab.Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.prepareLocked(ctx); err != nil {
+	if _, err := s.tokenLocked(ctx); err != nil {
 		return nil, err
 	}
 	if err := s.ensureEnvironmentLocked(ctx); err != nil {
@@ -436,13 +424,6 @@ func (s *Account) Close() error {
 	s.closed = true
 	s.services = nil
 	return s.closePlayFabLocked()
-}
-
-func (s *Account) prepareLocked(ctx context.Context) error {
-	if s.closed {
-		return ErrAccountClosed
-	}
-	return s.ensureOAuthLocked(ctx)
 }
 
 func (s *Account) ensureEnvironmentLocked(ctx context.Context) error {
@@ -513,127 +494,51 @@ func (s *Account) updateOAuthBindingLocked() {
 	}
 }
 
-func (s *Account) ensureOAuthLocked(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
+// tokenLocked applies the account lifecycle and OAuth binding rules at one boundary.
+func (s *Account) tokenLocked(ctx context.Context) (*oauth2.Token, error) {
+	if s.closed {
+		return nil, ErrAccountClosed
 	}
-	token, err := s.oauth.Token()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var token *oauth2.Token
+	var err error
+	if cached, ok := s.oauth.(*persistingSource); ok {
+		token, err = cached.token(ctx)
+	} else {
+		token, err = s.oauth.Token()
+	}
 	if err != nil || token == nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
-		return errors.New("authentication: validate OAuth credential")
+		return nil, errors.New("authentication: validate OAuth credential")
 	}
 	binding := oauthBinding(token)
 	if binding != s.binding {
 		s.resetLocked(binding)
 	}
-	return nil
+	return token, nil
 }
 
+// acquireLeaseLocked bounds waits for the optional derived cache. A miss keeps
+// the account usable in memory without publishing over another process's state.
 func (s *Account) acquireLeaseLocked(ctx context.Context) (io.Closer, error) {
 	if s.path == "" {
 		return nil, nil
 	}
-	lockPath := s.path + ".lock"
-	if err := prepareLeasePath(lockPath); err != nil {
-		s.diagnostic("miss", "write", "unsafe")
-		return nil, nil
+	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	lease, err := lockfile.AcquireContext(wait, s.path+".lock")
+	if err == nil {
+		return lease, nil
 	}
-	deadline := time.NewTimer(5 * time.Second)
-	defer deadline.Stop()
-	for {
-		before, identityErr := leaseFileIdentity(lockPath)
-		if identityErr != nil {
-			s.diagnostic("miss", "write", "unsafe")
-			return nil, nil
-		}
-		lease, err := lockfile.AcquireExisting(lockPath, 0)
-		if err == nil {
-			opened, openedErr := lockfile.Identity(lease)
-			after, identityErr := leaseFileIdentity(lockPath)
-			if openedErr != nil || identityErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
-				_ = lease.Close()
-				s.diagnostic("miss", "write", "unsafe")
-				return nil, nil
-			}
-			return lease, nil
-		}
-		if !errors.Is(err, lockfile.ErrBusy) {
-			s.diagnostic("miss", "write", "unsafe")
-			return nil, nil
-		}
-		retry := time.NewTimer(20 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			retry.Stop()
-			return nil, ctx.Err()
-		case <-deadline.C:
-			retry.Stop()
-			s.diagnostic("miss", "write", "contended")
-			return nil, nil
-		case <-retry.C:
-		}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-}
-
-func prepareLeasePath(path string) error {
-	var lastErr error
-	for range 5 {
-		_, err := os.Lstat(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			if _, err := createPrivateOnce(path, []byte("join-auth-lease\n")); err != nil {
-				lastErr = err
-				time.Sleep(20 * time.Millisecond)
-				continue
-			}
-		} else if err != nil {
-			return errors.New("inspect authentication lease")
-		}
-		if err := validateLeasePath(path); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return lastErr
-}
-
-func validateLeasePath(path string) error {
-	_, err := leaseFileIdentity(path)
-	return err
-}
-
-func leaseFileIdentity(path string) (fs.FileInfo, error) {
-	canonical, err := canonicalizeCachePath(filepath.Clean(path))
-	if err != nil || canonical != filepath.Clean(path) {
-		return nil, errors.New("resolve authentication lease path")
-	}
-	parents, err := snapshotDirectoryChain(filepath.Dir(canonical))
-	if err != nil || !parents.complete {
-		return nil, errors.New("inspect authentication lease parent")
-	}
-	if err := parents.revalidate(); err != nil {
-		return nil, errors.New("authentication lease parent changed")
-	}
-	info, err := os.Lstat(canonical)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fs.ErrNotExist
-	}
-	if err != nil {
-		return nil, errors.New("inspect authentication lease")
-	}
-	if err := checkRegular(info); err != nil {
-		return nil, err
-	}
-	if err := checkCacheSecurityByPath(canonical, info); err != nil {
-		return nil, err
-	}
-	if err := parents.revalidate(); err != nil {
-		return nil, err
-	}
-	return info, nil
+	s.diagnostic("miss", "write", "unavailable")
+	return nil, nil
 }
 
 func (s *Account) reloadLocked() {
