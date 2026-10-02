@@ -4185,3 +4185,20 @@ Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
 limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
+
+## Go core simplification (2026-10-02)
+
+The core's packet-decoding diagnostic observers for cache boundaries, loading order,
+and form schemas are removed. The proxy still forwards packet batches and retains
+resource-pack progress and admission status used by the client. Historical cache
+boundary logs remain readable by the acceptance scripts. Current diagnostic runs
+record missing boundary instrumentation as unavailable, with an explicit finding;
+they do not satisfy an independent cache-route proof or a completed Lunar prerequisite.
+Replacement live evidence is still needed before closing the cache-streaming parity gate.
+
+Authentication and pack caches now trust the user's configuration directory, while
+retaining atomic publication, file leases, credential binding and quota eviction.
+New credentials remain private on Unix and Windows. Account methods reject calls
+after close, and sign-out takes the same leases as token refreshes. The active
+catalog exporter and native Windows/Linux BDS installer remain supported. Resource
+packs still pass through the Go cache and retain their client progress reporting.
