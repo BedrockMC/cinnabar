@@ -1,3 +1,4 @@
+#import cinnabar::material::{MaterialGpu, materials, positional_material}
 #ifdef ENHANCED_SHADOW
 #import cinnabar::enhanced_caster::caster_clip
 #endif
@@ -5,7 +6,7 @@
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
 #ifdef ENHANCED
-#import cinnabar::enhanced_view::{light_brightness, material_class, shade_surface, waved_position}
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
 
 struct PackedQuad {
@@ -18,11 +19,6 @@ struct ChunkOrigin {
     cube_bases: vec4<u32>,
 }
 
-struct MaterialGpu {
-    texture: u32,
-    flags: u32,
-    animation: u32,
-}
 
 struct AnimationGpu {
     frame_start: u32,
@@ -52,7 +48,6 @@ struct AtmosphereUniform {
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
 @group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
@@ -98,13 +93,11 @@ struct VertexOutput {
     @location(6) @interpolate(flat) next_texture: u32,
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) world_position: vec3<f32>,
+    @location(9) lighting: vec3<f32>,
 #ifdef ENHANCED
-    @location(9) block_light: f32,
     @location(10) sky_light: f32,
     @location(11) ambient_occlusion: f32,
     @location(12) @interpolate(flat) surface_class: u32,
-#else
-    @location(9) lighting: vec3<f32>,
 #endif
 }
 
@@ -254,7 +247,7 @@ fn vertex(
     );
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
-    let material = materials[quad.material_id];
+    let material = positional_material(quad.material_id, chunk_origin.value.xyz + vec3<i32>(local_origin));
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
@@ -271,12 +264,10 @@ fn vertex(
     out.next_texture = animation_sample.next_texture;
     out.frame_blend = animation_sample.blend;
     out.world_position = world_position;
-#ifdef ENHANCED
-    out.block_light = light_brightness(light_sample & 15u);
-    out.sky_light = light_brightness((light_sample >> 4u) & 15u);
-    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
-#else
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+#ifdef ENHANCED
+    out.sky_light = sky_illumination(light_sample);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #endif
 #ifdef ENHANCED
     out.surface_class = material_class(quad.material_id);
@@ -365,7 +356,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         in.normal,
         in.world_position,
         in.clip_position.xy,
-        in.block_light,
+        in.lighting,
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,

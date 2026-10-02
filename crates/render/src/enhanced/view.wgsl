@@ -1,5 +1,7 @@
 #define_import_path cinnabar::enhanced_view
 
+#import cinnabar::lighting::{light_colour, lit_colour}
+
 #import cinnabar::enhanced_common::{
     EnhancedFrame, CLASS_EMISSION_MASK, CLASS_LEAVES, CLASS_PLANT, FEATURE_SHADOWS,
     FEATURE_WATER, FEATURE_WAVING, interleaved_gradient_noise, wave_offset,
@@ -15,8 +17,6 @@
 @group(2) @binding(5) var enhanced_scene_depth: texture_depth_2d;
 @group(2) @binding(6) var enhanced_linear_sampler: sampler;
 
-const TORCH_COLOUR: vec3<f32> = vec3(1.0, 0.72, 0.46);
-const DARK_FLOOR: f32 = 0.025;
 const EMISSIVE_GAIN: f32 = 3.0;
 const SHADOW_TAPS: u32 = 8u;
 
@@ -109,14 +109,13 @@ fn emissive_light(albedo: vec3<f32>, surface_class: u32) -> vec3<f32> {
     return albedo * level * mask * EMISSIVE_GAIN;
 }
 
-// Linear HDR radiance for a surface; brightness terms mirror the vanilla
-// light curve so caves and night stay as dark as the baked light says.
+// Add HDR illumination to the shared RGB lightmap, including its AO and face shade.
 fn shade_surface(
     albedo: vec3<f32>,
     normal: vec3<f32>,
     world: vec3<f32>,
     pixel: vec2<f32>,
-    block_light: f32,
+    lighting: vec3<f32>,
     sky_light: f32,
     ambient_occlusion: f32,
     surface_class: u32,
@@ -136,10 +135,9 @@ fn shade_surface(
         * diffuse * shadow * sky_gate;
     let ambient = enhanced_frame.ambient_colour.rgb * enhanced_frame.light_colour.w
         * sky_light * (0.8 + 0.2 * normal.y);
-    let block = TORCH_COLOUR * block_light * block_light * 1.6;
     let ao = clamp(ambient_occlusion, 0.0, 1.0);
-    let lit = direct * mix(1.0, ao, 0.5) + (ambient + block + vec3(DARK_FLOOR)) * ao;
-    return albedo * lit + emissive_light(albedo, surface_class);
+    let extra = direct * mix(1.0, ao, 0.5) + ambient * ao;
+    return lit_colour(albedo, lighting) + albedo * extra + emissive_light(albedo, surface_class);
 }
 
 // Directional ripples from four analytic sine waves.
@@ -224,7 +222,7 @@ fn shade_water(
     face_normal: vec3<f32>,
     world: vec3<f32>,
     frag: vec4<f32>,
-    block_light: f32,
+    lighting: vec3<f32>,
     sky_light: f32,
     ambient_occlusion: f32,
     sky_zenith: vec3<f32>,
@@ -233,7 +231,7 @@ fn shade_water(
     let to_camera = enhanced_frame.camera_time.xyz - world;
     let above = dot(to_camera, face_normal) > 0.0;
     if ((enhanced_frame.flags.x & FEATURE_WATER) == 0u || face_normal.y < 0.5 || !above) {
-        let lit = shade_surface(base, face_normal, world, frag.xy, block_light, sky_light,
+        let lit = shade_surface(base, face_normal, world, frag.xy, lighting, sky_light,
             ambient_occlusion, 0u);
         return vec4(lit, alpha);
     }
@@ -260,7 +258,7 @@ fn shade_water(
         thickness = clamp(near / scene - near / frag.z, 0.0, 64.0);
     }
     let transmittance = exp(-thickness * 0.28);
-    let body = shade_surface(base, face_normal, world, frag.xy, block_light, sky_light,
+    let body = shade_surface(base, face_normal, world, frag.xy, lighting, sky_light,
         ambient_occlusion, 0u) * 0.55;
     let coverage = 1.0 - (1.0 - fresnel) * transmittance;
     let radiance = (1.0 - fresnel) * (1.0 - transmittance) * body
@@ -269,8 +267,8 @@ fn shade_water(
     return vec4(radiance / max(coverage, 1.0e-3), coverage);
 }
 
-// Preserve the extension's scalar light transfer after the vanilla lightmap migration.
-fn light_brightness(level: u32) -> f32 {
-    let value = f32(min(level, 15u)) / 15.0;
-    return value / (4.0 - 3.0 * value);
+// Use the shared sky-only lightmap for sun visibility and water reflections.
+fn sky_illumination(sample: u32) -> f32 {
+    let sky = max(light_colour(sample & 240u) - light_colour(0u), vec3(0.0));
+    return max(sky.r, max(sky.g, sky.b));
 }

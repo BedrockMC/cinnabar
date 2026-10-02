@@ -30,6 +30,7 @@ use crate::{
 };
 
 mod classification;
+mod variations;
 mod visuals;
 
 use classification::{
@@ -111,6 +112,7 @@ struct Descriptor {
     path: Box<str>,
     texture_key: Box<str>,
     flags: u32,
+    state_variant: u32,
 }
 
 type CompiledMaterials = (Box<[Material]>, BTreeMap<Descriptor, u32>);
@@ -414,12 +416,15 @@ fn compile_pack_inner(
         }
     }
 
+    let variation_groups = variations::expand(&pack, &mut descriptor_keys);
     let (animation_plan, alpha_paths) =
         compile_runtime_animation_plan(root, &pack, &descriptor_keys, &fallback_descriptors)?;
     let texture_pages = animation_plan_pages(&animation_plan)?;
     let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
     let (materials, material_by_descriptor) =
         compile_materials(&descriptor_keys, &animation_plan, &alpha_paths)?;
+    let (materials, material_by_descriptor) =
+        variations::install(materials, material_by_descriptor, variation_groups)?;
     let material_keys = MaterialKeys::from_entries(
         material_by_descriptor
             .iter()
@@ -515,10 +520,10 @@ fn descriptor_for(
 ) -> Option<(Descriptor, Box<str>)> {
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let path = if is_model_visual(record) {
-        pack.terrain.get_for_model_record(&key, record)?.0
+    let (path, state_variant) = if is_model_visual(record) {
+        pack.terrain.get_for_model_record(&key, record)?
     } else {
-        pack.terrain.get_for_record(&key, record)?
+        pack.terrain.get_for_record_variant(&key, record)?
     };
     if !is_model_visual(record)
         && !is_liquid(record)
@@ -572,6 +577,7 @@ fn descriptor_for(
     }
     Some((
         Descriptor {
+            state_variant,
             path: path.into(),
             texture_key: key.clone(),
             flags,
@@ -588,9 +594,11 @@ fn flowerbed_material_descriptors(
     let key = key?;
     let flags = (u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV) | MATERIAL_FLAG_ALPHA_CUTOUT;
     let paths = pack.terrain.get_exact_pair(&key)?;
-    Some(paths.map(|path| {
+    Some(std::array::from_fn(|index| {
+        let path = paths[index];
         (
             Descriptor {
+                state_variant: index as u32,
                 path: path.into(),
                 texture_key: key.clone(),
                 flags,
@@ -605,9 +613,11 @@ fn pale_moss_carpet_side_material_descriptors(
 ) -> Option<[(Descriptor, Box<str>); 2]> {
     let key: Box<str> = "pale_moss_carpet_side".into();
     let paths = pack.terrain.get_exact_pair(&key)?;
-    Some(paths.map(|path| {
+    Some(std::array::from_fn(|index| {
+        let path = paths[index];
         (
             Descriptor {
+                state_variant: index as u32,
                 path: path.into(),
                 texture_key: key.clone(),
                 flags: MATERIAL_FLAG_ALPHA_CUTOUT,
@@ -841,6 +851,7 @@ fn compile_materials(
         texture: TextureRef::DIAGNOSTIC,
         flags: 0,
         animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
     }];
     let mut material_by_value = BTreeMap::<(TextureRef, u32, u32), u32>::new();
     material_by_value.insert(
@@ -911,6 +922,7 @@ fn compile_materials(
                 texture,
                 flags: descriptor.flags,
                 animation,
+                ..assets::Material::unvaried()
             });
             material_by_value.insert(value, material);
             material

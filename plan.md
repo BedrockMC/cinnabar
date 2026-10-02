@@ -23,6 +23,17 @@ language as `Accept-Language`. The offline fixture is authored; a recorded
 response, the exact current public-config request and complete gathering click
 behavior remain unverified. No visual parity gate is closed. See
 [the investigation](docs/home-promo-investigation.md).
+2026-10-01 world lighting (incomplete): the classic RGB table now has the current
+Lens composition, gamma, night-vision normalization and darkness subtraction,
+shared by terrain, actors, items and hands. Current dimension-ramp dispatch,
+the ambient-adjustment caller flag, effect-duration envelopes, conduit dispatch
+and material color-space conversion remain unverified. The existing sky-darken
+and effect-envelope inputs remain provisional. Offline GPU evidence is not a
+native visual parity gate. AO now uses channel maxima, the conditional diagonal, the opaque-block shade
+curve, emitting/ordinary face factors and inset model planes. Full current
+shade/solid-render property export, component exponents, dimension shading modes
+and box-average interpolation remain incomplete. The full audit work is in
+progress on fix/world-lighting.
 
 2026-10-02 dev integration: the first-person item/block/attachable, grass material,
 arrow, name-tag, crouch/shield, offhand, inventory reopen, game-mode and inventory
@@ -3793,6 +3804,40 @@ neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
 
 
+### World-lighting follow-up (incomplete parity)
+
+The shared RGB lightmap implements the recovered composition and effect formulas.
+Current dimension ramps/dispatch, ambient flags, sky-darken input and effect envelopes
+remain unverified. AO uses channel maxima and the default shade curve, but registry
+shade/solid-render properties, component exponents and special dimension/unshaded
+routes remain incomplete. Inset sampling does not implement the separate box-average
+route. These corrections do not close RM-01–04 or AO-02–04 in full.
+
+State emission now uses the current trial-spawner, vault, anchor and sensor accessors.
+The light registry and target bindings are rebuilt; complete dynamic-emitter parity
+still needs copper-bulb constructor constants, cauldron identity and sensor vtable binding.
+Default shaded grass uses the reference packed-byte transform. Water surface opacity
+is retained as a vertex byte through the biome carrier and GPU blending. Its final
+texture-alpha multiplication and special neighboring-material side factor remain
+provisional until the material route is resolved. Swamp grass retains row 255 and
+uses the current seed-2345 float simplex sampler at absolute world positions; native
+color/blending comparison remains open. None of these changes closes a native gate.
+
+The star field now draws seed-10842 candidate quads with the reference radius,
+size, alpha and draw consumption. It remains incomplete: float trigonometry is
+used in place of the runtime sine table, and current sky rotation/material blend
+state still need verification. This does not close RM-05's numeric/native gate.
+
+Top-boundary sky seeds now reach known occupied cells and use the solver's destination
+filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
+bounds and initialization before the upper-neighbor readiness gate are still missing.
+
+RM-06 and GEO-01 remain partial as recorded in the continuations below. GEO-02–04
+remain open: isotropic face rotation, complete repeater/comparator geometry and
+per-species offsets are not implemented. The isotropic hash needs face-to-UV fixtures.
+RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
+captures are local evidence; they do not close native visual or shader-performance gates.
+
 ### Settings desktop continuation (incomplete parity)
 
 The desktop host now consumes Hide HUD, Hide Hand (animated and fallback paths),
@@ -3929,39 +3974,27 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 ### Movement audit continuation (2026-10-01, incomplete)
 
 
-### World-lighting follow-up (incomplete parity)
+2026-10-02 RM-06 continuation (incomplete): atmosphere carriers retain initial
+fog and transition timing. The current 27-position biome layer blends distance,
+RGB and transition fields with missing-entry coverage. Water transitions blend
+initial color/start/end using the minimum-clamped two-stage timeline, replacing
+the fixed endpoint multiplier. Server-directed layers, frame smoothing and depth
+adjustments remain incomplete. Lens current client 0xfded80, 0xfde760, 0xfdf140,
+0x4e429e0 (sample table 0x1501eeff0), 0x1011890; R:f/FogManager.cpp:599,
+R:l/LevelRendererCamera.cpp:10493; pinned fogs/default_fog_setting.json.
 
-The shared RGB lightmap implements the recovered composition and effect formulas.
-Current dimension ramps/dispatch, ambient flags, sky-darken input and effect envelopes
-remain unverified. AO uses channel maxima and the default shade curve, but registry
-shade/solid-render properties, component exponents and special dimension/unshaded
-routes remain incomplete. Inset sampling does not implement the separate box-average
-route. These corrections do not close RM-01–04 or AO-02–04 in full.
-
-State emission now uses the current trial-spawner, vault, anchor and sensor accessors.
-The light registry and target bindings are rebuilt; complete dynamic-emitter parity
-still needs copper-bulb constructor constants, cauldron identity and sensor vtable binding.
-Default shaded grass uses the reference packed-byte transform. Water surface opacity
-is retained as a vertex byte through the biome carrier and GPU blending. Its final
-texture-alpha multiplication and special neighboring-material side factor remain
-provisional until the material route is resolved. Swamp grass retains row 255 and
-uses the current seed-2345 float simplex sampler at absolute world positions; native
-color/blending comparison remains open. None of these changes closes a native gate.
-
-The star field now draws seed-10842 candidate quads with the reference radius,
-size, alpha and draw consumption. It remains incomplete: float trigonometry is
-used in place of the runtime sine table, and current sky rotation/material blend
-state still need verification. This does not close RM-05's numeric/native gate.
-
-Top-boundary sky seeds now reach known occupied cells and use the solver's destination
-filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
-bounds and initialization before the upper-neighbor readiness gate are still missing.
-
-RM-06 and GEO-01–04 remain open: fog layers/transitions, weighted texture alternatives,
-isotropic face rotation, complete repeater/comparator geometry and per-species offsets
-are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
-RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
-captures are local evidence; they do not close native visual or shader-performance gates.
+2026-10-02 GEO-01 continuation (incomplete): nested weighted texture paths are
+kept separate from state arrays and carried to cube, model and liquid shaders.
+Selection uses wrapping absolute block coordinates; weighted cube faces cannot
+merge across cells. Carrier material records now retain selector ranges and
+normalized weights; old world carriers require `make assets`. Server material
+replacement clears the replaced selector. Variant flags must match the selector's
+rendering path; string and object paths retain their distinct default weights.
+Variant tint/UV extension metadata
+is rejected explicitly pending a matching material route, so full pack-semantic
+and native visual parity remain open. Lens 1.26.50.26 RVAs 0x6a02170, 0x1a2ce10,
+0x6487680; R:t/TextureJSONParser.cpp:244 and :571. Pinned terrain_texture.json
+ordinary arrays (including repeater/comparator) remain state selectors.
 
 ### Numeric continuation (2026-10-02, incomplete D01)
 

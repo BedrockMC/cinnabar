@@ -89,6 +89,7 @@ fn light_test_assets() -> RuntimeAssets {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: Box::new([]),
@@ -233,10 +234,9 @@ mod boundary_dominance;
 mod cases_01;
 mod cases_02;
 mod filter_dominance;
+mod sky_boundary;
 
 mod mesh_admission;
 
 mod backlog;
 mod mutation_summary;
-
-mod sky_boundary;

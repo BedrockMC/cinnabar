@@ -9,7 +9,7 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
     assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
     assert_eq!(MATERIAL_FLAG_LIQUID_DEPTH_WRITE, 0x800);
     assert_eq!(MATERIAL_FLAGS_MASK, 0xfff);
-    assert_eq!(std::mem::size_of::<Material>(), 12);
+    assert_eq!(std::mem::size_of::<Material>(), assets::MATERIAL_BYTES);
     let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
     let opaque = compiled.materials[opaque_id as usize];
     assert_eq!(opaque.flags & MATERIAL_FLAG_ALPHA_CUTOUT, 0);
@@ -430,7 +430,8 @@ fn compiler_builds_diagnostic_and_layer_isolated_linear_mips() {
         Material {
             texture: assets::TextureRef::DIAGNOSTIC,
             flags: 0,
-            animation: assets::NO_ANIMATION
+            animation: assets::NO_ANIMATION,
+            ..assets::Material::unvaried()
         }
     );
     assert_eq!(mip_pixel(&compiled, 0, 0, 0, 0), [255, 0, 255, 255]);

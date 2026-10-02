@@ -7,7 +7,7 @@ use bevy::{
     time::Real,
 };
 use meshing::CameraMedium;
-use render::{AtmosphereFrame, SkyKind, underwater_fog_fraction};
+use render::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
 
 use crate::ui_runtime::UiRuntime;
@@ -64,6 +64,7 @@ fn derive_base_frame(
 }
 
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn derive_profiled_atmosphere_frame(
     clock: WorldClock,
     weather: WeatherState,
@@ -72,6 +73,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     context: &EnvironmentContext,
     biome_profiles: &[BiomeVisualProfile],
     fog_profiles: &[FogProfile],
+    transition_seconds: Option<f32>,
 ) -> (AtmosphereFrame, EnvironmentProfileRoute) {
     let base = derive_base_frame(clock, weather, elapsed_seconds, medium, context);
     let profile = context
@@ -95,9 +97,30 @@ pub(crate) fn derive_profiled_atmosphere_frame(
             .binary_search_by(|fog| fog.identifier.as_ref().cmp("minecraft:fog_default"))
             .ok()
             .map(|index| &fog_profiles[index]);
-        fog.distance(requested)
-            .or_else(|| default_fog.and_then(|fallback| fallback.distance(requested)))?
-            .resolve(render_distance)
+        let samples: Vec<_> = context
+            .fog_biomes
+            .iter()
+            .map(|id| {
+                let profile = find_biome_profile(biome_profiles, id.as_deref()?)?;
+                fog_profiles
+                    .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
+                    .ok()
+                    .map(|index| &fog_profiles[index])
+            })
+            .collect();
+        let camera = [Some(fog)];
+        let layer = if samples.is_empty() {
+            &camera[..]
+        } else {
+            &samples[..]
+        };
+        assets::resolve_fog_layers(
+            &[layer],
+            default_fog,
+            requested,
+            render_distance,
+            transition_seconds.filter(|_| requested == FogMedium::Water),
+        )
     };
     let profiled = base.with_environment_profile(profile.sky_rgb8, None);
     let frame = match medium {
@@ -155,6 +178,7 @@ pub(crate) fn update_atmosphere_frame(
     let elapsed = time.elapsed_secs_f64();
     let shown = display.advance(*weather, elapsed);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
+    let submerged = display.submerged_seconds(medium.0);
     let (next_frame, next_route) = match atmosphere_assets.runtime() {
         Some(assets) => derive_profiled_atmosphere_frame(
             *clock,
@@ -164,15 +188,14 @@ pub(crate) fn update_atmosphere_frame(
             &context,
             assets.biome_profiles(),
             assets.fog_profiles(),
+            Some(submerged),
         ),
         None => (
             derive_base_frame(*clock, shown, elapsed, medium.0, &context),
             EnvironmentProfileRoute::default(),
         ),
     };
-    let submerged = display.submerged_seconds(medium.0);
     let next_frame = next_frame
-        .with_underwater_fog_fraction(underwater_fog_fraction(submerged))
         .with_lightning_flash(flash.level(elapsed))
         .with_vision_effects(
             vision.blindness,

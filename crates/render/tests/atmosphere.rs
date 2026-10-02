@@ -94,7 +94,7 @@ fn exact_environment_values_replace_only_sky_and_fog_fields() {
         Some(ResolvedFog {
             start: 235.52,
             end: 256.0,
-            rgb8: 0x0B_08_0C,
+            rgb: [11.0 / 255.0, 8.0 / 255.0, 12.0 / 255.0],
         }),
     );
 
@@ -194,7 +194,7 @@ fn boss_requests_override_a_client_profile_in_air() {
         Some(ResolvedFog {
             start: 235.52,
             end: 256.0,
-            rgb8: 0x0B_08_0C,
+            rgb: [11.0 / 255.0, 8.0 / 255.0, 12.0 / 255.0],
         }),
     );
     let bossed = profiled.with_boss_environment(false, true);

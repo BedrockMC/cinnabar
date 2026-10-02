@@ -665,7 +665,6 @@ fn compile_environment_profiles(root: &Path) -> Result<CompiledEnvironmentProfil
                 })?;
             if !distance.fog_start.is_finite()
                 || !distance.fog_end.is_finite()
-                || distance.fog_start < 0.0
                 || distance.fog_end < distance.fog_start
             {
                 return Err(invalid(format!(
@@ -678,6 +677,10 @@ fn compile_environment_profiles(root: &Path) -> Result<CompiledEnvironmentProfil
                 start_bits: distance.fog_start.to_bits(),
                 end_bits: distance.fog_end.to_bits(),
                 rgb8: parse_environment_rgb(&distance.fog_color)?,
+                transition: distance
+                    .transition_fog
+                    .map(environment_source::compile_transition)
+                    .transpose()?,
             });
         }
         distances.sort_unstable_by_key(|distance| distance.medium);

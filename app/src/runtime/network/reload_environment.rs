@@ -1,9 +1,7 @@
 //! Cinnabar extension: prepare optional environment layers for a live pack swap.
 
 use super::resource_packs::{decode_pack_texture, parse_pack_json};
-use assets::{
-    AtmosphereTexture, BiomeVisualProfile, FogDistance, FogDistanceMode, FogMedium, FogProfile,
-};
+use assets::{AtmosphereTexture, BiomeVisualProfile};
 use bevy::prelude::Resource;
 use resource_pack::LayeredPackView;
 use serde_json::Value;
@@ -11,6 +9,8 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::Arc};
 
 mod biomes;
+mod fog;
+use fog::{fog_profile, parse_rgb};
 mod particles;
 pub(super) use biomes::apply_biome_overlay;
 
@@ -171,50 +171,6 @@ fn layered_json(view: &LayeredPackView, prefix: &str) -> Vec<(String, Box<[u8]>)
     result
 }
 
-/// Parses finite supported fog distances, dropping unfamiliar media independently.
-fn fog_profile(root: &Value) -> Option<FogProfile> {
-    let settings = &root["minecraft:fog_settings"];
-    let identifier = settings["description"]["identifier"].as_str()?;
-    if identifier.is_empty() || identifier.len() > assets::MAX_ENVIRONMENT_IDENTIFIER_BYTES {
-        return None;
-    }
-    let mut distances = Vec::new();
-    for (medium, source) in settings["distance"].as_object()? {
-        let Some(medium) = FogMedium::from_source_name(medium) else {
-            continue;
-        };
-        let Some(mode) = source["render_distance_type"]
-            .as_str()
-            .and_then(FogDistanceMode::from_source_name)
-        else {
-            continue;
-        };
-        let (Some(start), Some(end), Some(rgb8)) = (
-            source["fog_start"].as_f64(),
-            source["fog_end"].as_f64(),
-            parse_rgb(&source["fog_color"]),
-        ) else {
-            continue;
-        };
-        let (start, end) = (start as f32, end as f32);
-        if !start.is_finite() || !end.is_finite() || start < 0.0 || end < start {
-            continue;
-        }
-        distances.push(FogDistance {
-            medium,
-            mode,
-            start_bits: start.to_bits(),
-            end_bits: end.to_bits(),
-            rgb8,
-        });
-    }
-    distances.sort_by_key(|distance| distance.medium);
-    (!distances.is_empty()).then(|| FogProfile {
-        identifier: identifier.into(),
-        distances: distances.into_boxed_slice(),
-    })
-}
-
 /// Updates known client-biome environment components, retaining absent base values.
 fn overlay_biome_profile(root: &Value, profiles: &mut BTreeMap<Box<str>, BiomeVisualProfile>) {
     let biome = &root["minecraft:client_biome"];
@@ -251,29 +207,6 @@ fn overlay_biome_profile(root: &Value, profiles: &mut BTreeMap<Box<str>, BiomeVi
     if let Some(rgb) = parse_rgb(&components["minecraft:sky_color"]["sky_color"]) {
         profile.sky_rgb8 = Some(rgb);
     }
-}
-
-/// Accepts Bedrock's RGB hex strings and numeric RGB triples.
-fn parse_rgb(value: &Value) -> Option<u32> {
-    if let Some(text) = value.as_str() {
-        let text = text.strip_prefix('#').unwrap_or(text);
-        return (text.len() == 6)
-            .then(|| u32::from_str_radix(text, 16).ok())
-            .flatten();
-    }
-    let channels = value.as_array()?;
-    if channels.len() != 3 {
-        return None;
-    }
-    let mut rgb = 0;
-    for channel in channels {
-        let value = channel.as_f64()?;
-        if !(0.0..=1.0).contains(&value) {
-            return None;
-        }
-        rgb = (rgb << 8) | (value * 255.0).round() as u32;
-    }
-    Some(rgb)
 }
 
 #[cfg(test)]

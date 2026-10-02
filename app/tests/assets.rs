@@ -88,11 +88,13 @@ fn synthetic_blob() -> Box<[u8]> {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
             Material {
                 texture: TextureRef::new(0, 1).unwrap(),
                 flags: 0,
                 animation: NO_ANIMATION,
+                ..assets::Material::unvaried()
             },
         ]
         .into_boxed_slice(),
@@ -346,6 +348,7 @@ fn runtime_with_block_identity(
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
             animation: NO_ANIMATION,
+            ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
         model_templates: if kind == VisualKind::Model {

@@ -82,7 +82,7 @@ use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey}
 
 const AIR: u32 = 12_530;
 
-/// Resolve the unchanged vanilla shader for standalone validation.
+/// Resolve the vanilla shader for standalone validation.
 fn standalone_world_shader(source: &str) -> String {
     shader_source::standalone(source, &[])
 }
@@ -224,7 +224,8 @@ fn runtime_assets() -> &'static RuntimeAssets {
                 Material {
                     texture: TextureRef::DIAGNOSTIC,
                     flags: 0,
-                    animation: NO_ANIMATION
+                    animation: NO_ANIMATION,
+                    ..assets::Material::unvaried()
                 };
                 14
             ]
