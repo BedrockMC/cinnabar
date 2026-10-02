@@ -14,6 +14,8 @@ mod hud;
 mod join_progress;
 mod loading_screen;
 #[cfg(test)]
+mod loading_texture_tests;
+#[cfg(test)]
 mod menu_latency;
 mod menu_screens;
 mod menus;
@@ -215,7 +217,7 @@ impl UiPresentationRuntime {
     /// Hands changed server atlas pages to the dynamic texture pages; runs
     /// after the frame's screens drew, before the frame publishes.
     pub(super) fn sync_server_ui_pages(&mut self) {
-        let mut changed = self
+        let changed = self
             .form_presentation
             .engine
             .as_mut()
@@ -229,7 +231,6 @@ impl UiPresentationRuntime {
             self.menu_artwork_set = set.clone();
             self.menu_artwork_loader.request(set);
         }
-        changed |= self.menu_artwork_loader.poll();
         if changed {
             self.rebuild_dynamic_textures();
         }
