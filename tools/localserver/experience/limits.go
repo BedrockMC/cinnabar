@@ -38,3 +38,9 @@ const maxFrameBytes = 1 << 20
 // stderrLineBytes is the longest helper stderr line that is logged; the rest of a longer line is
 // dropped.
 const stderrLineBytes = 4 << 10
+
+// maxTextureBytes is the largest texture file that an Experience block may use.
+const maxTextureBytes = 4 << 20
+
+// maxTextureSide is the largest width and height of an Experience block's texture, in pixels.
+const maxTextureSide = 1024
