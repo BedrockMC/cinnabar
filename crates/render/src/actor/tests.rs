@@ -358,3 +358,17 @@ fn review_render_geometry_replacement_keeps_configured_artwork() {
     scene.replace_pack_entities(None).unwrap();
     assert!(Arc::ptr_eq(&before, &scene.frame.artwork));
 }
+
+#[test]
+fn review_render_teleport_samples_the_destination_for_local_and_remote_actors() {
+    let mut scene = ActorRenderScene::default();
+    let mut actor = tick_source(7, 0.0, 100.0, 0.0, 90.0);
+    actor.teleported = true;
+    for alpha in [0.0, 0.5, 1.0] {
+        let frame = scene.update(alpha, None, [actor.clone()]);
+        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!((frame.instances[0].yaw_radians - 90.0_f32.to_radians()).abs() < 1e-5);
+        let frame = scene.update_with_local(alpha, None, [], Some(actor.clone()));
+        assert_eq!(frame.instances[0].position[0], 100.0);
+    }
+}

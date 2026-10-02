@@ -178,6 +178,14 @@ struct Pose {
 
 impl Pose {
     fn sample(source: &ActorRenderSource, alpha: f32) -> Self {
+        if source.teleported {
+            return Self {
+                position: source.position,
+                pitch_degrees: source.pitch_degrees,
+                yaw_degrees: source.yaw_degrees,
+                head_yaw_degrees: source.head_yaw_degrees,
+            };
+        }
         Self {
             position: std::array::from_fn(|axis| {
                 source.previous_position[axis]
@@ -491,9 +499,14 @@ impl ActorRenderScene {
         let mut rig = self
             .rig_builder
             .build_paged(partial_tick, view, submissions, |identity| {
-                assignments.get(identity).map_or(0, |location| location.page)
+                assignments
+                    .get(identity)
+                    .map_or(0, |location| location.page)
             });
-        rig.rejects.invalid_geometry = rig.rejects.invalid_geometry.saturating_add(invalid_references);
+        rig.rejects.invalid_geometry = rig
+            .rejects
+            .invalid_geometry
+            .saturating_add(invalid_references);
         let instance_pages: Vec<_> = rig
             .manifest
             .iter()
@@ -503,8 +516,7 @@ impl ActorRenderScene {
                     .map_or(0, |location| location.page)
             })
             .collect();
-        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS
-        {
+        if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS {
             let rejects = rig.rejects;
             self.frame.rig = ActorRigRenderFrame {
                 geometry_revision: rig.geometry_revision,
