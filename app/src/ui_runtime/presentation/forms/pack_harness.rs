@@ -167,6 +167,11 @@ pub(crate) fn engine_presentation() -> Option<UiPresentationRuntime> {
     Some(presentation)
 }
 
+/// Retained nodes from the last published menu frame, including clipping and text.
+pub(crate) fn menu_nodes(presentation: &UiPresentationRuntime) -> &[UiNode] {
+    &presentation.last_menu.as_ref().expect("menu frame").nodes
+}
+
 /// Every text node with its bounds and its clip parent's bounds, for diagnosis.
 pub(crate) fn dump(nodes: &[UiNode]) {
     for node in nodes {
