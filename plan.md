@@ -5,6 +5,12 @@ WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
 Enhanced shader specialization and effect passes. The toggle is hidden, and saved
 settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
 unresolved; Enhanced visual and performance gates remain incomplete.
+The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
+(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
+preference. Home and Video settings remained legible with normal geometry,
+clipping, layering and colours; the Enhanced control was absent. Settings clicks,
+scrolling, hover focus and Escape navigation worked. This checks the disable,
+not gameplay performance or the unresolved GPU fault.
 
 2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
 passes a populated graph and 120-frame lobby actor replay, but the reported
