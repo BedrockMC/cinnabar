@@ -1,12 +1,9 @@
 name: CI
 
+# Pull requests, or on demand; direct pushes are gated locally first (AGENTS.md).
 on:
-  push:
-    branches:
-      - main
-      - dev
-      - dev-ox-alpha
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
