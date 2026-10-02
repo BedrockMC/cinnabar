@@ -483,7 +483,6 @@ impl ServerAtlas {
     pub(super) fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
         self.decodes.collect();
-        let inline_until = Instant::now() + INLINE_DECODE_BUDGET;
         // Mark what is already resident first, so a miss never evicts a page
         // this frame still draws.
         let mut missing = Vec::new();
@@ -493,6 +492,17 @@ impl ServerAtlas {
                 None => missing.push(key),
             }
         }
+        // Small backdrops and animation strips must precede expensive artwork.
+        missing.sort_by_cached_key(|key| {
+            let area = self
+                .image(key)
+                .or_else(|| self.fallback(key))
+                .map_or(u64::MAX, |source| {
+                    u64::from(source.size[0]) * u64::from(source.size[1])
+                });
+            (area, *key)
+        });
+        let inline_until = Instant::now() + INLINE_DECODE_BUDGET;
         let mut changed = Vec::new();
         for key in missing {
             if !self.resident.contains_key(key)
@@ -671,6 +681,20 @@ fn decode(bytes: &[u8], size: [u32; 2]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cold_loading_backdrop_precedes_an_expensive_title_decode() {
+        let files = vec![
+            ("textures/ui/title.png".to_owned(), png(1992, 669)),
+            ("textures/blocks/dirt.png".to_owned(), png(16, 16)),
+        ];
+        let mut atlas = ServerAtlas::new(&files, None, 2);
+        atlas.require(["textures/ui/title", "textures/blocks/dirt"]);
+        assert_eq!(
+            atlas.placement("textures/blocks/dirt").unwrap().rect,
+            [0, 0, 16, 16]
+        );
+    }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = Vec::new();

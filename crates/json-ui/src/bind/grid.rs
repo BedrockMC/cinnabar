@@ -47,7 +47,7 @@ impl Binder<'_> {
                         );
                     }
                 });
-                self.build(cell, &child_scope)
+                self.build(cell, &child_scope, 0)
             })
             .collect();
         let template_node = Src::root(resolved).patched(|patch| {

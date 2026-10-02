@@ -161,3 +161,88 @@ fn enhanced_pipelines_build_on_native_adapter() {
         assert!(error.is_none(), "{name}/{fragment}: {error:?}");
     }
 }
+
+// Night and brightness darken the lightmap, never the open-sky gate on direct moonlight.
+#[test]
+fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let Ok(adapter) =
+        bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+    else {
+        return;
+    };
+    let (device, queue) =
+        bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let source = shader_source::composed(
+        "#import cinnabar::enhanced_view::sky_illumination
+#import cinnabar::lighting::light_colour
+@group(0) @binding(0) var<storage, read_write> results: array<f32, 3>;
+@compute @workgroup_size(1) fn main() {
+    results[0] = smoothstep(0.25, 0.8, sky_illumination(240u));
+    results[1] = sky_illumination(0u);
+    results[2] = light_colour(240u).r;
+}",
+        &["ENHANCED"],
+    );
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("sky exposure"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: None,
+        layout: None,
+        module: &module,
+        entry_point: Some("main"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let buffer = |usage, contents: &[u8]| {
+        wgpu::util::DeviceExt::create_buffer_init(
+            &device,
+            &wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents,
+                usage,
+            },
+        )
+    };
+    // Midnight at brightness zero: open sky is about 0.129 in every lightmap channel.
+    let night = [[0.129_f32, 0.129, 0.129, 1.0]; 256];
+    let lightmap = buffer(wgpu::BufferUsages::UNIFORM, bytemuck::cast_slice(&night));
+    let results = buffer(
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        &[0; 12],
+    );
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 12,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let group = |index, resource: &wgpu::Buffer| {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.get_bind_group_layout(index),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: resource.as_entire_binding(),
+            }],
+        })
+    };
+    let (outputs, lights) = (group(0, &results), group(1, &lightmap));
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &outputs, &[]);
+        pass.set_bind_group(1, &lights, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&results, 0, &readback, 0, 12);
+    queue.submit([encoder.finish()]);
+    readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let values: Vec<f32> = bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec();
+    assert_eq!(values[0], 1.0, "direct-light gate at full sky");
+    assert_eq!(values[1], 0.0, "no sky exposure");
+}

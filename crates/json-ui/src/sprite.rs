@@ -275,6 +275,15 @@ fn tile_region(
     tile: [f64; 2],
     axes: Tiled,
 ) -> Vec<(Rect, UvRect)> {
+    // Repeating one texel equals stretching it, and a wide 1x1 fill stays under MAX_TILES.
+    let along_x = matches!(axes, Tiled::X | Tiled::Both) && region[2] > 1.0;
+    let along_y = matches!(axes, Tiled::Y | Tiled::Both) && region[3] > 1.0;
+    let axes = match (along_x, along_y) {
+        (true, true) => Tiled::Both,
+        (true, false) => Tiled::X,
+        (false, true) => Tiled::Y,
+        (false, false) => return vec![(rect, source.uv_rect(region))],
+    };
     let step = [
         tile[0] * source.tiled_scale[0],
         tile[1] * source.tiled_scale[1],

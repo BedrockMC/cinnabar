@@ -127,6 +127,7 @@ impl ArtworkLoader {
     /// Asks the worker for `set`'s atlas, superseding any pending request.
     pub(super) fn request(&mut self, set: ArtworkSet) {
         self.requested += 1;
+        self.ready = None;
         let _ = self.requests.send(Request {
             id: self.requested,
             set,
@@ -183,8 +184,8 @@ pub(super) fn rebase(refs: &HashMap<String, IconRef>, first_page: u16) -> HashMa
         .collect()
 }
 
-/// A source's name, side and content hash; packs reuse texture paths with other pixels.
-type DecodeKey = (String, u32, u64);
+/// Source identity, requested size, and optional pack payload hash.
+type DecodeKey = (String, u32, Option<[u8; 32]>);
 
 /// Decoded art by source and side, plus sources that failed (both bounded).
 #[derive(Default)]
@@ -229,15 +230,18 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
 #[derive(Clone)]
 enum Source {
     File(String, u32),
-    /// An engine texture under its art key, with its content hash.
-    Bytes(String, Arc<[u8]>, u64),
+    Bytes(String, Arc<[u8]>),
 }
 
 impl Source {
+    /// Includes replacement pack bytes so a reload cannot reuse an older image.
     fn key(&self) -> DecodeKey {
         match self {
-            Self::File(path, side) => (path.clone(), *side, 0),
-            Self::Bytes(key, _, hash) => (key.clone(), WHOLE_PAGE, *hash),
+            Self::File(path, side) => (path.clone(), *side, None),
+            Self::Bytes(key, bytes) => {
+                use sha2::{Digest, Sha256};
+                (key.clone(), WHOLE_PAGE, Some(Sha256::digest(bytes).into()))
+            }
         }
     }
 }
@@ -262,7 +266,7 @@ impl DecodeCache {
             .map(|source| {
                 let art = match source {
                     Source::File(path, side) => decode(Path::new(path), *side),
-                    Source::Bytes(_, bytes, _) => decode_bytes(bytes, WHOLE_PAGE),
+                    Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_PAGE),
                 };
                 (source.key(), art)
             })
@@ -306,15 +310,10 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .take(MAX_ARTWORKS)
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
         .map(|(path, side)| Source::File(path.clone(), (*side).min(MAX_ARTWORK_SIDE)));
-    let engine = set.oversized.iter().map(|(key, bytes)| {
-        let mut hash = std::hash::DefaultHasher::new();
-        std::hash::Hash::hash(&**bytes, &mut hash);
-        Source::Bytes(
-            format!("{SERVER_ART_PREFIX}{key}"),
-            Arc::clone(bytes),
-            std::hash::Hasher::finish(&hash),
-        )
-    });
+    let engine = set
+        .oversized
+        .iter()
+        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
     let mut all: Vec<_> = files.collect();
     all.extend(engine.filter(|source| unique.insert(source.key().0)));
     all
@@ -546,12 +545,40 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// Encodes a solid test image without any external assets.
     fn png(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {
         let mut bytes = Vec::new();
         image::RgbaImage::from_pixel(width, height, image::Rgba(pixel))
             .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
             .unwrap();
         bytes
+    }
+
+    #[test]
+    fn replacing_pack_bytes_invalidates_decoded_artwork() {
+        let mut cache = DecodeCache::default();
+        for color in [[200, 30, 40, 255], [20, 220, 30, 255]] {
+            let set = ArtworkSet {
+                oversized: vec![(TITLE_KEY.to_owned(), png(900, 300, color).into())],
+                ..Default::default()
+            };
+            cache.decode(&cache.missing(&set));
+            let atlas = pack(&set, &cache, 0, true);
+            let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
+            let page = &atlas.pages[usize::from(art.page)];
+            let at =
+                (u32::from(art.uv[1]) * page.dimensions()[0] + u32::from(art.uv[0])) as usize * 4;
+            assert_eq!(&page.pixels()[at..at + 4], &color);
+        }
+    }
+
+    #[test]
+    fn a_superseded_prepared_atlas_cannot_be_installed() {
+        let mut loader = ArtworkLoader::default();
+        assert!(loader.ready.is_some());
+        loader.request(ArtworkSet::default());
+        assert!(loader.ready.is_none());
+        assert!(loader.take().is_none());
     }
 
     // A large server texture (Zeqa's 1992x669 title) keeps a whole art page of
@@ -571,26 +598,6 @@ mod tests {
         assert_eq!([u1 - u0, v1 - v0], [1022, 343]);
         // Cinnabar's logo keeps the plain title key.
         assert_ne!(atlas.refs[TITLE_KEY].uv, art.uv);
-    }
-
-    // Two packs' oversized images at one path must not share decoded pixels.
-    #[test]
-    fn replaced_oversized_bytes_at_the_same_key_decode_again() {
-        let set = |pixel| ArtworkSet {
-            paths: Vec::new(),
-            oversized: vec![(TITLE_KEY.to_owned(), png(1992, 669, pixel).into())],
-        };
-        let mut cache = DecodeCache::default();
-        let first = set([200, 30, 40, 255]);
-        cache.decode(&cache.missing(&first));
-        let second = set([10, 200, 40, 255]);
-        cache.decode(&cache.missing(&second));
-        let atlas = pack(&second, &cache, 1, true);
-        let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
-        let side = render::UI_ART_PAGE_SIDE as usize;
-        let at = (usize::from(art.uv[1]) * side + usize::from(art.uv[0])) * 4;
-        let pixels = atlas.pages[usize::from(art.page)].pixels();
-        assert_eq!(&pixels[at..at + 4], &[10, 200, 40, 255]);
     }
 
     // Artwork stays straight alpha, as the UI shader samples it.
