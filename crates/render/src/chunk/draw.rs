@@ -1,5 +1,15 @@
 use crate::chunk::*;
 
+/// World views shared by opaque and transparent chunk queues.
+type ChunkViewQuery = (
+    Entity,
+    Read<MainEntity>,
+    Read<ExtractedView>,
+    Read<RenderVisibleEntities>,
+    Read<Msaa>,
+    Option<Read<crate::EnhancedRendering>>,
+);
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn queue_chunks(
     pipeline_cache: Res<PipelineCache>,
@@ -8,13 +18,7 @@ pub(in crate::chunk) fn queue_chunks(
     draw_functions: Res<DrawFunctions<Opaque3d>>,
     render_adapter: Res<RenderAdapter>,
     render_device: Res<RenderDevice>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &RenderVisibleEntities,
-        &Msaa,
-    )>,
+    views: Query<ChunkViewQuery>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
     arena: Res<ChunkGpuArena>,
@@ -59,8 +63,8 @@ pub(in crate::chunk) fn queue_chunks(
     if probes.input.enabled() {
         let diagnostic_view = views
             .iter()
-            .min_by_key(|(_, main_entity, _, _, _)| main_entity.id().to_bits());
-        if let Some((view_entity, main_entity, view, visible_entities, _)) = diagnostic_view {
+            .min_by_key(|(_, main_entity, _, _, _, _)| main_entity.id().to_bits());
+        if let Some((view_entity, main_entity, view, visible_entities, _, _)) = diagnostic_view {
             let camera = extracted_camera_identity(main_entity, view);
             let generations = probes.camera_identity_tracker.observe(camera);
             let frustum_visible_opaque = visible_entities
@@ -140,7 +144,7 @@ pub(in crate::chunk) fn queue_chunks(
     } else {
         frame_probe.clear();
     }
-    for (view_entity, view_main_entity, view, visible_entities, msaa) in &views {
+    for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced) in &views {
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -149,6 +153,7 @@ pub(in crate::chunk) fn queue_chunks(
             ChunkPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                enhanced: enhanced.is_some(),
             },
         ) else {
             continue;
@@ -158,6 +163,7 @@ pub(in crate::chunk) fn queue_chunks(
             ChunkPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                enhanced: enhanced.is_some(),
             },
         ) else {
             continue;
@@ -167,6 +173,7 @@ pub(in crate::chunk) fn queue_chunks(
             ChunkPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                enhanced: enhanced.is_some(),
             },
         ) else {
             continue;
@@ -411,13 +418,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     render_adapter: Res<RenderAdapter>,
     render_device: Res<RenderDevice>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &RenderVisibleEntities,
-        &Msaa,
-    )>,
+    views: Query<ChunkViewQuery>,
     allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
     profiler: Option<Res<RuntimeStageProfiler>>,
@@ -437,7 +438,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let draw_functions = draw_functions.read();
     let transparent_model_draw = draw_functions.id::<DrawTransparentModelCommands>();
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
-    for (view_entity, main_entity, view, visible_entities, msaa) in &views {
+    for (view_entity, main_entity, view, visible_entities, msaa, enhanced) in &views {
         if runtime.view_entity != Some(view_entity) {
             continue;
         }
@@ -447,6 +448,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         let key = ChunkPipelineKey {
             msaa: *msaa,
             hdr: view.hdr,
+            enhanced: enhanced.is_some(),
         };
         let rangefinder = view.rangefinder3d();
         if let Ok(model_pipeline_id) = pipeline

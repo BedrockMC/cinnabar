@@ -159,7 +159,21 @@ pub(crate) fn update_atmosphere_frame(
     ),
     settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
+    preferences: (
+        Option<Res<crate::menu::MenuRuntime>>,
+        Option<ResMut<render::CloudVisibility>>,
+    ),
 ) {
+    let (menu, clouds) = preferences;
+    let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
+    if let Some(mut clouds) = clouds {
+        clouds.0 = options
+            .as_ref()
+            .is_none_or(|options| options.value("render_clouds") != 0);
+    }
+    let darkness_scale = options
+        .as_ref()
+        .map_or(1.0, |options| options.value("darkness") as f32 / 100.0);
     let (mut frame, mut route, mut lighting) = outputs;
     let elapsed = time.elapsed_secs_f64();
     let shown = display.advance(*weather, elapsed);
@@ -183,7 +197,11 @@ pub(crate) fn update_atmosphere_frame(
     };
     let next_frame = next_frame
         .with_lightning_flash(flash.level(elapsed))
-        .with_vision_effects(vision.blindness, vision.darkness, vision.night_vision);
+        .with_vision_effects(
+            vision.blindness,
+            vision.darkness * darkness_scale,
+            vision.night_vision,
+        );
     *frame = apply_boss_environment(next_frame, medium.0, state);
     let mut sunrise = frame.sunrise_band();
     for c in &mut sunrise[..3] {
@@ -199,12 +217,12 @@ pub(crate) fn update_atmosphere_frame(
         lightning: frame.lightning_flash() > 0.0,
         brightness: settings.user_settings_update().1.video.brightness,
         night_vision: vision.night_vision,
-        darkness: vision.darkness,
+        darkness: vision.darkness * darkness_scale,
         darkness_pulse: render::darkness_pulse(
             visual_world_time(*clock, elapsed) as f32,
             0.0,
-            vision.darkness,
-            vision.darkness,
+            vision.darkness * darkness_scale,
+            vision.darkness * darkness_scale,
             0.45,
         ),
         ..Default::default()

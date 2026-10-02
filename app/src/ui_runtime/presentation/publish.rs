@@ -35,6 +35,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
         Res<'w, crate::runtime::network::NetworkHandle>,
+        Option<ResMut<'w, render::UiGlintSettings>>,
         Res<'w, crate::item_use::ItemUseRuntime>,
         Res<'w, crate::movement::MovementTicker>,
     ),
@@ -63,7 +64,7 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather, network, item_use, movement),
+        (actor_partial, local_frame, clock, weather, network, glint_settings, item_use, movement),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -71,6 +72,10 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     prepared.0 = None;
+    runtime.toast_display_millis = menu_runtime.settings_snapshot().0.toast_lifetime_millis();
+    if let Some(mut glint_settings) = glint_settings {
+        *glint_settings = menu_runtime.ui_glint_settings();
+    }
     let Ok(window) = windows.single() else {
         hand.clear();
         return;
@@ -205,6 +210,7 @@ pub(crate) fn prepare_ui_runtime(
             .canonical_item_stack(stack)?
             .identifier
     });
+    let hide_hand = menu_runtime.settings_snapshot().0.value("hide_hand") != 0;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
@@ -212,7 +218,7 @@ pub(crate) fn prepare_ui_runtime(
         skin,
         pose,
         shown: runtime.inventory_open() || menu_runtime.is_visible(),
-        hands: first_person && !hand_rig.is_active(),
+        hands: first_person && !hide_hand && !hand_rig.is_active(),
     };
     super::forms::observe_station_block(
         &mut runtime,
@@ -245,6 +251,7 @@ pub(crate) fn prepare_ui_runtime(
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
+    presentation.hud_frame.first_person &= !hide_hand;
     presentation.hud_frame.hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
@@ -253,11 +260,17 @@ pub(crate) fn prepare_ui_runtime(
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
-            !presentation.renders_game_behind(&runtime, &menu_runtime)
+            hide_hand
+                || !presentation.renders_game_behind(&runtime, &menu_runtime)
                 || presentation.loading_stage.is_some(),
             physical_size,
         );
     }
+    let show_names = menu_runtime
+        .settings_snapshot()
+        .0
+        .value("ingame_player_names")
+        != 0;
     let nametags = client_world
         .stream
         .as_ref()
@@ -276,10 +289,12 @@ pub(crate) fn prepare_ui_runtime(
                 [logical_width, logical_height],
                 collisions.as_deref(),
                 actor_partial.0,
+                show_names,
             )
         })
         .unwrap_or_default();
     presentation.set_nametag_anchors(nametags);
+    presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));
@@ -297,6 +312,7 @@ pub(crate) fn prepare_ui_runtime(
     presentation.set_menu_view(menu_view);
     presentation
         .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    presentation.publish_scene_inputs(&mut runtime);
     prepared.0 = Some(PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(),
         preview,

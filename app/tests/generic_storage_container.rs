@@ -157,7 +157,7 @@ fn only_exact_27_and_54_slot_level_entity_windows_become_authoritative() {
     for count in [0, 26, 28, 53, 55] {
         let ledger = ready(count, 9);
         assert_eq!(ledger.storage_slot_count(), None);
-        assert!(ledger.pending_packet().unwrap().is_some());
+        assert!(ledger.pending_batch().unwrap().is_some());
     }
 }
 
@@ -172,7 +172,7 @@ fn normalized_signed_window_id_remains_a_supported_storage_identity() {
     assert_eq!(ledger.storage_slot_count(), Some(27));
     assert_eq!(ledger.storage_identity().unwrap().window_id, Some(-1));
     ledger.request_storage_close();
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 }
 
 #[test]
@@ -342,21 +342,21 @@ fn close_and_channel_pressure_are_bounded() {
     let mut ledger = ready(54, 400);
     ledger.request_storage_close();
     assert_eq!(ledger.storage_slot_count(), None);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     ledger.note_transport_pressure(10);
     ledger.note_transport_pressure(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
         container: ContainerIdentity::window(1),
         window_type: 0,
         server_initiated: true,
     }));
-    assert!(ledger.pending_packet().unwrap().is_none());
+    assert!(ledger.pending_batch().unwrap().is_none());
 
     // Structure-editor windows have no client screen.
     let mut unsupported = PlayerInventoryLedger::default();
     unsupported.apply(&open(9, 14));
-    assert!(unsupported.pending_packet().unwrap().is_some());
+    assert!(unsupported.pending_batch().unwrap().is_some());
     assert_eq!(unsupported.storage_slot_count(), None);
 }
 
@@ -408,7 +408,7 @@ fn foreign_storage_content_and_mismatched_slot_updates_are_fenced() {
     ledger.apply(&content(1, 701, 27));
     assert_eq!(ledger.storage_identity().unwrap().dynamic_id, Some(700));
     assert_eq!(ledger.storage_stack(2).unwrap().stack_network_id, 91);
-    assert!(ledger.pending_packet().unwrap().is_none());
+    assert!(ledger.pending_batch().unwrap().is_none());
 
     ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
@@ -484,7 +484,7 @@ fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() 
     );
     assert_eq!(ledger.pending_request_id(), Some(request));
     assert!(
-        ledger.pending_packet().unwrap().is_some(),
+        ledger.pending_batch().unwrap().is_some(),
         "the local ContainerClose still transmits"
     );
 
@@ -580,7 +580,7 @@ fn session_reset_clears_a_closing_window_immediately() {
 
     assert_eq!(ledger.storage_generation(), None);
     assert!(ledger.pending_request_id().is_none());
-    assert!(ledger.pending_packet().unwrap().is_none());
+    assert!(ledger.pending_batch().unwrap().is_none());
     assert!(!ledger.resync_required());
 }
 

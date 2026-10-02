@@ -87,7 +87,7 @@ fn moving_state(position: Vec3, velocity: Vec3) -> PlayerState {
 
 fn assert_close(actual: Vec3, expected: Vec3) {
     for axis in 0..3 {
-        assert!((actual[axis] - expected[axis]).abs() <= 1.0e-12);
+        assert!((actual[axis] - expected[axis]).abs() <= f64::from(f32::EPSILON));
     }
 }
 
@@ -117,7 +117,7 @@ fn swept_only_cobweb_does_not_slow_motion_until_next_tick() {
         .tick(&mut state, MovementInput::default(), &world)
         .unwrap();
     assert!(second.environment.in_cobweb);
-    assert!((second.movement.x - first.velocity.x * 0.25).abs() <= 1.0e-12);
+    assert!((second.movement.x - first.velocity.x * 0.25).abs() <= f64::from(f32::EPSILON));
 }
 
 #[test]

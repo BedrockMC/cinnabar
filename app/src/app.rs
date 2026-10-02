@@ -156,6 +156,7 @@ pub(crate) enum ClientFrameSet {
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
+    app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
     crate::audio::configure(app);
     app.init_resource::<BlockUseRuntime>()
@@ -437,6 +438,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
+    let global_pack_root = layout.global_resource_packs_dir();
+    if let Ok(bytes) = std::fs::read(
+        layout
+            .vanilla_pack_dir()
+            .join("textures/terrain_texture.json"),
+    ) {
+        crate::runtime::network::set_base_terrain_catalog(&bytes);
+    }
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -482,6 +491,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
+    crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_artwork = crate::asset_startup::require_actor_artwork(
         &loaded_assets.selected_path,
         &loaded_assets.entities,
@@ -517,9 +527,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
+    let saved_settings = crate::menu::settings_options::SettingsOptions::load(
+        &layout
+            .server_file()
+            .with_file_name(crate::menu::settings_options::SETTINGS_FILE),
+    );
     let active_lang = crate::asset_startup::load_active_language(
         &loaded_assets.selected_path,
-        args.language.as_deref(),
+        args.language.as_deref().or(saved_settings.language()),
     );
     // The sound-definition catalog binds optionally (VPA-017): absence falls
     // back to a bounded empty catalog with this one-time notice, while a
@@ -628,6 +643,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .map_err(|error| {
         anyhow::anyhow!("prepare validated runtime entity geometry for actor rendering: {error:?}")
     })?;
+    crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
     actor_render_scene.configure_artwork(actor_artwork.clone());
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
@@ -816,13 +832,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         PhysicsAuthorityGate::ProductionEnabled
     })
     .insert_resource(local_player_skin.clone())
-    .insert_resource(MenuRuntime::new_with_layout(
-        !connection_requested,
-        args.gui_scale,
-        args.display_name.clone(),
-        layout,
-        local_player_skin,
-    ))
+    .insert_resource(
+        MenuRuntime::new_with_layout(
+            !connection_requested,
+            args.gui_scale,
+            args.display_name.clone(),
+            layout,
+            local_player_skin,
+        )
+        .with_language_assets(
+            loaded_assets.selected_path.clone(),
+            args.language.as_deref(),
+        ),
+    )
     .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
     .insert_resource(named_audio)
@@ -837,6 +859,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(hand_rig_builder)
     .insert_resource(AtmosphereFrame::default())
     .insert_resource(weather_textures)
+    .insert_resource(
+        crate::runtime::network::reload_environment::EnvironmentBase::new(
+            AtmosphereTextureAssets::new(atmosphere_runtime.clone(), atmosphere_identity),
+            particle_assets.clone(),
+        ),
+    )
     .insert_resource(AtmosphereTextureAssets::new(
         atmosphere_runtime,
         atmosphere_identity,
@@ -903,6 +931,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
     ));
+    app.add_plugins(crate::render_mode::RenderModePlugin::new(
+        args.render_mode,
+        diagnostics_enabled,
+    ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
@@ -917,6 +949,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(identity) = phase3_identity_source {
         app.insert_resource(identity);
     }
+    crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     crate::modding::configure_from_environment(&mut app);

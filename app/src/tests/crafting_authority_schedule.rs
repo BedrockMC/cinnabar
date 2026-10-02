@@ -983,9 +983,10 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
         assert_eq!(ledger.begin_click(0), Ok(-3));
         let mut encoded = bytes::BytesMut::new();
         ledger
-            .pending_packet()
+            .pending_batch()
             .unwrap()
             .unwrap()
+            .0
             .encode_bytes_mut(&mut encoded)
             .unwrap();
         let player = ledger.displayed_stack(0).unwrap().count;
@@ -1041,5 +1042,5 @@ fn output_click_crafts_the_unique_recipe_through_the_ledger() {
     assert_eq!(ledger.pending_request_id(), Some(request));
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.count), (7, 4));
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 }

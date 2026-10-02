@@ -457,6 +457,7 @@ fn text_layout() -> Arc<TextLayout> {
             baseline_64: 0,
             scale: UiScale::default(),
             font: &font,
+            wrap: Default::default(),
         })
         .unwrap()
 }
@@ -496,7 +497,11 @@ fn world_projection_keeps_local_geometry_independent_of_hud_scale_and_safe_area(
     };
     let mut tree = UiTree::new(vec![
         UiNode::new(node(1), None, rect(-4.0, -2.0, 4.0, 2.0))
-            .with_visual(solid.clone())
+            .with_visual(UiVisual::Gradient {
+                texture_page: 0,
+                colors: [[255, 0, 0, 255], [0, 0, 255, 128]],
+                horizontal: false,
+            })
             .with_world_projection(projection),
         UiNode::new(node(2), None, rect(4.0, 8.0, 8.0, 12.0)).with_visual(solid),
     ])
@@ -509,6 +514,8 @@ fn world_projection_keeps_local_geometry_independent_of_hud_scale_and_safe_area(
     .unwrap();
     let draw = tree.build_draw_list().unwrap();
     assert_eq!(draw.vertices[0].position, [80.0, 72.0]);
+    assert_eq!(draw.vertices[0].color, [255, 0, 0, 255]);
+    assert_eq!(draw.vertices[2].color, [0, 0, 255, 128]);
     assert_eq!(draw.vertices[0].clip_z, 1.0);
     assert_eq!(draw.vertices[0].clip_w, 2.0);
     assert_eq!(draw.vertices[4].position, [15.0, 25.0]);

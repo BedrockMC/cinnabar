@@ -1,7 +1,13 @@
 #import cinnabar::material::{MaterialGpu, materials, positional_material}
+#ifdef ENHANCED_SHADOW
+#import cinnabar::enhanced_caster::caster_clip
+#endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::blended_biome_tint
 #import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
+#ifdef ENHANCED
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
+#endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
@@ -38,9 +44,16 @@ struct VertexOutput {
     @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) @interpolate(flat) visible: u32,
     @location(9) lighting: vec3<f32>,
+#ifdef ENHANCED
+    @location(11) sky_light: f32,
+    @location(15) ambient_occlusion: f32,
+#endif
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) @interpolate(flat) two_sided: u32,
     @location(13) world_position: vec3<f32>,
+#ifdef ENHANCED
+    @location(14) @interpolate(flat) surface_class: u32,
+#endif
 }
 
 struct FrameSample { current: u32, next: u32, blend: f32 }
@@ -58,6 +71,11 @@ fn invisible_vertex() -> VertexOutput {
     invisible.frame_blend = 0.0;
     invisible.visible = 0u;
     invisible.lighting = vec3(0.0);
+#ifdef ENHANCED
+    invisible.sky_light = 0.0;
+    invisible.ambient_occlusion = 0.0;
+    invisible.surface_class = 0u;
+#endif
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
     invisible.world_position = vec3(0.0);
@@ -189,6 +207,9 @@ fn vertex(
     var out: VertexOutput;
     let world = vec3<f32>(origin.value.xyz) + local_position;
     out.clip_position = view.clip_from_world * vec4(world, 1.0);
+#ifdef ENHANCED_SHADOW
+    out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
+#endif
     out.uv = vec2<f32>(
         f32(packed_u16(template_quad_base + 6u, uv_component)),
         f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
@@ -203,12 +224,47 @@ fn vertex(
     out.frame_blend = frame.blend;
     out.visible = is_visible;
     out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+#ifdef ENHANCED
+    out.sky_light = sky_illumination(light_sample);
+    out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+#endif
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     out.world_origin = vec3<f32>(origin.value.xyz);
+#ifdef ENHANCED
+    out.surface_class = material_class(material_id);
+    out.world_position = waved_position(world, out.surface_class, clamp(template_position.y, 0.0, 1.0));
+    out.clip_position = view.clip_from_world * vec4(out.world_position, 1.0);
+    out.normal = template_quad_normal(template_quad_base, packed_transform >> 12u);
+#endif
     return out;
 }
 
+#ifdef ENHANCED
+// Decode a rotated model corner for its geometric normal.
+fn template_corner(template_quad_base: u32, corner: u32, transform: u32) -> vec3<f32> {
+    let component = corner * 3u;
+    return rotate_cross(vec3<f32>(
+        f32(packed_i16(template_quad_base, component)),
+        f32(packed_i16(template_quad_base, component + 1u)),
+        f32(packed_i16(template_quad_base, component + 2u)),
+    ) / 256.0, transform);
+}
+
+// Counter-clockwise front faces make this cross product point outward.
+fn template_quad_normal(template_quad_base: u32, transform: u32) -> vec3<f32> {
+    let origin = template_corner(template_quad_base, 0u, transform);
+    let face = cross(
+        template_corner(template_quad_base, 1u, transform) - origin,
+        template_corner(template_quad_base, 3u, transform) - origin,
+    );
+    if (dot(face, face) < 1.0e-10) {
+        return vec3(0.0, 1.0, 0.0);
+    }
+    return normalize(face);
+}
+
+#endif
 fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, world_origin: vec3<f32>) -> vec4<f32> {
     let tint_kind = flags & 0x30u;
     if (tint_kind == 0u) { return vec4(sampled.rgb, sampled.a); }
@@ -249,11 +305,25 @@ fn fragment(
     }
     if (sampled.a < 0.5) { discard; }
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
+#ifdef ENHANCED
+    let shaded = shade_surface(
+        colour.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.surface_class,
+    );
+    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+#else
     let lit = lit_colour(
         colour.rgb,
         in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+#endif
 }
 
 @fragment
@@ -272,9 +342,37 @@ fn fragment_blend(
     let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
+#ifdef ENHANCED
+    let shaded = shade_surface(
+        colour.rgb,
+        in.normal,
+        in.world_position,
+        in.clip_position.xy,
+        in.lighting,
+        in.sky_light,
+        in.ambient_occlusion,
+        in.surface_class,
+    );
+    return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
+#else
     let lit = lit_colour(
         colour.rgb,
         in.lighting,
     );
     return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+#endif
 }
+#ifdef ENHANCED_SHADOW
+
+// Alpha-tested terrain depth; opaque texels cast independently of baked light.
+@fragment
+fn fragment_shadow(in: VertexOutput) {
+    let dx = dpdx(in.uv);
+    let dy = dpdy(in.uv);
+    var sampled = sample_ref(in.current_texture, in.uv, dx, dy);
+    if (in.frame_blend > 0.0) {
+        sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
+    }
+    if (sampled.a < 0.5 || in.visible == 0u) { discard; }
+}
+#endif

@@ -29,7 +29,7 @@ fn ctrl_children(
         control_type: control_type.map(str::to_owned),
         base: None,
         unresolved_base: None,
-        properties,
+        properties: properties.into(),
         children,
         factory: None,
     }
@@ -51,8 +51,7 @@ fn factory_panel(
             .iter()
             .map(|(role, reference)| ((*role).to_owned(), reference.clone()))
             .collect(),
-        control_name: None,
-        max_children_size: None,
+        ..json_ui::Factory::default()
     });
     control
 }
@@ -159,6 +158,51 @@ fn factory_instantiates_one_control_per_collection_index() {
     assert_eq!(bound.children.len(), 3, "one instance per collection index");
     let cells: Vec<&Value> = bound.children.iter().map(|c| prop(c, "text")).collect();
     assert_eq!(cells, [&json!("A"), &json!("B"), &json!("C")]);
+}
+
+#[test]
+fn empty_collection_defaults_keep_headers_without_creating_factory_rows() {
+    // Vanilla resource_packs_screen.json:3195 binds section visibility to the pack collection.
+    let section = ctrl_children(
+        "section",
+        Some("stack_panel"),
+        json!({ "bindings": [{
+            "binding_type": "collection", "binding_collection_name": "items",
+            "binding_name": "#section_visible", "binding_name_override": "#visible"
+        }] }),
+        vec![
+            ctrl("header", Some("label"), json!({ "text": "Available" })),
+            factory_panel("list", "items", &[("button", ControlRef::new("ns", "row"))]),
+        ],
+    );
+    let lib = StubLibrary(
+        [("ns.row".to_owned(), ctrl("row", Some("label"), json!({})))]
+            .into_iter()
+            .collect(),
+    );
+    let mut data = DataSource::new();
+    data.set_strict(true);
+    data.set_collection("items", Vec::new());
+    data.set_collection_defaults(
+        "items",
+        [("#section_visible".to_owned(), Scalar::Bool(true))].into(),
+    );
+
+    let bound = bind(&section, &data, &lib);
+    assert_eq!(prop(&bound, "visible"), &json!(true));
+    assert_eq!(bound.children[0].name, "header");
+    assert!(bound.children[1].children.is_empty());
+
+    data.set_collection(
+        "items",
+        vec![CollectionItem::new("button").with("#section_visible", Scalar::Bool(false))],
+    );
+    let bound = bind(&section, &data, &lib);
+    assert_eq!(prop(&bound, "visible"), &json!(false));
+
+    data.set_collection("items", vec![CollectionItem::new("button")]);
+    let bound = bind(&section, &data, &lib);
+    assert_eq!(prop(&bound, "visible"), &json!(false));
 }
 
 #[test]
@@ -299,7 +343,7 @@ fn view_binding_over_a_sibling_drives_visibility() {
 }
 
 #[test]
-fn empty_texture_binding_emits_no_texture_property() {
+fn empty_texture_binding_applies_the_empty_filename() {
     let image = ctrl(
         "image",
         Some("image"),
@@ -310,11 +354,9 @@ fn empty_texture_binding_emits_no_texture_property() {
     let mut data = DataSource::new();
     data.set_global("#tex", Scalar::Text(String::new()));
 
+    // The empty filename reaches the sprite, which then draws nothing.
     let bound = bind(&image, &data, &EmptyLibrary);
-    assert!(
-        !bound.properties.contains_key("texture"),
-        "empty texture is dropped"
-    );
+    assert_eq!(prop(&bound, "texture"), &json!(""));
 
     let mut present = DataSource::new();
     present.set_global("#tex", Scalar::Text("textures/items/apple".into()));
@@ -336,8 +378,9 @@ fn strict_screens_hide_unbound_visibility_flags_but_keep_text() {
         }),
     );
     let mut data = DataSource::new();
+    // Unanswered, the bag holds nothing and the visible reader's default shows it.
     let lenient = bind(&control, &data, &EmptyLibrary);
-    assert!(!lenient.properties.contains_key("visible"));
+    assert_eq!(prop(&lenient, "visible"), &json!(true));
     data.set_strict(true);
     let strict = bind(&control, &data, &EmptyLibrary);
     assert_eq!(prop(&strict, "visible"), &json!(false));
@@ -487,7 +530,7 @@ fn collection_bindings_outside_a_grid_read_the_first_item() {
     );
     let bound = bind(&label, &data, &EmptyLibrary);
     assert_eq!(prop(&bound, "text"), &json!("12"));
-    assert_eq!(prop(&bound, "#collection_index"), &json!(0.0));
+    assert_eq!(prop(&bound, "#collection_index"), &json!(0));
     assert_eq!(prop(&bound, "#collection_name"), &json!("fuel_items"));
 }
 
@@ -524,4 +567,57 @@ fn listed_grid_cells_index_their_collection_by_position() {
     let bound = bind(&grid, &data, &EmptyLibrary);
     assert_eq!(prop(&bound.children[0], "text"), &json!("d"));
     assert_eq!(prop(&bound.children[1], "text"), &json!("b"));
+}
+
+// `property_bag_for_children` values bind in descendants, not the parent.
+#[test]
+fn child_property_bag_reaches_descendants() {
+    let label = ctrl("child", Some("label"), json!({ "text": "#title" }));
+    let panel = ctrl_children(
+        "panel",
+        Some("panel"),
+        json!({ "property_bag_for_children": { "#title": "Child title" } }),
+        vec![label],
+    );
+    let bound = bind(&panel, &DataSource::new(), &EmptyLibrary);
+    assert_eq!(prop(&bound.children[0], "text"), &json!("Child title"));
+    assert!(!bound.properties.contains_key("#title"));
+}
+
+// A `#texture_file_system` names the texture's domain, never a texture path.
+#[test]
+fn texture_file_system_is_not_a_texture() {
+    let image = ctrl(
+        "image",
+        Some("image"),
+        json!({ "bindings": [
+            { "binding_name": "#fs", "binding_name_override": "#texture_file_system" }
+        ] }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#fs", Scalar::Text("InUserPackage".into()));
+    let bound = bind(&image, &data, &EmptyLibrary);
+    assert!(!bound.properties.contains_key("texture"));
+}
+
+#[test]
+fn hash_prefixed_toggle_names_remain_identifiers() {
+    let toggle = ctrl(
+        "choice",
+        Some("toggle"),
+        json!({
+            "toggle_name": "#coordinate_type_position",
+            "property_bag": { "#coordinate_type_position": true },
+            "bindings": [{"binding_name": "#coordinate_type_position",
+                "binding_name_override": "#toggle_state"}]
+        }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#coordinate_type_position", Scalar::Bool(false));
+    let bound = bind(&toggle, &data, &EmptyLibrary);
+    assert_eq!(
+        prop(&bound, "toggle_name"),
+        &json!("#coordinate_type_position")
+    );
+    assert_eq!(prop(&bound, "#toggle_state"), &json!(false));
 }

@@ -1,5 +1,18 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
+persisted default. This work never closes a vanilla parity gate. T0 adds the
+setting, camera marker and pipeline key isolation. Visual acceptance and all
+subsequent effect/performance gates remain incomplete. T1 adds HDR, Bevy bloom,
+sun-driven grading, an ACES-fit curve and palette-derived emissive surfaces.
+T2 adds two default texel-snapped shadow cascades with alpha-tested terrain/model
+casters and sky-light-gated PCF receivers. Actors do not cast/receive yet.
+T3 enables half-resolution, 16-step shadow-map shafts and matching main/caster
+foliage wind plus surface water displacement. T4 adds opaque colour/depth snapshots and water SSR with Schlick Fresnel,
+analytic ripples, sun glints and depth absorption. Offscreen reflections use sky
+fallback. T5 GTAO/TAA/motion vectors are deferred. Native visual calibration and
+60-fps performance acceptance remain incomplete.
+
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
@@ -43,6 +56,39 @@ Retired sessions no longer repeat their last publication backlog in later frames
 See [offline investigation](docs/reviews/mesh-stall.md) for commit attribution and vanilla
 references. Incomplete: exact native rebuild timing, release frame spikes and network
 latency acceptance. Offline drains do not close those gates.
+
+2026-10-01 JSON-UI layout: sizes, anchors, stack/grid/scroll and clipping follow
+the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
+match exactly as the client's asset index does; an unresolved one draws the
+default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
+live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+the top of their grid because the client answers no `#get_grid_size` (absent
+from the 1.26.50 binary), so whatever pads them is unidentified; `size`
+animations scale draws at paint time instead of relaying out each tick.
+
+2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
+(keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
+axes and scale, clip direction none by default with pixel-perfect snapping),
+labels follow `TextComponent` (0.5/1/2/4 font sizes, line padding, locked
+colour/alpha, hyphen chops, per-line alignment, `...` truncation) and UI blends
+in sRGB-encoded values through an offscreen layer. Not live-accepted.
+Provisional, labeled incomplete: `grayscale` uses Rec. 601 luma (retail
+material not inspected); placeholder hiding ignores focus; `enable_profanity_filter` reaches the host but selects nothing.
+2026-10-01 resource packs (in progress, not parity-accepted): Global Resources imports
+optional packs above the pinned base and below world/server packs. Applying resource
+changes in a live world is an intentional Cinnabar extension; vanilla forbids it.
+Worker preparation and revision-stamped publication preserve the connection.
+Resident block geometry, biome records and transparent draw references now stage
+with the atlas; GPU-wide atomicity still needs a native pass, including non-block
+uploads. Actual compiler reads drive subscriber invalidation. Immutable imported
+revisions, pack thumbnails, automatic hardware tiers, item metadata sprites and
+named bitmap/outline fonts are implemented but not parity-accepted.
+Incomplete: native frame/GPU/process-memory acceptance, full remote gates,
+TTFMSDF/precomputed MSDF rendering, contextual item icon routes, verified retail
+missing-icon fallback, and native font alias/metric comparison. Outline MSDF
+fonts currently use provisional alpha rasterization. No visual gate is closed.
+See [continuation references](docs/resource-pack-continuation-references.md) and
+[original resource-pack references](docs/resource-pack-references.md).
 
 2026-10-01 chunk streaming: missing-column deadlines are local. New data in the
 current publisher cohort keeps its quiet deadline active; duplicate and foreign
@@ -167,7 +213,38 @@ parity gaps above remain incomplete; see [source record](docs/reference/carried-
 unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
 Provisional, labeled incomplete: the OreUI scroll thumb's look and shrinking a
 long side-menu label to fit are approximations (no OreUI stylesheet on hand), and
-unbacked settings show fixed vanilla defaults.
+unbacked settings originally showed fixed host values; their vanilla defaults were
+not established by the pack binding names. See the settings audit below.
+
+2026-10-01 settings audit — incomplete (the Settings completion gate remains open):
+
+- The legacy desktop host includes migrated JSON tabs. Selector controls use the
+  pack's 30px height, without its optional 25px spatial-pattern spacer. The current
+  controller derives this flag from realm state and `mc-disable-settings-spatial-pattern-fix`;
+  the retail flight assignment is unverified. Compact spacing is provisional.
+- Persisted controller-name options now feed camera/input, ten mixer categories,
+  GUI scale, fullscreen/FPS pacing, language and live chunk-radius requests. Keyboard
+  capture covers the existing semantic gameplay actions; raw inventory/chat/drop
+  keys and controller rebinding are incomplete. Duplicate-key rejection and key
+  display strings are not established vanilla behavior.
+- UI only, system missing: gamma, smooth lighting, leaves, fancy skies,
+  particle toggles, most advanced graphics, paperdoll toggles, screen
+  animation, auto-jump, spyglass dampening, controller cursor
+  options, narration/subtitles, glint settings, Creator diagnostics and
+  script options, tutorial/profile preferences and several chat presentation options.
+  These values persist but do not close runtime parity gates.
+- Global Resources provides empty pack collections as a clean integration hook;
+  the pack-list controller belongs to the resource-pack work. Storage actions,
+  world-edit/Experiments, Party, several account/help submenus, reset flows and
+  hardware/flight-dependent controls remain incomplete.
+- Numeric defaults/ranges are provisional unless a source explicitly states them.
+  The pack confirms chat notification 10s and toast notification 3s defaults. The
+  reconstructed current OptionRegistry registration body could not be read from
+  Lens. FOV, gamma, sensitivities, FPS limits and added boolean defaults therefore
+  require further current-client evidence; they must not be described as vanilla.
+- Offline carrier gallery, geometry and option-family tests provide local evidence,
+  not a retail visual acceptance. Focus/hover/pressed, scrolling, all modal flows,
+  runtime option effects and flight/platform visibility still need full acceptance.
 
 2026-10-01 inventory reconciliation: the current native sparse-container audit
 replaces delta replay over mutable backing truth with absolute request-owned cell
@@ -3716,6 +3793,25 @@ grass/foliage/water; sky, fog, and clouds; chunk streaming/eviction tied to
 deferred; chests/signs receive static models in this phase. The Phase 0 performance budget
 carries forward, with full remesh of view distance after teleport ≤ 2 seconds.
 
+
+### Settings chat popup follow-up (incomplete)
+
+The native chat gear now opens `chat_settings.chat_settings_popup` from the carrier.
+Persisted mute, color, typeface, font size, spacing, duration and opacity reach the chat
+presentation; emote mute, TTS and mentions color remain UI only because those systems
+are missing. The compiled open font remains the repository's accepted font deviation.
+Font size 5–20/default 10 and spacing 0–100/default 0 are provisional host
+ranges, not recovered vanilla defaults. The scale mapping is size / 10 and
+spacing is truncated to one decimal plus 0.001, from R:c/ChatUtils.cpp:268–308
+(Lens data reads 0x10d972214=10.0, 0x10d906894=0.001).
+Smooth font controls hide for zh_TW, zh_CN, ko_KR and ja_JP per
+R:c/ChatUtils.cpp:331–374. Color defaults (white/yellow),
+typeface default still need current-controller confirmation.
+Do not close the exact chat parity gate from these provisional values.
+Source: P:ui/chat_settings_menu_screen.json:68,139,272,299; current Lens artifact 6
+RVA 0x561a990 binds these controls; R:c/ChatSettingsScreenController.cpp:1203,1409
+retrieve their options. Seven colors are ordered by the palette in
+R:c/ChatSettingsScreenControllerAnon--1e565c7ad3d9.cpp:15 and its referenced data.
 ### Projectile rendering fixes (incomplete parity)
 
 The `fix/projectile-render` investigation fixes item-icon carrier admission and
@@ -3765,11 +3861,52 @@ Top-boundary sky seeds now reach known occupied cells and use the solver's desti
 filter. LP-05 remains incomplete: normal/render packet heightmaps, custom dimension
 bounds and initialization before the upper-neighbor readiness gate are still missing.
 
-RM-06 and GEO-01–04 remain open: fog layers/transitions, weighted texture alternatives,
-isotropic face rotation, complete repeater/comparator geometry and per-species offsets
-are not implemented here. The recovered isotropic hash still needs face-to-UV fixtures.
+RM-06 and GEO-01 remain partial as recorded in the continuations below. GEO-02–04
+remain open: isotropic face rotation, complete repeater/comparator geometry and
+per-species offsets are not implemented. The isotropic hash needs face-to-UV fixtures.
 RM-07, RM-09 and RM-10 retain their older-reference-only status. Offline tests and GPU
 captures are local evidence; they do not close native visual or shader-performance gates.
+
+### Settings desktop continuation (incomplete parity)
+
+The desktop host now consumes Hide HUD, Hide Hand (animated and fallback paths),
+player-name visibility, panorama speed, cloud visibility, darkness strength, HUD
+opacity and HUD text-background opacity. Focus-loss pause reads its saved setting;
+explicit pause-menu state remains authoritative. These are runtime adapters, not a
+closed visual or numeric-default parity gate.
+
+References: P:ui/settings_sections/general_section.json:3302,3332,3374,3407,3544,3636;
+P:ui/hud_screen.json:3556–3569; R:b/BaseOptionRegistry.cpp:1841,1867,2159,2300,2603,3277;
+R:h/HudScreenController.cpp:16487. The current Lens source search for hide_hud found
+artifact 6 RVA 0xccdb30, but its function_read failed with Transport closed.
+OptionRegistry numeric defaults remain provisional pending a readable registration
+body. Cloud and hand preferences do not modify the JSON-UI engine.
+
+Desktop continuation also wires section reset confirmations (Video, Accessibility and
+Audio), each using the existing option registry; spyglass turn scaling, secondary
+Enter for Chat until that binding is remapped, notification duration and the Creator
+chat coordinate copy/paste header. These changes remain incomplete parity until the
+full gates and rendered evidence pass. Registered provisional defaults remain
+provisional after a reset; a working consumer does not establish a vanilla default.
+
+Sources: P:ui/settings_sections/general_section.json:3000–4058,4738–5506;
+P:ui/chat_screen.json:740–904; R:l/LocalPlayer.cpp:5165–5187;
+R:s/SpyglassItem.cpp:161–168 (Lens data 0x10d972240 = 0.05);
+R:v/VanillaClientInputMappingFactory.cpp:6217–6235;
+R:k/KeyboardRemappingLayout.cpp:85–87; R:c/ClientInputCallbacks.cpp:1528,1880.
+The current Lens coordinate-copy toast is artifact 6 RVA 0x566ac10; its body
+read timed out. Full Keyboard's alternate layout and smooth rotation rate,
+Safe Zone, glint defaults, world Experiments and several unsupported subsystem
+controls remain open. JSON-UI engine changes remain on the separate branch.
+
+Glint accessibility factors now reach the existing UI item renderer: strength scales
+its additive RGB, and speed scales elapsed time before the procedural phases.
+Sources: current Lens artifact 6 RVA 0x213ce90/0x213e670;
+R:a/ActorShaderManager.cpp:1315–1338,1496–1517. The procedural glint appearance
+and phase periods remain provisional; this adapter does not establish texture,
+world-item, or entity-glint parity. Current OptionRegistry RVA 0x239ba00 explicitly
+returned "function source is unavailable"; registered defaults/ranges remain open.
+
 ## Terrain particle texture repair (2026-10-01)
 
 Incomplete parity work on `fix/break-particles`: particle level events need the
@@ -3923,3 +4060,59 @@ is rejected explicitly pending a matching material route, so full pack-semantic
 and native visual parity remain open. Lens 1.26.50.26 RVAs 0x6a02170, 0x1a2ce10,
 0x6487680; R:t/TextureJSONParser.cpp:244 and :571. Pinned terrain_texture.json
 ordinary arrays (including repeater/comparator) remain state selectors.
+
+### Numeric continuation (2026-10-02, incomplete D01)
+
+Walking vectors, collision arithmetic, AABB centers, jump impulses, gravity and drag
+now round at f32 operations. Motion remains independent of the rounded final position
+(Lens `0x6dcbfc0`; `R:f/FinalizeMoveSystemImpl.cpp:28`). Sprint jumps use native float
+indices and table initialization by `sinf(index / 10430.378f)` (Lens `0x296ccd0`,
+`0xa5dacf0`; `R:m/MobJumpFromGroundSystemImpl.cpp:233`). Exact angle and distant-position
+witnesses cover these changes. D01 remains incomplete: the non-walking travel models
+and exhaustive Windows-versus-host sinf bit equivalence still need validation.
+Water acceleration now multiplies the effective Depth Strider level before dividing by
+its maximum, matching Lens `0xdc3eeb0` and `R:w/WaterTravelSystem.cpp:73`.
+Collision flags use the native float epsilon (`0x14ffab690`), with exact boundary witnesses.
+
+### Registry collision continuation (2026-10-02)
+
+Doors now resolve facing/open from the lower half and hinge from the upper half;
+missing pairs use the native default plane. Current planes are 0.1825 blocks thick
+(Lens `0xa7bdb60`, `0xa7bdbf0`; `R:d/DoorBlock.cpp:647`). Stair collision reads the
+current registry corner state (Lens `0xa5b5090`, `0xa5b5460`, `0xa5b57f0`); the older
+neighbor-derived algorithm in `R:s/StairBlock.cpp:1110` is not substituted for it.
+Scaffold support uses the stable registry unit cube and the native pre-move top/contact
+conditions (Lens `0x8eff050`, `0x8eff210`; `R:s/ScaffoldingBlock.cpp:189`). Registry
+coverage includes both runtime-ID modes and all stair corners/halves. Scaffold movement
+coefficients, powder-snow equipment behavior and broader interaction parity remain open.
+
+### Historical replay continuation (2026-10-02, incomplete INT-10)
+
+Palette prediction frames now retain immutable block pages, load state, registry data
+and collision revisions. Replays use each frame's world even after live edits or unloads.
+Controller frames retain mode intent, input edges, requested controls, mode state and
+environment; corrected ticks re-evaluate pose and repeated jumps and preserve retimed
+server overrides. Tests cover changed ceilings, changed correction anchors and repeated
+replays. Lens `0x38db020` and `R:r/RewindSimulation.cpp:84` establish history-based
+component replay; these tests verify our implementation, not complete native parity.
+Anchor depenetration remains provisional (INT-10), and full component coverage and the
+memory/performance cost of retained world metadata still need validation.
+
+### Liquid contact continuation (2026-10-02, incomplete D08–D11)
+
+Liquid contact now uses the current native water/lava shrink vectors, including low-pose
+center clamping and material-cell tests independent of fluid surface height (Lens
+`0xa5d5c40`, `0xa5dd330`; `R:l/LiquidPhysicsSystem.cpp:182`). Contact boundary witnesses
+and the complete simulator suite pass. Currents, complete swimming travel/drag, liquid
+attributes and exits remain open. The 49-scenario, 1,112-tick Go differential changes
+from 22 to 19 scenarios above 1e-5 or with flag differences, and from 49 to 41 scenarios
+with any exact difference. This comparison is not a native parity acceptance gate.
+
+### Inventory batching continuation (2026-10-02, incomplete serverbound parity)
+
+Ready ledger requests now share one ItemStackRequest packet, retaining each request's
+ID, ordered actions and text-filter origin. Transport refusal leaves the entire batch
+unsent; successful admission advances all included requests together. Empty batches
+emit no packet (Lens `0x28d09e0`; `R:i/ItemStackNetManagerClient.cpp:4058`). The existing
+window-control priority is retained. Native tick/flush phase, cross-family packet batching,
+vehicle prediction, interaction models and emote/spin/flight input ownership remain open.

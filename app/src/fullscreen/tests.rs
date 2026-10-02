@@ -1,6 +1,6 @@
 use bevy::{
     input::keyboard::{Key, NativeKey},
-    prelude::{App, IntoScheduleConfigs, MinimalPlugins, Update},
+    prelude::{App, IntoScheduleConfigs, KeyCode, MinimalPlugins, Update},
 };
 
 use super::*;

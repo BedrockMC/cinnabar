@@ -10,6 +10,8 @@
 //! its title/body/button texts fed as the popup's global values. Binding names are
 //! read from the vanilla pack's `server_form.json`/`popup_dialog.json`.
 
+use std::sync::Arc;
+
 use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
 use crate::catalog::Catalog;
 use crate::emit::{DrawNode, RectOut, emit};
@@ -131,7 +133,8 @@ pub struct FormRender {
     /// The bound tree, for structural inspection.
     pub bound: ResolvedControl,
     pub nodes: Vec<DrawNode>,
-    pub hits: Vec<HitRegion>,
+    /// Immutable input regions shared by redraws of this layout.
+    pub hits: Arc<[HitRegion]>,
     pub report: LayoutReport,
     /// Where `button.menu_cancel` (Escape/back) routes on this screen.
     pub cancel_target: Option<String>,
@@ -210,9 +213,18 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
         ] {
             context = context.with_flag(flag, value);
         }
+        // The popup's button labels read their text from the controller, as a
+        // screen hosting this popup selects.
+        context = context.with_var(
+            "button_text_binding_type",
+            serde_json::Value::from("global"),
+        );
     }
     context
 }
+
+/// The popup panel `popup_dialog.modal_dialog_popup`'s text views read.
+const MODAL_SOURCE: &str = "modal_bg_buttons";
 
 /// Map a form model onto the `#binding` names its template reads.
 pub fn form_data_source(model: &FormModel) -> DataSource {
@@ -223,8 +235,9 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
         FormModel::Action(form) => long_form_source(&mut data, form),
         FormModel::Modal(form) => {
             let text = |value: &str| Scalar::Text(value.to_owned());
-            data.set_global("#modal_title_text", text(&form.title));
-            data.set_global("#modal_label_text", text(&form.body));
+            // The dialog's text views read the panel the controller fills.
+            data.set_control_value(MODAL_SOURCE, "#modal_title_text", text(&form.title));
+            data.set_control_value(MODAL_SOURCE, "#modal_label_text", text(&form.body));
             data.set_global("#modal_left_button_text", text(&form.button1));
             data.set_global("#modal_middle_button_text", text(""));
             data.set_global("#modal_rightcancel_button_text", text(&form.button2));
@@ -460,8 +473,19 @@ pub fn bind_form(
     catalog: &Catalog,
     context: &Context,
 ) -> Option<ResolvedControl> {
+    bind_form_over(model, catalog, context, &crate::Components::default())
+}
+
+/// [`bind_form`] over what the form's components wrote into their bags.
+pub fn bind_form_over(
+    model: &FormModel,
+    catalog: &Catalog,
+    context: &Context,
+    components: &crate::Components,
+) -> Option<ResolvedControl> {
     let context = form_context(model, context);
     let mut data = form_data_source(model);
+    data.set_components(components.clone());
     // Action and custom forms open through the screen's content factory, so a
     // pack's screen override applies; the bare template is the fallback.
     let routed = form_factory_id(model).and_then(|id| {
@@ -523,6 +547,19 @@ pub fn render_bound(
     finish(bound, root_size, env, state)
 }
 
+/// Render a stable tree with measurements retained by the caller across data updates.
+/// Call `MeasureCache::update_tree` before changing the tree; reset the cache when
+/// the root size or measurement environment changes.
+pub fn render_bound_cached(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    measures: &mut MeasureCache,
+) -> FormRender {
+    lay_out_and_emit(bound, root_size, env, state, Some((measures, false)))
+}
+
 /// [`render_bound`] independent of hover, press and focus: only `state`'s scroll
 /// offsets lay out, and state children emit gated ([`crate::emit_gated`]), so
 /// the result stays valid until the data, scroll, or root size change. Filter
@@ -540,7 +577,7 @@ pub fn render_bound_gated(
         scroll: state.scroll.clone(),
         ..ViewState::default()
     };
-    lay_out_and_emit(bound, root_size, env, &neutral, Some(measures))
+    lay_out_and_emit(bound, root_size, env, &neutral, Some((measures, true)))
 }
 
 /// Lay out, emit, and collect input for a bound tree.
@@ -558,12 +595,17 @@ fn lay_out_and_emit(
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
-    gated: Option<&mut MeasureCache>,
+    gated: Option<(&mut MeasureCache, bool)>,
 ) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let gate = gated.is_some();
+        let gate = gated.as_ref().is_some_and(|(_, gate)| *gate);
         let (laid, report) = match gated {
-            Some(measures) => crate::layout::layout_culled(&bound, root_size, env, state, measures),
+            Some((measures, true)) => {
+                crate::layout::layout_culled(&bound, root_size, env, state, measures)
+            }
+            Some((measures, false)) => {
+                crate::layout::layout_cached(&bound, root_size, env, state, measures)
+            }
             None => layout_with(&bound, root_size, env, state),
         };
         (
@@ -572,7 +614,7 @@ fn lay_out_and_emit(
             } else {
                 emit(&laid, env)
             },
-            hit_regions(&laid),
+            hit_regions(&laid).into(),
             report,
             global_mapping(&laid, "button.menu_cancel"),
             find_rect(&laid, "root_panel"),

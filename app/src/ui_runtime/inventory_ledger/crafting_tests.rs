@@ -279,7 +279,7 @@ fn personal_craft_consumes_inputs_and_takes_output_to_the_cursor() {
         (1, 50, request)
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
 
     assert_eq!(
         ledger
@@ -448,7 +448,7 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
         (64, 50, request)
     );
     assert_eq!(destination.container, StackRequestContainer::Cursor);
-    assert!(ledger.pending_packet().unwrap().is_some());
+    assert!(ledger.pending_batch().unwrap().is_some());
     let held = ledger.cursor_stack().unwrap();
     assert_eq!((held.network_id, held.count), (COBBLE, 64));
 

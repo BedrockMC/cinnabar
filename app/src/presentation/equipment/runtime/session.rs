@@ -12,7 +12,7 @@ const MAX_SESSION_MESHES: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 /// A session's icon sprites packed for the artwork pages, before placement on them.
 pub(crate) struct StagedSessionIcons {
     sprites: Vec<IconSprite>,
-    by_identifier: BTreeMap<Box<str>, usize>,
+    by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     atlas: SpriteAtlas,
 }
 
@@ -21,16 +21,22 @@ impl StagedSessionIcons {
     pub(crate) fn stage(items: Option<&SessionItems>) -> Option<Self> {
         let icons = items?.icons.as_deref()?;
         let mut sprites = Vec::new();
-        let mut by_identifier = BTreeMap::new();
+        let mut by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>> = BTreeMap::new();
         for icon in icons.icons.iter().take(MAX_SESSION_MESHES) {
             let (Ok(width), Ok(height)) = (u16::try_from(icon.width), u16::try_from(icon.height))
             else {
                 continue;
             };
-            if by_identifier.contains_key(icon.identifier.as_ref()) {
+            if by_identifier
+                .get(icon.identifier.as_ref())
+                .is_some_and(|variants| variants.contains_key(&icon.metadata))
+            {
                 continue;
             }
-            by_identifier.insert(Box::from(icon.identifier.as_ref()), sprites.len());
+            by_identifier
+                .entry(Box::from(icon.identifier.as_ref()))
+                .or_default()
+                .insert(icon.metadata, sprites.len());
             sprites.push(IconSprite {
                 width,
                 height,
@@ -55,7 +61,7 @@ pub(super) struct SessionLayer {
     hand_equipped: BTreeMap<Box<str>, bool>,
     wearable: BTreeMap<Box<str>, ArmorSlot>,
     sprites: Vec<IconSprite>,
-    by_identifier: BTreeMap<Box<str>, usize>,
+    by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     placements: Vec<Option<Placement>>,
     locations: Vec<Option<ActorArtworkLocation>>,
 }
@@ -125,8 +131,10 @@ impl EquipmentRuntime {
     pub(super) fn session_sprite(
         &self,
         identifier: &str,
+        metadata: u32,
     ) -> Option<(usize, Placement, ActorArtworkLocation)> {
-        let index = *self.session.by_identifier.get(identifier)?;
+        let variants = self.session.by_identifier.get(identifier)?;
+        let index = *variants.get(&metadata).or_else(|| variants.get(&0))?;
         let placement = self.session.placements.get(index).copied().flatten()?;
         let location = self
             .session

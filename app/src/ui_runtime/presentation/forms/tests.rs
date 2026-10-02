@@ -118,8 +118,9 @@ fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     );
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.set_server_ui_pack(&super::ServerUiPack {
+        catalog: None,
         ui_layers: vec![vec![("ui/x.json".to_owned(), b"{}".to_vec())]],
-        textures: Vec::new(),
+        ..Default::default()
     });
     presentation
         .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
@@ -171,6 +172,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let pack = super::ServerUiPack {
+        catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),
             br#"{ "namespace": "server_form", "form_button": { "modifications": [
@@ -179,6 +181,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
                 .to_vec(),
         )]],
         textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
+        view: None,
     };
     let mut presentation = mini_engine_presentation();
     let runtime = super::pack_harness::action_form("Menu", &["A"]);
@@ -307,6 +310,7 @@ impl json_ui::TextureSource for NoTextures {
     fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
         Some(json_ui::TextureMeta {
             base_size: [16.0, 16.0],
+            pixels: [16.0, 16.0],
             nineslice: None,
         })
     }
@@ -540,10 +544,16 @@ fn retail_settings_keep_navigation_and_video_options_compact() {
             assert!((0.0..=2.0).contains(&gap), "{above} to {below}: {gap}");
         }
         let video = layout_section(&layout, "video_section").unwrap();
-        let graphics = rect(video, "graphics_mode").unwrap();
-        let brightness = rect(video, "brightness_slider").unwrap();
-        let gap = brightness.y - graphics.y - graphics.h;
-        assert!((0.0..=8.0).contains(&gap), "graphics to brightness: {gap}");
+        for (above, below) in [
+            ("graphics_mode", "advanced_graphics_options_button"),
+            ("advanced_graphics_options_button", "render_distance_slider"),
+            ("render_distance_slider", "brightness_slider"),
+        ] {
+            let upper = rect(video, above).expect(above);
+            let lower = rect(video, below).expect(below);
+            let gap = lower.y - upper.y - upper.h;
+            assert!((0.0..=8.0).contains(&gap), "{above} to {below}: {gap}");
+        }
     }
 }
 

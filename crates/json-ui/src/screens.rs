@@ -1,52 +1,12 @@
 //! The screens the engine is allowed to draw, and the generic renderer for them;
 //! [`render_screen`] refuses anything not on the allow-list.
 
-use crate::bind::{DataSource, bind};
+use crate::bind::{BindState, DataSource, bind_stateful};
 use crate::catalog::Catalog;
 use crate::form::{CatalogLibrary, FormRender, finish};
 use crate::layout::LayoutEnv;
 use crate::state::ViewState;
 use crate::{Context, ResolvedControl, resolve};
-
-/// Scene flags read from the resolved root, including pack inheritance and variables.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ScreenSettings {
-    pub absorbs_input: bool,
-    pub render_game_behind: bool,
-    pub render_only_when_topmost: bool,
-}
-
-impl Default for ScreenSettings {
-    fn default() -> Self {
-        Self {
-            absorbs_input: true,
-            render_game_behind: true,
-            render_only_when_topmost: true,
-        }
-    }
-}
-
-impl ScreenSettings {
-    /// Covered screens draw only when their pack permits drawing below another scene.
-    pub fn renders(self, topmost: bool) -> bool {
-        topmost || !self.render_only_when_topmost
-    }
-
-    /// UIControlFactory defaults all three flags to true when the pack omits them.
-    pub fn from_root(root: &ResolvedControl) -> Self {
-        let flag = |name| {
-            root.properties
-                .get(name)
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true)
-        };
-        Self {
-            absorbs_input: flag("absorbs_input"),
-            render_game_behind: flag("render_game_behind"),
-            render_only_when_topmost: flag("render_only_when_topmost"),
-        }
-    }
-}
 
 /// A rendered engine screen: bound tree, draw nodes, hit regions, scroll report.
 pub type ScreenRender = FormRender;
@@ -59,6 +19,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "server_form.long_form",
     "server_form.custom_form",
     "popup_dialog.modal_dialog_popup",
+    "rating_prompt.rating_prompt_screen",
     "crafting.inventory_screen",
     "crafting.crafting_screen",
     "chest.small_chest_screen",
@@ -91,6 +52,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "play.play_screen",
     "add_external_server.add_external_server_screen_new",
     "settings.screen_controls_and_settings",
+    "pack_settings.screen",
     "death.death_screen",
     "progress.progress_screen",
     "progress.world_convert_modal_progress_screen",
@@ -119,7 +81,7 @@ pub fn render_screen(
     state: &ViewState,
 ) -> Option<ScreenRender> {
     let root = resolve_screen(reference, catalog, context)?;
-    let bound = bind_screen(&root, catalog, context, data);
+    let bound = bind_screen(&root, catalog, context, data, &mut BindState::new());
     Some(finish(bound, root_size, env, state))
 }
 
@@ -137,14 +99,32 @@ pub fn resolve_screen(
     resolve(catalog, reference, context).control
 }
 
-/// Bind a resolved screen against `data`, ready for [`crate::render_bound`].
+/// The `ScreenSettings` of a `type: "screen"` definition; `None` when the
+/// reference is unknown, ignored or not a screen.
+pub fn screen_settings(
+    reference: &str,
+    catalog: &Catalog,
+    context: &Context,
+) -> Option<crate::ScreenSettings> {
+    let (namespace, name) = reference.split_once('.')?;
+    let root = context.root_env(catalog);
+    let (control_type, properties) =
+        crate::Resolver::new(catalog).resolve_root_properties(namespace, name, &root)?;
+    (control_type.as_deref() == Some("screen"))
+        .then(|| crate::ScreenSettings::from_properties(&properties))
+}
+
+/// One data refresh of a resolved screen whose live bindings `state` keeps,
+/// ready for [`crate::render_bound`].
 pub fn bind_screen(
     root: &ResolvedControl,
     catalog: &Catalog,
     context: &Context,
     data: &DataSource,
+    state: &mut BindState,
 ) -> ResolvedControl {
-    bind(root, data, &CatalogLibrary { catalog, context })
+    let library = CatalogLibrary { catalog, context };
+    bind_stateful(&std::sync::Arc::new(root.clone()), data, &library, state).0
 }
 
 #[cfg(test)]

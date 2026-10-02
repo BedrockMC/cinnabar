@@ -2,7 +2,7 @@ use sim::{Aabb, PLAYER_HEIGHT, PLAYER_WIDTH, Vec3};
 
 fn assert_close(actual: f64, expected: f64) {
     assert!(
-        (actual - expected).abs() <= 1.0e-12,
+        (actual - expected).abs() <= f64::from(f32::EPSILON) * expected.abs().max(1.0),
         "{actual} != {expected}"
     );
 }

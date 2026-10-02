@@ -79,6 +79,36 @@ mod tests {
     use crate::ui_runtime::presentation::forms::{ServerUiPack, pack_harness};
 
     #[test]
+    fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
+        let Some(mut presentation) = pack_harness::engine_presentation() else {
+            return;
+        };
+        let mut runtime = UiRuntime::new(1);
+        runtime.open_chat();
+        let menu = MenuRuntime::new(false, 2, "Tester".into());
+        let engine = presentation.form_presentation.engine.as_deref().unwrap();
+        let chat = engine.scene_settings(super::super::chat_screen::CHAT_SCREEN, engine.context());
+        let hud = engine.scene_settings(json_ui::HUD_SCREEN, engine.context());
+        assert!(chat.absorbs_input && chat.render_game_behind);
+        assert!(!hud.absorbs_input && hud.renders(false));
+        assert!(presentation.renders_game_behind(&runtime, &menu));
+        assert!(presentation.absorbs_gameplay_input(&runtime, &menu));
+        presentation.set_server_ui_pack(&ServerUiPack {
+            ui_layers: vec![vec![(
+                "ui/hud_screen.json".into(),
+                br#"{"namespace":"hud","hud_screen":{"render_only_when_topmost":true}}"#.to_vec(),
+            )]],
+            ..Default::default()
+        });
+        let engine = presentation.form_presentation.engine.as_deref().unwrap();
+        assert!(
+            !engine
+                .scene_settings(json_ui::HUD_SCREEN, engine.context())
+                .renders(false)
+        );
+    }
+
+    #[test]
     fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root() {
         let Some(mut presentation) = pack_harness::engine_presentation() else {
             return;
@@ -97,7 +127,7 @@ mod tests {
         menu.open_pause();
         presentation.set_server_ui_pack(&ServerUiPack {
             ui_layers: vec![vec![(
-                "ui/pause.json".into(),
+                "ui/pause_screen.json".into(),
                 br#"{"namespace":"pause","pause_screen":{"render_game_behind":false}}"#.to_vec(),
             )]],
             ..Default::default()

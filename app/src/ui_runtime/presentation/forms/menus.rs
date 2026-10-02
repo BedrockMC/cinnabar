@@ -32,20 +32,31 @@ impl UiPresentationRuntime {
         let Some(view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
+        let previous = self.form_presentation.ready_menu.take();
+        let pending = view.screen == MenuScreen::Settings
+            && previous
+                .as_ref()
+                .is_some_and(|view| matches!(view.screen, MenuScreen::Home | MenuScreen::Pause))
+            && !self.prepare_settings(runtime, &view, metrics, [width, height]);
+        let shown = if pending {
+            previous.as_ref().unwrap()
+        } else {
+            &view
+        };
         self.menu_scrolls.begin_frame(format!(
             "{:?}/{:?}/{}",
-            view.screen, view.server_tab, view.settings_section
+            shown.screen, shown.server_tab, shown.settings_section
         ));
         self.menu_scrolls.set_areas(Vec::new());
-        let drawn = if view.visible {
-            self.append_engine_menu(runtime, &view, nodes, next, metrics, width, height)
+        let drawn = if shown.visible {
+            self.append_engine_menu(runtime, shown, nodes, next, metrics, width, height)
         } else {
             Ok(Some(Vec::new()))
         };
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
             Ok(None) | Err(_) => menu::append_menu_nodes(
-                &view,
+                shown,
                 nodes,
                 next,
                 &mut self.layouts,
@@ -57,8 +68,52 @@ impl UiPresentationRuntime {
                 self.safe_area,
             ),
         };
+        self.form_presentation.ready_menu = if pending
+            || previous
+                .as_ref()
+                .is_some_and(|previous| previous.screen == view.screen)
+        {
+            previous
+        } else {
+            Some(view.clone())
+        };
         self.menu_view = Some(view);
-        result
+        if pending {
+            self.form_presentation.menu_keys.clear();
+            self.menu_scrolls.set_areas(Vec::new());
+            result.map(|_| Vec::new())
+        } else {
+            result
+        }
+    }
+
+    /// Prepare Settings without blocking its opening frame; readiness includes all layout inputs.
+    fn prepare_settings(
+        &self,
+        runtime: &UiRuntime,
+        view: &MenuView,
+        metrics: TextMetrics,
+        [width, height]: [f32; 2],
+    ) -> bool {
+        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+            return true;
+        };
+        let translate = |key: &str| runtime.translation(key);
+        let Some(prepared) = settings_preparation(view, &translate) else {
+            return true;
+        };
+        let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
+        renderer.prepare(engine::screen_cache::Prepared {
+            reference: prepared.reference,
+            context: prepared.context,
+            data: prepared.data,
+            root: [f64::from(width / px), f64::from(height / px)],
+            px,
+            language: runtime.text_generation(),
+            font: std::sync::Arc::clone(&self.font),
+            metrics,
+            translator: runtime.translator(),
+        })
     }
 
     /// `Ok(None)` when the engine has no screen for this state.
@@ -107,24 +162,8 @@ impl UiPresentationRuntime {
         let Some(screen) = menu_screens::screen_data(view, &translate) else {
             return Ok(None);
         };
-        // Settings lays out for tens of milliseconds; do it while a screen that opens it idles.
         if matches!(view.screen, MenuScreen::Home | MenuScreen::Pause) {
-            let mut settings = view.clone();
-            settings.screen = MenuScreen::Settings;
-            if let Some(prepared) = menu_screens::screen_data(&settings, &translate) {
-                let px = metrics.scale.get() * super::super::FONT_DESIGN_PIXEL_TEXELS as f32;
-                renderer.prepare(engine::screen_cache::Prepared {
-                    reference: prepared.reference,
-                    context: prepared.context,
-                    data: prepared.data,
-                    root: [f64::from(width / px), f64::from(height / px)],
-                    px,
-                    language: translate("menu.play"),
-                    font: std::sync::Arc::clone(&self.font),
-                    metrics,
-                    translator: runtime.translator(),
-                });
-            }
+            self.prepare_settings(runtime, view, metrics, [width, height]);
         }
         // Last frame's region keys carry the launcher's hover/press/focus.
         let key_of = |action: Option<MenuAction>| {
@@ -155,6 +194,7 @@ impl UiPresentationRuntime {
                     }
                 }))
             }),
+            ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
@@ -182,6 +222,7 @@ impl UiPresentationRuntime {
                 safe_area: self.safe_area,
                 content: [width, height],
                 translate: &translate,
+                language: runtime.text_generation(),
             };
             let out = engine::EngineOutput {
                 nodes: &mut *nodes,
@@ -203,6 +244,7 @@ impl UiPresentationRuntime {
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
                 splash: renderer.splash(&translate),
                 now: self.menu_seconds,
+                clocks: Some(&self.scene_clock),
                 ..engine::ScreenArt::default()
             };
             match renderer.render_screen(
@@ -236,10 +278,13 @@ impl UiPresentationRuntime {
         };
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        let mut sounds = Vec::new();
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
         for region in frame.hits.iter().filter(|region| region.enabled) {
-            if let Some(actions) = menu_screens::slider_actions(view, region) {
+            if let Some(actions) = super::global_resources::slider_actions(view, region)
+                .or_else(|| menu_screens::slider_actions(view, region))
+            {
                 if region.control_name.as_deref() == Some("gui_scale") {
                     let mut track = region.clone();
                     track.clip = track.rect;
@@ -251,6 +296,7 @@ impl UiPresentationRuntime {
                 }
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
+                    keys.push((actions[step], region.key.clone()));
                 }
                 continue;
             }
@@ -260,8 +306,10 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, frame.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
+                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
+        self.form_presentation.menu_sounds = sounds;
         // A launcher dialog opens the vanilla popup and takes over the input.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
@@ -292,7 +340,16 @@ impl UiPresentationRuntime {
         let translate = |key: &str| runtime.translation(key);
         let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
-        let data = json_ui::form_data_source(&model);
+        let mut data = json_ui::form_data_source(&model);
+        let reference = if dialog
+            == crate::menu::MenuDialog::SettingsSupport(
+                crate::menu::settings_support::SupportDialog::Help,
+            ) {
+            super::settings_support::help_data(&mut data, &translate);
+            "rating_prompt.rating_prompt_screen"
+        } else {
+            MODAL_POPUP
+        };
         let inputs = engine::EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -301,6 +358,7 @@ impl UiPresentationRuntime {
             safe_area: self.safe_area,
             content: [width, height],
             translate: &translate,
+            language: runtime.text_generation(),
         };
         let out = engine::EngineOutput {
             nodes,
@@ -309,7 +367,7 @@ impl UiPresentationRuntime {
         };
         let popup = renderer
             .render_screen(
-                MODAL_POPUP,
+                reference,
                 &data,
                 &context,
                 state,
@@ -322,23 +380,42 @@ impl UiPresentationRuntime {
             )
             .ok()??;
         let origin = [self.safe_area.left(), self.safe_area.top()];
+        self.menu_scrolls.set_areas(scroll_areas(&popup, origin));
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
             let action = match region.pressed.as_deref() {
-                Some("popup_dialog.left_button") => confirm,
+                Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
                 Some(
-                    "popup_dialog.rightcancel_button" | "popup_dialog.escape" | "button.menu_exit",
+                    "popup_dialog.rightcancel_button"
+                    | "popup_dialog.escape"
+                    | "button.menu_exit"
+                    | "button.rating_no_button",
                 ) => MenuAction::DismissDialog,
                 _ => continue,
             };
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
+                sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
+        self.form_presentation.menu_sounds = sounds;
         Some((hits, keys))
     }
+}
+
+/// Prepare only Settings; transient progress and error screens need live artwork.
+fn settings_preparation(
+    view: &MenuView,
+    translate: menu_screens::Translate<'_>,
+) -> Option<menu_screens::MenuScreenData> {
+    let mut settings = view.clone();
+    settings.screen = MenuScreen::Settings;
+    menu_screens::screen_data(&settings, translate).filter(|screen| {
+        Some(screen.reference) == menu_screens::menu_reference(MenuScreen::Settings)
+    })
 }
 
 /// A region's clipped rect in window-logical pixels.
@@ -374,13 +451,18 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
             let metrics = frame.report.scrolls.get(&region.key)?;
             Some(ScrollArea {
                 key: region.key.clone(),
-                viewport: window_rect(region, frame.scale, origin)?,
+                viewport: metrics
+                    .viewport_rect
+                    .and_then(window)
+                    .or_else(|| window_rect(region, frame.scale, origin))?,
                 scale: frame.scale,
                 offset: metrics.offset as f32,
                 max: metrics.max_offset() as f32,
                 speed: metrics.speed as f32,
                 track: metrics.track.and_then(window),
                 thumb: metrics.thumb.and_then(window),
+                engine: Some((metrics.clone(), origin)),
+                draggable: metrics.box_drag != json_ui::Draggable::NotDraggable,
             })
         })
         .collect()
@@ -388,7 +470,7 @@ fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
 
 /// Regions select the nearest slider anchor, including anchors at both ends
 /// of the track. The end values therefore occupy half an interior interval.
-fn segments(
+pub(super) fn segments(
     region: &HitRegion,
     steps: usize,
     scale: f32,
@@ -447,6 +529,13 @@ mod tests {
             max_length: None,
             group_index: None,
             renderer: None,
+            drag_axes: [false; 2],
+            sound: None,
+            input: Default::default(),
+            focus: None,
+            collections: Vec::new(),
+            widget: Default::default(),
+            modal_root: None,
         };
         let hits = segments(&region, 3, 2.0, [5.0, 7.0]);
         for (track_x, expected) in [
@@ -465,6 +554,26 @@ mod tests {
                 .find(|(_, bounds)| bounds.contains(point))
                 .map(|(step, _)| *step);
             assert_eq!(selected, Some(expected), "track position {track_x}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod preparation_tests {
+    use super::*;
+
+    #[test]
+    fn progress_and_disconnect_views_never_prepare_without_artwork() {
+        let home = crate::menu::MenuRuntime::new(true, 2, "Steve".into()).view();
+        assert!(settings_preparation(&home, &|_| None).is_some());
+        let mut connecting = home.clone();
+        connecting.connecting = true;
+        let mut local = home.clone();
+        local.local.progress = Some(crate::local_worlds::Progress::connecting("Home"));
+        let mut disconnected = home;
+        disconnected.disconnect_message = Some("Disconnected".into());
+        for view in [connecting, local, disconnected] {
+            assert!(settings_preparation(&view, &|_| None).is_none());
         }
     }
 }

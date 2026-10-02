@@ -26,7 +26,8 @@ pub(super) struct TextureCatalog<'a> {
 
 impl<'a> TextureCatalog<'a> {
     pub(super) fn new(view: &'a LayeredPackView) -> Self {
-        let terrain = texture_key_paths(view, "textures/terrain_texture.json");
+        let mut terrain = super::super::resource_packs::base_terrain_catalog();
+        terrain.extend(texture_key_paths(view, "textures/terrain_texture.json"));
         let mut flipbooks = HashMap::new();
         for layer in view.read_layers("textures/flipbook_textures.json") {
             let Some(Value::Array(entries)) = parse_pack_json(&layer) else {

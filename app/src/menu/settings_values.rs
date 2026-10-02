@@ -6,8 +6,7 @@ use bevy::prelude::ResMut;
 use super::MenuRuntime;
 use crate::audio::{AudioCategory, AudioSettings};
 
-/// The sound section's sliders in screen order with the category each sets;
-/// text-to-speech has no app category and stays disabled.
+/// The sound section's mixer categories; text-to-speech persists without a mixer backend.
 pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
     ("main_volume", Some(AudioCategory::Master)),
     ("music_volume", Some(AudioCategory::Music)),
@@ -21,12 +20,6 @@ pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
     ("weather_volume", Some(AudioCategory::Weather)),
     ("texttospeech_volume", None),
 ];
-/// Positions a volume slider snaps to, 0% to 100%; granularity needs native measurement.
-pub(crate) const VOLUME_STEPS: u8 = 21;
-
-/// Slider percents in [`VOLUME_SLIDERS`] order; `None` is an unbacked slider.
-pub(crate) type Volumes = [Option<u8>; VOLUME_SLIDERS.len()];
-
 impl MenuRuntime {
     /// A capture's fixed CLI scale, cleared when the native slider is changed.
     pub(crate) fn gui_scale_preference(&self) -> Option<u8> {
@@ -74,26 +67,18 @@ impl MenuRuntime {
         self.fullscreen = fullscreen;
     }
 
-    /// Write a pending slider change into `settings`, then mirror its sliders.
+    /// Applies the saved sound values to the live mixer.
     pub(crate) fn sync_audio_settings(&mut self, settings: Option<ResMut<AudioSettings>>) {
         let Some(mut settings) = settings else {
             return;
         };
-        if let Some((slot, percent)) = self.volume_change.take()
-            && let Some((_, Some(category))) = VOLUME_SLIDERS.get(usize::from(slot))
-        {
-            settings.set(*category, f32::from(percent) / 100.0);
-        }
-        self.volumes = VOLUME_SLIDERS.map(|(_, category)| {
-            category.map(|category| (settings.volume(category) * 100.0).round() as u8)
-        });
-    }
-
-    pub(super) fn set_volume(&mut self, slot: u8, percent: u8) {
-        let percent = percent.min(100);
-        if let Some(Some(volume)) = self.volumes.get_mut(usize::from(slot)) {
-            *volume = percent;
-            self.volume_change = Some((slot, percent));
+        for (name, category) in VOLUME_SLIDERS {
+            if let Some(category) = category {
+                let volume = self.settings_options.value(name) as f32 / 100.0;
+                if settings.volume(category) != volume {
+                    settings.set(category, volume);
+                }
+            }
         }
     }
 }
@@ -130,21 +115,5 @@ mod tests {
         assert!(!menu.view().fullscreen);
         assert_eq!(menu.take_fullscreen_change(), Some(false));
         assert_eq!(menu.take_fullscreen_change(), None);
-    }
-
-    #[test]
-    fn only_backed_sliders_accept_changes() {
-        let mut menu = menu();
-        menu.set_volume(1, 40);
-        assert_eq!(
-            menu.view().volumes[1],
-            None,
-            "unsynced sliders are unbacked"
-        );
-        menu.volumes[1] = Some(100);
-        menu.set_volume(1, 40);
-        menu.set_volume(10, 40);
-        assert_eq!(menu.volume_change, Some((1, 40)));
-        assert_eq!(menu.view().volumes[1], Some(40));
     }
 }

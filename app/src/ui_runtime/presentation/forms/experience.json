@@ -131,8 +131,11 @@
           ],
           "anchor_from": "top_left",
           "anchor_to": "top_left",
+          "scroll_view_port": "viewport",
           "scroll_content": "body",
+          "scrollbar_track": "bar",
           "scrollbar_box": "thumb",
+          "scroll_box_and_track_panel": "bar",
           "scroll_speed": 20,
           "controls": [
             {
@@ -188,6 +191,7 @@
                   {
                     "thumb": {
                       "type": "scrollbar_box",
+                      "draggable": "vertical",
                       "size": [
                         6,
                         "100%"

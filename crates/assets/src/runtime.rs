@@ -199,6 +199,20 @@ impl RuntimeAssets {
         )
     }
 
+    /// Texture pixels and animation frames do not change the mesh's material addresses.
+    pub fn has_same_geometry(&self, other: &Self) -> bool {
+        self.visuals == other.visuals
+            && self.hashed == other.hashed
+            && self.model_templates == other.model_templates
+            && self.model_quads == other.model_quads
+            && self.materials.len() == other.materials.len()
+            && self
+                .materials
+                .iter()
+                .zip(other.materials.iter())
+                .all(|(a, b)| a.flags == b.flags)
+    }
+
     /// Number of materials in the carrier's table.
     #[must_use]
     pub fn material_count(&self) -> usize {

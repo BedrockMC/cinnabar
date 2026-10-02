@@ -13,15 +13,14 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_resource::{
-            AddressMode, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
-            Buffer, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferSize,
-            BufferUsages, CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
-            CompareFunction, DepthStencilState, FilterMode, FragmentState, PipelineCache,
-            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TextureFormat,
-            TextureSampleType, TextureViewDimension, Variants, VertexAttribute, VertexFormat,
-            VertexState, VertexStepMode,
+            AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
+            BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
+            BufferDescriptor, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, FilterMode, FragmentState, PipelineCache, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension,
+            Variants, VertexAttribute, VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -31,9 +30,13 @@ use bevy::{
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
-use textures::UiGpuTextures;
+use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/batches.rs"]
 mod batches;
+#[path = "ui_render/composite.rs"]
+pub(crate) mod composite;
+#[path = "ui_render/glint.rs"]
+mod glint;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
@@ -43,6 +46,7 @@ pub(crate) mod shader;
 #[path = "ui_render/uploads.rs"]
 mod uploads;
 use batches::resolved_batches;
+pub use glint::UiGlintSettings;
 use overlay::queue_ui_overlay;
 pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_overlay_graph};
 use pipeline::UiPipelineKey;
@@ -75,6 +79,7 @@ struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
     app.init_resource::<UiRenderScene>()
+        .init_resource::<UiGlintSettings>()
         .init_resource::<UiRenderStats>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
@@ -84,11 +89,21 @@ fn install_ui_render(app: &mut App) {
         return;
     }
     let stats = app.world().resource::<UiRenderStats>().clone();
-    app.add_plugins(ExtractResourcePlugin::<UiRenderScene>::default());
+    app.add_plugins((
+        ExtractResourcePlugin::<UiRenderScene>::default(),
+        ExtractResourcePlugin::<UiGlintSettings>::default(),
+    ));
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        composite::UI_COMPOSITE_SHADER_HANDLE,
+        "ui_composite.wgsl",
+        Shader::from_wgsl
+    );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
         .init_resource::<UiPipeline>()
+        .init_resource::<composite::UiCompositePipeline>()
         .insert_resource(stats)
         .init_resource::<UiHandCoverage>()
         .add_systems(RenderStartup, init_ui_gpu)
@@ -96,6 +111,7 @@ fn install_ui_render(app: &mut App) {
             Render,
             (
                 prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+                composite::prepare_ui_layers.in_set(RenderSystems::PrepareResources),
                 prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_ui_overlay.in_set(RenderSystems::Queue),
             ),
@@ -118,6 +134,8 @@ pub(crate) struct UiGpu {
     started: std::time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
+    /// `bilinear` sprites sample through this instead.
+    linear_sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     // Admission watermark survives every draw rejection, even after payload drop.
@@ -127,6 +145,8 @@ pub(crate) struct UiGpu {
     uploads: uploads::BufferUploads,
     view_pipelines:
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
+    /// Each view's UI-layer composite pipeline.
+    composite_pipelines: std::collections::BTreeMap<Entity, CachedRenderPipelineId>,
     world_view_pipelines: std::collections::BTreeMap<
         (Entity, bool, bool),
         (CachedRenderPipelineId, CachedRenderPipelineId),
@@ -139,20 +159,24 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         contents: bytemuck::bytes_of(&UiViewportUniform {
             viewport_size: [1.0, 1.0],
             time_seconds: 0.0,
-            _padding: 0.0,
+            glint_strength: UiGlintSettings::default().strength,
         }),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
-    let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("shared nearest UI texture sampler"),
-        address_mode_u: AddressMode::ClampToEdge,
-        address_mode_v: AddressMode::ClampToEdge,
-        address_mode_w: AddressMode::ClampToEdge,
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
-        ..default()
-    });
+    let sampler_with = |label, filter| {
+        render_device.create_sampler(&SamplerDescriptor {
+            label: Some(label),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: filter,
+            min_filter: filter,
+            mipmap_filter: FilterMode::Nearest,
+            ..default()
+        })
+    };
+    let sampler = sampler_with("shared nearest UI texture sampler", FilterMode::Nearest);
+    let linear_sampler = sampler_with("shared bilinear UI texture sampler", FilterMode::Linear);
     commands.insert_resource(UiGpu {
         device: render_device.wgpu_device().clone(),
         device_observation: DeviceObservation::new(tick.this_run()),
@@ -167,6 +191,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
         sampler,
+        linear_sampler,
         batches: Arc::from([]),
         accepted_revision: None,
         last_admitted_revision: None,
@@ -174,6 +199,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         index_count: 0,
         uploads: uploads::BufferUploads::default(),
         view_pipelines: std::collections::BTreeMap::new(),
+        composite_pipelines: std::collections::BTreeMap::new(),
         world_view_pipelines: std::collections::BTreeMap::new(),
     });
 }
@@ -185,7 +211,7 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStats>,
     tick: SystemChangeTick,
-    coverage: Option<Res<UiHandCoverage>>,
+    (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
@@ -216,8 +242,12 @@ pub(crate) fn prepare_ui_resources(
     // Written every frame: the glint animates without a new UI revision.
     let viewport = UiViewportUniform {
         viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
-        time_seconds: gpu.started.elapsed().as_secs_f32() % 3600.0,
-        _padding: 0.0,
+        time_seconds: glint
+            .as_deref()
+            .copied()
+            .unwrap_or_default()
+            .animation_seconds(gpu.started.elapsed().as_secs_f32()),
+        glint_strength: glint.as_deref().copied().unwrap_or_default().strength,
     };
     render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     if let Some(previous) = gpu.last_admitted_revision {
@@ -426,6 +456,12 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
         ],
     )
 }
@@ -513,42 +549,6 @@ pub(crate) fn ui_pipeline_descriptor(
     }
 }
 
-fn prepare_ui_bind_group(
-    render_device: Res<RenderDevice>,
-    pipeline_cache: Res<PipelineCache>,
-    pipeline: Res<UiPipeline>,
-    mut gpu: ResMut<UiGpu>,
-) {
-    if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
-        return;
-    }
-    let viewport = gpu.viewport_buffer.clone();
-    let sampler = gpu.sampler.clone();
-    for bucket in &mut gpu.textures.buckets {
-        if bucket.bind_group.is_some() {
-            continue;
-        }
-        bucket.bind_group = Some(render_device.create_bind_group(
-            "shared retained UI bind group",
-            &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: viewport.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&bucket.view),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(&sampler),
-                },
-            ],
-        ));
-    }
-}
-
 #[cfg(test)]
 mod ordered_command_tests {
     use super::*;
@@ -566,6 +566,7 @@ mod ordered_command_tests {
                             msaa,
                             hdr: true,
                             invert_blend: false,
+                            layer: false,
                             depth_test,
                             depth_write,
                         },
