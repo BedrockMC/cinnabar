@@ -488,8 +488,8 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                         .as_deref()
                         .zip(ui.as_deref())
                         .and_then(|(use_runtime, ui)| {
-                            let render_input = if index == 0 {
-                                use_runtime.render_input(
+                            let render_input = use_runtime
+                                .render_input(
                                     stream,
                                     ui,
                                     movement_tick
@@ -497,14 +497,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                                         .map_or(0, |ticks| ticks.completed_tick()),
                                     step.partial_tick,
                                 )
-                            } else {
-                                client_world::AttachableAnimationInput {
-                                    first_person: true,
-                                    off_hand: true,
-                                    frame_alpha: step.partial_tick,
-                                    ..Default::default()
-                                }
-                            };
+                                .for_hand(index == 1);
                             let render_input = input.attachable_input(render_input);
                             equipment.first_person_attachable(
                                 &presentation.submission,
