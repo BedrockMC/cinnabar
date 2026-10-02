@@ -115,7 +115,7 @@ type Account struct {
 	client      string
 	device      xasd.TokenSource
 	deviceToken *xasd.Token
-	session     *sisu.Session
+	session     *accountSession
 	environment *service.AuthorizationEnvironment
 	cachedEnv   *derivedEnvironment
 	service     *service.Token
@@ -151,7 +151,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 	defer func() {
 		if source.session == nil {
 			source.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, nil)
-			source.session = auth.AndroidConfig.New(accountOAuthSource{source}, &sisu.SessionConfig{DeviceTokenSource: source.device})
+			source.session = newAccountSession(source, &sisu.SessionConfig{DeviceTokenSource: source.device})
 		}
 	}()
 	tok, err := source.oauthToken(ctx)
@@ -269,7 +269,7 @@ func (s *Account) XSTSToken(ctx context.Context, relyingParty string) (*xsts.Tok
 		s.deviceToken = device
 	}
 	if before == nil || before.Token != token.Token {
-		s.updateOAuthBindingLocked()
+		s.updateOAuthBindingLocked(ctx)
 	}
 	s.persistLocked(ctx, publish)
 	if before != nil && before.Token == token.Token {
@@ -367,7 +367,7 @@ func (s *Account) ServiceToken(ctx context.Context) (*service.Token, error) {
 	s.diagnostic("refresh", "service", "expired")
 	s.service = token
 	if session != sessionFingerprint(s.session.Snapshot()) {
-		s.updateOAuthBindingLocked()
+		s.updateOAuthBindingLocked(ctx)
 	}
 	s.persistLocked(ctx, lease != nil)
 	return token, nil
@@ -502,8 +502,9 @@ func (t sessionTickets) SessionTicket(ctx context.Context) (string, error) {
 	return client.SessionTicket(ctx)
 }
 
-func (s *Account) updateOAuthBindingLocked() {
-	token, err := s.oauthToken(s.ctx)
+// updateOAuthBindingLocked records any rotation without outliving the caller's lease wait.
+func (s *Account) updateOAuthBindingLocked(ctx context.Context) {
+	token, err := s.oauthToken(ctx)
 	if err == nil && token != nil {
 		s.binding = oauthBinding(token)
 	}
@@ -517,15 +518,6 @@ func (s *Account) operationContext(ctx context.Context) (context.Context, contex
 		cancel()
 	}
 	return ctx, func() { stop(); cancel() }
-}
-
-// accountOAuthSource binds nested SISU refreshes to the account lifetime without
-// taking its mutex again: the caller may already hold the account lock.
-type accountOAuthSource struct{ account *Account }
-
-// Token lets account shutdown interrupt OAuth lease waits inside SISU.
-func (source accountOAuthSource) Token() (*oauth2.Token, error) {
-	return source.account.oauthToken(source.account.ctx)
 }
 
 // oauthToken propagates cancellation into cache leases. An already-running
@@ -679,7 +671,7 @@ func (s *Account) resetLocked(binding string) {
 	s.deviceToken = nil
 	s.rejected = nil
 	s.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, proofKey)
-	s.session = auth.AndroidConfig.New(accountOAuthSource{s}, &sisu.SessionConfig{DeviceTokenSource: s.device})
+	s.session = newAccountSession(s, &sisu.SessionConfig{DeviceTokenSource: s.device})
 	s.persisted = ""
 }
 
@@ -710,7 +702,7 @@ func (s *Account) restore(state *derivedState) error {
 		cachedEnv = state.Environment
 	}
 	device := xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, state.DeviceToken, key)
-	session := auth.AndroidConfig.New(accountOAuthSource{s}, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: device})
+	session := newAccountSession(s, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: device})
 	var serviceToken *service.Token
 	if state.ServiceToken != nil && state.ServiceToken.Valid() && cachedEnv != nil {
 		serviceToken = state.ServiceToken
