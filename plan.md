@@ -4079,3 +4079,14 @@ and OS priority mappings are Cinnabar implementation choices; exact current-clie
 scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
+
+
+### Zeqa regression follow-up (incomplete visual/performance acceptance)
+
+Nametag phase traversal, omitted catalog plane backs, active player appearance
+lifetime, and matrices cached across rig replacement have focused corrections.
+The supplied offline witnesses do not close the live form layout/FPS, missing
+hotbar icons, all nametag size/garbling symptoms, or RustMCBE stretched-limb gates.
+The player-body report omits equipment and GPU execution. See
+`docs/reference/zeqa-regression-investigation.md` for source boundaries, vanilla
+references, PNG evidence and the limitations of the capture.
