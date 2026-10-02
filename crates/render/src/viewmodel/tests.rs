@@ -742,3 +742,20 @@ fn review_render_cube_uvs_span_complete_source_texels() {
     }
 }
 
+#[test]
+fn review_render_fixed_arm_rejects_bindings_and_texture_meshes() {
+    let mut geometry = profile();
+    geometry.bones[3].binding = Some("q.item_slot_to_bone_name(context.item_slot)".into());
+    assert!(geometry::validated_geometry(&geometry, [5; 32]).is_none());
+    let mut geometry = profile();
+    let zero = assets::EntityGeometryScalar::new(0.0).unwrap();
+    geometry.bones[3].texture_meshes = Box::new([assets::EntityGeometryTextureMesh {
+        local_pivot: [zero; 3],
+        position: [zero; 3],
+        rotation: [zero; 3],
+        scale: assets::EntityGeometryTextureMesh::DEFAULT_SCALE,
+        use_pixel_depth: true,
+        texture: "default".into(),
+    }]);
+    assert!(geometry::validated_geometry(&geometry, [5; 32]).is_none());
+}
