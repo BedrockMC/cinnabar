@@ -14,8 +14,26 @@ import (
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.
 type fixtureLimits struct {
-	MaxFrameBytes int    `json:"max_frame_bytes"`
-	Protocol      uint32 `json:"protocol"`
+	MaxFrameBytes     int    `json:"max_frame_bytes"`
+	Protocol          uint32 `json:"protocol"`
+	MaxBlockDataBytes int    `json:"max_block_data_bytes"`
+	MaxStagedOps      int    `json:"max_staged_ops"`
+	MaxTells          int    `json:"max_tells"`
+	MaxTellBytes      int    `json:"max_tell_bytes"`
+}
+
+// rustLimits reads the limits fixture.
+func rustLimits(t *testing.T) fixtureLimits {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "protocol", "limits.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rust fixtureLimits
+	if err := decodeStrict(data, &rust); err != nil {
+		t.Fatal(err)
+	}
+	return rust
 }
 
 // fixtureEnums mirrors the enums fixture: every protocol enum string, in Rust's order.
@@ -216,14 +234,7 @@ func TestUnknownFieldRejected(t *testing.T) {
 // Rust's read_frame and write_frame: a body of exactly maxFrameBytes passes, one more byte does
 // not.
 func TestFrameLimitMatchesRust(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("testdata", "protocol", "limits.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rust fixtureLimits
-	if err := decodeStrict(data, &rust); err != nil {
-		t.Fatal(err)
-	}
+	rust := rustLimits(t)
 	if maxFrameBytes != rust.MaxFrameBytes {
 		t.Errorf("maxFrameBytes = %d, Rust MAX_FRAME_BYTES = %d", maxFrameBytes, rust.MaxFrameBytes)
 	}
@@ -258,4 +269,23 @@ func TestFrameLimitMatchesRust(t *testing.T) {
 			t.Fatal("a body of maxFrameBytes+1 was encoded")
 		}
 	})
+}
+
+// The commit check enforces the runtime's op, block data and tell limits again, so Go shares them
+// with Rust.
+func TestCommitLimitsMatchRust(t *testing.T) {
+	rust := rustLimits(t)
+	for _, limit := range []struct {
+		name      string
+		goV, rust int
+	}{
+		{"maxBlockDataBytes", maxBlockDataBytes, rust.MaxBlockDataBytes},
+		{"maxStagedOps", maxStagedOps, rust.MaxStagedOps},
+		{"maxTells", maxTells, rust.MaxTells},
+		{"maxTellBytes", maxTellBytes, rust.MaxTellBytes},
+	} {
+		if limit.goV != limit.rust {
+			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)
+		}
+	}
 }

@@ -9,7 +9,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::hex;
-use crate::limits::{MAX_FRAME_BYTES, MAX_REASON_BYTES};
+use crate::limits::{
+    MAX_BLOCK_DATA_BYTES, MAX_FRAME_BYTES, MAX_REASON_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES,
+    MAX_TELLS,
+};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -266,11 +269,16 @@ pub fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<Option<T
         .map_err(|err| io::Error::new(ErrorKind::InvalidData, err))
 }
 
-/// Constants the Go adapter must agree with.
+/// Constants the Go adapter must agree with: the frame limit, the protocol version, and the
+/// limits its commit check enforces again.
 #[derive(Serialize)]
 struct Limits {
     max_frame_bytes: usize,
     protocol: u32,
+    max_block_data_bytes: usize,
+    max_staged_ops: usize,
+    max_tells: usize,
+    max_tell_bytes: usize,
 }
 
 /// Every protocol enum string, so the Go adapter can check its sets against Rust.
@@ -502,6 +510,10 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             pretty(&Limits {
                 max_frame_bytes: MAX_FRAME_BYTES,
                 protocol: PROTOCOL_VERSION,
+                max_block_data_bytes: MAX_BLOCK_DATA_BYTES,
+                max_staged_ops: MAX_STAGED_OPS,
+                max_tells: MAX_TELLS,
+                max_tell_bytes: MAX_TELL_BYTES,
             }),
         ),
         (
