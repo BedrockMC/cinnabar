@@ -4,7 +4,7 @@
 use std::{
     ffi::OsStr,
     fs,
-    io::Read,
+    io::Read as _,
     path::{Path, PathBuf},
 };
 

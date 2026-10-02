@@ -11,7 +11,7 @@ struct CasterUniform {
     flags: vec4<u32>,
 }
 
-// Shadow-caster bind group appended as group 1 on depth-only pipelines.
+// Shadow-caster bind group appended as group 2 on depth-only pipelines.
 @group(2) @binding(0) var<uniform> caster: CasterUniform;
 @group(2) @binding(1) var caster_material_classes: texture_2d<u32>;
 
