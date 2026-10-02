@@ -622,3 +622,18 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     assert_eq!(first.delta, expected_deltas[0]);
     assert_eq!(second.delta, expected_deltas[1]);
 }
+
+
+#[test]
+fn review_invalid_correction_preserves_live_prediction_and_authority() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    let before = physics.network_position();
+    assert!(reconcile_candidate_physics_correction(&mut ticker, &mut physics,
+        [f32::NAN, 2.620_01, 0.0], 100, true, PhysicsCorrectionMode::Snap, &VersionedFloor(1)).is_err());
+    assert!(ticker.physics_is_authorized());
+    assert_eq!(physics.network_position(), before);
+}
