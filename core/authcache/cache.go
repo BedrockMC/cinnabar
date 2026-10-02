@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
-	"sync"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -54,7 +53,7 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 	}
 	defer lease.Close()
 
-	s := &persistingSource{ctx: ctx, path: path, writer: config.Writer, refresh: config.Refresh}
+	s := &persistingSource{gate: make(chan struct{}, 1), ctx: ctx, path: path, writer: config.Writer, refresh: config.Refresh}
 	cached, err := load(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("load Microsoft auth cache: %w", err)
@@ -92,7 +91,7 @@ func Source(ctx context.Context, config Config) (oauth2.TokenSource, error) {
 // persistingSource serializes local callers and holds a stable path.lock lease
 // across each refresh. Atomic token replacement never replaces the lock file.
 type persistingSource struct {
-	mu      sync.Mutex
+	gate    chan struct{}
 	ctx     context.Context
 	path    string
 	writer  io.Writer
@@ -106,10 +105,8 @@ func (s *persistingSource) Token() (*oauth2.Token, error) {
 	return s.token(s.ctx)
 }
 
-// token lets account operations interrupt a lease wait with their own context.
+// token lets each caller interrupt waits for local serialization or the file lease.
 func (s *persistingSource) token(ctx context.Context) (*oauth2.Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -117,6 +114,12 @@ func (s *persistingSource) token(ctx context.Context) (*oauth2.Token, error) {
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 	defer cancel()
+	select {
+	case s.gate <- struct{}{}:
+		defer func() { <-s.gate }()
+	case <-wait.Done():
+		return nil, wait.Err()
+	}
 	lease, err := lockfile.AcquireContext(wait, s.path+cacheLockSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("lock Microsoft auth cache: %w", err)
