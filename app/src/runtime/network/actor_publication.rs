@@ -227,19 +227,15 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         *published_pack = pack.clone();
         *published_items = items.clone();
         let staged = StagedSessionIcons::stage(items.as_deref());
-        let (staged, locations) = if pack.is_some() || staged.is_some() || session_artwork.is_some()
-        {
-            apply_session_pack(
-                &mut scene,
-                &artwork,
-                pack.as_deref(),
-                staged,
-                &mut session_artwork,
-                equipment.as_deref_mut(),
-            )
-        } else {
-            (None, Vec::new())
-        };
+        // Always republished: presentation selects from these pages, the scene validates them.
+        let (staged, locations) = apply_session_pack(
+            &mut scene,
+            &artwork,
+            pack.as_deref(),
+            staged,
+            &mut session_artwork,
+            equipment.as_deref_mut(),
+        );
         if let Some(equipment) = equipment.as_deref_mut() {
             equipment.set_session_items(items.as_deref(), staged, locations);
         }
