@@ -15,7 +15,7 @@ fn archive_files(
     extra: bool,
     method: CompressionMethod,
 ) -> (Vec<u8>, manifest::Offer) {
-    archive_files_with_permissions(assets, extra, method, BTreeSet::new())
+    archive_files_with_permissions(assets, extra, method, BTreeSet::new(), None)
 }
 
 /// Produces signed revisions with the declared permissions covered by the manifest signature.
@@ -24,6 +24,7 @@ fn archive_files_with_permissions(
     extra: bool,
     method: CompressionMethod,
     permissions: BTreeSet<manifest::Permission>,
+    component: Option<&str>,
 ) -> (Vec<u8>, manifest::Offer) {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let mut deployment = offer(&key);
@@ -35,7 +36,7 @@ fn archive_files_with_permissions(
         publisher_key: deployment.packages[0].publisher_key.clone(),
         package_version: "fixture".into(),
         permissions,
-        component: None,
+        component: component.map(str::to_owned),
         channels: Vec::new(),
         actions: BTreeSet::new(),
         files: assets
@@ -79,10 +80,34 @@ fn indexed_archive_is_verified_before_any_runtime_exists() {
     assert_eq!(bundle.file("poster.txt"), Some(b"fixture".as_slice()));
     assert!(bundle.component().is_none());
     assert_eq!(bundle.expanded_bytes(), 7);
+    assert!(bundle.into_component().is_none());
     assert!(
         bundle::VerifiedBundle::read(&bytes, &deployment.packages[0], &deployment.scope, 1,)
             .is_err()
     );
+}
+
+#[test]
+fn verified_component_transfers_to_the_helper_without_copying() {
+    let payload = b"\0asm\x01\0\0\0";
+    let (bytes, deployment) = archive_files_with_permissions(
+        &[("guest.wasm", payload), ("poster.txt", b"poster")],
+        false,
+        CompressionMethod::Stored,
+        BTreeSet::new(),
+        Some("guest.wasm"),
+    );
+    let bundle = bundle::VerifiedBundle::read(
+        &bytes,
+        &deployment.packages[0],
+        &deployment.scope,
+        policy::MAX_EXPANDED_BYTES,
+    )
+    .unwrap();
+    let original = bundle.component().unwrap().as_ptr();
+    let component = bundle.into_component().unwrap();
+    assert_eq!(component, payload);
+    assert_eq!(component.as_ptr(), original);
 }
 
 #[test]
@@ -303,6 +328,7 @@ fn media_revisions() -> (
             false,
             CompressionMethod::Stored,
             BTreeSet::from([manifest::Permission::Media]),
+            None,
         );
         let bundle = bundle::VerifiedBundle::read(
             &bytes,

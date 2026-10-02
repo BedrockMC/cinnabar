@@ -86,7 +86,7 @@ impl<H: Worker> Live<H> {
                 capabilities.scope.memory_bytes,
                 capabilities.scope.gpu_bytes,
             )?;
-            let component = bundle.component().map(<[u8]>::to_vec);
+            let component = bundle.into_component();
             let busy = component.is_some();
             instances.insert(
                 owner.bundle.clone(),
@@ -251,7 +251,7 @@ impl<H: Worker> Live<H> {
             let component = instance.component.take().expect("component checked");
             instance.helper = Some(H::spawn(
                 &self.executable,
-                &component,
+                component,
                 instance.owner.clone(),
                 instance.capabilities.clone(),
                 self.epoch,
