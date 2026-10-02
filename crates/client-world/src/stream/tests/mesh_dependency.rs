@@ -63,6 +63,22 @@ fn horizontal_corner_change_invalidates_liquid_dependent() {
     assert!(stream.pending_mesh.contains_key(&dependent));
 }
 
+/// Neighbour data cannot change geometry in an absent slot; explicit source removal still runs.
+#[test]
+fn absent_neighbours_do_not_queue_empty_removals() {
+    let mut stream = stream();
+    let source = SubChunkKey::new(0, 0, 0, 0);
+    stream.mark_changed(source, Instant::now());
+    assert_eq!(stream.pending_mesh.len(), 1);
+    assert!(stream.pending_mesh.contains_key(&source));
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(super::WorldMeshChange::Remove { key, .. }) if key == source
+    ));
+    assert!(stream.pending_mesh.is_empty());
+}
+
 #[test]
 fn liquid_dependency_skips_vertical_corner_outside_sample_set() {
     let mut stream = stream();
@@ -124,6 +140,7 @@ fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
     let mut stream = stream();
     let source = SubChunkKey::new(0, 0, 0, 0);
     let dependent = SubChunkKey::new(0, 1, 0, 1);
+    stream.resident.extend(source.mesh_dependents());
     stream.resident.insert(dependent);
     let registered_at = Instant::now();
     let registered = stream.mark_dirty_exact(dependent, registered_at);
@@ -148,12 +165,12 @@ fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
     stream.mark_changed_sources([source, source], second_at);
     assert_eq!(
         stream.revisions.next_revision - before_second,
-        8,
-        "each rapid batch must revise every deduplicated dirty target exactly once"
+        0,
+        "pending snapshots must coalesce repeated invalidations"
     );
     let second = stream.pending_mesh[&dependent];
 
-    assert_ne!(first.revision, second.revision);
+    assert_eq!(first.revision, second.revision);
     assert_eq!(
         second.revision,
         stream.revisions.dirty(dependent).unwrap().revision
@@ -238,7 +255,7 @@ fn inline_full_column_change_invalidates_registered_corner_dependency() {
 }
 
 #[test]
-fn known_air_removal_replaces_stale_mask_and_skips_later_diagonal_change() {
+fn known_air_removal_replaces_stale_mask_and_skips_neighbour_changes() {
     let mut stream = stream();
     let target = SubChunkKey::new(0, 1, -4, 0);
     let diagonal_source = SubChunkKey::new(0, 0, -4, 1);
@@ -288,6 +305,14 @@ fn known_air_removal_replaces_stale_mask_and_skips_later_diagonal_change() {
         empty_generation
     );
     assert!(!stream.pending_mesh.contains_key(&target));
+    stream.mark_changed(SubChunkKey::new(0, 0, -4, 0), Instant::now());
+    assert!(!stream.pending_mesh.contains_key(&target));
+    stream.mark_changed(target, Instant::now());
+    assert!(stream.pending_mesh.contains_key(&target));
+    assert_ne!(
+        stream.revisions.dirty(target).unwrap().revision,
+        empty_generation
+    );
 }
 
 #[test]

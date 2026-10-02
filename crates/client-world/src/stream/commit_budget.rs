@@ -1,7 +1,11 @@
 use super::*;
 
 /// Cooperative frame allocation, with one progress item per ready service lane.
-pub(super) const WORLD_POLL_BUDGET: Duration = Duration::from_millis(2);
+pub(super) const WORLD_POLL_BUDGET: Duration = Duration::from_millis(3);
+/// Reserves half of the frame allocation for light and mesh service.
+pub(super) const WORLD_SCHEDULING_SHARE: u32 = 2;
+/// Lighting gates geometry; reserve a third of the remaining service time for meshing.
+pub(super) const WORLD_MESH_SHARE: u32 = 3;
 
 pub(super) struct PendingSubChunkCommit {
     pub(super) sequence: u64,
@@ -13,7 +17,10 @@ pub(super) struct PendingSubChunkCommit {
 impl WorldStream {
     /// Starts the frame's shared ingress, commit and scheduling allocation.
     pub fn begin_frame_work(&mut self) {
-        self.poll_deadline = Some(Instant::now() + WORLD_POLL_BUDGET);
+        let now = Instant::now();
+        self.frame_deadline = Some(now + WORLD_POLL_BUDGET);
+        self.poll_deadline =
+            Some(now + WORLD_POLL_BUDGET - WORLD_POLL_BUDGET / WORLD_SCHEDULING_SHARE);
     }
 
     /// Reports whether normal work has spent this poll's shared allocation.

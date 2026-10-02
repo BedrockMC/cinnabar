@@ -4093,3 +4093,11 @@ unsent; successful admission advances all included requests together. Empty batc
 emit no packet (Lens `0x28d09e0`; `R:i/ItemStackNetManagerClient.cpp:4058`). The existing
 window-control priority is retained. Native tick/flush phase, cross-family packet batching,
 vehicle prediction, interaction models and emote/spin/flight input ownership remain open.
+### Mesh streaming follow-up (incomplete native acceptance)
+
+The offline load/teleport and burst fixtures exercise separate decode, light and mesh
+queues, bounded frame service and coalesced invalidations. Pool sizes, service shares
+and OS priority mappings are Cinnabar implementation choices; exact current-client
+scheduling parity remains incomplete. Native release frame and network-latency
+acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
+and local regression measurements.

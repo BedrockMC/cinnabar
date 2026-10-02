@@ -131,6 +131,29 @@ impl WorldStream {
         self.remove_light_key_without_invalidation(key);
     }
 
+    /// A disjoint retirement has no retained neighbours; release its indexes off the frame thread.
+    pub(in crate::stream) fn retire_all_lighting(&mut self) {
+        let retired = (
+            std::mem::take(&mut self.block_generations),
+            std::mem::take(&mut self.light_store),
+            std::mem::take(&mut self.light_ownership),
+            std::mem::take(&mut self.direct_sky),
+            std::mem::take(&mut self.light_failures),
+            std::mem::take(&mut self.light_revisions.entries),
+            std::mem::take(&mut self.pending_light),
+            std::mem::take(&mut self.light_priority_wakeups),
+            std::mem::take(&mut self.in_flight_light),
+            std::mem::take(&mut self.in_flight_light_batches),
+            std::mem::take(&mut self.last_dispatched_light_batch),
+            std::mem::take(&mut self.light_waiters),
+            std::mem::take(&mut self.pending_light_scan),
+            std::mem::take(&mut self.pending_light_ready),
+            std::mem::take(&mut self.pending_light_deferred),
+            std::mem::take(&mut self.light_scheduler_refresh),
+        );
+        rayon::spawn(move || drop(retired));
+    }
+
     /// Retires one light source after its batch collected the affected mesh halo.
     pub(in crate::stream) fn remove_light_key_without_invalidation(&mut self, key: SubChunkKey) {
         self.block_generations.remove(&key);

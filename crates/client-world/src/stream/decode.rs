@@ -62,10 +62,8 @@ impl WorldStream {
     pub(super) fn dispatch_decode_jobs(&mut self) {
         let budget = DECODE_DISPATCH_BUDGET_PER_POLL
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
-        for index in 0..budget {
-            if index != 0 && self.poll_budget_exhausted() {
-                break;
-            }
+        // Enqueueing is count-bounded; spent commit time must not idle the decode lane.
+        for _ in 0..budget {
             let Some(QueuedDecodeJob { queued_at, job }) = self.pending_decode.pop_front() else {
                 break;
             };
@@ -76,7 +74,7 @@ impl WorldStream {
                 .decode_jobs_dispatched
                 .saturating_add(1);
             let tx = self.decode_tx.clone();
-            rayon::spawn(move || {
+            workers::WORKERS.decode.spawn(move || {
                 let started = Instant::now();
                 let queue_wait = queue_wait(queued_at, started);
                 let completion = match job {

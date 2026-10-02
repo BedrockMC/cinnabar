@@ -81,6 +81,7 @@ mod retries;
 mod scheduler_refresh;
 mod sequencing;
 mod sign_edit;
+mod workers;
 
 use decode::{DecodeIds, dimension_slots};
 use helpers::*;
@@ -139,20 +140,11 @@ fn light_job_cap_for_threads(worker_threads: usize) -> usize {
     )
 }
 fn effective_light_job_cap() -> usize {
-    // Lighting is the largest initial-world workload. Leave most of the
-    // shared Rayon workers available for meshing, asset work, and the
-    // render-side background jobs instead of monopolising the pool with
-    // column solves. Two concurrent batches are the minimum because
-    // dependency invalidation can make one completion stale while adjacent
-    // work still needs to make progress.
+    // Quiet relighting uses fewer admissions; its workers have a separate queue.
     light_job_cap_for_threads(rayon::current_num_threads())
 }
 fn initial_light_job_cap() -> usize {
-    // Initial joins cannot mesh most resident sub-chunks until their light
-    // columns complete. Use half of the shared pool for those column solves;
-    // on SMT CPUs this fills the physical cores while retaining the sibling
-    // workers for newly-ready meshes and render-side jobs. Return to the
-    // conservative quarter-pool cap once the initial dependency wall drains.
+    // Initial lighting fills a larger bounded wave because it gates ready geometry.
     MAX_IN_FLIGHT_LIGHT_JOBS.min(
         rayon::current_num_threads()
             .saturating_div(2)
@@ -374,6 +366,7 @@ pub struct WorldStream {
     unsent_column_deadlines: HashMap<ChunkKey, Instant>,
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
+    frame_deadline: Option<Instant>,
     polling: bool,
     pending_sub_chunk_commit: Option<commit_budget::PendingSubChunkCommit>,
     publication_allowance: Option<PublicationAllowance>,
