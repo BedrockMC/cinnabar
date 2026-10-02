@@ -73,7 +73,14 @@ fn invisible_vertex() -> VertexOutput {
     invisible.next_texture = 0u;
     invisible.frame_blend = 0.0;
     invisible.visible = 0u;
+#ifdef ENHANCED
+    invisible.block_light = 0.0;
+    invisible.sky_light = 0.0;
+    invisible.ambient_occlusion = 0.0;
+    invisible.surface_class = 0u;
+#else
     invisible.lighting = vec3(0.0);
+#endif
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
     invisible.world_position = vec3(0.0);
