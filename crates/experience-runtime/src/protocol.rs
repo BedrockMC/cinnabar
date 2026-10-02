@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::hex;
-use crate::limits::MAX_FRAME_BYTES;
+use crate::limits::{MAX_FRAME_BYTES, MAX_REASON_BYTES};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -207,6 +207,13 @@ pub enum Response {
         seq: u64,
         outcome: Outcome,
     },
+}
+
+/// `reason` cut to [`MAX_REASON_BYTES`] at a char boundary, so the answer that carries it fits in
+/// a frame.
+pub(crate) fn bounded_reason(mut reason: String) -> String {
+    reason.truncate(reason.floor_char_boundary(MAX_REASON_BYTES));
+    reason
 }
 
 /// Writes one frame and flushes. A message whose JSON exceeds [`MAX_FRAME_BYTES`] is rejected

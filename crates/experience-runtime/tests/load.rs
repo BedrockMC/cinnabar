@@ -4,9 +4,9 @@ use std::fs;
 use std::path::Path;
 
 use common::{edit_manifest, hello_wasm, probe_dir, probe_dir_with, probe_wasm, rehash};
-use experience_runtime::limits::MAX_COMPONENT_BYTES;
+use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use experience_runtime::load::{engine, load};
-use experience_runtime::manifest::{ASSETS_DIR, SERVER_WASM};
+use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM, read_manifest};
 use experience_runtime::protocol::{BlockDef, Mining, Texture};
 use tempfile::TempDir;
 
@@ -49,6 +49,18 @@ fn padded_probe(len: usize) -> Vec<u8> {
     module.extend_from_slice(NAME);
     module.resize(len, 0);
     module
+}
+
+/// Pads `experience.toml` with a trailing comment so it is exactly `len` bytes.
+fn pad_manifest(dir: &Path, len: usize) {
+    let path = dir.join(MANIFEST_FILE);
+    let mut text = fs::read_to_string(&path).unwrap();
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push('#');
+    text.push_str(&"x".repeat(len - text.len()));
+    fs::write(&path, text).unwrap();
 }
 
 #[test]
@@ -143,6 +155,55 @@ fn wrong_api_is_refused() {
     });
     let error = refusal(dir.path());
     assert!(error.contains("unsupported api \"0.0\""), "{error}");
+}
+
+/// The limit is inclusive: a manifest padded to exactly `MAX_MANIFEST_BYTES` is read, and one
+/// byte more is refused.
+#[test]
+fn oversized_manifest_is_refused() {
+    let at_limit = probe_dir_with(|dir| pad_manifest(dir, MAX_MANIFEST_BYTES));
+    read_manifest(at_limit.path()).unwrap();
+
+    let over = probe_dir_with(|dir| pad_manifest(dir, MAX_MANIFEST_BYTES + 1));
+    let error = refusal(over.path());
+    let limit = format!("{MANIFEST_FILE} exceeds {MAX_MANIFEST_BYTES} bytes");
+    assert!(error.contains(&limit), "{error}");
+}
+
+/// A version has 1 to `MAX_VERSION_BYTES` bytes, counted as bytes rather than characters, and
+/// no control characters.
+#[test]
+fn version_is_bounded() {
+    let with_version = |version: &str| {
+        probe_dir_with(|dir| {
+            edit_manifest(dir, |manifest| {
+                manifest.insert("version".to_owned(), version.into());
+            });
+        })
+    };
+    let valid = [
+        "1".to_owned(),
+        "9".repeat(MAX_VERSION_BYTES),
+        "é".repeat(MAX_VERSION_BYTES / 2),
+    ];
+    for version in valid {
+        let dir = with_version(&version);
+        if let Err(error) = read_manifest(dir.path()) {
+            panic!("{version:?} is refused: {error:#}");
+        }
+    }
+    let invalid = [
+        String::new(),
+        "9".repeat(MAX_VERSION_BYTES + 1),
+        "é".repeat(MAX_VERSION_BYTES / 2 + 1),
+        "1.0\n".to_owned(),
+        "1.0\u{7f}".to_owned(),
+    ];
+    for version in invalid {
+        let dir = with_version(&version);
+        let error = refusal(dir.path());
+        assert!(error.contains("invalid version"), "{version:?}: {error}");
+    }
 }
 
 /// Loads a probe artifact whose `server.wasm` is `module` and checks that it is refused as not
