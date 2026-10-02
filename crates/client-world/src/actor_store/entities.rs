@@ -6,6 +6,7 @@ use super::{ActorSnapshot, ActorStore, FUSE_TIME_METADATA_KEY};
 const DISPLAY_BLOCK_METADATA_KEY: u32 = 16;
 const OWNER_METADATA_KEY: u32 = 5;
 const LEASH_HOLDER_METADATA_KEY: u32 = 37;
+const INVALID_LEASH_HOLDER_ID: i64 = -1;
 
 // Provisional presentation constants; each needs independent measurement.
 const BLOCK_ENTITY_CENTER_HEIGHT: f32 = 0.49;
@@ -147,7 +148,7 @@ impl ActorStore {
         actors.sort_unstable_by_key(|actor| actor.runtime_id);
         for actor in actors {
             if let Some(holder) = metadata_i64(actor, LEASH_HOLDER_METADATA_KEY)
-                .filter(|holder| *holder > 0)
+                .filter(|holder| *holder != INVALID_LEASH_HOLDER_ID)
                 .and_then(|holder| self.actor_by_unique(holder))
             {
                 let attach = |actor: &ActorSnapshot| {
