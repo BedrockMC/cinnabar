@@ -4207,3 +4207,19 @@ hotbar icons, all nametag size/garbling symptoms, or RustMCBE stretched-limb gat
 The player-body report omits equipment and GPU execution. See
 `docs/reference/zeqa-regression-investigation.md` for source boundaries, vanilla
 references, PNG evidence and the limitations of the capture.
+
+### Astra UX follow-up (incomplete live performance/parity acceptance)
+
+Real-carrier Bevy input now exercises all Add/Edit server fields, persistence and
+queued endpoints; Inbox summaries stay within their cards. Startup accepts lit,
+meshed, upload-acknowledged near terrain plus a later GPU frame without waiting
+for distant replies. The optional OreUI static page now rebases loading fallbacks,
+and unchanged GUI skins reuse their digest. See `docs/parity/server-info-input.md`,
+`docs/core-join-startup.md`, `docs/parity/loading-textures.md` and
+`docs/parity/menu-frame-cost.md` for references, tests and measured boundaries.
+
+The supplied post-pack Zeqa page-grid corruption and 6 FPS, the owner's menu FPS,
+and the minutes-long live BDS join did not reproduce offline. Native Metal frames
+were rendered and inspected, but the native window capture integration returned
+`cgWindowNotFound`. Release/live acceptance remains open; these local changes do
+not close it. No live server connection was made.

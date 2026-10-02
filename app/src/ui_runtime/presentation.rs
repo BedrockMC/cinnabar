@@ -324,8 +324,9 @@ impl UiPresentationRuntime {
                 side != 0 && side * side * 4 == pixels.len()
             })
             .unwrap_or(default_skin.as_ref());
-        let source_hash: [u8; 32] = Sha256::digest(skin).into();
-        self.set_gui_skin(skin);
+        let source_hash = self
+            .set_gui_skin(skin)
+            .unwrap_or_else(|| Sha256::digest(skin).into());
         let drawn = if self.gui_models.enabled {
             // Model pose and sway now only change geometry. Keep the software hand carriers
             // cached by skin/hand pose; they must not force a small model render/upload each frame.
