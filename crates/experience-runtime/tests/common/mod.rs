@@ -71,10 +71,21 @@ fn target_dir() -> PathBuf {
         .to_owned()
 }
 
-/// Builds `package` for wasm32 and returns its `.wasm`. The nested Cargo uses a target directory
-/// of its own so it never waits on the build lock held by the running `cargo test`.
-fn build_guest(package: &str) -> PathBuf {
-    let target = target_dir().join("experience-guests");
+/// Builds `package` for wasm32 and reads its `.wasm` while holding a cross-process lock. Cargo
+/// may replace its output on another build, so tests cache bytes instead of a mutable path.
+/// The nested target directory avoids the lock held by the running `cargo test` and stays
+/// separate from the Go adapter's guest builds, which do not take this fixture lock.
+fn build_guest(package: &str) -> Vec<u8> {
+    let target = target_dir().join("experience-runtime-guests");
+    fs::create_dir_all(&target).expect("create guest target directory");
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(target.join("fixture.lock"))
+        .expect("open guest fixture lock");
+    lock.lock().expect("lock guest fixture build and read");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(cargo)
         .current_dir(workspace_root())
@@ -89,18 +100,18 @@ fn build_guest(package: &str) -> PathBuf {
         String::from_utf8_lossy(&output.stderr)
     );
     let file = format!("{}.wasm", package.replace('-', "_"));
-    target.join(WASM_TARGET).join("debug").join(file)
+    fs::read(target.join(WASM_TARGET).join("debug").join(file)).expect("read built guest")
 }
 
 /// The probe guest's core module, built once per test binary.
-pub fn probe_wasm() -> &'static Path {
-    static WASM: LazyLock<PathBuf> = LazyLock::new(|| build_guest("experience-probe"));
+pub fn probe_wasm() -> &'static [u8] {
+    static WASM: LazyLock<Vec<u8>> = LazyLock::new(|| build_guest("experience-probe"));
     &WASM
 }
 
 /// The client `hello-mod` guest's core module, built once per test binary.
-pub fn hello_wasm() -> &'static Path {
-    static WASM: LazyLock<PathBuf> = LazyLock::new(|| build_guest("hello-mod"));
+pub fn hello_wasm() -> &'static [u8] {
+    static WASM: LazyLock<Vec<u8>> = LazyLock::new(|| build_guest("hello-mod"));
     &WASM
 }
 
@@ -117,7 +128,7 @@ pub fn probe_dir_with(edit: impl FnOnce(&Path)) -> TempDir {
     let root = dir.path();
     let probe = workspace_root().join("examples/experiences/probe");
     fs::copy(probe.join(MANIFEST_FILE), root.join(MANIFEST_FILE)).expect("copy manifest");
-    fs::copy(probe_wasm(), root.join(SERVER_WASM)).expect("copy server.wasm");
+    fs::write(root.join(SERVER_WASM), probe_wasm()).expect("write server.wasm");
     fs::create_dir(root.join(ASSETS_DIR)).expect("create assets/");
     fs::write(root.join(ASSETS_DIR).join("counter.png"), COUNTER_PNG).expect("write counter.png");
     rehash(root);

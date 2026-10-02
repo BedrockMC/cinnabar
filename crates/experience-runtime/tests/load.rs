@@ -37,7 +37,7 @@ fn with_server_wasm(bytes: Vec<u8>) -> TempDir {
 /// The probe's core module with a custom section appended so it is exactly `len` bytes.
 fn padded_probe(len: usize) -> Vec<u8> {
     const NAME: &[u8] = b"padding";
-    let mut module = fs::read(probe_wasm()).unwrap();
+    let mut module = probe_wasm().to_vec();
     // Section id 0, its size as a 5-byte LEB128, the name; zeros fill the rest.
     let size = u32::try_from(len - module.len() - 6).unwrap();
     module.push(0);
@@ -224,7 +224,7 @@ fn core_module_without_world_is_refused() {
 
 #[test]
 fn client_component_is_refused() {
-    assert_role_refused(fs::read(hello_wasm()).unwrap());
+    assert_role_refused(hello_wasm().to_vec());
 }
 
 #[test]
