@@ -2,8 +2,7 @@ use crate::chunk::*;
 pub(in crate::chunk) const DEFAULT_ACKNOWLEDGEMENT_CAPACITY: usize = 512;
 pub(in crate::chunk) const DEFAULT_PRESENTED_FRAME_ACK_CAPACITY: usize = 8;
 pub(in crate::chunk) const DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME: usize = 256;
-/// Maximum number of non-empty new or changed sub-chunks transferred to the
-/// render world in one main-world update.
+/// Maximum non-empty sub-chunk uploads transferred per main-world update.
 #[derive(Resource, ExtractResource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkUploadBudget {
     pub max_per_frame: usize,
