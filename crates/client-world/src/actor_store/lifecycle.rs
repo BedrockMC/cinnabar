@@ -644,6 +644,11 @@ impl ActorStore {
         &mut self,
         assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
     ) {
+        self.actions.set_pack(
+            assets
+                .as_ref()
+                .map(|(catalog, _)| std::sync::Arc::clone(catalog)),
+        );
         self.animation.set_pack(assets);
         // Cinnabar live reload also rebinds actors already present in the world.
         for actor in self.actors.values() {
