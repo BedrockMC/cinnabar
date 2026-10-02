@@ -791,7 +791,11 @@ impl<'a> PaletteWorld<'a> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        for shape in self.block_collision_shapes(block, physics)?.iter().copied() {
+                        for shape in self
+                            .block_collision_shapes(block, physics, query)?
+                            .iter()
+                            .copied()
+                        {
                             let shape = shape.translated(block_offset);
                             if shape.intersects(query) {
                                 instances.push(CollisionInstance {
@@ -880,7 +884,7 @@ impl CollisionWorld for PaletteWorld<'_> {
                                 skipped.unknown_runtime_id.saturating_add(1);
                             continue;
                         };
-                        let shapes = match self.block_collision_shapes(block, physics) {
+                        let shapes = match self.block_collision_shapes(block, physics, query) {
                             Ok(shapes) => shapes,
                             Err(WorldQueryError::UnloadedChunk(_)) => {
                                 skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
