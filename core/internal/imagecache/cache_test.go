@@ -82,7 +82,7 @@ func TestCacheRejectsUnsafeInputs(t *testing.T) {
 }
 
 func TestPublicDialerRefusesNonPublicAddresses(t *testing.T) {
-	dial := publicDialer()
+	dial := publicDialer(net.DefaultResolver.LookupIPAddr, (&net.Dialer{}).DialContext)
 	for _, addr := range []string{"127.0.0.1:443", "10.0.0.1:443", "192.168.1.1:443", "169.254.169.254:80", "[::1]:443", "0.0.0.0:80"} {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		conn, err := dial(ctx, "tcp", addr)
