@@ -563,3 +563,26 @@ fn local_chat_line_does_not_consume_the_next_server_sequence() {
     runtime.apply(envelope(2, 0, text("server"))).unwrap();
     assert_eq!(runtime.chat().messages().len(), 3);
 }
+
+#[test]
+fn tab_cycles_whitespace_suggestions_as_complete_replacements() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.open_chat();
+    runtime.insert_chat_text("/tell A").unwrap();
+    let request = runtime.take_chat_autocomplete_request().unwrap();
+    runtime
+        .chat_autocomplete
+        .apply(
+            request,
+            ui::ChatAutocompleteDelta {
+                enum_name: Arc::from("players"),
+                action: ui::ChatAutocompleteAction::Replace,
+                suggestions: Arc::from([Arc::from("Alice One"), Arc::from("Alice Two")]),
+            },
+        )
+        .unwrap();
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/tell Alice One");
+    assert!(runtime.handle_chat_ui_action(UiAction::TabNext));
+    assert_eq!(runtime.chat_editor().as_str(), "/tell Alice Two");
+}

@@ -79,7 +79,8 @@ impl HudLayout<'_> {
             self.inventory_label(title, [origin[0] + 28.0, origin[1] + 6.0])?;
             self.crafting_cells(runtime, frame, origin, WORKBENCH_GRID, 3, WORKBENCH_OUTPUT)?;
             self.player_cells(runtime, frame, origin)?;
-            return self.recipe_book(runtime, frame, screen, origin);
+            self.recipe_book(runtime, frame, screen, origin)?;
+            return self.carried_item(runtime, frame);
         }
 
         // Armor, paper doll, offhand, and the 2x2 personal crafting grid.
@@ -127,7 +128,8 @@ impl HudLayout<'_> {
 
         self.crafting_cells(runtime, frame, origin, [98.0, 18.0], 2, [152.0, 28.0])?;
         self.player_cells(runtime, frame, origin)?;
-        self.recipe_book(runtime, frame, screen, origin)
+        self.recipe_book(runtime, frame, screen, origin)?;
+        self.carried_item(runtime, frame)
     }
 
     /// One crafting grid, its arrow and the previewed output cell.
@@ -237,6 +239,15 @@ impl HudLayout<'_> {
                 )?;
             }
         }
+        Ok(())
+    }
+
+    /// Draws the carried stack over every crafting and recipe-book surface.
+    fn carried_item(
+        &mut self,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+    ) -> Result<(), UiPresentationError> {
         if let (Some(stack), Some(pointer)) = (
             runtime.inventory_ledger().cursor_stack(),
             runtime.inventory_pointer_gui(),
