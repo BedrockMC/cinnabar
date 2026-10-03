@@ -190,6 +190,7 @@ pub struct UiRuntime {
     wake_requested: bool,
     sleep_status: Option<bed::SleepStatus>,
     chat_tab_cycling: bool,
+    chat_tab_start: Option<usize>,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
     in_flight_chat_send: Option<(u64, u64)>,
@@ -285,6 +286,7 @@ impl UiRuntime {
             wake_requested: false,
             sleep_status: None,
             chat_tab_cycling: false,
+            chat_tab_start: None,
             pending_chat_autocomplete_request: None,
             chat_sends: ChatSendQueue::new(
                 MAX_PENDING_CHAT_SENDS,
@@ -640,6 +642,8 @@ impl UiRuntime {
         self.chat_editor.clear();
         self.chat_history.clear_navigation();
         self.chat_input_revision = 0;
+        self.chat_tab_cycling = false;
+        self.chat_tab_start = None;
         self.chat_autocomplete.begin_session(session_id);
         self.chat_autocomplete_catalog = ChatAutocompleteCatalog::default();
         self.chat_usage_hint = None;
@@ -875,6 +879,7 @@ impl UiRuntime {
     fn note_chat_editor_change(&mut self) {
         self.chat_usage_hint = None;
         self.chat_tab_cycling = false;
+        self.chat_tab_start = None;
         self.chat_input_revision = self.chat_input_revision.saturating_add(1);
         self.pending_chat_autocomplete_request = self
             .chat_autocomplete
