@@ -226,3 +226,42 @@ fn wait_for_save(app: &mut App) {
         std::thread::yield_now();
     }
 }
+
+#[test]
+fn a_pending_video_write_can_return_to_the_last_saved_value() {
+    use std::{sync::mpsc, time::Duration};
+
+    let root = ConfigRoot::new();
+    let mut menu = root.menu();
+    let original = menu.last_saved_video_settings;
+    let (saved_tx, saved_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let mut first = true;
+    menu.video_settings_writer = Some(
+        writer::Writer::new(move |settings| {
+            saved_tx.send(settings).unwrap();
+            if first {
+                first = false;
+                release_rx.recv().unwrap();
+            }
+            Ok(())
+        })
+        .unwrap(),
+    );
+    menu.gui_scale_offset = original.gui_scale_offset + 1;
+    let mut app = App::new();
+    app.insert_resource(menu)
+        .add_systems(Update, persist_video_settings);
+    app.update();
+    let first = saved_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .gui_scale_offset = original.gui_scale_offset;
+    app.update();
+    release_tx.send(()).unwrap();
+    assert_ne!(first, original);
+    assert_eq!(
+        saved_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        original
+    );
+}

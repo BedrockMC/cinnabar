@@ -81,6 +81,7 @@ impl Writer {
     }
 }
 impl Drop for Writer {
+    /// Drains accepted snapshots before releasing the persistence owner.
     fn drop(&mut self) {
         self.wake.take();
         if let Some(worker) = self.worker.take() {
