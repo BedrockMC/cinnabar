@@ -67,6 +67,7 @@ impl UiPresentationRuntime {
                 width,
                 height,
                 self.safe_area,
+                &mut self.menu_scrolls,
             ),
         };
         self.form_presentation.ready_menu = if pending
