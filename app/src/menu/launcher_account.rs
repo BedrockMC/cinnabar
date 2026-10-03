@@ -842,6 +842,7 @@ mod tests {
             sign_out,
             _alive: alive,
             socket_dir: PathBuf::new(),
+            message_reports: crossbeam_channel::unbounded().0,
         };
         assert!(account.sign_out());
         publish_account(&snapshot, generation, |snapshot| {
