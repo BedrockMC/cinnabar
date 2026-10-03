@@ -1,10 +1,11 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
- 
+
 2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
 the account control surface only lists and connects to existing Realms. Joining
 by invite or code and creating a Realm need a supported backend operation and a
 version-matched native flow reference before the button can perform that work.
 This does not close the Realm management parity gate.
+
 
 
 2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a

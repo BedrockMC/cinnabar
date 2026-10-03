@@ -169,11 +169,13 @@ impl ScreenCache {
     ) -> T {
         let resolved = lock(&self.resolved);
         let mut bindings = lock(&self.bindings);
-        bindings.retain(|bound| resolved.iter().any(|tree| {
-            bound.reference == tree.reference
-                && Arc::ptr_eq(&bound.catalog, &tree.catalog)
-                && bound.context == tree.context
-        }));
+        bindings.retain(|bound| {
+            resolved.iter().any(|tree| {
+                bound.reference == tree.reference
+                    && Arc::ptr_eq(&bound.catalog, &tree.catalog)
+                    && bound.context == tree.context
+            })
+        });
         drop(resolved);
         let index = match bindings.iter().position(|bound| {
             bound.reference == reference

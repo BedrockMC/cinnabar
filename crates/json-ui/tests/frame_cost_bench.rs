@@ -47,15 +47,23 @@ fn pack_files(root: &std::path::Path) -> std::io::Result<Vec<(String, Vec<u8>)>>
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", dir.display())))? {
+        for entry in std::fs::read_dir(&dir).map_err(|error| {
+            std::io::Error::new(error.kind(), format!("{}: {error}", dir.display()))
+        })? {
             let entry = entry?;
             let path = entry.path();
             if entry.file_type()?.is_dir() {
                 stack.push(path);
             } else {
-                let relative = path.strip_prefix(root).expect("entry belongs to its root").to_string_lossy().replace('\\', "/");
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("entry belongs to its root")
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 if relative.starts_with("ui/") && relative.ends_with(".json") {
-                    let bytes = std::fs::read(&path).map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))?;
+                    let bytes = std::fs::read(&path).map_err(|error| {
+                        std::io::Error::new(error.kind(), format!("{}: {error}", path.display()))
+                    })?;
                     out.push((relative, bytes));
                 }
             }

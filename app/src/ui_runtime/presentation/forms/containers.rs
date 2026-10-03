@@ -770,6 +770,7 @@ mod review_tests {
         }
         struct NoTexture;
         impl json_ui::TextureSource for NoTexture {
+            /// The measurement fixture has no image sources.
             fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
                 None
             }
