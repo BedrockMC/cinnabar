@@ -899,6 +899,20 @@ mod transfer_follow_tests {
         app.world_mut()
             .resource_mut::<MenuRuntime>()
             .request_connect("127.0.0.1:19132".to_owned());
+        while app.world().resource::<CoreProcessGuard>().id().is_none()
+            && app.world().resource::<MenuRuntime>().is_connecting()
+        {
+            app.update();
+        }
+        // Frames wait for the exit, so a launch slowed by load cannot let the start deadline win.
+        let spawned = std::time::Instant::now();
+        while !app.world_mut().resource_mut::<CoreProcessGuard>().exited() {
+            assert!(
+                spawned.elapsed() < std::time::Duration::from_secs(60),
+                "stub core never exited"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         while app.world().resource::<MenuRuntime>().is_connecting() {
             app.update();
             std::thread::sleep(std::time::Duration::from_millis(10));
