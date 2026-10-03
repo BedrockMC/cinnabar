@@ -167,7 +167,19 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
 /// Shelf-packs icons with a replicated gutter; icons that do not fit are left out.
 fn pack(icons: &SessionIcons, page_index: u16) -> Option<(UiTexturePage, IconRefs)> {
     // Tallest first keeps shelves dense; ties keep input order.
-    let mut ordered = icons.icons.iter().collect::<Vec<_>>();
+    let mut seen = std::collections::HashSet::new();
+    let mut ordered = icons
+        .icons
+        .iter()
+        .filter(|icon| {
+            icon.width > 0
+                && icon.height > 0
+                && icon.width <= MAX_SESSION_ICON_SIDE
+                && icon.height <= MAX_SESSION_ICON_SIDE
+                && icon.rgba8.len() == (icon.width * icon.height * 4) as usize
+                && seen.insert((Arc::clone(&icon.identifier), icon.metadata))
+        })
+        .collect::<Vec<_>>();
     ordered.sort_by_key(|icon| std::cmp::Reverse(icon.height));
     let side = page_side(&ordered);
     let mut rgba8 = vec![0u8; (side * side * 4) as usize];
@@ -175,17 +187,6 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<(UiTexturePage, IconRef
     let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
     for icon in ordered {
         let padded = [icon.width + GUTTER * 2, icon.height + GUTTER * 2];
-        if refs
-            .get(&icon.identifier)
-            .is_some_and(|variants| variants.contains_key(&icon.metadata))
-            || icon.width == 0
-            || icon.height == 0
-            || icon.width > MAX_SESSION_ICON_SIDE
-            || icon.height > MAX_SESSION_ICON_SIDE
-            || icon.rgba8.len() != (icon.width * icon.height * 4) as usize
-        {
-            continue;
-        }
         if cursor[0] + padded[0] > side {
             cursor = [0, cursor[1] + row_height];
             row_height = 0;

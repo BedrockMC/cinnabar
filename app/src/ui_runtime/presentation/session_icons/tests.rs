@@ -57,3 +57,35 @@ fn stack_icon_identity_retains_loaded_projectile_and_local_frame_override() {
         ("minecraft:stone", 2),
     );
 }
+
+#[test]
+fn review_duplicate_icon_selection_precedes_height_sorting() {
+    let first = sprite(0);
+    let mut second = sprite(0);
+    second.height = 32;
+    second.rgba8 = vec![9; 16 * 32 * 4].into();
+    let icons = SessionIcons {
+        icons: vec![first, second],
+        misses: HashMap::new(),
+    };
+    let (_, refs) = pack(&icons, 7).unwrap();
+    let uv = refs["test:variant"][&0].uv;
+    assert_eq!(uv[3] - uv[1], 16);
+}
+
+#[test]
+fn review_oversized_icons_are_rejected_before_gutter_arithmetic() {
+    let invalid = SessionIcon {
+        width: u32::MAX,
+        height: u32::MAX,
+        rgba8: Box::new([]),
+        ..sprite(1)
+    };
+    let icons = SessionIcons {
+        icons: vec![invalid, sprite(0)],
+        misses: HashMap::new(),
+    };
+    let (_, refs) = pack(&icons, 7).unwrap();
+    assert!(refs["test:variant"].contains_key(&0));
+    assert!(!refs["test:variant"].contains_key(&1));
+}
