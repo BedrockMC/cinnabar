@@ -16,7 +16,7 @@ use super::{
 
 /// Largest icon side kept as-is; larger sources are reduced to fit.
 pub(crate) const MAX_SESSION_ICON_SIDE: u32 = 64;
-const MIN_PAGE_SIDE: u32 = 256;
+const MIN_PAGE_SIDE: u32 = render::UI_DYNAMIC_PAGE_SIDE;
 type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
