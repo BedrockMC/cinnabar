@@ -239,7 +239,9 @@ fn build_world(
     pack_path: &Path,
     away: bool,
 ) -> (World, Vec<(u32, Vec<u8>)>, Replay) {
-    let compiled = PathBuf::from(COMPILED);
+    let compiled = PathBuf::from(
+        std::env::var_os("CINNABAR_RENDER_CARRIERS").unwrap_or_else(|| COMPILED.into()),
+    );
     let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
         path: compiled.join("vanilla-v2193.mcbea"),
         source: crate::asset_startup::AssetPathSource::CommandLine,
