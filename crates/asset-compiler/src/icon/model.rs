@@ -5,6 +5,7 @@
 
 use std::{borrow::Cow, sync::Arc};
 
+use assets::gui_item::{CUBE_FACES, GUI_ITEM_SIDE};
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
@@ -164,6 +165,7 @@ impl<'a> Model<'a> {
     pub(super) fn raster(&self) -> IconSprite {
         let mut pixels = vec![0u8; SIDE * SIDE * 4];
         let mut depth = vec![f32::INFINITY; SIDE * SIDE];
+        let mut fragments = vec![Vec::new(); SIDE * SIDE];
         for face in &self.faces {
             let brightness = brightness(face.corners);
             let points = face.corners.map(project);
@@ -171,6 +173,7 @@ impl<'a> Model<'a> {
                 triangle(
                     &mut pixels,
                     &mut depth,
+                    &mut fragments,
                     face,
                     indices.map(|i| points[i]),
                     indices.map(|i| face.uvs[i]),
@@ -178,6 +181,7 @@ impl<'a> Model<'a> {
                 );
             }
         }
+        composite_fragments(&mut pixels, &depth, &mut fragments);
         IconSprite {
             width: SIDE as u16,
             height: SIDE as u16,
@@ -276,25 +280,19 @@ fn brightness(corners: [[f32; 3]; 4]) -> f32 {
         (u[0] * v[1] - u[1] * v[0]).abs(),
     ];
     if normal[1].abs() >= normal[0] && normal[1].abs() >= normal[2] {
-        1.
+        CUBE_FACES[0].3
     } else if normal[0] >= normal[2] {
-        f32::from_bits(0x3f3ae148)
+        CUBE_FACES[2].3
     } else {
-        0.5
+        CUBE_FACES[1].3
     }
 }
 
 /// The cube thumbnail's projection at twice its scale, plus a view depth (smaller is nearer).
-fn project([x, y, z]: [f32; 3]) -> [f32; 3] {
-    let (sx, cx) = (f32::from_bits(0xbeffffff), f32::from_bits(0xbf5db3d7));
-    let (sy, cy) = (f32::from_bits(0x3f3504f3), f32::from_bits(0x3f3504f3));
-    let rotated_x = cy * x + sy * z;
-    let rotated_z = -sy * x + cy * z;
-    [
-        2. * (1. + 10. * rotated_x),
-        2. * (f32::from_bits(0x4147ae14) + 10. * (cx * y - sx * rotated_z)),
-        sx * y + cx * rotated_z,
-    ]
+fn project(point: [f32; 3]) -> [f32; 3] {
+    let [x, y, z] = assets::gui_item::project_cube(point);
+    let scale = SIDE as f32 / GUI_ITEM_SIDE;
+    [scale * x, scale * y, z]
 }
 
 fn edge(a: [f32; 3], b: [f32; 3], p: [f32; 2]) -> f32 {
@@ -304,6 +302,7 @@ fn edge(a: [f32; 3], b: [f32; 3], p: [f32; 2]) -> f32 {
 fn triangle(
     pixels: &mut [u8],
     depth: &mut [f32],
+    fragments: &mut [Vec<(f32, [u8; 4])>],
     face: &Face<'_>,
     mut p: [[f32; 3]; 3],
     mut uv: [[f32; 2]; 3],
@@ -326,7 +325,11 @@ fn triangle(
                 edge(p[2], p[0], sample) / area,
                 edge(p[0], p[1], sample) / area,
             ];
-            if weights.iter().any(|&weight| weight < 0.) {
+            if !weights.iter().enumerate().all(|(index, &weight)| {
+                let a = p[(index + 1) % 3];
+                let b = p[(index + 2) % 3];
+                weight > 0.0 || (weight == 0.0 && (b[1] > a[1] || (b[1] == a[1] && b[0] < a[0])))
+            }) {
                 continue;
             }
             let z = (0..3).map(|i| weights[i] * p[i][2]).sum::<f32>();
@@ -342,12 +345,82 @@ fn triangle(
             if texel[3] < 128 && !(face.blend && texel[3] > 0) {
                 continue;
             }
-            depth[target] = z;
-            for c in 0..3 {
-                pixels[target * 4 + c] =
-                    (f32::from(texel[c]) * brightness).round().clamp(0., 255.) as u8;
+            let color = [
+                (f32::from(texel[0]) * brightness).round().clamp(0., 255.) as u8,
+                (f32::from(texel[1]) * brightness).round().clamp(0., 255.) as u8,
+                (f32::from(texel[2]) * brightness).round().clamp(0., 255.) as u8,
+                if face.blend { texel[3] } else { 255 },
+            ];
+            if color[3] < 255 {
+                fragments[target].push((z, color));
+            } else {
+                depth[target] = z;
+                pixels[target * 4..][..4].copy_from_slice(&color);
             }
-            pixels[target * 4 + 3] = if face.blend { texel[3] } else { 255 };
+        }
+    }
+}
+
+/// Composites visible translucent samples from back to front over the nearest opaque sample.
+fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f32, [u8; 4])>]) {
+    for (target, samples) in fragments.iter_mut().enumerate() {
+        samples.sort_unstable_by(|left, right| right.0.total_cmp(&left.0));
+        let output = &mut pixels[target * 4..][..4];
+        for &(_, source) in samples.iter().filter(|(z, _)| *z < depth[target]) {
+            let alpha = f32::from(source[3]) / 255.0;
+            let previous = f32::from(output[3]) / 255.0;
+            let combined = alpha + previous * (1.0 - alpha);
+            for channel in 0..3 {
+                output[channel] = ((f32::from(source[channel]) * alpha
+                    + f32::from(output[channel]) * previous * (1.0 - alpha))
+                    / combined)
+                    .round() as u8;
+            }
+            output[3] = (combined * 255.0).round() as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_translucent_faces_preserve_opaque_geometry_in_both_orders() {
+        for reverse in [false, true] {
+            let rear = Face {
+                corners: [[0.0; 3]; 4],
+                uvs: [[0.0; 2]; 4],
+                tile: Cow::Owned(vec![0, 0, 255, 255]),
+                side: 1,
+                blend: false,
+            };
+            let front = Face {
+                corners: [[0.0; 3]; 4],
+                uvs: [[0.0; 2]; 4],
+                tile: Cow::Owned(vec![255, 0, 0, 128]),
+                side: 1,
+                blend: true,
+            };
+            let mut layers = [(&rear, 2.0), (&front, 1.0)];
+            if reverse {
+                layers.reverse();
+            }
+            let mut pixels = vec![0; SIDE * SIDE * 4];
+            let mut depth = vec![f32::INFINITY; SIDE * SIDE];
+            let mut fragments = vec![Vec::new(); SIDE * SIDE];
+            for (face, z) in layers {
+                triangle(
+                    &mut pixels,
+                    &mut depth,
+                    &mut fragments,
+                    face,
+                    [[0.0, 0.0, z], [4.0, 0.0, z], [0.0, 4.0, z]],
+                    [[0.0; 2]; 3],
+                    1.0,
+                );
+            }
+            composite_fragments(&mut pixels, &depth, &mut fragments);
+            assert_eq!(&pixels[..4], &[128, 0, 127, 255]);
         }
     }
 }

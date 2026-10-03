@@ -28,8 +28,9 @@ pub use hud::{
 };
 pub use model::{
     FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_BILINEAR, UI_STYLE_GLINT,
-    UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList, UiError, UiFrame, UiNode, UiNodeId,
-    UiTree, UiVertex, UiVisual, UiWorldProjection,
+    UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList, UiError, UiFrame, UiMesh,
+    UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    UiWorldProjection,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
@@ -40,7 +41,8 @@ pub use scoreboard::{
     ScoreboardProjection, ScoreboardStore,
 };
 pub use settings::{
-    CURRENT_SETTINGS_SCHEMA, GameplaySettings, RenderMode, UserSettings, VideoSettings,
+    CURRENT_SETTINGS_SCHEMA, DEFAULT_OUTLINE_SELECTION, GameplaySettings, RenderMode, UserSettings,
+    VideoSettings,
 };
 pub use text::{
     BedrockColor, FONT_ASCENT_TEXELS, FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, GlyphQuad,

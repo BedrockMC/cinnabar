@@ -44,6 +44,16 @@ impl GeometryPreparation {
                 }
                 return Ok(());
             }
+            // Dropping a receiver cannot cancel its build; finish it before starting another.
+            if matches!(
+                receiver
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            ) {
+                return Ok(());
+            }
             self.pending = None;
         }
         let Some(stream) = stream else {
@@ -118,5 +128,40 @@ impl GeometryPreparation {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_superseded_geometry_waits_for_the_existing_worker() {
+        let current = ChunkTextureAssets::default();
+        let candidate = ChunkTextureAssets::with_revision(Arc::clone(current.assets()), 1);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut preparation = GeometryPreparation {
+            pending: Some((current.identity(), Mutex::new(receiver))),
+            source_tint: None,
+        };
+        let mut world = World::new();
+        let mut state =
+            bevy::ecs::system::SystemState::<Query<&mut ChunkRenderInstance>>::new(&mut world);
+        let chunks = state.get_mut(&mut world);
+        let gpu = ChunkTextureReload::default();
+        preparation
+            .request(&candidate, &current, None, &chunks, &gpu)
+            .unwrap();
+        assert_eq!(
+            preparation.pending.as_ref().map(|(identity, _)| *identity),
+            Some(current.identity())
+        );
+        assert!(gpu.geometry().is_none());
+        sender.send(Arc::from([])).unwrap();
+        preparation
+            .request(&candidate, &current, None, &chunks, &gpu)
+            .unwrap();
+        assert!(preparation.pending.is_none());
+        assert!(gpu.geometry().is_some());
     }
 }

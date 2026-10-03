@@ -555,11 +555,14 @@ pub(crate) struct ActorStore {
     max_players: usize,
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
+    ignored_movement_components: u64,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
+    /// Appearances of spawned players removed from the roster, retained until despawn.
+    unlisted_players: HashMap<[u8; 16], PlayerProfile>,
     animation: ActorAnimationStore,
     items: ItemStateStore,
     actions: RemoteActionStore,
@@ -638,6 +641,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
 
 #[cfg(test)]
 mod local_tests;
+mod player_appearance;
+mod profiles;
 #[cfg(test)]
 mod riding_tests;
 mod skin_update;
@@ -646,3 +651,6 @@ mod tests;
 
 #[cfg(test)]
 mod projectile_tests;
+
+#[cfg(test)]
+mod review_tests;

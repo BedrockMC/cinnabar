@@ -504,6 +504,13 @@ impl CollisionRegistry {
         self.physics(runtime_id).map(|physics| &*physics.shapes)
     }
 
+    /// Block-local bounds used by the pick ray and its selection outline.
+    #[must_use]
+    pub fn selection_shapes(&self, runtime_id: u32) -> Option<&[Aabb]> {
+        self.physics(runtime_id)
+            .map(|physics| physics.pick_shapes.as_deref().unwrap_or(&physics.shapes))
+    }
+
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }
@@ -647,7 +654,12 @@ pub trait CollisionWorld {
         })
     }
 
-    fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let origin = Vec3::new(
+            f64::from(block[0]),
+            f64::from(block[1]),
+            f64::from(block[2]),
+        );
         Ok(BlockPhysicsSample {
             layers: Box::new([BlockPhysicsFacts {
                 friction: DEFAULT_SURFACE_FRICTION,
@@ -657,15 +669,9 @@ pub trait CollisionWorld {
                 flags: BlockPhysicsFlags::default(),
                 surface_response: SurfaceResponse::None,
             }]),
-            identity: WorldCollisionIdentity::new(
-                CollisionRegistryIdentity {
-                    protocol: 1001,
-                    id_space: CollisionIdSpace::Sequential,
-                    preg_sha256: [0; 32],
-                },
-                [],
-            )
-            .expect("empty collision identity is bounded"),
+            identity: self
+                .collision_boxes(Aabb::new(origin, origin + Vec3::ONE))?
+                .identity,
         })
     }
 }
@@ -791,7 +797,11 @@ impl<'a> PaletteWorld<'a> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        for shape in self.block_collision_shapes(block, physics)?.iter().copied() {
+                        for shape in self
+                            .block_collision_shapes(block, physics, query)?
+                            .iter()
+                            .copied()
+                        {
                             let shape = shape.translated(block_offset);
                             if shape.intersects(query) {
                                 instances.push(CollisionInstance {
@@ -880,7 +890,7 @@ impl CollisionWorld for PaletteWorld<'_> {
                                 skipped.unknown_runtime_id.saturating_add(1);
                             continue;
                         };
-                        let shapes = match self.block_collision_shapes(block, physics) {
+                        let shapes = match self.block_collision_shapes(block, physics, query) {
                             Ok(shapes) => shapes,
                             Err(WorldQueryError::UnloadedChunk(_)) => {
                                 skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
@@ -985,3 +995,6 @@ fn convert_block_coords(
     }
     Ok(values.map(|value| value as i32))
 }
+
+#[cfg(test)]
+mod review_default_tests;

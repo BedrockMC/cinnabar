@@ -275,6 +275,16 @@ impl ActorRigGeometry {
         })
     }
 
+    /// Rechecks public vertex data and its bone requirement before catalog admission.
+    fn revalidate(&mut self) -> Result<(), ActorRigGeometryError> {
+        *self = Self::new(
+            self.id,
+            Arc::clone(&self.vertices),
+            Arc::clone(&self.bone_pivots),
+        )?;
+        Ok(())
+    }
+
     pub fn synthetic_cuboid(
         id: EntityRigId,
         min: [f32; 3],
@@ -479,7 +489,9 @@ impl ActorRigFrameBuilder {
                 .rotate_left(5)
                 .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
         }
-        self.catalog.append(geometries, revision.max(1))
+        self.catalog.append(geometries, revision.max(1))?;
+        self.matrices = PoseMatrixCache::default();
+        Ok(())
     }
 
     /// Replaces every pack-range geometry with `geometries` (empty removes them) and
@@ -510,6 +522,7 @@ impl ActorRigFrameBuilder {
         let mut by_id = self.catalog.geometries.clone();
         pack::replace_range(&mut by_id, in_range, geometries);
         self.catalog = GeometryCatalog::layout(by_id)?;
+        self.matrices = PoseMatrixCache::default();
         Ok(())
     }
 

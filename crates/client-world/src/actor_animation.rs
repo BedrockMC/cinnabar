@@ -793,6 +793,7 @@ use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};
+pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
 pub use skin_layers::SkinRenderLayer;

@@ -4,6 +4,7 @@
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
 mod scene_policy;
+mod tooltip;
 
 use std::{borrow::Borrow, cell::RefCell, sync::Arc};
 
@@ -19,9 +20,11 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 
 mod fill_renderers;
 pub(crate) mod hud_renderers;
+mod item_renderer;
 mod menu_renderers;
 mod pack_catalog;
 pub(super) use pack_catalog::layer_pack_catalog;
+pub(super) mod host_edit;
 pub(super) mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
@@ -70,6 +73,7 @@ struct LaidForm {
     root: [f64; 2],
     px: f32,
     text: [usize; 3],
+    font: assets::FontCatalogIdentity,
     render: FormRender,
 }
 
@@ -256,6 +260,7 @@ impl FormEngine {
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
+        let font = inputs.font.identity();
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
@@ -282,6 +287,7 @@ impl FormEngine {
                 let fresh = cache.laid.as_ref().is_some_and(|laid| {
                     laid.view.same_layout(view)
                         && (laid.root, laid.px, laid.text) == (root, px, text)
+                        && laid.font == font
                 });
                 if !fresh {
                     *passes += 1;
@@ -292,6 +298,7 @@ impl FormEngine {
                         root,
                         px,
                         text,
+                        font,
                         render,
                     });
                 }
@@ -418,6 +425,9 @@ fn render_with<R: Borrow<FormRender>>(
         .chain(out.overlay)
         .filter_map(|node| match &node.draw {
             Draw::Sprite { texture, .. } => Some(texture.as_str()),
+            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
+                Some(tooltip::BACKGROUND_TEXTURE)
+            }
             _ => None,
         })
         .chain(
@@ -442,6 +452,7 @@ fn render_with<R: Borrow<FormRender>>(
             images: art.images,
         },
         solid_page: inputs.solid_page,
+        edit: host_edit::Target::from_frame(render, art),
         art,
         screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
         layouts,
@@ -498,6 +509,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
+    pub(super) edit: Option<host_edit::Feedback>,
 }
 
 /// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
@@ -509,6 +521,7 @@ pub(super) struct EngineOutput<'a> {
 
 /// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep order.
 struct Painter<'a> {
+    edit: Option<host_edit::Target<'a>>,
     textures: Textures<'a>,
     solid_page: u16,
     art: ScreenArt<'a>,
@@ -567,7 +580,6 @@ impl Painter<'_> {
         dest: [f32; 4],
         alpha: impl Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
-        let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
         if let Some(hud) = self.art.hud
             && hud_renderers::paint(self, hud, renderer, data, dest, &alpha)
         {
@@ -575,13 +587,7 @@ impl Painter<'_> {
         }
         match renderer {
             "inventory_item_renderer" => {
-                let icon = match number("#item_renderer_data") {
-                    Some(index) => self.art.icons.get(index as usize)?,
-                    None => {
-                        let key = number("#item_id_aux")? as i64;
-                        &self.art.id_aux.iter().find(|(id, _)| *id == key)?.1
-                    }
-                };
+                let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;
                 Some((icon.visual(alpha([255; 4])), dest))
             }
             "progress_bar_renderer" => {
@@ -695,7 +701,10 @@ impl Painter<'_> {
         let clip = self.logical(&drawn.clip);
         let dest = self.logical(&drawn.dest);
         let opacity = drawn.opacity;
-        if drawn.hidden
+        if self
+            .edit
+            .is_some_and(|edit| edit.placeholder == Some(node.key.as_str()))
+            || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]
@@ -710,7 +719,7 @@ impl Painter<'_> {
         };
         // Tooltips ignore the hovered control's clip.
         let clip = match &node.draw {
-            Draw::Custom { renderer, .. } if renderer == "hover_text_renderer" => self.screen,
+            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => self.screen,
             _ => clip,
         };
         if let Draw::Text {
@@ -723,7 +732,12 @@ impl Painter<'_> {
             options,
         } = &node.draw
         {
+            let feedback = self
+                .edit
+                .filter(|edit| edit.text == node.key)
+                .map(|edit| edit.feedback);
             let style = TextPaint {
+                edit: feedback,
                 color: alpha(*color),
                 shadow: if *shadow {
                     self.metrics.shadow()
@@ -761,17 +775,14 @@ impl Painter<'_> {
             }
             // Drawn above.
             Draw::Text { .. } => return Ok(()),
-            Draw::Custom { renderer, data } if renderer == "hover_text_renderer" => {
+            Draw::Custom { renderer, data } if renderer == tooltip::RENDERER => {
                 let text = self
                     .art
                     .tooltip
                     .or_else(|| data.get("#hover_text")?.as_str())
                     .filter(|text| !text.is_empty());
-                let max_width = data
-                    .get("hover_text_max_width")
-                    .and_then(serde_json::Value::as_f64);
                 return match text {
-                    Some(text) => self.tooltip(text, dest, max_width, opacity),
+                    Some(text) => self.tooltip(text, data, dest, &alpha),
                     None => Ok(()),
                 };
             }

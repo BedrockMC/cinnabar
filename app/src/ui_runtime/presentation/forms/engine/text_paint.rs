@@ -1,11 +1,11 @@
-//! Label and hover-text painting after vanilla's `TextComponent` and
-//! `HoverTextRenderer`: one layout per label with per-line alignment, line
-//! padding, hyphen chops and `...` at the lines its height holds.
+//! Label painting after vanilla's `TextComponent`: one layout per label with
+//! per-line alignment, line padding, hyphen chops and `...` at the lines its
+//! height holds. Native hover geometry lives in the sibling tooltip module.
 
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
 use assets::RuntimeFontCatalog;
-use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions, TextureSource};
+use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
     TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow, TextWrap, UiNode, UiScale,
     UiVisual, WordChop,
@@ -16,16 +16,11 @@ use super::Painter;
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 pub(super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
-/// Hover text: pointer offset, box padding and text inset, GUI px (1.26.50 `HoverTextRenderer`).
-const TOOLTIP_OFFSET: [f32; 2] = [10.0, -10.0];
-const TOOLTIP_PAD: [f32; 2] = [9.0, 8.0];
-const TOOLTIP_INSET: f32 = 5.0;
-const TOOLTIP_TEXTURE: &str = "textures/ui/purpleBorder";
-const TOOLTIP_FALLBACK: [u8; 4] = [16, 0, 16, 224];
 
 #[derive(Clone)]
 pub(super) struct TextPaint {
     pub(super) color: [u8; 4],
+    pub(super) edit: Option<super::host_edit::Feedback>,
     pub(super) shadow: TextShadow,
     pub(super) align: TextAlign,
     pub(super) scale: f32,
@@ -166,6 +161,11 @@ impl Painter<'_> {
         } else {
             Cow::Borrowed(text)
         };
+        let text = if style.edit.is_some_and(|edit| edit.caret && !edit.selected) {
+            Cow::Owned(format!("{text}_"))
+        } else {
+            text
+        };
         if text.is_empty() {
             return Ok(());
         }
@@ -218,92 +218,14 @@ impl Painter<'_> {
                 shadow: style.shadow,
             }),
         );
-        Ok(())
-    }
-
-    /// Hover text in a `purpleBorder` box beside the pointer (or the hovered
-    /// control), wrapped at `max_width` GUI px when positive, flipped left of
-    /// the pointer past the right edge and centred above it past the left.
-    pub(super) fn tooltip(
-        &mut self,
-        text: &str,
-        dest: [f32; 4],
-        max_width: Option<f64>,
-        opacity: f32,
-    ) -> Result<(), UiPresentationError> {
-        let px = self.px;
-        let anchor = self
-            .art
-            .pointer
-            .map_or([dest[2], dest[1]], |point| [point[0] * px, point[1] * px]);
-        let wrap = max_width
-            .filter(|width| *width >= 1.0)
-            .map_or(UNWRAPPED_LOGICAL, |width| width * f64::from(px));
-        let request = self.metrics.request(text, width_64(wrap), self.font);
-        let Ok(layout) = self.layouts.layout(request) else {
-            return Ok(());
-        };
-        let [w, h] = layout.size_64().map(|size| size as f32 / 64.0);
-        let size = [w + TOOLTIP_PAD[0] * px, h + TOOLTIP_PAD[1] * px];
-        let mut offset = [TOOLTIP_OFFSET[0] * px, TOOLTIP_OFFSET[1] * px];
-        let overflow = anchor[1] + size[1] + offset[1] - self.screen[3];
-        if overflow > 0.0 {
-            offset[1] -= overflow;
-        }
-        if anchor[0] + size[0] + offset[0] > self.screen[2] {
-            offset[0] = -(offset[0] + size[0]);
-        }
-        if anchor[0] + offset[0] < 0.0 {
-            offset = [-0.5 * size[0], -size[1]];
-        }
-        let origin = [anchor[0] + offset[0], anchor[1] + offset[1]];
-        let alpha = (255.0 * opacity.clamp(0.0, 1.0)).round() as u8;
-        self.tooltip_box(
-            [
-                origin[0],
-                origin[1],
-                origin[0] + size[0],
-                origin[1] + size[1],
-            ],
-            alpha,
-        )?;
-        let inset = TOOLTIP_INSET * px;
-        let at = [origin[0] + inset, origin[1] + inset];
-        self.push(
-            UiVisual::Text {
-                layout,
-                color: [255, 255, 255, alpha],
-                shadow: self.metrics.shadow(),
-            },
-            [at[0], at[1], at[0] + w, at[1] + h],
-        )
-    }
-
-    /// The tooltip background: the pack's `purpleBorder` nine-slice.
-    fn tooltip_box(&mut self, bounds: [f32; 4], alpha: u8) -> Result<(), UiPresentationError> {
-        let px = self.px;
-        let Some(meta) = self.textures.texture(TOOLTIP_TEXTURE) else {
-            let mut color = TOOLTIP_FALLBACK;
-            color[3] = (u16::from(color[3]) * u16::from(alpha) / 255) as u8;
-            return self.solid(bounds, color);
-        };
-        let virtual_rect = json_ui::Rect::new(
-            f64::from(bounds[0] / px),
-            f64::from(bounds[1] / px),
-            f64::from((bounds[2] - bounds[0]) / px),
-            f64::from((bounds[3] - bounds[1]) / px),
-        );
-        for quad in json_ui::nine_slice(virtual_rect, &meta) {
-            let Some(visual) = self.sprite(
-                TOOLTIP_TEXTURE,
-                quad.uv,
-                [255, 255, 255, alpha],
-                json_ui::SpriteFilter::default(),
-            ) else {
-                continue;
-            };
-            let dest = self.logical(&quad.dest);
-            self.push(visual, dest)?;
+        if style.edit.is_some_and(|edit| edit.selected) {
+            self.push(
+                UiVisual::InvertedSprite {
+                    texture_page: self.solid_page,
+                    uv: [0, 0, 1, 1],
+                },
+                [dest[0], dest[1], dest[0] + width, dest[1] + height],
+            )?;
         }
         Ok(())
     }

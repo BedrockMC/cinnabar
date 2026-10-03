@@ -2,33 +2,22 @@
 //! Matched 1.26.50.26 RVA 0x05e588d0: T(8,10,-10) S(11) Rx(30) Ry(30), model unit 1/16.
 
 use crate::entity::{EntityAssetCompilation, compile_equipment_textures};
+use assets::gui_item::{
+    GUI_ITEM_SIDE, SHIELD_FACE_CORNERS as FACE_CORNERS, SHIELD_ROOT_BONE as ROOT_BONE,
+    shield_face_uvs as face_uvs,
+};
 use assets::{
-    AssetError, EntityGeometry, EntityGeometryBone, EntityGeometryCube, EntityGeometryUv,
-    EquipmentTexture, IconSprite,
+    AssetError, EntityGeometry, EntityGeometryBone, EntityGeometryCube, EquipmentTexture,
+    IconSprite,
 };
 use std::{path::Path, sync::Arc};
 
 mod raster;
 
-pub(super) const IDENTIFIER: &str = "minecraft:shield";
-const ROOT_BONE: &str = "shield";
-const MODEL_UNIT: f32 = 1.0 / 16.0;
-const GUI_TRANSLATION: [f32; 3] = [8.0, 10.0, -10.0];
-const GUI_MODEL_SCALE: f32 = 11.0;
-const MODEL_PART_HEIGHT: f32 = 24.0;
-// Matched DAT_150254be4, IEEE-754 bits of the native 30-degree angle.
-const GUI_ROTATION_RADIANS: f32 = f32::from_bits(0x3f06_0a92);
+pub(super) use assets::gui_item::SHIELD_IDENTIFIER as IDENTIFIER;
 /// Carrier resolution only; native GUI coordinates retain their sixteen-pixel item frame.
 const SIDE: usize = 64;
-const PIXELS_PER_GUI_PIXEL: f32 = SIDE as f32 / 16.0;
-const FACE_CORNERS: [[usize; 4]; 6] = [
-    [3, 2, 1, 0],
-    [6, 7, 4, 5],
-    [7, 3, 0, 4],
-    [2, 6, 5, 1],
-    [7, 6, 2, 3],
-    [0, 1, 5, 4],
-];
+const PIXELS_PER_GUI_PIXEL: f32 = SIDE as f32 / GUI_ITEM_SIDE;
 
 pub(super) fn compile(
     root: &Path,
@@ -100,17 +89,8 @@ fn bake(geometry: &EntityGeometry, texture: &EquipmentTexture) -> Option<IconSpr
 }
 
 fn project(authored: [f32; 3]) -> [f32; 2] {
-    // ModelPart::loadWithOrientation uses (pivot.x, 24-pivot.y, pivot.z), and its boxes
-    // invert Y around that pivot: together this is (x, 24-y, z), without actor-space X mirroring.
-    let [x, y, z] = [authored[0], MODEL_PART_HEIGHT - authored[1], authored[2]];
-    let (sin, cos) = GUI_ROTATION_RADIANS.sin_cos();
-    let [x, z] = [cos * x + sin * z, -sin * x + cos * z];
-    let y = cos * y - sin * z;
-    [
-        GUI_TRANSLATION[0] + x * MODEL_UNIT * GUI_MODEL_SCALE,
-        GUI_TRANSLATION[1] + y * MODEL_UNIT * GUI_MODEL_SCALE,
-    ]
-    .map(|value| value * PIXELS_PER_GUI_PIXEL)
+    let [x, y, _] = assets::gui_item::project_shield(authored);
+    [x, y].map(|value| value * PIXELS_PER_GUI_PIXEL)
 }
 
 fn append_cube(
@@ -162,46 +142,6 @@ fn append_cube(
                 triangle.map(|i| uvs[i]),
                 texture,
             );
-        }
-    }
-}
-
-fn face_uvs(cube: &EntityGeometryCube) -> [Option<[[f32; 2]; 4]>; 6] {
-    let quad =
-        |[u, v]: [f32; 2], [w, h]: [f32; 2]| [[u, v], [u + w, v], [u + w, v + h], [u, v + h]];
-    match &cube.uv {
-        EntityGeometryUv::Box(uv) => {
-            let [u, v] = uv.map(|value| value.get());
-            let [x, y, z] = cube.size.map(|value| value.get().trunc());
-            [
-                [u + z, v + z, x, y],
-                [u + z + x + z, v + z, x, y],
-                [u, v + z, z, y],
-                [u + z + x, v + z, z, y],
-                [u + z, v, x, z],
-                [u + z + x, v, x, z],
-            ]
-            .map(|[u, v, w, h]| Some(quad([u, v], [w, h])))
-        }
-        EntityGeometryUv::Faces(faces) => {
-            let faces = [
-                &faces.north,
-                &faces.south,
-                &faces.east,
-                &faces.west,
-                &faces.up,
-                &faces.down,
-            ];
-            let dimensions = cube.face_uv_dimensions();
-            std::array::from_fn(|index| {
-                faces[index].as_ref().map(|face| {
-                    quad(
-                        face.uv.map(|value| value.get()),
-                        face.uv_size
-                            .map_or(dimensions[index], |size| size.map(|value| value.get())),
-                    )
-                })
-            })
         }
     }
 }

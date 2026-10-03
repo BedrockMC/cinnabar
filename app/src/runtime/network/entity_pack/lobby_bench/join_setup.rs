@@ -85,7 +85,9 @@ fn measure_setup(world: &mut World, trial: usize, phase: &str) {
     world.run_system_cached(prepare_actor_render_frame).unwrap();
     world.run_system_cached(publish_actor_render_frame).unwrap();
     let elapsed = started.elapsed();
-    let cpu = thread_cpu_time() - cpu_started;
+    let cpu = thread_cpu_time()
+        .zip(cpu_started)
+        .map(|(after, before)| (after - before).as_secs_f64() * 1e3);
     let allocations = crate::tests::alloc_count::thread_allocations() - allocated;
     let snapshot = world
         .resource::<RuntimeStageProfiler>()
@@ -96,7 +98,7 @@ fn measure_setup(world: &mut World, trial: usize, phase: &str) {
         "LOBBY_JOIN_SETUP {}",
         serde_json::json!({
             "trial": trial, "phase": phase, "wall_ms": elapsed.as_secs_f64() * 1e3,
-            "cpu_ms": cpu.as_secs_f64() * 1e3, "allocations": allocations,
+            "cpu_ms": cpu, "allocations": allocations,
             "session_setup_ms": snapshot.samples[RuntimeStage::ActorSessionSetup as usize].total.as_secs_f64() * 1e3,
             "geometry_setup_ms": snapshot.samples[RuntimeStage::ActorGeometrySetup as usize].total.as_secs_f64() * 1e3,
             "artwork_setup_ms": snapshot.samples[RuntimeStage::ActorArtworkSetup as usize].total.as_secs_f64() * 1e3,

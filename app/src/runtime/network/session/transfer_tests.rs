@@ -16,10 +16,15 @@ struct TransferredInboundSession {
     inbound: VecDeque<WorldEvent>,
     error: Option<&'static str>,
     transfer: Option<protocol::ServerTransferEvent>,
+    transfer_after: usize,
 }
 
 impl TransferredInboundSession {
     fn take_transfer(&mut self) -> Option<protocol::ServerTransferEvent> {
+        if self.transfer_after > 0 {
+            self.transfer_after -= 1;
+            return None;
+        }
         self.transfer.take()
     }
 }
@@ -76,6 +81,7 @@ async fn retained_transfer_ends_the_pump_after_prior_world_ingress_without_a_sto
         TransferredInboundSession {
             inbound: VecDeque::from([WorldEvent::ChunkRadiusUpdated(16)]),
             error: None,
+            transfer_after: 0,
             transfer: Some(transferred(transfer_target())),
         },
         NetworkSequencer::new(7, 0, 42),
@@ -119,6 +125,7 @@ async fn a_retained_transfer_takes_precedence_over_a_later_receive_failure() {
         TransferredInboundSession {
             inbound: VecDeque::new(),
             error: Some("socket read failed"),
+            transfer_after: 0,
             transfer: Some(transferred(transfer_target())),
         },
         NetworkSequencer::new(7, 0, 42),
@@ -153,4 +160,37 @@ fn transferred_terminal_marker_names_the_exact_target() {
     assert_eq!(marker["target"]["port"], 19133);
     assert_eq!(marker["reload_world"], true);
     assert_eq!(marker["decode_error_count"], 9);
+}
+
+#[tokio::test]
+async fn review_transfer_after_reserving_the_last_world_slot_does_not_deadlock() {
+    let (world_tx, mut world_events) = mpsc::channel(1);
+    let (_commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (control_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+    let session = TransferredInboundSession {
+        inbound: VecDeque::from([WorldEvent::ChunkRadiusUpdated(16)]),
+        error: None,
+        transfer_after: 1,
+        transfer: Some(transferred(transfer_target())),
+    };
+    let task = tokio::spawn(run_network_pump(
+        session,
+        NetworkSequencer::new(7, 0, 42),
+        command_rx,
+        control_tx,
+        world_tx,
+        shutdown_rx,
+    ));
+    tokio::time::timeout(std::time::Duration::from_secs(1), world_events.recv())
+        .await
+        .expect("the reserved slot must publish the pending world event")
+        .unwrap();
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), controls.recv())
+            .await
+            .unwrap(),
+        Some(NetworkControlEvent::Transferred { .. })
+    ));
+    task.await.unwrap();
 }

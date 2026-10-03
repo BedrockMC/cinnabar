@@ -48,6 +48,7 @@ pub struct RemoteActionSnapshot {
 #[derive(Debug)]
 pub(crate) struct RemoteActionStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
+    pack: Option<Arc<RuntimeEntityAssets>>,
     timelines: BTreeMap<ActorLifetimeId, Vec<RemoteActionSnapshot>>,
     accepted_this_tick: usize,
     stats: RemoteActionStats,
@@ -65,10 +66,16 @@ impl RemoteActionStore {
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         Self {
             assets,
+            pack: None,
             timelines: BTreeMap::new(),
             accepted_this_tick: 0,
             stats: RemoteActionStats::default(),
         }
+    }
+
+    /// Retains the owning catalog for tagged server-pack rig IDs.
+    pub(crate) fn set_pack(&mut self, assets: Option<Arc<RuntimeEntityAssets>>) {
+        self.pack = assets;
     }
 
     pub(crate) fn clear(&mut self) {
@@ -193,9 +200,15 @@ impl RemoteActionStore {
         else {
             return RemoteActionFallback::None;
         };
-        let available = self.assets.as_ref().is_some_and(|assets| {
-            let Some(geometry) = rig.and_then(|rig| assets.rig_geometries().get(rig.0 as usize))
-            else {
+        let catalog = rig.and_then(|rig| {
+            if let Some(index) = rig.0.checked_sub(assets::PACK_RIG_ID_BASE) {
+                self.pack.as_ref().map(|assets| (assets, index))
+            } else {
+                self.assets.as_ref().map(|assets| (assets, rig.0))
+            }
+        });
+        let available = catalog.is_some_and(|(assets, index)| {
+            let Some(geometry) = assets.rig_geometries().get(index as usize) else {
                 return false;
             };
             let animation_first = geometry.first_animation as usize;

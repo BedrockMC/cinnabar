@@ -16,7 +16,9 @@ mod cloud_render;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
-pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+pub use enhanced::{
+    ENHANCED_RENDERING_ENABLED, EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES,
+};
 mod dropped_item_render;
 mod hand_rig_render;
 mod item_geometry;
@@ -38,9 +40,10 @@ mod ui;
 mod ui_textures;
 
 pub use ui_textures::{
-    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
-    UI_DYNAMIC_PAGE_SIDE, UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage,
-    UiTexturePlan,
+    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_TEXTURE_BUCKETS,
+    UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
+    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog,
+    UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 mod ui_render;
 mod viewmodel;
@@ -107,19 +110,20 @@ pub use block_entity::{
     AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
     BedModel, BellAttachment, BellModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame,
     BlockEntityKind, BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission,
-    BlockEntityVertex, ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance,
-    CrackQuad, CrackShape, DecoratedPotModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
-    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
-    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
-    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
-    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
-    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
-    sherd_pattern, shulker_color_from_block_name, swing_degrees,
+    BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget, ChestModel, ChestPair,
+    ChestVariant, ConduitModel, CopperAge, CrackInstance, CrackQuad, CrackShape, DecoratedPotModel,
+    Facing, ItemFrameModel, MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS,
+    SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind, SkullModel, SkullMount,
+    SpawnerModel, StaticItemPlacement, StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL,
+    TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
+    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
+    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
     sun_direction, sunrise_band,
 };
+pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet,
     ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue, ChunkRenderQueueLimits,
@@ -210,4 +214,9 @@ pub use weather::{
     particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
 };
 
+mod opaque_phase;
+pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
+
+#[cfg(test)]
+mod queue_review_support;

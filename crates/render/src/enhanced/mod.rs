@@ -14,6 +14,10 @@ mod shadows;
 mod snapshot;
 use snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode};
 #[cfg(test)]
+mod graph_tests;
+#[cfg(test)]
+mod populated_tests;
+#[cfg(test)]
 mod validation;
 pub(crate) use frame::CascadeBounds;
 use shadows::{EnhancedShadowLabel, EnhancedShadowNode, EnhancedShadowPipelines};
@@ -25,7 +29,7 @@ use bevy::{
     render::{
         Render, RenderApp, RenderSystems,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_graph::{RenderGraph, ViewNodeRunner},
+        render_graph::{Node, RenderGraph, RenderLabel, ViewNodeRunner},
     },
     shader::Shader,
 };
@@ -43,8 +47,10 @@ const ENHANCED_CASTER_SHADER_HANDLE: Handle<Shader> =
 const ENHANCED_POST_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("9b7e2c15-3f4a-4d8b-a6e2-7c1d0f5b3a84");
 
-/// Per-camera opt-in for the Enhanced render mode and its quality knobs.
+/// Per-camera opt-in for Enhanced rendering. The plugin enforces [`Msaa::Off`]
+/// before extraction because its depth copies and sampling require single-sample textures.
 #[derive(Component, ExtractComponent, Clone, Copy, Debug, PartialEq)]
+#[require(Msaa::Off)]
 pub struct EnhancedRendering {
     pub shadows: bool,
     pub shadow_resolution: u32,
@@ -59,6 +65,10 @@ pub struct EnhancedRendering {
 }
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
+
+/// Enhanced is disabled until the GPU faults and system freezes are resolved.
+/// Settings, launch flags and camera components cannot override this switch.
+pub const ENHANCED_RENDERING_ENABLED: bool = false;
 
 impl Default for EnhancedRendering {
     fn default() -> Self {
@@ -78,7 +88,8 @@ impl Default for EnhancedRendering {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnhancedRenderPlugin;
 
-/// Registers conditional shader imports without installing Enhanced passes.
+/// Registers source imports that Bevy resolves even for vanilla shader variants.
+/// This creates no Enhanced GPU pipelines or render passes.
 pub(crate) fn load_shader_imports(app: &mut App) {
     if app
         .world()
@@ -109,6 +120,9 @@ pub(crate) fn load_shader_imports(app: &mut App) {
 
 impl Plugin for EnhancedRenderPlugin {
     fn build(&self, app: &mut App) {
+        if !ENHANCED_RENDERING_ENABLED {
+            return;
+        }
         load_shader_imports(app);
         load_internal_asset!(
             app,
@@ -117,6 +131,7 @@ impl Plugin for EnhancedRenderPlugin {
             Shader::from_wgsl
         );
         app.add_plugins(ExtractComponentPlugin::<EnhancedRendering>::default());
+        app.add_systems(Last, enforce_single_sample_depth);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -129,6 +144,9 @@ impl Plugin for EnhancedRenderPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        if !ENHANCED_RENDERING_ENABLED {
+            return;
+        }
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -140,11 +158,22 @@ impl Plugin for EnhancedRenderPlugin {
     }
 }
 
-/// Orders the world grade before the hand and UI.
+/// Keeps runtime MSAA changes from reaching the single-sample depth passes.
+fn enforce_single_sample_depth(mut cameras: Query<&mut Msaa, With<EnhancedRendering>>) {
+    for mut msaa in &mut cameras {
+        if *msaa != Msaa::Off {
+            *msaa = Msaa::Off;
+        }
+    }
+}
+
+/// Orders world, Bloom and grade before the hand and UI on Enhanced views.
 fn install_graph(world: &mut World) {
     let snapshot = ViewNodeRunner::<EnhancedSnapshotNode>::new(EnhancedSnapshotNode, world);
     let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
     let post = ViewNodeRunner::<EnhancedPostNode>::new(EnhancedPostNode, world);
+    let hand = crate::viewmodel_render::enhanced_post_node(world);
+    let rig = crate::hand_rig_render::enhanced_post_node(world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -160,15 +189,55 @@ fn install_graph(world: &mut World) {
     graph.add_node(EnhancedShadowLabel, shadow);
     graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
     graph.add_node(EnhancedPostLabel, post);
-    // Bloom stays in Bevy's post-processing stage: moving it before EndMainPass closes a cycle
-    // through MotionBlur/Taa (StartMainPassPostProcessing -> MotionBlur -> Bloom) and hangs the graph.
+    // World -> Bloom -> grade -> hand and UI; Bloom stays in post-processing, where moving it
+    // before EndMainPass would close a cycle through MotionBlur/Taa.
     graph.add_node_edges((
-        Node3d::MainTransparentPass,
+        Node3d::StartMainPassPostProcessing,
         EnhancedPostLabel,
-        Node3d::EndMainPass,
+        Node3d::Tonemapping,
     ));
-    // Hand and UI draw after the composite so neither is graded or bloomed.
-    let _ = graph.try_add_node_edge(EnhancedPostLabel, crate::viewmodel_render::HandLabel);
-    let _ = graph.try_add_node_edge(EnhancedPostLabel, crate::hand_rig_render::HandRigLabel);
-    let _ = graph.try_add_node_edge(EnhancedPostLabel, crate::ui_render::UiOverlayLabel);
+    let _ = graph.try_add_node_edge(Node3d::Bloom, EnhancedPostLabel);
+    let hand = add_post_node(
+        graph,
+        crate::viewmodel_render::HandLabel,
+        EnhancedHandLabel,
+        hand,
+    );
+    let rig = add_post_node(
+        graph,
+        crate::hand_rig_render::HandRigLabel,
+        EnhancedHandRigLabel,
+        rig,
+    );
+    let overlay = crate::ui_render::overlay::UiOverlayPostLabel.intern();
+    if graph.get_node_state(overlay).is_ok() {
+        graph.add_node_edges((EnhancedPostLabel, overlay, Node3d::Tonemapping));
+        if hand {
+            graph.add_node_edge(EnhancedHandLabel, overlay);
+        }
+        if rig {
+            graph.add_node_edge(EnhancedHandRigLabel, overlay);
+        }
+    }
 }
+
+/// Adds the post-grade twin of an installed main-pass node; `false` when that pass is absent.
+fn add_post_node(
+    graph: &mut RenderGraph,
+    main: impl RenderLabel,
+    post: impl RenderLabel + Clone,
+    node: impl Node,
+) -> bool {
+    if graph.get_node_state(main).is_err() {
+        return false;
+    }
+    graph.add_node(post.clone(), node);
+    graph.add_node_edges((EnhancedPostLabel, post, Node3d::Tonemapping));
+    true
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct EnhancedHandLabel;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct EnhancedHandRigLabel;

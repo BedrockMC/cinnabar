@@ -324,7 +324,7 @@ fn sprite_visual_preserves_atlas_texel_bounds() {
             .iter()
             .map(|vertex| vertex.uv)
             .collect::<Vec<_>>(),
-        [[17, 23], [26, 23], [26, 32], [17, 32]]
+        [[17.0, 23.0], [26.0, 23.0], [26.0, 32.0], [17.0, 32.0]]
     );
 }
 

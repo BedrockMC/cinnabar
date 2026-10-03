@@ -158,6 +158,44 @@ impl TransparentRetirementBudget {
     }
 }
 
+/// Matches retained references against the still-resident physical liquid stream.
+pub(in crate::chunk) fn transparent_resident_allocation_contains(
+    identity: &TransparentAllocationIdentity,
+    allocation: &GpuChunkAllocation,
+) -> bool {
+    let (Some(liquid), Some(lighting)) = (
+        allocation.liquid_range.as_ref(),
+        allocation.liquid_lighting_range.as_ref(),
+    ) else {
+        return false;
+    };
+    !liquid.is_empty()
+        && !lighting.is_empty()
+        && liquid.start.is_multiple_of(4)
+        && liquid.end.is_multiple_of(4)
+        && lighting.start.is_multiple_of(2)
+        && lighting.end.is_multiple_of(2)
+        && liquid.end.saturating_sub(liquid.start) / 4
+            == lighting.end.saturating_sub(lighting.start) / 2
+        && allocation.key == identity.key
+        && allocation.metadata_index == identity.metadata_index
+        && liquid.start == identity.liquid_range.start
+        && liquid.end >= identity.liquid_range.end
+}
+
+/// Resolves an active allocation with the same physical contract as snapshot retention.
+pub(in crate::chunk) fn transparent_snapshot_references_resident_allocation(
+    snapshot: &TransparentOrderedSnapshot,
+    allocation: &GpuChunkAllocation,
+) -> bool {
+    allocation.tint_identity == snapshot.key.tint_identity
+        && snapshot
+            .key
+            .visible_allocations
+            .iter()
+            .any(|identity| transparent_resident_allocation_contains(identity, allocation))
+}
+
 pub(in crate::chunk) fn transparent_snapshot_references_allocation(
     snapshot: &TransparentOrderedSnapshot,
     allocation: &GpuChunkAllocation,

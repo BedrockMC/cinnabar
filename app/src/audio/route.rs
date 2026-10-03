@@ -153,11 +153,11 @@ fn note_request(
     let instrument = NOTE_INSTRUMENTS.get(usize::try_from(event.data >> 8).ok()?)?;
     let semitones = (event.data & 0xff) - 12;
     let pitch = (semitones as f32 / 12.0).exp2();
-    let (volume, base_pitch) = tables
-        .individual(NOTE_EVENT)
-        .map_or((FloatRange::ONE, FloatRange::ONE), |route| {
-            (route.volume, route.pitch)
-        });
+    let (volume, base_pitch) = match tables.individual_lookup(NOTE_EVENT) {
+        RouteLookup::Route(route) => (route.volume, route.pitch),
+        RouteLookup::Absent => (FloatRange::ONE, FloatRange::ONE),
+        RouteLookup::Silent => return None,
+    };
     let mut request = SoundRequest::new(*instrument)
         .with_ranges(volume, base_pitch)
         .scaled(1.0, pitch);
@@ -183,12 +183,15 @@ pub(super) fn level_event_request(
     let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
         .iter()
         .find(|(id, _, _)| *id == event.event_id)?;
-    let request = match tables
-        .individual(individual)
-        .filter(|_| !individual.is_empty())
-    {
-        Some(route) => from_route(route.clone(), None),
-        None => SoundRequest::new(fallback),
+    let lookup = if individual.is_empty() {
+        RouteLookup::Absent
+    } else {
+        tables.individual_lookup(individual)
+    };
+    let request = match lookup {
+        RouteLookup::Route(route) => from_route(route, None),
+        RouteLookup::Absent => SoundRequest::new(fallback),
+        RouteLookup::Silent => return None,
     };
     Some(request.at(event.position))
 }

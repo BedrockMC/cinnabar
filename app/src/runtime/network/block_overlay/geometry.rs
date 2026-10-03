@@ -75,7 +75,8 @@ pub(super) fn geometry_catalog(
                 continue;
             };
             if bytes.len() > MAX_GEOMETRY_FILE_BYTES
-                || !wanted.iter().any(|id| contains(&bytes, id.as_bytes()))
+                || (!bytes.contains(&b'\\')
+                    && !wanted.iter().any(|id| contains(&bytes, id.as_bytes())))
             {
                 continue;
             }
@@ -198,6 +199,7 @@ fn parse_bones(bones: &Value, texture_size: [f32; 2]) -> Geometry {
                 return geometry;
             }
             let Some(mut parsed) = parse_cube(cube) else {
+                geometry.skipped_cubes = geometry.skipped_cubes.saturating_add(1);
                 continue;
             };
             if is_rotated(&cube["rotation"])
@@ -253,6 +255,9 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
         geo_max[1] + inflate,
         geo_max[2] + 8.0 + inflate,
     ];
+    if !min.iter().chain(&max).all(|value| value.is_finite()) {
+        return None;
+    }
     let faces = match &cube["uv"] {
         Value::Object(faces) => FACE_NAMES.map(|name| {
             let face = faces.get(name)?;

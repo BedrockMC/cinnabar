@@ -11,7 +11,7 @@ pub struct AttachableAnimationInput<'a> {
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     pub animation_frame: u32,
-    /// Elapsed whole use ticks; `None` means the item is not being used.
+    /// Owner's elapsed main-hand use ticks, also visible to offhand attachables.
     pub use_elapsed_ticks: Option<u32>,
     pub max_use_ticks: u32,
     pub hand_charged: bool,
@@ -20,6 +20,22 @@ pub struct AttachableAnimationInput<'a> {
     pub owner_off_hand: Option<&'a str>,
     /// Additional owner variables copied before the item's scripts run.
     pub owner_variables: &'a [(&'a str, f32)],
+}
+
+impl AttachableAnimationInput<'_> {
+    /// Selects the rendered hand from the owner's first-person use frame.
+    pub fn for_hand(self, off_hand: bool) -> Self {
+        if off_hand {
+            Self {
+                off_hand,
+                animation_frame: 0,
+                hand_charged: false,
+                ..self
+            }
+        } else {
+            self
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -49,6 +65,7 @@ pub struct AttachableRigSnapshot<'a> {
 struct AttachableState {
     identifier: Arc<str>,
     rig: ActorRigState,
+    last_used: u64,
 }
 
 /// Retained script/controller state per owner, hand and render perspective.
@@ -57,6 +74,7 @@ pub struct AttachablesRuntime {
     assets: Arc<RuntimeEntityAssets>,
     layout: VariableLayout,
     states: BTreeMap<(ActorLifetimeId, bool, bool), AttachableState>,
+    evaluations: u64,
 }
 
 impl AttachablesRuntime {
@@ -65,6 +83,7 @@ impl AttachablesRuntime {
             layout: VariableLayout::new(&assets),
             assets,
             states: BTreeMap::new(),
+            evaluations: 0,
         }
     }
 
@@ -83,13 +102,23 @@ impl AttachablesRuntime {
         input: AttachableAnimationInput<'_>,
     ) -> Option<AttachableRigSnapshot<'_>> {
         let key = (owner_rig.actor, input.off_hand, input.first_person);
-        // Runtime IDs are reused across sessions and respawns; those script states cannot carry.
+        // Ended sessions and a reused runtime ID's previous owner carry no script state.
         self.states.retain(|(actor, _, _), _| {
-            actor.runtime_id != owner_rig.actor.runtime_id || *actor == owner_rig.actor
+            actor.session_id == owner_rig.actor.session_id
+                && (actor.runtime_id != owner_rig.actor.runtime_id || *actor == owner_rig.actor)
         });
         let binding = self.assets.attachable_rig_binding(identifier)?;
-        if !self.states.contains_key(&key) && self.states.len() >= MAX_ATTACHABLE_STATES {
-            return None;
+        self.evaluations += 1;
+        // Departed owners are never announced here; the least recently drawn state makes room.
+        if !self.states.contains_key(&key)
+            && self.states.len() >= MAX_ATTACHABLE_STATES
+            && let Some(stale) = self
+                .states
+                .iter()
+                .min_by_key(|(_, state)| state.last_used)
+                .map(|(key, _)| *key)
+        {
+            self.states.remove(&stale);
         }
         if self
             .states
@@ -108,10 +137,13 @@ impl AttachablesRuntime {
                 AttachableState {
                     identifier: Arc::from(identifier),
                     rig,
+                    last_used: 0,
                 },
             );
         }
-        let state = &mut self.states.get_mut(&key)?.rig;
+        let state = self.states.get_mut(&key)?;
+        state.last_used = self.evaluations;
+        let state = &mut state.rig;
         let frame_alpha = if input.frame_alpha.is_finite() {
             input.frame_alpha.clamp(0.0, 1.0)
         } else {

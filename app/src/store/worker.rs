@@ -70,6 +70,10 @@ pub(crate) enum StoreEvent {
     Page(Result<StorePage, StoreError>),
     Search(Result<StoreSearchResults, StoreError>),
     Offer(Result<Box<StoreOfferDetail>, StoreError>),
+    OfferFailed {
+        id: String,
+        error: StoreError,
+    },
     Balance(Result<Vec<StoreBalance>, StoreError>),
     Entitlements {
         offset: u32,
@@ -161,9 +165,12 @@ async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEve
         StoreRequest::Search(search) => StoreEvent::Search(reduce(
             store_control::store_search(socket_dir, &search).await,
         )),
-        StoreRequest::Offer(id) => StoreEvent::Offer(
-            reduce(store_control::store_offer(socket_dir, &id).await).map(Box::new),
-        ),
+        StoreRequest::Offer(id) => {
+            match reduce(store_control::store_offer(socket_dir, &id).await) {
+                Ok(detail) => StoreEvent::Offer(Ok(Box::new(detail))),
+                Err(error) => StoreEvent::OfferFailed { id, error },
+            }
+        }
         StoreRequest::Balance => {
             StoreEvent::Balance(reduce(store_control::store_balance(socket_dir).await))
         }

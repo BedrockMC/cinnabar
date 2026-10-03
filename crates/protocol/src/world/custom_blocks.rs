@@ -380,10 +380,11 @@ fn box_component(component: &Nbt) -> Option<CustomBox> {
         let mut out = [0.0_f32; 3];
         for (slot, value) in out.iter_mut().zip(values) {
             let number = value.number()?;
-            if !number.is_finite() {
+            let narrowed = number as f32;
+            if !narrowed.is_finite() {
                 return None;
             }
-            *slot = number as f32;
+            *slot = narrowed;
         }
         Some(out)
     };
@@ -392,8 +393,13 @@ fn box_component(component: &Nbt) -> Option<CustomBox> {
     let mut min = [0.0_f32; 3];
     let mut max = [0.0_f32; 3];
     for axis in 0..3 {
-        min[axis] = ((origin[axis] + shift[axis]) / 16.0).clamp(0.0, 1.0);
-        max[axis] = ((origin[axis] + shift[axis] + size[axis]) / 16.0).clamp(0.0, 1.0);
+        let low = origin[axis] + shift[axis];
+        let high = low + size[axis];
+        if !low.is_finite() || !high.is_finite() {
+            return None;
+        }
+        min[axis] = (low / 16.0).clamp(0.0, 1.0);
+        max[axis] = (high / 16.0).clamp(0.0, 1.0);
         if max[axis] <= min[axis] {
             return None;
         }
@@ -693,6 +699,19 @@ mod tests {
         let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
         assert_eq!(slab.max, [1.0, 0.5, 1.0]);
         assert!(super::box_component(&boxed([0.0; 3], [0.0; 3])).is_none());
+    }
+
+    #[test]
+    fn review_custom_box_rejects_nonfinite_narrowed_and_computed_coordinates() {
+        use super::{Nbt, box_component};
+        let boxed = |origin: [f64; 3], size: [f64; 3]| {
+            Nbt::Compound(vec![
+                ("origin".into(), Nbt::List(origin.map(Nbt::Float).into())),
+                ("size".into(), Nbt::List(size.map(Nbt::Float).into())),
+            ])
+        };
+        assert!(box_component(&boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0])).is_none());
+        assert!(box_component(&boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0])).is_none());
     }
 
     // A disabled selection box makes the block untargetable; a box overrides the default.

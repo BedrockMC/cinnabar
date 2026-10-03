@@ -27,8 +27,8 @@ pub(super) fn prepare(view: &LayeredPackView) -> Option<Arc<ActorArtworkPages>> 
             let image = super::resource_packs::decode_pack_texture(view, &source.path)?;
             let width = u16::try_from(image.width).ok()?;
             let height = u16::try_from(image.height).ok()?;
-            bytes = bytes.saturating_add(image.rgba8.len());
-            if bytes > assets::MAX_ACTOR_PIXEL_BYTES {
+            if !retain_override_bytes(&mut bytes, image.rgba8.len(), assets::MAX_ACTOR_PIXEL_BYTES)
+            {
                 return None;
             }
             Some((
@@ -44,4 +44,25 @@ pub(super) fn prepare(view: &LayeredPackView) -> Option<Arc<ActorArtworkPages>> 
     Some(Arc::new(
         pages.clone().with_source_texture_overrides(&overrides),
     ))
+}
+
+/// Accounts for source overrides against the retained artwork budget.
+fn retain_override_bytes(retained: &mut usize, bytes: usize, budget: usize) -> bool {
+    let Some(total) = retained.checked_add(bytes).filter(|total| *total <= budget) else {
+        return false;
+    };
+    *retained = total;
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn review_rejected_texture_bytes_do_not_suppress_later_overrides() {
+        let mut retained = 0;
+        assert!(super::retain_override_bytes(&mut retained, 24, 32));
+        assert!(!super::retain_override_bytes(&mut retained, 12, 32));
+        assert!(super::retain_override_bytes(&mut retained, 4, 32));
+        assert_eq!(retained, 28);
+    }
 }

@@ -7,13 +7,19 @@ impl ActorStore {
         uuid: [u8; 16],
         skin: PlayerSkin,
     ) -> ActorApplyResult {
-        let Some(profile) = self.players.get_mut(&uuid) else {
+        let Some(profile) = self
+            .players
+            .get_mut(&uuid)
+            .or_else(|| self.unlisted_players.get_mut(&uuid))
+        else {
             return ActorApplyResult::MissingActor;
         };
         if matches!(skin, PlayerSkin::Unavailable(_)) {
             return ActorApplyResult::CapacityRejected;
         }
-        let retained = self.retained_player_skin_bytes - retained_skin_bytes(&profile.skin);
+        let retained = self
+            .retained_player_skin_bytes
+            .saturating_sub(retained_skin_bytes(&profile.skin));
         let Some(total) = retained
             .checked_add(retained_skin_bytes(&skin))
             .filter(|total| *total <= self.max_player_skin_bytes)

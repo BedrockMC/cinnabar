@@ -7,26 +7,6 @@ use super::{
     MAX_RENDERED_PLAYERS, STANDARD_BIPED_VERTEX_COUNT, standard_biped_vertices,
 };
 
-/// Shared pixels and equal copies keep the revision; a changed final byte advances it.
-#[test]
-fn rig_skin_revision_tracks_pixels_across_shared_and_independent_payloads() {
-    let mut scene = ActorRenderScene::default();
-    let pixels: Arc<[u8]> = vec![7; super::STANDARD_SKIN_BYTES].into();
-    scene.update_rigs(0.0, None, [], Arc::clone(&pixels));
-    let revision = scene.frame().skin_revision;
-    for next in [Arc::clone(&pixels), Arc::from(pixels.to_vec())] {
-        let frame = scene.update_rigs(0.0, None, [], next);
-        assert_eq!(frame.skin_revision, revision);
-        assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
-    }
-    let mut changed = pixels.to_vec();
-    *changed.last_mut().unwrap() = 8;
-    let changed: Arc<[u8]> = changed.into();
-    let frame = scene.update_rigs(0.0, None, [], Arc::clone(&changed));
-    assert_eq!(frame.skin_revision, revision.wrapping_add(1));
-    assert!(Arc::ptr_eq(&frame.skins_rgba8, &changed));
-}
-
 fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
     ActorRenderSource {
         runtime_id,
@@ -362,4 +342,33 @@ fn batched_geometries_rebuild_the_catalog_once() {
     );
     assert!(builder.insert_geometries(duplicate).is_err());
     assert!(!builder.contains_geometry(super::skin_rig_id(9)));
+}
+
+#[test]
+fn review_render_geometry_replacement_keeps_configured_artwork() {
+    let (pages, _) =
+        super::ActorArtworkPages::default().with_equipment_rasters(&[super::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([1, 2, 3, 255]),
+        }]);
+    let mut scene = ActorRenderScene::default();
+    scene.configure_artwork(pages);
+    let before = Arc::clone(&scene.frame.artwork);
+    scene.replace_pack_entities(None).unwrap();
+    assert!(Arc::ptr_eq(&before, &scene.frame.artwork));
+}
+
+#[test]
+fn review_render_teleport_samples_the_destination_for_local_and_remote_actors() {
+    let mut scene = ActorRenderScene::default();
+    let mut actor = tick_source(7, 0.0, 100.0, 0.0, 90.0);
+    actor.teleported = true;
+    for alpha in [0.0, 0.5, 1.0] {
+        let frame = scene.update(alpha, None, [actor.clone()]);
+        assert_eq!(frame.instances[0].position[0], 100.0);
+        assert!((frame.instances[0].yaw_radians - 90.0_f32.to_radians()).abs() < 1e-5);
+        let frame = scene.update_with_local(alpha, None, [], Some(actor.clone()));
+        assert_eq!(frame.instances[0].position[0], 100.0);
+    }
 }

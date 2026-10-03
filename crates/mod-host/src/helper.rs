@@ -23,6 +23,34 @@ const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 const MAX_DISPATCH_IPC: usize = MAX_PAYLOAD_BYTES * 4 + MAX_HOST_OUTPUT;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
+/// Locates the helper beside the profile-selected client executable.
+pub fn developer_executable(client: &Path) -> std::path::PathBuf {
+    client.with_file_name(if cfg!(windows) {
+        "mod-host.exe"
+    } else {
+        "mod-host"
+    })
+}
+
+/// Checks the developer launcher before offering component execution.
+pub fn developer_runtime_available(client: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(developer_executable(client)) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Start {
@@ -108,11 +136,8 @@ impl Helper {
             !self.quarantined && self.pending_since.is_none(),
             "helper busy or quarantined"
         );
-        ensure!(
-            request.record.len() <= MAX_PAYLOAD_BYTES
-                && serde_json::to_vec(&request)?.len() <= MAX_DISPATCH_IPC,
-            "helper event too large"
-        );
+        validate_dispatch(&request)?;
+        serialize_frame(&request, MAX_DISPATCH_IPC)?;
         self.requests.try_send(request)?;
         self.pending_since = Some(Instant::now());
         Ok(())
@@ -184,10 +209,7 @@ pub fn serve_developer() -> Result<()> {
     write_frame(&mut output, &host.take_transaction(), MAX_HOST_OUTPUT)?;
     loop {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
-        ensure!(
-            request.record.len() <= MAX_PAYLOAD_BYTES,
-            "helper payload too large"
-        );
+        validate_dispatch(&request)?;
         let result = host.dispatch(
             &request.channel,
             &request.record,
@@ -218,13 +240,77 @@ pub(crate) fn write_frame(
     value: &impl Serialize,
     limit: usize,
 ) -> Result<()> {
-    let bytes = serde_json::to_vec(value)?;
-    ensure!(bytes.len() <= limit, "IPC frame too large");
+    let bytes = serialize_frame(value, limit)?;
     writer.write_all(&(bytes.len() as u32).to_le_bytes())?;
     writer.write_all(&bytes)?;
     writer.flush()?;
     Ok(())
 }
 
+/// Checks callback metadata before serialization or queuing can copy it.
+fn validate_dispatch(request: &Dispatch) -> Result<()> {
+    ensure!(
+        request.record.len() <= MAX_PAYLOAD_BYTES
+            && server_experience::manifest::identifier(&request.channel)
+            && request.actions.len() <= MAX_ACTIONS
+            && request
+                .actions
+                .iter()
+                .all(|action| server_experience::manifest::identifier(action)),
+        "helper event too large or malformed"
+    );
+    Ok(())
+}
+
+/// Stops serialization as soon as another byte would exceed the frame budget.
+fn serialize_frame(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {
+    let mut writer = BoundedBytes {
+        bytes: Vec::new(),
+        limit,
+    };
+    serde_json::to_writer(&mut writer, value)?;
+    Ok(writer.bytes)
+}
+
+struct BoundedBytes {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+impl Write for BoundedBytes {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+            return Err(std::io::Error::other("IPC frame too large"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+
+    #[test]
+    fn developer_launch_requires_an_executable_sibling() {
+        let directory = tempfile::tempdir().unwrap();
+        let client = directory.path().join("bedrock-client");
+        let helper = developer_executable(&client);
+        assert_eq!(helper.parent(), client.parent());
+        assert!(!developer_runtime_available(&client));
+        std::fs::write(&helper, []).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(!developer_runtime_available(&client));
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(developer_runtime_available(&client));
+    }
+}

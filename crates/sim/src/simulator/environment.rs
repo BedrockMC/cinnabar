@@ -53,7 +53,10 @@ pub(super) fn sample(
         });
         if block == support {
             friction = sample.primary().friction;
-            movement.surface_response = active_surface_response(sample.primary(), player, block);
+            let response = active_surface_response(sample.primary(), player, block);
+            if response != SurfaceResponse::None {
+                movement.surface_response = response;
+            }
         }
         for facts in &sample.layers {
             let active_response = active_surface_response(facts, player, block);
@@ -63,7 +66,10 @@ pub(super) fn sample(
                 movement.surface_response = active_response;
             }
             // Web slowdown belongs to the displacement phase, not ground acceleration.
-            if !facts.flags.contains(BlockPhysicsFlags::COBWEB) {
+            let body_contact = fluid_intersects(player, block, 1.0);
+            if !facts.flags.contains(BlockPhysicsFlags::COBWEB)
+                && (body_contact || (block == support && facts.flags.bits() == 0))
+            {
                 movement.horizontal_speed_factor = movement
                     .horizontal_speed_factor
                     .min(facts.horizontal_speed_factor);
@@ -71,7 +77,8 @@ pub(super) fn sample(
                     .vertical_speed_factor
                     .min(facts.vertical_speed_factor);
             }
-            movement.on_climbable |= facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
+            movement.on_climbable |=
+                body_contact && facts.flags.contains(BlockPhysicsFlags::CLIMBABLE);
             movement.in_water |= facts.flags.contains(BlockPhysicsFlags::WATER)
                 && liquid_contact(player, block, true);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
@@ -80,9 +87,11 @@ pub(super) fn sample(
             // boxes. Swept/support samples alone do not establish body contact.
             movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
                 && fluid_intersects(player, block, 1.0);
-            movement.in_powder_snow |= facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW)
+            movement.in_powder_snow |= (body_contact
+                && facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW))
                 || is_inside_slowdown(facts, player, block);
-            movement.in_scaffolding |= facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
+            movement.in_scaffolding |=
+                body_contact && facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
         }
     }
     let identity = identity.expect("the support block guarantees one bounded sample");

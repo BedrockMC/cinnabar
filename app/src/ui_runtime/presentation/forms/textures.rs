@@ -88,6 +88,7 @@ impl TextureSet {
         let atlas = atlas.with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()));
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
+        self.full_res.clear();
     }
 
     /// Item icons by texture path and the local vanilla pack; the atlas
@@ -210,19 +211,23 @@ impl TextureSource for Textures<'_> {
                 Some([u1 - u0, v1 - v0])
             })
             .or_else(|| self.atlas.fallback_size(key))?;
-        let sidecar = self.atlas.sidecar(key).or_else(|| {
-            let sidecar = self.assets.sidecar(key)?;
-            Some(TextureMeta {
-                base_size: sidecar.base_size.map(f64::from),
-                pixels: size,
-                nineslice: sidecar.nineslice.map(|inset| NineSlice {
-                    left: f64::from(inset.left),
-                    top: f64::from(inset.top),
-                    right: f64::from(inset.right),
-                    bottom: f64::from(inset.bottom),
-                }),
+        let sidecar = self
+            .atlas
+            .sidecar(key)
+            .or_else(|| {
+                let sidecar = self.assets.sidecar(key)?;
+                Some(TextureMeta {
+                    base_size: sidecar.base_size.map(f64::from),
+                    pixels: size,
+                    nineslice: sidecar.nineslice.map(|inset| NineSlice {
+                        left: f64::from(inset.left),
+                        top: f64::from(inset.top),
+                        right: f64::from(inset.right),
+                        bottom: f64::from(inset.bottom),
+                    }),
+                })
             })
-        });
+            .or_else(|| self.atlas.fallback_sidecar(key));
         // A sidecar without `base_size` measures in the image's pixels.
         Some(match sidecar {
             Some(meta) => TextureMeta {

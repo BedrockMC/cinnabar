@@ -20,6 +20,8 @@ mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
 mod navigation;
+#[cfg(test)]
+mod server_input_tests;
 pub(crate) mod servers;
 pub(crate) mod settings_options;
 mod settings_paths;
@@ -63,6 +65,21 @@ use crate::{install_layout::InstallLayout, session_cleanup::SessionDirectoryGuar
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+/// Vanilla's port box: six number characters, prefilled with the Bedrock default.
+const MAX_SERVER_PORT_BYTES: usize = 6;
+const DEFAULT_PORT: &str = "19132";
+
+/// Host and port of a saved `host:port`; a bare host gets the default port.
+pub(crate) fn split_address(address: &str) -> (String, String) {
+    match address.rsplit_once(':') {
+        Some((host, port))
+            if !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            (host.trim_matches(['[', ']']).to_owned(), port.to_owned())
+        }
+        _ => (address.to_owned(), DEFAULT_PORT.to_owned()),
+    }
+}
 
 /// Bounded number of consecutive automatic transfer-follow hops.
 ///
@@ -125,6 +142,7 @@ pub(crate) enum MenuDialog {
 pub(crate) enum MenuField {
     Name,
     Address,
+    Port,
     /// The local-world create or edit screen's name field.
     WorldName,
     WorldSeed,
@@ -151,6 +169,7 @@ pub(crate) enum MenuAction {
     ConfirmRemoveSaved(usize),
     AddName,
     AddAddress,
+    AddPort,
     AddSave,
     AddSaveConnect,
     AddBack,
@@ -213,6 +232,7 @@ pub(crate) struct MenuRuntime {
     history: json_ui::ScreenNav<MenuScreen>,
     name: String,
     address: String,
+    port: String,
     message: Option<String>,
     gui_scale_preference: Option<u8>,
     gui_scale_offset: i8,
@@ -261,6 +281,8 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// The device code whose sign-in page was last opened, so each code opens once.
+    sign_in_page_code: Option<String>,
     sign_out_requested: bool,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
@@ -377,8 +399,10 @@ impl MenuRuntime {
             server_tab: self.server_tab,
             dialog: self.dialog,
             field: self.field,
+            text_selected: self.text_selected,
             name: self.name.clone(),
             address: self.address.clone(),
+            port: self.port.clone(),
             message: self.message.clone(),
             gui_scale_offset: self.gui_scale_display_offset,
             gui_scale_choices: self.gui_scale_choices.clone(),
@@ -625,6 +649,7 @@ impl MenuRuntime {
                 self.editing = None;
                 self.name.clear();
                 self.address.clear();
+                self.port = DEFAULT_PORT.to_owned();
                 self.enter(MenuScreen::AddServer);
                 self.focus_field(MenuField::Name);
             }
@@ -699,7 +724,7 @@ impl MenuRuntime {
                     }
                 }
             }
-            MenuAction::AddName | MenuAction::AddAddress => {}
+            MenuAction::AddName | MenuAction::AddAddress | MenuAction::AddPort => {}
             MenuAction::AddSave => {
                 if self.save_draft() {
                     self.enter(MenuScreen::Play);
@@ -707,13 +732,15 @@ impl MenuRuntime {
             }
             MenuAction::AddSaveConnect => {
                 if self.save_draft() {
-                    self.request_connect(self.address.clone());
+                    self.request_connect(self.draft_endpoint());
                 }
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::ToggleRenderMode => {
-                self.render_mode = self.render_mode.toggled();
-                self.render_mode_request = Some(self.render_mode);
+                if render::ENHANCED_RENDERING_ENABLED {
+                    self.render_mode = self.render_mode.toggled();
+                    self.render_mode_request = Some(self.render_mode);
+                }
             }
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {
@@ -731,7 +758,7 @@ impl MenuRuntime {
             MenuAction::EditSaved(index) => {
                 if let Some(server) = self.servers.get(index) {
                     self.name = server.name.clone();
-                    self.address = server.address.clone();
+                    (self.address, self.port) = split_address(&server.address);
                     self.enter(MenuScreen::AddServer);
                     self.editing = Some(index);
                     self.focus_field(MenuField::Name);
@@ -779,9 +806,29 @@ impl MenuRuntime {
         }
     }
 
+    /// The draft's `host:port`; a host typed with its own port keeps it.
+    fn draft_endpoint(&self) -> String {
+        let host = self.address.trim();
+        let port = self.port.trim();
+        let own_port = host.contains("]:")
+            || host.split_once(':').is_some_and(|(_, rest)| {
+                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+            });
+        match (
+            own_port || host.is_empty(),
+            port.is_empty(),
+            host.contains(':'),
+        ) {
+            (true, _, _) | (_, true, _) => host.to_owned(),
+            (false, false, true) => format!("[{host}]:{port}"),
+            (false, false, false) => format!("{host}:{port}"),
+        }
+    }
+
     fn save_draft(&mut self) -> bool {
         let name = self.name.trim();
-        let address = self.address.trim();
+        let endpoint = self.draft_endpoint();
+        let address = endpoint.trim();
         if name.is_empty() || address.is_empty() {
             self.message = Some("Enter a server name and address.".to_owned());
             return false;

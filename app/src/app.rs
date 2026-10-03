@@ -422,6 +422,10 @@ fn bind_direct_session_directory(
 
 fn render_plugin() -> RenderPlugin {
     let mut settings = WgpuSettings::default();
+    settings.limits.max_storage_buffers_per_shader_stage = settings
+        .limits
+        .max_storage_buffers_per_shader_stage
+        .max(render::required_vertex_storage_buffers());
     if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
         settings.backends = Some(backends);
     }
@@ -439,13 +443,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
-    if let Ok(bytes) = std::fs::read(
-        layout
-            .vanilla_pack_dir()
-            .join("textures/terrain_texture.json"),
-    ) {
-        crate::runtime::network::set_base_terrain_catalog(&bytes);
-    }
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -629,6 +626,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         eprintln!("OreUI originals disabled ({reason})");
     }
     ui_presentation.set_equipment_catalog(equipment_catalog);
+    ui_presentation
+        .set_gui_models(&loaded_assets.runtime, &entity_runtime)
+        .context("prepare native GUI model geometry and original texture pages")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
@@ -958,6 +958,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
+    crate::block_selection::configure(&mut app);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);

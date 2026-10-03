@@ -9,6 +9,7 @@ impl MenuAction {
         match self {
             Self::AddName => Some(MenuField::Name),
             Self::AddAddress => Some(MenuField::Address),
+            Self::AddPort => Some(MenuField::Port),
             Self::LocalWorld(action) => action.field(),
             _ => None,
         }
@@ -187,6 +188,7 @@ impl MenuRuntime {
             MenuScreen::AddServer => vec![
                 MenuAction::AddName,
                 MenuAction::AddAddress,
+                MenuAction::AddPort,
                 MenuAction::AddSave,
                 MenuAction::AddSaveConnect,
                 MenuAction::AddBack,

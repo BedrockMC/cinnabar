@@ -11,6 +11,7 @@ mod auto_craft;
 mod bundles;
 mod cells;
 mod crafting;
+mod crafting_close;
 #[cfg(test)]
 mod crafting_tests;
 mod distribute;
@@ -124,6 +125,7 @@ struct PendingClose {
     window_id: i32,
     window_type: i8,
     owner: PendingCloseOwner,
+    returning_inputs: bool,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -490,7 +492,9 @@ impl PlayerInventoryLedger {
 
     /// Returns the next window lifecycle packet before inventory mutations.
     fn pending_control_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
-        if let Some(close) = self.pending_closes.front().copied() {
+        if let Some(close) = self.pending_closes.front().copied()
+            && self.close_ready(close)
+        {
             return container_close_packet(close.window_id)
                 .map(Some)
                 .map_err(|_| InventoryGestureError::InvalidRequest);
@@ -509,7 +513,13 @@ impl PlayerInventoryLedger {
     }
 
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {
-        if let Some(close) = self.pending_closes.pop_front() {
+        if self
+            .pending_closes
+            .front()
+            .copied()
+            .is_some_and(|close| self.close_ready(close))
+            && let Some(close) = self.pending_closes.pop_front()
+        {
             if let Some(generation) = close.owner.personal_generation()
                 && let Some(PersonalWindow::Closing {
                     generation: current,
@@ -652,11 +662,26 @@ impl PlayerInventoryLedger {
         }
         let (window_id, window_type, generation) =
             (storage.window_id, storage.window_type, storage.generation);
+        let returning = if window_type == WORKBENCH_WINDOW_TYPE {
+            match self.return_crafting_on_close() {
+                Ok(returning) => returning,
+                Err(error) => {
+                    self.note_close_return_failure(error);
+                    return;
+                }
+            }
+        } else {
+            false
+        };
         self.queue_close(window_id, window_type, PendingCloseOwner::Storage);
-        self.abandon_requests(|pending| {
-            pending.storage_generation == Some(generation)
-                && pending.state == InventoryPendingState::AwaitingTransport
-        });
+        if returning {
+            self.retain_close_returns(PendingCloseOwner::Storage);
+        } else {
+            self.abandon_requests(|pending| {
+                pending.storage_generation == Some(generation)
+                    && pending.state == InventoryPendingState::AwaitingTransport
+            });
+        }
         if self.storage_request_bound(generation) {
             // Retain the window so outstanding responses still reconcile
             // against its exact generation and identity.
@@ -675,7 +700,14 @@ impl PlayerInventoryLedger {
         let Some(storage) = self.storage.as_ref() else {
             return;
         };
-        if storage.closing && !self.storage_request_bound(storage.generation) {
+        if storage.closing
+            && !self.storage_request_bound(storage.generation)
+            && self
+                .pending_closes
+                .iter()
+                .filter(|close| close.owner == PendingCloseOwner::Storage)
+                .all(|close| self.close_ready(*close))
+        {
             self.discard_storage();
         }
     }
@@ -720,9 +752,17 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
-    /// Closing a screen returns its inputs server-side; the cells are known
-    /// empty until the server restates them.
+    /// Inputs are actual inventory, not a disposable preview. Never erase an
+    /// unreturned ingredient just because the screen stopped owning its UI.
     fn clear_crafting(&mut self) {
+        if self
+            .confirmed
+            .occupied()
+            .any(|(cell, _)| matches!(cell, Cell::Craft(_)))
+        {
+            self.crafting_resync_required = true;
+            return;
+        }
         self.confirmed.clear_ui();
         self.crafting_resync_required = false;
         self.surface_refreshed(CellSurface::Crafting);
@@ -759,6 +799,7 @@ impl PlayerInventoryLedger {
             window_id,
             window_type,
             owner,
+            returning_inputs: false,
         });
     }
 

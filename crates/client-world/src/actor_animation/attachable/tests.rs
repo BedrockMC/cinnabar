@@ -283,6 +283,35 @@ fn authored_attachable_runs_pre_animation_and_context_pose_at_render_alpha() {
     );
 }
 
+/// Owners from ended sessions and departed actors must not exhaust the bounded state table.
+#[test]
+fn attachable_states_survive_more_owners_than_the_state_bound() {
+    let owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    let mut runtime = AttachablesRuntime::new(fixture());
+    let input = AttachableAnimationInput {
+        first_person: true,
+        ..AttachableAnimationInput::default()
+    };
+    let owners = MAX_ATTACHABLE_STATES as u64 * 2;
+    // Distinct actors of one session, then one owner per reconnected session.
+    for (session_id, runtime_id) in (0..owners)
+        .map(|index| (1, 2 + index))
+        .chain((0..owners).map(|index| (2 + index, 2 + owners + index)))
+    {
+        let mut rig = owner_rig();
+        rig.actor.session_id = session_id;
+        rig.actor.runtime_id = runtime_id;
+        assert!(
+            runtime
+                .evaluate("minecraft:test_item", &owner, &rig, input)
+                .is_some(),
+            "session {session_id} owner {runtime_id} lost its attachable"
+        );
+        assert!(runtime.states.len() <= MAX_ATTACHABLE_STATES);
+    }
+    assert_eq!(runtime.states.len(), 1, "ended sessions keep no state");
+}
+
 #[test]
 fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
     let assets = fixture();
@@ -1000,4 +1029,63 @@ fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
         sample(true, true, false),
         "pack offhand blocking keyframes must be selected"
     );
+}
+
+#[test]
+fn offhand_keeps_owner_bow_use_timing_without_main_hand_charge_frame() {
+    let owner = AttachableAnimationInput {
+        first_person: true,
+        use_elapsed_ticks: Some(10),
+        max_use_ticks: 100,
+        animation_frame: 3,
+        hand_charged: true,
+        frame_alpha: 0.5,
+        owner_main_hand: Some("minecraft:bow"),
+        owner_off_hand: Some("minecraft:shield"),
+        ..Default::default()
+    };
+    let off = owner.for_hand(true);
+    assert_eq!(off.use_elapsed_ticks, owner.use_elapsed_ticks);
+    assert_eq!(off.max_use_ticks, owner.max_use_ticks);
+    assert_eq!(off.owner_main_hand, owner.owner_main_hand);
+    assert!(off.off_hand);
+    assert!(!off.hand_charged);
+    assert_eq!(off.animation_frame, 0);
+}
+
+/// Runs the pinned shield's bow-retraction script and authored keyframes offline.
+#[test]
+#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
+fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
+    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
+    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let mut runtime = AttachablesRuntime::new(assets);
+    let mut owner = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
+    owner.kind = ActorKind::Player {
+        uuid: [0; 16],
+        username: "diagnostic".into(),
+    };
+    let mut sample = |using: bool| {
+        runtime.clear();
+        let input = AttachableAnimationInput {
+            first_person: true,
+            use_elapsed_ticks: using.then_some(5),
+            max_use_ticks: 100,
+            owner_main_hand: Some("minecraft:bow"),
+            owner_off_hand: Some("minecraft:shield"),
+            ..Default::default()
+        }
+        .for_hand(true);
+        let snapshot = runtime
+            .evaluate("minecraft:shield", &owner, &owner_rig(), input)
+            .unwrap();
+        let bone = snapshot
+            .bone_names
+            .iter()
+            .position(|name| name.as_ref() == "shield")
+            .unwrap();
+        snapshot.pose[bone].translation_scale[2]
+    };
+    // resource_pack/attachables/shield.entity.json:36-45; animations/shield.animation.json:17.
+    assert!((sample(true) - sample(false) + 30.1).abs() < 0.001);
 }

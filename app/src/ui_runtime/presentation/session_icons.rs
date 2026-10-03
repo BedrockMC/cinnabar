@@ -40,9 +40,15 @@ pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
     refs: IconRefs,
     pub(super) page: Option<UiTexturePage>,
+    generation: u64,
 }
 
 impl UiPresentationRuntime {
+    /// Changes whenever session icons are replaced; pixels copied from them are stale after.
+    pub(crate) fn session_icon_generation(&self) -> u64 {
+        self.session_icons.generation
+    }
+
     /// Native CrossbowItem::getIcon routes nonzero animation frames to the pulling
     /// atlas. This identity is shared by inventory cells and actual dropped sprites.
     pub(crate) fn item_icon_key<'a>(
@@ -153,6 +159,7 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
         source: icons.cloned(),
         refs,
         page,
+        generation: runtime.session_icons.generation.wrapping_add(1),
     };
     dynamic_textures::rebuild(runtime);
 }
