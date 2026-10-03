@@ -30,6 +30,8 @@ use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 #[cfg(test)]
 mod home_promo;
 
+mod message_reports;
+
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often events refresh while a join is under way, so its progress bar moves smoothly.
@@ -57,7 +59,6 @@ struct Snapshot {
     pings: Option<Vec<ServerPing>>,
     home: Option<Home>,
     events: Vec<AccountEvent>,
-    message_events: Vec<MessageEvent>,
     last_disconnect: Option<u64>,
     connect: Option<ConnectProgress>,
     /// The menu is connecting, so the events worker polls faster.
@@ -69,6 +70,7 @@ struct Snapshot {
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    message_reports: Sender<MessageEvent>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -82,6 +84,7 @@ impl LauncherAccount {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
+        let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -92,6 +95,7 @@ impl LauncherAccount {
         Self {
             snapshot,
             sign_out,
+            message_reports,
             _alive: alive,
             socket_dir,
         }
@@ -152,19 +156,6 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-        }
-        let events = std::mem::take(
-            &mut shared
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .message_events,
-        );
-        for event in events {
-            if let Err(error) =
-                runtime.block_on(launcher_control::report_message_event(socket_dir, &event))
-            {
-                bevy::log::warn!(%error, "inbox event failed");
-            }
         }
         if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {
             publish(shared, |snapshot| {
@@ -539,9 +530,9 @@ impl AccountControl for LauncherAccount {
         )
     }
 
-    /// Queues a user inbox action on the existing control worker.
+    /// Queues an inbox action on the dedicated reporting worker.
     fn report_message(&mut self, event: MessageEvent) {
-        self.with(|snapshot| snapshot.message_events.push(event));
+        let _ = self.message_reports.send(event);
     }
 
     fn home(&mut self) -> Option<MenuHome> {
