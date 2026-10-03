@@ -34,6 +34,8 @@ pub(super) struct TextureSet {
     pub(super) remote: RemoteImages,
     /// Full-resolution art-page copies of server textures too big for a server page.
     full_res: HashMap<String, IconRef>,
+    /// A client part's screen: only portable `textures/` paths, never a URL.
+    confined: bool,
 }
 
 impl TextureSet {
@@ -75,6 +77,24 @@ impl TextureSet {
             remote: RemoteImages::default(),
             full_res: HashMap::new(),
             ..*self
+        }
+    }
+
+    /// A client part screen's sources: its bundle `files` over the carrier, the icon atlas and
+    /// the local vanilla pack, packed into the modal pages from `page`. The server pack, remote
+    /// URLs and paths that leave `textures/` are out of reach.
+    pub(super) fn confined(&self, files: &[(String, Vec<u8>)], page: u16) -> Self {
+        let pages = super::super::dynamic_textures::MODAL_UI_PAGES;
+        let atlas = ServerAtlas::new(files, None, pages).with_fallbacks(self.vanilla.clone(), None);
+        Self {
+            atlas: Mutex::new(atlas),
+            icons: self.icons.clone(),
+            first_page: self.first_page,
+            server_page: page,
+            vanilla: self.vanilla.clone(),
+            remote: RemoteImages::default(),
+            full_res: HashMap::new(),
+            confined: true,
         }
     }
 
@@ -120,6 +140,21 @@ impl Textures<'_> {
         Cow::Borrowed(texture_key(path))
     }
 
+    /// A confined set reads only portable `textures/` paths: no URL, no `..`, no other root.
+    fn admits(&self, path: &str) -> bool {
+        !self.set.confined
+            || path.strip_prefix("textures/").is_some_and(|rest| {
+                rest.split('/').all(|part| {
+                    !part.is_empty()
+                        && part != "."
+                        && part != ".."
+                        && part
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+                })
+            })
+    }
+
     fn icon(&self, key: &str) -> Option<IconRef> {
         self.set.icons.get(&key.to_ascii_lowercase()).copied()
     }
@@ -136,7 +171,7 @@ impl Textures<'_> {
     /// neither the carrier nor the icon atlas already has.
     pub(super) fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<String> {
         paths
-            .filter(|path| self.image(path).is_none())
+            .filter(|path| self.admits(path) && self.image(path).is_none())
             .map(|path| self.canonical(path))
             .filter(|key| {
                 self.atlas.has_image(key)
@@ -149,16 +184,20 @@ impl Textures<'_> {
     /// Whether no source has `path`; a URL still loading is not missing.
     pub(super) fn missing(&self, path: &str) -> bool {
         let key = texture_key(path);
-        !is_remote(key)
-            && self.images.is_none_or(|images| !images.contains_key(path))
-            && !self.atlas.has_image(key)
-            && self.assets.texture(key).is_none()
-            && self.icon(key).is_none()
-            && self.atlas.fallback_size(key).is_none()
+        !self.admits(path)
+            || !is_remote(key)
+                && self.images.is_none_or(|images| !images.contains_key(path))
+                && !self.atlas.has_image(key)
+                && self.assets.texture(key).is_none()
+                && self.icon(key).is_none()
+                && self.atlas.fallback_size(key).is_none()
     }
 
     /// The texture page and pixel rect `path` draws from.
     pub(super) fn sprite(&self, path: &str) -> Option<(u16, [f32; 4])> {
+        if !self.admits(path) {
+            return None;
+        }
         if let Some(image) = self.image(path) {
             let [u0, v0, u1, v1] = image.uv.map(f32::from);
             return Some((image.page, [u0, v0, u1 - u0, v1 - v0]));
@@ -190,6 +229,9 @@ impl Textures<'_> {
 
 impl TextureSource for Textures<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
+        if !self.admits(path) {
+            return None;
+        }
         let key = self.canonical(path);
         let key = key.as_ref();
         // The image and its sidecar each come from the highest layer that has

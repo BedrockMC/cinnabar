@@ -1,5 +1,6 @@
 use super::*;
 use server_experience::manifest::Scope;
+use std::collections::BTreeSet;
 
 /// Builds startup metadata without enabling developer execution in the test environment.
 fn startup() -> Start {
@@ -17,6 +18,7 @@ fn startup() -> Start {
                 gpu_bytes: 0,
             },
             assets: BTreeSet::new(),
+            templates: BTreeSet::new(),
             channels: Vec::new(),
             actions: BTreeSet::new(),
         },
@@ -65,9 +67,7 @@ fn delayed_start_keeps_frame_polling_responsive_and_reports_launch_failure() {
     assert!(
         helper
             .dispatch(Dispatch {
-                channel: "fixture.events".into(),
-                record: Vec::new(),
-                actions: BTreeSet::new(),
+                event: Event::Epoch,
                 epoch: 1,
             })
             .is_err()
@@ -122,26 +122,37 @@ fn dropping_a_pending_helper_revokes_its_launch() {
 }
 
 #[test]
-fn maximum_typed_payload_round_trips_through_dispatch_ipc() {
+fn maximum_typed_message_round_trips_through_dispatch_ipc() {
     let empty = serde_json::to_vec(&vec![server_experience::wire::Scalar::Text(String::new())])
         .unwrap()
         .len();
     let record = serde_json::to_vec(&vec![server_experience::wire::Scalar::Text(
-        "x".repeat(MAX_PAYLOAD_BYTES - empty),
+        "x".repeat(MAX_MESSAGE_BYTES - empty),
     )])
     .unwrap();
-    assert_eq!(record.len(), MAX_PAYLOAD_BYTES);
+    assert_eq!(record.len(), MAX_MESSAGE_BYTES);
     let request = Dispatch {
-        channel: "fixture.events".into(),
-        record,
-        actions: BTreeSet::new(),
+        event: Event::Message {
+            channel: "f".repeat(MAX_IDENTIFIER_BYTES),
+            record,
+        },
         epoch: u64::MAX,
     };
+    request.event.check().unwrap();
     assert!(serde_json::to_vec(&request).unwrap().len() > MAX_HOST_OUTPUT);
     let mut bytes = Vec::new();
     write_frame(&mut bytes, &request, MAX_DISPATCH_IPC).unwrap();
     let decoded: Dispatch = read_frame(&mut bytes.as_slice(), MAX_DISPATCH_IPC).unwrap();
-    assert_eq!(decoded.record, request.record);
+    assert_eq!(decoded.event, request.event);
+    let Event::Message {
+        channel,
+        mut record,
+    } = request.event
+    else {
+        unreachable!()
+    };
+    record.push(b' ');
+    assert!(Event::Message { channel, record }.check().is_err());
 }
 
 #[test]

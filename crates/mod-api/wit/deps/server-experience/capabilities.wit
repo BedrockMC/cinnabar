@@ -1,9 +1,30 @@
-package cinnabar:server-experience@1.0.0;
+package cinnabar:server-experience@1.1.0;
 
-/// Host-owned JSON-UI widgets and signed templates.
+/// Host-owned JSON-UI widgets and the bundle's signed modal screens.
 interface ui {
+    /// A value bound into a screen property, in the forms the JSON-UI engine's bindings read:
+    /// `numbers` carries arrays such as a colour `[r, g, b, a]` or an offset `[x, y]`.
+    variant value {
+        boolean(bool),
+        integer(s64),
+        number(f64),
+        text(string),
+        numbers(list<f64>),
+    }
+
     set-widget: func(id: string, text: string) -> result<_, string>;
+    /// Opens (or switches to) a template the manifest indexes under `templates`, as a modal
+    /// over gameplay; `none` closes the modal.
     open-screen: func(template: option<string>) -> result<_, string>;
+    @since(version = 1.1.0)
+    close-screen: func() -> result<_, string>;
+    /// Replaces a collection's rows: a JSON array of objects mapping a `#binding` name to a value
+    /// (`{"type":"bool|integer|number|text|numbers","value":…}`).
+    @since(version = 1.1.0)
+    set-collection: func(name: string, rows-json: list<u8>) -> result<_, string>;
+    /// Binds one `#binding` name for the whole screen.
+    @since(version = 1.1.0)
+    set-value: func(name: string, value: value) -> result<_, string>;
 }
 
 /// Named actions, available only while the host grants focus.

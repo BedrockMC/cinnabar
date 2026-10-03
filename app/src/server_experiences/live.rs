@@ -2,20 +2,24 @@
 
 use super::worker::Worker;
 use anyhow::{Result, ensure};
-use mod_host::helper::{Dispatch, Helper};
+use mod_host::helper::{Dispatch, Event, Helper};
 use server_experience::{
     bundle::VerifiedBundle,
     manifest::implemented_permissions,
     negotiation::Grant,
     policy::*,
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
+    screen,
     session::Control,
-    wire::{Envelope, Ingress, RateLimit},
+    wire::{self, Envelope, Ingress, RateLimit},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     path::{Path, PathBuf},
+    sync::Arc,
 };
+
+mod modal;
 
 struct Instance<H> {
     helper: Option<H>,
@@ -24,6 +28,14 @@ struct Instance<H> {
     owner: Principal,
     contributions: Contributions,
     busy: bool,
+    /// The bundle's verified templates and textures, shared with the modal presenter.
+    files: Arc<screen::Files>,
+    /// When its modal last opened, so the most recent one draws on top.
+    opened: u64,
+    /// Host callbacks (modal actions) waiting for the helper, oldest first.
+    events: VecDeque<Event>,
+    /// The world epoch of its pending callback, which that callback's transaction carries.
+    epoch: u64,
 }
 
 pub(super) struct Live<H = Helper> {
@@ -39,6 +51,8 @@ pub(super) struct Live<H = Helper> {
     slice_ms: u64,
     ready: bool,
     epoch: u64,
+    /// Counts modal openings across bundles.
+    modal_order: u64,
 }
 
 impl<H: Worker> Live<H> {
@@ -78,6 +92,7 @@ impl<H: Worker> Live<H> {
             let capabilities = Capabilities {
                 scope,
                 assets: bundle.paths().map(str::to_owned).collect(),
+                templates: bundle.manifest.templates.clone(),
                 channels: bundle.manifest.channels.clone(),
                 actions: bundle.manifest.actions.clone(),
             };
@@ -86,7 +101,7 @@ impl<H: Worker> Live<H> {
                 capabilities.scope.memory_bytes,
                 capabilities.scope.gpu_bytes,
             )?;
-            let component = bundle.into_component();
+            let (component, files) = bundle.into_runtime();
             let busy = component.is_some();
             instances.insert(
                 owner.bundle.clone(),
@@ -97,6 +112,10 @@ impl<H: Worker> Live<H> {
                     owner,
                     contributions: Contributions::default(),
                     busy,
+                    files: Arc::new(files),
+                    opened: 0,
+                    events: VecDeque::new(),
+                    epoch,
                 },
             );
         }
@@ -113,6 +132,7 @@ impl<H: Worker> Live<H> {
             slice_ms: now_ms,
             ready: false,
             epoch,
+            modal_order: 0,
         };
         live.initialize()?;
         Ok(live)
@@ -120,10 +140,10 @@ impl<H: Worker> Live<H> {
 
     /// Publishes complete transactions only; failure revokes every contribution in this preview.
     pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
-        ensure!(
-            epoch == self.epoch,
-            "world epoch changed; extension snapshot required"
-        );
+        let mut packets = Vec::new();
+        if epoch != self.epoch {
+            self.change_epoch(epoch, now_ms, &mut packets)?;
+        }
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
             self.budget.begin_slice();
@@ -146,12 +166,15 @@ impl<H: Worker> Live<H> {
                     return Err(error);
                 }
             };
+            // A callback that began before an epoch change still publishes; its sends carry the
+            // epoch it began in, which the server drops and counts.
             instance.contributions.apply(
                 &transaction,
                 &instance.owner,
-                epoch,
+                instance.epoch,
                 &instance.capabilities,
             )?;
+            modal::note_opened(instance, &transaction, &mut self.modal_order);
             for command in transaction.commands {
                 if let Command::Send {
                     channel,
@@ -160,7 +183,7 @@ impl<H: Worker> Live<H> {
                 } = command
                 {
                     let send = Envelope {
-                        version: WIRE_VERSION,
+                        version: self.grant.wire.version,
                         session: self.grant.session.clone(),
                         connection: self.grant.connection.clone(),
                         subclient: self.grant.subclient,
@@ -169,17 +192,18 @@ impl<H: Worker> Live<H> {
                         channel,
                         schema,
                         sequence: self.sequence,
-                        world_epoch: epoch,
+                        world_epoch: instance.epoch,
                         payload: record,
                     };
-                    let bytes = serde_json::to_vec(&send)?;
-                    ensure!(
-                        self.pending_sends.len() < MAX_QUEUE_MESSAGES
-                            && bytes.len() <= MAX_QUEUE_BYTES - self.pending_send_bytes,
-                        "outbound initialization queue overflow"
-                    );
-                    self.pending_send_bytes += bytes.len();
-                    self.pending_sends.push_back(bytes);
+                    for bytes in wire::encode(&send, &self.grant.wire)? {
+                        ensure!(
+                            self.pending_sends.len() < MAX_QUEUE_MESSAGES
+                                && bytes.len() <= MAX_QUEUE_BYTES - self.pending_send_bytes,
+                            "outbound initialization queue overflow"
+                        );
+                        self.pending_send_bytes += bytes.len();
+                        self.pending_sends.push_back(bytes);
+                    }
                     self.sequence = self
                         .sequence
                         .checked_add(1)
@@ -187,7 +211,6 @@ impl<H: Worker> Live<H> {
                 }
             }
         }
-        let mut packets = Vec::new();
         if !self.ready && self.instances.values().all(|instance| !instance.busy) {
             self.ready = true;
             packets.push(serde_json::to_vec(&Control::Ready {
@@ -217,6 +240,7 @@ impl<H: Worker> Live<H> {
                 self.egress.charge(bytes.len(), now_ms)?;
                 packets.push(bytes);
             }
+            self.deliver_events(epoch)?;
             while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
                 let instance = self
                     .instances
@@ -229,16 +253,49 @@ impl<H: Worker> Live<H> {
                 self.budget.dispatch(&instance.owner)?;
                 if let Some(helper) = &mut instance.helper {
                     helper.dispatch(Dispatch {
-                        channel: message.channel,
-                        record: serde_json::to_vec(&message.payload)?,
-                        actions: BTreeSet::new(),
+                        event: Event::Message {
+                            channel: message.channel,
+                            record: serde_json::to_vec(&message.payload)?,
+                        },
                         epoch,
                     })?;
                     instance.busy = true;
+                    instance.epoch = epoch;
                 }
             }
         }
         Ok(packets)
+    }
+
+    /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,
+    /// an `epoch` control names the new one ahead of every later send, and each guest is called
+    /// back to resend its state. A v1 session cannot continue.
+    fn change_epoch(&mut self, epoch: u64, now_ms: u64, packets: &mut Vec<Vec<u8>>) -> Result<()> {
+        ensure!(
+            self.grant.wire.version != WIRE_VERSION,
+            "world epoch changed; extension snapshot required"
+        );
+        self.epoch = epoch;
+        if self.ready {
+            let control = serde_json::to_vec(&Control::Epoch {
+                session: self.grant.session.clone(),
+                world_epoch: epoch,
+            })?;
+            self.egress.charge(control.len(), now_ms)?;
+            packets.push(control);
+        }
+        for instance in self.instances.values_mut() {
+            let guest = instance.helper.is_some() || instance.component.is_some();
+            if guest
+                && !instance
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, Event::Epoch))
+            {
+                instance.events.push_back(Event::Epoch);
+            }
+        }
+        Ok(())
     }
 
     /// Starts pending initializers only when the aggregate callback slice has room.
@@ -256,6 +313,7 @@ impl<H: Worker> Live<H> {
                 instance.capabilities.clone(),
                 self.epoch,
             )?);
+            instance.epoch = self.epoch;
         }
         Ok(())
     }

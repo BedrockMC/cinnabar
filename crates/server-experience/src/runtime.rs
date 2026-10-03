@@ -3,6 +3,7 @@
 use crate::{
     manifest::{Permission, Scope, identifier, plain_text},
     policy::*,
+    screen,
     wire::{Channel, Direction, Scalar},
 };
 use anyhow::{Result, ensure};
@@ -29,8 +30,19 @@ pub enum Command {
         id: String,
         text: String,
     },
+    /// Opens or switches the modal to an indexed template; `None` closes it.
     Screen {
         template: Option<String>,
+    },
+    /// Replaces the rows of one named collection the modal's templates read.
+    Collection {
+        name: String,
+        rows: Vec<screen::Row>,
+    },
+    /// Binds one `#name` for the whole modal.
+    Value {
+        name: String,
+        value: screen::Value,
     },
     Send {
         channel: String,
@@ -89,7 +101,7 @@ pub struct Transaction {
 #[derive(Clone, Debug, Default)]
 pub struct Contributions {
     pub widgets: BTreeMap<String, String>,
-    pub screen: Option<String>,
+    pub modal: screen::Modal,
     pub scene: BTreeMap<u32, SceneObject>,
 }
 
@@ -98,11 +110,19 @@ pub struct Contributions {
 pub struct Capabilities {
     pub scope: Scope,
     pub assets: BTreeSet<String>,
+    /// The manifest's `templates`: the only files the modal may open.
+    pub templates: BTreeSet<String>,
     pub channels: Vec<Channel>,
     pub actions: BTreeSet<String>,
 }
 
 impl Capabilities {
+    /// Whether a modal control may deliver `action` to this guest: declared in the manifest and
+    /// granted `input`.
+    pub fn may_deliver(&self, action: &str) -> bool {
+        self.scope.permissions.contains(&Permission::Input) && self.actions.contains(action)
+    }
+
     /// Validates a staged operation on both sides of the helper boundary.
     pub fn validate(&self, command: &Command) -> Result<()> {
         let permission = match command {
@@ -117,9 +137,19 @@ impl Capabilities {
                 ensure!(
                     template
                         .as_ref()
-                        .is_none_or(|id| self.assets.contains(id) && id.ends_with(".json")),
+                        .is_none_or(|id| self.templates.contains(id)),
                     "unknown screen"
                 );
+                Permission::ModalUi
+            }
+            Command::Collection { name, rows } => {
+                ensure!(screen::collection_name(name), "invalid collection name");
+                screen::validate_rows(rows)?;
+                Permission::ModalUi
+            }
+            Command::Value { name, value } => {
+                ensure!(screen::binding_name(name), "invalid binding name");
+                value.validate()?;
                 Permission::ModalUi
             }
             Command::Send {
@@ -132,7 +162,7 @@ impl Capabilities {
                     .iter()
                     .find(|c| &c.id == channel && c.schema == *schema)
                     .ok_or_else(|| anyhow::anyhow!("undeclared channel"))?;
-                declaration.validate(record, Direction::ToServer)?;
+                declaration.validate(record, Direction::ToServer, MAX_MESSAGE_BYTES)?;
                 Permission::Messaging
             }
             Command::Scene { object, .. } => {
@@ -228,7 +258,13 @@ impl Contributions {
                         candidate.widgets.insert(id.clone(), text.clone());
                     }
                 }
-                Command::Screen { template } => candidate.screen = template.clone(),
+                Command::Screen { template } => candidate.modal.open(template.clone()),
+                Command::Collection { name, rows } => {
+                    candidate.modal.set_collection(name.clone(), rows.clone());
+                }
+                Command::Value { name, value } => {
+                    candidate.modal.set_value(name.clone(), value.clone());
+                }
                 Command::Scene { id, object } => {
                     if let Some(object) = object {
                         candidate.scene.insert(*id, object.clone());
@@ -243,6 +279,7 @@ impl Contributions {
             candidate.widgets.len() <= MAX_WIDGETS,
             "widget budget exceeded"
         );
+        candidate.modal.check()?;
         ensure!(
             candidate.scene.len() <= MAX_DRAWS as usize,
             "draw budget exceeded"

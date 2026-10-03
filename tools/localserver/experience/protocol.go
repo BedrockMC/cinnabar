@@ -86,13 +86,17 @@ type Change struct {
 	PreviousData *string  `json:"previous_data"`
 }
 
-// Scalar is one field of a client-channel record, in the form the client part's wire protocol
-// gives it. Exactly one field is set.
+// Scalar is one value of a client-channel record, in the form the client part's wire protocol
+// gives it: a leaf, or on wire v2 a list or record of values. Exactly one field is set.
 type Scalar struct {
 	Bool    *bool
 	Integer *int64
 	Text    *string
 	Choice  *uint16
+	// List holds the items of a list field, all of its one item type.
+	List *[]Scalar
+	// Record holds one value per field of a record field, in order.
+	Record *[]Scalar
 }
 
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
@@ -396,6 +400,8 @@ const (
 	typeInteger       = "integer"
 	typeText          = "text"
 	typeChoice        = "choice"
+	typeList          = "list"
+	typeRecord        = "record"
 )
 
 // variantTag is the "type" member of a union variant on the wire.
@@ -564,6 +570,10 @@ func (s Scalar) MarshalJSON() ([]byte, error) {
 		return marshalUnescaped(scalarWire[string]{typeText, s.Text})
 	case s.Choice != nil:
 		return marshalUnescaped(scalarWire[uint16]{typeChoice, s.Choice})
+	case s.List != nil:
+		return marshalUnescaped(scalarWire[[]Scalar]{typeList, s.List})
+	case s.Record != nil:
+		return marshalUnescaped(scalarWire[[]Scalar]{typeRecord, s.Record})
 	}
 	return nil, errors.New("empty scalar")
 }
@@ -594,6 +604,10 @@ func (s *Scalar) UnmarshalJSON(data []byte) error {
 		return scalarValue(data, &s.Text)
 	case typeChoice:
 		return scalarValue(data, &s.Choice)
+	case typeList:
+		return scalarValue(data, &s.List)
+	case typeRecord:
+		return scalarValue(data, &s.Record)
 	}
 	return fmt.Errorf("unknown scalar type %q", tag)
 }

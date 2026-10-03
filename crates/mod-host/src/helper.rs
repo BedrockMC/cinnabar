@@ -9,7 +9,6 @@ use server_experience::{
     runtime::{Capabilities, Principal, Transaction},
 };
 use std::{
-    collections::BTreeSet,
     io::{Read, Write},
     path::Path,
     sync::{Mutex, mpsc},
@@ -20,7 +19,7 @@ mod supervisor;
 
 const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
-const MAX_DISPATCH_IPC: usize = MAX_PAYLOAD_BYTES * 4 + MAX_HOST_OUTPUT;
+const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Locates the helper beside the profile-selected client executable.
@@ -60,12 +59,39 @@ struct Start {
     component: String,
 }
 
+/// What one callback delivers to the guest.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Event {
+    /// A validated channel record, to `dispatch`.
+    Message { channel: String, record: Vec<u8> },
+    /// A declared action fired from the focused modal, to `action`, with its collection row.
+    Action { id: String, index: Option<u32> },
+    /// The world epoch changed, to `epoch`; the guest and its state live on.
+    Epoch,
+}
+
+impl Event {
+    /// Bounds an event before it crosses the process boundary or enters the guest.
+    pub fn check(&self) -> Result<()> {
+        let valid = match self {
+            Event::Message { channel, record } => {
+                server_experience::manifest::identifier(channel)
+                    && record.len() <= MAX_MESSAGE_BYTES
+            }
+            Event::Action { id, .. } => server_experience::manifest::identifier(id),
+            Event::Epoch => true,
+        };
+        ensure!(valid, "helper event too large or malformed");
+        Ok(())
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dispatch {
-    pub channel: String,
-    pub record: Vec<u8>,
-    pub actions: BTreeSet<String>,
+    pub event: Event,
+    /// The world epoch the callback's output must carry.
     pub epoch: u64,
 }
 
@@ -136,7 +162,7 @@ impl Helper {
             !self.quarantined && self.pending_since.is_none(),
             "helper busy or quarantined"
         );
-        validate_dispatch(&request)?;
+        request.event.check()?;
         serialize_frame(&request, MAX_DISPATCH_IPC)?;
         self.requests.try_send(request)?;
         self.pending_since = Some(Instant::now());
@@ -209,13 +235,8 @@ pub fn serve_developer() -> Result<()> {
     write_frame(&mut output, &host.take_transaction(), MAX_HOST_OUTPUT)?;
     loop {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
-        validate_dispatch(&request)?;
-        let result = host.dispatch(
-            &request.channel,
-            &request.record,
-            request.actions,
-            request.epoch,
-        )?;
+        request.event.check()?;
+        let result = host.dispatch(&request.event, request.epoch)?;
         write_frame(&mut output, &result, MAX_HOST_OUTPUT)?;
     }
 }
@@ -244,21 +265,6 @@ pub(crate) fn write_frame(
     writer.write_all(&(bytes.len() as u32).to_le_bytes())?;
     writer.write_all(&bytes)?;
     writer.flush()?;
-    Ok(())
-}
-
-/// Checks callback metadata before serialization or queuing can copy it.
-fn validate_dispatch(request: &Dispatch) -> Result<()> {
-    ensure!(
-        request.record.len() <= MAX_PAYLOAD_BYTES
-            && server_experience::manifest::identifier(&request.channel)
-            && request.actions.len() <= MAX_ACTIONS
-            && request
-                .actions
-                .iter()
-                .all(|action| server_experience::manifest::identifier(action)),
-        "helper event too large or malformed"
-    );
     Ok(())
 }
 

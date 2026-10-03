@@ -85,9 +85,8 @@ impl VerifiedBundle {
         for channel in &manifest.channels {
             ensure!(
                 channel.id.starts_with(&format!("{}.", manifest.id))
-                    && crate::manifest::identifier(&channel.id)
-                    && channels.insert((&channel.id, channel.schema))
-                    && channel.fields.len() <= MAX_CHANNEL_FIELDS,
+                    && channel.declared()
+                    && channels.insert((&channel.id, channel.schema)),
                 "invalid channel declaration"
             );
         }
@@ -98,6 +97,7 @@ impl VerifiedBundle {
                 .all(|id| crate::manifest::identifier(id)),
             "invalid action declaration"
         );
+        manifest.validate_screens()?;
         ensure!(
             manifest.files.len() + 1 == entries.len(),
             "unindexed archive entry"
@@ -130,6 +130,13 @@ impl VerifiedBundle {
                 "only portable WebAssembly is accepted"
             );
         }
+        let namespace = crate::manifest::template_namespace(&manifest.id);
+        for template in &manifest.templates {
+            let data = files
+                .get(template)
+                .ok_or_else(|| anyhow::anyhow!("template missing from index"))?;
+            crate::screen::validate_template(data, &namespace)?;
+        }
         Ok(Self {
             manifest,
             files,
@@ -155,12 +162,30 @@ impl VerifiedBundle {
             .and_then(|path| self.file(path))
     }
 
-    /// Moves the verified component to its helper without copying the payload.
-    pub fn into_component(mut self) -> Option<Vec<u8>> {
-        self.manifest
+    /// Moves the verified component to its helper and the modal's templates and textures to
+    /// the presenter, without copying a payload.
+    pub fn into_runtime(mut self) -> (Option<Vec<u8>>, crate::screen::Files) {
+        let component = self
+            .manifest
             .component
             .as_deref()
-            .and_then(|path| self.files.remove(path))
+            .and_then(|path| self.files.remove(path));
+        let templates = self
+            .manifest
+            .templates
+            .iter()
+            .filter_map(|path| Some((path.clone(), self.files.remove(path)?)))
+            .collect();
+        let textures = std::mem::take(&mut self.files)
+            .into_iter()
+            .filter(|(path, _)| path.starts_with(crate::manifest::TEXTURE_DIR))
+            .collect();
+        let files = crate::screen::Files {
+            namespace: crate::manifest::template_namespace(&self.manifest.id),
+            templates,
+            textures,
+        };
+        (component, files)
     }
 
     /// Counts actual retained file bytes for the aggregate session budget.

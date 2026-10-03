@@ -150,7 +150,7 @@ impl CachedScreen {
 
     /// Reuse a controller revision without cloning or comparing all its bags.
     #[allow(clippy::too_many_arguments)]
-    fn render_shared_with(
+    pub(super) fn render_shared_with(
         &mut self,
         reference: &str,
         catalog: &Arc<Catalog>,

@@ -1,14 +1,15 @@
 //! Transactional server-bundle host. Production callers must use a restricted helper.
 
+use crate::helper::Event;
 use anyhow::{Result, ensure};
 use server_experience::{
     policy::*,
     runtime::{CALLBACK_FUEL, Capabilities, Command, MediaOperation, Principal, Transaction},
+    screen,
 };
-use std::collections::BTreeSet;
 use wasmtime::{
     Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
-    component::{Component, HasSelf, Linker},
+    component::{Component, Func, HasSelf, Instance, Linker},
 };
 
 wasmtime::component::bindgen!({
@@ -20,7 +21,8 @@ struct State {
     owner: Principal,
     epoch: u64,
     capabilities: Capabilities,
-    actions: BTreeSet<String>,
+    /// The declared action this callback delivers, the only one `input.pressed` reports.
+    action: Option<String>,
     commands: Vec<Command>,
     bytes: usize,
     calls: usize,
@@ -73,23 +75,52 @@ impl cinnabar::server_experience::ui::Host for State {
         self.stage(Command::Widget { id, text })
     }
 
-    /// Requests only a signed template from this bundle's asset set.
+    /// Opens only a template the signed manifest indexes; `None` closes the modal.
     fn open_screen(&mut self, template: Option<String>) -> Result<Result<(), String>> {
         self.stage(Command::Screen { template })
+    }
+
+    fn close_screen(&mut self) -> Result<Result<(), String>> {
+        self.stage(Command::Screen { template: None })
+    }
+
+    /// Parses rows within the output budget; malformed rows are denied, not trapped.
+    fn set_collection(&mut self, name: String, rows_json: Vec<u8>) -> Result<Result<(), String>> {
+        if rows_json.len() > MAX_HOST_OUTPUT {
+            self.charge()?;
+            return Ok(Err("collection too large".into()));
+        }
+        match serde_json::from_slice(&rows_json) {
+            Ok(rows) => self.stage(Command::Collection { name, rows }),
+            Err(error) => {
+                self.charge()?;
+                Ok(Err(format!("invalid rows: {error}")))
+            }
+        }
+    }
+
+    fn set_value(
+        &mut self,
+        name: String,
+        value: cinnabar::server_experience::ui::Value,
+    ) -> Result<Result<(), String>> {
+        use cinnabar::server_experience::ui::Value;
+        let value = match value {
+            Value::Boolean(value) => screen::Value::Bool(value),
+            Value::Integer(value) => screen::Value::Integer(value),
+            Value::Number(value) => screen::Value::Number(value),
+            Value::Text(value) => screen::Value::Text(value),
+            Value::Numbers(values) => screen::Value::Numbers(values),
+        };
+        self.stage(Command::Value { name, value })
     }
 }
 
 impl cinnabar::server_experience::input::Host for State {
-    /// Reads a declared action edge; the caller supplies no keyboard state.
+    /// True only for the declared, granted action this callback delivers.
     fn pressed(&mut self, action: String) -> Result<bool> {
         self.charge()?;
-        Ok(self
-            .capabilities
-            .scope
-            .permissions
-            .contains(&server_experience::manifest::Permission::Input)
-            && self.capabilities.actions.contains(&action)
-            && self.actions.contains(&action))
+        Ok(self.action.as_ref() == Some(&action) && self.capabilities.may_deliver(&action))
     }
 }
 
@@ -148,9 +179,44 @@ impl cinnabar::server_experience::media::Host for State {
     }
 }
 
+/// The guest's callbacks. A component built against 1.0 exports only `init` and `dispatch`;
+/// 1.1 adds `action` and `epoch`, both or neither.
+struct Exports {
+    dispatch: Func,
+    events: Option<(Func, Func)>,
+}
+
+impl Exports {
+    /// Type-checks every callback once, before the guest runs.
+    fn find(store: &mut Store<State>, instance: &Instance) -> Result<(Func, Self)> {
+        let mut find = |name: &str| instance.get_func(&mut *store, name);
+        let (init, dispatch, action, epoch) = (
+            find("init"),
+            find("dispatch"),
+            find("action"),
+            find("epoch"),
+        );
+        let (Some(init), Some(dispatch)) = (init, dispatch) else {
+            anyhow::bail!("component lacks init or dispatch");
+        };
+        init.typed::<(), ()>(&*store)?;
+        dispatch.typed::<(&str, &[u8]), ()>(&*store)?;
+        let events = match (action, epoch) {
+            (Some(action), Some(epoch)) => {
+                action.typed::<(&str, Option<u32>), ()>(&*store)?;
+                epoch.typed::<(), ()>(&*store)?;
+                Some((action, epoch))
+            }
+            (None, None) => None,
+            _ => anyhow::bail!("component exports only half of action and epoch"),
+        };
+        Ok((init, Self { dispatch, events }))
+    }
+}
+
 pub struct BundleHost {
     store: Store<State>,
-    guest: ServerBundle,
+    exports: Exports,
     active: bool,
 }
 
@@ -180,6 +246,17 @@ impl BundleHost {
             bytes.len() <= MAX_COMPONENT_BYTES && bytes.starts_with(b"\0asm"),
             "invalid component bytes"
         );
+        Self::launch(bytes, owner, capabilities, epoch)
+    }
+
+    /// Links the 1.1 imports, which also satisfy a 1.0 component's semver-compatible ones, and
+    /// runs `init`.
+    fn launch(
+        source: &[u8],
+        owner: Principal,
+        capabilities: Capabilities,
+        epoch: u64,
+    ) -> Result<Self> {
         capabilities.scope.validate()?;
         ensure!(
             capabilities.scope.memory_bytes > 0
@@ -192,7 +269,7 @@ impl BundleHost {
             .consume_fuel(true)
             .max_wasm_stack(256 * 1024);
         let engine = Engine::new(&config)?;
-        let component = Component::new(&engine, bytes)?;
+        let component = Component::new(&engine, source)?;
         let mut linker = Linker::new(&engine);
         ServerBundle::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let mut state = State {
@@ -207,7 +284,7 @@ impl BundleHost {
             owner,
             epoch,
             capabilities,
-            actions: BTreeSet::new(),
+            action: None,
             commands: Vec::new(),
             bytes: 0,
             calls: 0,
@@ -216,39 +293,62 @@ impl BundleHost {
         let mut store = Store::new(&engine, state);
         store.limiter(|state| &mut state.limits);
         store.set_fuel(CALLBACK_FUEL)?;
-        let guest = ServerBundle::instantiate(&mut store, &component, &linker)?;
-        guest.call_init(&mut store)?;
+        let instance = linker.instantiate(&mut store, &component)?;
+        let (init, exports) = Exports::find(&mut store, &instance)?;
+        let init = init.typed::<(), ()>(&store)?;
+        init.call(&mut store, ())?;
+        init.post_return(&mut store)?;
         Ok(Self {
             store,
-            guest,
+            exports,
             active: true,
         })
     }
 
     /// Runs one fuel-bounded callback; a trap discards all output and quarantines this instance.
-    pub fn dispatch(
-        &mut self,
-        channel: &str,
-        record: &[u8],
-        actions: BTreeSet<String>,
-        epoch: u64,
-    ) -> Result<Transaction> {
+    /// A 1.0 component skips `action` and `epoch` and returns an empty transaction.
+    pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<Transaction> {
         ensure!(self.active, "bundle quarantined");
-        ensure!(
-            record.len() <= MAX_PAYLOAD_BYTES && channel.len() <= MAX_IDENTIFIER_BYTES,
-            "event too large"
-        );
+        event.check()?;
         let state = self.store.data_mut();
-        state.actions = actions;
+        if let Event::Action { id, .. } = event {
+            ensure!(state.capabilities.may_deliver(id), "action not granted");
+        }
+        state.action = match event {
+            Event::Action { id, .. } => Some(id.clone()),
+            _ => None,
+        };
         state.epoch = epoch;
         state.begin_output()?;
         self.store.set_fuel(CALLBACK_FUEL)?;
-        if let Err(error) = self.guest.call_dispatch(&mut self.store, channel, record) {
+        if let Err(error) = self.call(event) {
             self.active = false;
             self.store.data_mut().commands.clear();
             return Err(error);
         }
         Ok(self.take_transaction())
+    }
+
+    fn call(&mut self, event: &Event) -> Result<()> {
+        let store = &mut self.store;
+        match (event, &self.exports.events) {
+            (Event::Message { channel, record }, _) => {
+                let dispatch = self.exports.dispatch.typed::<(&str, &[u8]), ()>(&*store)?;
+                dispatch.call(&mut *store, (channel, record))?;
+                dispatch.post_return(store)
+            }
+            (Event::Action { id, index }, Some((action, _))) => {
+                let action = action.typed::<(&str, Option<u32>), ()>(&*store)?;
+                action.call(&mut *store, (id, *index))?;
+                action.post_return(store)
+            }
+            (Event::Epoch, Some((_, epoch))) => {
+                let epoch = epoch.typed::<(), ()>(&*store)?;
+                epoch.call(&mut *store, ())?;
+                epoch.post_return(store)
+            }
+            (Event::Action { .. } | Event::Epoch, None) => Ok(()),
+        }
     }
 
     /// Takes only successfully returned initialization or callback output.

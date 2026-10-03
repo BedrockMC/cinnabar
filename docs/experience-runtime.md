@@ -191,30 +191,41 @@ bedrock-local-server … -extension-key <seed file> -extension-audience <host:po
   passes every other packet through untouched. Dragonfly's listener does not expose packet
   headers; it admits no sub-client login, so every packet on a connection is its primary
   client's, and Hello and envelopes must name sub-client 0.
-- **Handshake**, per connection. A Hello must have the client's wire and API versions, the
+- **Handshake**, per connection. A Hello must have the client's handshake and API versions, the
   current offer's digest, sub-client 0, 32-byte nonces and a capability set that is not empty,
   before the offer expires. The server answers with an Accept signed by the server key that
-  echoes the Hello, with a fresh challenge and session, expiring with the offer. Ready must name
-  that session, the offer's bundle digests in order and generation 1, and grant each bundle
-  permissions within its manifest, the Hello's capabilities and the offer's scope. The client part
-  is then active with Ready's world epoch.
+  echoes the Hello, with a fresh challenge and session, expiring with the offer. The Accept
+  selects the highest wire version that the Hello's `wire` lists and the server speaks, at the
+  lower of each of the Hello's ceilings and the server's (`HostLimits`, the client's own
+  constants); a v1 Hello, or one whose highest common version is 1, gets an Accept that selects
+  nothing, exactly as before wire v2. A Hello with no common version or unusable ceilings falls
+  back. Ready must name that session, the offer's bundle digests in order and generation 1, and
+  grant each bundle permissions within its manifest, the Hello's capabilities and the offer's
+  scope. The client part is then active with Ready's world epoch.
 - **Messages.** A committed `send-client` goes out only to an active client part, on a declared
-  `to_client` channel of a bundle granted `messaging`, sequenced from 1 with Ready's world epoch
-  and within the client's message and byte rates; anything else is dropped and counted. Inbound
-  envelopes pass the client's own ingress rules (route, sequence, bundle, namespace, `messaging`
-  grant, schema, size, rate) against the manifest's `to_server` channels and become
+  `to_client` channel of a bundle granted `messaging`, sequenced from 1 with the current world
+  epoch and within the client's message and byte rates; anything else is dropped and counted. On
+  wire v2 a record over the inline limit goes out in fragments, all of them or, when the client's
+  remaining rate cannot take them all, none. Inbound envelopes, and on v2 fragments, pass the
+  client's own ingress rules (route, sequence, order, bundle, namespace, `messaging` grant,
+  schema, size, reassembly budget, rate) against the manifest's `to_server` channels and become
   `client-message` callbacks of the Experience whose id is the bundle id. An undeclared channel
-  schema or another world epoch, which the client would skip as a newer revision, is a violation
-  here, since the server knows the exact manifest.
-- **Fallback.** Any violation, the Accept's expiry, a dimension change (it resets the client's
-  world epoch) or a disconnect puts that connection in fallback for good: its client part gets
-  nothing more, its messages are dropped, and the player stays connected and plays on as without
-  a client part. A dimension change before the Hello ends nothing. One log line reports each
-  client part that becomes active or falls back.
-- **Tests.** `go test ./extension` covers the handshake rules with Dragonfly's listener faked;
-  `TestClientPartHandshakeOverRakNet` runs a Hello over real RakNet. `testdata/go` holds the
-  server half's own marker, Accept and envelope, which `tools/cxb/tests/fixtures.rs` runs through
-  the client's verifiers; regenerate them with
+  schema, which the client would skip as a newer revision, is a violation here, since the server
+  knows the exact manifest; so is another world epoch on wire v1.
+- **World epochs.** On wire v2 a dimension change keeps the client part. The client's `epoch`
+  control moves the session to its new epoch: the server's later envelopes carry it, the client's
+  envelopes of the old epoch are dropped and counted, and `Server.OnEpoch` tells each Experience
+  with an active client part for that player, so it can resend its state.
+- **Fallback.** Any violation, the Accept's expiry, a dimension change on wire v1 (it resets the
+  client's world epoch) or a disconnect puts that connection in fallback for good: its client
+  part gets nothing more, its messages are dropped, and the player stays connected and plays on
+  as without a client part. A dimension change before the Hello ends nothing. One log line
+  reports each client part that becomes active, changes epoch or falls back.
+- **Tests.** `go test ./extension` covers the handshake rules, the v1/v2 negotiation matrix,
+  epochs and fragment attacks with Dragonfly's listener faked; `TestClientPartHandshakeOverRakNet`
+  runs a Hello over real RakNet. `testdata/go` holds the server half's own marker, v2 Accept,
+  envelope and fragments, which `tools/cxb/tests/fixtures.rs` runs through the client's
+  verifiers; regenerate them with
   `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures`.
 
 ## Limits
@@ -299,7 +310,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 | Server WIT | 0.2; 0.1 still accepted | `crates/experience-sdk/wit/server.wit`; 0.1 in `crates/experience-runtime/wit/0.1/server.wit` |
 | IPC protocol | 2 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema` | `crates/experience-runtime/src/manifest.rs` |
-| Client WIT and wire protocol | unchanged from PR #34 | `crates/mod-api/wit/extension.wit` |
+| Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/mod-api/wit/deps/server-experience/capabilities.wit`, world in `crates/mod-api/wit/extension.wit` |
+| Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
 | Bedrock target | | `assets/bedrock-target.json` |
 
 A server artifact, its Bedrock art and a client extension are separate artifacts with separate

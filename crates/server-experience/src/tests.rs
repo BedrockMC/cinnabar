@@ -1,5 +1,6 @@
 mod bundles;
 mod ingress;
+mod wire_v2;
 
 use super::*;
 use ring::signature::{Ed25519KeyPair, KeyPair};
@@ -83,6 +84,7 @@ fn accept_is_bound_to_the_fresh_connection_and_exact_offer() {
         offer_digest: verified.digest.clone(),
         revision: verified.offer.revision,
         expires_unix: 1500,
+        wire: None,
     };
     let document = crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap();
     assert!(pending.accept(&document, 1000, 1).is_ok());
@@ -171,6 +173,7 @@ fn stale_and_partially_invalid_transactions_never_publish() {
             gpu_bytes: 0,
         },
         assets: BTreeSet::new(),
+        templates: BTreeSet::new(),
         channels: Vec::new(),
         actions: BTreeSet::new(),
     };
@@ -274,6 +277,7 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
         connection: crypto::hex(&[3; 32]),
         subclient: 0,
         expires_unix: 1500,
+        wire: negotiation::Wire::v1(),
     };
     let channel = wire::Channel {
         id: format!("{}.score", grant.offer.offer.packages[0].id),
@@ -300,6 +304,7 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
         runtime::Capabilities {
             scope: grant.offer.offer.scope.clone(),
             assets: BTreeSet::new(),
+            templates: BTreeSet::new(),
             channels: vec![channel.clone()],
             actions: BTreeSet::new(),
         },
