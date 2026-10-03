@@ -679,6 +679,19 @@ pub(crate) fn overlay_viewport(
     Viewport::from_viewport_and_override(viewport, resolution_override)
 }
 
+/// Selects the ordinary HUD invert pipeline independently of world depth modes.
+fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
+    UiPipelineKey {
+        msaa: Msaa::Off,
+        hdr,
+        invert_blend: true,
+        layer: false,
+        depth_test: false,
+        depth_write: false,
+        isolated_depth: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,19 +759,6 @@ mod tests {
             resolved_batches(Some(7), &batches, &locations, plan.buckets()).is_none(),
             "late invalid physical layer must emit no prefix"
         );
-    }
-}
-
-/// Selects the ordinary HUD invert pipeline independently of world depth modes.
-fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
-    UiPipelineKey {
-        msaa: Msaa::Off,
-        hdr,
-        invert_blend: true,
-        layer: false,
-        depth_test: false,
-        depth_write: false,
-        isolated_depth: false,
     }
 }
 
