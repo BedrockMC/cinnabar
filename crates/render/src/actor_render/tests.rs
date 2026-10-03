@@ -219,6 +219,22 @@ fn actor_shader_parses_as_wgsl() {
     naga::front::wgsl::parse_str(&source).expect("actor shader parses");
 }
 
+// A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.
+#[test]
+fn fragment_view_reads_are_visible_to_the_fragment_stage() {
+    use bevy::render::render_resource::ShaderStages;
+    assert!(crate::shader_test_support::fragment_reads_binding(
+        &shader_source::standalone(ACTOR_SHADER_SOURCE, &[]),
+        0,
+        0
+    ));
+    assert!(
+        actor_bind_group_layout().entries[0]
+            .visibility
+            .contains(ShaderStages::FRAGMENT)
+    );
+}
+
 #[test]
 fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
     let mut app = app_with_noop_render_sub_app();
@@ -245,7 +261,10 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
 
     let layout = actor_bind_group_layout();
     assert_eq!(layout.entries.len(), 9);
-    assert_eq!(layout.entries[0].visibility, ShaderStages::VERTEX);
+    assert_eq!(
+        layout.entries[0].visibility,
+        ShaderStages::VERTEX | ShaderStages::FRAGMENT
+    );
     assert_eq!(layout.entries[1].visibility, ShaderStages::VERTEX);
     assert_eq!(layout.entries[2].visibility, ShaderStages::VERTEX);
     assert_eq!(layout.entries[3].visibility, ShaderStages::VERTEX);
