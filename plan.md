@@ -28,8 +28,11 @@ lookup; actual cube/model GPU witnesses fail before and pass after the change.
 The `/15` shader lookup contract is corroborated by installed near-version
 Metal, not a pinned-version shader dump; exact-version parity remains incomplete.
 Actor `/16`, Enhanced and the existing valid-water witness are unchanged.
-The corrected carrier has rebuilt, but fresh integrated shoreline acceptance
-and the full gate must pass before publication; the edge issue is still open.
+The corrected carrier and canonical integrated client rebuilt. A fresh Metal
+shoreline frame at 1280x752 shows coherent snow top/side shading without the
+reported pale bands; the user manually confirms the snow looks perfect.
+This closes the reported edge regression, not exact-version/whole-renderer
+parity. The full verification gate and direct-dev publication remain pending.
 The export-test allocator abort has a narrow initialized-cache representation
 fix; its 13 library and nine unchanged export tests, plus ten serial reruns,
 pass. The Go registry suite, vet, Rust light-registry tests and focused render

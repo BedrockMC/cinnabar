@@ -648,13 +648,15 @@ const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
 }
 
 #[cfg(test)]
+#[path = "lighting/native_planes.rs"]
+mod native_planes;
+
+#[cfg(test)]
 mod tests {
     use super::{
         HALO_VOLUME, LightingInputs, MeshLightSample, bake_quad, bake_quad_with, halo_index,
     };
     use crate::Face;
-
-    include!("lighting/native_planes.rs");
 
     /// A log to the west (opaque, unlit) beside an open cell lit at block 9, sky 12.
     struct VineOnLog {
