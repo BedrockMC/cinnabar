@@ -36,7 +36,12 @@ const HOTBAR_DIGIT_ACTIONS: [Action; 9] = [
 
 /// Applies number-key, mouse-wheel, and controller hotbar selection to the local prediction and
 /// notifies the server. Runs after semantic input is finalized and before UI publication.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Player authority is borrowed separately from UI state."
+)]
 pub(crate) fn select_hotbar_slot(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     input: Res<SemanticInputSnapshot>,
     scroll: Res<AccumulatedMouseScroll>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
@@ -63,6 +68,7 @@ pub(crate) fn select_hotbar_slot(
         cycle -= 1;
     }
     if !crate::screen_policy::absorbs_input(
+        &player_runtime,
         Some(&runtime),
         menu.as_deref(),
         presentation.as_deref(),
@@ -78,7 +84,7 @@ pub(crate) fn select_hotbar_slot(
     if requested.is_none() && cycle != 0 {
         let current = i32::from(
             runtime
-                .selected_hotbar_slot()
+                .selected_hotbar_slot(&player_runtime)
                 .unwrap_or(0)
                 .min(HOTBAR_SLOT_COUNT - 1),
         );
@@ -87,40 +93,44 @@ pub(crate) fn select_hotbar_slot(
     }
 
     if let Some(target) = requested {
-        runtime.queue_local_hotbar_selection(target);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, target);
     }
 
     if network.closed_command_has_pending_control() {
         return;
     }
 
-    flush_pending_hotbar_selection(&mut runtime, &mut client_world.fatal_error, |packet| {
-        match network.send_hotbar_packet(packet) {
+    flush_pending_hotbar_selection(
+        &mut player_runtime,
+        &mut runtime,
+        &mut client_world.fatal_error,
+        |packet| match network.send_hotbar_packet(packet) {
             Err(PacketSendError::Closed(packet))
                 if network.closed_command_has_pending_control() =>
             {
                 Err(PacketSendError::Full(packet))
             }
             result => result,
-        }
-    });
+        },
+    );
 }
 
 /// Attempts the latest pending hotbar selection once and retains it when authority or transport
 /// is not ready.
 fn flush_pending_hotbar_selection(
+    player_runtime: &mut crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
     fatal_error: &mut Option<String>,
     mut send: impl FnMut(Packet) -> Result<(), PacketSendError>,
 ) {
-    let Some(target) = runtime.pending_hotbar_selection() else {
+    let Some(target) = runtime.pending_hotbar_selection(player_runtime) else {
         return;
     };
-    let Some(runtime_id) = runtime.local_runtime_id() else {
+    let Some(runtime_id) = runtime.local_runtime_id(player_runtime) else {
         return;
     };
 
-    let Some(snapshot) = runtime.selected_stack_snapshot() else {
+    let Some(snapshot) = runtime.selected_stack_snapshot(player_runtime) else {
         return;
     };
     if snapshot.slot != target {
@@ -147,7 +157,7 @@ fn flush_pending_hotbar_selection(
     };
     match send(packet) {
         Ok(()) => {
-            runtime.clear_pending_hotbar_selection(target);
+            runtime.clear_pending_hotbar_selection(player_runtime, target);
         }
         Err(PacketSendError::Full(_)) => {}
         Err(PacketSendError::Closed(_)) => record_fatal_error(
@@ -172,14 +182,21 @@ mod tests {
     use super::*;
 
     /// Publishes one authoritative player-inventory slot into a UI runtime.
-    fn publish_slot(runtime: &mut UiRuntime, slot: u8, stack: NetworkItemStack) {
-        if runtime.inventory_authority() == Some(InventoryAuthority::Server)
-            && !runtime.inventory_ledger().personal_inventory_desired_open()
+    fn publish_slot(
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        runtime: &mut UiRuntime,
+        slot: u8,
+        stack: NetworkItemStack,
+    ) {
+        if runtime.inventory_authority(player_runtime) == Some(InventoryAuthority::Server)
+            && !runtime
+                .inventory_ledger(player_runtime)
+                .personal_inventory_desired_open()
         {
-            open_personal_inventory(runtime);
+            open_personal_inventory(player_runtime, runtime);
         }
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(player_runtime)
             .apply(&InventoryEvent::Slot(InventorySlotEvent {
                 identity: SlotIdentity {
                     container: ContainerIdentity::window(0),
@@ -190,11 +207,22 @@ mod tests {
             }));
     }
 
-    fn open_personal_inventory(runtime: &mut UiRuntime) {
-        assert!(runtime.inventory_ledger_mut().request_personal_open(42));
-        assert!(runtime.inventory_ledger_mut().mark_transport_enqueued(0));
+    fn open_personal_inventory(
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        runtime: &mut UiRuntime,
+    ) {
+        assert!(
+            runtime
+                .inventory_ledger_mut(player_runtime)
+                .request_personal_open(42)
+        );
+        assert!(
+            runtime
+                .inventory_ledger_mut(player_runtime)
+                .mark_transport_enqueued(0)
+        );
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(player_runtime)
             .apply(&InventoryEvent::Open(ContainerOpenEvent {
                 container: ContainerIdentity::window(2),
                 window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
@@ -204,9 +232,12 @@ mod tests {
     }
 
     /// Creates a runtime with the local actor identity needed by MobEquipment.
-    fn identified_runtime() -> UiRuntime {
+    fn identified_runtime(player_runtime: &mut crate::player_runtime::PlayerRuntime) -> UiRuntime {
+        *player_runtime = crate::player_runtime::PlayerRuntime::new(1);
         let mut runtime = UiRuntime::new(1);
-        runtime.publish_local_runtime_id(1, 42).unwrap();
+        runtime
+            .publish_local_runtime_id(player_runtime, 1, 42)
+            .unwrap();
         runtime
     }
 
@@ -224,21 +255,29 @@ mod tests {
     }
 
     /// A wheel frame passes through the production hotbar system.
-    fn wheel_selection(menu: Option<crate::menu::MenuScreen>) -> u8 {
+    fn wheel_selection(
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        menu: Option<crate::menu::MenuScreen>,
+    ) -> u8 {
         let runtime = UiRuntime::new(1);
         let mut menu_runtime = crate::menu::MenuRuntime::new(false, 2, "Tester".into());
         if let Some(screen) = menu {
             menu_runtime.activate(crate::menu::MenuAction::Navigate(screen));
         }
-        wheel_with_ui(runtime, menu_runtime)
+        wheel_with_ui(player_runtime, runtime, menu_runtime)
     }
 
     /// Delivers the same raw wheel frame with an arbitrary focused UI screen.
-    fn wheel_with_ui(mut runtime: UiRuntime, menu_runtime: crate::menu::MenuRuntime) -> u8 {
+    fn wheel_with_ui(
+        player_runtime: &mut crate::player_runtime::PlayerRuntime,
+        runtime: UiRuntime,
+        menu_runtime: crate::menu::MenuRuntime,
+    ) -> u8 {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
-        runtime.set_local_selected_slot(0);
+        player_runtime.inventory.set_local_selected_slot(0);
         app.insert_resource(runtime)
+            .insert_resource(player_runtime.clone())
             .insert_resource(menu_runtime)
             .insert_resource(SemanticInputSnapshot::default())
             .insert_resource(AccumulatedMouseScroll {
@@ -248,62 +287,87 @@ mod tests {
             .insert_resource(NetworkHandle::disconnected())
             .insert_resource(ClientWorld::default());
         app.world_mut().run_system_once(select_hotbar_slot).unwrap();
+        *player_runtime = app
+            .world_mut()
+            .remove_resource::<crate::player_runtime::PlayerRuntime>()
+            .unwrap();
         app.world()
             .resource::<UiRuntime>()
-            .selected_hotbar_slot()
+            .selected_hotbar_slot(player_runtime)
             .unwrap()
     }
 
     #[test]
     fn menu_input_leak_settings_wheel_never_selects_a_hotbar_slot() {
-        assert_eq!(wheel_selection(Some(crate::menu::MenuScreen::Settings)), 0);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        assert_eq!(
+            wheel_selection(&mut player_runtime, Some(crate::menu::MenuScreen::Settings)),
+            0
+        );
     }
 
     #[test]
     fn menu_input_leak_hud_wheel_selects_the_next_hotbar_slot() {
-        assert_eq!(wheel_selection(None), 1);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        assert_eq!(wheel_selection(&mut player_runtime, None), 1);
     }
 
     #[test]
     fn menu_input_leak_chat_inventory_forms_and_pause_absorb_the_wheel() {
-        assert_eq!(wheel_selection(Some(crate::menu::MenuScreen::Pause)), 0);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        assert_eq!(
+            wheel_selection(&mut player_runtime, Some(crate::menu::MenuScreen::Pause)),
+            0
+        );
         let hidden = || crate::menu::MenuRuntime::new(false, 2, "Tester".into());
         let mut chat = UiRuntime::new(1);
-        chat.open_chat();
-        assert_eq!(wheel_with_ui(chat, hidden()), 0);
-        let mut inventory = identified_runtime();
-        inventory.publish_inventory_authority(protocol::InventoryAuthority::Server);
-        inventory.toggle_inventory();
+        chat.open_chat(&mut player_runtime);
+        assert_eq!(wheel_with_ui(&mut player_runtime, chat, hidden()), 0);
+        let mut inventory = identified_runtime(&mut player_runtime);
+        inventory
+            .publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+        inventory.toggle_inventory(&mut player_runtime);
         assert!(inventory.inventory_open());
-        assert_eq!(wheel_with_ui(inventory, hidden()), 0);
-        let form =
-            crate::ui_runtime::presentation::forms::pack_harness::action_form("Form", &["OK"]);
-        assert_eq!(wheel_with_ui(form, hidden()), 0);
+        assert_eq!(wheel_with_ui(&mut player_runtime, inventory, hidden()), 0);
+        let form = crate::ui_runtime::presentation::forms::pack_harness::action_form(
+            &mut player_runtime,
+            "Form",
+            &["OK"],
+        );
+        assert_eq!(wheel_with_ui(&mut player_runtime, form, hidden()), 0);
     }
 
     #[test]
     fn unknown_slot_retains_pending_selection_without_sending() {
-        let mut runtime = identified_runtime();
-        runtime.queue_local_hotbar_selection(2);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 2);
         let mut sends = 0;
         let mut fatal = None;
 
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |_packet| {
             sends += 1;
             Ok::<(), PacketSendError>(())
         });
 
         assert_eq!(sends, 0);
-        assert_eq!(runtime.pending_hotbar_selection(), Some(2));
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(2));
         assert_eq!(fatal, None);
     }
 
     #[test]
     fn matching_equipment_bootstrap_sends_while_ledger_slot_is_unknown() {
-        let mut runtime = identified_runtime();
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
         let equipment_stack = present_stack();
-        runtime.queue_local_hotbar_selection(2);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 2);
         runtime.retain_local_selected_equipment(
+            &mut player_runtime,
             1,
             protocol::EquipmentEvent {
                 actor_runtime_id: 42,
@@ -314,7 +378,7 @@ mod tests {
                 handedness: Some(protocol::ActorHandedness::Right),
             },
         );
-        let snapshot = runtime.selected_stack_snapshot().unwrap();
+        let snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
         assert_eq!(snapshot.slot, 2);
         assert_eq!(
             snapshot.state,
@@ -323,7 +387,7 @@ mod tests {
         let mut sent = None;
         let mut fatal = None;
 
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             sent = Some(packet);
             Ok(())
         });
@@ -334,25 +398,32 @@ mod tests {
             protocol::encode(&sent.unwrap(), &session).unwrap(),
             protocol::encode(&expected, &session).unwrap()
         );
-        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
         assert_eq!(fatal, None);
     }
 
     #[test]
     fn full_retry_rebuilds_packet_from_the_current_selected_snapshot() {
-        let mut runtime = identified_runtime();
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
         let first = present_stack();
-        publish_slot(&mut runtime, 2, first);
-        runtime.queue_local_hotbar_selection(2);
+        publish_slot(&mut player_runtime, &mut runtime, 2, first);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 2);
         let mut fatal = None;
 
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             Err(PacketSendError::Full(packet))
         });
-        publish_slot(&mut runtime, 2, NetworkItemStack::empty());
+        publish_slot(
+            &mut player_runtime,
+            &mut runtime,
+            2,
+            NetworkItemStack::empty(),
+        );
 
         let mut retried = None;
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             retried = Some(packet);
             Ok(())
         });
@@ -363,93 +434,116 @@ mod tests {
             protocol::encode(&retried.unwrap(), &session).unwrap(),
             protocol::encode(&expected, &session).unwrap()
         );
-        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
         assert_eq!(fatal, None);
     }
 
     #[test]
     fn full_send_retries_next_frame_without_new_input() {
-        let mut runtime = identified_runtime();
-        publish_slot(&mut runtime, 2, NetworkItemStack::empty());
-        runtime.queue_local_hotbar_selection(2);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
+        publish_slot(
+            &mut player_runtime,
+            &mut runtime,
+            2,
+            NetworkItemStack::empty(),
+        );
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 2);
         let mut attempts = 0;
         let mut fatal = None;
 
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             attempts += 1;
             Err(PacketSendError::Full(packet))
         });
-        assert_eq!(runtime.pending_hotbar_selection(), Some(2));
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(2));
 
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |_| {
             attempts += 1;
             Ok(())
         });
 
         assert_eq!(attempts, 2);
-        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
         assert_eq!(fatal, None);
     }
 
     #[test]
     fn newer_selection_supersedes_pending_selection() {
-        let mut runtime = UiRuntime::new(1);
-        runtime.queue_local_hotbar_selection(2);
-        runtime.queue_local_hotbar_selection(7);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-        assert_eq!(runtime.selected_hotbar_slot(), Some(7));
-        assert_eq!(runtime.pending_hotbar_selection(), Some(7));
+        let mut runtime = UiRuntime::new(1);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 2);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 7);
+
+        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(7));
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(7));
     }
 
     #[test]
     fn same_slot_input_does_not_suppress_an_unsent_pending_selection() {
-        let mut runtime = identified_runtime();
-        publish_slot(&mut runtime, 4, NetworkItemStack::empty());
-        runtime.queue_local_hotbar_selection(4);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
+        publish_slot(
+            &mut player_runtime,
+            &mut runtime,
+            4,
+            NetworkItemStack::empty(),
+        );
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 4);
         let mut fatal = None;
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             Err(PacketSendError::Full(packet))
         });
 
-        runtime.queue_local_hotbar_selection(4);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 4);
         let mut sent = false;
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |_| {
             sent = true;
             Ok(())
         });
 
         assert!(sent);
-        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
     }
 
     #[test]
     fn begin_session_clears_pending_hotbar_selection() {
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let mut runtime = UiRuntime::new(1);
-        runtime.queue_local_hotbar_selection(5);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 5);
 
-        runtime.begin_session(2);
+        runtime.begin_session(&mut player_runtime, 2);
 
-        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
     }
 
     #[test]
     fn predicted_slot_state_drives_packet_and_rollback_restores_authority() {
-        let mut runtime = identified_runtime();
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(&mut player_runtime)
             .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-        open_personal_inventory(&mut runtime);
+        open_personal_inventory(&mut player_runtime, &mut runtime);
         let authoritative = present_stack();
-        publish_slot(&mut runtime, 0, authoritative.clone());
-        runtime.queue_local_hotbar_selection(0);
-        let authoritative_snapshot = runtime.selected_stack_snapshot().unwrap();
+        publish_slot(&mut player_runtime, &mut runtime, 0, authoritative.clone());
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 0);
+        let authoritative_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
         assert_eq!(authoritative_snapshot.slot, 0);
         assert_eq!(
             authoritative_snapshot.state,
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
-        let request_id = runtime.inventory_ledger_mut().begin_click(0).unwrap();
-        let predicted_snapshot = runtime.selected_stack_snapshot().unwrap();
+        let request_id = runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .begin_click(0)
+            .unwrap();
+        let predicted_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
         assert_eq!(predicted_snapshot.slot, 0);
         assert_eq!(
             predicted_snapshot.state,
@@ -458,7 +552,7 @@ mod tests {
 
         let mut predicted_packet = None;
         let mut fatal = None;
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             predicted_packet = Some(packet);
             Ok(())
         });
@@ -471,7 +565,7 @@ mod tests {
         );
 
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(&mut player_runtime)
             .apply(&InventoryEvent::Response(ItemStackResponseEvent {
                 responses: Arc::from([StackResponse {
                     status: StackResponseStatus::Rejected,
@@ -479,17 +573,17 @@ mod tests {
                     containers: Arc::from([]),
                 }]),
             }));
-        let restored_snapshot = runtime.selected_stack_snapshot().unwrap();
+        let restored_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
         assert_eq!(restored_snapshot.slot, 0);
         assert_eq!(
             restored_snapshot.state,
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
 
-        runtime.queue_local_hotbar_selection(1);
-        runtime.queue_local_hotbar_selection(0);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 1);
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 0);
         let mut restored_packet = None;
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |packet| {
             restored_packet = Some(packet);
             Ok(())
         });
@@ -504,18 +598,28 @@ mod tests {
 
     #[test]
     fn accepted_selected_slot_correction_updates_snapshot_without_reselection() {
-        let mut runtime = identified_runtime();
-        runtime
-            .inventory_ledger_mut()
-            .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-        open_personal_inventory(&mut runtime);
-        let original = present_stack();
-        publish_slot(&mut runtime, 0, NetworkItemStack::empty());
-        publish_slot(&mut runtime, 1, original.clone());
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-        let take = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+        let mut runtime = identified_runtime(&mut player_runtime);
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(&mut player_runtime)
+            .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        open_personal_inventory(&mut player_runtime, &mut runtime);
+        let original = present_stack();
+        publish_slot(
+            &mut player_runtime,
+            &mut runtime,
+            0,
+            NetworkItemStack::empty(),
+        );
+        publish_slot(&mut player_runtime, &mut runtime, 1, original.clone());
+
+        let take = runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .begin_click(1)
+            .unwrap();
+        runtime
+            .inventory_ledger_mut(&mut player_runtime)
             .apply(&InventoryEvent::Response(ItemStackResponseEvent {
                 responses: Arc::from([StackResponse {
                     status: StackResponseStatus::Accepted,
@@ -558,15 +662,21 @@ mod tests {
                     ]),
                 }]),
             }));
-        runtime.set_local_selected_slot(0);
-        let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
+        player_runtime.inventory.set_local_selected_slot(0);
+        let place = runtime
+            .inventory_ledger_mut(&mut player_runtime)
+            .begin_click(0)
+            .unwrap();
         assert!(matches!(
-            runtime.selected_stack_snapshot().unwrap().state,
+            runtime
+                .selected_stack_snapshot(&player_runtime)
+                .unwrap()
+                .state,
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
         ));
 
         runtime
-            .inventory_ledger_mut()
+            .inventory_ledger_mut(&mut player_runtime)
             .apply(&InventoryEvent::Response(ItemStackResponseEvent {
                 responses: Arc::from([StackResponse {
                     status: StackResponseStatus::Accepted,
@@ -593,22 +703,30 @@ mod tests {
         let mut corrected = original;
         corrected.count = 2;
         corrected.stack_network_id = 99;
-        let corrected_snapshot = runtime.selected_stack_snapshot().unwrap();
+        let corrected_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
         assert_eq!(corrected_snapshot.slot, 0);
         assert_eq!(
             corrected_snapshot.state,
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&corrected)
         );
-        assert_eq!(runtime.selected_hotbar_slot(), Some(0));
+        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(0));
     }
 
     #[test]
     fn server_forced_selection_cancels_pending_local_packet() {
-        let mut runtime = identified_runtime();
-        publish_slot(&mut runtime, 2, NetworkItemStack::empty());
-        runtime.queue_local_hotbar_selection(2);
+        let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
+        let mut runtime = identified_runtime(&mut player_runtime);
+        publish_slot(
+            &mut player_runtime,
+            &mut runtime,
+            2,
+            NetworkItemStack::empty(),
+        );
+        runtime.queue_local_hotbar_selection(&mut player_runtime, 2);
         runtime
             .enqueue_inventory_event(
+                &mut player_runtime,
                 1,
                 1,
                 InventoryEvent::SelectedSlot(SelectedSlotEvent {
@@ -619,16 +737,16 @@ mod tests {
             )
             .unwrap();
 
-        runtime.drain_pending_inventory();
+        runtime.drain_pending_inventory(&mut player_runtime);
         let mut sends = 0;
         let mut fatal = None;
-        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+        flush_pending_hotbar_selection(&mut player_runtime, &mut runtime, &mut fatal, |_| {
             sends += 1;
             Ok(())
         });
 
-        assert_eq!(runtime.selected_hotbar_slot(), Some(5));
-        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(5));
+        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
         assert_eq!(sends, 0);
         assert_eq!(fatal, None);
     }

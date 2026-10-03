@@ -78,6 +78,8 @@ fn app() -> App {
 #[test]
 #[ignore = "offline native GPU menu timings and snapshots"]
 fn menu_frames_on_native_gpu() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = pack_harness::scratch_dir("gpu-menu");
     let mut view = play_flow_snapshots::fixture_view(&dir);
@@ -124,7 +126,13 @@ fn menu_frames_on_native_gpu() {
             }
             let preview_done = Instant::now();
             let input = presentation
-                .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    frame * 16,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let paint_done = Instant::now();
             geometry = (input.vertices.len(), input.batches.len());
@@ -183,6 +191,8 @@ fn menu_frames_on_native_gpu() {
 #[test]
 #[ignore = "offline native GPU Zeqa page ordering"]
 fn zeqa_late_pages_match_the_published_frame_on_gpu() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let pack = pack_harness::env_pack().expect("CINNABAR_FORM_PACK_DIR");
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let mut runtime = pack_harness::menu_runtime();
@@ -197,7 +207,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
         if phase != 0 {
             presentation.set_menu_view(None);
             presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
-            runtime.begin_session(phase + 1);
+            runtime.begin_session(&mut player_runtime, phase + 1);
             runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
                 pack.clone(),
             ))));
@@ -213,7 +223,13 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
             );
             presentation.sync_player_preview(None, Default::default(), phase == 0, false, 0.0);
             let input = presentation
-                .build(&runtime, 0, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    SIZE,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let expected = (phase != 0).then(|| super::snapshot::rasterize(&input));
             app.world_mut()
