@@ -115,3 +115,11 @@ fn shared_policy_can_be_replaced_by_a_user_vsync_choice() {
     assert_eq!(render_copy.preference(), PresentModePreference::NoVsync);
     assert_eq!(render_copy.remedy(), PresentModeRemedy::KeepRequested);
 }
+
+#[test]
+fn review_render_republishing_the_same_preference_retains_the_remedy() {
+    let policy = Dx12PresentModePolicy::default();
+    policy.publish_remedy(PresentModeRemedy::UseImmediate);
+    policy.set_preference(PresentModePreference::Auto);
+    assert_eq!(policy.remedy(), PresentModeRemedy::UseImmediate);
+}

@@ -212,13 +212,6 @@ pub(super) fn widget_defaults(control: &ResolvedControl, own: &mut Bag) {
 /// here the host owns that text, so the binding reads it every refresh. Vanilla's
 /// `common.text_edit_box` binds it on the child label that draws `#item_name`.
 fn host_owned_text(control: &ResolvedControl, binding: &Binding) -> bool {
-    let draws_content = match control.control_type.as_deref() {
-        Some("edit_box") => true,
-        Some("label") => {
-            control.properties.get("text").and_then(Value::as_str) == Some("#item_name")
-        }
-        _ => false,
-    };
-    draws_content
+    (control.control_type.as_deref() == Some("edit_box") || crate::label::is_editable(control))
         && matches!(&binding.kind, Kind::Global { rename, .. } | Kind::Collection { rename, .. } if rename == "#item_name")
 }

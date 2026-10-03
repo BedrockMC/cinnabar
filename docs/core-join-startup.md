@@ -86,3 +86,46 @@ layouts, and relay tests cover queued delivery and cancellation.
 This verifies the startup packet contract. It does not certify all terrain-readiness
 thresholds, dimension transitions, consent dialogs, or live-server/visual parity. The existing
 terrain presentation gate remains the app's readiness criterion; full parity remains open.
+
+## Near terrain can complete before distant requests
+
+The presentation gate also accepts the loaded 3×3 neighborhood around the server's
+player position once its resident sections have current light and acknowledged
+meshes. It still requires a later GPU-completed frame. Far replies and their
+lighting/meshing queues can continue after the loading screen closes. This avoids
+requiring a fully drained view when the visible opaque count is below the dense
+threshold. `fa7af5ed` connected the initialization notification to that older gate;
+it is not proof that the BDS in the supplied screenshot withheld replies.
+
+Vanilla references:
+
+- Lens 26.30 `_calculateLoadingProgressView` (`0x1058f2920`) tests the spawn
+  neighborhood when the full view is incomplete. Its initializer at `0x105940f20`
+  builds nine `ChunkPos` offsets; the referenced data at `0x10deac070`,
+  `0x10ddfaf20` and `0x10d945f70` plus the final pair cover x/z −1 through 1.
+  Current 1.26.50.26 Lens loading notification at `0x07112460` was also inspected;
+  it is the notification worker, not the neighborhood readiness calculation.
+- `R:c/ClientLoadingProgressTickingSystem.cpp:666` checks those offsets;
+  `:716` enters the completed state. `R:l/LocalPlayer.cpp:3339` and `:3421`
+  connect loading completion to initialization notification.
+- Vanilla pack `ui/progress_screen.json:1215` and
+  `texts/en_US.lang:8153`, `:8179` supply the retained loading presentation.
+
+`bds_local_startup_completes_with_distant_replies_withheld` runs real requests,
+decoding, lighting, meshing and upload acknowledgements. Near terrain becomes
+ready while a distant column remains withheld and the old drained predicate is
+false (725 ms in the focused run). Releasing that reply still drains the stream.
+`local_terrain_releases_after_a_gpu_frame_with_distant_work_pending` checks the
+additional presentation fence. `bds_join_dense_columns_drain_with_a_stationary_camera`
+checks full-height terrain; `bds_saved_terrain_drains_without_camera_motion` can
+replay local occupancy records through `CINNABAR_BDS_TERRAIN`.
+
+The full-height dense fixture drained in 5.71 s at the harness's normal 8 ms
+frame cadence, with 495 visible meshes and no pending light or mesh jobs. The
+accelerated 1 ms fixture previously exhausted its frame count under concurrent
+gate load; the convergence test now keeps wall time closer to its simulated
+reply clock. Earlier accelerated runs took 7.37 s before and 6.41 s afterward;
+these mixed-load observations are not a pipeline speedup claim. An occupancy
+replay extracted read-only from the restored BDS world drained in 1.25–2.94 s. Neither reproduces the reported minutes
+or 7 FPS, and occupancy is not an exact packet capture. The restored client-tail
+log is empty. These offline results do not establish a live BDS join time.

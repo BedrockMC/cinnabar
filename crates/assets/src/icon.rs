@@ -273,9 +273,27 @@ pub fn encode_icon_catalog_with_block_sheets(
         {
             return Err(invalid("icon sprite dimensions or pixels exceed bounds"));
         }
-        payload.extend_from_slice(&sprite.width.to_le_bytes());
-        payload.extend_from_slice(&sprite.height.to_le_bytes());
-        payload.extend_from_slice(&sprite.rgba8);
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sprite.width.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sprite.height.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sprite.rgba8,
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
     let mut previous: Option<(&str, u32)> = None;
     for entry in entries {
@@ -289,15 +307,51 @@ pub fn encode_icon_catalog_with_block_sheets(
         {
             return Err(invalid("icon entries are not strictly sorted"));
         }
-        payload.extend_from_slice(&(entry.identifier.len() as u16).to_le_bytes());
-        payload.extend_from_slice(entry.identifier.as_bytes());
-        payload.extend_from_slice(&entry.metadata.to_le_bytes());
-        payload.extend_from_slice(&entry.sprite.to_le_bytes());
+        crate::encoding::append_bounded(
+            &mut payload,
+            &(entry.identifier.len() as u16).to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            entry.identifier.as_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &entry.metadata.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &entry.sprite.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
         previous = Some((entry.identifier.as_ref(), entry.metadata));
     }
     for sheet in block_sheets {
-        payload.extend_from_slice(&sheet.visual.0.to_le_bytes());
-        payload.extend_from_slice(&sheet.sprite.to_le_bytes());
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sheet.visual.0.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
+        crate::encoding::append_bounded(
+            &mut payload,
+            &sheet.sprite.to_le_bytes(),
+            MAX_ICON_CARRIER_BYTES,
+            HEADER_BYTES + HASH_BYTES,
+        )
+        .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
     let payload_end = HEADER_BYTES
         .checked_add(payload.len())

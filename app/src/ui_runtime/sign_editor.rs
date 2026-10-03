@@ -239,7 +239,8 @@ impl SignEdit {
 
     /// The whole sign compound with the edited face's text replaced, ready to send back. Both
     /// faces are always present, as servers require, and the block entity identity is kept.
-    pub(crate) fn into_encoded_nbt(self) -> Vec<u8> {
+    /// Fails if retained tags cannot be encoded within the NBT bounds.
+    pub(crate) fn into_encoded_nbt(self) -> Result<Vec<u8>, &'static str> {
         let text = self.text();
         let mut root = self.base;
         // Hanging signs keep their own block-entity id.

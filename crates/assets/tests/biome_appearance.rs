@@ -98,3 +98,23 @@ fn grass_noise_seed_and_offset_draws_match_current_reference_vectors() {
         &[144, 102, 233, 57, 254, 23, 182, 116]
     );
 }
+
+#[test]
+fn review_nonfinite_live_climates_do_not_discard_valid_siblings() {
+    let catalog = fixture(TintSource::map(TintMapId::Grass));
+    let valid = assets::LiveBiomeDefinition {
+        name: "test:shaded",
+        biome_id: Some(1),
+        temperature: 0.25,
+        downfall: 0.75,
+        map_water_argb: 0xff617b64,
+    };
+    let invalid = assets::LiveBiomeDefinition {
+        temperature: f32::NAN,
+        ..valid
+    };
+    let expected = catalog.resolve_live(&[valid]).unwrap();
+    let actual = catalog.resolve_live(&[invalid, valid]).unwrap();
+    assert_eq!(actual.records, expected.records);
+    assert_eq!(actual.skipped_definitions, 1);
+}

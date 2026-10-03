@@ -219,8 +219,8 @@ fn production_forwarding_rejects_old_buffered_stream_after_fifo_restart() {
     assert_eq!(audio.wire_evidence.rows[0].observed_fifo_sequence, 1);
     assert_eq!(
         audio.catalog_unavailable_total(),
-        3,
-        "observer must not filter resolver input"
+        2,
+        "replaced-stream events cannot reach catalog resolution"
     );
     let mut events = Vec::new();
     {
@@ -260,10 +260,12 @@ fn production_forwarding_rejects_old_buffered_stream_after_fifo_restart() {
 fn production_evidence_precedes_missing_catalog_without_changing_resolution() {
     let mut origin = stream();
     let events = forwarded(&mut origin, 1);
+    let mut comparison = stream();
+    let comparison_events = forwarded(&mut comparison, 1);
     let mut enabled = app(origin, true);
-    let mut disabled = app(stream(), false);
-    write(&mut enabled, events.clone());
-    write(&mut disabled, events);
+    let mut disabled = app(comparison, false);
+    write(&mut enabled, events);
+    write(&mut disabled, comparison_events);
     enabled.update();
     disabled.update();
     let enabled = enabled.world().resource::<SessionAudio>();
@@ -283,4 +285,26 @@ fn production_evidence_precedes_missing_catalog_without_changing_resolution() {
     );
     assert_eq!(enabled.wire_evidence.rows.len(), 1);
     assert!(disabled.wire_evidence.rows.is_empty());
+}
+
+#[test]
+fn review_replaced_stream_audio_cannot_enter_the_new_session() {
+    let mut session = SessionAudio::default();
+    session.admit_from_stream(2, 10, 0, vec![event(1, 500), event(2, 1)], None);
+    assert_eq!(session.iter().next().unwrap().sequence(), Some(1));
+    assert_eq!(session.iter().count(), 1);
+}
+
+#[test]
+fn review_broken_stdout_cannot_panic_the_audio_session() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    assert!(std::panic::catch_unwind(|| write_marker(&mut Broken, "{}")).is_ok());
 }

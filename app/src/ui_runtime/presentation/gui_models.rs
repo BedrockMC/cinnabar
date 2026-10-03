@@ -148,27 +148,28 @@ impl UiPresentationRuntime {
         Ok(())
     }
 
-    pub(super) fn set_gui_skin(&mut self, skin: &[u8]) {
+    /// Reuses the retained page's digest when its pixels have not changed.
+    pub(super) fn set_gui_skin(&mut self, skin: &[u8]) -> Option<[u8; 32]> {
         if !self.gui_models.enabled {
-            return;
+            return None;
         }
         let side = (skin.len() / 4).isqrt();
         if side == 0 || side * side * 4 != skin.len() {
-            return;
+            return None;
         }
-        let identity: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(skin).into();
-        if self
+        if let Some(page) = self
             .gui_models
             .skin
             .as_ref()
-            .is_some_and(|page| page.identity() == identity)
+            .filter(|page| page.pixels() == skin)
         {
-            return;
+            return Some(page.identity());
         }
-        if let Ok(page) = UiTexturePage::owned([side as u32; 2], Arc::from(skin)) {
-            self.gui_models.skin = Some(page);
-            self.preview_dirty = true;
-        }
+        let page = UiTexturePage::owned([side as u32; 2], Arc::from(skin)).ok()?;
+        let identity = page.identity();
+        self.gui_models.skin = Some(page);
+        self.preview_dirty = true;
+        Some(identity)
     }
 
     /// Conversion happens after JSON-UI has resolved positions, visibility and clipping. The

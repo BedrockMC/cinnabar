@@ -184,6 +184,10 @@ impl MenuRuntime {
             byte: self
                 .field
                 .map_or(0, |field| self.editor(field).cursor_byte()),
+            selection: self
+                .field
+                .and_then(|field| self.editor(field).selection())
+                .map(|range| [range.start, range.end]),
             revision: self.caret_revision,
             shown: true,
         }
@@ -588,7 +592,13 @@ pub(crate) fn drive_menu_input(
 }
 
 impl MenuRuntime {
+    /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.screen == super::MenuScreen::AddServer && self.field.is_some() {
+            self.edit_field(|editor| editor.place_cursor(editor.cursor_byte()));
+            self.field = None;
+            return;
+        }
         self.go_back();
     }
 }

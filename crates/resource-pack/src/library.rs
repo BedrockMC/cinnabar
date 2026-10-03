@@ -283,12 +283,12 @@ impl GlobalPackLibrary {
 
     /// Selects a declared subpack; an empty folder selects the root resources.
     pub fn select_subpack(&mut self, id: Uuid, folder: &str) -> Result<(), LibraryError> {
-        let pack = self
-            .catalog
-            .available
+        let active = self
+            .active
             .iter()
             .find(|pack| pack.id == id)
             .ok_or(LibraryError::UnknownPack)?;
+        let pack = self.metadata(active).ok_or(LibraryError::UnknownPack)?;
         if !folder.is_empty() && !pack.subpacks.iter().any(|subpack| subpack.folder == folder) {
             return Err(AdmissionError::InvalidSubpack.into());
         }

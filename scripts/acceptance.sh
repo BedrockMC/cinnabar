@@ -413,8 +413,10 @@ start_udp_port_helper() {
     exec 7<>"$control_path"
     port_fd_open=true
     python3 -u -c 'import socket, sys
-sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
-for item in sockets: item.bind(("127.0.0.1", 0))
+sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM), socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)]
+sockets[1].setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+sockets[0].bind(("127.0.0.1", 0))
+sockets[1].bind(("::", 0))
 print(*(item.getsockname()[1] for item in sockets), flush=True)
 sys.stdin.readline()
 ' <"$control_path" >"$output_path" 2>"$error_path" 6>&- 7>&- &

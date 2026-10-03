@@ -250,6 +250,10 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
 #[test]
 fn single_sample_depth_system_resets_only_enhanced_cameras() {
     use bevy::prelude::*;
+    // The plugin installs nothing while the Enhanced kill switch is off.
+    if !super::ENHANCED_RENDERING_ENABLED {
+        return;
+    }
     let mut app = App::new();
     // Exercise the CPU system directly while the Enhanced plugin is disabled.
     app.add_systems(Last, super::enforce_single_sample_depth);

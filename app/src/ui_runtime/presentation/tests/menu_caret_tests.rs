@@ -68,6 +68,34 @@ fn the_focused_box_draws_the_caret_where_typing_goes_and_blinks() {
         moved.contains(&format!("abc{caret}")),
         "a move shows the caret at once: {moved:?}"
     );
+    press_key(&mut app, window, KeyCode::ShiftLeft, None);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    let selected = frame(&mut app, start + blink + blink / 2 + 2);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().caret.selection,
+        Some([2, 3])
+    );
+    assert!(
+        !drawn_texts(&selected)
+            .iter()
+            .any(|text| text.contains(caret))
+    );
+    let selection = selected
+        .iter()
+        .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+        .expect("the selected character is highlighted");
+    let text = selected
+        .iter()
+        .find(|node| {
+            matches!(node.visual(), UiVisual::Text { layout, .. }
+        if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "abc")
+        })
+        .expect("selected text remains visible");
+    assert!(selection.bounds().width() > 0.0);
+    assert!(
+        selection.bounds().width() < text.bounds().width(),
+        "only the selected character is highlighted"
+    );
 }
 
 /// The window-logical rect of each drawn glyph of the text node spelling `wanted`.

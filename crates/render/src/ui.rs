@@ -246,6 +246,7 @@ pub struct UiRenderScene {
     pub revision: u64,
     pub input: Option<Arc<UiRenderInput>>,
     rejected_since_publish: bool,
+    admitted_static_identity: Option<[u8; 32]>,
 }
 
 impl UiRenderScene {
@@ -270,9 +271,10 @@ impl UiRenderScene {
                     .is_some_and(|current| current != &input)
             {
                 Err(UiRenderRejectReason::RevisionConflict { revision })
-            } else if self.input.as_deref().is_some_and(|current| {
-                current.textures.static_identity() != input.textures.static_identity()
-            }) {
+            } else if self
+                .admitted_static_identity
+                .is_some_and(|identity| identity != input.textures.static_identity())
+            {
                 Err(UiRenderRejectReason::TextureIdentityConflict {
                     identity: input.textures.identity(),
                 })
@@ -299,6 +301,7 @@ impl UiRenderScene {
             return Ok(());
         }
         self.revision = revision;
+        self.admitted_static_identity = Some(input.textures.static_identity());
         self.rejected_since_publish = false;
         self.input = Some(Arc::new(input));
         stats.update(|snapshot| {

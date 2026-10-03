@@ -126,7 +126,15 @@ impl LocalPhysicsController {
                     .unwrap_or(false)
         });
         if !server_confirmed_prediction {
-            if (corrected.collisions.x || corrected.collisions.z) && corrected.velocity.y > 0.0 {
+            let was_climbing = self.controller_history.iter().any(|frame| {
+                frame.tick == tick
+                    && frame.environment.on_climbable
+                    && frame.input.mode == sim::MovementMode::Walking
+            });
+            if was_climbing
+                && (corrected.collisions.x || corrected.collisions.z)
+                && corrected.velocity.y > 0.0
+            {
                 corrected.velocity.y = 0.0;
             }
             corrected.collisions = sim::AxisCollisions::default();

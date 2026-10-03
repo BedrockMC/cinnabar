@@ -114,9 +114,14 @@ pub(super) fn compile(
         }
         _ => compile_outline_font(font, &primary, manifest_hash, config)?,
     };
-    // Notices are required before publishing a carrier that redistributes the glyphs.
-    write_blob_atomic(&notices_path, &notices)?;
-    write_compiled_font_assets(source, manifest_hash, compiled, out, report)
+    write_compiled_font_assets(
+        source,
+        manifest_hash,
+        compiled,
+        out,
+        report,
+        &[(&notices_path, &notices)],
+    )
 }
 
 fn text<'a>(

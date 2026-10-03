@@ -333,6 +333,8 @@ pub(crate) struct MenuView {
 pub(crate) struct MenuCaret {
     /// Byte offset into the focused field's text.
     pub(crate) byte: usize,
+    /// Selected byte range, when the focused editor has a selection.
+    pub(crate) selection: Option<[usize; 2]>,
     /// Changes with every edit and caret move, restarting the blink.
     pub(crate) revision: u64,
     /// The blink phase, which the presentation sets from its clock.

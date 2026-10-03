@@ -324,12 +324,12 @@ fn prepare_bind_group(
 fn queue_panorama(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<PanoramaPipeline>,
-    gpu: Res<PanoramaGpu>,
+    scene: Res<PanoramaScene>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if !gpu.visible {
+    if scene.view.is_none() || scene.faces.is_none() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawPanoramaCommands>();
@@ -386,7 +386,7 @@ impl<P: PhaseItem> RenderCommand<P> for SetPanoramaBindGroup {
 struct DrawPanorama;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPanorama {
-    type Param = ();
+    type Param = SRes<PanoramaGpu>;
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -394,9 +394,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPanorama {
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        _param: SystemParamItem<'w, '_, Self::Param>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        if !gpu.into_inner().visible {
+            return RenderCommandResult::Skip;
+        }
         pass.draw(0..3, 0..1);
         RenderCommandResult::Success
     }
@@ -409,5 +412,41 @@ mod tests {
     #[test]
     fn uniform_matches_the_wgsl_layout() {
         assert_eq!(UNIFORM_BYTES, 32);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use crate::queue_review_support as fixture;
+    use bevy::ecs::system::RunSystemOnce;
+    #[test]
+    fn review_render_panorama_queue_uses_current_visibility() {
+        let (mut app, view) = fixture::app();
+        app.init_resource::<PanoramaScene>()
+            .init_resource::<PanoramaPipeline>()
+            .add_render_command::<Transparent3d, DrawPanoramaCommands>();
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .set_faces(Some(std::sync::Arc::new(
+                crate::PanoramaFaces::new(1, std::array::from_fn(|_| vec![255; 4])).unwrap(),
+            )));
+        app.world_mut().run_system_once(init_gpu).unwrap();
+        app.world_mut()
+            .resource_mut::<PanoramaScene>()
+            .show(Some(crate::PanoramaView {
+                yaw_radians: 0.0,
+                pitch_radians: 0.0,
+                vertical_fov_radians: 1.0,
+                aspect: 1.0,
+                tint: [0.0; 4],
+            }));
+        app.world_mut().run_system_once(queue_panorama).unwrap();
+        assert_eq!(fixture::items(&app, view).len(), 1);
+        fixture::clear(&mut app, view);
+        app.world_mut().resource_mut::<PanoramaGpu>().visible = true;
+        app.world_mut().resource_mut::<PanoramaScene>().show(None);
+        app.world_mut().run_system_once(queue_panorama).unwrap();
+        assert!(fixture::items(&app, view).is_empty());
     }
 }

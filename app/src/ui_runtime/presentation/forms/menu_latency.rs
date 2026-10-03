@@ -285,6 +285,33 @@ fn to(screen: MenuScreen) -> impl FnOnce(&mut MenuView) {
     move |view| view.screen = screen
 }
 
+/// Measures the owner's five menu states through the real carrier, including edit boxes.
+#[test]
+fn idle_screen_costs() {
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
+    let mut rows = Vec::new();
+    for (name, screen) in [
+        ("home", MenuScreen::Home),
+        ("inbox", MenuScreen::Inbox),
+        ("play", MenuScreen::Play),
+        ("servers", MenuScreen::Servers),
+        ("edit server", MenuScreen::AddServer),
+        ("settings", MenuScreen::Settings),
+    ] {
+        bench.view.screen = screen;
+        bench.view.editing = (screen == MenuScreen::AddServer).then_some(0);
+        bench.frame();
+        // Discard preparation and texture arrival frames before sampling steady state.
+        for _ in 0..10 {
+            bench.frame();
+        }
+        rows.push((name, median((0..31).map(|_| bench.frame()).collect())));
+    }
+    report(&rows);
+}
+
 // A hover repaints over the laid-out screen, so a sweep costs no more than idling.
 #[test]
 fn menu_input_frames_cost_about_an_idle_frame() {
