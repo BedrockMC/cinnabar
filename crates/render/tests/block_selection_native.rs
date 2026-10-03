@@ -25,7 +25,7 @@ fn fixture() -> (Vec<RegistryRecord>, RuntimeAssets) {
     let directory = tempfile::tempdir().unwrap();
     write_pack(directory.path());
     let lights = vec![assets::LightProperties::default(); records.len()];
-    let compiled = asset_compiler::compile_pack(directory.path(), &records, &lights).unwrap();
+    let compiled = pack_compiler::compile_pack(directory.path(), &records, &lights).unwrap();
     let assets = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
     (records, assets)
 }

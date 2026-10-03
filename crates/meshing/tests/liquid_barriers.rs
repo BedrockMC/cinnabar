@@ -2,13 +2,13 @@
 
 use std::{fs, sync::OnceLock};
 
-use asset_compiler::compile_pack;
 use assets::{
     BlockFlags, ContributorRole, ModelFamily, NetworkIdMode, RegistryProvenance, RegistryRecord,
     RuntimeAssets, encode_blob,
 };
 use image::{Rgba, RgbaImage};
 use meshing::{BlockClassifier, Face, PackedLiquidQuad, mesh_sub_chunk_in_neighbourhood};
+use pack_compiler::compile_pack;
 use world::{BlockUpdate, ChunkStore, MeshNeighbourhood, SubChunk, SubChunkKey};
 
 struct Fixture {
