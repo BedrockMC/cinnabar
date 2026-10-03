@@ -46,8 +46,8 @@ use crate::{
     camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
     local_player::LocalPlayerFrameCarrier,
     metrics::{
-        GpuPassMeasurement, ModelWorkloadMetricsSnapshot,
-        PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
+        GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+        TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
