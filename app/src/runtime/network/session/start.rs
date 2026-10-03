@@ -69,12 +69,6 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     &packs.admission,
                     resource_pack::PackAdmission::Validated(stack) if !stack.packs().is_empty()
                 );
-                if packs_applied {
-                    let socket_dir = config.socket_dir.clone();
-                    tokio::spawn(async move {
-                        protocol::report_pack_application(&socket_dir, true).await;
-                    });
-                }
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let server_authoritative_block_breaking =
                     protocol::server_authoritative_block_breaking(&game_data);
@@ -126,18 +120,29 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     bootstrap.dimension,
                     bootstrap.local_player_runtime_id,
                 );
-                run_network_pump_with_readiness_ingress(
-                    session,
-                    sequencer,
-                    command_rx,
-                    control_event_tx,
-                    world_event_tx,
-                    shutdown_rx,
-                    (network_readiness_ingress, network_experience_gate),
-                )
-                .await;
+                let pump = async {
+                    run_network_pump_with_readiness_ingress(
+                        session,
+                        sequencer,
+                        command_rx,
+                        control_event_tx,
+                        world_event_tx,
+                        shutdown_rx,
+                        (network_readiness_ingress, network_experience_gate),
+                    )
+                    .await;
+                };
                 if packs_applied {
-                    protocol::report_pack_application(&config.socket_dir, false).await;
+                    let socket_dir = config.socket_dir.clone();
+                    run_with_pack_report(pump, move |applied| {
+                        let socket_dir = socket_dir.clone();
+                        async move {
+                            protocol::report_pack_application(&socket_dir, applied).await;
+                        }
+                    })
+                    .await;
+                } else {
+                    pump.await;
                 }
             });
         })?;
@@ -277,5 +282,47 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+/// Keeps application and reversion reports around an admitted session.
+async fn run_with_pack_report<P, R, F>(pump: P, report: R)
+where
+    P: std::future::Future<Output = ()>,
+    R: Fn(bool) -> F,
+    F: std::future::Future<Output = ()>,
+{
+    report(true).await;
+    pump.await;
+    report(false).await;
+}
+
+#[cfg(test)]
+mod pack_report_tests {
+    use super::run_with_pack_report;
+    #[tokio::test]
+    async fn review_pack_application_finishes_before_the_pump_and_reversion() {
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let pump_events = events.clone();
+        let report_events = events.clone();
+        run_with_pack_report(
+            async move {
+                pump_events.lock().unwrap().push("pump");
+            },
+            move |applied| {
+                let events = report_events.clone();
+                async move {
+                    if applied {
+                        tokio::task::yield_now().await;
+                    }
+                    events
+                        .lock()
+                        .unwrap()
+                        .push(if applied { "applied" } else { "reverted" });
+                }
+            },
+        )
+        .await;
+        assert_eq!(*events.lock().unwrap(), ["applied", "pump", "reverted"]);
     }
 }

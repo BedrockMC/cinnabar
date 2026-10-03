@@ -264,6 +264,8 @@ pub struct LinearBiomeTints {
 /// Deterministic dense tint records and direct raw-palette-ID lookup.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedBiomeTints {
+    /// Odd live climate entries omitted while resolving the remaining definitions.
+    pub skipped_definitions: usize,
     pub records: Box<[LinearBiomeTints]>,
     pub swamp_grass_palette: Box<[[f32; 4]]>,
     pub raw_id_to_dense: Box<[u32]>,
@@ -295,10 +297,14 @@ impl CompiledBiomeAssets {
             .collect::<BTreeMap<_, _>>();
         let mut climates = BTreeMap::<u32, (f32, f32)>::new();
         let mut custom = BTreeMap::<u32, LiveBiomeDefinition<'_>>::new();
+        let mut skipped_definitions = 0;
         for definition in live {
+            if validate_climate(definition.temperature, definition.downfall).is_err() {
+                skipped_definitions += 1;
+                continue;
+            }
             if let Some(rule) = by_name.get(definition.name) {
                 validate_biome_name(definition.name)?;
-                validate_climate(definition.temperature, definition.downfall)?;
                 if climates
                     .insert(rule.id, (definition.temperature, definition.downfall))
                     .is_some()
@@ -310,7 +316,6 @@ impl CompiledBiomeAssets {
                 }
             } else if let Some(id) = definition.biome_id {
                 validate_biome_name(definition.name)?;
-                validate_climate(definition.temperature, definition.downfall)?;
                 let id = u32::from(id);
                 if by_name.values().any(|rule| rule.id == id)
                     || custom.insert(id, *definition).is_some()
@@ -364,6 +369,7 @@ impl CompiledBiomeAssets {
             raw_id_to_dense[record.raw_id as usize] = dense as u32;
         }
         Ok(ResolvedBiomeTints {
+            skipped_definitions,
             records: records.into_boxed_slice(),
             swamp_grass_palette: self
                 .tint_maps_rgb8

@@ -1,4 +1,4 @@
-//! Vanilla shader bytes from 134348eb, with shared actor/item fog from 52e62f6f.
+//! Frozen vanilla shader bytes, including RGB lighting, weighted variants and actor/item fog.
 use sha2::{Digest, Sha256};
 
 /// Removes only Enhanced preprocessor blocks, preserving every vanilla byte.
@@ -40,6 +40,10 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
         (
             include_str!("../src/lighting.wgsl"),
             "a57357556effce8395bfcb8cec7cdd8e13f8b8683ae98c6ed074175dd87cc151",
+        ),
+        (
+            include_str!("../src/biome_tint.wgsl"),
+            "60f4689b0dda34425e9ea3ba0837e93a9c44d3ad522588465f8b38a25122e330",
         ),
         (
             include_str!("../src/atmosphere.wgsl"),

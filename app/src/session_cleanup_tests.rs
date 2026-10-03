@@ -637,3 +637,34 @@ fn reclamation_never_follows_a_seeded_link_shaped_session_name() {
     );
     assert!(target.is_dir(), "the linked target stays untouched");
 }
+
+#[test]
+fn review_a_live_same_process_binding_cannot_be_taken_over() {
+    let root = TempRoot::new("live-binding");
+    let directory = root.join(&format!("direct-{}", process::id()));
+    let mut first = SessionDirectoryGuard::bind(directory.clone()).unwrap();
+    fs::write(directory.join("bridge.endpoint"), b"live").unwrap();
+    let second = SessionDirectoryGuard::bind(directory.clone());
+    assert!(second.is_err());
+    assert_eq!(
+        fs::read(directory.join("bridge.endpoint")).unwrap(),
+        b"live"
+    );
+    assert_eq!(first.release(), ReleaseOutcome::Removed);
+    assert!(SessionDirectoryGuard::bind(directory).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn review_final_directory_removal_failure_preserves_retry_authority() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = TempRoot::new("parent-permission");
+    let directory = root.join(&format!("direct-{}", process::id()));
+    let mut guard = SessionDirectoryGuard::bind(directory.clone()).unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    let first = guard.release();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(first, ReleaseOutcome::RemoveFailed);
+    assert_eq!(guard.release(), ReleaseOutcome::Removed);
+    assert!(!directory.exists());
+}

@@ -363,3 +363,35 @@ fn errors_never_include_manifest_or_path_data() {
     assert!(!error.to_string().contains(secret));
     assert!(!format!("{error:?}").contains(secret));
 }
+
+#[test]
+fn review_zip_comment_can_contain_an_eocd_signature() {
+    let mut archive = zip_files(&[("manifest.json", manifest("").as_bytes())]);
+    let footer = archive.len() - EOCD_MIN_BYTES;
+    archive[footer + 20..footer + 22].copy_from_slice(&24_u16.to_le_bytes());
+    archive.extend_from_slice(b"PK\x05\x06");
+    archive.extend_from_slice(&[0; 20]);
+    assert!(preflight_eocd(&archive).is_ok());
+    assert!(validate_fixture(archive.clone(), "").is_ok());
+    let fake = footer + EOCD_MIN_BYTES;
+    archive[fake + 20..fake + 22].copy_from_slice(&2_u16.to_le_bytes());
+    assert!(preflight_eocd(&archive).is_ok());
+}
+
+#[test]
+fn review_wrapped_legacy_manifests_and_subpack_protection() {
+    let text = manifest(r#", "subpacks":[{"folder_name":"high","name":"High","memory_tier":1}]"#);
+    let wrapped = zip_files(&[
+        ("wrapper/pack_manifest.json", text.as_bytes()),
+        ("wrapper/test.txt", b"fixture"),
+    ]);
+    assert!(validate_fixture(wrapped, "").is_ok());
+    let shadowed = zip_files(&[
+        ("pack_manifest.json", text.as_bytes()),
+        ("subpacks/high/pack_manifest.json", text.as_bytes()),
+    ]);
+    assert!(matches!(
+        validate_fixture(shadowed, "high"),
+        Err(AdmissionError::InvalidSubpack)
+    ));
+}

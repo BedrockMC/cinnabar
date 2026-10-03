@@ -769,3 +769,21 @@ mod gate {
         );
     }
 }
+
+#[test]
+fn review_frozen_mining_target_completes_once_per_catchup_batch() {
+    let mut ticker = ticker_with_ticks(3);
+    let mut runtime = SurvivalMiningRuntime::default();
+    let mut target = target([1, 2, 3], "minecraft:dirt", None);
+    target.block.as_mut().unwrap().hardness = 0.01;
+    let mut completions = 0;
+    runtime.step_ticks(
+        &mut ticker,
+        DestroyInput::Held(Some(&target)),
+        Client,
+        |_| {},
+        |_, _| None,
+        |_| completions += 1,
+    );
+    assert_eq!(completions, 1);
+}

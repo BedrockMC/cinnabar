@@ -20,6 +20,7 @@ pub(in super::super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 #[derive(Clone)]
 pub(super) struct TextPaint {
     pub(super) color: [u8; 4],
+    pub(super) edit: Option<super::host_edit::Feedback>,
     pub(super) shadow: TextShadow,
     pub(super) align: TextAlign,
     pub(super) scale: f32,
@@ -212,6 +213,36 @@ impl Painter<'_> {
                 shadow: style.shadow,
             }),
         );
+        if let Some(selection) = style.edit.and_then(|edit| edit.selection) {
+            let mut edges = [0.0; 2];
+            for (edge, byte) in edges.iter_mut().zip(selection) {
+                let byte = super::super::menu_caret::caret_byte(&text, byte);
+                let prefix = &text[..byte];
+                if !prefix.is_empty() {
+                    *edge = self
+                        .layouts
+                        .layout(TextLayoutRequest {
+                            text: prefix,
+                            ..request
+                        })
+                        .map_err(UiPresentationError::Text)?
+                        .size_64()[0] as f32
+                        / 64.0;
+                }
+            }
+            self.push(
+                UiVisual::InvertedSprite {
+                    texture_page: self.solid_page,
+                    uv: [0, 0, 1, 1],
+                },
+                [
+                    dest[0] + edges[0],
+                    dest[1],
+                    dest[0] + edges[1],
+                    dest[1] + height,
+                ],
+            )?;
+        }
         Ok(())
     }
 }

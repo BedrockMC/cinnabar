@@ -580,6 +580,8 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
         include_str!("../../../../app/src/app.rs")
             .contains(".max(render::required_vertex_storage_buffers())")
     );
+    let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
+    assert!(shader_storage_bindings <= render::required_vertex_storage_buffers());
     assert!(shader.contains("@binding(12) var<storage, read> model_templates: array<u32>"));
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("visible_quad_mask"));

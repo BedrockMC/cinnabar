@@ -220,3 +220,6 @@ pub use weather::{
 mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
+
+#[cfg(test)]
+mod queue_review_support;

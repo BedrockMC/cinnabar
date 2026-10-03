@@ -404,10 +404,11 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
                 let pending = pending_world_event
                     .take()
                     .expect("world capacity is reserved only for a pending event");
+                permit.send(pending);
                 if let Some(transfer) = session.take_server_transfer() {
                     end_pump_with_transfer(
                         &session,
-                        Some(pending),
+                        None,
                         transfer,
                         &world_event_tx,
                         &control_event_tx,
@@ -416,7 +417,6 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W>(
                     .await;
                     return;
                 }
-                permit.send(pending);
             }
             NetworkPumpWork::Inbound(WorldSideWork::Capacity(Err(_))) => return,
             NetworkPumpWork::Inbound(WorldSideWork::Event(Ok(event))) => {

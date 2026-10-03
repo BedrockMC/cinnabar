@@ -260,21 +260,29 @@ impl<'a> Canvas<'a> {
         style: Type,
         color: Rgba,
     ) -> Result<f32, UiPresentationError> {
-        let (fits, layout) = self.measured(value, style)?;
+        let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+        let (fits, layout) = self.measured(&value, style)?;
         if fits <= width {
-            // A line that fits draws the layout it was measured with.
             return self.place_text(layout, at, width + 1.0, color, false);
         }
-        let mut cut: Vec<char> = value.chars().collect();
-        while !cut.is_empty() {
-            cut.pop();
-            let shown = format!("{}…", cut.iter().collect::<String>().trim_end());
+        let ends: Vec<usize> = value.char_indices().map(|(at, _)| at).collect();
+        let (mut low, mut high) = (0, ends.len());
+        let mut best = None;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let shown = format!("{}…", value[..ends[mid]].trim_end());
             let (fits, layout) = self.measured(&shown, style)?;
             if fits <= width {
-                return self.place_text(layout, at, width + 1.0, color, false);
+                best = Some(layout);
+                low = mid + 1;
+            } else {
+                high = mid;
             }
         }
-        Ok(0.0)
+        match best {
+            Some(layout) => self.place_text(layout, at, width + 1.0, color, false),
+            None => Ok(0.0),
+        }
     }
 
     /// The width `value` lays out to in `style`.

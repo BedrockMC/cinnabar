@@ -334,3 +334,50 @@ fn upper_catalog_replaces_the_complete_variant_list() {
     assert_eq!(icons.icons.len(), 1);
     assert_eq!((icons.icons[0].metadata, icons.icons[0].width), (0, 16));
 }
+
+#[test]
+fn review_variant_decoding_respects_remaining_capacity_and_metadata_indices() {
+    let paths = std::collections::HashMap::from([(
+        "variants".to_owned(),
+        vec![
+            "textures/missing".to_owned(),
+            "textures/items/gem".to_owned(),
+            "textures/items/gem".to_owned(),
+            "textures/items/gem".to_owned(),
+        ],
+    )]);
+    let resolved = super::resolve_key(&view(), &paths, "variants", 1).unwrap();
+    assert_eq!(
+        resolved
+            .iter()
+            .map(|(metadata, _)| *metadata)
+            .collect::<Vec<_>>(),
+        [1]
+    );
+}
+
+#[test]
+fn review_item_declaration_priority_survives_moves_between_files() {
+    let declaration = |identifier: &str, key: &str| {
+        serde_json::to_vec(&serde_json::json!({
+        "minecraft:item": {"description": {"identifier":identifier}, "components":{"minecraft:icon":key}}
+    })).unwrap()
+    };
+    let view = stack(&[
+        &[
+            ("items/a.json", declaration("t:a", "lower_a")),
+            ("items/b.json", declaration("t:b", "lower_b")),
+        ],
+        &[
+            ("items/a.json", declaration("t:b", "upper_b")),
+            ("items/b.json", declaration("t:a", "upper_a")),
+        ],
+    ]);
+    let keys = super::catalog::icon_keys(&view, &[]);
+    assert_eq!(
+        keys.iter()
+            .map(|(id, key)| (id.as_ref(), key.as_ref()))
+            .collect::<Vec<_>>(),
+        [("t:a", "upper_a"), ("t:b", "upper_b")]
+    );
+}

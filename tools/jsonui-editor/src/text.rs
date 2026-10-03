@@ -27,6 +27,7 @@ const FONT_SOURCE_MANIFEST: &[u8] = include_bytes!("../../../assets/ui-font-sour
 
 pub struct Fonts {
     font: Option<CompiledFontCatalog>,
+    revision: u64,
     cache: RefCell<TextLayoutCache>,
     lang: Arc<HashMap<String, String>>,
 }
@@ -35,6 +36,7 @@ impl Default for Fonts {
     fn default() -> Self {
         Self {
             font: None,
+            revision: 0,
             cache: RefCell::new(TextLayoutCache::new(CACHE_ENTRIES, CACHE_BYTES)),
             lang: Arc::default(),
         }
@@ -47,8 +49,14 @@ impl Fonts {
         let manifest = assets::canonical_source_manifest_sha256(FONT_SOURCE_MANIFEST);
         let font = CompiledFontCatalog::decode(bytes, manifest).map_err(|e| format!("{e:?}"))?;
         self.font = Some(font);
+        self.revision = self.revision.wrapping_add(1);
         self.cache = RefCell::new(TextLayoutCache::new(CACHE_ENTRIES, CACHE_BYTES));
         Ok(())
+    }
+
+    /// Changes only when a validated font carrier replaces the active metrics.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn font(&self) -> Option<&CompiledFontCatalog> {

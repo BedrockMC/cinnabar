@@ -352,6 +352,11 @@ impl WorldStream {
                     );
                     return;
                 };
+                for _ in 0..resolved.skipped_definitions {
+                    self.record_normalization_error(
+                        NormalizationErrorReason::BiomeDefinitionResolutionFailure,
+                    );
+                }
                 let Some(next_revision) = self.biome_tint_revision.checked_add(1) else {
                     self.record_normalization_error(
                         NormalizationErrorReason::BiomeTintRevisionOverflow,

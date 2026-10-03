@@ -234,12 +234,14 @@ impl Emitter {
                 }
             }
             Rate::Manual { max } => {
-                let max = self.eval(max).clamp(0.0, MAX_PARTICLES_PER_BURST);
-                let room = (max - self.particles.len() as f32).max(0.0);
-                to_spawn = (self.manual_pending as f32).min(room);
-                self.manual_pending = 0;
-                // Manual emitters emit their requested burst, then only age out their particles.
-                self.done = true;
+                if active {
+                    let max = self.eval(max).clamp(0.0, MAX_PARTICLES_PER_BURST);
+                    let room = (max - self.particles.len() as f32).max(0.0);
+                    to_spawn = (self.manual_pending as f32).min(room);
+                    self.manual_pending = 0;
+                    // Manual emitters emit once, then only age out their particles.
+                    self.done = true;
+                }
             }
         }
         let count = (to_spawn as usize).min(live_budget.max(1));
@@ -274,7 +276,11 @@ impl Emitter {
         set_var(&mut vars, V_PARTICLE_LIFETIME, lifetime);
 
         let (offset, direction) = self.sample_shape(&mut vars);
-        let offset = transform(&self.basis, offset);
+        let offset = if def.emitter.local_position {
+            offset
+        } else {
+            transform(&self.basis, offset)
+        };
         // Local-space velocity stays in the emitter frame and is rotated as the particle moves.
         let local_velocity = def.emitter.local_velocity;
         let direction = if local_velocity {

@@ -868,3 +868,41 @@ mod frame_advance;
 
 #[path = "entity_runtime/math_calls.rs"]
 mod math_calls;
+
+#[test]
+fn review_custom_action_uses_the_server_pack_rig_catalog() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    compiled.rig_geometries[0].animation_count = 1;
+    compiled.rig_animations = vec![assets::EntityRigAnimationBinding {
+        name: 0,
+        clip: 0,
+        weight: None,
+        order: 0,
+    }]
+    .into_boxed_slice();
+    let pack = decode_entity_assets(&compiled);
+    let mut stream = stream(EntityRigFallback::Skip);
+    stream.set_pack_entities(Some((pack, vec![0])));
+    stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
+    assert!(stream.actor_rig(42).unwrap().rig.0 >= assets::PACK_RIG_ID_BASE);
+    stream
+        .submit(
+            2,
+            WorldEvent::ItemActor(protocol::ItemActorEvent::Action(
+                protocol::ActorActionEvent {
+                    actor_runtime_ids: Arc::from([42]),
+                    kind: protocol::ActorActionKind::Custom {
+                        animation: "animation.bee.move".into(),
+                        controller: "controller.animation.bee".into(),
+                    },
+                    data: 0.0,
+                    swing_source: None,
+                },
+            )),
+        )
+        .unwrap();
+    assert_eq!(
+        stream.actor_action(42).unwrap().fallback,
+        client_world::RemoteActionFallback::None
+    );
+}

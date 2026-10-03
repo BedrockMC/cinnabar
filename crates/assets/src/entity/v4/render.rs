@@ -97,6 +97,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
     if render.layers.len() > MAX_ENTITY_RENDER_LAYERS
         || render.slots.len() > MAX_ENTITY_RENDER_SLOTS
         || render.candidates.len() > MAX_ENTITY_RENDER_CANDIDATES
+        || render.geometries.len() > MAX_ENTITY_RENDER_CANDIDATES
         || render.visibility.len() > MAX_ENTITY_RENDER_VISIBILITY
     {
         return Err(invalid("entity render payload count exceeds bound"));

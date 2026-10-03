@@ -68,7 +68,12 @@ pub(super) fn compile_session_icons(
         if icons.len() >= MAX_SESSION_ICONS {
             break;
         }
-        match resolve_key(view, &paths, key) {
+        match resolve_key(
+            view,
+            &paths,
+            key,
+            MAX_SESSION_ICONS.saturating_sub(icons.len()),
+        ) {
             Ok(textures) => {
                 for (metadata, texture) in textures {
                     if icons.len() >= MAX_SESSION_ICONS {
@@ -185,7 +190,11 @@ fn resolve_key(
     view: &LayeredPackView,
     paths: &std::collections::HashMap<String, Vec<String>>,
     key: &str,
+    remaining: usize,
 ) -> Result<Vec<(u32, DecodedTexture)>, String> {
+    if remaining == 0 {
+        return Ok(Vec::new());
+    }
     let mut tried = Vec::new();
     if let Some(variants) = paths.get(key) {
         let textures: Vec<_> = variants
@@ -194,6 +203,7 @@ fn resolve_key(
             .filter_map(|(metadata, path)| {
                 decode_pack_texture(view, path).map(|texture| (metadata as u32, texture))
             })
+            .take(remaining)
             .collect();
         if !textures.is_empty() {
             return Ok(textures);

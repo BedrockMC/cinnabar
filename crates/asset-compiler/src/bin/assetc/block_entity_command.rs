@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, hex, read_bounded_with_limit, validate_output_bundle,
-    write_blob_atomic,
+    write_output_bundle,
 };
 
 #[derive(Serialize)]
@@ -57,8 +57,7 @@ pub(super) fn compile_block_entity_assets_command(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &compiled.bytes)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &compiled.bytes), (report, &report_bytes)])?;
     println!(
         "compiled {} block-entity textures into a {}x{} atlas ({} oversized skipped) to {} and {}",
         report_data.textures_packed,
