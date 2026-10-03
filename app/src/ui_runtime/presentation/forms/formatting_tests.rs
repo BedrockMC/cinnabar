@@ -13,9 +13,16 @@ fn server_pack_formatting_colors_reach_text_vertices() {
         )]],
         ..Default::default()
     });
-    let runtime = super::pack_harness::action_form("Menu", &["§2A"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["§2A"]);
     let frame = presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     assert!(
         frame
