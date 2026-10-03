@@ -320,10 +320,11 @@ impl WorldStream {
             let tx = self.light_tx.clone();
             let running = RunningLightJob::start(&self.running_light_jobs);
             workers::WORKERS.light.spawn(move || {
-                let _running = running;
                 let started = Instant::now();
                 let solved = solve_prepared_light_batch(batch);
                 let duration = started.elapsed();
+                // Release the worker slot before publishing: a drained completion means a free slot.
+                drop(running);
                 for entry in solved {
                     let _ = tx.send(LightCompletion {
                         key: entry.key,

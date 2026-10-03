@@ -68,7 +68,7 @@ jobs:
         run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
       - name: Test Rust workspace on macOS
         if: runner.os == 'macOS'
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
       - name: Lint Rust workspace on macOS
         if: runner.os == 'macOS'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -106,7 +106,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
       - name: Test Rust workspace on Windows
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
       - name: Lint Rust workspace on Windows
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test and vet Go core on Windows
@@ -163,7 +163,7 @@ jobs:
       - name: Enforce architecture boundaries
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       - run: cargo fmt --check
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --no-fail-fast
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: bash scripts/tests/acceptance_test.sh
       # The Windows job above exercises the vanilla-asset fetchers through
