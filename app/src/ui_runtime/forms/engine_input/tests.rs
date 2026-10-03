@@ -198,9 +198,16 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
 #[test]
 fn review_ui_release_applies_the_final_control_drag_position() {
     let mut presentation = mini_engine_presentation();
-    let mut runtime = pack_harness::action_form("Drag", &["Move"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Drag", &["Move"]);
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let mut frame = presentation.form_engine_frame(identity).unwrap().clone();
@@ -244,9 +251,16 @@ fn review_ui_release_applies_the_final_control_drag_position() {
 #[test]
 fn review_ui_release_applies_the_final_scrollbar_position() {
     let mut presentation = mini_engine_presentation();
-    let mut runtime = pack_harness::action_form("Scroll", &["Move"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Scroll", &["Move"]);
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let mut frame = presentation.form_engine_frame(identity).unwrap().clone();
