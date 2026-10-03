@@ -44,7 +44,8 @@ pub(super) struct EngineInput<'a> {
     pub(super) pointer_edges: Vec<bool>,
     pub(super) wheel: Vec<(f32, MouseScrollUnit)>,
     /// Pressed keys this frame with their produced text.
-    pub(super) typed: Vec<(KeyCode, Option<String>)>,
+    /// Key presses with their text and whether the OS auto-repeated them.
+    pub(super) typed: Vec<(KeyCode, Option<String>, bool)>,
     /// Seconds on the app clock.
     pub(super) now: f64,
     /// The form's animator: button events play and reset its animations.
@@ -149,7 +150,11 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
     {
         engine_scroll::wheel(runtime, frame, point, &input.wheel);
     }
-    for (key, text) in input.typed {
+    for (key, text, repeat) in input.typed {
+        // Held keys repeat text into an edit box, but never re-press a control.
+        if repeat && !editing(runtime, frame) {
+            continue;
+        }
         events.extend(keyboard(
             runtime,
             frame,
@@ -241,6 +246,17 @@ fn button(
         .button(&frame.hits, &mut engine.view, input)
 }
 
+/// Whether the selected component is an edit box taking typed text.
+fn editing(runtime: &UiRuntime, frame: &EngineFrame) -> bool {
+    runtime
+        .server_forms()
+        .engine()
+        .view
+        .components
+        .selected()
+        .is_some_and(|key| edit_region(frame, key).is_some())
+}
+
 /// A key as the input buttons vanilla's keyboard mapping raises, or typed text
 /// for the selected edit box.
 fn keyboard(
@@ -251,13 +267,7 @@ fn keyboard(
     control: bool,
     now: f64,
 ) -> Vec<ScreenEvent> {
-    let editing = runtime
-        .server_forms()
-        .engine()
-        .view
-        .components
-        .selected()
-        .is_some_and(|key| edit_region(frame, key).is_some());
+    let editing = editing(runtime, frame);
     let typed = match key {
         KeyCode::Backspace if editing => Some("\u{8}".to_owned()),
         KeyCode::Enter | KeyCode::NumpadEnter if editing => Some("\r".to_owned()),
