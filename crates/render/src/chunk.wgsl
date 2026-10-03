@@ -4,7 +4,7 @@
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade, tint_to_gamma, tint_to_linear}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
@@ -102,7 +102,7 @@ struct VertexOutput {
     @location(11) ambient_occlusion: f32,
     @location(12) @interpolate(flat) surface_class: u32,
 #else
-    @location(10) native_lightmap: vec3<f32>,
+    @location(10) native_light_levels: vec2<f32>,
     @location(11) native_ao_face: f32,
 #endif
 }
@@ -280,9 +280,9 @@ fn vertex(
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #else
     // Native RenderChunk samples its gamma lightmap after applying vertex AO.
-    // Retain separate interpolants; gamma-converting the combined product
-    // would change the native AO and face coefficients.
-    out.native_lightmap = light_colour(light_sample);
+    // Retain separate level and AO interpolants: table lookup occurs in the
+    // fragment stage, not before interpolating its nonlinear RGB output.
+    out.native_light_levels = terrain_light_levels(light_sample);
     out.native_ao_face = material_leaf_shade(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), material.flags);
 #endif
 #ifdef ENHANCED
@@ -459,7 +459,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        in.native_lightmap,
+        terrain_light_colour(in.native_light_levels),
         atmosphere.fog_color_start.rgb,
         distance_fog_amount(in.world_position),
     );

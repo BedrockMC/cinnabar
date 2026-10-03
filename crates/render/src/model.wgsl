@@ -4,7 +4,7 @@
 #endif
 #import bevy_render::view::View
 #import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
-#import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear}
+#import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
@@ -48,7 +48,7 @@ struct VertexOutput {
     @location(11) sky_light: f32,
     @location(15) ambient_occlusion: f32,
 #else
-    @location(11) native_lightmap: vec3<f32>,
+    @location(11) native_light_levels: vec2<f32>,
     @location(15) native_ao_face: f32,
 #endif
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
@@ -79,7 +79,7 @@ fn invisible_vertex() -> VertexOutput {
     invisible.ambient_occlusion = 0.0;
     invisible.surface_class = 0u;
 #else
-    invisible.native_lightmap = vec3(0.0);
+    invisible.native_light_levels = vec2(0.0);
     invisible.native_ao_face = 0.0;
 #endif
     invisible.two_sided = 0u;
@@ -234,7 +234,7 @@ fn vertex(
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #else
-    out.native_lightmap = light_colour(light_sample);
+    out.native_light_levels = terrain_light_levels(light_sample);
     out.native_ao_face = light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
 #endif
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
@@ -322,7 +322,7 @@ fn ordinary_world_model_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> ve
     if (tint_kind != 0u) {
         tint_gamma = blended_biome_tint_gamma(tint_kind, in.material_flags, in.biome_record, in.local_position, in.world_origin).rgb;
     }
-    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * in.native_lightmap;
+    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
     return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a));
 }

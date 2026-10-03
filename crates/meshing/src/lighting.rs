@@ -122,6 +122,7 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
 
 /// Occlusion and light lookups shared by the direct and cached bake paths.
 pub(crate) trait LightingInputs {
+    /// Native cached solid-render bit, independent of geometric face coverage.
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
     /// Native shade brightness is 0.2 for leaves, emitting blocks and solid
     /// render blocks; only the last group also blocks diagonal light sampling.
@@ -145,7 +146,7 @@ struct DirectInputs<'a, 'n, S: MeshLightSampler + ?Sized> {
 
 impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
     fn occludes(&self, coordinate: [i32; 3]) -> bool {
-        sample_occludes(
+        sample_solid_render(
             self.classifier,
             self.assets,
             self.network_id_mode,
@@ -199,7 +200,7 @@ const HALO_SIDE: usize = 18;
 const HALO_VOLUME: usize = HALO_SIDE * HALO_SIDE * HALO_SIDE;
 const HALO_WORDS: usize = HALO_VOLUME.div_ceil(64);
 
-/// Per-mesh memo of light samples and full-face occluders over the one-block
+/// Per-mesh memo of light samples and native solid-render bits over the one-block
 /// halo, filled lazily so sparse sub-chunks resolve only what their faces touch.
 pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
     direct: DirectInputs<'a, 'n, S>,
@@ -301,20 +302,38 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
     bake_quad_with(inputs, block, face, positions, false)
 }
 
-/// `own_cell_if_occluded` lights a face against an opaque neighbour from its own cell.
+pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+) -> PackedQuadLighting {
+    bake_quad_in_plane(inputs, block, face, positions, false, true)
+}
+
+/// Templates check their bounds; cube faces are known to lie on a block boundary.
 pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
     inputs: &I,
     block: [i32; 3],
     face: Face,
     positions: [[i16; 3]; 4],
-    own_cell_if_occluded: bool,
+    check_bounds: bool,
+) -> PackedQuadLighting {
+    bake_quad_in_plane(inputs, block, face, positions, check_bounds, false)
+}
+
+fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+    check_bounds: bool,
+    liquid_outward_center: bool,
 ) -> PackedQuadLighting {
     let (normal, tangent_a, tangent_b) = face_basis(face);
     let outward = add_normal(block, normal);
-    // A face against an opaque neighbour (a vine on a log) takes the light of its own cell,
-    // as the neighbour holds none.
     let axis = normal.iter().position(|&n| n != 0).expect("face axis");
-    let boundary = !own_cell_if_occluded
+    let boundary = !check_bounds
         || positions.iter().all(|p| {
             let position = f32::from(p[axis]) / 256.0;
             if normal[axis] < 0 {
@@ -323,22 +342,22 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
                 position >= 0.9995
             }
         });
-    let light_normal = if own_cell_if_occluded && (!boundary || inputs.occludes(outward)) {
-        [0; 3]
+    let light_origin = if boundary && (liquid_outward_center || inputs.occludes(block)) {
+        outward
     } else {
-        normal
+        block
     };
-    let light_origin = add_normal(block, light_normal);
+    let plane_normal = if boundary { normal } else { [0; 3] };
     let emitter = u16::from(inputs.emits(block)) << 11;
     let shade_face = u8::from(inputs.shade_darkened(outward));
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
-        let side_a = offset(block, light_normal, tangent_a, sign_a, None);
-        let side_b = offset(block, light_normal, tangent_b, sign_b, None);
+        let side_a = offset(block, plane_normal, tangent_a, sign_a, None);
+        let side_b = offset(block, plane_normal, tangent_b, sign_b, None);
         let corner = offset(
             block,
-            light_normal,
+            plane_normal,
             tangent_a,
             sign_a,
             Some((tangent_b, sign_b)),
@@ -354,24 +373,11 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
         let ao = u8::from(inputs.shade_darkened(side_a))
             + u8::from(inputs.shade_darkened(side_b))
             + u8::from(inputs.shade_darkened(shade_diagonal));
-        let light_side_a = offset(block, light_normal, tangent_a, sign_a, None);
-        let light_side_b = offset(block, light_normal, tangent_b, sign_b, None);
-        let light_corner = if blocked_diagonal {
-            light_side_a
-        } else {
-            offset(
-                block,
-                light_normal,
-                tangent_a,
-                sign_a,
-                Some((tangent_b, sign_b)),
-            )
-        };
         let light = maximum_light([
             inputs.sample(light_origin),
-            inputs.sample(light_side_a),
-            inputs.sample(light_side_b),
-            inputs.sample(light_corner),
+            inputs.sample(side_a),
+            inputs.sample(side_b),
+            inputs.sample(shade_diagonal),
         ]);
         pack_sample(light.block(), light.sky(), ao + shade_face) | emitter
     });
@@ -519,7 +525,7 @@ const fn pack_sample(block: u8, sky: u8, ao: u8) -> u16 {
     (block as u16) | ((sky as u16) << 4) | ((ao as u16) << 8)
 }
 
-fn sample_occludes(
+fn sample_solid_render(
     classifier: &BlockClassifier,
     assets: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
@@ -533,9 +539,14 @@ fn sample_occludes(
         sub_chunk
             .runtime_id(layer, local[0], local[1], local[2])
             .is_some_and(|network_value| {
-                !classifier.is_air(network_value)
-                    && assets
-                        .resolve(network_id_mode, network_value)
+                if classifier.is_air(network_value) {
+                    return false;
+                }
+                let visual = assets.resolve(network_id_mode, network_value);
+                // TopSnow's constructor (0x0a5c5fb0) clears solid-render for
+                // every height. Its height-7 face coverage still culls geometry.
+                visual.variant() != assets::BLOCK_VISUAL_VARIANT_TOP_SNOW
+                    && visual
                         .flags()
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE)
             })
@@ -639,12 +650,16 @@ mod tests {
     };
     use crate::Face;
 
+    include!("lighting/native_planes.rs");
+
     /// A log to the west (opaque, unlit) beside an open cell lit at block 9, sky 12.
-    struct VineOnLog;
+    struct VineOnLog {
+        own_solid: bool,
+    }
 
     impl LightingInputs for VineOnLog {
         fn occludes(&self, coordinate: [i32; 3]) -> bool {
-            coordinate[0] < 0
+            coordinate[0] < 0 || (coordinate == [0, 0, 0] && self.own_solid)
         }
 
         fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
@@ -660,8 +675,19 @@ mod tests {
     #[test]
     fn attached_model_face_samples_its_own_cell() {
         let positions = [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]];
-        let attached = bake_quad_with(&VineOnLog, [0, 0, 0], Face::NegativeX, positions, true);
-        let plain = bake_quad(&VineOnLog, [0, 0, 0], Face::NegativeX, positions);
+        let attached = bake_quad_with(
+            &VineOnLog { own_solid: false },
+            [0, 0, 0],
+            Face::NegativeX,
+            positions,
+            true,
+        );
+        let plain = bake_quad(
+            &VineOnLog { own_solid: true },
+            [0, 0, 0],
+            Face::NegativeX,
+            positions,
+        );
         assert_eq!(attached.samples()[0] & 0xff, 9 | (12 << 4));
         assert_eq!(plain.samples()[0] & 0xff, 0);
     }

@@ -683,8 +683,11 @@ mod tests {
     // The item fragment stage reads the view for distance fog; a vertex-only binding fails validation.
     #[test]
     fn fragment_view_reads_are_visible_to_the_fragment_stage() {
-        let lighting = crate::material_shader::source(include_str!("lighting.wgsl"))
-            .replacen("#define_import_path cinnabar::lighting", "", 1);
+        let lighting = crate::material_shader::source(include_str!("lighting.wgsl")).replacen(
+            "#define_import_path cinnabar::lighting",
+            "",
+            1,
+        );
         let source = include_str!("dropped_item.wgsl")
             .replace(
                 "#import bevy_render::view::View",

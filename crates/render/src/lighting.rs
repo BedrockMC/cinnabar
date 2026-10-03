@@ -76,12 +76,9 @@ pub(crate) fn install(app: &mut App) {
     const MATERIAL_SHADER: Handle<Shader> = uuid_handle!("40309d5a-76a4-4e3b-aed0-d5c76aa5d52e");
 
     const SHADER: Handle<Shader> = uuid_handle!("4562a3ce-92ab-46f2-823f-af9faf2cc5c8");
-    load_internal_asset!(
-        app,
-        SHADER,
-        "lighting.wgsl",
-        |source, path| crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
-    );
+    load_internal_asset!(app, SHADER, "lighting.wgsl", |source, path| {
+        crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
+    });
     load_internal_asset!(app, MATERIAL_SHADER, "material.wgsl", |source, path| {
         crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
     });
