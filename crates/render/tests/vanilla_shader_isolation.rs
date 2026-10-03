@@ -1,8 +1,9 @@
 //! Frozen vanilla shader bytes, including RGB lighting, weighted variants and actor/item fog.
 use sha2::{Digest, Sha256};
 
-/// Removes only Enhanced preprocessor blocks, preserving every vanilla byte.
+/// Removes Enhanced blocks and checkout-specific CRLF endings, preserving other vanilla bytes.
 fn vanilla_source(source: &str) -> String {
+    let source = source.replace("\r\n", "\n");
     let mut active = vec![true];
     let mut result = String::new();
     for line in source.split_inclusive('\n') {
@@ -20,6 +21,14 @@ fn vanilla_source(source: &str) -> String {
     }
     assert_eq!(active.len(), 1);
     result
+}
+
+#[test]
+fn vanilla_shader_hash_ignores_checkout_line_endings() {
+    let source = "  vanilla  \n#ifdef ENHANCED\n enhanced\n#else\n fallback\n#endif\n";
+    let expected = "  vanilla  \n fallback\n";
+    assert_eq!(vanilla_source(source), expected);
+    assert_eq!(vanilla_source(&source.replace('\n', "\r\n")), expected);
 }
 
 #[test]
