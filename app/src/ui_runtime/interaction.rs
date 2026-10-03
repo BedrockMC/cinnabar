@@ -712,9 +712,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 // A text field owns typed text, including `e`.
                 match input.key_code {
                     KeyCode::Escape => {
-                        runtime.commit_book(false);
-                        runtime.close_inventory();
-                        inventory_ownership_changed = true;
+                        if runtime.commit_book(false) {
+                            runtime.close_inventory();
+                            inventory_ownership_changed = true;
+                        }
                     }
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(key) => {}

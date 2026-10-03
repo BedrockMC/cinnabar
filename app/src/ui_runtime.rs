@@ -220,6 +220,8 @@ pub struct UiRuntime {
     screen: screen_state::ScreenState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
+    /// One complete book commit, bounded by the protocol page limit plus signing.
+    book_packets: VecDeque<protocol::Packet>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -318,6 +320,7 @@ impl UiRuntime {
             inventory_keys: interaction::InventoryKeys::default(),
             screen: screen_state::ScreenState::default(),
             client_packets: VecDeque::new(),
+            book_packets: VecDeque::new(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
