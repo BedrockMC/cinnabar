@@ -18,7 +18,7 @@ pub(crate) use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
-pub(crate) use skin::validated_ui_skin;
+pub(crate) use skin::{local_preview_skin, validated_ui_skin};
 
 impl UiPresentationRuntime {
     /// Retain the CPU quad. Only exact current-render coverage may omit it in
@@ -293,6 +293,19 @@ impl PlayerPreviewPose {
             pitch_degrees,
             sneaking,
         }
+    }
+
+    /// The local actor's pose; the default stance off-world.
+    pub(crate) fn of_local_player(stream: Option<&client_world::WorldStream>) -> Self {
+        let Some(actor) = stream.and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        else {
+            return Self::default();
+        };
+        let sneaking = matches!(
+            actor.metadata.get(&0),
+            Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
+        );
+        Self::new(actor.body_yaw, actor.head_yaw, actor.pitch, sneaking)
     }
 }
 
