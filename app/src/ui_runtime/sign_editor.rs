@@ -318,7 +318,31 @@ impl SignEditor {
         self.active.as_mut()
     }
 
-    /// Closes the editor and returns what was being edited.
+    /// Keeps a completed edit open until the transport accepts its packet.
+    fn finish(&mut self, send: impl FnOnce(protocol::Packet) -> Result<(), ()>) -> bool {
+        let Some(edit) = self.active.clone() else {
+            return true;
+        };
+        if !edit.changed() {
+            self.close();
+            return true;
+        }
+        let position = edit.position();
+        let accepted = match edit.into_encoded_nbt() {
+            Ok(nbt) => send(protocol::sign_edit_packet(position, &nbt)).is_ok(),
+            Err(detail) => {
+                bevy::log::warn!("sign edit NBT was not encodable: {detail}");
+                false
+            }
+        };
+        if accepted {
+            self.close();
+        } else {
+            self.finish_requested = true;
+        }
+        accepted
+    }
+
     pub(crate) fn close(&mut self) -> Option<SignEdit> {
         self.active.take()
     }
