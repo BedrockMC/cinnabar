@@ -399,6 +399,7 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
             server_challenge: crypto::hex(&[2; 32]),
             session: crypto::hex(&[3; 32]),
             expires_unix: 1500,
+            wire: None,
         };
         let bytes = serde_json::to_vec(&session::Control::Accept(
             crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap(),
