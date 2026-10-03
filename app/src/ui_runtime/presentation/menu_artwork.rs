@@ -23,6 +23,8 @@ const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 /// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
 const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
+/// Peak conversion scratch, allowing an ordinary 2048-square source on the serial worker.
+const MAX_WORKING_ALLOC: u64 = MAX_DECODE_ALLOC * 2;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
 const GUTTER: u32 = 1;
@@ -467,7 +469,7 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
                 .checked_mul(16)?,
         )?
         .checked_add(output_width.checked_mul(output_height)?.checked_mul(20)?)?;
-    if conversion.max(resize) > MAX_DECODE_ALLOC {
+    if conversion.max(resize) > MAX_WORKING_ALLOC {
         return None;
     }
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
