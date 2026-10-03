@@ -84,6 +84,7 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod pipeline;
+pub use pipeline::layouts::required_vertex_storage_buffers;
 mod plugin;
 mod presentation;
 #[cfg(feature = "publication-test-support")]
@@ -266,8 +267,9 @@ use transparent::model::{
 use transparent::retirement::{
     TransparentPresentationFence, TransparentRetirementBudget, TransparentRetirementFence,
     TransparentRetirementFenceState, record_encoded_transparent_generation,
-    record_gpu_completed_transparent_generation, transparent_retirement_can_arm,
-    transparent_snapshot_references_allocation, transparent_view_missing_witness_keys,
+    record_gpu_completed_transparent_generation, transparent_resident_allocation_contains,
+    transparent_retirement_can_arm, transparent_snapshot_references_allocation,
+    transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
 
 pub use transparent::sort::{

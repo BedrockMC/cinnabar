@@ -5,10 +5,13 @@ use super::{
     UiWorldProjection,
 };
 
+mod mesh;
+
 #[derive(Clone, Copy)]
 pub(super) struct DrawSpace<'a> {
     pub(super) clip: UiRect,
     pub(super) projection: Option<&'a UiWorldProjection>,
+    pub(super) node: super::UiNodeId,
 }
 
 /// Design-pixel lean of an italic glyph's top edge, scaled by the layout
@@ -29,6 +32,7 @@ pub(super) fn emit_visual(
 ) -> Result<(), UiError> {
     match visual {
         UiVisual::None => Ok(()),
+        UiVisual::Mesh(mesh) => mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches),
         UiVisual::Solid {
             texture_page,
             color,
@@ -563,12 +567,14 @@ fn emit_colored_quad(
             position,
             clip_z,
             clip_w,
-            uv,
+            uv: uv.map(f32::from),
             color,
             style_flags,
             alpha_test: clip
                 .projection
                 .is_some_and(|projection| projection.alpha_test),
+            alpha_cutoff: -1.0,
+            model_light: 1.0,
         });
     }
     indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -587,6 +593,7 @@ fn emit_colored_quad(
                 .projection
                 .is_some_and(|projection| projection.depth_write)
         && batch.world_projection == clip.projection.is_some()
+        && batch.isolated_depth_scope.is_none()
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -613,6 +620,7 @@ fn emit_colored_quad(
             .projection
             .is_some_and(|projection| projection.depth_write),
         world_projection: clip.projection.is_some(),
+        isolated_depth_scope: None,
         index_range: start..end,
     });
     Ok(())

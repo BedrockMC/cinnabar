@@ -61,7 +61,7 @@ fn actions_are_device_neutral_and_limits_are_fixed() {
             phase: PointerPhase::Pressed
         }
     );
-    assert_eq!(UiLimits::MAX_NODES, 16_384);
+    assert_eq!(UiLimits::MAX_NODES, 65_536);
     assert_eq!(UiLimits::MAX_TEXT_BYTES, 16_384);
     assert_eq!(UiLimits::MAX_FOCUSABLE, 4_096);
     assert_eq!(UiLimits::MAX_CLIP_DEPTH, 32);

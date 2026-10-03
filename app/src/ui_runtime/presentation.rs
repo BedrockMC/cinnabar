@@ -34,10 +34,12 @@ use crate::{
 mod debug_overlay;
 mod dynamic_textures;
 pub(crate) mod forms;
+mod gui_models;
 mod gui_scale_settings;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod inventory_tooltip;
+mod item_gui;
 mod item_sprite;
 mod item_viewmodel;
 mod menu;
@@ -162,6 +164,7 @@ pub struct UiPresentationRuntime {
     /// Worn armor and the held item the model shows, and where armor art comes from.
     player_preview_gear: player_preview::PreviewEquipment,
     equipment_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
+    gui_models: gui_models::GuiModels,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     preview_dirty: bool,
     player_preview_icon: Option<IconRef>,
@@ -271,6 +274,7 @@ impl UiPresentationRuntime {
             player_preview_bob: 0.0,
             player_preview_gear: player_preview::PreviewEquipment::default(),
             equipment_catalog: None,
+            gui_models: Default::default(),
             player_preview_pixels: None,
             preview_dirty: false,
             player_preview_icon: None,
@@ -306,9 +310,8 @@ impl UiPresentationRuntime {
         self.loading_stage = stage;
     }
 
-    /// Updates the cached corner avatar. The raster is regenerated and the UI
-    /// texture array is replaced only when the authoritative skin or pose
-    /// changes; normal camera/HUD frames reuse the same GPU texture.
+    /// Retains original UI skin pixels and compatibility hand rasters. Live model view/bob
+    /// changes update geometry without regenerating a thumbnail or reuploading texture pixels.
     pub(crate) fn set_player_preview_skin(
         &mut self,
         skin: Option<&[u8]>,
@@ -321,12 +324,24 @@ impl UiPresentationRuntime {
                 side != 0 && side * side * 4 == pixels.len()
             })
             .unwrap_or(default_skin.as_ref());
-        let source_hash: [u8; 32] = Sha256::digest(skin).into();
-        let drawn = (
-            self.player_preview_view,
-            self.player_preview_bob,
-            self.player_preview_gear.clone(),
-        );
+        let source_hash = self
+            .set_gui_skin(skin)
+            .unwrap_or_else(|| Sha256::digest(skin).into());
+        let drawn = if self.gui_models.enabled {
+            // Model pose and sway now only change geometry. Keep the software hand carriers
+            // cached by skin/hand pose; they must not force a small model render/upload each frame.
+            (
+                player_preview::PreviewView::default(),
+                0.0,
+                Default::default(),
+            )
+        } else {
+            (
+                self.player_preview_view,
+                self.player_preview_bob,
+                self.player_preview_gear.clone(),
+            )
+        };
         if self.player_preview_source_hash == Some(source_hash)
             && self.player_preview_pose == Some(pose)
             && self.player_preview_drawn.as_ref() == Some(&drawn)
@@ -334,7 +349,16 @@ impl UiPresentationRuntime {
             return;
         }
         self.player_preview_pixels = Some(player_preview::PlayerPreviewRasters {
-            preview: player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2),
+            preview: if self.gui_models.enabled {
+                // The retained reference supplies the JSON-UI model's virtual coordinate basis.
+                // No thumbnail is drawn: apply_gui_models replaces it with destination geometry.
+                vec![
+                    0;
+                    (player_preview::PREVIEW_WIDTH * player_preview::PREVIEW_HEIGHT * 4) as usize
+                ]
+            } else {
+                player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2)
+            },
             left_hand: player_preview::render_hand(skin, pose, true),
             right_hand: player_preview::render_hand(skin, pose, false),
         });
@@ -499,6 +523,10 @@ impl UiPresentationRuntime {
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
         session_glyphs::observe(self, runtime.session_glyphs());
+        // Install artwork before any screen resolves its pixel UVs.
+        if self.menu_artwork_loader.poll() {
+            self.rebuild_dynamic_textures();
+        }
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
@@ -644,6 +672,7 @@ impl UiPresentationRuntime {
         );
         // Every screen has painted: retire animation state nothing touched.
         self.end_animation_frame();
+        self.apply_gui_models(&mut nodes);
         // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
         let built = menu_visible.then(|| BuiltMenu {
             nodes: Vec::new(),

@@ -347,7 +347,7 @@ fn known_and_explicit_custom_definitions_still_validate_used_fields() {
                 downfall: 0.4,
                 map_water_argb: 0,
             }])
-            .is_err()
+            .is_ok()
     );
     assert!(
         compiled

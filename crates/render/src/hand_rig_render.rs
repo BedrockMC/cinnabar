@@ -165,11 +165,22 @@ fn install(app: &mut App) {
     install_graph(render_app.world_mut());
 }
 
+/// The rig pass Enhanced views run after Bloom and grading.
+pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
+    ViewNodeRunner::new(
+        crate::ui_render::overlay::GradeStage::<_, true>(node::HandRigViewNode),
+        world,
+    )
+}
+
 fn install_graph(world: &mut World) {
     if !world.contains_resource::<Installed>() {
         return;
     }
-    let runner = ViewNodeRunner::<node::HandRigViewNode>::new(node::HandRigViewNode, world);
+    let runner = ViewNodeRunner::new(
+        crate::ui_render::overlay::GradeStage::<_, false>(node::HandRigViewNode),
+        world,
+    );
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -486,6 +497,17 @@ fn upload_atlas(
             }
             continue;
         };
+        let limits = device.limits();
+        if u32::from(atlas.width) > limits.max_texture_dimension_2d
+            || u32::from(atlas.height) > limits.max_texture_dimension_2d
+            || atlas.layers > limits.max_texture_array_layers
+        {
+            if slot.take().is_some() {
+                gpu.bind_group = None;
+            }
+            bevy::log::warn!("first-person item atlas exceeds device texture limits");
+            continue;
+        }
         if slot.as_ref().is_some_and(|current| {
             Arc::ptr_eq(&current.pixels, &atlas.rgba8)
                 && current.size

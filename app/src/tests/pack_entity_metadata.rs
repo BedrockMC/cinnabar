@@ -287,7 +287,6 @@ fn update(world: &mut WorldStream, key: u32, value: ActorMetadataValue) {
 struct Drawn {
     rig: EntityRigId,
     texture_layer: u32,
-    model_scale: f32,
     /// Length of the drawn model's vertical axis, which the culling box follows.
     height_axis: f32,
     uv_anim: [f32; 4],
@@ -297,7 +296,6 @@ fn drawn(world: &WorldStream, artwork: &ActorArtworkPages) -> Drawn {
     let rig = world.actor_rig(42).unwrap();
     let body =
         actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), artwork, 0.5).unwrap();
-    let model_scale = body.model_scale;
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
     entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
     let submission = &batch.submissions[0];
@@ -305,7 +303,6 @@ fn drawn(world: &WorldStream, artwork: &ActorArtworkPages) -> Drawn {
     Drawn {
         rig: submission.input.rig,
         texture_layer: submission.texture_layer,
-        model_scale,
         height_axis: (0..3).map(|row| matrix[row][1].powi(2)).sum::<f32>().sqrt(),
         uv_anim: submission.uv_anim,
     }
@@ -345,7 +342,6 @@ fn metadata_scale_multiplies_the_rendered_model() {
     let unscaled = drawn(&world, &artwork);
     update(&mut world, 38, ActorMetadataValue::Float(2.0));
     let scaled = drawn(&world, &artwork);
-    assert_eq!(scaled.model_scale, unscaled.model_scale * 2.0);
     assert!((scaled.height_axis - unscaled.height_axis * 2.0).abs() < 1e-5);
 }
 
@@ -475,7 +471,6 @@ fn scale_scripts_size_the_model_per_tick() {
     let (pack, artwork) = pack();
     let mut world = world(pack, "test:scaled");
     let unit = drawn(&world, &artwork);
-    assert_eq!(unit.model_scale, 1.0);
     assert!(
         (unit.height_axis - 0.5).abs() < 1e-5,
         "{}",
@@ -483,7 +478,6 @@ fn scale_scripts_size_the_model_per_tick() {
     );
     update(&mut world, 2, ActorMetadataValue::Int(1));
     let doubled = drawn(&world, &artwork);
-    assert_eq!(doubled.model_scale, 2.0);
     assert!(
         (doubled.height_axis - 1.0).abs() < 1e-5,
         "{}",

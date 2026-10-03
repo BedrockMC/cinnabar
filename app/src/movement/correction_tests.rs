@@ -994,3 +994,30 @@ fn an_unretained_server_motion_replays_from_the_oldest_retained_frame() {
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &world).unwrap();
     assert!(physics.state().unwrap().position.x > before.x + 0.3);
 }
+
+#[test]
+fn review_wall_jump_correction_keeps_ordinary_upward_momentum() {
+    let world = VersionedWall(1);
+    let (mut physics, frame) = collided_prediction(&world);
+    let mut input = forward_physics_input();
+    input.jumping = true;
+    let jumped = physics.advance(Duration::from_millis(50), input, &world);
+    assert!(jumped.blocked.is_none());
+    let retained = physics.state().unwrap().clone();
+    assert!(retained.velocity.y > 0.0);
+    assert!(retained.collisions.z);
+    let corrected = jumped.samples.last().unwrap().position;
+    let mut ticker = ticker_with_samples(frame.samples.into_iter().chain(jumped.samples));
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        corrected,
+        retained.tick,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &world,
+    )
+    .unwrap();
+    assert_eq!(physics.state().unwrap().velocity.y, retained.velocity.y);
+    assert!(!physics.state().unwrap().collisions.z);
+}

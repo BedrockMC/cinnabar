@@ -44,10 +44,22 @@ impl ActorStore {
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            let rider_contexts = rider_contexts(
+                rider_to_ridden
+                    .iter()
+                    .map(|(&rider, &ridden)| (rider, ridden)),
+                |rider| {
+                    unique_to_runtime
+                        .get(&rider)
+                        .and_then(|runtime| actors.get(runtime))
+                        .is_some_and(|actor| matches!(actor.kind, ActorKind::Player { .. }))
+                },
+            );
             let camera_rotation = self.camera_rotation;
             let camera_position = self.camera_position;
             let property_registry = &self.property_registry;
             let players = &self.players;
+            let unlisted = &self.unlisted_players;
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
@@ -99,16 +111,7 @@ impl ActorStore {
                         .and_then(|runtime_id| actors.get(runtime_id))
                         .map(|actor| &actor.kind)
                 };
-                let riders = rider_to_ridden
-                    .iter()
-                    .filter(|(_, ridden)| **ridden == actor.unique_id)
-                    .map(|(rider, _)| kind_of(rider));
-                let mut has_rider = false;
-                let mut has_player_rider = false;
-                for rider in riders {
-                    has_rider = true;
-                    has_player_rider |= matches!(rider, Some(ActorKind::Player { .. }));
-                }
+                let (has_rider, has_player_rider) = rider_contexts.get(&actor.unique_id).copied().unwrap_or_default();
                 crate::actor_animation::ActorTickContext {
                     animation_elapsed_ticks: frame.then_some(ticks),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
@@ -132,7 +135,7 @@ impl ActorStore {
                     armor: worn_armor(items.armor(actor.runtime_id)),
                     properties: property_registry.for_kind(&actor.kind),
                     skin_geometry: match &actor.kind {
-                        ActorKind::Player { uuid, .. } => players.get(uuid).and_then(|profile| {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).or_else(|| unlisted.get(uuid)).and_then(|profile| {
                             match &profile.skin {
                                 protocol::PlayerSkin::Standard(skin) => skin.geometry.clone(),
                                 protocol::PlayerSkin::Unavailable(_) => None,
@@ -141,7 +144,7 @@ impl ActorStore {
                         ActorKind::Entity { .. } => None,
                     },
                     has_cape: match &actor.kind {
-                        ActorKind::Player { uuid, .. } => players.get(uuid).is_some_and(|profile| {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).or_else(|| unlisted.get(uuid)).is_some_and(|profile| {
                             matches!(&profile.skin, protocol::PlayerSkin::Standard(skin) if skin.cape.is_some())
                         }),
                         ActorKind::Entity { .. } => false,
@@ -177,4 +180,34 @@ fn worn_armor(
             piece(&armor.body),
         ]
     })
+}
+
+/// Aggregates the rider flags used by each actor's animation context.
+fn rider_contexts(
+    links: impl Iterator<Item = (i64, i64)>,
+    mut is_player: impl FnMut(i64) -> bool,
+) -> HashMap<i64, (bool, bool)> {
+    let mut contexts = HashMap::new();
+    for (rider, ridden) in links {
+        let flags = contexts.entry(ridden).or_insert((false, false));
+        flags.0 = true;
+        flags.1 |= is_player(rider);
+    }
+    contexts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn review_riding_contexts_visit_each_link_once_and_retain_missing_riders() {
+        let visits = std::cell::Cell::new(0);
+        let links = [(1, 20), (99, 30)]
+            .into_iter()
+            .inspect(|_| visits.set(visits.get() + 1));
+        let flags = rider_contexts(links, |rider| rider == 1);
+        assert_eq!(flags.get(&20), Some(&(true, true)));
+        assert_eq!(flags.get(&30), Some(&(true, false)));
+        assert_eq!(visits.get(), 2);
+    }
 }

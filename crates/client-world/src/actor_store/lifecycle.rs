@@ -79,11 +79,13 @@ impl ActorStore {
             max_players,
             max_player_skin_bytes,
             retained_player_skin_bytes: 0,
+            ignored_movement_components: 0,
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             rider_to_ridden: HashMap::new(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
+            unlisted_players: HashMap::new(),
             animation,
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
@@ -193,7 +195,7 @@ impl ActorStore {
             if let Some(stale) = self.synthetic_local_uuid.take()
                 && stale != uuid
             {
-                self.players.remove(&stale);
+                self.remove_profile(&stale);
             }
             return (uuid, username);
         }
@@ -202,7 +204,7 @@ impl ActorStore {
             None => true,
         };
         if stale {
-            self.players.insert(
+            self.upsert_profile(
                 feed.uuid,
                 PlayerProfile {
                     unique_id,
@@ -225,6 +227,7 @@ impl ActorStore {
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
         self.players.clear();
+        self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
@@ -249,8 +252,9 @@ impl ActorStore {
         // The real player list survives a dimension change, but the synthetic local profile is
         // tied to the cleared actor and is re-inserted on the next pose feed.
         if let Some(uuid) = self.synthetic_local_uuid.take() {
-            self.players.remove(&uuid);
+            self.remove_profile(&uuid);
         }
+        self.prune_unlisted_players();
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();
@@ -289,28 +293,45 @@ impl ActorStore {
                     } else {
                         0.0
                     };
+                let mut ignored = 0_u64;
+                let mut merge = |target: &mut f32, source: Option<f32>| {
+                    if let Some(value) = source {
+                        if value.is_finite() {
+                            *target = value;
+                        } else {
+                            ignored += 1;
+                        }
+                    }
+                };
                 for (axis, (target, source)) in received
                     .position
                     .iter_mut()
                     .zip(movement.position)
                     .enumerate()
                 {
-                    if let Some(source) = source {
-                        *target = if axis == 1 {
-                            source - network_position_offset
-                        } else {
-                            source
-                        };
+                    merge(
+                        target,
+                        source.map(|value| {
+                            if axis == 1 {
+                                value - network_position_offset
+                            } else {
+                                value
+                            }
+                        }),
+                    );
+                }
+                merge(&mut received.pitch, movement.pitch);
+                merge(&mut received.yaw, movement.yaw);
+                merge(&mut received.head_yaw, movement.head_yaw);
+                if ignored > 0 {
+                    let previous = self.ignored_movement_components;
+                    self.ignored_movement_components = previous.saturating_add(ignored);
+                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
+                        eprintln!(
+                            "ignored non-finite actor movement components: {}",
+                            self.ignored_movement_components
+                        );
                     }
-                }
-                if let Some(value) = movement.pitch {
-                    received.pitch = value;
-                }
-                if let Some(value) = movement.yaw {
-                    received.yaw = value;
-                }
-                if let Some(value) = movement.head_yaw {
-                    received.head_yaw = value;
                 }
                 if let Some(value) = movement.on_ground {
                     actor.on_ground = Some(value);
@@ -404,61 +425,22 @@ impl ActorStore {
                             verified,
                             skin,
                         } => {
-                            if self.players.len() >= self.max_players
-                                && !self.players.contains_key(uuid)
-                            {
-                                capacity_rejected = true;
-                                continue;
-                            }
-                            let previous = self.players.get(uuid);
-                            let previous_skin_bytes =
-                                previous.map_or(0, |profile| retained_skin_bytes(&profile.skin));
-                            let retained_without_previous = self
-                                .retained_player_skin_bytes
-                                .saturating_sub(previous_skin_bytes);
-                            let requested_skin_bytes = retained_skin_bytes(skin);
-                            let (skin, retained_player_skin_bytes) = retained_without_previous
-                                .checked_add(requested_skin_bytes)
-                                .filter(|total| *total <= self.max_player_skin_bytes)
-                                .map_or_else(
-                                    || {
-                                        previous.map_or_else(
-                                            || {
-                                                (
-                                                    PlayerSkin::Unavailable(
-                                                        PlayerSkinUnavailable::RetainedBudgetExceeded,
-                                                    ),
-                                                    retained_without_previous,
-                                                )
-                                            },
-                                            |profile| {
-                                                (
-                                                    profile.skin.clone(),
-                                                    retained_without_previous
-                                                        .saturating_add(previous_skin_bytes),
-                                                )
-                                            },
-                                        )
-                                    },
-                                    |total| (skin.clone(), total),
-                                );
-                            self.retained_player_skin_bytes = retained_player_skin_bytes;
-                            self.players.insert(
+                            let admitted = self.upsert_profile(
                                 *uuid,
                                 PlayerProfile {
                                     unique_id: *unique_id,
                                     username: username.clone(),
                                     verified: *verified,
-                                    skin,
+                                    skin: skin.clone(),
                                 },
                             );
+                            capacity_rejected |= !admitted;
+                            if admitted && self.synthetic_local_uuid == Some(*uuid) {
+                                self.synthetic_local_uuid = None;
+                            }
                         }
                         PlayerListEntry::Remove { uuid } => {
-                            if let Some(profile) = self.players.remove(uuid) {
-                                self.retained_player_skin_bytes = self
-                                    .retained_player_skin_bytes
-                                    .saturating_sub(retained_skin_bytes(&profile.skin));
-                            }
+                            self.unlist_player(uuid);
                         }
                     }
                 }
@@ -569,6 +551,7 @@ impl ActorStore {
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
         self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.prune_unlisted_players();
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
                 .insert(self.session_id, self.dimension, actor);
@@ -600,6 +583,7 @@ impl ActorStore {
         }
         self.remove_links_for(unique_id);
         self.animation.remove_runtime(runtime_id);
+        self.prune_unlisted_players();
         ActorApplyResult::Removed
     }
 
@@ -687,6 +671,11 @@ impl ActorStore {
         &mut self,
         assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
     ) {
+        self.actions.set_pack(
+            assets
+                .as_ref()
+                .map(|(catalog, _)| std::sync::Arc::clone(catalog)),
+        );
         self.animation.set_pack(assets);
         // Cinnabar live reload also rebinds actors already present in the world.
         for actor in self.actors.values() {

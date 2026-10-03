@@ -101,7 +101,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "render"
 path = "crates/render"
-allowed_dependencies = ["assets", "client-world", "meshing", "world"]
+allowed_dependencies = ["assets", "client-world", "meshing", "mod-api", "world"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
@@ -132,12 +132,18 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["server-experience"]
+allowed_dependencies = ["mod-api", "server-experience"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
 name = "hello-mod"
 path = "examples/mods/hello"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "time-changer-mod"
+path = "examples/mods/time-changer"
 allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 

@@ -70,11 +70,22 @@ fn install(app: &mut App) {
     install_hand_graph(render_app.world_mut());
 }
 
+/// The hand pass Enhanced views run after Bloom and grading.
+pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
+    ViewNodeRunner::new(
+        crate::ui_render::overlay::GradeStage::<_, true>(node::HandViewNode),
+        world,
+    )
+}
+
 pub(crate) fn install_hand_graph(world: &mut World) {
     if !world.contains_resource::<Installed>() {
         return;
     }
-    let runner = ViewNodeRunner::<node::HandViewNode>::new(node::HandViewNode, world);
+    let runner = ViewNodeRunner::new(
+        crate::ui_render::overlay::GradeStage::<_, false>(node::HandViewNode),
+        world,
+    );
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
         return;
     };
@@ -297,8 +308,8 @@ fn prepare(params: PrepareViewmodel) {
             &TextureDescriptor {
                 label: Some("validated neutral hand skin"),
                 size: Extent3d {
-                    width: 64,
-                    height: 64,
+                    width: crate::viewmodel::VIEWMODEL_TEXTURE_SIDE,
+                    height: crate::viewmodel::VIEWMODEL_TEXTURE_SIDE,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,

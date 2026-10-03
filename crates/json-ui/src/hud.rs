@@ -264,7 +264,14 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
 }
 
 fn slot_item(slot: &HudSlot) -> CollectionItem {
-    let mut item = CollectionItem::default()
+    CollectionItem::default()
+        // Retained bindings keep an unanswered value. Null explicitly clears
+        // our optional icon reference; it is not a native numeric item sentinel.
+        .with(
+            "#item_renderer_data",
+            slot.icon
+                .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(
             "#inventory_stack_count",
@@ -284,12 +291,11 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_durability_current_amount",
             Scalar::Num(slot.durability.unwrap_or(1.0).clamp(0.0, 1.0) * 1000.0),
         )
-        .with("#item_storage_visible", Scalar::Bool(false));
-    if let Some(icon) = slot.icon {
-        item = item.with("#item_renderer_data", Scalar::Num(icon as f64));
-    }
-    item
+        .with("#item_storage_visible", Scalar::Bool(false))
 }
+
+#[cfg(test)]
+mod tests;
 
 fn titles(data: &mut DataSource, model: &HudModel) {
     if let Some(title) = &model.title {

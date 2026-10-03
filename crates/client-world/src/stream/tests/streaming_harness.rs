@@ -82,6 +82,9 @@ struct Harness {
     poll_times: Vec<Duration>,
     frame_work_times: Vec<Duration>,
     peak_light_jobs: usize,
+    terrain: fn(SubChunkKey) -> bool,
+    payloads: HashMap<SubChunkKey, Vec<u8>>,
+    highest: u16,
 }
 
 impl Harness {
@@ -113,6 +116,9 @@ impl Harness {
             poll_times: Vec::new(),
             frame_work_times: Vec::new(),
             peak_light_jobs: 0,
+            terrain: solid,
+            payloads: HashMap::new(),
+            highest: 10,
         }
     }
 
@@ -128,7 +134,9 @@ impl Harness {
             dimension: 0,
             x: column.x,
             z: column.z,
-            mode: LevelChunkMode::LimitedRequests { highest: 10 },
+            mode: LevelChunkMode::LimitedRequests {
+                highest: self.highest,
+            },
             payload: biome_payload(0, 1),
         }));
     }
@@ -240,7 +248,11 @@ impl Harness {
                     let key = SubChunkKey::from_chunk(request.chunk, y);
                     SubChunkEntryEvent {
                         position: [key.x, y, key.z],
-                        result: if solid(key) {
+                        result: if let Some(payload) = self.payloads.get(&key) {
+                            SubChunkResult::Success {
+                                payload: payload.clone(),
+                            }
+                        } else if (self.terrain)(key) {
                             SubChunkResult::Success {
                                 payload: sub_chunk_payload(y),
                             }
@@ -926,3 +938,6 @@ fn mesh_stall_burst_timing() {
         );
     }
 }
+
+#[path = "streaming_harness/bds.rs"]
+mod bds;

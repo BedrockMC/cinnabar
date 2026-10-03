@@ -196,11 +196,7 @@ fn biome_record_mesh_timing() {
         std::hint::black_box(PackedBiomeRecord::from_neighbourhood(&halo, |id| id));
     }
     let elapsed = started.elapsed();
-    std::fs::write(
-        "/tmp/cinnabar-biome-blend-pack-timing.txt",
-        format!("1000 boundary records: {elapsed:?}\n"),
-    )
-    .unwrap();
+    eprintln!("1000 boundary records: {elapsed:?}");
 }
 
 /// Resolves a binary palette to the second biome's contribution.
@@ -272,9 +268,10 @@ fn negative_cache_cells_preserve_vanilla_truncation_and_distance_ties() {
 
 #[test]
 fn offline_biome_boundary_gallery() {
+    let default_directory = tempfile::tempdir().unwrap();
     let directory = std::env::var_os("CINNABAR_BIOME_GALLERY")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp/cinnabar-biome-blend-gallery"));
+        .unwrap_or_else(|| default_directory.path().to_path_buf());
     std::fs::create_dir_all(&directory).unwrap();
     let west = boundary_record();
     let halo = std::array::from_fn(|slot| Some(uniform_storage(if slot % 3 == 0 { 1 } else { 2 })));
@@ -343,4 +340,22 @@ fn boundary_inside_a_chunk_has_the_same_gradient_as_a_chunk_edge() {
             "column {x}"
         );
     }
+}
+
+#[test]
+fn review_render_uniform_sentinel_tint_keeps_a_valid_blending_record() {
+    let storage = DecodedBiomeColumn::decode(-4, 1, &[1, 0], &BIOMES)
+        .storage(-4)
+        .unwrap();
+    let halo = std::array::from_fn(|_| Some(Arc::clone(&storage)));
+    let record = PackedBiomeRecord::from_neighbourhood(&halo, |_| u32::MAX);
+    let samples = record.blend_samples([8, 8, 8]).unwrap();
+    let total: f32 = samples.iter().map(|sample| sample.weight).sum();
+    assert!((total - 1.0).abs() < 1e-5);
+    assert!(
+        samples
+            .iter()
+            .filter(|sample| sample.weight > 0.0)
+            .all(|sample| sample.tint_index == u32::MAX)
+    );
 }

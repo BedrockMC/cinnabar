@@ -267,6 +267,10 @@ pub fn reconcile_physics_anchor(
         return Err(PhysicsAuthorityFault::Unauthorized);
     }
 
+    if !network_position.into_iter().all(f32::is_finite) {
+        return Err(PhysicsAuthorityFault::CorrectionReplayFailed);
+    }
+
     let apply_candidate = |mode| {
         let aligned_tick = match mode {
             PhysicsCorrectionMode::ReplayIfRetained => tick,

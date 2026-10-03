@@ -3,7 +3,7 @@
 mod armor;
 mod atlas;
 mod attachable;
-mod blocks;
+pub(crate) mod blocks;
 mod display;
 mod elytra;
 mod first_person;
@@ -14,7 +14,11 @@ mod runtime;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use display::FirstPersonHand;
+pub(crate) use attachable::{BoneChannels, attach};
+pub(crate) use display::{
+    FirstPersonHand, attach_to_bone, held_block_display_for_hand, held_sprite_display_for_hand,
+    is_hand_equipped,
+};
 pub(crate) use input::{local_input, remote_input};
 #[cfg(test)]
 pub(crate) use runtime::{ActorEquipmentInput, HeldKind, WornItem};

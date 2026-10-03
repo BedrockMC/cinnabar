@@ -147,33 +147,27 @@ fn property_default(
     name: &str,
     definition: &serde_json::Value,
 ) -> Option<client_world::PropertyDefault> {
-    let values = definition["values"].as_array().map(|values| {
-        values
-            .iter()
-            .filter_map(|value| value.as_str().map(Arc::<str>::from))
-            .collect::<Arc<[Arc<str>]>>()
-    });
+    let mut values = None;
     let default = &definition["default"];
     let number = match definition["type"].as_str()? {
-        "bool" => f32::from(u8::from(default.as_bool().unwrap_or(false))),
-        "int" | "float" => default.as_f64().unwrap_or(0.0) as f32,
-        "enum" => default
-            .as_str()
-            .and_then(|wanted| {
-                values
-                    .as_deref()?
-                    .iter()
-                    .position(|value| value.as_ref() == wanted)
-            })
-            .map_or(0.0, |index| index as f32),
+        "bool" => f32::from(u8::from(default.as_bool()?)),
+        "int" | "float" => default.as_f64()? as f32,
+        "enum" => {
+            let names = definition["values"]
+                .as_array()?
+                .iter()
+                .map(|value| value.as_str().map(Arc::<str>::from))
+                .collect::<Option<Vec<_>>>()?;
+            let wanted = default.as_str()?;
+            let index = names.iter().position(|value| value.as_ref() == wanted)?;
+            values = Some(names.into());
+            index as f32
+        }
         _ => return None,
     };
-    Some(client_world::PropertyDefault {
+    number.is_finite().then(|| client_world::PropertyDefault {
         name: name.into(),
-        values: definition["type"]
-            .as_str()
-            .filter(|kind| *kind == "enum")
-            .and(values),
+        values,
         default: number,
     })
 }
@@ -206,6 +200,23 @@ mod tests {
     }
 
     #[test]
+    fn review_property_defaults_skip_invalid_types_membership_and_nonfinite_values() {
+        for definition in [
+            serde_json::json!({"type":"bool", "default":"invalid"}),
+            serde_json::json!({"type":"float", "default":1e100}),
+            serde_json::json!({"type":"float", "default":"invalid"}),
+            serde_json::json!({"type":"int", "default":"invalid"}),
+            serde_json::json!({"type":"enum", "values":["x"], "default":"missing"}),
+            serde_json::json!({"type":"enum", "values":[4,"x"], "default":"x"}),
+        ] {
+            assert!(
+                super::property_default("test", &definition).is_none(),
+                "{definition}"
+            );
+        }
+    }
+
+    #[test]
     fn identifier_is_read_from_the_client_entity_description() {
         let json = br#"{"minecraft:client_entity":{"description":{"identifier":"a:b"}}}"#;
         assert_eq!(entity_identifier(json).as_deref(), Some("a:b"));
@@ -222,7 +233,7 @@ mod equipment_report;
 #[cfg(test)]
 mod render_report;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod lobby_bench;
 
 #[cfg(test)]

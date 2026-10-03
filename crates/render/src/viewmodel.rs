@@ -8,6 +8,10 @@ mod geometry;
 mod tests;
 mod witness;
 
+pub(super) const VIEWMODEL_TEXTURE_SIDE: u32 = 64;
+pub(super) const VIEWMODEL_TEXTURE_BYTES: usize =
+    (VIEWMODEL_TEXTURE_SIDE * VIEWMODEL_TEXTURE_SIDE * 4) as usize;
+
 pub const MAX_VIEWMODEL_DEPTH_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,7 +73,7 @@ impl ViewmodelSkin {
     }
     pub fn new(rgba8: Arc<[u8]>, identity: [u8; 32]) -> Option<Self> {
         (identity != [0; 32]
-            && rgba8.len() == 64 * 64 * 4
+            && rgba8.len() == VIEWMODEL_TEXTURE_BYTES
             && rgba8
                 .chunks_exact(4)
                 .all(|pixel| matches!(pixel[3], 0 | 255)))
@@ -271,7 +275,7 @@ impl ViewmodelScene {
                     && distinct
                     && corners.into_iter().zip(expected).all(|(index, uv)| {
                         input.vertices.get(index as usize).is_some_and(|v| {
-                            v.uv == uv
+                            v.uv == uv.map(f32::from)
                                 && v.color == [255; 4]
                                 && v.style_flags == 0
                                 && v.position.iter().all(|v| v.is_finite())

@@ -116,10 +116,17 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
+        if intent.ride.is_some() {
+            self.last_server_flying = intent.server_flying;
+            self.mode = MovementMode::Riding;
+            return Ok(ModeChoice {
+                mode: MovementMode::Riding,
+                forced_sneak: false,
+            });
+        }
         // Server ability edges override locally retained flight.
         let server_rise = intent.server_flying && !self.last_server_flying;
         let server_fall = !intent.server_flying && self.last_server_flying;
-        self.last_server_flying = intent.server_flying;
         let flying = intent.can_fly
             && !server_fall
             && intent.ride.is_none()
@@ -166,6 +173,7 @@ impl ModeTracker {
         } else {
             (MovementMode::Walking, false)
         };
+        self.last_server_flying = intent.server_flying;
         self.mode = mode;
         Ok(ModeChoice { mode, forced_sneak })
     }
@@ -259,6 +267,64 @@ mod tests {
             .select(intent, toggle, observed, &Ceiling(None))
             .unwrap()
             .mode
+    }
+
+    /// Unavailable world queries make mode selection retryable.
+    struct Unavailable;
+
+    impl CollisionWorld for Unavailable {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Err(WorldQueryError::InvalidBounds)
+        }
+        fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            Err(WorldQueryError::InvalidBounds)
+        }
+    }
+
+    #[test]
+    fn review_failed_mode_selection_retains_the_server_flight_clear() {
+        let mut tracker = ModeTracker {
+            mode: MovementMode::Flying,
+            last_server_flying: true,
+        };
+        let intent = ModeIntent {
+            can_fly: true,
+            ..Default::default()
+        };
+        assert!(
+            tracker
+                .select(intent, false, airborne(), &Unavailable)
+                .is_err()
+        );
+        assert_eq!(
+            pick(&mut tracker, intent, false, airborne()),
+            MovementMode::Walking
+        );
+    }
+
+    #[test]
+    fn review_riding_does_not_query_swimming_or_pose_fit() {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            ride: Some(RideKind::Boat),
+            ..Default::default()
+        };
+        let observed = ModeObservation {
+            in_water: true,
+            sprinting: true,
+            moving_forward: true,
+            ..airborne()
+        };
+        assert_eq!(
+            tracker
+                .select(intent, false, observed, &Unavailable)
+                .unwrap()
+                .mode,
+            MovementMode::Riding
+        );
     }
 
     #[test]

@@ -1,5 +1,21 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
+WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
+Enhanced shader specialization and effect passes. The toggle is hidden, and saved
+settings, environment and CLI requests resolve to Vanilla. The GPU fault remains
+unresolved; Enhanced visual and performance gates remain incomplete.
+The disable was inspected on macOS 26.5.1/Metal at 2560x1440 content pixels
+(Retina 2x, automatic GUI scale), using the rebuilt client and a saved Enhanced
+preference. Home and Video settings remained legible with normal geometry,
+clipping, layering and colours; the Enhanced control was absent. Settings clicks,
+scrolling, hover focus and Escape navigation worked. This checks the disable,
+not gameplay performance or the unresolved GPU fault.
+
+2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
+passes a populated graph and 120-frame lobby actor replay, but the reported
+post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
+
 2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
 persisted default. This work never closes a vanilla parity gate. T0 adds the
 setting, camera marker and pipeline key isolation. Visual acceptance and all
@@ -34,6 +50,36 @@ curve, emitting/ordinary face factors and inset model planes. Full current
 shade/solid-render property export, component exponents, dimension shading modes
 and box-average interpolation remain incomplete. The full audit work is in
 progress on fix/world-lighting.
+
+2026-10-02 inventory model quality (implemented, upstream-integrated and live-checked): current mcsrc
+GUI block/shield and live-player renderers submit geometry at their controls' scale,
+not enlarged fixed 16/32/64-pixel item thumbnails or a 96x112 player raster. The new
+bounded JSON-UI mesh path uses original carried/material/skin/armor texels, native
+projection and face colours, sampled material alpha cutoffs and isolated player
+model depth. Flat pixel-art sprites remain point sampled. GUI poses are no longer
+rounded to whole pixels or quarter/half-degree steps, and the player's Fancy light
+formula is a float separate from byte colour/tint. The follow-up replaces preview
+GUI-icon planes with actual six-face cubes, extruded sprites and literal authored
+held models, using native hand pivots and both inventory hands. Tooltip layout now
+uses the native runtime purpleBorder nine-slice, mouse overflow rules, text offset
+and pitch; original floating-point texel UVs preserve extrusion side centers.
+The reported flat held-thumbnail and plain-tooltip regressions passed fresh
+macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
+first live offhand Shield exposed a missing expression-bound ModelPart origin;
+the source-derived correction now passes both hand poses and real-carrier tests.
+Integration retains upstream's gamma-space UI layer, font/animation paths and
+independently inherited image/sidecar overrides. Stateful inventory/HUD providers
+explicitly clear empty icon bindings so compact icon tables cannot leave duplicate
+items behind; moving between hands and repeated reopening passed the live rerun.
+After integrating upstream dev through 0979ff22, focused tests, the full workspace
+suite, formatting, strict workspace Clippy, the architecture gate, Go tests and
+Go vet passed, and the canonical client/core were rebuilt and live-tested.
+No complete native parity gate is closed.
+Special GUI block shapes, custom/persona/slim
+geometry and animation/held-model layers, native glint/material/color formats,
+hardware sample coverage and controlled matching vanilla frames remain incomplete.
+See docs/reference/inventory-gui-geometry.md, player-preview-rendering.md and
+inventory-hover-tooltip.md for the native contracts and exact build/frame evidence.
 
 2026-10-02 dev integration: the first-person item/block/attachable, grass material,
 arrow, name-tag, crouch/shield, offhand, inventory reopen, game-mode and inventory
@@ -291,6 +337,14 @@ session now has a controlled grass-on-grass witness: the predicted block is visi
 PNG written 226 ms after right-click and persists in the post-reply frame. The selected
 grass item's hand, hotbar and open-inventory visuals also render. This is live functional
 acceptance of the reported bugs, not complete native placement parity.
+
+2026-10-02 block selection: gameplay picks now publish the native black wire box
+when Outline Selection is enabled and a brightened model overlay when it is off.
+This omission also exists at 199e0856; it is not a regression in the first-parent
+history since that commit. Offline GPU regressions cover both depth-tested passes
+and clearing a lost target. Native visual parity remains incomplete: the existing
+pick-shape coverage excludes non-colliding plants, and cutout texture masks are not
+yet carried into the highlight overlay. No live visual gate is closed here.
 
 2026-09-30 block interaction: breaks (every game mode, both block-breaking
 authorities; Creative repeats while held), stateless full-cube placements and
@@ -4049,3 +4103,80 @@ and OS priority mappings are Cinnabar implementation choices; exact current-clie
 scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
+
+### Inventory/HUD correction continuation (2026-10-02, incomplete general parity)
+
+Selected-item text now positions its spawned Java-look factory root above the
+hotbar, retaining the inherited Bedrock label and animation. Bare block stacks
+can split/restack without rejecting nonzero block identity; ingredient plainness
+no longer requires zero aux/block identity. Supported recipe shapes are retained
+independently of discovery metadata, including high-bit result block identities.
+Personal/workbench closes explicitly return crafting inputs and cursor items to
+player inventory, dropping only overflow, with sparse dependency preservation
+and rejected-return recovery. References and scoped acceptance are in
+`docs/reference/selected-item-hud-label.md`, `inventory-block-restacking.md`,
+`inventory-recipe-admission.md` and `inventory-crafting-close.md`.
+
+Scoped offline BDS acceptance exercises split/restack, manual 2×2 and workbench
+crafts, input/cursor returns and repeated reopen with server-verified counts.
+Rendered survival/creative selected-name geometry is inspected at the owner's
+Retina scale. See `docs/reviews/inventory-hud-crafting-fixes.md` for exact builds,
+local evidence paths and verification state.
+
+Full structural-NBT merge parity, descriptor-dependent capacity/variant rules,
+limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
+arbitrary container return flags and exact native close/flush timing remain open.
+These corrections do not close the overall Phase 5 inventory parity gate.
+
+### Zeqa regression follow-up (incomplete visual/performance acceptance)
+
+Nametag phase traversal, omitted catalog plane backs, active player appearance
+lifetime, and matrices cached across rig replacement have focused corrections.
+The supplied offline witnesses do not close the live form layout/FPS, missing
+hotbar icons, all nametag size/garbling symptoms, or RustMCBE stretched-limb gates.
+The player-body report omits equipment and GPU execution. See
+`docs/reference/zeqa-regression-investigation.md` for source boundaries, vanilla
+references, PNG evidence and the limitations of the capture.
+
+### JSON-UI review follow-up (incomplete live form acceptance)
+
+Review corrections cover untrusted animation graphs, expanded widget component
+bags, native form titles, screen cancellation, Drop remapping, recipe icons and
+perspective settings. An open form also remeasures when its session font changes.
+The captured Spirit Bundle witness exercises late pack installation and texture
+residency, but the black rectangle, floating labels and live FPS loss remain
+unproven. No live visual/performance gate is closed; see
+`docs/reference/jsonui-review-fixes.md`.
+## Go core simplification (2026-10-02)
+
+The core's packet-decoding diagnostic observers for cache boundaries, loading order,
+and form schemas are removed. The proxy still forwards packet batches and retains
+resource-pack progress and admission status used by the client. Historical cache
+boundary logs remain readable by the acceptance scripts. Current diagnostic runs
+record missing boundary instrumentation as unavailable, with an explicit finding;
+they do not satisfy an independent cache-route proof or a completed Lunar prerequisite.
+Replacement live evidence is still needed before closing the cache-streaming parity gate.
+
+Authentication and pack caches now trust the user's configuration directory, while
+retaining atomic publication, file leases, credential binding and quota eviction.
+New credentials remain private on Unix and Windows. Account methods reject calls
+after close, and sign-out takes the same leases as token refreshes. The active
+sign-in keeps a stable cache generation across refreshes; a replacement sign-in
+ends the old account runtime before it can adopt the new credentials. The active
+catalog exporter and native Windows/Linux BDS installer remain supported. Resource
+packs still pass through the Go cache and retain their client progress reporting.
+### Astra UX follow-up (incomplete live performance/parity acceptance)
+
+Real-carrier Bevy input now exercises all Add/Edit server fields, persistence and
+queued endpoints; Inbox summaries stay within their cards. Startup accepts lit,
+meshed, upload-acknowledged near terrain plus a later GPU frame without waiting
+for distant replies. The optional OreUI static page now rebases loading fallbacks,
+and unchanged GUI skins reuse their digest. See `docs/parity/server-info-input.md`,
+`docs/core-join-startup.md`, `docs/parity/loading-textures.md` and
+`docs/parity/menu-frame-cost.md` for references, tests and measured boundaries.
+
+The supplied post-pack Zeqa page-grid corruption and 6 FPS, the owner's menu FPS,
+and the minutes-long live BDS join did not reproduce offline. Native Metal frames
+were rendered and inspected, but the native window capture integration returned
+`cgWindowNotFound`. Release/live acceptance remains open; these local changes do
+not close it. No live server connection was made.

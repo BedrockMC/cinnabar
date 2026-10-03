@@ -2,7 +2,7 @@ use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
 use super::{tick::WeightedClip, *};
 
-pub(super) const MODEL_PART_ORIGIN_Y: f32 = 24.0;
+pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
 #[derive(Clone, Copy)]
 pub(super) struct LocalDelta {

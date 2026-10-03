@@ -17,7 +17,9 @@ use bevy::{
 };
 use ui::{ChatClipboard, UiPoint};
 
-use super::{MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MenuField, MenuRuntime};
+use super::{
+    MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MAX_SERVER_PORT_BYTES, MenuField, MenuRuntime,
+};
 use crate::local_worlds::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
 use crate::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
 
@@ -148,6 +150,7 @@ impl MenuRuntime {
         match self.field? {
             MenuField::Name => Some(&self.name),
             MenuField::Address => Some(&self.address),
+            MenuField::Port => Some(&self.port),
             MenuField::WorldName => Some(&self.local_ui.name),
             MenuField::WorldSeed => Some(&self.local_ui.seed),
         }
@@ -157,6 +160,7 @@ impl MenuRuntime {
         match field {
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
+            MenuField::Port => &mut self.port,
             MenuField::WorldName => &mut self.local_ui.name,
             MenuField::WorldSeed => &mut self.local_ui.seed,
         }
@@ -195,7 +199,13 @@ impl MenuRuntime {
         let target = self.text_target(field);
         let mut insertion = String::new();
         let base_length = if selected { 0 } else { target.len() };
-        for character in text.chars().filter(|character| !character.is_control()) {
+        // The port box takes number characters only, as vanilla's `NumberChars` text type.
+        let accepts = |character: &char| field != MenuField::Port || character.is_ascii_digit();
+        for character in text
+            .chars()
+            .filter(|character| !character.is_control())
+            .filter(accepts)
+        {
             if base_length
                 .saturating_add(insertion.len())
                 .saturating_add(character.len_utf8())
@@ -235,6 +245,7 @@ fn max_bytes(field: MenuField) -> usize {
     match field {
         MenuField::Name => MAX_SERVER_NAME_BYTES,
         MenuField::Address => MAX_SERVER_ADDRESS_BYTES,
+        MenuField::Port => MAX_SERVER_PORT_BYTES,
         MenuField::WorldName => MAX_WORLD_NAME_CHARS * 4,
         MenuField::WorldSeed => MAX_SEED_CHARS,
     }
@@ -525,7 +536,12 @@ pub(crate) fn drive_menu_input(
 }
 
 impl MenuRuntime {
+    /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.screen == super::MenuScreen::AddServer && self.field.take().is_some() {
+            self.text_selected = false;
+            return;
+        }
         self.go_back();
     }
 }

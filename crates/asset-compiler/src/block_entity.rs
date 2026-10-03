@@ -198,8 +198,16 @@ fn collect_globbed_block_textures(
 
 /// Files of a directory in sorted order; a missing directory is empty.
 fn list(directory: &Path) -> Result<Vec<PathBuf>, AssetError> {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return Ok(Vec::new());
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(source) => {
+            return Err(AssetError::TextureIo {
+                key: directory.display().to_string().into(),
+                path: directory.to_path_buf(),
+                source,
+            });
+        }
     };
     let mut paths = Vec::new();
     for entry in entries {
@@ -345,6 +353,19 @@ fn invalid(detail: &str) -> AssetError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_texture_directory_errors_are_not_treated_as_absence() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("textures");
+        std::fs::write(&directory, b"not a directory").unwrap();
+        assert!(super::list(&directory).is_err());
+        assert!(
+            super::list(&root.path().join("missing"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     use super::*;
 
     fn write_png(path: &Path, width: u32, height: u32, shade: u8) {

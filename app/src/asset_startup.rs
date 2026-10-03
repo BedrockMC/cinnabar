@@ -103,7 +103,7 @@ pub struct LoadedFontAssets {
 mod actor_carrier;
 mod audio_carrier;
 mod audio_pcm_carrier;
-mod equipment_carrier;
+pub(crate) mod equipment_carrier;
 pub(crate) use actor_carrier::require_actor_artwork;
 pub use actor_carrier::{ACTOR_ASSETS_FILENAME, actor_asset_path, require_actor_assets};
 pub(crate) use audio_pcm_carrier::load_audio_pcm_assets;
@@ -708,6 +708,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             })?,
         );
     if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
+        crate::runtime::network::set_base_terrain_catalog(keys.aliases());
         crate::runtime::network::set_base_material_keys(keys);
     }
     if let Some(refs) = load_vanilla_entity_refs(&selection.path) {

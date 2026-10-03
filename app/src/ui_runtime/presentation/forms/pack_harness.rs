@@ -14,6 +14,23 @@ use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
 
 const PACK_ENV: &str = "CINNABAR_FORM_PACK_DIR";
 
+/// Resolves the installed placeholder text used by the input harness.
+pub(crate) fn menu_translation(runtime: &UiRuntime, key: &str) -> Option<Arc<str>> {
+    runtime.translation(key)
+}
+
+/// Loads the installed language catalog for real launcher input and GPU frames.
+pub(crate) fn menu_runtime() -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    if let Some(lang) = std::fs::read(local("assets/compiled/vanilla-v1.mcbelang"))
+        .ok()
+        .and_then(|bytes| assets::RuntimeLangCatalog::decode(&bytes).ok())
+    {
+        runtime.set_lang_catalog(Arc::new(lang));
+    }
+    runtime
+}
+
 fn local(path: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../.local")
@@ -61,6 +78,36 @@ pub(crate) fn pack_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 /// The packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest first).
 pub(crate) fn env_pack() -> Option<ServerUiPack> {
     Some(dir_pack(&std::env::var(PACK_ENV).ok()?))
+}
+
+/// Installs the real pack's Unicode cells alongside its JSON-UI textures.
+pub(crate) fn env_glyphs() -> Option<Arc<super::super::SessionGlyphSheets>> {
+    let roots = std::env::var(PACK_ENV).ok()?;
+    let roots: Vec<_> = roots.split(':').map(Path::new).collect();
+    let mut cells = Vec::new();
+    for high_byte in 0..=u8::MAX {
+        let source = roots.iter().rev().find_map(|root| {
+            [
+                format!("font/glyph_{high_byte:02X}.png"),
+                format!("font/glyph_{high_byte:02x}.png"),
+            ]
+            .into_iter()
+            .find_map(|path| image::open(root.join(path)).ok())
+        });
+        if let Some(source) = source {
+            let source = source.into_rgba8();
+            cells.extend(assets::extract_cells(&assets::GlyphSheet {
+                high_byte,
+                width: source.width(),
+                height: source.height(),
+                rgba8: source.into_raw().into_boxed_slice(),
+            }));
+        }
+    }
+    Some(Arc::new(super::super::SessionGlyphSheets::with_named(
+        cells,
+        Default::default(),
+    )))
 }
 
 /// The unpacked packs `dirs` lists (`:`-separated, lowest first) as a session pack.
@@ -165,6 +212,44 @@ pub(crate) fn engine_presentation() -> Option<UiPresentationRuntime> {
     let engine = presentation.form_presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)
+}
+
+/// Loads the startup texture layout, including HUD, icons, models and optional OreUI art.
+pub(crate) fn startup_presentation() -> Option<UiPresentationRuntime> {
+    let world = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(crate::asset_startup::DEFAULT_ASSET_PATH);
+    let hud = crate::asset_startup::require_hud_assets(&world)
+        .ok()?
+        .into_runtime();
+    let icons = crate::asset_startup::require_icon_assets(
+        &world,
+        include_str!("../../../../../assets/vanilla-source.json"),
+    )
+    .ok()?
+    .into_runtime();
+    let entities = assets::RuntimeEntityAssets::decode(
+        &std::fs::read(crate::asset_startup::entity_asset_path(&world)).ok()?,
+    )
+    .ok()?;
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(font(), hud, icons).unwrap();
+    presentation.enable_json_ui(carrier()?).unwrap();
+    presentation.set_form_texture_fallbacks(
+        &entities,
+        local(&crate::install_layout::vanilla_pack_relative()),
+    );
+    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images() {
+        presentation.enable_oreui_originals(images).unwrap();
+    }
+    presentation
+        .set_gui_models(&assets::RuntimeAssets::diagnostic(), &entities)
+        .unwrap();
+    Some(presentation)
+}
+
+/// Retained nodes from the last published menu frame, including clipping and text.
+pub(crate) fn menu_nodes(presentation: &UiPresentationRuntime) -> &[UiNode] {
+    &presentation.last_menu.as_ref().expect("menu frame").nodes
 }
 
 /// Every text node with its bounds and its clip parent's bounds, for diagnosis.
@@ -649,4 +734,16 @@ fn start_screen_text_resolves_through_the_language_table() {
             "{text:?} in {texts:?}"
         );
     }
+}
+
+/// An isolated scratch directory for a carrier regression's writable fixtures.
+pub(crate) fn scratch_dir(label: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "cinnabar-{label}-{}-{sequence}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    root
 }

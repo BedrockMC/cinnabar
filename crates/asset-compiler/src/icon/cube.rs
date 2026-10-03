@@ -1,5 +1,6 @@
 //! Offline opaque-cube thumbnails. Shading is an authored provisional policy,
 //! not a claim of complete inventory presentation parity.
+use assets::gui_item::{CUBE_FACES as FACES, CUBE_OFFSET, CUBE_ROTATION_SIN_COS, CUBE_SCALE};
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, NetworkIdMode, RuntimeAssets,
     VisualKind, VisualSupport,
@@ -10,27 +11,6 @@ use std::sync::Arc;
 pub(super) const POLICY: &str = "opaque-cube-thumbnail-v1";
 pub(super) const PIXEL_BYTES: usize =
     assets::BLOCK_ITEM_FACE_SIDE as usize * assets::BLOCK_ITEM_FACE_SIDE as usize * 4;
-type FaceSpec = (BlockFace, [[f32; 3]; 4], [[f32; 2]; 4], f32);
-const FACES: [FaceSpec; 3] = [
-    (
-        BlockFace::Up,
-        [[0., 1., 0.], [0., 1., 1.], [1., 1., 1.], [1., 1., 0.]],
-        [[0., 0.], [0., 1.], [1., 1.], [1., 0.]],
-        1.,
-    ),
-    (
-        BlockFace::South,
-        [[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]],
-        [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
-        0.5,
-    ),
-    (
-        BlockFace::West,
-        [[0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]],
-        [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
-        f32::from_bits(0x3f3ae148),
-    ),
-];
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Reject {
@@ -136,12 +116,12 @@ impl<'a> Cube<'a> {
             hash.update(brightness.to_le_bytes());
         }
         for component in [
-            0xbeffffff_u32,
-            0xbf5db3d7,
-            0x3f3504f3,
-            0x3f800000,
-            0x41200000,
-            0x4147ae14,
+            CUBE_ROTATION_SIN_COS[0].to_bits(),
+            CUBE_ROTATION_SIN_COS[1].to_bits(),
+            CUBE_ROTATION_SIN_COS[2].to_bits(),
+            CUBE_OFFSET[0].to_bits(),
+            CUBE_SCALE.to_bits(),
+            CUBE_OFFSET[1].to_bits(),
         ] {
             hash.update(component.to_le_bytes());
         }
@@ -191,18 +171,9 @@ impl<'a> Cube<'a> {
     }
 }
 
-fn project([x, y, z]: [f32; 3]) -> [f32; 2] {
-    // Canonical f32 sin/cos results for Rx(3.665191411972046) and
-    // Ry(0.7853981852531433). Fixed bits keep offline bytes independent of
-    // the host math library while retaining the stated rotation order.
-    let (sx, cx) = (f32::from_bits(0xbeffffff), f32::from_bits(0xbf5db3d7));
-    let (sy, cy) = (f32::from_bits(0x3f3504f3), f32::from_bits(0x3f3504f3));
-    let rotated_x = cy * x + sy * z;
-    let rotated_z = -sy * x + cy * z;
-    [
-        1. + 10. * rotated_x,
-        f32::from_bits(0x4147ae14) + 10. * (cx * y - sx * rotated_z),
-    ]
+fn project(point: [f32; 3]) -> [f32; 2] {
+    let [x, y, _] = assets::gui_item::project_cube(point);
+    [x, y]
 }
 
 fn edge(a: [f32; 2], b: [f32; 2], p: [f32; 2]) -> f32 {

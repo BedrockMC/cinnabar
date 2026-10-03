@@ -7,10 +7,9 @@ use assets::{CellGlyph, pack_cells};
 use render::UiTexturePage;
 
 use super::{UiPresentationRuntime, dynamic_textures};
+use dynamic_textures::FIRST_GLYPH_PAGE;
 
 use render::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
-/// Dynamic-page offset of the first glyph page, after the ten general pages.
-const FIRST_GLYPH_PAGE: usize = 10;
 
 /// The session's glyph cells, cropped from the winning sheets.
 #[derive(Debug, Default)]
@@ -142,6 +141,7 @@ pub(super) fn observe(
             Arc::new(default.with_named_fonts(named))
         },
     );
+    runtime.nametag_atlas.reset();
     let pages = prepared
         .map(|atlas| atlas.pages.clone())
         .unwrap_or_default();

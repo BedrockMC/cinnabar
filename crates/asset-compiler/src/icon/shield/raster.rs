@@ -33,7 +33,13 @@ pub(super) fn triangle(
                 edge(points[0], points[1], p),
             ]
             .map(|value| value / area);
-            if weights.iter().any(|value| *value < 0.0) {
+            let covered = weights.iter().enumerate().all(|(index, &weight)| {
+                let a = points[(index + 1) % 3];
+                let b = points[(index + 2) % 3];
+                let top_left = b[1] > a[1] || (b[1] == a[1] && b[0] < a[0]);
+                weight > 0.0 || (weight == 0.0 && top_left)
+            });
+            if !covered {
                 continue;
             }
             let uv: [f32; 2] = std::array::from_fn(|axis| {
@@ -47,11 +53,11 @@ pub(super) fn triangle(
                 .clamp(0.0, f32::from(texture.height - 1)) as usize;
             let source = &texture.rgba8[(ty * usize::from(texture.width) + tx) * 4..][..4];
             // ui_shield.skinning inherits ALPHA_TEST; no FANCY side-lighting for UI_ENTITY.
-            if source[3] < 128 {
+            let alpha = f32::from(source[3]) / f32::from(u8::MAX);
+            if alpha < assets::gui_item::SHIELD_ALPHA_CUTOFF {
                 continue;
             }
             let output = &mut pixels[(y * SIDE + x) * 4..][..4];
-            let alpha = f32::from(source[3]) / 255.0;
             let previous = f32::from(output[3]) / 255.0;
             let final_alpha = alpha + previous * (1.0 - alpha);
             for channel in 0..3 {

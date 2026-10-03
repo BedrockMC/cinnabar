@@ -272,25 +272,20 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
         *published_pack = pack.clone();
         *published_items = items.clone();
         let staged = StagedSessionIcons::stage(items.as_deref());
-        let (staged, locations) = if pack.is_some() || staged.is_some() || session_artwork.is_some()
-        {
-            if new_session || pack_changed {
-                *pack_geometry_ready = SessionGeometryReady::default();
-            }
-            let (effective, staged, locations) = apply_session_pack(
-                &mut scene,
-                &artwork,
-                pack.as_deref(),
-                staged,
-                &mut pack_geometry_ready,
-                equipment.as_deref_mut(),
-                profiler.as_deref(),
-            );
-            *session_artwork = effective;
-            (staged, locations)
-        } else {
-            (None, Vec::new())
-        };
+        if new_session || pack_changed {
+            *pack_geometry_ready = SessionGeometryReady::default();
+        }
+        // Always republished: presentation selects from these pages, the scene validates them.
+        let (effective, staged, locations) = apply_session_pack(
+            &mut scene,
+            &artwork,
+            pack.as_deref(),
+            staged,
+            &mut pack_geometry_ready,
+            equipment.as_deref_mut(),
+            profiler.as_deref(),
+        );
+        *session_artwork = effective;
         if let Some(equipment) = equipment.as_deref_mut() {
             equipment.set_session_items(items.as_deref(), staged, locations);
         }
@@ -539,8 +534,8 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                         .as_deref()
                         .zip(ui.as_deref())
                         .and_then(|(use_runtime, ui)| {
-                            let render_input = if index == 0 {
-                                use_runtime.render_input(
+                            let render_input = use_runtime
+                                .render_input(
                                     stream,
                                     ui,
                                     movement_tick
@@ -548,14 +543,7 @@ pub(crate) fn prepare_actor_render_frame(params: ActorFramePublication) {
                                         .map_or(0, |ticks| ticks.completed_tick()),
                                     step.partial_tick,
                                 )
-                            } else {
-                                client_world::AttachableAnimationInput {
-                                    first_person: true,
-                                    off_hand: true,
-                                    frame_alpha: step.partial_tick,
-                                    ..Default::default()
-                                }
-                            };
+                                .for_hand(index == 1);
                             let render_input = input.attachable_input(render_input);
                             equipment.first_person_attachable(
                                 &presentation.submission,

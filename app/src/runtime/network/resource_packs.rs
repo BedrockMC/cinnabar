@@ -289,6 +289,8 @@ fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
         }
         pack.ui_layers.push(files);
     }
+    // Textures are read on first draw, after this compile, so all of their bytes are inputs.
+    view.track_contents("textures/");
     // A pack that only restyles textures still overrides vanilla UI art.
     if pack.is_empty() && view.list("textures/").is_empty() {
         return None;
@@ -468,13 +470,15 @@ static BASE_TERRAIN_CATALOG: std::sync::OnceLock<HashMap<String, String>> =
     std::sync::OnceLock::new();
 
 /// Supplies the base texture aliases so a pack can replace rasters without repeating the catalog.
-pub(crate) fn set_base_terrain_catalog(bytes: &[u8]) {
-    let mut paths = HashMap::new();
-    merge_texture_catalog(&mut paths, bytes);
+pub(crate) fn set_base_terrain_catalog<'a>(aliases: impl IntoIterator<Item = (&'a str, &'a str)>) {
+    let paths = aliases
+        .into_iter()
+        .map(|(key, path)| (key.to_owned(), path.to_owned()))
+        .collect();
     let _ = BASE_TERRAIN_CATALOG.set(paths);
 }
 
-/// Immutable aliases from the installed vanilla pack, below all optional catalog layers.
+/// Immutable aliases from the world carrier's sidecar, below all optional catalog layers.
 pub(super) fn base_terrain_catalog() -> HashMap<String, String> {
     BASE_TERRAIN_CATALOG.get().cloned().unwrap_or_default()
 }

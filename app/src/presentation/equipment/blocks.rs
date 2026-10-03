@@ -10,15 +10,15 @@ use assets::{
 
 pub(super) const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
 
-pub(super) struct BlockSheets {
-    pub(super) sheets: Vec<IconSprite>,
+pub(crate) struct BlockSheets {
+    pub(crate) sheets: Vec<IconSprite>,
     /// Block visual id to its sheet index.
-    pub(super) by_visual: BTreeMap<u32, usize>,
+    pub(crate) by_visual: BTreeMap<u32, usize>,
 }
 
 /// A sheet per distinct set of face tiles, for every block item whose block is an ordinary
 /// opaque cube; other blocks are skipped.
-pub(super) fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSheets {
+pub(crate) fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSheets {
     let mut sheets = Vec::new();
     let mut by_materials = BTreeMap::<[u32; 6], usize>::new();
     let mut by_visual = BTreeMap::new();

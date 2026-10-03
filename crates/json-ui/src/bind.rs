@@ -134,7 +134,11 @@ fn bind_with(
         keys: state::KeyMap::default(),
         retain,
     };
-    let mut node = binder.build(Src::root(Arc::clone(root)), &Scope::default());
+    let scope = Scope {
+        values: Arc::clone(&data.creation_values),
+        ..Scope::default()
+    };
+    let mut node = binder.build(Src::root(Arc::clone(root)), &scope, 0);
     binder.settle_views(&mut node);
     let baked = binder.bake(&node);
     binder.retain(node);
@@ -256,7 +260,7 @@ impl<'a> Binder<'a> {
 
     /// Create `src` under `scope`: its bag, its bindings for this refresh, and
     /// its subtree unless it is hidden.
-    fn build(&mut self, src: Src, scope: &Scope) -> Node {
+    fn build(&mut self, src: Src, scope: &Scope, repeat: usize) -> Node {
         let key = self.control_key(&src, scope.parent_key);
         let declaration = self.declaration(&src);
         let bindings = Arc::clone(&declaration.bindings);
@@ -264,7 +268,12 @@ impl<'a> Binder<'a> {
         self.attach_item(&src, &mut scope);
         let control = src.get();
         if !self.data.components.is_empty() {
-            scope.layout_key = crate::layout::child_key(&scope.layout_key, control);
+            scope.layout_key = crate::layout::instance_key(
+                &scope.layout_key,
+                src.name(),
+                src.prop("collection_index").and_then(Value::as_u64),
+                repeat,
+            );
         }
         let for_children = declaration.bags.children(&scope.for_children);
         let retained = self.state.controls.remove(&key);
@@ -411,12 +420,22 @@ impl<'a> Binder<'a> {
     fn children_of(&mut self, node: &Node, scope: &Scope) -> Vec<Node> {
         let src = &node.src;
         let control = src.get();
+        let mut scope = scope.clone();
+        if control.control_type.as_deref() == Some("factory") && src.is_authored_child() {
+            // Factory creations are hoisted beside the factory itself.
+            scope.layout_key = scope
+                .layout_key
+                .rsplit_once('/')
+                .map_or("", |(parent, _)| parent)
+                .to_owned();
+        }
+        let scope = &scope;
         let created = if is_collection_factory(control) {
             Some(self.expand_factory(control, node, scope))
         } else if let Some(reference) = self.screen_factory(control) {
             Some(
                 self.resolve(&reference)
-                    .map(|resolved| vec![self.build(Src::root(resolved), scope)])
+                    .map(|resolved| vec![self.build(Src::root(resolved), scope, 0)])
                     .unwrap_or_default(),
             )
         } else if let Some(items) = self.feed(control) {
@@ -454,11 +473,23 @@ impl<'a> Binder<'a> {
         let columns = static_grid_columns(src);
         let mut nodes = Vec::with_capacity(control.children.len());
         let mut created = Vec::new();
+        let mut siblings = crate::layout::SiblingKeys::default();
         for index in 0..control.children.len() {
             let child = src.child(index);
-            let mut node = match columns.and_then(|columns| grid_cell_index(child.get(), columns)) {
-                Some(at) => self.build(with_index(child, at), scope),
-                None => self.build(child, scope),
+            let authored = &control.children[index];
+            let cell = columns.and_then(|columns| grid_cell_index(authored, columns));
+            let repeat = siblings.repeat(
+                &authored.name,
+                cell.map(|at| at as u64).or_else(|| {
+                    authored
+                        .properties
+                        .get("collection_index")
+                        .and_then(Value::as_u64)
+                }),
+            );
+            let mut node = match cell {
+                Some(at) => self.build(with_index(child, at), scope, repeat),
+                None => self.build(child, scope, repeat),
             };
             if node.src.get().control_type.as_deref() == Some("factory") {
                 created.append(&mut node.children);
@@ -679,6 +710,9 @@ fn native_grid(src: Src, native: &Native) -> Src {
     src.patched(|patch| patch.properties.extend(bound))
 }
 
+/// Control names vanilla authors as `#name` identifiers.
+const IDENTITY_NAMES: [&str; 3] = ["text_box_name", "dropdown_name", "slider_name"];
+
 /// Replace `#`-referencing property values with their bag values and carry the
 /// bag's `#names`. An unbound `text` becomes empty rather than the literal
 /// `#name`; a `##` text is literal.
@@ -698,6 +732,8 @@ fn bake_properties(properties: &BTreeMap<String, Value>, own: &Bag) -> BTreeMap<
                     match own.get(reference) {
                         Some(scalar) => scalar.to_json(),
                         None if key == "text" => Value::String(String::new()),
+                        // An unbound control name is the control's identity, not a data read.
+                        None if IDENTITY_NAMES.contains(&key.as_str()) => value.clone(),
                         None => return None,
                     }
                 }

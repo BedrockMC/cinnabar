@@ -14,9 +14,11 @@ fn retained_world() -> World {
                 position: [1.0; 2],
                 clip_z: 0.0,
                 clip_w: 1.0,
-                uv: [0; 2],
+                uv: [0.0; 2],
                 color: [255; 4],
-                style_flags: 0
+                style_flags: 0,
+                alpha_cutoff: -1.0,
+                model_light: 1.0,
             };
             60_000
         ]

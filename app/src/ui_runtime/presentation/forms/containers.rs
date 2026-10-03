@@ -217,7 +217,7 @@ impl UiPresentationRuntime {
             ScreenCache::render(cache, catalog, reference, &context, &data, &view, root, env)
         });
         if let Some(view) = preview_view.get() {
-            self.player_preview_view = view.quantized();
+            self.player_preview_view = view;
         }
         match drawn {
             Ok(Some(frame)) => {
@@ -424,7 +424,10 @@ impl Cells<'_> {
         icon: Option<IconRef>,
         durability: Option<f32>,
     ) -> CollectionItem {
-        let mut item = CollectionItem::default();
+        // A retained cell must answer even when empty, otherwise the previous
+        // frame's index can name a different icon in the new compact table.
+        let mut item =
+            CollectionItem::default().with("#item_renderer_data", Scalar::Json(Value::Null));
         if let (Some(_), Some(icon)) = (stack, icon) {
             self.icons.push(icon);
             item = item.with(
@@ -574,21 +577,44 @@ fn screen_data(
 pub(super) fn tooltip_text(
     lines: &[crate::ui_runtime::presentation::hud_layout::TooltipLine],
 ) -> Option<String> {
+    // Decode the shared UI formatting palette once; do not duplicate its RGB
+    // constants or the parser's extended material-color mapping here.
+    static PALETTE: std::sync::OnceLock<Vec<(char, [u8; 3])>> = std::sync::OnceLock::new();
+    let palette = PALETTE.get_or_init(|| {
+        ('0'..='9')
+            .chain('a'..='v')
+            .filter_map(|code| {
+                let sample = format!("§{code}x");
+                let spans = ui::parse_bedrock_text(&sample, sample.len()).ok()?;
+                let style = spans.first()?.style;
+                (!style.bold && !style.italic && !style.obfuscated && code != 'r')
+                    .then(|| (code, style.color.rgb().unwrap_or([255; 3])))
+            })
+            .collect()
+    });
     (!lines.is_empty()).then(|| {
         lines
             .iter()
             .map(|line| {
-                let code = match line.color {
-                    [170, 170, 170, _] => "§7",
-                    [170, 0, 170, _] => "§5",
-                    _ => "",
-                };
-                format!("{code}{}", line.text)
+                let rgb = [line.color[0], line.color[1], line.color[2]];
+                let code = palette.iter().find(|(_, color)| *color == rgb);
+                // Each TooltipLine was independently styled. Reset before its
+                // prefix so a custom name's bold/italic/color cannot leak.
+                match code {
+                    Some((code, _)) => format!("§r§{code}{}", line.text),
+                    None => format!("§r{}", line.text),
+                }
             })
             .collect::<Vec<_>>()
             .join("\n")
     })
 }
+
+#[cfg(test)]
+mod tooltip_tests;
+
+#[cfg(test)]
+mod empty_cells_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(

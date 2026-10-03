@@ -21,22 +21,13 @@ impl<'a, W: CollisionWorld> ScaffoldingView<'a, W> {
             descending,
         }
     }
-
-    /// Identifies scaffold provenance without treating nearby solids as scaffolding.
-    fn is_scaffolding(&self, block: [i32; 3]) -> Result<bool, WorldQueryError> {
-        Ok(self
-            .inner
-            .block_physics(block)?
-            .layers
-            .iter()
-            .any(|facts| facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING)))
-    }
 }
 
 impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let colliders = self.inner.collision_boxes_with_provenance(query)?;
         let mut kept = Vec::with_capacity(colliders.value.len());
+        let mut identity = colliders.identity;
         for collider in colliders.value {
             let bounds = collider.aabb;
             let solid_top = !self.descending
@@ -45,21 +36,76 @@ impl<W: CollisionWorld> CollisionWorld for ScaffoldingView<'_, W> {
                 && self.player.min.x < bounds.max.x
                 && self.player.max.z > bounds.min.z
                 && self.player.min.z < bounds.max.z;
-            if !solid_top
-                && let Some(block) = collider.block
-                && self.is_scaffolding(block)?
-            {
-                continue;
+            if !solid_top && let Some(block) = collider.block {
+                let sample = self.inner.block_physics(block)?;
+                identity = identity.merge(&sample.identity)?;
+                if sample
+                    .layers
+                    .iter()
+                    .any(|facts| facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING))
+                {
+                    continue;
+                }
             }
             kept.push(collider.aabb);
         }
         Ok(CollisionQuery {
             value: kept,
-            identity: colliders.identity,
+            identity,
         })
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.inner.block_physics(block)
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    struct Conflicting;
+    impl CollisionWorld for Conflicting {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(vec![]))
+        }
+        fn collision_boxes_with_provenance(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<crate::ProvenancedCollider>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(vec![
+                crate::ProvenancedCollider {
+                    aabb: Aabb::new(crate::Vec3::ZERO, crate::Vec3::ONE),
+                    block: Some([0; 3]),
+                    runtime_id: None,
+                },
+            ]))
+        }
+        fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            let mut identity = CollisionQuery::synthetic(()).identity;
+            identity.registry.preg_sha256 = [1; 32];
+            Ok(BlockPhysicsSample {
+                identity,
+                layers: Box::new([crate::BlockPhysicsFacts {
+                    friction: 0.6,
+                    horizontal_speed_factor: 1.0,
+                    vertical_speed_factor: 1.0,
+                    fluid_height_blocks: 0.0,
+                    flags: BlockPhysicsFlags::SCAFFOLDING,
+                    surface_response: crate::SurfaceResponse::None,
+                }]),
+            })
+        }
+    }
+    #[test]
+    fn review_scaffolding_classification_must_share_collision_identity() {
+        let player = Aabb::player_at(crate::Vec3::new(0.5, 0.0, 0.5));
+        let view = ScaffoldingView::new(&Conflicting, player, true);
+        assert!(matches!(
+            view.collision_boxes(player),
+            Err(WorldQueryError::RegistryIdentityMismatch)
+        ));
     }
 }

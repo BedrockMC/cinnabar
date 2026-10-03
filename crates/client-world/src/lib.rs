@@ -22,7 +22,7 @@ pub use actor_animation::{
     AttachableRigSnapshot, AttachablesRuntime, BoneTransform, EntityRigId, HandPhase,
     ItemAnimationState, MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK,
     MAX_MOLANG_OPS_PER_ACTOR_TICK, MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK,
-    MAX_RUNTIME_BONES_PER_RIG, RenderTextureLayer, SkinRenderLayer,
+    MAX_RUNTIME_BONES_PER_RIG, MODEL_PART_ORIGIN_Y, RenderTextureLayer, SkinRenderLayer,
 };
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityKind,

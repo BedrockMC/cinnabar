@@ -1,4 +1,9 @@
 use super::*;
+use assets::gui_item::{
+    SHIELD_ALPHA_CUTOFF, SHIELD_GUI_MODEL_SCALE as GUI_MODEL_SCALE,
+    SHIELD_GUI_ROTATION_RADIANS as GUI_ROTATION_RADIANS, SHIELD_GUI_TRANSLATION as GUI_TRANSLATION,
+    SHIELD_MODEL_PART_HEIGHT as MODEL_PART_HEIGHT, SHIELD_MODEL_UNIT as MODEL_UNIT,
+};
 use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
 
 fn scalar(value: f32) -> Scalar {
@@ -102,19 +107,20 @@ fn model_bake_is_a_projected_cutout_not_its_raw_uv_sheet_or_cube_lighting() {
 
 #[test]
 fn gui_alpha_test_uses_the_sampled_half_alpha_threshold() {
+    let accepted = (SHIELD_ALPHA_CUTOFF * f32::from(u8::MAX)).ceil() as u8;
     assert!(
-        bake(&geometry(), &texture(127))
+        bake(&geometry(), &texture(accepted - 1))
             .unwrap()
             .rgba8
             .iter()
             .all(|byte| *byte == 0)
     );
     assert!(
-        bake(&geometry(), &texture(128))
+        bake(&geometry(), &texture(accepted))
             .unwrap()
             .rgba8
             .chunks_exact(4)
-            .any(|pixel| pixel[3] >= 128)
+            .any(|pixel| pixel[3] >= accepted)
     );
 }
 
@@ -153,4 +159,21 @@ fn face_uv_defaults_use_authored_dimensions_and_explicit_negative_size_is_retain
         Some([[8.0, 10.0], [6.0, 10.0], [6.0, 13.0], [8.0, 13.0]])
     );
     assert!(uv[2..].iter().all(Option::is_none));
+}
+
+#[test]
+fn review_shared_triangle_edges_blend_once() {
+    let mut pixels = vec![0; SIDE * SIDE * 4];
+    let texture = texture(128);
+    for points in [
+        [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0]],
+        [[0.0, 0.0], [4.0, 4.0], [0.0, 4.0]],
+    ] {
+        raster::triangle(&mut pixels, points, [[0.5; 2]; 3], &texture);
+    }
+    for y in 0..4 {
+        for x in 0..4 {
+            assert_eq!(pixels[(y * SIDE + x) * 4 + 3], 128, "pixel {x},{y}");
+        }
+    }
 }

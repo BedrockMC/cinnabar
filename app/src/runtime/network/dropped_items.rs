@@ -46,6 +46,8 @@ enum ModelKey {
 pub(super) struct ModelCache {
     session: u64,
     assets: Option<render::ChunkTextureAssetIdentity>,
+    /// Sprite models copy icon pixels, so a pack reload's new icons invalidate them.
+    icons: u64,
     revision: u64,
     models: Vec<DroppedItemModel>,
     layers: usize,
@@ -56,6 +58,24 @@ pub(super) struct ModelCache {
 }
 
 impl ModelCache {
+    /// Drops every model built from another session, block texture set or icon generation.
+    fn sync(
+        &mut self,
+        session: u64,
+        assets: Option<render::ChunkTextureAssetIdentity>,
+        icons: u64,
+    ) {
+        if self.session != session || self.assets != assets || self.icons != icons {
+            *self = Self {
+                session,
+                assets,
+                icons,
+                revision: self.revision.wrapping_add(1),
+                ..Self::default()
+            };
+        }
+    }
+
     fn insert(&mut self, key: ModelKey, model: Option<DroppedItemModel>) -> Option<u32> {
         let cost = match &model {
             Some(DroppedItemModel::Cube(_)) => 6,
@@ -210,15 +230,11 @@ impl DroppedItemPublisher<'_, '_> {
             return;
         };
         let cache = &mut *self.cache;
-        let assets_identity = self.textures.as_ref().map(|textures| textures.identity());
-        if cache.session != stream.actor_session_id() || cache.assets != assets_identity {
-            *cache = ModelCache {
-                session: stream.actor_session_id(),
-                assets: assets_identity,
-                revision: cache.revision.wrapping_add(1),
-                ..ModelCache::default()
-            };
-        }
+        cache.sync(
+            stream.actor_session_id(),
+            self.textures.as_ref().map(|textures| textures.identity()),
+            icons.session_icon_generation(),
+        );
         let assets = self.textures.as_ref().map(|textures| textures.assets());
         let mode = stream.network_id_mode();
         let mut instances = Vec::new();
@@ -397,5 +413,28 @@ impl DroppedItemPublisher<'_, '_> {
             &lines,
             DAYLIGHT,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An item-only pack reload keeps session and block textures but replaces icon pixels.
+    #[test]
+    fn new_session_icons_drop_cached_sprite_models() {
+        let mut cache = ModelCache::default();
+        cache.sync(1, None, 0);
+        let sprite = DroppedItemSprite {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([0; 4]),
+        };
+        let key = ModelKey::Icon(Arc::from("minecraft:apple"), 0, true);
+        cache.insert(key.clone(), Some(DroppedItemModel::NativeSprite(sprite)));
+        cache.sync(1, None, 0);
+        assert!(cache.index.contains_key(&key));
+        cache.sync(1, None, 1);
+        assert!(!cache.index.contains_key(&key) && cache.models.is_empty());
     }
 }

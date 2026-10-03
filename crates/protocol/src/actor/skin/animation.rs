@@ -67,6 +67,11 @@ pub(super) fn normalize(
         else {
             continue;
         };
+        let previous = output.iter().position(|image| image.kind == kind);
+        let released = previous.map_or(0, |index| output[index].rgba8.len());
+        let candidate_bytes = retained
+            .checked_sub(released)
+            .and_then(|retained| retained.checked_add(bytes));
         if raster.width == 0
             || raster.height == 0
             || bytes != raster.image_bytes.len()
@@ -74,14 +79,14 @@ pub(super) fn normalize(
             || image.frames < 1.0
             || image.frames > raster.height as f32
             || image.frames.fract() != 0.0
-            || retained.saturating_add(bytes) > MAX_PLAYER_LIST_SKIN_BYTES
+            || candidate_bytes.is_none_or(|total| total > MAX_PLAYER_LIST_SKIN_BYTES)
         {
             continue;
         }
-        if let Some(previous) = output.iter().position(|image| image.kind == kind) {
-            *retained -= output.remove(previous).rgba8.len();
+        if let Some(previous) = previous {
+            output.remove(previous);
         }
-        *retained += bytes;
+        *retained = candidate_bytes.expect("validated animation byte total");
         output.push(SkinAnimation {
             kind,
             width: raster.width,
@@ -98,6 +103,26 @@ pub(super) fn normalize(
 mod tests {
     use super::*;
     use valentine::bedrock::version::v1_26_51::SkinImage;
+
+    #[test]
+    fn review_animation_replacement_refunds_its_previous_atlas_before_budgeting() {
+        let image = |height, byte| AnimatedImageData {
+            skin_image: SkinImage {
+                width: 1,
+                height,
+                image_bytes: vec![byte; height as usize * 4],
+            },
+            animated_texture_type: EnumspersonaAnimatedTextureType::Body32X32,
+            frames: 1.0,
+            animation_expression: EnumspersonaAnimationExpression::Linear,
+        };
+        let mut retained = MAX_PLAYER_LIST_SKIN_BYTES - 8;
+        let images = normalize(&[image(2, 1), image(1, 2)], &mut retained);
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].height, 1);
+        assert_eq!(images[0].rgba8.as_ref(), &[2; 4]);
+        assert_eq!(retained, MAX_PLAYER_LIST_SKIN_BYTES - 4);
+    }
 
     #[test]
     fn transmitted_persona_animation_keeps_its_actual_width_and_frame_count() {

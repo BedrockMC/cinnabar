@@ -31,6 +31,7 @@ pub(super) struct MapImages {
     maps: BTreeMap<i64, RetainedMap>,
     clock: AtomicU64,
     replaced: u64,
+    invalid_rectangles: u64,
 }
 
 impl MapImages {
@@ -45,6 +46,24 @@ impl MapImages {
     }
 
     fn apply(&mut self, event: &MapDataEvent) {
+        if event
+            .start_x
+            .checked_add(event.width)
+            .is_none_or(|end| end > MAP_IMAGE_SIDE)
+            || event
+                .start_y
+                .checked_add(event.height)
+                .is_none_or(|end| end > MAP_IMAGE_SIDE)
+        {
+            self.invalid_rectangles = self.invalid_rectangles.saturating_add(1);
+            if self.invalid_rectangles.is_power_of_two() {
+                eprintln!(
+                    "ignored invalid map rectangles: {}",
+                    self.invalid_rectangles
+                );
+            }
+            return;
+        }
         let side = MAP_IMAGE_SIDE as usize;
         if !self.maps.contains_key(&event.map_id)
             && self.maps.len() >= MAX_RETAINED_MAPS
@@ -119,6 +138,21 @@ mod tests {
             height: 2,
             pixels: Arc::from(vec![value; (width * 2) as usize]),
         }
+    }
+
+    #[test]
+    fn review_map_rectangles_cannot_wrap_into_the_next_row() {
+        let mut images = MapImages::default();
+        images.apply(&event(3, 0, 1, 7));
+        let original = images.maps[&3].image.clone();
+        for start_x in [MAP_IMAGE_SIDE - 1, MAP_IMAGE_SIDE, u32::MAX] {
+            images.apply(&event(3, start_x, 2, 9));
+            assert_eq!(images.maps[&3].image, original);
+        }
+        let mut vertical = event(3, 0, 1, 9);
+        vertical.start_y = MAP_IMAGE_SIDE;
+        images.apply(&vertical);
+        assert_eq!(images.maps[&3].image, original);
     }
 
     #[test]

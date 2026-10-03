@@ -188,6 +188,7 @@ impl UiPresentationRuntime {
                 key_of(Some(match field {
                     crate::menu::MenuField::Name => MenuAction::AddName,
                     crate::menu::MenuField::Address => MenuAction::AddAddress,
+                    crate::menu::MenuField::Port => MenuAction::AddPort,
                     // Drawn by the OreUI create and edit screens, not JSON-UI.
                     crate::menu::MenuField::WorldName | crate::menu::MenuField::WorldSeed => {
                         return None;
@@ -196,6 +197,10 @@ impl UiPresentationRuntime {
             }),
             ..ViewState::default()
         };
+        let edit = self
+            .form_presentation
+            .edit_clock
+            .update(view, self.menu_seconds);
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
         let mut layers = Vec::new();
@@ -231,6 +236,7 @@ impl UiPresentationRuntime {
             };
             let art = engine::ScreenArt {
                 icons: &[],
+                edit,
                 preview: self.hud_frame.player_preview,
                 preview_view: Some(&preview_view),
                 pointer: None,
@@ -265,7 +271,7 @@ impl UiPresentationRuntime {
             }
         }
         if let Some(view) = preview_view.get() {
-            self.player_preview_view = view.quantized();
+            self.player_preview_view = view;
         }
         let Some(frame) = drawn else {
             if let Some((hits, keys)) =
