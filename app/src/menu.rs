@@ -279,6 +279,8 @@ pub(crate) struct MenuRuntime {
     local_ui: worlds_tab::LocalWorldsUi,
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
+    /// The device code whose sign-in page was last opened, so each code opens once.
+    sign_in_page_code: Option<String>,
     sign_out_requested: bool,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
@@ -732,8 +734,10 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::ToggleRenderMode => {
-                self.render_mode = self.render_mode.toggled();
-                self.render_mode_request = Some(self.render_mode);
+                if render::ENHANCED_RENDERING_ENABLED {
+                    self.render_mode = self.render_mode.toggled();
+                    self.render_mode_request = Some(self.render_mode);
+                }
             }
             // The game menu opened from the death screen returns to it.
             MenuAction::PauseResume if self.death_shown => {

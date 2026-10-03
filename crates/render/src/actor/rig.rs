@@ -9,6 +9,8 @@ mod bone_arena;
 use bone_arena::PoseMatrixCache;
 #[path = "rig/catalog.rs"]
 mod catalog;
+#[path = "rig/pack.rs"]
+mod pack;
 pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
 #[path = "rig/ids.rs"]
@@ -487,7 +489,9 @@ impl ActorRigFrameBuilder {
                 .rotate_left(5)
                 .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
         }
-        self.catalog.append(geometries, revision.max(1))
+        self.catalog.append(geometries, revision.max(1))?;
+        self.matrices = PoseMatrixCache::default();
+        Ok(())
     }
 
     /// Replaces every pack-range geometry with `geometries` (empty removes them) and
@@ -512,15 +516,13 @@ impl ActorRigFrameBuilder {
         in_range: fn(EntityRigId) -> bool,
         geometries: Vec<ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
+        if geometries.is_empty() && !self.catalog.geometries.keys().any(|id| in_range(*id)) {
+            return Ok(());
+        }
         let mut by_id = self.catalog.geometries.clone();
-        by_id.retain(|id, _| !in_range(*id));
-        by_id.extend(
-            geometries
-                .into_iter()
-                .filter(|geometry| in_range(geometry.id))
-                .map(|geometry| (geometry.id, geometry)),
-        );
+        pack::replace_range(&mut by_id, in_range, geometries);
         self.catalog = GeometryCatalog::layout(by_id)?;
+        self.matrices = PoseMatrixCache::default();
         Ok(())
     }
 
