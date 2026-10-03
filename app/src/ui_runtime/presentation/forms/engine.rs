@@ -24,6 +24,7 @@ mod item_renderer;
 mod menu_renderers;
 mod pack_catalog;
 pub(super) use pack_catalog::layer_pack_catalog;
+pub(super) mod host_edit;
 pub(super) mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
@@ -451,6 +452,7 @@ fn render_with<R: Borrow<FormRender>>(
             images: art.images,
         },
         solid_page: inputs.solid_page,
+        edit: host_edit::Target::from_frame(render, art),
         art,
         screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
         layouts,
@@ -507,6 +509,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
+    pub(super) edit: Option<host_edit::Feedback>,
 }
 
 /// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
@@ -518,6 +521,7 @@ pub(super) struct EngineOutput<'a> {
 
 /// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep order.
 struct Painter<'a> {
+    edit: Option<host_edit::Target<'a>>,
     textures: Textures<'a>,
     solid_page: u16,
     art: ScreenArt<'a>,
@@ -697,7 +701,10 @@ impl Painter<'_> {
         let clip = self.logical(&drawn.clip);
         let dest = self.logical(&drawn.dest);
         let opacity = drawn.opacity;
-        if drawn.hidden
+        if self
+            .edit
+            .is_some_and(|edit| edit.placeholder == Some(node.key.as_str()))
+            || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]
@@ -725,7 +732,12 @@ impl Painter<'_> {
             options,
         } = &node.draw
         {
+            let feedback = self
+                .edit
+                .filter(|edit| edit.text == node.key)
+                .map(|edit| edit.feedback);
             let style = TextPaint {
+                edit: feedback,
                 color: alpha(*color),
                 shadow: if *shadow {
                     self.metrics.shadow()

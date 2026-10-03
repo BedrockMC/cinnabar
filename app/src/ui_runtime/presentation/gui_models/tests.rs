@@ -140,6 +140,16 @@ fn live_pose_changes_only_geometry_and_original_skin_keeps_its_density() {
             .iter()
             .all(|batch| { batch.texture_page == (textures.dynamic_start() + SKIN_PAGE) as u16 })
     );
+    // Equal allocations reuse the frame; changed bytes at the same address refresh it.
+    presentation.set_player_preview_skin(Some(&skin.clone()), Default::default());
+    assert!(Arc::ptr_eq(&textures, &presentation.textures));
+    skin[4..8].copy_from_slice(&[65, 43, 21, 255]);
+    presentation.set_player_preview_skin(Some(&skin), Default::default());
+    assert!(!Arc::ptr_eq(&textures, &presentation.textures));
+    assert_eq!(
+        presentation.textures.pages()[presentation.textures.dynamic_start() + SKIN_PAGE].pixels(),
+        skin
+    );
     super::super::dynamic_textures::observe_session(&mut presentation, 1);
     super::super::dynamic_textures::observe_session(&mut presentation, 2);
     assert!(presentation.gui_models.skin.is_none());
