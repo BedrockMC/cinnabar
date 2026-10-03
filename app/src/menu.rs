@@ -8,6 +8,8 @@
 
 mod account;
 mod account_control;
+#[cfg(test)]
+mod address_tests;
 pub(crate) mod auth;
 mod connection;
 mod construction;
@@ -71,6 +73,13 @@ const DEFAULT_PORT: &str = "19132";
 
 /// Host and port of a saved `host:port`; a bare host gets the default port.
 pub(crate) fn split_address(address: &str) -> (String, String) {
+    let literal = address
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(address);
+    if literal.parse::<std::net::Ipv6Addr>().is_ok() {
+        return (literal.to_owned(), DEFAULT_PORT.to_owned());
+    }
     match address.rsplit_once(':') {
         Some((host, port))
             if !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) =>
