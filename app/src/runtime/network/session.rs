@@ -83,6 +83,8 @@ pub enum NetworkControlEvent {
         hardcore: bool,
         hud_rules: protocol::HudRules,
         packs: super::resource_packs::PackApplication,
+        /// Whether the server sent terrain before spawn; Dragonfly sends none until initialized.
+        terrain_before_spawn: bool,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,

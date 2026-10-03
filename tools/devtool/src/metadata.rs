@@ -17,6 +17,12 @@ struct MetadataPackage {
     name: String,
     manifest_path: PathBuf,
     dependencies: Vec<MetadataDependency>,
+    targets: Vec<MetadataTarget>,
+}
+
+#[derive(Deserialize)]
+struct MetadataTarget {
+    doctest: bool,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +68,7 @@ pub fn packages_from_metadata(json: &str) -> Result<Vec<Package>, DevtoolError> 
                 package.name,
                 root.to_string_lossy().replace('\\', "/"),
                 dependencies,
+                package.targets.iter().any(|target| target.doctest),
             ))
         })
         .collect()
@@ -70,7 +77,56 @@ pub fn packages_from_metadata(json: &str) -> Result<Vec<Package>, DevtoolError> 
 #[cfg(test)]
 mod tests {
     use super::packages_from_metadata;
-    use crate::{Selection, select_packages};
+    use crate::{Selection, TestRunner, select_packages, verification_commands};
+
+    /// The nextest supplement honors Cargo target metadata and the affected-package selection.
+    #[test]
+    fn doctest_commands_respect_target_metadata_and_selection() {
+        let packages = [
+            ("enabled", "lib", true),
+            ("disabled", "lib", false),
+            ("binary", "bin", false),
+            ("other", "lib", true),
+        ];
+        let metadata = serde_json::json!({
+            "workspace_root": "/repo",
+            "workspace_members": packages.map(|(name, _, _)| name),
+            "packages": packages.map(|(name, kind, doctest)| serde_json::json!({
+                "id": name,
+                "name": name,
+                "manifest_path": format!("/repo/{name}/Cargo.toml"),
+                "dependencies": [],
+                "targets": [{"kind": [kind], "doctest": doctest}],
+            })),
+        });
+        let packages = packages_from_metadata(&metadata.to_string()).unwrap();
+        for (selection, expected) in [
+            (
+                Selection::Workspace,
+                Some("cargo test --doc --locked -p enabled -p other"),
+            ),
+            (
+                Selection::Packages(vec!["enabled".into(), "disabled".into(), "binary".into()]),
+                Some("cargo test --doc --locked -p enabled"),
+            ),
+            (
+                Selection::Packages(vec!["disabled".into(), "binary".into()]),
+                None,
+            ),
+            (Selection::NoPackages, None),
+        ] {
+            let commands = verification_commands(&selection, TestRunner::Nextest, &packages);
+            let doctests: Vec<_> = commands
+                .iter()
+                .filter(|command| command.args.iter().any(|arg| arg == "--doc"))
+                .map(ToString::to_string)
+                .collect();
+            assert_eq!(
+                doctests,
+                expected.into_iter().map(str::to_owned).collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[test]
     fn cargo_metadata_becomes_workspace_path_dependencies() {
@@ -82,12 +138,14 @@ mod tests {
                     "id": "assets 0.1.0 (path+file:///repo/crates/assets)",
                     "name": "assets",
                     "manifest_path": "/repo/crates/assets/Cargo.toml",
+                    "targets": [{"doctest": true}],
                     "dependencies": []
                 },
                 {
                     "id": "render 0.1.0 (path+file:///repo/crates/render)",
                     "name": "render",
                     "manifest_path": "/repo/crates/render/Cargo.toml",
+                    "targets": [{"doctest": true}],
                     "dependencies": [{"name": "assets", "path": "/repo/crates/assets"}]
                 }
             ]

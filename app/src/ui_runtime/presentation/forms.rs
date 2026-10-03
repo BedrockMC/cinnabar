@@ -19,6 +19,7 @@ mod loading_screen;
 mod loading_sequence_tests;
 #[cfg(test)]
 mod loading_texture_tests;
+pub(super) mod menu_caret;
 #[cfg(test)]
 mod menu_gpu_tests;
 #[cfg(test)]
@@ -105,7 +106,6 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
-    edit_clock: engine::host_edit::Clock,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
     menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.
@@ -120,6 +120,8 @@ pub(super) struct FormPresentation {
     book_cache: Option<recipe_book::BookCache>,
     /// Last shown menu retained while Settings prepares in the background.
     ready_menu: Option<crate::menu::MenuView>,
+    /// The menu text caret's blink and its boxes' text; carried across the per-frame reset.
+    menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
     /// The bed screen's hits and pointer; carried across the per-frame reset.
@@ -417,7 +419,6 @@ impl UiPresentationRuntime {
         self.form_presentation = FormPresentation {
             engine: state.engine,
             menu_keys: state.menu_keys,
-            edit_clock: state.edit_clock,
             menu_sounds: state.menu_sounds,
             logged: state.logged,
             hud: state.hud,
@@ -426,6 +427,7 @@ impl UiPresentationRuntime {
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             ready_menu: state.ready_menu,
+            menu_caret: state.menu_caret,
             chat: state.chat,
             bed: state.bed,
             sign: state.sign,

@@ -293,20 +293,22 @@ fn missing_geometry_uses_only_an_explicit_fallback_or_no_draw_route() {
 }
 
 #[test]
-fn skin_layer_outside_the_bounded_texture_array_fails_the_frame_closed() {
+fn skin_layer_outside_the_bounded_texture_array_rejects_only_that_actor() {
     let mut scene = ActorRenderScene::default();
     let mut actor = diagnostic_submission(1, 1);
     actor.texture_layer = 1;
 
+    let pixels: Arc<[u8]> = vec![255_u8; STANDARD_SKIN_BYTES].into();
     let frame = scene.update_rigs(
         0.5,
         None,
-        [actor],
-        Arc::from(vec![255_u8; STANDARD_SKIN_BYTES]),
+        [actor, diagnostic_submission(2, 1)],
+        Arc::clone(&pixels),
     );
 
-    assert!(frame.rig.instances.is_empty());
-    assert!(frame.skins_rgba8.is_empty());
+    assert_eq!(frame.rig.instances.len(), 1);
+    assert_eq!(frame.rig.manifest[0].identity.runtime_id, 2);
+    assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
     assert_eq!(frame.rig.rejects.invalid_geometry, 1);
 }
 

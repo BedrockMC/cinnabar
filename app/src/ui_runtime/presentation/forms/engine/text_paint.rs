@@ -15,7 +15,7 @@ use super::super::super::{TextMetrics, UiPresentationError, rect};
 use super::Painter;
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
-pub(super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
+pub(in super::super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 
 #[derive(Clone)]
 pub(super) struct TextPaint {
@@ -82,7 +82,7 @@ fn label_request<'a>(
 }
 
 /// Rounded up, so text laid out at its own measured width does not wrap.
-pub(super) fn width_64(logical: f64) -> u32 {
+pub(in super::super) fn width_64(logical: f64) -> u32 {
     (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0).ceil() as u32
 }
 
@@ -161,11 +161,6 @@ impl Painter<'_> {
         } else {
             Cow::Borrowed(text)
         };
-        let text = if style.edit.is_some_and(|edit| edit.caret && !edit.selected) {
-            Cow::Owned(format!("{text}_"))
-        } else {
-            text
-        };
         if text.is_empty() {
             return Ok(());
         }
@@ -218,13 +213,34 @@ impl Painter<'_> {
                 shadow: style.shadow,
             }),
         );
-        if style.edit.is_some_and(|edit| edit.selected) {
+        if let Some(selection) = style.edit.and_then(|edit| edit.selection) {
+            let mut edges = [0.0; 2];
+            for (edge, byte) in edges.iter_mut().zip(selection) {
+                let byte = super::super::menu_caret::caret_byte(&text, byte);
+                let prefix = &text[..byte];
+                if !prefix.is_empty() {
+                    *edge = self
+                        .layouts
+                        .layout(TextLayoutRequest {
+                            text: prefix,
+                            ..request
+                        })
+                        .map_err(UiPresentationError::Text)?
+                        .size_64()[0] as f32
+                        / 64.0;
+                }
+            }
             self.push(
                 UiVisual::InvertedSprite {
                     texture_page: self.solid_page,
                     uv: [0, 0, 1, 1],
                 },
-                [dest[0], dest[1], dest[0] + width, dest[1] + height],
+                [
+                    dest[0] + edges[0],
+                    dest[1],
+                    dest[0] + edges[1],
+                    dest[1] + height,
+                ],
             )?;
         }
         Ok(())

@@ -3,6 +3,10 @@ use std::sync::OnceLock;
 const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_50.tsv");
 static CAPACITIES: OnceLock<Box<[(&'static str, u8)]>> = OnceLock::new();
 
+/// The stack size `Item::Item` gives every item until its definition says otherwise
+/// (`mMaxStackSize`, 64): a server block's own `BlockItem` keeps it.
+pub const ITEM_DEFAULT_MAX_STACK_SIZE: u8 = 64;
+
 /// Returns the measured vanilla capacity for a bare retail item at metadata zero.
 ///
 /// This is a protocol-2168 baseline, not a negotiated inventory rule. Runtime consumers must

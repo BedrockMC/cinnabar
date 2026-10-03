@@ -5,6 +5,9 @@ members = [
     "crates/assets",
     "crates/bridge",
     "crates/client-world",
+    "crates/experience-sdk",
+    "crates/experience-runtime",
+    "examples/experiences/probe",
     "crates/input",
     "crates/json-ui",
     "crates/meshing",
@@ -45,6 +48,9 @@ thiserror = "2"
 rayon = "1.11"
 sha2 = "=0.10.9"
 uuid = { version = "1", features = ["v4"] }
+wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
+wit-bindgen = "=0.57.1"
+wit-component = "=0.247.0"
 
 
 [profile.dev]

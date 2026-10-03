@@ -71,15 +71,27 @@ impl LocalWorldAction {
 }
 
 /// The menu's side of the local-world screens: the mirrored view, queued presses and the
-/// text typed into the name and seed fields.
-#[derive(Debug, Default)]
+/// name and seed fields' editors.
+#[derive(Debug)]
 pub(super) struct LocalWorldsUi {
     view: WorldsView,
     actions: Vec<LocalWorldAction>,
-    pub(super) name: String,
-    pub(super) seed: String,
+    pub(super) name: ui::ChatEditor,
+    pub(super) seed: ui::ChatEditor,
     /// The world being joined, for the loading screen's connect stage.
     joining: Option<String>,
+}
+
+impl Default for LocalWorldsUi {
+    fn default() -> Self {
+        Self {
+            view: WorldsView::default(),
+            actions: Vec::new(),
+            name: super::input::field_editor(MenuField::WorldName),
+            seed: super::input::field_editor(MenuField::WorldSeed),
+            joining: None,
+        }
+    }
 }
 
 impl MenuRuntime {
@@ -140,12 +152,18 @@ impl MenuRuntime {
         let mut view = self.local_ui.view.clone();
         match view.screen {
             Screen::Create => {
-                view.create.name.clone_from(&self.local_ui.name);
-                view.create.seed_text.clone_from(&self.local_ui.seed);
+                self.local_ui
+                    .name
+                    .as_str()
+                    .clone_into(&mut view.create.name);
+                self.local_ui
+                    .seed
+                    .as_str()
+                    .clone_into(&mut view.create.seed_text);
             }
             Screen::Edit => {
                 if let Some(edit) = &mut view.edit {
-                    edit.name.clone_from(&self.local_ui.name);
+                    self.local_ui.name.as_str().clone_into(&mut edit.name);
                 }
             }
             _ => {}
@@ -169,12 +187,20 @@ impl MenuRuntime {
         let ui = &self.local_ui;
         let view = &ui.view;
         match view.screen {
-            Screen::Create if ui.name != view.create.name || ui.seed != view.create.seed_text => {
-                worlds.input(Input::SetName(ui.name.clone()));
-                worlds.input(Input::SetSeed(ui.seed.clone()));
+            Screen::Create
+                if ui.name.as_str() != view.create.name
+                    || ui.seed.as_str() != view.create.seed_text =>
+            {
+                worlds.input(Input::SetName(ui.name.as_str().to_owned()));
+                worlds.input(Input::SetSeed(ui.seed.as_str().to_owned()));
             }
-            Screen::Edit if view.edit.as_ref().is_some_and(|edit| edit.name != ui.name) => {
-                worlds.input(Input::SetEditName(ui.name.clone()));
+            Screen::Edit
+                if view
+                    .edit
+                    .as_ref()
+                    .is_some_and(|edit| edit.name != ui.name.as_str()) =>
+            {
+                worlds.input(Input::SetEditName(ui.name.as_str().to_owned()));
             }
             _ => {}
         }
@@ -184,12 +210,12 @@ impl MenuRuntime {
     fn load_local_text(&mut self, view: &WorldsView) {
         match view.screen {
             Screen::Create => {
-                self.local_ui.name.clone_from(&view.create.name);
-                self.local_ui.seed.clone_from(&view.create.seed_text);
+                self.local_ui.name.set_text(&view.create.name);
+                self.local_ui.seed.set_text(&view.create.seed_text);
             }
             Screen::Edit => {
                 if let Some(edit) = &view.edit {
-                    self.local_ui.name.clone_from(&edit.name);
+                    self.local_ui.name.set_text(&edit.name);
                 }
             }
             _ => {}
@@ -201,7 +227,6 @@ impl MenuRuntime {
             )
         {
             self.field = None;
-            self.text_selected = false;
         }
     }
 
@@ -392,10 +417,14 @@ mod tests {
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::BeginCreate));
         menu.sync_local_worlds(&mut worlds, false);
         assert_eq!(menu.view().local.screen, Screen::Create);
-        assert_eq!(menu.local_ui.name, "My World", "the form's text loads");
+        assert_eq!(
+            menu.local_ui.name.as_str(),
+            "My World",
+            "the form's text loads"
+        );
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::NameField));
         assert_eq!(menu.field, Some(MenuField::WorldName));
-        menu.local_ui.name = "Castle".to_owned();
+        menu.local_ui.name.set_text("Castle");
         menu.activate(MenuAction::LocalWorld(LocalWorldAction::GameMode(
             GameMode::Creative,
         )));
