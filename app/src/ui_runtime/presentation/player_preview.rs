@@ -18,7 +18,7 @@ pub(crate) use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
-pub(crate) use skin::{local_preview_skin, validated_ui_skin};
+pub(crate) use skin::local_preview_skin;
 
 impl UiPresentationRuntime {
     /// Retain the CPU quad. Only exact current-render coverage may omit it in
