@@ -17,7 +17,7 @@ const MAX_DEPTH: usize = 256;
 pub(crate) const FACTORY_SCOPE: &str = "factory_scope";
 /// A digest of [`FACTORY_SCOPE`], so equal scopes are recognised without comparing.
 pub(crate) const FACTORY_SCOPE_KEY: &str = "factory_scope_key";
-const MAX_NODES: usize = 200_000;
+pub(crate) const MAX_NODES: usize = 200_000;
 
 /// Drives resolution over one [`Catalog`], accumulating diagnostics.
 pub struct Resolver<'a> {

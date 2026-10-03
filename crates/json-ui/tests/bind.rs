@@ -680,3 +680,18 @@ fn cyclic_factory_references_skip_only_the_recursive_creation() {
         );
     }
 }
+
+#[test]
+fn review_templated_grid_creation_checks_the_node_budget() {
+    let template = ctrl("cell", Some("panel"), json!({}));
+    let library = StubLibrary(BTreeMap::from([("a.cell".to_owned(), template)]));
+    for dims in [json!([5000, 1]), json!([i64::MAX, 3])] {
+        let grid = ctrl(
+            "grid",
+            Some("grid"),
+            json!({"grid_dimensions":dims, "grid_item_template":"a.cell"}),
+        );
+        let bound = bind(&grid, &DataSource::default(), &library);
+        assert!(bound.children.len() < 5000);
+    }
+}

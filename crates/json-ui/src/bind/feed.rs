@@ -92,7 +92,10 @@ impl<'a> Binder<'a> {
         };
         let mut nodes = Vec::new();
         let mut siblings = crate::layout::SiblingKeys::default();
-        for item in items {
+        for item in items.iter().take(MAX_FACTORY_ITEMS) {
+            if !self.can_create() {
+                break;
+            }
             let (reference, vars) = match &factory.control_name {
                 Some(template) => (template.clone(), BTreeMap::new()),
                 None => match factory.control_ids.get(&item.control_id) {
@@ -175,6 +178,9 @@ impl<'a> Binder<'a> {
         };
         let mut nodes = Vec::with_capacity(roles.len());
         for (index, role) in roles.iter().enumerate() {
+            if !self.can_create() {
+                break;
+            }
             let role = role.as_deref();
             let Some(reference) = select_control(factory, role) else {
                 self.note(format!(
@@ -257,7 +263,7 @@ fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
 }
 
 /// Most instances a factory makes from a bound or literal count.
-const MAX_FACTORY_ITEMS: usize = 4096;
+pub(crate) const MAX_FACTORY_ITEMS: usize = 4096;
 
 /// Roles for a bound `#collection_length`: one per control id, or that many
 /// of a `control_name` template.
