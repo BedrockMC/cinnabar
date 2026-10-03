@@ -79,6 +79,8 @@ pub(crate) struct HudFrame {
     /// Cached software-rendered 3-D local avatar shown by the personal
     /// inventory screen.
     pub player_preview: Option<IconRef>,
+    /// The native HUD hold timer is active. Settings are applied during binding.
+    pub paper_doll_visible: bool,
     /// Skin-backed first-person arm carriers. These are separate from the
     /// item atlas so an empty hand still has the same silhouette as the
     /// player's authoritative skin.
