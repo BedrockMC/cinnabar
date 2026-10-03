@@ -531,12 +531,13 @@ mod tests {
             },
             PrimaryWindow,
         ));
-        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-        keys.press(KeyCode::ShiftLeft);
-        keys.press(KeyCode::KeyW);
-        keys.release(KeyCode::ShiftLeft);
-        keys.release(KeyCode::KeyW);
-        drop(keys);
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::ShiftLeft);
+            keys.press(KeyCode::KeyW);
+            keys.release(KeyCode::ShiftLeft);
+            keys.release(KeyCode::KeyW);
+        }
         app.update();
         let pending = app.world().resource::<PendingDeviceFrame>();
         let keyboard = pending
