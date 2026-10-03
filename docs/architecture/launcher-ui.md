@@ -18,10 +18,11 @@ still a temporary ledger copy, restored through the existing guard after renderi
 it is not another authoritative inventory owner.
 
 `ui::IconRef` is now the common icon value used by launcher views and presentation.
-The view-radius cap is defined once in `render-api` and reexported by
-`client-world`. Shared equipment geometry is in `render::equipment`; both the app's
-world presentation and the UI preview use those same formulas. The crossbow icon
-frame helper is in `inventory` and remains shared with item-use prediction.
+The view-radius cap is defined once in `render-api` and reexported by the
+`chunk-pipeline` facade. Shared equipment geometry is in `render::equipment`; both
+the app's world presentation and the UI preview use those same formulas. The
+crossbow icon frame helper is in `inventory` and remains shared with item-use
+prediction.
 
 ## Temporary seams and ordering
 
@@ -46,9 +47,15 @@ remain synchronous:
   the original audio phase.
 
 `client-ui` still depends on `render` for existing draw and preview types, and on
-`client-world` for existing read-only world queries. Its extension chrome retains
+`chunk-pipeline` for existing read-only world queries. The app and client UI
+currently name that dependency `client-world` to preserve their `WorldStream`
+callers. `player-state` depends directly on the smaller `client-world` crate for
+`LocalPlayerFacts`; it does not depend on the stream coordinator. UI compilation
+fixtures use `pack-compiler`, while `asset-compiler` remains the offline CLI.
+The gate keeps reusable compilation out of UI production and out of launcher
+models, including their test dependencies. The UI's extension chrome retains
 `mod-host` and `server-experience`. These are explicit temporary dependencies in
-the policy, to be narrowed by the later presentation/session migrations. Launcher
+the policy, to be narrowed by later presentation/session migrations. Launcher
 models and player state have no Bevy or renderer dependency.
 
 ## Enforcement
@@ -61,7 +68,9 @@ movement access to UI (including the new crate name).
 
 Shared app test fixtures require client-ui's non-default `test-support` feature.
 The gate rejects that feature in production dependencies or feature forwarding,
-including renamed and workspace-inherited dependencies. Module alias checks are
+including renamed and workspace-inherited dependencies. The same rule protects
+`publication-test-support` on `chunk-pipeline` and `render`, including the
+`client-world` dependency alias. Module alias checks are
 scoped to each owning Cargo crate so an identically named alias in another crate
 cannot hide a forbidden edge. Protected production modules cannot use `#[path]`
 remapping, including conditional attributes; test-only remaps remain allowed.
@@ -73,10 +82,12 @@ these cases.
 ## Behavior evidence and references
 
 This is a relocation of existing behavior, not a new parity claim. The source
-migration audit retains all 624 original UI test names and all 216 launcher,
-local-world, store and installation test names. Tests needing app resources or
-services remain app integration tests; pure projections and reducers move with
-their owner. The launcher constructor comparison checks that shared view defaults
+migration audit retained all 624 original UI test names and all 216 launcher,
+local-world, store and installation test names. Later upstream audit deletions,
+consolidations and fixture guards are preserved at their moved locations. Tests
+needing app resources or services remain app integration tests; pure projections
+and reducers move with their owner. The launcher constructor comparison checks
+that shared view defaults
 still match the actual runtime for both visible and hidden menus.
 
 The screen-policy witnesses retain the vanilla pack's settings, including the
