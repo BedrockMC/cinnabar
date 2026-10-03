@@ -10,10 +10,11 @@ use super::super::{
 use super::{
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS,
-    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
-    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
-    MAX_MOLANG_OPS,
+    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
+    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
+    MAX_ENTITY_RIG_GEOMETRIES, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
+    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS,
 };
 
 #[derive(Deserialize)]
@@ -42,8 +43,18 @@ struct EntityCatalogCountProbe {
     rig_controllers: SequenceCount,
     item_visuals: SequenceCount,
     item_visual_aliases: SequenceCount,
-    #[serde(rename = "render")]
-    _render: de::IgnoredAny,
+    render: RenderCountProbe,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenderCountProbe {
+    layers: SequenceCount,
+    slots: SequenceCount,
+    candidates: SequenceCount,
+    visibility: SequenceCount,
+    #[serde(default)]
+    geometries: SequenceCount,
 }
 
 #[derive(Default)]
@@ -303,6 +314,11 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         (counts.rig_geometries.0, MAX_ENTITY_RIG_GEOMETRIES),
         (counts.rig_animations.0, MAX_ENTITY_RIG_ANIMATIONS),
         (counts.rig_controllers.0, MAX_ENTITY_RIG_CONTROLLERS),
+        (counts.render.layers.0, MAX_ENTITY_RENDER_LAYERS),
+        (counts.render.slots.0, MAX_ENTITY_RENDER_SLOTS),
+        (counts.render.candidates.0, MAX_ENTITY_RENDER_CANDIDATES),
+        (counts.render.visibility.0, MAX_ENTITY_RENDER_VISIBILITY),
+        (counts.render.geometries.0, MAX_ENTITY_RENDER_CANDIDATES),
         (counts.item_visuals.0, MAX_ITEM_VISUALS),
         (counts.item_visual_aliases.0, MAX_ITEM_VISUAL_ALIASES),
     ];
@@ -320,4 +336,41 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         counts.rig_bindings.0,
         counts.item_visuals.0,
     ])
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_render_arrays_are_bounded_before_payload_deserialization() {
+        let mut root = serde_json::Map::new();
+        root.insert("block_visual_count".into(), serde_json::json!(0));
+        for field in [
+            "sources",
+            "symbols",
+            "geometries",
+            "animation_clips",
+            "animation_channels",
+            "animation_keyframes",
+            "molang_symbols",
+            "molang_expressions",
+            "molang_ops",
+            "molang_collections",
+            "molang_collection_items",
+            "controllers",
+            "controller_states",
+            "controller_animations",
+            "controller_transitions",
+            "rig_bindings",
+            "rig_geometries",
+            "rig_animations",
+            "rig_controllers",
+            "item_visuals",
+            "item_visual_aliases",
+        ] {
+            root.insert(field.into(), serde_json::json!([]));
+        }
+        root.insert("render".into(), serde_json::json!({"layers":vec![serde_json::Value::Null; super::super::MAX_ENTITY_RENDER_LAYERS+1], "slots":[],"candidates":[],"visibility":[]}));
+        assert!(payload_counts(&serde_json::to_vec(&root).unwrap()).is_err());
+    }
 }

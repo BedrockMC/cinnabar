@@ -133,6 +133,11 @@ pub(crate) fn prepare_ui_runtime(
                 diagnostics_frame_generation: diagnostics_input.frame_generation(),
                 snapshot: visibility_diagnostics.snapshot(),
                 visible_rendered: visibility.visible_rendered,
+                local_terrain_ready: loading
+                    && client_world
+                        .stream
+                        .as_ref()
+                        .is_some_and(client_world::WorldStream::local_terrain_ready),
                 cohort_target_complete: frame_poll.cohort.map_or_else(
                     // Outside acceptance runs the cohort is only scanned while loading, so a
                     // sparse view (a Flat world) can still release the loading screen.

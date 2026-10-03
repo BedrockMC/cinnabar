@@ -557,6 +557,11 @@ impl ActorRenderScene {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
             return &self.frame;
         }
+        let skins_rgba8 = if rig.instances.is_empty() {
+            Arc::from([])
+        } else {
+            skins_rgba8
+        };
         let compatibility_instances = rig
             .instances
             .iter()

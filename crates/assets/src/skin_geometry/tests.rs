@@ -133,3 +133,14 @@ fn unusable_models_are_rejected() {
         Err(SkinGeometryError::Json)
     );
 }
+
+#[test]
+fn review_malformed_siblings_do_not_hide_a_usable_skin_geometry() {
+    for siblings in [
+        serde_json::json!([{}, {"description":{"identifier":"geometry.npc"},"bones":[{"name":"body"}]}]),
+        serde_json::json!([{"description":{"identifier":"geometry.npc"},"bones":[{"name":"body"}]}, {}]),
+    ] {
+        let source = serde_json::json!({"minecraft:geometry":siblings}).to_string();
+        assert!(parse_skin_geometry(PATCH, &source).unwrap().is_some());
+    }
+}

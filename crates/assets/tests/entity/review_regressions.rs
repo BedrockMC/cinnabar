@@ -467,3 +467,23 @@ fn programs_validate_operand_kinds_branch_depths_and_loop_frames() {
         2,
     ));
 }
+
+#[test]
+fn review_rig_scale_rejects_nonfinite_scalar_encodings() {
+    for value in [f32::NAN, f32::INFINITY] {
+        assert_mutation_rejected(|c| {
+            c.rig_bindings[0].scale =
+                serde_json::from_value(serde_json::json!(value.to_bits())).unwrap()
+        });
+    }
+}
+
+#[test]
+fn review_molang_rejects_unbounded_backward_jumps() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.molang_ops = vec![MolangOp::Jump(0)].into();
+    compiled.molang_expressions[0].first_op = 0;
+    compiled.molang_expressions[0].op_count = 1;
+    compiled.molang_expressions[0].max_stack = 0;
+    assert!(compiled.validate().is_err());
+}

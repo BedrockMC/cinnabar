@@ -45,38 +45,15 @@ pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
     let resident_allocations = resident_allocations
         .into_iter()
         .filter(|allocation| allocation.tint_identity == active_tint_identity)
-        .filter(|allocation| {
-            let (Some(liquid), Some(lighting)) = (
-                allocation.liquid_range.as_ref(),
-                allocation.liquid_lighting_range.as_ref(),
-            ) else {
-                return false;
-            };
-            !liquid.is_empty()
-                && !lighting.is_empty()
-                && liquid.start % 4 == 0
-                && liquid.end % 4 == 0
-                && lighting.start.is_multiple_of(2)
-                && lighting.end.is_multiple_of(2)
-                && liquid.end.saturating_sub(liquid.start) / 4
-                    == lighting.end.saturating_sub(lighting.start) / 2
-        })
         .collect::<Vec<_>>();
     let retired_allocations = retired_allocations
         .into_iter()
         .filter(|allocation| allocation.tint_identity == active_tint_identity)
         .collect::<Vec<_>>();
     snapshot.key.visible_allocations.iter().all(|identity| {
-        let active = resident_allocations.iter().any(|allocation| {
-            let liquid = allocation
-                .liquid_range
-                .as_ref()
-                .expect("resident allocations retain a liquid range");
-            allocation.key == identity.key
-                && allocation.metadata_index == identity.metadata_index
-                && liquid.start == identity.liquid_range.start
-                && liquid.end >= identity.liquid_range.end
-        });
+        let active = resident_allocations
+            .iter()
+            .any(|allocation| transparent_resident_allocation_contains(identity, allocation));
         active
             || retired_allocations.iter().any(|allocation| {
                 allocation.key == identity.key

@@ -132,10 +132,15 @@ pub(crate) fn natural(
     width: Option<f64>,
 ) -> [f64; 2] {
     let text = text(control);
-    let text = if localizes(control) {
-        env.text.localize(&text)
+    let text = if text.is_empty() && is_editable(control) {
+        "_"
     } else {
-        std::borrow::Cow::Borrowed(text.as_str())
+        &text
+    };
+    let text = if localizes(control) {
+        env.text.localize(text)
+    } else {
+        std::borrow::Cow::Borrowed(text)
     };
     env.text.named_label(
         &text,
@@ -147,6 +152,17 @@ pub(crate) fn natural(
         width,
         LabelShape::of(control),
     )
+}
+
+/// The property field identifies the label written by vanilla's text edit component.
+pub(crate) fn is_editable(control: &ResolvedControl) -> bool {
+    is_label(control)
+        && control
+            .properties
+            .get("property_bag")
+            .and_then(|bag| bag.get("#property_field"))
+            .and_then(Value::as_str)
+            == Some("#item_name")
 }
 
 /// Whether `control` draws text: a `label` or a `label_cycler`.

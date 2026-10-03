@@ -1,0 +1,256 @@
+//! Offline menu frames through the native GPU and production UI pass.
+use super::{pack_harness, panorama, play_flow_snapshots};
+use crate::menu::MenuScreen;
+use bevy::{
+    asset::AssetPlugin,
+    camera::{CameraPlugin, RenderTarget},
+    core_pipeline::{CorePipelinePlugin, tonemapping::Tonemapping},
+    mesh::MeshPlugin,
+    prelude::*,
+    render::{
+        RenderApp, RenderPlugin,
+        gpu_readback::{Readback, ReadbackComplete},
+        render_resource::*,
+        renderer::RenderDevice,
+    },
+    window::WindowPlugin,
+};
+use std::{sync::Arc, time::Instant};
+
+const SIZE: [u32; 2] = [1280, 720];
+#[derive(Resource, Default)]
+struct Captured(Vec<u8>);
+
+/// Builds an offscreen camera with the same retained UI and panorama passes as startup.
+fn app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(WindowPlugin {
+            primary_window: None,
+            ..default()
+        })
+        .add_plugins(AssetPlugin::default())
+        .add_plugins(RenderPlugin {
+            synchronous_pipeline_compilation: true,
+            ..default()
+        })
+        .add_plugins((
+            ImagePlugin::default(),
+            MeshPlugin,
+            CameraPlugin,
+            CorePipelinePlugin,
+        ))
+        .add_plugins((render::UiRenderPlugin, render::PanoramaRenderPlugin));
+    let mut image = Image::new_target_texture(
+        SIZE[0],
+        SIZE[1],
+        TextureFormat::Rgba8Unorm,
+        Some(TextureFormat::Rgba8UnormSrgb),
+    );
+    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let image = app.world_mut().resource_mut::<Assets<Image>>().add(image);
+    app.world_mut().spawn((
+        Camera3d::default(),
+        Camera::default(),
+        RenderTarget::Image(image.clone().into()),
+        Msaa::Off,
+        Tonemapping::None,
+    ));
+    app.init_resource::<Captured>();
+    app.world_mut().spawn(Readback::texture(image)).observe(
+        |event: On<ReadbackComplete>, mut capture: ResMut<Captured>| {
+            capture.0.clone_from(&event.data);
+        },
+    );
+    let mut scene = app.world_mut().resource_mut::<render::PanoramaScene>();
+    scene.set_game_visible(false);
+    scene.set_faces(panorama::built_in_faces().map(Arc::new));
+    scene.show(Some(panorama::launcher_view(
+        0.0,
+        SIZE[0] as f32 / SIZE[1] as f32,
+        [0.0; 4],
+    )));
+    app.finish();
+    app.cleanup();
+    app
+}
+
+#[test]
+#[ignore = "offline native GPU menu timings and snapshots"]
+fn menu_frames_on_native_gpu() {
+    let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
+    let dir = pack_harness::scratch_dir("gpu-menu");
+    let mut view = play_flow_snapshots::fixture_view(&dir);
+    let mut app = app();
+    let mut runtime = pack_harness::menu_runtime();
+    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    for (name, screen) in [
+        ("home", MenuScreen::Home),
+        ("inbox", MenuScreen::Inbox),
+        ("play", MenuScreen::Play),
+        ("servers", MenuScreen::Servers),
+        ("edit", MenuScreen::AddServer),
+        ("settings", MenuScreen::Settings),
+        ("loading", MenuScreen::Home),
+    ] {
+        view.screen = screen;
+        view.editing = (screen == MenuScreen::AddServer).then_some(0);
+        if name == "loading" {
+            presentation.set_menu_view(None);
+            presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
+            runtime.set_server_ui(pack_harness::env_pack().map(Arc::new));
+            runtime.set_session_glyphs(pack_harness::env_glyphs());
+            app.world_mut()
+                .resource_mut::<render::PanoramaScene>()
+                .show(None);
+        }
+        let mut samples = Vec::new();
+        let mut phases = [std::time::Duration::ZERO; 4];
+        let mut geometry = (0, 0);
+        for frame in 0..40 {
+            let started = Instant::now();
+            presentation.sync_player_preview(
+                (name != "loading").then_some(skin.rgba8.as_ref()),
+                Default::default(),
+                name != "loading",
+                false,
+                frame as f64 * 0.016,
+            );
+            view.profile_icon = presentation.player_preview_icon();
+            if name != "loading" {
+                presentation.sync_menu_artwork(super::super::menu_artwork::view_paths(&view));
+                presentation.set_menu_view(Some(view.clone()));
+            }
+            let preview_done = Instant::now();
+            let input = presentation
+                .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .unwrap();
+            let paint_done = Instant::now();
+            geometry = (input.vertices.len(), input.batches.len());
+            app.world_mut()
+                .resource_mut::<render::UiRenderScene>()
+                .publish(input, &stats)
+                .unwrap();
+            let published = Instant::now();
+            app.update();
+            app.sub_app(RenderApp)
+                .world()
+                .resource::<RenderDevice>()
+                .poll(wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            if frame >= 10 {
+                samples.push(started.elapsed());
+                for (total, elapsed) in phases.iter_mut().zip([
+                    preview_done - started,
+                    paint_done - preview_done,
+                    published - paint_done,
+                    published.elapsed(),
+                ]) {
+                    *total += elapsed;
+                }
+            }
+        }
+        samples.sort();
+        eprintln!(
+            "native-menu {name} median={:.3}ms p95={:.3}ms",
+            samples[15].as_secs_f64() * 1000.0,
+            samples[28].as_secs_f64() * 1000.0
+        );
+        eprintln!(
+            "native-menu {name} mean preview/build/publish/GPU={:?}ms vertices={} batches={}",
+            phases.map(|time| time.as_secs_f64() * 1000.0 / 30.0),
+            geometry.0,
+            geometry.1
+        );
+        if let Some(output) = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR") {
+            let output = std::path::PathBuf::from(output);
+            std::fs::create_dir_all(&output).unwrap();
+            image::RgbaImage::from_raw(
+                SIZE[0],
+                SIZE[1],
+                app.world().resource::<Captured>().0.clone(),
+            )
+            .expect("GPU readback")
+            .save(output.join(format!("native-{name}.png")))
+            .unwrap();
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Compares submitted GPU pages with the CPU publication while pack/art owners change.
+#[test]
+#[ignore = "offline native GPU Zeqa page ordering"]
+fn zeqa_late_pages_match_the_published_frame_on_gpu() {
+    let pack = pack_harness::env_pack().expect("CINNABAR_FORM_PACK_DIR");
+    let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
+    let mut runtime = pack_harness::menu_runtime();
+    let root = pack_harness::scratch_dir("zeqa-gpu");
+    let view = play_flow_snapshots::fixture_view(&root);
+    let paths = super::super::menu_artwork::view_paths(&view);
+    presentation.sync_menu_artwork(paths.clone());
+    presentation.set_menu_view(Some(view));
+    let mut app = app();
+    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    for phase in 0..3 {
+        if phase != 0 {
+            presentation.set_menu_view(None);
+            presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
+            runtime.begin_session(phase + 1);
+            runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
+                pack.clone(),
+            ))));
+            runtime.set_session_glyphs(pack_harness::env_glyphs());
+        }
+        for frame in 0..16 {
+            presentation.sync_menu_artwork(
+                paths
+                    .iter()
+                    .take(frame % (paths.len() + 1))
+                    .cloned()
+                    .collect(),
+            );
+            presentation.sync_player_preview(None, Default::default(), phase == 0, false, 0.0);
+            let input = presentation
+                .build(&runtime, 0, SIZE, ui::DpiScale::new(1.0).unwrap())
+                .unwrap();
+            let expected = (phase != 0).then(|| super::snapshot::rasterize(&input));
+            app.world_mut()
+                .resource_mut::<render::UiRenderScene>()
+                .publish(input, &stats)
+                .unwrap();
+            app.world_mut()
+                .resource_mut::<render::PanoramaScene>()
+                .show(None);
+            // Readback completion is delivered to the main world on the following update.
+            for _ in 0..3 {
+                app.update();
+                app.sub_app(RenderApp)
+                    .world()
+                    .resource::<RenderDevice>()
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+            }
+            if let Some(expected) = expected {
+                let actual = &app.world().resource::<Captured>().0;
+                for y in (0..SIZE[1]).step_by(19) {
+                    for x in (0..SIZE[0]).step_by(23) {
+                        let offset = ((y * SIZE[0] + x) * 4) as usize;
+                        for channel in 0..3 {
+                            assert!(
+                                actual[offset + channel]
+                                    .abs_diff(expected.get_pixel(x, y)[channel])
+                                    <= 2,
+                                "phase {phase} frame {frame} GPU pixel {x},{y} channel {channel}: {} != {}",
+                                actual[offset + channel],
+                                expected.get_pixel(x, y)[channel]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

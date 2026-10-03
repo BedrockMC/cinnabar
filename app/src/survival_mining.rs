@@ -475,6 +475,9 @@ impl SurvivalMiningRuntime {
             }
             if ticker.attach_survival_mining(tick, payload) {
                 broken.into_iter().for_each(&mut predict_break);
+                if broken.is_some() {
+                    break;
+                }
             } else {
                 // A tick that cannot carry its actions desynchronizes the server's view.
                 self.machine.interrupt();

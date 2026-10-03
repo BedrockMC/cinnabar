@@ -5,22 +5,28 @@ use std::{fs, path::Path};
 /// Removes obsolete revisions after the newest preview has been acknowledged.
 pub(super) fn prune(root: &Path, catalog: &mut Catalog) -> Result<(), LibraryError> {
     let mut candidate = catalog.clone();
+    let mut failure = None;
     candidate.retained.retain(|pack| {
-        candidate
+        if candidate
             .active
             .iter()
             .any(|active| active.id == pack.id && active.revision == pack.revision)
+        {
+            return true;
+        }
+        match fs::remove_file(root.join(pack.filename())) {
+            Ok(()) => false,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => {
+                failure.get_or_insert(error);
+                true
+            }
+        }
     });
     atomic_write(&root.join(CATALOG_FILE), &encode_catalog(&candidate)?)?;
-    for pack in &catalog.retained {
-        if !candidate
-            .retained
-            .iter()
-            .any(|kept| kept.id == pack.id && kept.revision == pack.revision)
-        {
-            let _ = fs::remove_file(root.join(pack.filename()));
-        }
-    }
     *catalog = candidate;
-    Ok(())
+    match failure {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
 }

@@ -140,7 +140,8 @@ fn writes<'a>(
     let mut out: Vec<(&'static str, bool)> = Vec::new();
     match control.control_type.as_deref().unwrap_or("") {
         "button" | "edit_box" => {
-            let selected = bound_bool(control, "#text_edit_selected") == Some(true);
+            let selected = bound_bool(control, "#text_edit_selected") == Some(true)
+                || (control.control_type.as_deref() == Some("edit_box") && focused);
             if locked {
                 let has_locked = prop_str(control, "locked_control").is_some();
                 out.extend([
