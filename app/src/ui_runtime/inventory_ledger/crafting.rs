@@ -537,19 +537,24 @@ impl IngredientMatcher<'_> {
         if u16::from(self.counts[ingredient]) * u16::from(self.crafts) > u16::from(u8::MAX) {
             return false;
         }
-        for cell in 0..self.cells.len() {
-            if seen[cell]
-                || !self.cells[cell].as_ref().is_some_and(|grid| {
-                    self.recipe
-                        .ingredient_accepts(ingredient, &grid.item(), self.crafts)
-                })
-            {
-                continue;
-            }
-            seen[cell] = true;
-            if occupied[cell].is_none_or(|previous| self.assign(previous, occupied, seen)) {
-                occupied[cell] = Some(ingredient);
-                return true;
+        // Keep the ordinary first-free assignment; move earlier ingredients only
+        // when no unclaimed cell can satisfy this ingredient.
+        for move_assigned in [false, true] {
+            for cell in 0..self.cells.len() {
+                if seen[cell]
+                    || occupied[cell].is_some() != move_assigned
+                    || !self.cells[cell].as_ref().is_some_and(|grid| {
+                        self.recipe
+                            .ingredient_accepts(ingredient, &grid.item(), self.crafts)
+                    })
+                {
+                    continue;
+                }
+                seen[cell] = true;
+                if occupied[cell].is_none_or(|previous| self.assign(previous, occupied, seen)) {
+                    occupied[cell] = Some(ingredient);
+                    return true;
+                }
             }
         }
         false
