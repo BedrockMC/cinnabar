@@ -970,3 +970,23 @@ impl bevy::render::render_phase::Draw<Transparent3d> for TestTransparentDraw {
         Ok(())
     }
 }
+
+#[test]
+fn review_render_rejection_does_not_forget_static_texture_identity() {
+    let mut scene = UiRenderScene::default();
+    let stats = UiRenderStats::default();
+    scene.publish(fixture_draw_list(30), &stats).unwrap();
+    let mut conflicting = fixture_draw_list(31);
+    conflicting.textures = Arc::new(
+        UiRenderTextureArray::new(
+            vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap(); 2],
+            2,
+        )
+        .unwrap(),
+    );
+    assert!(scene.publish(conflicting.clone(), &stats).is_err());
+    assert!(scene.publish(conflicting.clone(), &stats).is_err());
+    conflicting.revision += 1;
+    assert!(scene.publish(conflicting, &stats).is_err());
+    scene.publish(fixture_draw_list(33), &stats).unwrap();
+}

@@ -466,3 +466,34 @@ fn review_render_catalog_recomputes_mutated_vertex_bone_requirements() {
         1
     );
 }
+
+// Shared pixels and equal copies keep the revision; a changed final byte advances it.
+#[test]
+fn rig_skin_revision_tracks_pixels_across_shared_and_independent_payloads() {
+    let mut scene = ActorRenderScene::default();
+    let pixels: Arc<[u8]> = vec![7; STANDARD_SKIN_BYTES].into();
+    let revision = scene
+        .update_rigs(
+            0.0,
+            None,
+            [diagnostic_submission(1, 1)],
+            Arc::clone(&pixels),
+        )
+        .skin_revision;
+    for next in [Arc::clone(&pixels), Arc::from(pixels.to_vec())] {
+        let frame = scene.update_rigs(0.0, None, [diagnostic_submission(1, 1)], next);
+        assert_eq!(frame.skin_revision, revision);
+        assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
+    }
+    let mut changed = pixels.to_vec();
+    *changed.last_mut().unwrap() = 8;
+    let changed: Arc<[u8]> = changed.into();
+    let frame = scene.update_rigs(
+        0.0,
+        None,
+        [diagnostic_submission(1, 1)],
+        Arc::clone(&changed),
+    );
+    assert_eq!(frame.skin_revision, revision.wrapping_add(1));
+    assert!(Arc::ptr_eq(&frame.skins_rgba8, &changed));
+}

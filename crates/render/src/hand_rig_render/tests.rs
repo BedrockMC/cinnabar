@@ -201,3 +201,32 @@ fn pose_updates_reuse_their_buffers() {
     assert!(gpu.atlases[0].is_none());
     assert!(gpu.atlases[1].is_some());
 }
+
+#[test]
+fn review_render_hand_atlas_rejects_device_dimension_and_layer_limits() {
+    use bevy::{ecs::system::RunSystemOnce, render::renderer::WgpuWrapper};
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let wide = u16::try_from(device.limits().max_texture_dimension_2d + 1).unwrap();
+    let layers = device.limits().max_texture_array_layers + 1;
+    for (width, layer_count) in [(wide, 1), (1, layers)] {
+        scene.set_item_atlases([
+            Some(HandItemAtlas {
+                width,
+                height: 1,
+                layers: layer_count,
+                rgba8: vec![255; width as usize * layer_count as usize * 4].into(),
+            }),
+            None,
+        ]);
+        upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        assert!(gpu.atlases[0].is_none());
+    }
+}

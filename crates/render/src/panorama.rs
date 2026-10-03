@@ -20,11 +20,11 @@ pub struct PanoramaFaces {
 impl PanoramaFaces {
     /// Rejects faces that are not all exactly `side` x `side` RGBA8.
     pub fn new(side: u32, faces: [Vec<u8>; 6]) -> Option<Self> {
+        if side == 0 || side > MAX_PANORAMA_FACE_SIDE {
+            return None;
+        }
         let bytes = side as usize * side as usize * 4;
-        if side == 0
-            || side > MAX_PANORAMA_FACE_SIDE
-            || faces.iter().any(|face| face.len() != bytes)
-        {
+        if faces.iter().any(|face| face.len() != bytes) {
             return None;
         }
         Some(Self {
@@ -189,5 +189,9 @@ mod tests {
         assert!(scene.view.is_none());
         scene.show(Some(view(0.0)));
         assert!(scene.view.is_none());
+    }
+    #[test]
+    fn review_render_panorama_rejects_oversized_dimensions_without_overflow() {
+        assert!(PanoramaFaces::new(u32::MAX, std::array::from_fn(|_| Vec::new())).is_none());
     }
 }

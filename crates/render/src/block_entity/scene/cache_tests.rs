@@ -190,14 +190,15 @@ fn changed_prefix_vertex_counts_invalidate_later_static_fragments() {
     let mut submissions = [portal(0), chest(1, 1.0)];
     assert_matches_reference(&mut scene, 0.0, &[], &submissions);
     assert_eq!(scene.static_rebuilds, 1);
+    // The gateway itself and the following chest now both have static fragments.
     submissions[0].kind = BlockEntityKind::EndGateway;
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     submissions[0].kind = BlockEntityKind::EndPortal;
     assert_matches_reference(&mut scene, 3.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 3);
+    assert_eq!(scene.static_rebuilds, 4);
 }
 
 #[test]
