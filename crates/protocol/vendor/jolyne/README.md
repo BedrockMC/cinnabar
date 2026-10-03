@@ -100,33 +100,37 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-jolyne = "0.1"
+jolyne = { version = "0.1", features = ["client"] }
 ```
 
 ### Example: Simple Bot (Client)
 
+Supply a connected transport implementing `Transport` to start the client handshake.
+
 ```rust,no_run
+use std::net::SocketAddr;
 use jolyne::stream::client::ClientHandshakeConfig;
-use jolyne::stream::BedrockStream;
+use jolyne::stream::{BedrockStream, transport::{BedrockTransport, Transport}};
 use jolyne::valentine::{McpePacket, RequestChunkRadiusPacket};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "127.0.0.1:19132".parse()?;
-
-    // 1. Connect
-    let handshake = BedrockStream::connect(addr).await?;
+/// Joins over a connected transport and requests the desired chunk radius.
+async fn join_and_request_chunks<T: Transport>(
+    transport: T,
+    addr: SocketAddr,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Start the handshake over the supplied transport.
+    let handshake = BedrockStream::from_transport(BedrockTransport::new(transport));
     
     // 2. Configure (Auto-generate keys/uuid)
     let config = ClientHandshakeConfig::random(addr, "JolyneBot");
 
     // 3. Join (Handles auth, encryption, resource packs)
-    let mut client = handshake.join(config).await?;
+    let (mut client, _game_data) = handshake.join(config).await?;
     
     // Send a chunk radius request (could be anything.)
     let req = RequestChunkRadiusPacket {
         chunk_radius: 8,
-        max_radius: 8,
+        max_chunk_radius: 8,
     };
     client.send_packet(McpePacket::from(req)).await?;
     
