@@ -24,7 +24,7 @@ mod apply;
 mod bag;
 mod data;
 mod declarations;
-mod feed;
+pub(crate) mod feed;
 mod grid;
 mod native;
 mod output;
@@ -133,6 +133,7 @@ fn bind_with(
         resolved_with: BTreeMap::new(),
         keys: state::KeyMap::default(),
         retain,
+        created: 0,
     };
     let scope = Scope {
         values: Arc::clone(&data.creation_values),
@@ -243,9 +244,20 @@ struct Binder<'a> {
     keys: state::KeyMap<usize>,
     /// Whether the refresh's state outlives it.
     retain: bool,
+    /// Controls materialized in this bind, including factory creations.
+    created: usize,
 }
 
 impl<'a> Binder<'a> {
+    /// Stops every creation path at the shared resolved-tree node budget.
+    fn can_create(&mut self) -> bool {
+        if self.created < crate::resolve::MAX_NODES {
+            return true;
+        }
+        self.note("bound control node limit exceeded".to_owned());
+        false
+    }
+
     fn note(&mut self, message: String) {
         if self.reported.insert(message.clone()) {
             self.diagnostics.push(message);
@@ -264,6 +276,7 @@ impl<'a> Binder<'a> {
     /// Create `src` under `scope`: its bag, its bindings for this refresh, and
     /// its subtree unless it is hidden.
     fn build(&mut self, src: Src, scope: &Scope, repeat: usize) -> Node {
+        self.created += 1;
         let key = self.control_key(&src, scope.parent_key);
         let declaration = self.declaration(&src);
         let bindings = Arc::clone(&declaration.bindings);
@@ -421,6 +434,9 @@ impl<'a> Binder<'a> {
     }
 
     fn children_of(&mut self, node: &Node, scope: &Scope) -> Vec<Node> {
+        if !self.can_create() {
+            return Vec::new();
+        }
         let src = &node.src;
         let control = src.get();
         let mut scope = scope.clone();
@@ -494,6 +510,9 @@ impl<'a> Binder<'a> {
         let mut created = Vec::new();
         let mut siblings = crate::layout::SiblingKeys::default();
         for index in 0..control.children.len() {
+            if !self.can_create() {
+                break;
+            }
             let child = src.child(index);
             let authored = &control.children[index];
             let cell = columns.and_then(|columns| grid_cell_index(authored, columns));
