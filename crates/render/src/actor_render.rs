@@ -439,7 +439,8 @@ fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
         &[
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                // The fragment stage reads the camera position for distance fog.
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,

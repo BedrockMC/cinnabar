@@ -1,6 +1,8 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
 mod lighting;
 mod lightmap;
+#[cfg(test)]
+mod shader_test_support;
 pub use lighting::WorldLighting;
 pub use lightmap::{LightmapInputs, darkness_pulse};
 

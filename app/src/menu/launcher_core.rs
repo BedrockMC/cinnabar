@@ -220,11 +220,15 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
+    // The timer must be created inside the runtime; building it outside panics.
     runtime
-        .block_on(tokio::time::timeout(
-            SELECT_TIMEOUT,
-            launcher_control::connect_target(socket_dir, &target),
-        ))
+        .block_on(async {
+            tokio::time::timeout(
+                SELECT_TIMEOUT,
+                launcher_control::connect_target(socket_dir, &target),
+            )
+            .await
+        })
         .map_err(|_| "the launcher core did not answer".to_owned())?
         .map_err(|error| error.to_string())
 }
@@ -290,6 +294,19 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A missing launcher socket is an error, not a panic on a timer built outside the runtime.
+    #[test]
+    fn select_without_a_launcher_core_errors_instead_of_panicking() {
+        let missing = std::env::temp_dir().join("cinnabar-no-launcher-core-here");
+        assert!(
+            select(
+                &missing,
+                ConnectTarget::RakNet("example.invalid:19132".into())
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn menu_addresses_map_to_connect_targets() {
