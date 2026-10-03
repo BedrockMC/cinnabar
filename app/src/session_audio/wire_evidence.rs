@@ -103,9 +103,18 @@ impl WireEvidence {
         if let Some(row) = self.observe(session, envelope)
             && let Ok(json) = serde_json::to_string(row)
         {
-            println!("{}={json}", crate::acceptance::markers::AUDIO_WIRE_EVIDENCE);
+            write_marker(&mut std::io::stdout().lock(), &json);
         }
     }
+}
+
+/// Writes bounded diagnostic evidence without making stdout part of session authority.
+fn write_marker(writer: &mut impl std::io::Write, json: &str) {
+    let _ = writeln!(
+        writer,
+        "{}={json}",
+        crate::acceptance::markers::AUDIO_WIRE_EVIDENCE
+    );
 }
 
 #[cfg(test)]

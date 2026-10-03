@@ -536,7 +536,12 @@ pub(crate) fn drive_menu_input(
 }
 
 impl MenuRuntime {
+    /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.screen == super::MenuScreen::AddServer && self.field.take().is_some() {
+            self.text_selected = false;
+            return;
+        }
         self.go_back();
     }
 }

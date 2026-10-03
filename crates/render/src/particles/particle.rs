@@ -195,28 +195,28 @@ fn resolve_collision(
     for axis in [1usize, 0, 2] {
         let mut candidate = current;
         candidate[axis] += motion[axis];
-        if overlaps(boxes, candidate, radius) {
-            let mut limit = candidate[axis];
-            for b in boxes.iter() {
-                let across = (0..3).filter(|&j| j != axis).all(|j| {
-                    candidate[j] + radius > b[j] + CONTACT_EPSILON
-                        && candidate[j] - radius < b[j + 3] - CONTACT_EPSILON
-                });
-                if !across {
-                    continue;
+        let mut limit = candidate[axis];
+        for b in boxes.iter() {
+            let across = (0..3).filter(|&j| j != axis).all(|j| {
+                candidate[j] + radius > b[j] + CONTACT_EPSILON
+                    && candidate[j] - radius < b[j + 3] - CONTACT_EPSILON
+            });
+            if !across {
+                continue;
+            }
+            if motion[axis] > 0.0 {
+                let face = b[axis] - radius;
+                if face < limit && face >= current[axis] - CONTACT_EPSILON {
+                    limit = face;
                 }
-                if motion[axis] > 0.0 {
-                    let face = b[axis] - radius;
-                    if face < limit && face >= current[axis] - CONTACT_EPSILON {
-                        limit = face;
-                    }
-                } else {
-                    let face = b[axis + 3] + radius;
-                    if face > limit && face <= current[axis] + CONTACT_EPSILON {
-                        limit = face;
-                    }
+            } else if motion[axis] < 0.0 {
+                let face = b[axis + 3] + radius;
+                if face > limit && face <= current[axis] + CONTACT_EPSILON {
+                    limit = face;
                 }
             }
+        }
+        if limit != candidate[axis] {
             candidate[axis] = limit;
             let speed = particle.vel[axis].abs();
             impact = Some(impact.map_or(speed, |best| best.max(speed)));
@@ -513,5 +513,16 @@ mod tests {
     fn drag_integration_approaches_terminal_velocity() {
         let (velocity, _) = integrate(0.0, -10.0, 5.0, 10.0);
         assert!((velocity + 2.0).abs() < 1e-3);
+    }
+    #[test]
+    fn review_render_collision_detects_a_segment_crossing_the_whole_floor() {
+        let mut particle = Particle::new([0.0, -2.0, 0.0], [0.0, -4.0, 0.0], 1.0, Vec::new());
+        particle.prev = [0.0, 2.0, 0.0];
+        assert_eq!(
+            resolve_collision(&mut particle, 0.1, 0.0, &Floor, &mut Vec::new()),
+            Some(4.0)
+        );
+        assert!((particle.pos[1] - 0.1).abs() < 1e-6);
+        assert_eq!(particle.vel[1], 0.0);
     }
 }

@@ -135,7 +135,7 @@ pub(super) fn draw(
     Ok(())
 }
 
-/// One detailed message card; returns its bottom edge.
+/// A compact list row: title and summary each stay on one ellipsized line.
 fn card(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -154,14 +154,13 @@ fn card(
     } else {
         item.header.as_str()
     };
-    y += canvas.text(title, [span[0] + pad, y], inner, BODY, TEXT, false)?;
-    canvas.text(
+    y += canvas.text_line(title, [span[0] + pad, y], inner, BODY, TEXT)?;
+    canvas.text_line(
         &item.body,
         [span[0] + pad, y + space(canvas, 1)],
         inner,
         CAPTION,
         TEXT_DIMMEST,
-        false,
     )?;
     Ok(bounds[3])
 }

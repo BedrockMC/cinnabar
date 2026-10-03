@@ -197,6 +197,10 @@ impl UiPresentationRuntime {
             }),
             ..ViewState::default()
         };
+        let edit = self
+            .form_presentation
+            .edit_clock
+            .update(view, self.menu_seconds);
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
         let mut layers = Vec::new();
@@ -232,6 +236,7 @@ impl UiPresentationRuntime {
             };
             let art = engine::ScreenArt {
                 icons: &[],
+                edit,
                 preview: self.hud_frame.player_preview,
                 preview_view: Some(&preview_view),
                 pointer: None,

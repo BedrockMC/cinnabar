@@ -384,6 +384,13 @@ pub(super) fn read_terrain(path: &Path) -> Result<TerrainTextureMap, AssetError>
             Value::Array(values) => values.as_mut_slice(),
             value => std::slice::from_mut(value),
         };
+        if values.len() > MAX_TEXTURE_VARIANTS {
+            return Err(AssetError::TooManyTextureVariants {
+                key: key.into(),
+                count: values.len(),
+                max: MAX_TEXTURE_VARIANTS,
+            });
+        }
         for (index, value) in values.iter_mut().enumerate() {
             let alternatives = super::variations::extract(value)?;
             if !alternatives.is_empty() {
@@ -496,4 +503,21 @@ fn is_mushroom_face_key(key: &str, block_name: &str) -> bool {
     };
     key.strip_prefix(prefix)
         .is_some_and(|face| matches!(face, "west" | "east" | "bottom" | "top" | "north" | "south"))
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_outer_variant_limits_precede_nested_extraction() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("terrain.json");
+        let entries = vec![serde_json::json!({"variations": []}); MAX_TEXTURE_VARIANTS + 1];
+        let document = serde_json::json!({"texture_data":{"fixture":{"textures":entries}}});
+        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        assert!(matches!(
+            read_terrain(&path),
+            Err(AssetError::TooManyTextureVariants { .. })
+        ));
+    }
 }

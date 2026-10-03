@@ -9,12 +9,14 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
     time::SystemTime,
 };
 
 pub struct BundleCache {
     root: PathBuf,
     _lease: File,
+    mutation: Mutex<()>,
 }
 
 impl BundleCache {
@@ -38,6 +40,7 @@ impl BundleCache {
         let cache = Self {
             root,
             _lease: lease,
+            mutation: Mutex::new(()),
         };
         cache.evict(0)?;
         Ok(cache)
@@ -71,6 +74,15 @@ impl BundleCache {
 
     /// Rehashes cache hits so corrupt local data never reaches the loader.
     pub fn read(&self, digest: &str) -> Result<Option<Vec<u8>>> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| anyhow::anyhow!("cache mutation lock poisoned"))?;
+        self.read_locked(digest)
+    }
+
+    /// Reads an object while publication and eviction share the caller's lock.
+    fn read_locked(&self, digest: &str) -> Result<Option<Vec<u8>>> {
         let path = self.object_path(digest)?;
         reject_link(&path)?;
         let file = match OpenOptions::new().read(true).write(true).open(&path) {
@@ -93,12 +105,21 @@ impl BundleCache {
 
     /// Verifies first, then atomically publishes a private file under its digest.
     pub fn publish(&self, digest: &str, bytes: &[u8]) -> Result<()> {
+        self.publish_with(digest, bytes, |_| {})
+    }
+
+    /// Publishes one object while an observer can witness its temporary-file lifetime.
+    fn publish_with(&self, digest: &str, bytes: &[u8], created: impl FnOnce(&Path)) -> Result<()> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| anyhow::anyhow!("cache mutation lock poisoned"))?;
         ensure!(
             bytes.len() <= MAX_BUNDLE_BYTES && crypto::digest(bytes) == digest,
             "bundle digest mismatch"
         );
         let destination = self.object_path(digest)?;
-        if self.read(digest)?.is_some() {
+        if self.read_locked(digest)?.is_some() {
             return Ok(());
         }
         self.evict(bytes.len() as u64)?;
@@ -107,6 +128,7 @@ impl BundleCache {
                 .join(format!(".download-{}", crypto::challenge()?)),
         );
         let mut file = open_private(&temporary.0, true)?;
+        created(&temporary.0);
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temporary.0, destination)?;
@@ -200,6 +222,49 @@ fn open_private(path: &Path, exclusive: bool) -> std::io::Result<File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_concurrent_publications_preserve_active_temporary_files() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = BundleCache::open(root.path()).unwrap();
+        let (entered, waiting) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        let (started, attempting) = std::sync::mpsc::channel();
+        let (finished, completed) = std::sync::mpsc::channel();
+        let (first, second) = std::thread::scope(|scope| {
+            let cache_ref = &cache;
+            let first = scope.spawn(move || {
+                cache_ref.publish_with(&crypto::digest(b"first"), b"first", |_| {
+                    entered.send(()).unwrap();
+                    resume.recv().unwrap();
+                })
+            });
+            waiting.recv().unwrap();
+            let second = scope.spawn(|| {
+                started.send(()).unwrap();
+                let result = cache.publish(&crypto::digest(b"second"), b"second");
+                finished.send(()).unwrap();
+                result
+            });
+            attempting.recv().unwrap();
+            let _ = completed.recv_timeout(std::time::Duration::from_millis(50));
+            release.send(()).unwrap();
+            (first.join().unwrap(), second.join().unwrap())
+        });
+        assert!(
+            first.is_ok(),
+            "active publication lost its temporary path: {first:?}"
+        );
+        assert!(second.is_ok());
+        assert_eq!(
+            cache.read(&crypto::digest(b"first")).unwrap().unwrap(),
+            b"first"
+        );
+        assert_eq!(
+            cache.read(&crypto::digest(b"second")).unwrap().unwrap(),
+            b"second"
+        );
+    }
 
     #[test]
     fn cache_hit_refreshes_timestamp_with_writable_attributes() {

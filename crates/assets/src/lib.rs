@@ -9,6 +9,7 @@ mod blob;
 mod block_entity;
 mod block_names;
 mod compiled;
+mod encoding;
 mod entity;
 mod environment_settings;
 mod equipment;

@@ -48,7 +48,7 @@ pub(crate) fn decode_static_texture(path: &Path, key: &str) -> Result<Box<[u8]>,
 }
 
 pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, AssetError> {
-    let format = static_texture_format(path, key)?;
+    static_texture_format(path, key)?;
     let file = File::open(path).map_err(|source| AssetError::TextureIo {
         key: key.into(),
         path: path.to_path_buf(),
@@ -62,6 +62,16 @@ pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, A
             path: path.to_path_buf(),
             source,
         })?;
+    decode_texture_bytes(path, key, &bytes)
+}
+
+/// Decodes an already verified texture source within the image decoder's bounds.
+pub(crate) fn decode_texture_bytes(
+    path: &Path,
+    key: &str,
+    bytes: &[u8],
+) -> Result<DecodedTexture, AssetError> {
+    let format = static_texture_format(path, key)?;
     if bytes.len() > MAX_TEXTURE_BYTES {
         return Err(AssetError::TextureTooLarge {
             key: key.into(),
@@ -71,7 +81,7 @@ pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, A
         });
     }
 
-    let dimensions = ImageReader::with_format(Cursor::new(&bytes), format)
+    let dimensions = ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
         .map_err(|source| AssetError::TextureDecode {
             key: key.into(),
@@ -91,7 +101,7 @@ pub(crate) fn decode_texture(path: &Path, key: &str) -> Result<DecodedTexture, A
         });
     }
 
-    let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_TEXTURE_DIMENSION);
     limits.max_image_height = Some(MAX_TEXTURE_DIMENSION);

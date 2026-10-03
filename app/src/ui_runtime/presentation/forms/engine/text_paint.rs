@@ -20,6 +20,7 @@ pub(super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 #[derive(Clone)]
 pub(super) struct TextPaint {
     pub(super) color: [u8; 4],
+    pub(super) edit: Option<super::host_edit::Feedback>,
     pub(super) shadow: TextShadow,
     pub(super) align: TextAlign,
     pub(super) scale: f32,
@@ -160,6 +161,11 @@ impl Painter<'_> {
         } else {
             Cow::Borrowed(text)
         };
+        let text = if style.edit.is_some_and(|edit| edit.caret && !edit.selected) {
+            Cow::Owned(format!("{text}_"))
+        } else {
+            text
+        };
         if text.is_empty() {
             return Ok(());
         }
@@ -212,6 +218,15 @@ impl Painter<'_> {
                 shadow: style.shadow,
             }),
         );
+        if style.edit.is_some_and(|edit| edit.selected) {
+            self.push(
+                UiVisual::InvertedSprite {
+                    texture_page: self.solid_page,
+                    uv: [0, 0, 1, 1],
+                },
+                [dest[0], dest[1], dest[0] + width, dest[1] + height],
+            )?;
+        }
         Ok(())
     }
 }

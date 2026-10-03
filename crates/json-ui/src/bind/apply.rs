@@ -211,6 +211,6 @@ pub(super) fn widget_defaults(control: &ResolvedControl, own: &mut Bag) {
 /// An edit box's content binding seeds the text vanilla's TextEditComponent then owns;
 /// here the host owns that text, so the binding reads it every refresh.
 fn host_owned_text(control: &ResolvedControl, binding: &Binding) -> bool {
-    control.control_type.as_deref() == Some("edit_box")
+    (control.control_type.as_deref() == Some("edit_box") || crate::label::is_editable(control))
         && matches!(&binding.kind, Kind::Global { rename, .. } | Kind::Collection { rename, .. } if rename == "#item_name")
 }

@@ -1,7 +1,42 @@
 use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
+// ClientLoadingProgressTickingSystem::mChunksNeededForLoadOffsets covers nine columns.
+const STARTUP_RADIUS: i32 = 1;
+
 impl WorldStream {
+    /// Startup needs the player's loaded 3×3 neighborhood, not a drained distant view.
+    /// Mesh acknowledgements additionally prevent exposing unpresented local terrain.
+    #[must_use]
+    pub fn local_terrain_ready(&self) -> bool {
+        let position = self.resolved_server_position.position;
+        let center = ChunkKey::new(
+            self.current_dimension,
+            floor_to_i32(position[0]).div_euclid(16),
+            floor_to_i32(position[2]).div_euclid(16),
+        );
+        let nearby = |column: ChunkKey| {
+            column.dimension == center.dimension
+                && column.x.abs_diff(center.x) <= STARTUP_RADIUS as u32
+                && column.z.abs_diff(center.z) <= STARTUP_RADIUS as u32
+        };
+        if !(-STARTUP_RADIUS..=STARTUP_RADIUS).all(|x| {
+            (-STARTUP_RADIUS..=STARTUP_RADIUS).all(|z| {
+                self.loaded_columns.contains(&ChunkKey::new(
+                    center.dimension,
+                    center.x.saturating_add(x),
+                    center.z.saturating_add(z),
+                ))
+            })
+        }) {
+            return false;
+        }
+        self.resident
+            .iter()
+            .filter(|key| nearby(key.chunk()))
+            .all(|key| self.light_is_current(*key) && self.is_mesh_clean(*key))
+    }
+
     /// Unique columns announced in the current publisher epoch through either
     /// admission path (request-mode or inline), after each path's decode and
     /// admission gates.

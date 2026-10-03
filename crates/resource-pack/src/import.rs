@@ -6,7 +6,9 @@ use crate::{
     library::{ImportReport, InstalledPack, LibraryError, Subpack},
     manifest::{Version, read_manifest},
     normalize_jsonc,
-    parser::{canonical_path, is_regular_file, preflight_eocd, validate_archive_parts},
+    parser::{
+        MANIFEST_NAMES, canonical_path, is_regular_file, prepare_zip_bytes, validate_archive_parts,
+    },
 };
 use serde_json::Value;
 use std::{
@@ -46,7 +48,7 @@ pub(crate) fn read_import(
 
 /// Splits directory bundles or one level of nested pack archives without filesystem extraction.
 fn read_bundle(
-    bytes: Vec<u8>,
+    mut bytes: Vec<u8>,
     depth: usize,
     report: &mut ImportReport,
     imported: &mut ImportedArchives,
@@ -54,7 +56,7 @@ fn read_bundle(
     if bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge.into());
     }
-    preflight_eocd(&bytes)?;
+    prepare_zip_bytes(&mut bytes)?;
     let mut archive =
         ZipArchive::new(Cursor::new(bytes)).map_err(|_| AdmissionError::MalformedZip)?;
     let paths = index_archive(&mut archive)?;
@@ -66,7 +68,7 @@ fn read_bundle(
                 .map_or(("", path.as_str()), |(root, name)| {
                     (&path[..root.len() + 1], name)
                 });
-            (name == "manifest.json" || name == "pack_manifest.json").then(|| root.to_owned())
+            MANIFEST_NAMES.contains(&name).then(|| root.to_owned())
         })
         .collect::<HashSet<_>>();
     let mut roots = roots.into_iter().collect::<Vec<_>>();
@@ -91,7 +93,13 @@ fn read_bundle(
             if !roots.iter().any(|root| path.starts_with(root))
                 && is_pack_import_path(Path::new(path))
             {
-                let bytes = read_entry(&mut archive, *index, MAX_ARCHIVE_BYTES as u64)?;
+                let bytes = match read_entry(&mut archive, *index, MAX_ARCHIVE_BYTES as u64) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        report.rejected.push(error.to_string());
+                        continue;
+                    }
+                };
                 nested_bytes = nested_bytes.saturating_add(bytes.len());
                 if nested_bytes > crate::MAX_STACK_ARCHIVE_BYTES {
                     return Err(AdmissionError::StackArchiveTooLarge.into());
@@ -159,7 +167,7 @@ fn read_candidate(
     root: &str,
     roots: &[String],
 ) -> Result<Option<(InstalledPack, Vec<u8>)>, LibraryError> {
-    let (_, manifest_index) = ["manifest.json", "pack_manifest.json"]
+    let (_, manifest_index) = MANIFEST_NAMES
         .into_iter()
         .find_map(|name| {
             paths

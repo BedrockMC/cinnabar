@@ -251,6 +251,10 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
 #[test]
 fn enhanced_cameras_enforce_single_sample_depth_before_extraction() {
     use bevy::prelude::*;
+    // The plugin installs nothing while the Enhanced kill switch is off.
+    if !super::ENHANCED_RENDERING_ENABLED {
+        return;
+    }
     let mut app = App::new();
     app.init_resource::<Assets<bevy::shader::Shader>>();
     app.add_plugins(super::EnhancedRenderPlugin);

@@ -308,8 +308,8 @@ fn prepare(params: PrepareViewmodel) {
             &TextureDescriptor {
                 label: Some("validated neutral hand skin"),
                 size: Extent3d {
-                    width: 64,
-                    height: 64,
+                    width: crate::viewmodel::VIEWMODEL_TEXTURE_SIDE,
+                    height: crate::viewmodel::VIEWMODEL_TEXTURE_SIDE,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,

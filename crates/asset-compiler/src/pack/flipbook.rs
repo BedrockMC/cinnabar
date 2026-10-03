@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{
-    parse::{MAX_TEXTURE_KEYS, read_json, validate_texture_path},
+    parse::{BoundedSequence, MAX_TEXTURE_KEYS, read_json, validate_texture_path},
     terrain::TerrainTextureMap,
 };
 
@@ -65,14 +65,15 @@ pub(super) fn read_flipbooks(
     path: &Path,
     terrain: &TerrainTextureMap,
 ) -> Result<Box<[FlipbookSource]>, AssetError> {
-    let raw: Vec<RawFlipbook> = read_json(path, true)?;
-    if raw.len() > MAX_FLIPBOOKS {
+    let raw: BoundedSequence<RawFlipbook, MAX_FLIPBOOKS> = read_json(path, true)?;
+    if raw.count > MAX_FLIPBOOKS {
         return Err(AssetError::TooManyFlipbooks {
-            count: raw.len(),
+            count: raw.count,
             max: MAX_FLIPBOOKS,
         });
     }
 
+    let raw = raw.entries;
     let mut flipbooks = Vec::with_capacity(raw.len());
     let mut selectors = BTreeSet::new();
     for (index, entry) in raw.into_iter().enumerate() {
@@ -205,5 +206,29 @@ fn flipbook_bool(
             field,
             expected: "boolean",
         }),
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_oversized_flipbooks_skip_deserializing_excess_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("flipbook.json");
+        let mut entries = vec![
+            serde_json::json!({"flipbook_texture":"textures/fixture","atlas_tile":"fixture"});
+            MAX_FLIPBOOKS
+        ];
+        entries.push(serde_json::json!(false));
+        std::fs::write(&path, serde_json::to_vec(&entries).unwrap()).unwrap();
+        let terrain = TerrainTextureMap {
+            entries: Default::default(),
+            position_variations: Default::default(),
+        };
+        assert!(matches!(
+            read_flipbooks(&path, &terrain),
+            Err(AssetError::TooManyFlipbooks { .. })
+        ));
     }
 }

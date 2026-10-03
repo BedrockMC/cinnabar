@@ -359,6 +359,7 @@ impl ChunkRenderQueue {
         if !replaces_existing && self.retained_len() >= self.limits.max_items {
             return Err(key);
         }
+        let previous_generation = self.previous_manifest_generation(key);
         if let Some(pending) = self.pending.remove(&key) {
             self.pending_bytes = self
                 .pending_bytes
@@ -375,6 +376,7 @@ impl ChunkRenderQueue {
         self.removals.insert(
             key,
             PendingRemoval {
+                previous_generation,
                 priority,
                 token,
                 publication_permit,
@@ -523,6 +525,17 @@ impl ChunkRenderQueue {
         self.try_enqueue_inner(key, mesh, biome, tint_identity, priority, token, None)
     }
 
+    /// Retains the resident generation across coalesced uploads and removals.
+    fn previous_manifest_generation(&self, key: SubChunkKey) -> Option<u64> {
+        if let Some(pending) = self.pending.get(&key) {
+            pending.previous_generation
+        } else if let Some(removal) = self.removals.get(&key) {
+            removal.previous_generation
+        } else {
+            self.render_manifest.get(&key).copied()
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn try_enqueue_inner(
         &mut self,
@@ -560,6 +573,7 @@ impl ChunkRenderQueue {
         if next_items > self.limits.max_items || next_bytes > self.limits.max_bytes {
             return Err((mesh, biome));
         }
+        let previous_generation = self.previous_manifest_generation(key);
         if let Some(pending) = self.removals.remove(&key)
             && let Some(permit) = pending.publication_permit
         {
@@ -581,6 +595,7 @@ impl ChunkRenderQueue {
         self.pending.insert(
             key,
             PendingUpload {
+                previous_generation,
                 mesh,
                 biome,
                 tint_identity,
