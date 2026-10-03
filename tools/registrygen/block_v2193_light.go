@@ -16,9 +16,9 @@ const (
 	unknownBlockFilter   = 15
 )
 
-// applyRetailLightCorrections replaces every unimplemented-block default in properties
-// (emission | filter<<4, parallel to records) with the retail table's values and returns
-// how many states changed. Names absent from the table keep their value.
+// applyRetailLightCorrections applies identified native corrections, then replaces
+// unimplemented-block defaults in properties (emission | filter<<4, parallel to
+// records) with retail values. It returns the number of changed states.
 func applyRetailLightCorrections(records []Record, properties []byte, retail map[string]PMMPLightProperties) (int, error) {
 	if len(records) != len(properties) {
 		return 0, errors.New("light property count does not match records")
@@ -29,6 +29,17 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 			continue
 		}
 		current := properties[index]
+		// Current Lens TopSnowBlock 0a5c5fb0 sets type+166 to zero. Its
+		// inherited light getter 0365cdf0 and height-specific connection
+		// component leave that value intact, unlike Dragonfly's filter=2.
+		if record.Name == "minecraft:snow_layer" {
+			next := current & 0x0f
+			if next != current {
+				properties[index] = next
+				changed++
+			}
+			continue
+		}
 		emission, stateResolved, err := stateEmission(record)
 		if err != nil {
 			return 0, err

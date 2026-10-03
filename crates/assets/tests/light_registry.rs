@@ -112,3 +112,28 @@ fn shipped_trial_spawners_follow_all_twelve_state_combinations() {
     }
     assert_eq!(count, 12);
 }
+
+#[test]
+fn shipped_snow_layers_do_not_dampen_light_at_any_height() {
+    let breg = include_bytes!("../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    let mut count = 0;
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:snow_layer")
+    {
+        let light = lights[record.sequential_id as usize];
+        assert_eq!(light.filter(), 0, "{}", record.canonical_state);
+        assert_eq!(light.emission(), 0, "{}", record.canonical_state);
+        count += 1;
+    }
+    assert_eq!(count, 16, "all eight heights and both covered states");
+}

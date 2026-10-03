@@ -104,6 +104,11 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 			continue
 		}
 		want, ok := legacyLights[factKey(record)]
+		// The current native TopSnow getter overrides Dragonfly dampening,
+		// including full-height snow. Emission remains the fact-source value.
+		if record.Name == "minecraft:snow_layer" {
+			want &= 0x0f
+		}
 		// A legacy unimplemented-block default (emission 0, filter 15) may be corrected.
 		defaulted := want == unknownBlockEmission|unknownBlockFilter<<4
 		if !ok || (properties[index] != want && !defaulted) {
