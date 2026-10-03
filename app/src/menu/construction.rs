@@ -76,6 +76,8 @@ impl MenuRuntime {
             gui_scale_choices: vec![0],
             fullscreen: saved_video_settings.fullscreen,
             fullscreen_change: saved_video_settings.fullscreen.then_some(true),
+            video_settings_writer: None,
+            settings_focus: Vec::new(),
             last_saved_video_settings: saved_video_settings,
             failed_video_settings_save: None,
             render_mode: RenderMode::Vanilla,
