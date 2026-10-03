@@ -115,10 +115,10 @@ fn reserved_model_extents_roundtrip_without_changing_static_namespace_or_slot_co
     let base = model_catalog();
     let mut current = base.clone();
     for side in [
-        client_world::CLASSIC_SKIN_SIDE as u32,
-        client_world::CLASSIC_SKIN_SIDE as u32 * 2,
+        render_api::CLASSIC_SKIN_SIDE as u32,
+        render_api::CLASSIC_SKIN_SIDE as u32 * 2,
         UI_DYNAMIC_PAGE_SIDE,
-        client_world::MAX_STANDARD_SKIN_SIDE,
+        render_api::MAX_STANDARD_SKIN_SIDE,
     ] {
         let mut pages = current.pages()[current.dynamic_start()..].to_vec();
         pages[UI_PLAYER_SKIN_PAGE_OFFSET] = rgba_page([side; 2], 7);
@@ -203,7 +203,7 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
         (UI_PLAYER_SKIN_PAGE_OFFSET, [63; 2]),
         (
             UI_PLAYER_SKIN_PAGE_OFFSET,
-            [client_world::MAX_STANDARD_SKIN_SIDE * 2; 2],
+            [render_api::MAX_STANDARD_SKIN_SIDE * 2; 2],
         ),
         (
             UI_MODEL_ATLAS_PAGE_OFFSET,

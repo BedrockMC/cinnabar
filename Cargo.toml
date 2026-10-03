@@ -19,6 +19,7 @@ members = [
     "crates/resource-pack",
     "crates/server-experience",
     "crates/render",
+    "crates/render-api",
     "crates/sim",
     "crates/ui",
     "crates/world",

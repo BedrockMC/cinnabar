@@ -8,7 +8,7 @@ mod server_position;
 mod stream;
 
 pub use culling::CaveVisibilityScratch;
-pub use protocol::{
+pub use render_api::{
     CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE, expand_legacy_skin_rgba8,
 };
 

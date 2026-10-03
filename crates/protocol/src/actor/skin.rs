@@ -6,9 +6,10 @@ use super::{MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE};
 
 mod alpha;
 mod animation;
-mod legacy;
-pub use animation::{MAX_SKIN_ANIMATION_LAYERS, SkinAnimation, SkinAnimationKind};
-pub use legacy::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, expand_legacy_skin_rgba8};
+pub use animation::{SkinAnimation, SkinAnimationKind};
+pub use render_api::{
+    CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, expand_legacy_skin_rgba8,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardSkin {
