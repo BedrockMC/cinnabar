@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -176,13 +177,42 @@ func checkAudience(audience string) error {
 	host, port, err := net.SplitHostPort(audience)
 	if err == nil {
 		var n uint64
-		if n, err = strconv.ParseUint(port, 10, 16); err == nil && n != 0 &&
+		if n, err = strconv.ParseUint(port, 10, 16); err == nil && n != 0 && canonicalHost(host) &&
 			net.JoinHostPort(strings.ToLower(host), strconv.FormatUint(n, 10)) == audience &&
 			!strings.HasSuffix(host, ".") {
 			return nil
 		}
 	}
 	return fmt.Errorf("audience %q is not a canonical host:port such as 127.0.0.1:19132", audience)
+}
+
+// canonicalHost accepts the ASCII host form emitted by the client's URL parser. IPs must
+// already use their normalized spelling; numeric final labels cannot masquerade as DNS names.
+func canonicalHost(host string) bool {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		canonical := ip.String()
+		if ip.Is4In6() {
+			// WHATWG URL hosts use hex IPv6 segments even for IPv4-mapped addresses.
+			bytes := ip.As16()
+			canonical = fmt.Sprintf("::ffff:%x:%x", uint16(bytes[12])<<8|uint16(bytes[13]), uint16(bytes[14])<<8|uint16(bytes[15]))
+		}
+		return ip.Zone() == "" && canonical == host
+	}
+	if host == "" || strings.ContainsFunc(host, func(c rune) bool {
+		return !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_')
+	}) {
+		return false
+	}
+	last := host[strings.LastIndexByte(host, '.')+1:]
+	if last == "" || !strings.ContainsFunc(last, func(c rune) bool { return c < '0' || c > '9' }) {
+		return false
+	}
+	if digits, hex := strings.CutPrefix(last, "0x"); hex && !strings.ContainsFunc(digits, func(c rune) bool {
+		return !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f')
+	}) {
+		return false
+	}
+	return true
 }
 
 // Marker is the marker that the offer's resource pack holds.

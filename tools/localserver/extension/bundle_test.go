@@ -159,3 +159,37 @@ func TestReadBundlesTakesEveryBundleInNameOrder(t *testing.T) {
 		t.Fatal("a directory without bundles was accepted")
 	}
 }
+
+// TestReadBundleBoundsFileBeforeReading refuses an oversized sparse file without allocating its size.
+func TestReadBundleBoundsFileBeforeReading(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.cxb")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(int64(MaxBundleBytes) * 16); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadBundle(path); err == nil || !strings.Contains(err.Error(), "regular bundle file") {
+		t.Fatalf("oversized file was not rejected before reading: %v", err)
+	}
+}
+
+// TestReadBundlesStopsAtCountLimit refuses excess bundles before attempting to parse them.
+func TestReadBundlesStopsAtCountLimit(t *testing.T) {
+	dir := t.TempDir()
+	for i := range MaxBundles {
+		writeCXB(t, filepath.Join(dir, string(rune('a'+i))+bundleSuffix),
+			zipEntry{ManifestPath, fixture(t, "manifest_signed.json")}, component)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "z"+bundleSuffix), []byte("not a zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadBundles(dir); err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("count limit did not stop parsing: %v", err)
+	}
+}
