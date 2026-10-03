@@ -157,3 +157,25 @@ fn resign(bytes: &mut [u8]) {
     let digest = Sha256::digest(&bytes[..hash_offset]);
     bytes[hash_offset..].copy_from_slice(&digest);
 }
+
+#[test]
+fn review_glyph_identity_includes_bearings_and_exact_draw_sizes() {
+    let catalog = RuntimeFontCatalog::decode(&carrier(), SOURCE_MANIFEST_SHA256).unwrap();
+    let glyph = assets::SheetGlyph {
+        metrics: GlyphMetrics {
+            codepoint: 'A',
+            page: 0,
+            uv: [0, 0, 1, 1],
+            bearing: [0, 0],
+            advance_64: 64,
+        },
+        draw_size_64: [64, 64],
+    };
+    let first = catalog.with_glyphs(&[glyph], |_| true).identity();
+    let mut moved = glyph;
+    moved.metrics.bearing[0] = 1;
+    assert_ne!(first, catalog.with_glyphs(&[moved], |_| true).identity());
+    let mut resized = glyph;
+    resized.draw_size_64[0] += 1;
+    assert_ne!(first, catalog.with_glyphs(&[resized], |_| true).identity());
+}

@@ -403,7 +403,10 @@ pub fn molang_program_stack(ops: &[MolangOp]) -> Result<u8, AssetError> {
         }
         let target = |offset: u16| -> Result<usize, AssetError> {
             let offset = offset as usize;
-            if offset > end {
+            if offset > end
+                || (offset <= at
+                    && !matches!(ops[at], MolangOp::LoopNext(_) | MolangOp::ForEachNext(_)))
+            {
                 Err(invalid("Molang jump target is out of range"))
             } else {
                 Ok(offset)

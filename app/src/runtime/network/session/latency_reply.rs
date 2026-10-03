@@ -11,13 +11,13 @@ impl NetworkHandle {
 
     /// Retains one committed echo until the outbound FIFO has room.
     pub(crate) fn send_latency_reply(&self, creation_time: u64) -> Result<(), BatchSendError> {
-        self.flush_latency_reply()?;
-        *self
+        let mut pending = self
             .pending_latency_reply
             .lock()
-            .expect("latency reply lock") =
-            Some(protocol::network_stack_latency_reply(creation_time));
-        match self.flush_latency_reply() {
+            .expect("latency reply lock");
+        self.flush_latency_reply_locked(&mut pending)?;
+        *pending = Some(protocol::network_stack_latency_reply(creation_time));
+        match self.flush_latency_reply_locked(&mut pending) {
             Err(BatchSendError::Full) => Ok(()),
             result => result,
         }
@@ -29,6 +29,14 @@ impl NetworkHandle {
             .pending_latency_reply
             .lock()
             .expect("latency reply lock");
+        self.flush_latency_reply_locked(&mut pending)
+    }
+
+    /// Flushes under the same lock used to admit the next echo.
+    fn flush_latency_reply_locked(
+        &self,
+        pending: &mut Option<protocol::Packet>,
+    ) -> Result<(), BatchSendError> {
         if pending.is_none() {
             return Ok(());
         }
@@ -109,6 +117,35 @@ mod tests {
             .unwrap();
         assert_probe(&mut receiver, 4);
         assert_eq!(handle.pending_command_count(), 0);
+    }
+
+    #[test]
+    fn review_concurrent_latency_fences_do_not_overwrite_retained_replies() {
+        for _ in 0..128 {
+            let (handle, _receiver) = handle();
+            handle
+                .send_packet(protocol::network_stack_latency_reply(1))
+                .unwrap();
+            let barrier = std::sync::Barrier::new(16);
+            let admitted = std::thread::scope(|scope| {
+                let handles: Vec<_> = (2..18)
+                    .map(|timestamp| {
+                        let handle = &handle;
+                        let barrier = &barrier;
+                        scope.spawn(move || {
+                            barrier.wait();
+                            handle.send_latency_reply(timestamp).is_ok()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|thread| thread.join().unwrap())
+                    .filter(|admitted| *admitted)
+                    .count()
+            });
+            assert_eq!(admitted, 1, "a full FIFO retains only one admitted reply");
+        }
     }
 
     #[test]

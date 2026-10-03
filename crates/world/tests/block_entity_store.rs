@@ -379,3 +379,36 @@ fn cumulative_sub_chunk_tails_cannot_bypass_the_chunk_byte_limit() {
     assert!(store.sub_chunk(rejected_key).is_none());
     assert!(store.block_entity(rejected_entity).is_none());
 }
+
+#[test]
+fn scoped_tails_bound_retained_nbt_and_continue_after_budget_rejections() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let mut tail = vec![0];
+    for x in 0..9 {
+        tail.extend(large_block_entity([x, 0, 0]));
+    }
+    let last = BlockEntityKey::new(0, 15, 0, 0);
+    tail.extend(block_entity("Chest", last.position()));
+    let decoded = DecodedBlockEntities::decode_level_chunk_tail(chunk, OVERWORLD_Y, &tail);
+    assert_eq!(decoded.bytes_consumed(), tail.len());
+    assert_eq!(decoded.len(), 9);
+    assert!(decoded.get(BlockEntityKey::new(0, 8, 0, 0)).is_none());
+    assert!(decoded.get(last).is_some());
+    let mut store = ChunkStore::new();
+    store.commit_chunk_block_entities(chunk, decoded);
+    let retained: usize = store
+        .chunk(chunk)
+        .unwrap()
+        .block_entities()
+        .map(|(_, nbt)| nbt.bytes().len())
+        .sum();
+    assert!(retained <= MAX_BLOCK_ENTITY_BYTES_PER_CHUNK);
+
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut payload = uniform_sub_chunk(0, 7);
+    payload.extend_from_slice(&tail[1..]);
+    let decoded = DecodedSubChunk::decode(key, &payload, &IDS);
+    let mut store = ChunkStore::new();
+    store.commit_decoded_sub_chunk(key, decoded).unwrap();
+    assert!(store.block_entity(last).is_some());
+}

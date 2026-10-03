@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     MAX_SOURCE_MANIFEST_BYTES, hex, read_bounded_with_limit, validate_output_bundle,
-    write_blob_atomic,
+    write_output_bundle,
 };
 
 #[derive(Serialize)]
@@ -128,8 +128,7 @@ pub(super) fn compile_equipment_assets_command(
         })?;
     report_bytes.push(b'\n');
     validate_output_bundle(out, report)?;
-    write_blob_atomic(out, &carrier)?;
-    write_blob_atomic(report, &report_bytes)?;
+    write_output_bundle(&[(out, &carrier), (report, &report_bytes)])?;
     println!(
         "compiled {} equipment bindings ({} armor, {} held, {} literal FP, {} literal TP) to {} and {}",
         report_data.counts.bindings,

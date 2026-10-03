@@ -243,13 +243,15 @@ impl PublicationController {
                 self.zero_byte_operations_per_frame = self
                     .zero_byte_operations_per_frame
                     .saturating_div(2)
-                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME);
+                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
+                    .min(self.config.maximum_zero_byte_operations_per_frame);
             }
             if self.item_operations_per_frame > 0 {
                 self.item_operations_per_frame = self
                     .item_operations_per_frame
                     .saturating_div(2)
-                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME);
+                    .max(MINIMUM_PRESSURE_OPERATIONS_PER_FRAME)
+                    .min(self.config.maximum_frame_items);
             }
             if self.item_rate_per_second != previous_item_rate
                 || self.byte_rate_per_second != previous_byte_rate
