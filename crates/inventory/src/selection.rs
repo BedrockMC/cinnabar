@@ -77,6 +77,43 @@ impl InventorySession {
     pub const fn pending_hotbar_selection(&self) -> Option<u8> {
         self.pending_hotbar_selection
     }
+    /// Builds the pending selection from current authority without consuming it.
+    /// Unknown cells and unresolved prediction IDs wait for a later inventory receipt;
+    /// the caller clears the returned slot only after transport accepts the packet.
+    pub fn pending_hotbar_packet(
+        &self,
+        game_mode: Option<PlayerGameMode>,
+    ) -> Result<Option<(u8, protocol::Packet)>, protocol::InventoryPacketError> {
+        let Some(target) = self.pending_hotbar_selection() else {
+            return Ok(None);
+        };
+        let Some(runtime_id) = self.local_runtime_id() else {
+            return Ok(None);
+        };
+        let Some(snapshot) = self.selected_stack_snapshot(game_mode) else {
+            return Ok(None);
+        };
+        if snapshot.slot != target {
+            return Ok(None);
+        }
+        let packet = match snapshot.state {
+            PlayerInventorySlot::Unknown => return Ok(None),
+            PlayerInventorySlot::Empty => protocol::select_hotbar_slot_packet(
+                runtime_id,
+                target,
+                &protocol::NetworkItemStack::empty(),
+            ),
+            PlayerInventorySlot::Present(stack) => {
+                // Predictions carry negative request IDs until the server answers.
+                // The untracked server identity -1 is already ready to send.
+                if stack.stack_network_id < -1 {
+                    return Ok(None);
+                }
+                protocol::select_hotbar_slot_packet(runtime_id, target, stack)
+            }
+        }?;
+        Ok(Some((target, packet)))
+    }
     /// Clear the pending command only if it is still the slot just sent.
     pub fn clear_pending_hotbar_selection(&mut self, slot: u8) -> bool {
         if self.pending_hotbar_selection != Some(slot) {

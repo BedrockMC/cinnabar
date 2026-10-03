@@ -39,6 +39,11 @@ against the quantized hunger current value.
 - Inventory send polls timeouts and projects any screen closure first, then asks
   inventory to send ready packets. Controls precede mutations, queue refusal retains
   the same batch, and transport admission is recorded only after successful send.
+- Hotbar input queues selection on `PlayerRuntime.inventory`. Its
+  `pending_hotbar_packet` query waits for known stack authority and resolved
+  prediction IDs, while the selected slot remains visible immediately. A server
+  stack ID of `-1` remains sendable. The app clears the queued slot only after
+  transport accepts its packet; retries rebuild it from current inventory state.
 - Presentation still captures the pre-send ledger and screen state. The existing
   scoped swap restores the post-send owner on success, error or unwind. Rendering
   receives only shared borrows of that temporary projection.

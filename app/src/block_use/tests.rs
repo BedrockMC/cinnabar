@@ -439,13 +439,16 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
         .unwrap();
     assert!(verified_use_selection(&player_runtime, &ui).is_none());
 
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(7);
     let mut pending_hotbar = UiRuntime::new(7);
     pending_hotbar
         .publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
     pending_hotbar
         .inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(4, NetworkItemStack::empty()));
-    pending_hotbar.queue_local_hotbar_selection(&mut player_runtime, 4);
+    player_runtime
+        .inventory
+        .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
     assert!(verified_use_selection(&player_runtime, &pending_hotbar).is_none());
 }
 

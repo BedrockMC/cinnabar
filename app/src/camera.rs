@@ -734,11 +734,13 @@ pub(crate) fn update_cursor_capture(
     ui: Option<Res<crate::ui_runtime::UiRuntime>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
 ) {
     let (window, mut cursor) = window.into_inner();
 
     // Focus loss has priority over every capture request, including auto-fly.
-    if !window.focused {
+    // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
+    if !window.focused || consent.is_some_and(|consent| consent.0) {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;
