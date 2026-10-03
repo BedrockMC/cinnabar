@@ -369,7 +369,8 @@ fn item_bind_group_layout() -> BindGroupLayoutDescriptor {
         &[
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                // The fragment stage reads the camera position for distance fog.
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -672,5 +673,34 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
             );
         }
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::render::render_resource::ShaderStages;
+
+    // The item fragment stage reads the view for distance fog; a vertex-only binding fails validation.
+    #[test]
+    fn fragment_view_reads_are_visible_to_the_fragment_stage() {
+        let lighting =
+            include_str!("lighting.wgsl").replacen("#define_import_path cinnabar::lighting", "", 1);
+        let source = include_str!("dropped_item.wgsl")
+            .replace(
+                "#import bevy_render::view::View",
+                "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
+            )
+            .replace(
+                "#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}",
+                &lighting,
+            );
+        assert!(crate::shader_test_support::fragment_reads_binding(
+            &source, 0, 0
+        ));
+        assert!(
+            super::item_bind_group_layout().entries[0]
+                .visibility
+                .contains(ShaderStages::FRAGMENT)
+        );
     }
 }
