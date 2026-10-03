@@ -83,14 +83,7 @@ pub(in crate::compiler) const fn model_quad_face_from_id(face: u32) -> Option<Bl
 }
 
 pub(in crate::compiler) const fn model_quad_face_id(face: BlockFace) -> u32 {
-    match face {
-        BlockFace::Down => 1,
-        BlockFace::Up => 2,
-        BlockFace::West => 3,
-        BlockFace::East => 4,
-        BlockFace::North => 5,
-        BlockFace::South => 6,
-    }
+    face.model_quad_face_id()
 }
 
 pub(in crate::compiler) fn button_bounds(orientation: u8, pressed: bool) -> ([i16; 3], [i16; 3]) {

@@ -281,7 +281,7 @@ fn expected_button_quads(orientation: u32, pressed: bool) -> [ExpectedButtonQuad
                 expected_button_uvlock_rect(target_face, target_min, target_max),
             )
         };
-        (target_face as u32, positions, uvs)
+        (target_face.model_quad_face_id(), positions, uvs)
     })
 }
 
@@ -389,7 +389,7 @@ fn compiler_button_wall_uvlock_matches_independent_target_space_goldens() {
         for face in BlockFace::ALL {
             let quad = quads
                 .iter()
-                .find(|quad| quad.flags & MODEL_QUAD_FLAG_FACE_MASK == face as u32)
+                .find(|quad| quad.flags & MODEL_QUAD_FLAG_FACE_MASK == face.model_quad_face_id())
                 .expect("one quad for each target wall face");
             assert_eq!(
                 quad.uvs, golden[face as usize],
