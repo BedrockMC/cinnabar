@@ -305,10 +305,13 @@ impl UiPresentationRuntime {
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
         let screens = &mut self.form_presentation.hud;
+        let preview_view = std::cell::Cell::new(None);
         let art = ScreenArt {
             icons: &icons,
             now: now_millis as f64 / 1_000.0,
             hud: Some(&paint),
+            preview: frame.player_preview,
+            preview_view: Some(&preview_view),
             clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
@@ -348,6 +351,9 @@ impl UiPresentationRuntime {
                 env,
             )
         })?;
+        if let Some(view) = preview_view.get() {
+            self.player_preview_view = view;
+        }
         Ok(true)
     }
 }
@@ -465,7 +471,9 @@ fn hud_model(
                 .hud()
                 .air()
                 .is_some_and(|air| air.current() < air.maximum()),
-        paper_doll: false,
+        paper_doll: frame.paper_doll_visible
+            && mode_allows_hotbar
+            && settings.value("hide_paperdoll") == 0,
         effects_visible: runtime
             .gameplay_hud()
             .effects()
