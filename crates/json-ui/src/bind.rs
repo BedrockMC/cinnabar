@@ -166,6 +166,8 @@ struct Scope {
     retained_parent: u64,
     /// The control's layout key, tracked only while components write bags.
     layout_key: String,
+    /// Active factory/template references, carried through deferred children.
+    expansions: Vec<ControlRef>,
 }
 
 impl Default for Scope {
@@ -178,6 +180,7 @@ impl Default for Scope {
             parent_key: state::KEY_ROOT,
             retained_parent: state::KEY_ROOT,
             layout_key: String::new(),
+            expansions: Vec::new(),
         }
     }
 }
@@ -433,11 +436,13 @@ impl<'a> Binder<'a> {
         let created = if is_collection_factory(control) {
             Some(self.expand_factory(control, node, scope))
         } else if let Some(reference) = self.screen_factory(control) {
-            Some(
-                self.resolve(&reference)
-                    .map(|resolved| vec![self.build(Src::root(resolved), scope, 0)])
+            Some(match self.expansion_scope(scope, &reference) {
+                Some(inner) => self
+                    .resolve(&reference)
+                    .map(|resolved| vec![self.build(Src::root(resolved), &inner, 0)])
                     .unwrap_or_default(),
-            )
+                None => Vec::new(),
+            })
         } else if let Some(items) = self.feed(control) {
             Some(self.expand_feed(control, items, scope))
         } else {
@@ -464,6 +469,20 @@ impl<'a> Binder<'a> {
             return self.expand_grid(src, &template, scope);
         }
         self.literal_children(src, scope)
+    }
+
+    /// Bounds recursive factory/template creation without rejecting ordinary siblings.
+    fn expansion_scope(&mut self, scope: &Scope, reference: &ControlRef) -> Option<Scope> {
+        const MAX_EXPANSIONS: usize = 64;
+        if scope.expansions.len() >= MAX_EXPANSIONS || scope.expansions.contains(reference) {
+            self.note(format!(
+                "factory expansion skipped at {reference}: cycle or depth limit"
+            ));
+            return None;
+        }
+        let mut inner = scope.clone();
+        inner.expansions.push(reference.clone());
+        Some(inner)
     }
 
     /// The authored children; a `type: "factory"` child's creations join its

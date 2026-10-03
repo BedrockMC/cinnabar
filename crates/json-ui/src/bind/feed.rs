@@ -100,6 +100,9 @@ impl<'a> Binder<'a> {
                     None => continue,
                 },
             };
+            let Some(inner) = self.expansion_scope(scope, &reference) else {
+                continue;
+            };
             let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
                 continue;
             };
@@ -120,7 +123,7 @@ impl<'a> Binder<'a> {
                 }
             });
             // The item's property bag is readable throughout the created subtree.
-            let mut item_scope = scope.clone();
+            let mut item_scope = inner;
             if let Some((collection, index)) = &item.cursor {
                 std::sync::Arc::make_mut(&mut item_scope.cursor)
                     .indices
@@ -185,6 +188,9 @@ impl<'a> Binder<'a> {
                 Some(_) => BTreeMap::new(),
                 None => factory.creation_vars(&BTreeMap::new()),
             };
+            let Some(inner) = self.expansion_scope(scope, &reference) else {
+                continue;
+            };
             let Some(resolved) = self.resolve_scoped(&reference, control, &vars) else {
                 self.note(format!(
                     "{}: factory control {reference} unresolved",
@@ -192,7 +198,7 @@ impl<'a> Binder<'a> {
                 ));
                 continue;
             };
-            let child_scope = scope.enter(collection, key.clone(), index);
+            let child_scope = inner.enter(collection, key.clone(), index);
             nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope, 0));
         }
         nodes
