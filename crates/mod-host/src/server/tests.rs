@@ -23,6 +23,7 @@ fn state() -> State {
             templates: BTreeSet::new(),
             channels: Vec::new(),
             actions: BTreeSet::new(),
+            max_message_bytes: MAX_MESSAGE_BYTES as u32,
         },
         action: None,
         commands: Vec::new(),
@@ -130,6 +131,7 @@ fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
         templates: BTreeSet::from(["ui/terminal.json".to_owned()]),
         channels: Vec::new(),
         actions: BTreeSet::from(["demo.pick".to_owned()]),
+        max_message_bytes: MAX_MESSAGE_BYTES as u32,
     }
 }
 

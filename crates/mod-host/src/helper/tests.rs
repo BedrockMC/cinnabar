@@ -21,6 +21,7 @@ fn startup() -> Start {
             templates: BTreeSet::new(),
             channels: Vec::new(),
             actions: BTreeSet::new(),
+            max_message_bytes: MAX_MESSAGE_BYTES as u32,
         },
         epoch: 1,
         component: String::new(),

@@ -65,6 +65,7 @@ fn overlapping_package_names_do_not_share_permissions_or_channel_schemas() {
         templates: BTreeSet::new(),
         channels: vec![channel],
         actions: BTreeSet::new(),
+        max_message_bytes: grant.wire.limits.max_message_bytes,
     };
     let mut parent = capabilities.clone();
     parent.channels.clear();

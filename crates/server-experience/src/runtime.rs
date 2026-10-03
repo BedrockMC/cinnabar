@@ -114,6 +114,10 @@ pub struct Capabilities {
     pub templates: BTreeSet<String>,
     pub channels: Vec<Channel>,
     pub actions: BTreeSet<String>,
+    /// The session's largest message, in bytes of record JSON: the negotiated wire's
+    /// `max_message_bytes`. A send over it is refused when it is made, since the wire could not
+    /// carry it.
+    pub max_message_bytes: u32,
 }
 
 impl Capabilities {
@@ -162,7 +166,11 @@ impl Capabilities {
                     .iter()
                     .find(|c| &c.id == channel && c.schema == *schema)
                     .ok_or_else(|| anyhow::anyhow!("undeclared channel"))?;
-                declaration.validate(record, Direction::ToServer, MAX_MESSAGE_BYTES)?;
+                declaration.validate(
+                    record,
+                    Direction::ToServer,
+                    self.max_message_bytes as usize,
+                )?;
                 Permission::Messaging
             }
             Command::Scene { object, .. } => {

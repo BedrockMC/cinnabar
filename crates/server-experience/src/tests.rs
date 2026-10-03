@@ -176,6 +176,7 @@ fn stale_and_partially_invalid_transactions_never_publish() {
         templates: BTreeSet::new(),
         channels: Vec::new(),
         actions: BTreeSet::new(),
+        max_message_bytes: policy::MAX_MESSAGE_BYTES as u32,
     };
     let transaction = runtime::Transaction {
         owner: owner.clone(),
@@ -307,6 +308,7 @@ fn typed_records_wait_for_publication_and_replay_quarantines() {
             templates: BTreeSet::new(),
             channels: vec![channel.clone()],
             actions: BTreeSet::new(),
+            max_message_bytes: grant.wire.limits.max_message_bytes,
         },
     )]);
     let mut ingress = wire::Ingress::new(0);

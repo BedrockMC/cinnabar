@@ -5,7 +5,7 @@ use anyhow::{Result, ensure};
 use mod_host::helper::{Dispatch, Event, Helper};
 use server_experience::{
     bundle::VerifiedBundle,
-    manifest::implemented_permissions,
+    manifest::{Manifest, implemented_permissions},
     negotiation::Grant,
     policy::*,
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
@@ -14,7 +14,7 @@ use server_experience::{
     wire::{self, Envelope, Ingress, RateLimit},
 };
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -81,21 +81,8 @@ impl<H: Worker> Live<H> {
                 bundle: bundle.manifest.id.clone(),
                 generation: INITIAL_BUNDLE_GENERATION,
             };
-            let mut scope = grant.offer.offer.scope.clone();
-            scope.permissions = bundle.manifest.permissions.clone();
-            scope
-                .permissions
-                .retain(|permission| implemented_permissions().contains(permission));
-            let count = grant.offer.offer.packages.len() as u64;
-            scope.memory_bytes = (scope.memory_bytes / count).min(MAX_GUEST_MEMORY);
-            scope.gpu_bytes /= count;
-            let capabilities = Capabilities {
-                scope,
-                assets: bundle.paths().map(str::to_owned).collect(),
-                templates: bundle.manifest.templates.clone(),
-                channels: bundle.manifest.channels.clone(),
-                actions: bundle.manifest.actions.clone(),
-            };
+            let assets = bundle.paths().map(str::to_owned).collect();
+            let capabilities = capabilities(&grant, &bundle.manifest, assets);
             budget.reserve(
                 owner.clone(),
                 capabilities.scope.memory_bytes,
@@ -349,6 +336,29 @@ impl<H: Worker> Live<H> {
             "Server widgets: {}",
             labels.chars().take(256).collect::<String>()
         )
+    }
+}
+
+/// What the guest of `manifest` may do in this session: the offer's scope narrowed to the
+/// permissions the manifest asks for and this build implements, with an equal share of the
+/// offer's memory, over its own `assets` and the templates, channels and actions it declares,
+/// sending messages no larger than the session's wire carries.
+fn capabilities(grant: &Grant, manifest: &Manifest, assets: BTreeSet<String>) -> Capabilities {
+    let mut scope = grant.offer.offer.scope.clone();
+    scope.permissions = manifest.permissions.clone();
+    scope
+        .permissions
+        .retain(|permission| implemented_permissions().contains(permission));
+    let count = grant.offer.offer.packages.len() as u64;
+    scope.memory_bytes = (scope.memory_bytes / count).min(MAX_GUEST_MEMORY);
+    scope.gpu_bytes /= count;
+    Capabilities {
+        scope,
+        assets,
+        templates: manifest.templates.clone(),
+        channels: manifest.channels.clone(),
+        actions: manifest.actions.clone(),
+        max_message_bytes: grant.wire.limits.max_message_bytes,
     }
 }
 

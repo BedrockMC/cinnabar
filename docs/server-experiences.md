@@ -310,7 +310,10 @@ level 1, and a record has at most `MAX_CHANNEL_FIELDS` fields; bundle verificati
 refuses other declarations. Validation stays positional and total: every nested
 value is checked against its declaration. No opaque arbitrary Bedrock packet payload
 is exposed. The host validates outgoing records against `to_server` schemas and
-incoming records against `to_client` schemas.
+incoming records against `to_client` schemas. A guest's `messaging.send` is checked
+when it is made, against its channel's schema and the session's message limit
+(`MAX_PAYLOAD_BYTES` on wire v1, the Accept's `max_message_bytes` on v2); a send that
+fails is an error returned to the guest and never reaches the wire.
 
 A payload's JSON may be at most `max_fragment_bytes` inline. On wire v2 a longer one,
 up to `max_message_bytes`, travels as ordered fragments that share the message's

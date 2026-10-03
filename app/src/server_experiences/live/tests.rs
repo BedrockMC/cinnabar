@@ -1,6 +1,6 @@
 use super::*;
 use server_experience::{
-    manifest::{Offer, PackageOffer, Permission, Scope},
+    manifest::{Manifest, Offer, PackageOffer, Permission, Scope},
     negotiation::{Limits, VerifiedOffer, Wire},
     runtime::Transaction,
     wire::{Channel, Direction, Field, Fragment, Scalar},
@@ -119,6 +119,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                         templates: BTreeSet::from([SCREEN.to_owned()]),
                         channels,
                         actions: BTreeSet::from([format!("{}.pick", owner.bundle)]),
+                        max_message_bytes: grant.wire.limits.max_message_bytes,
                     },
                     owner,
                     contributions: Contributions::default(),
@@ -345,6 +346,64 @@ fn a_v1_dimension_change_rejects_completed_old_epoch_output_before_publication()
     );
 }
 
+/// A guest's `messaging.send` is checked when it is made, against the capabilities its helper
+/// holds, and those refuse a record over the session's message limit: the inline payload limit
+/// on wire v1, the negotiated one on v2. The limit itself fits. A record they let through would
+/// only fail as it is encoded for the wire, and that ends the client part.
+#[test]
+fn sends_over_the_session_message_limit_are_refused_at_send_time() {
+    let negotiated = Limits {
+        max_message_bytes: 20_000,
+        ..Limits::host()
+    };
+    let channel = Channel {
+        id: "bundle0.events1".into(),
+        schema: API_VERSION,
+        direction: Direction::ToServer,
+        fields: vec![Field::Text {
+            max_bytes: u16::MAX,
+        }],
+    };
+    let manifest = Manifest {
+        version: WIRE_VERSION,
+        api: API_VERSION,
+        id: "bundle0".into(),
+        publisher_key: String::new(),
+        package_version: "1.0.0".into(),
+        permissions: BTreeSet::from([Permission::Messaging]),
+        component: None,
+        channels: vec![channel.clone()],
+        actions: BTreeSet::new(),
+        templates: BTreeSet::new(),
+        files: Vec::new(),
+    };
+    // A send whose record is `bytes` long as JSON.
+    let send = |bytes: usize| Command::Send {
+        channel: channel.id.clone(),
+        schema: channel.schema,
+        record: vec![Scalar::Text(
+            "x".repeat(bytes - r#"[{"type":"text","value":""}]"#.len()),
+        )],
+    };
+    for wire in [
+        Wire::v1(),
+        Wire {
+            version: MAX_WIRE_VERSION,
+            limits: negotiated,
+        },
+    ] {
+        let mut grant = fixture(1).grant;
+        grant.wire = wire;
+        let capabilities = capabilities(&grant, &manifest, BTreeSet::new());
+        let limit = wire.limits.max_message_bytes as usize;
+        capabilities.validate(&send(limit)).unwrap();
+        assert!(
+            capabilities.validate(&send(limit + 1)).is_err(),
+            "{wire:?} admits a record over its message limit"
+        );
+    }
+}
+
 /// The fixture on wire v2, its channels lists of up to 4096 strings of up to 64 bytes.
 fn fixture_v2(count: usize) -> Live<FakeWorker> {
     let mut live = fixture(count);
@@ -353,6 +412,7 @@ fn fixture_v2(count: usize) -> Live<FakeWorker> {
         limits: Limits::host(),
     };
     for instance in live.instances.values_mut() {
+        instance.capabilities.max_message_bytes = live.grant.wire.limits.max_message_bytes;
         for channel in &mut instance.capabilities.channels {
             channel.fields = vec![Field::List {
                 item: Box::new(Field::Text { max_bytes: 64 }),
