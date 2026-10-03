@@ -48,6 +48,11 @@ impl Components {
         self.bags.is_empty()
     }
 
+    /// Whether binding sees the same property writes, regardless of editing timers.
+    pub fn same_bindings(&self, other: &Self) -> bool {
+        self.bags == other.bags
+    }
+
     pub(crate) fn write(&mut self, key: &str, name: &str, value: Value) {
         self.bags
             .entry(key.to_owned())
