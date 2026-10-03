@@ -72,7 +72,13 @@ pub struct Grant {
 }
 
 /// A pending handshake belongs to exactly one live connection generation.
-#[derive(Clone, Debug)]
+///
+/// ```compile_fail
+/// fn duplicate(pending: server_experience::negotiation::Pending) {
+///     let _ = pending.clone();
+/// }
+/// ```
+#[derive(Debug)]
 pub struct Pending {
     offer: VerifiedOffer,
     hello: Hello,
