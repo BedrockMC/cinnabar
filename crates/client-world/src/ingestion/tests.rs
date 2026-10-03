@@ -249,6 +249,8 @@ fn worker_decode_preserves_air_unavailable_and_sequence_without_assets() {
             assets,
             custom_blocks: 0..0,
             remap: Arc::default(),
+            diagnostics: Arc::default(),
+            session_id: 1,
             mode: NetworkIdMode::Sequential,
             air: 0,
             biome_tints,

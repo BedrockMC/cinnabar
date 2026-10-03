@@ -19,6 +19,14 @@ in the coordinator because their reconciliation follows residency and pending
 block mutation work. Map images, sign requests and block-event cues are retained
 by the lower authority.
 
+The session's block palette diagnostics also belong to `client-world`.
+`WorldAuthority` retains one shared sample budget and passes it, together with
+the captured session and registry identities, to every decode job. Registry
+provenance logging stays beside remap updates. The pipeline dispatches those jobs
+without keeping a second registry or diagnostic budget. The bounded sampling and
+unknown-ID air fallback retain the behavior and references documented in the
+[Lifeboat investigation](../evidence/lifeboat-offline.md#vanilla-references).
+
 The coordinator still decides relevance and mutation order. It applies each
 accepted mutation synchronously before invalidating lighting, mesh or block-entity
 presentation. Worker jobs retain the existing captured inputs and bounded result

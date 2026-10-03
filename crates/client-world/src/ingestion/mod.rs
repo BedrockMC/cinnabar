@@ -2,6 +2,7 @@
 
 mod contracts;
 mod decode;
+mod decode_diagnostics;
 mod ids;
 mod jobs;
 mod ordered;
@@ -11,6 +12,7 @@ pub use contracts::{
     PreparedBlockMutations, PreparedSubChunk, PreparedSubChunkResult, PreparedWorldEvent,
     WorldStreamError,
 };
+pub(crate) use decode_diagnostics::{DecodeDiagnostics, block_registry_sha256};
 pub use ids::{DecodeIds, default_biome_id, dimension_slots};
 pub use jobs::{BlockMutationBatch, DecodeCompletion, DecodeJob, QueuedDecodeJob};
 pub use ordered::{CommitStep, DecodeCommit, OrderedCommitState};

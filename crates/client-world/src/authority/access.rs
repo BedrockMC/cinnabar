@@ -88,6 +88,16 @@ impl WorldAuthority {
     }
     /// Retains the single wire-to-internal sequential palette mapping.
     pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
+        eprintln!(
+            "SESSION_BLOCK_PALETTE session={} mode={:?} air={:#010x} visual_count={} block_registry_sha256={} custom_internal_ids={:?} sequential_id_remapped={}",
+            self.actor_session_id,
+            self.network_id_mode,
+            self.air_block_id,
+            self.runtime_assets.visual_count(),
+            crate::ingestion::block_registry_sha256(&self.runtime_assets),
+            self.custom_block_ids,
+            !remap.is_identity(),
+        );
         self.id_remap = Arc::new(remap);
     }
     /// Captures the session registry view used by one admitted decode job.
@@ -96,6 +106,8 @@ impl WorldAuthority {
             assets: Arc::clone(&self.runtime_assets),
             custom_blocks: self.custom_block_ids.clone(),
             remap: Arc::clone(&self.id_remap),
+            diagnostics: Arc::clone(&self.decode_diagnostics),
+            session_id: self.actor_session_id,
             mode: self.network_id_mode,
             air: self.air_block_id,
             biome_tints: Arc::clone(&self.resolved_biome_tints),
