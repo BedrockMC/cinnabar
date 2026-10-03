@@ -1043,3 +1043,29 @@ fn review_nonfinite_string_values_do_not_create_nonfinite_slider_geometry() {
         );
     }
 }
+
+#[test]
+fn review_sibling_max_uses_independent_dimensions_of_deferred_siblings() {
+    let root = screen(json!([
+        { "a": { "type": "panel", "size": [20, "100%sm"] } },
+        { "b": { "type": "panel", "size": ["100%sm", 30] } }
+    ]));
+    assert_eq!(size(&root, "a"), [20.0, 30.0]);
+    assert_eq!(size(&root, "b"), [20.0, 30.0]);
+}
+
+#[test]
+fn review_vertical_grid_positions_count_only_admitted_cells() {
+    let root = screen(json!([{ "g": top_left(json!({
+        "type": "grid", "size": [40, 20], "grid_rescaling_type": "vertical",
+        "grid_item_template": "t.cell", "maximum_grid_items": 4,
+        "controls": (0..6).map(|i| json!({format!("cell{i}"): {
+            "type": "panel", "size": [10, 10]
+        }})).collect::<Vec<_>>()
+    })) }]));
+    for name in ["cell0", "cell1", "cell2", "cell3"] {
+        let at = rect(&root, name);
+        assert!(at[0] < 40.0, "{name}: {at:?}");
+    }
+    assert_eq!(rect(&root, "cell2")[1], 10.0);
+}
