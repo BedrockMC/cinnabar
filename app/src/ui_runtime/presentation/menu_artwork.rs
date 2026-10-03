@@ -564,6 +564,7 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
     let mut paths = vec![home.persona_head.clone()];
     for art in [&home.play_art, &home.store_art].into_iter().flatten() {
         paths.extend([
+            art.banner_texture.clone(),
             art.default_background.clone(),
             art.hover_background.clone(),
             art.default_foreground.clone(),

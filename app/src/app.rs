@@ -714,6 +714,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
+            actor_artwork: Some(actor_artwork.clone()),
         })
         .context("spawn Bedrock network worker")
         {

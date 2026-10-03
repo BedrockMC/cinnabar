@@ -64,6 +64,7 @@ fn review_inbox_list_registers_its_full_scroll_extent() {
             body: "Message".into(),
             category: "News".into(),
             unread: index < 20,
+            ..Default::default()
         })
         .collect();
     let (scrolls, _, _) = paint(HashMap::new(), |c| {

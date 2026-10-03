@@ -37,6 +37,7 @@ pub(crate) struct MenuSessionState<'w> {
     local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
     interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<ResMut<'w, LauncherCoreSlot>>,
+    actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
 }
 
 type BlobCache = crate::app::ClientBlobCacheOwner;
@@ -57,6 +58,7 @@ impl MenuSessionState<'_> {
         self.runtime.begin_session(player_runtime, generation);
         self.client_world.stream = None;
         self.client_world.pack_entities = None;
+        self.client_world.prepared_actor_artwork = None;
         self.client_world.session_items = None;
         self.client_world.pending_surface_spawn = None;
         self.client_world.fatal_error = None;
@@ -221,7 +223,13 @@ fn poll_join(
             };
             match selected {
                 Ok(socket_dir) => {
-                    if let Err(error) = start_network(commands, menu, cache, socket_dir) {
+                    if let Err(error) = start_network(
+                        commands,
+                        menu,
+                        cache,
+                        socket_dir,
+                        session.actor_artwork.as_deref(),
+                    ) {
                         fail_join(menu, format!("Could not connect: {error}"));
                     }
                 }
@@ -278,7 +286,13 @@ fn poll_join(
                 return;
             }
             menu.bind_session_directory(directory);
-            if let Err(error) = start_network(commands, menu, cache, socket_dir) {
+            if let Err(error) = start_network(
+                commands,
+                menu,
+                cache,
+                socket_dir,
+                session.actor_artwork.as_deref(),
+            ) {
                 let directory = menu.session_directory.take();
                 session.guard.stop_detached(move || drop(directory));
                 fail_join(menu, format!("Could not connect: {error}"));
@@ -298,6 +312,7 @@ fn start_network(
     menu: &MenuRuntime,
     cache: &BlobCache,
     socket_dir: PathBuf,
+    actor_artwork: Option<&render::ActorArtworkPages>,
 ) -> Result<(), String> {
     let replacement = crate::runtime::network::spawn_network(NetworkConfig {
         session_generation: menu.session_generation,
@@ -305,6 +320,7 @@ fn start_network(
         display_name: menu.display_name.clone(),
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin.clone(),
+        actor_artwork: actor_artwork.cloned(),
     })
     .map_err(|error| error.to_string())?;
     commands.insert_resource(replacement.movement_ticker());

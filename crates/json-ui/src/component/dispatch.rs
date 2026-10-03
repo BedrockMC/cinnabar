@@ -531,16 +531,17 @@ impl Dispatcher {
         out: &mut Dispatch,
     ) {
         if hovered {
+            // `_sendHoverScreenEvent` raises a hover mapping in the Up state: never a press.
             for (to, scope) in &region.input.hover_mappings {
                 let probe = ButtonInput {
                     id: to,
-                    down: true,
+                    down: false,
                     point: input.point,
                     mode: input.mode,
                     now: input.now,
                 };
                 out.events.push(ScreenEvent::Button(event(
-                    region, to, "", &probe, true, *scope,
+                    region, to, "", &probe, false, *scope,
                 )));
             }
         }

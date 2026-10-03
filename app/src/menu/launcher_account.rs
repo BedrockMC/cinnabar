@@ -30,6 +30,8 @@ use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 #[cfg(test)]
 mod home_promo;
 
+mod message_reports;
+
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often events refresh while a join is under way, so its progress bar moves smoothly.
@@ -93,6 +95,7 @@ impl Snapshot {
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    message_reports: Sender<MessageEvent>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
     socket_dir: PathBuf,
@@ -106,6 +109,7 @@ impl LauncherAccount {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
+        let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
@@ -116,6 +120,7 @@ impl LauncherAccount {
         Self {
             snapshot,
             sign_out,
+            message_reports,
             _alive: alive,
             socket_dir,
         }
@@ -396,6 +401,17 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         play_art: art("PlayButton"),
         store_art: art("MarketplaceButton"),
         inbox_unread: home.inbox.unread,
+        inbox_counts: home
+            .inbox
+            .categories
+            .iter()
+            .filter_map(|category| {
+                Some((
+                    super::inbox::category_index(&category.kind)?,
+                    category.unread,
+                ))
+            })
+            .collect(),
         realm_invites: home.realm_invites,
         live_event,
         persona_head: home.persona_head.path.clone(),
@@ -404,6 +420,10 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             .iter()
             .filter(|message| message.surface == "InboxMessage")
             .map(|message| InboxItem {
+                instance_id: message.instance_id.clone(),
+                report_id: message.report_id.clone(),
+                received: message.received.clone(),
+                source: message.sender.clone(),
                 header: message.header.clone(),
                 body: message.body.clone(),
                 category: message.category.clone(),
@@ -417,10 +437,15 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
 fn button_art(message: &Message) -> ButtonArt {
     let mut art = ButtonArt {
         banner: message.banner.clone(),
+        colors: message.colors.clone(),
         ..ButtonArt::default()
     };
     for image in message.images.iter().filter(|image| !image.path.is_empty()) {
         let id = image.id.to_ascii_lowercase();
+        if id.contains("banner") {
+            art.banner_texture = image.path.clone();
+            continue;
+        }
         let hover = id.contains("hover");
         let foreground = id.contains("fore") || id.contains("fg");
         let slot = match (hover, foreground) {
@@ -569,6 +594,11 @@ impl AccountControl for LauncherAccount {
                 })
                 .collect(),
         )
+    }
+
+    /// Queues an inbox action on the dedicated reporting worker.
+    fn report_message(&mut self, event: MessageEvent) {
+        let _ = self.message_reports.send(event);
     }
 
     fn home(&mut self) -> Option<MenuHome> {
@@ -812,6 +842,7 @@ mod tests {
             sign_out,
             _alive: alive,
             socket_dir: PathBuf::new(),
+            message_reports: crossbeam_channel::unbounded().0,
         };
         assert!(account.sign_out());
         publish_account(&snapshot, generation, |snapshot| {

@@ -64,7 +64,7 @@ pub(crate) const HAND_FOV_DEGREES: f32 = 70.0;
 /// Rebuilds session artwork and item routes, or restores startup artwork after disconnect.
 fn apply_session_pack(
     scene: &mut ActorRenderScene,
-    base: &render::ActorArtworkPages,
+    mut pages: render::ActorArtworkPages,
     pack: Option<&super::entity_pack::SessionEntityPack>,
     session_icons: Option<StagedSessionIcons>,
     geometry_ready: &mut SessionGeometryReady,
@@ -75,14 +75,6 @@ fn apply_session_pack(
     Option<StagedSessionIcons>,
     Vec<Option<render::ActorArtworkLocation>>,
 ) {
-    let artwork_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorArtworkSetup));
-    let mut pages = match pack {
-        Some(pack) => base
-            .clone()
-            .with_pack_artwork(&pack.textures, &pack.bindings),
-        None => base.clone(),
-    };
-    drop(artwork_timer);
     let equipment_timer = profiler.map(|profiler| profiler.time(RuntimeStage::ActorEquipmentSetup));
     let mut layer = None;
     let mut geometries = Vec::new();
@@ -247,6 +239,9 @@ pub(crate) fn prepare_actor_render_frame(
         .map(WorldStream::actor_session_id);
     let new_session = *published_session != session_id;
     if new_session {
+        if session_id.is_none() {
+            client_world.prepared_actor_artwork = None;
+        }
         scene.reset();
         actor_clock.reset();
         *skin_layers = Default::default();
@@ -278,10 +273,19 @@ pub(crate) fn prepare_actor_render_frame(
         if new_session || pack_changed {
             *pack_geometry_ready = SessionGeometryReady::default();
         }
+        let artwork_timer = profiler
+            .as_deref()
+            .map(|profiler| profiler.time(RuntimeStage::ActorArtworkSetup));
+        let pages = super::prepared_actor_artwork::session_pages(
+            &artwork,
+            pack.as_ref(),
+            client_world.prepared_actor_artwork.as_deref(),
+        );
+        drop(artwork_timer);
         // Always republished: presentation selects from these pages, the scene validates them.
         let (effective, staged, locations) = apply_session_pack(
             &mut scene,
-            &artwork,
+            pages,
             pack.as_deref(),
             staged,
             &mut pack_geometry_ready,

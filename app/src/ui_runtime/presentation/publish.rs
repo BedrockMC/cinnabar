@@ -38,6 +38,7 @@ type PublishExtras<'w> = (
         Option<ResMut<'w, render::UiGlintSettings>>,
         Res<'w, crate::item_use::ItemUseRuntime>,
         Res<'w, crate::movement::MovementTicker>,
+        Res<'w, crate::movement::LocalPhysicsController>,
     ),
 );
 
@@ -65,7 +66,17 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
-        (actor_partial, local_frame, clock, weather, network, glint_settings, item_use, movement),
+        (
+            actor_partial,
+            local_frame,
+            clock,
+            weather,
+            network,
+            glint_settings,
+            item_use,
+            movement,
+            physics,
+        ),
     ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -218,14 +229,32 @@ pub(crate) fn prepare_ui_runtime(
             .canonical_item_stack(stack)?
             .identifier
     });
-    let hide_hand = menu_runtime.settings_snapshot().0.value("hide_hand") != 0;
+    let doll_state = client_world
+        .stream
+        .as_ref()
+        .and_then(|stream| super::paper_doll::observe(stream, &runtime, &physics));
+    presentation.hud_frame.paper_doll_visible =
+        presentation.paper_doll.update(now_millis, doll_state);
+    let settings = menu_runtime.settings_snapshot().0;
+    let hud_doll = presentation.hud_frame.paper_doll_visible
+        && settings.value("hide_hud") == 0
+        && settings.value("hide_paperdoll") == 0
+        && !menu_runtime.is_visible()
+        && !runtime.inventory_open();
+    if hud_doll {
+        presentation.capture_hud_player(
+            client_world.stream.as_ref(),
+            doll_state.is_some_and(|state| state.swimming),
+        );
+    }
+    let hide_hand = settings.value("hide_hand") != 0;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let preview = PreviewCapture {
         skin,
         pose,
-        shown: runtime.inventory_open() || menu_runtime.is_visible(),
+        shown: runtime.inventory_open() || menu_runtime.is_visible() || hud_doll,
         hands: first_person && !hide_hand && !hand_rig.is_active(),
     };
     super::forms::observe_station_block(

@@ -940,3 +940,64 @@ fn review_failed_menu_modal_does_not_expose_underlying_actions() {
         .unwrap();
     assert!(presentation.menu_hit_targets.is_empty());
 }
+
+#[test]
+fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let mut catalog = json_ui::Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .unwrap();
+    let context = json_ui::hud_context(&json_ui::Context::default());
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    for java in [false, true] {
+        if java {
+            for (path, _, bytes) in super::hud::JAVA_HUD_PACK {
+                let text = std::str::from_utf8(bytes).unwrap();
+                if path.ends_with("_global_variables.json") {
+                    catalog.overlay_globals_text(text);
+                } else {
+                    catalog.overlay_text(path, text);
+                }
+            }
+        }
+        for visible in [true, false] {
+            let data = json_ui::hud_data_source(&json_ui::HudModel {
+                paper_doll: visible,
+                hotbar_visible: true,
+                ..Default::default()
+            });
+            let render = json_ui::render_screen(
+                json_ui::HUD_SCREEN,
+                &catalog,
+                &context,
+                &data,
+                [640., 360.],
+                &env,
+                &Default::default(),
+            )
+            .unwrap();
+            let dolls: Vec<_> = render.nodes.iter().filter(|node| matches!(&node.draw, json_ui::Draw::Custom { renderer, .. } if renderer == "hud_player_renderer")).collect();
+            assert_eq!(dolls.len(), usize::from(visible), "java={java}");
+            if visible {
+                assert_eq!(
+                    dolls[0].dest,
+                    json_ui::RectOut {
+                        x: 15.,
+                        y: 15.,
+                        w: 15.,
+                        h: 15.
+                    }
+                );
+            }
+        }
+    }
+}

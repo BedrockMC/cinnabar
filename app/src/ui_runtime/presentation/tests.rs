@@ -29,6 +29,7 @@ mod item_pipeline_tests;
 mod loading_screen_tests;
 mod menu_caret_tests;
 mod menu_status_tests;
+mod paper_doll_tests;
 mod publication_split_tests;
 mod retained_hud_tests;
 mod safe_area_tests;

@@ -13,7 +13,7 @@ use bevy::{
         ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
         Resource, Single, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
+    window::{CursorOptions, PrimaryWindow, Window},
 };
 use ui::{ChatClipboard, ChatEditor, UiPoint};
 
@@ -371,8 +371,7 @@ pub(crate) fn drive_menu_input(
         gui_scale_drag.left_held = false;
         if !menu.is_visible() && menu.settings_options.value("pause_menu_on_focus_lost") != 0 {
             menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
+            crate::camera::release_cursor(&mut cursor);
         }
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
@@ -411,8 +410,7 @@ pub(crate) fn drive_menu_input(
         if keys.just_pressed(KeyCode::Escape) {
             modifiers.capture_pressed(&keys);
             menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
+            crate::camera::release_cursor(&mut cursor);
             keys.reset_all();
         }
         return;
@@ -430,8 +428,7 @@ pub(crate) fn drive_menu_input(
     }
 
     modifiers.capture_pressed(&keys);
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    crate::camera::release_cursor(&mut cursor);
     let pointer = window
         .cursor_position()
         .and_then(|position| UiPoint::new(position.x, position.y).ok());
@@ -606,6 +603,14 @@ pub(crate) fn drive_menu_input(
 impl MenuRuntime {
     /// A selected vanilla edit box consumes cancel before the screen handles it.
     fn go_back_from_input(&mut self) {
+        if self.screen == super::MenuScreen::Inbox
+            && (self.feeds.inbox_state.opened.is_some()
+                || self.feeds.inbox_state.delete_pending.is_some()
+                || self.feeds.inbox_state.filters)
+        {
+            self.activate_inbox(super::inbox::Action::Cancel);
+            return;
+        }
         if self.screen == super::MenuScreen::AddServer && self.field.is_some() {
             self.edit_field(|editor| editor.place_cursor(editor.cursor_byte()));
             self.field = None;
