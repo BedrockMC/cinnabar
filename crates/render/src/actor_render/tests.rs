@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-#[path = "../../tests/support/shader_source.rs"]
-mod shader_source;
+use crate::shader_source;
 
 use bevy::{
     app::SubApp,

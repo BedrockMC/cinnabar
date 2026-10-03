@@ -1,6 +1,5 @@
 //! Validate every Enhanced shader and create its pipeline on an available real adapter.
-#[path = "../../tests/support/shader_source.rs"]
-mod shader_source;
+use crate::shader_source;
 
 type Variant = (&'static str, String, &'static str, &'static str, bool);
 
