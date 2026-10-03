@@ -124,7 +124,10 @@ pub(super) fn draw(
             list_top += row_height;
         }
     }
-    let scroll = canvas.begin_scroll("inbox_messages", [left, list_top, right, bottom])?;
+    let scroll = canvas.begin_scroll(
+        &format!("inbox_messages_{}", state.category),
+        [left, list_top, right, bottom],
+    )?;
     let start = list_top - scroll.offset;
     let mut y = start;
     let now = std::time::SystemTime::now()
