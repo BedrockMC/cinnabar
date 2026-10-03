@@ -190,6 +190,7 @@ pub struct UiRuntime {
     wake_requested: bool,
     sleep_status: Option<bed::SleepStatus>,
     chat_tab_cycling: bool,
+    chat_tab_start: Option<usize>,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
     in_flight_chat_send: Option<(u64, u64)>,
@@ -220,6 +221,8 @@ pub struct UiRuntime {
     screen: screen_state::ScreenState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
+    /// One complete book commit, bounded by the protocol page limit plus signing.
+    book_packets: VecDeque<protocol::Packet>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -283,6 +286,7 @@ impl UiRuntime {
             wake_requested: false,
             sleep_status: None,
             chat_tab_cycling: false,
+            chat_tab_start: None,
             pending_chat_autocomplete_request: None,
             chat_sends: ChatSendQueue::new(
                 MAX_PENDING_CHAT_SENDS,
@@ -318,6 +322,7 @@ impl UiRuntime {
             inventory_keys: interaction::InventoryKeys::default(),
             screen: screen_state::ScreenState::default(),
             client_packets: VecDeque::new(),
+            book_packets: VecDeque::new(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
@@ -611,6 +616,9 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.client_packets.clear();
+        self.book_packets.clear();
+        self.screen = screen_state::ScreenState::default();
         self.experiences.reset();
         self.clear_local_abilities();
         self.server_lang = None;
@@ -634,6 +642,8 @@ impl UiRuntime {
         self.chat_editor.clear();
         self.chat_history.clear_navigation();
         self.chat_input_revision = 0;
+        self.chat_tab_cycling = false;
+        self.chat_tab_start = None;
         self.chat_autocomplete.begin_session(session_id);
         self.chat_autocomplete_catalog = ChatAutocompleteCatalog::default();
         self.chat_usage_hint = None;
@@ -827,6 +837,13 @@ impl UiRuntime {
             }
             UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
             UiEvent::Form(event) => {
+                bevy::log::info!(
+                    target: "server_form",
+                    form_id = event.form_id,
+                    kind = ?event.kind,
+                    title = ?event.title,
+                    "form received"
+                );
                 self.forms.admit(
                     event,
                     envelope.fifo_sequence,
@@ -869,6 +886,7 @@ impl UiRuntime {
     fn note_chat_editor_change(&mut self) {
         self.chat_usage_hint = None;
         self.chat_tab_cycling = false;
+        self.chat_tab_start = None;
         self.chat_input_revision = self.chat_input_revision.saturating_add(1);
         self.pending_chat_autocomplete_request = self
             .chat_autocomplete

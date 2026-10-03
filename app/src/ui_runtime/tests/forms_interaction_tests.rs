@@ -502,6 +502,119 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
     assert!(response.is_none(), "an auto-repeated key answered the form");
 }
 
+// Zeqa answers a page before the mouse is released; that release must not click the next page.
+#[test]
+fn a_release_after_the_next_page_arrives_does_not_click_it() {
+    use crate::ui_runtime::{SequencedUiEvent, presentation::forms::pack_harness};
+    use bevy::input::mouse::MouseButtonInput;
+    use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
+    use std::sync::Arc;
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::action_form("Menu", &["A", "B", "C"]);
+    let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
+    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.collection_index == Some(1))
+        .unwrap();
+    let centre = [
+        frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+    ];
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_server_form_input);
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window
+        .resolution
+        .set_physical_resolution(physical[0], physical[1]);
+    window.set_cursor_position(Some(Vec2::new(centre[0], centre[1])));
+    let entity = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    let send = |app: &mut App, state: ButtonState| {
+        {
+            let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            match state {
+                ButtonState::Pressed => mouse.press(MouseButton::Left),
+                ButtonState::Released => mouse.release(MouseButton::Left),
+            }
+        }
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window: entity,
+        });
+        app.update();
+    };
+    let take = |app: &mut App| {
+        let mut sent = Vec::new();
+        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
+            sent.push(packet);
+            Ok(())
+        })
+        .unwrap();
+        sent
+    };
+    send(&mut app, ButtonState::Pressed);
+    let first = take(&mut app);
+    // The server's next page arrives while the button is still held.
+    app.world_mut()
+        .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+            runtime
+                .apply(SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: 2,
+                    local_millis: 0,
+                    server_tick: None,
+                    event: UiEvent::Form(FormRequestEvent {
+                        form_id: 4,
+                        kind: FormKind::Menu,
+                        title: Some(Arc::from("Next")),
+                        json: Arc::from("{}"),
+                        model: ServerFormModel::TextMenu(TextMenuForm {
+                            title: Arc::from("Next"),
+                            content: Arc::from(""),
+                            buttons: ["A", "B", "C"]
+                                .iter()
+                                .map(|text| Arc::from(*text))
+                                .collect(),
+                            button_images: Vec::new().into(),
+                            omitted_images: 0,
+                        }),
+                    }),
+                })
+                .unwrap();
+            world
+                .resource_mut::<UiPresentationRuntime>()
+                .build(&runtime, 16, physical, dpi)
+                .unwrap();
+        });
+    app.update();
+    send(&mut app, ButtonState::Released);
+    let second = take(&mut app);
+    assert!(
+        first.len() + second.len() <= 1,
+        "one physical click answered more than one page"
+    );
+}
+
 // With no form open, a left click stays gameplay's: the form input system never swallows it.
 #[test]
 fn a_click_without_a_form_reaches_gameplay() {

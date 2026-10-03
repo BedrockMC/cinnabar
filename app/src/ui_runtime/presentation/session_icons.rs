@@ -217,6 +217,8 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
 fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
     let sheet_size = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
     // Tallest first keeps shelves dense; ties keep input order.
+    // Invalid entries and later duplicates are dropped before sorting so they cannot size the page.
+    let mut seen = std::collections::HashSet::new();
     let mut ordered = icons
         .icons
         .iter()
@@ -228,6 +230,14 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
                 .filter(|sheet| [sheet.width, sheet.height] == sheet_size)
                 .map(|sheet| (sheet, true)),
         )
+        .filter(|(icon, _)| {
+            icon.width > 0
+                && icon.height > 0
+                && icon.width <= MAX_SESSION_ICON_SIDE
+                && icon.height <= MAX_SESSION_ICON_SIDE
+                && icon.rgba8.len() == (icon.width * icon.height * 4) as usize
+        })
+        .filter(|(icon, sheet)| seen.insert((Arc::clone(&icon.identifier), icon.metadata, *sheet)))
         .collect::<Vec<_>>();
     ordered.sort_by_key(|(icon, _)| std::cmp::Reverse(icon.height));
     let side = page_side(ordered.iter().map(|(icon, _)| *icon));
