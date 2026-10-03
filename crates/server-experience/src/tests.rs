@@ -365,7 +365,7 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
         let value = offer(&key);
         let marker = negotiation::Marker {
             server_key: value.server_key.clone(),
-            offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+            offer: crypto::sign(&value, crypto::OFFER_DOMAIN, &key).unwrap(),
         };
         let mut settings = trust::Settings::default();
         let mut session = session::Session::default();
@@ -395,11 +395,9 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
             session: crypto::hex(&[3; 32]),
             expires_unix: 1500,
         };
-        let bytes = serde_json::to_vec(&session::Control::Accept(signed(
-            &accept,
-            crypto::ACCEPT_DOMAIN,
-            &key,
-        )))
+        let bytes = serde_json::to_vec(&session::Control::Accept(
+            crypto::sign(&accept, crypto::ACCEPT_DOMAIN, &key).unwrap(),
+        ))
         .unwrap();
         let mut snapshot = session.clone();
         if revoke {
