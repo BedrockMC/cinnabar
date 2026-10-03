@@ -930,6 +930,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
             packs: crate::runtime::network::PackApplication::default(),
+            terrain_before_spawn: true,
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),

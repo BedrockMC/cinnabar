@@ -2,7 +2,10 @@ module github.com/hashimthearab/rust-mcbe/tools/localserver
 
 go 1.26.1
 
-require github.com/df-mc/dragonfly v0.0.0-20260919192252-3d29a693c54b
+require (
+	github.com/df-mc/dragonfly v0.0.0-20260919192252-3d29a693c54b
+	github.com/go-gl/mathgl v1.2.0
+)
 
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
@@ -16,7 +19,6 @@ require (
 	github.com/df-mc/goleveldb v1.1.9 // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
 	github.com/df-mc/worldupgrader v1.0.22 // indirect
-	github.com/go-gl/mathgl v1.2.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect

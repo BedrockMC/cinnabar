@@ -3,8 +3,9 @@
 //! list rows, solid tabs, text fields and segmented controls.
 
 use super::super::super::UiPresentationError;
+use super::super::menu_caret::{TextSpot, caret_byte};
 use super::icons::{self, Icon};
-use super::paint::{Bounds, Canvas};
+use super::paint::{Bounds, Canvas, text_factor};
 use super::theme::{
     BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, DESTRUCTIVE, EDGE, FIELD_CARET,
     FIELD_PLACEHOLDER, HEADER_HEIGHT, HEADER_STRIP, HEADER5, NEUTRAL, NEUTRAL20, NEUTRAL80,
@@ -464,7 +465,8 @@ pub(super) fn tag(
 }
 
 /// A text field: a dark face inside the field border (0.6rem on top), the value or placeholder
-/// at the field's padding, and the caret while focused. The border art is approximated.
+/// at the field's padding, and the caret at its position while focused. The border art is
+/// approximated.
 pub(super) fn text_field(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -497,10 +499,11 @@ pub(super) fn text_field(
     };
     canvas.text_line(shown, [left, top], width, BODY, color)?;
     if focused {
-        let caret_x = if value.is_empty() {
+        let before = &value[..caret_byte(value, view.caret.byte)];
+        let caret_x = if before.is_empty() {
             left
         } else {
-            left + canvas.measure(value, BODY)?.min(width)
+            left + canvas.measure(before, BODY)?.min(width)
         };
         canvas.fill(
             [caret_x, top, caret_x + edge, top + canvas.r(BODY.line)],
@@ -515,7 +518,23 @@ pub(super) fn text_field(
             OUTLINE,
         )?;
     }
-    canvas.hit(action, b)
+    canvas.hit(action, b)?;
+    // A press inside the field places its caret by character.
+    if let Some(field) = action.text_field()
+        && let Some(&(hit, bounds)) = canvas.hits.last()
+        && hit == action
+    {
+        let metrics = canvas.metrics;
+        canvas.spots.push(TextSpot {
+            field,
+            bounds,
+            left,
+            factor: text_factor(BODY),
+            font: None,
+            metrics,
+        });
+    }
+    Ok(())
 }
 
 /// A segmented control: one bevelled cell per option, the selected one sunk and dark.

@@ -44,14 +44,14 @@ fn server_draft_joins_the_separate_port_box() {
     assert_eq!(menu.draft_endpoint(), "", "an empty host stays empty");
     menu.activate(MenuAction::AddPort);
     assert_eq!(menu.view().field, Some(super::MenuField::Port));
-    menu.address = "play.example".to_owned();
-    menu.port = "19133".to_owned();
+    menu.address.set_text("play.example");
+    menu.port.set_text("19133");
     assert_eq!(menu.draft_endpoint(), "play.example:19133");
-    menu.address = "play.example:25565".to_owned();
+    menu.address.set_text("play.example:25565");
     assert_eq!(menu.draft_endpoint(), "play.example:25565");
-    menu.address = "::1".to_owned();
+    menu.address.set_text("::1");
     assert_eq!(menu.draft_endpoint(), "[::1]:19133");
-    menu.address = "play.example".to_owned();
+    menu.address.set_text("play.example");
     menu.port.clear();
     assert_eq!(menu.draft_endpoint(), "play.example");
 }
