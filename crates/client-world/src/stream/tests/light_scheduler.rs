@@ -135,20 +135,21 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     for _ in 0..128 {
         stream.dispatch_light_jobs(camera, usize::MAX);
-        if stream.pending_light.is_empty() && stream.in_flight_light.is_empty() {
-            // Results arrive before worker guards release their scheduler slots.
+        if stream.in_flight_light.is_empty() {
+            // Retired jobs can still own slots after their in-flight entries are removed.
+            // Wait for real worker progress instead of spending scheduler turns spinning.
             let deadline = Instant::now() + Duration::from_secs(5);
             while stream.running_light_jobs.load(Ordering::Acquire) != 0 {
                 assert!(
                     Instant::now() < deadline,
-                    "completed light workers did not release their slots"
+                    "retired light workers did not release their slots"
                 );
                 std::thread::yield_now();
             }
-            return;
-        }
-        // A finished scan round can defer ready work until the next turn.
-        if stream.in_flight_light.is_empty() {
+            if stream.pending_light.is_empty() {
+                return;
+            }
+            // A finished scan round can defer ready work until the next turn.
             continue;
         }
         let completion = stream
@@ -249,3 +250,27 @@ mod mesh_admission;
 
 mod backlog;
 mod mutation_summary;
+
+/// Retired workers without tracked completions must release their slots before convergence retries.
+#[test]
+fn settle_light_waits_for_retired_worker_slots() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    stream
+        .store
+        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .unwrap();
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_light_dirty_exact(key).unwrap();
+    let running = Arc::clone(&stream.running_light_jobs);
+    running.store(effective_light_job_cap(), Ordering::Release);
+    assert!(stream.in_flight_light.is_empty());
+    assert_eq!(stream.dispatch_light_jobs([8.0; 3], usize::MAX), 0);
+    let worker = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        running.store(0, Ordering::Release);
+    });
+    settle_light(&mut stream, [8.0; 3]);
+    worker.join().unwrap();
+    assert!(stream.light_is_current(key));
+}

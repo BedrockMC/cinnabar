@@ -243,7 +243,7 @@ impl FormEngine {
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let current = self.cache.as_ref().is_some_and(|cache| {
             cache.model == *model
-                && cache.components == view.components
+                && cache.components.same_bindings(&view.components)
                 && Arc::ptr_eq(&cache.catalog, &self.catalog)
         });
         if !current {

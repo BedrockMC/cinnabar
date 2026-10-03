@@ -47,7 +47,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "protocol"
 path = "crates/protocol"
-allowed_dependencies = ["bridge"]
+allowed_dependencies = ["bridge", "render-api"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]
@@ -89,7 +89,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["assets", "meshing", "protocol", "world"]
+allowed_dependencies = ["assets", "meshing", "protocol", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -99,10 +99,19 @@ allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
+name = "render-api"
+path = "crates/render-api"
+allowed_dependencies = []
+# Shared contracts stay std-only, including build, dev and target dependencies.
+dependency_free = true
+
+[[crates]]
 name = "render"
 path = "crates/render"
-allowed_dependencies = ["assets", "client-world", "meshing", "mod-api", "world"]
+allowed_dependencies = ["assets", "meshing", "mod-api", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler"]
+# Also reject game-state edges hidden behind another local crate or test dependency.
+forbidden_transitive_dependencies = ["client-world", "protocol"]
 
 [[crates]]
 name = "app"
@@ -211,6 +220,12 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 name = "jsonui-mcp"
 path = "tools/jsonui-mcp"
 allowed_dependencies = ["json-ui", "jsonui-editor"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "cinnabar-cxb"
+path = "tools/cxb"
+allowed_dependencies = ["protocol", "server-experience"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[markers]]
