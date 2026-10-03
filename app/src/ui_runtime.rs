@@ -865,6 +865,13 @@ impl UiRuntime {
             }
             UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
             UiEvent::Form(event) => {
+                bevy::log::info!(
+                    target: "server_form",
+                    form_id = event.form_id,
+                    kind = ?event.kind,
+                    title = ?event.title,
+                    "form received"
+                );
                 self.forms.admit(
                     event,
                     envelope.fifo_sequence,

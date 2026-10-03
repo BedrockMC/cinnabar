@@ -441,6 +441,7 @@ pub(crate) fn receive_network_events(
                 }));
                 stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
+                client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
                 client_world.session_items = Some(Arc::new(entity_pack::SessionItems {
                     components: packs.item_components.clone().unwrap_or_default(),
                     icons: packs.item_icons.clone(),
@@ -935,6 +936,7 @@ mod glyph_sheets;
 mod inventory;
 mod item_diagnostics;
 mod item_icons;
+pub(crate) mod prepared_actor_artwork;
 pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;

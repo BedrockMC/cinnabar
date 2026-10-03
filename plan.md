@@ -4208,3 +4208,19 @@ and the minutes-long live BDS join did not reproduce offline. Native Metal frame
 were rendered and inspected, but the native window capture integration returned
 `cgWindowNotFound`. Release/live acceptance remains open; these local changes do
 not close it. No live server connection was made.
+
+### HUD paper doll and menu follow-up (incomplete parity acceptance)
+
+The HUD now dispatches its pack-authored live player control through the shared
+GUI model pipeline, with native trigger timers, settings and a full-body pose
+when the camera is in first person. Home exposes its player and Profile control;
+menu doll framing uses the native model origin. Marketplace ribbon fields now
+survive the core feed, and Inbox has categories, dated sections, read state and
+confirmed deletion. See `docs/reference/hud-paper-doll.md` for exact source
+references, offline evidence and limitations.
+
+HUD frame interpolation, full persona layers, vehicle rendering,
+matched pause/inventory pixel captures and complete Inbox settings/rich-message
+behavior remain incomplete. The owner's stretched-model bug has no reproduced
+failing geometry witness. These changes do not close any overall visual or live
+performance parity gate. No live server or remote machine was used.

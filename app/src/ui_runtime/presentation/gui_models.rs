@@ -10,6 +10,7 @@ use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, playe
 
 mod atlas;
 mod held;
+mod live_player;
 #[cfg(test)]
 mod tests;
 
@@ -28,6 +29,8 @@ pub(super) struct GuiModels {
     pub(super) enabled: bool,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) skin: Option<UiTexturePage>,
+    entities: Option<RuntimeEntityAssets>,
+    live_player: live_player::LivePlayer,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, player_preview::PreviewHeldModel>,
@@ -142,6 +145,7 @@ impl UiPresentationRuntime {
         self.gui_models.models = models;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
+        self.gui_models.entities = Some(entities.clone());
         self.gui_models.enabled = true;
         self.rebuild_dynamic_textures();
         Ok(())
@@ -248,7 +252,13 @@ impl UiPresentationRuntime {
                     })
                 })
         });
-        player_preview::geometry::mesh(
+        player_preview::geometry::mesh_with_body(
+            (self.player_preview_view == player_preview::PreviewView::Hud)
+                .then_some((
+                    self.gui_models.live_player.vertices.as_slice(),
+                    &self.gui_models.live_player.parts,
+                ))
+                .filter(|(vertices, _)| !vertices.is_empty()),
             self.player_preview_pose.unwrap_or_default(),
             self.player_preview_view,
             self.player_preview_bob,

@@ -347,7 +347,20 @@ fn controller(
             if button.id == "button.dropdown_exit" && button.down {
                 close_dropdown(runtime, frame);
             }
-            answers.then(|| mapped_action(model, button)).flatten()
+            let action = answers.then(|| mapped_action(model, button)).flatten();
+            if let Some(action) = &action {
+                // Names the input that answered, for diagnosing unintended answers.
+                bevy::log::info!(
+                    target: "server_form",
+                    id = %button.id,
+                    from = %button.from,
+                    key = %button.key,
+                    index = ?button.collection_index,
+                    ?action,
+                    "form answered"
+                );
+            }
+            action
         }
         ScreenEvent::Toggle {
             name,

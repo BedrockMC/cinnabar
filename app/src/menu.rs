@@ -18,6 +18,7 @@ pub(crate) mod disconnect;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
+pub(crate) mod inbox;
 mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
@@ -159,6 +160,7 @@ pub(crate) enum MenuField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MenuAction {
+    Inbox(inbox::Action),
     Navigate(MenuScreen),
     OpenExitDialog,
     ConfirmExit,
@@ -628,6 +630,7 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::Inbox(action) => self.activate_inbox(action),
             MenuAction::Navigate(screen) => {
                 self.enter(screen);
             }
