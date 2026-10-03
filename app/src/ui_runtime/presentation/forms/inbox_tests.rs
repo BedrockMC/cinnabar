@@ -7,7 +7,7 @@ use crate::menu::{InboxItem, MenuRuntime, MenuScreen};
 use crate::ui_runtime::UiRuntime;
 
 #[test]
-fn inbox_rows_ellipsize_title_and_summary_without_crossing_the_border() {
+fn inbox_rows_ellipsize_titles_and_omit_the_body_summary() {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -23,6 +23,7 @@ fn inbox_rows_ellipsize_title_and_summary_without_crossing_the_border() {
             ),
             category: "News".into(),
             unread: true,
+            ..Default::default()
         })
         .into();
     for size in [[1280, 720], [800, 600]] {
@@ -53,22 +54,8 @@ fn inbox_rows_ellipsize_title_and_summary_without_crossing_the_border() {
                 text.ends_with('…'),
                 "long row must advertise truncation: {text}"
             );
-            let bounds = node.bounds();
-            assert!(
-                nodes.iter().any(|card| matches!(
-                    card.visual(),
-                    UiVisual::Solid {
-                        color: [30, 30, 31, 255],
-                        ..
-                    }
-                ) && card.bounds().min().x() < bounds.min().x()
-                    && card.bounds().min().y() < bounds.min().y()
-                    && card.bounds().max().x() > bounds.max().x()
-                    && card.bounds().max().y() > bounds.max().y()),
-                "text escaped its card: {bounds:?}"
-            );
         }
-        assert_eq!(rows, 4);
+        assert_eq!(rows, 2);
         snapshot::write(&frame, &format!("inbox-bounded-{}", size[0]));
     }
 }

@@ -57,6 +57,7 @@ struct Snapshot {
     pings: Option<Vec<ServerPing>>,
     home: Option<Home>,
     events: Vec<AccountEvent>,
+    message_events: Vec<MessageEvent>,
     last_disconnect: Option<u64>,
     connect: Option<ConnectProgress>,
     /// The menu is connecting, so the events worker polls faster.
@@ -151,6 +152,19 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+        }
+        let events = std::mem::take(
+            &mut shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .message_events,
+        );
+        for event in events {
+            if let Err(error) =
+                runtime.block_on(launcher_control::report_message_event(socket_dir, &event))
+            {
+                bevy::log::warn!(%error, "inbox event failed");
+            }
         }
         if let Ok(events) = runtime.block_on(launcher_control::poll_events(socket_dir)) {
             publish(shared, |snapshot| {
@@ -329,6 +343,17 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         play_art: art("PlayButton"),
         store_art: art("MarketplaceButton"),
         inbox_unread: home.inbox.unread,
+        inbox_counts: home
+            .inbox
+            .categories
+            .iter()
+            .filter_map(|category| {
+                Some((
+                    super::inbox::category_index(&category.kind)?,
+                    category.unread,
+                ))
+            })
+            .collect(),
         realm_invites: home.realm_invites,
         live_event,
         persona_head: home.persona_head.path.clone(),
@@ -337,6 +362,10 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             .iter()
             .filter(|message| message.surface == "InboxMessage")
             .map(|message| InboxItem {
+                instance_id: message.instance_id.clone(),
+                report_id: message.report_id.clone(),
+                received: message.received.clone(),
+                source: message.sender.clone(),
                 header: message.header.clone(),
                 body: message.body.clone(),
                 category: message.category.clone(),
@@ -350,10 +379,15 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
 fn button_art(message: &Message) -> ButtonArt {
     let mut art = ButtonArt {
         banner: message.banner.clone(),
+        colors: message.colors.clone(),
         ..ButtonArt::default()
     };
     for image in message.images.iter().filter(|image| !image.path.is_empty()) {
         let id = image.id.to_ascii_lowercase();
+        if id.contains("banner") {
+            art.banner_texture = image.path.clone();
+            continue;
+        }
         let hover = id.contains("hover");
         let foreground = id.contains("fore") || id.contains("fg");
         let slot = match (hover, foreground) {
@@ -503,6 +537,11 @@ impl AccountControl for LauncherAccount {
                 })
                 .collect(),
         )
+    }
+
+    /// Queues a user inbox action on the existing control worker.
+    fn report_message(&mut self, event: MessageEvent) {
+        self.with(|snapshot| snapshot.message_events.push(event));
     }
 
     fn home(&mut self) -> Option<MenuHome> {
