@@ -1,0 +1,37 @@
+# Reusable pack compilation: restructuring step 6
+
+`pack-compiler` owns the reusable resource-pack compiler that previously lived in
+the `asset-compiler` library. It reads bounded pack inputs and produces the same
+engine-independent `assets` catalogs, textures, geometry, animation programs,
+reports and carrier bytes. Its only internal production dependency is `assets`.
+It has no command-line parser, renderer, world owner or session lifecycle.
+
+`asset-compiler` now contains only the `assetc` command-line program. Argument
+parsing, output-path validation, atomic output bundles and CLI reports stay there.
+It depends on `pack-compiler` and `assets`. The command name, arguments and output
+formats are unchanged. The app's session-time entity, actor and icon compilation
+calls `pack-compiler` directly. Renderer and mesher compilation fixtures use it as
+a development dependency. There is no compatibility library in `asset-compiler`.
+
+The extraction preserves compiler entry points, input bounds, deterministic
+ordering, source identities, malformed-file skips and all existing fallback
+rules. The tracked legacy fallback table moved with the compiler without changing
+its bytes; its provenance records and registry rekey tools point to its new path.
+`make assets` tracks both the reusable compiler and the CLI sources so edits to
+either invalidate generated carriers.
+
+Unit tests and independent library integration suites moved with the compiler.
+Suites that exercise `assetc` alongside library calls remain in `asset-compiler`
+and import `pack-compiler` directly. Synthetic fixtures remain independent of
+installed assets. Optional local font qualifications return early when their
+source or carrier is absent. Scratch output remains outside the installed pack.
+
+## References and parity scope
+
+This changes ownership only and closes no vanilla behavior or visual parity gate.
+The existing compilation behavior and its source comments are retained.
+
+
+The dependency and module restrictions for this step are registered in
+`tools/architecture/policy.toml`; the shared architecture gate checks them during
+`verify-affected`.
