@@ -10,7 +10,9 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CALLBACK_FUEL: u64 = 100_000;
+/// Fuel for one client part callback. Provisional: enough to decode a multi-fragment list record
+/// (SP3's terminal sends ~22 KB); matches the server runtime's per-callback budget.
+pub const CALLBACK_FUEL: u64 = 10_000_000;
 pub const SESSION_FUEL: u64 = CALLBACK_FUEL * 2;
 pub const CALLBACK_INTERVAL_MS: u64 = 34;
 pub const MAX_WIDGETS: usize = 128;
