@@ -169,6 +169,7 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
 fn animate(animator: &mut json_ui::Animator, events: &mut Vec<ScreenEvent>) {
     // Ends that start animations ending at once must not feed back forever.
     let cap = events.len() + MAX_END_EVENTS;
+    append_animation_ends(animator, events, cap);
     let mut at = 0;
     while at < events.len() {
         if let ScreenEvent::Button(button) = &events[at]
@@ -176,23 +177,32 @@ fn animate(animator: &mut json_ui::Animator, events: &mut Vec<ScreenEvent>) {
         {
             animator.fire(&button.id);
         }
-        for ended in animator.take_events() {
-            if let json_ui::AnimEvent::End(id) = ended
-                && events.len() < cap
-            {
-                events.push(ScreenEvent::Button(ButtonEvent {
-                    id,
-                    from: String::new(),
-                    key: String::new(),
-                    collection_index: None,
-                    collection: None,
-                    down: true,
-                    interacted: true,
-                    scope: json_ui::MappingScope::Controller,
-                }));
-            }
-        }
+        append_animation_ends(animator, events, cap);
         at += 1;
+    }
+}
+
+/// Relays pending end events even when this frame has no physical input.
+fn append_animation_ends(
+    animator: &mut json_ui::Animator,
+    events: &mut Vec<ScreenEvent>,
+    cap: usize,
+) {
+    for ended in animator.take_events() {
+        if let json_ui::AnimEvent::End(id) = ended
+            && events.len() < cap
+        {
+            events.push(ScreenEvent::Button(ButtonEvent {
+                id,
+                from: String::new(),
+                key: String::new(),
+                collection_index: None,
+                collection: None,
+                down: true,
+                interacted: true,
+                scope: json_ui::MappingScope::Controller,
+            }));
+        }
     }
 }
 
