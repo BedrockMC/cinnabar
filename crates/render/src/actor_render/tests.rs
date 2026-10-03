@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::shader_source;
+
 use bevy::{
     app::SubApp,
     asset::Assets,
@@ -213,18 +215,24 @@ fn app_with_noop_render_sub_app() -> App {
 
 #[test]
 fn actor_shader_parses_as_wgsl() {
-    let lighting =
-        include_str!("../lighting.wgsl").replacen("#define_import_path cinnabar::lighting", "", 1);
-    let source = ACTOR_SHADER_SOURCE
-        .replace(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-        )
-        .replace(
-            "#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}",
-            &lighting,
-        );
+    let source = shader_source::standalone(ACTOR_SHADER_SOURCE, &[]);
     naga::front::wgsl::parse_str(&source).expect("actor shader parses");
+}
+
+// A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.
+#[test]
+fn fragment_view_reads_are_visible_to_the_fragment_stage() {
+    use bevy::render::render_resource::ShaderStages;
+    assert!(crate::shader_test_support::fragment_reads_binding(
+        &shader_source::standalone(ACTOR_SHADER_SOURCE, &[]),
+        0,
+        0
+    ));
+    assert!(
+        actor_bind_group_layout().entries[0]
+            .visibility
+            .contains(ShaderStages::FRAGMENT)
+    );
 }
 
 #[test]
@@ -253,7 +261,10 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
 
     let layout = actor_bind_group_layout();
     assert_eq!(layout.entries.len(), 9);
-    assert_eq!(layout.entries[0].visibility, ShaderStages::VERTEX);
+    assert_eq!(
+        layout.entries[0].visibility,
+        ShaderStages::VERTEX | ShaderStages::FRAGMENT
+    );
     assert_eq!(layout.entries[1].visibility, ShaderStages::VERTEX);
     assert_eq!(layout.entries[2].visibility, ShaderStages::VERTEX);
     assert_eq!(layout.entries[3].visibility, ShaderStages::VERTEX);

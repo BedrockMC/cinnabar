@@ -360,7 +360,7 @@ fn text_draw(control: &ResolvedControl, enabled: bool) -> Draw {
     let mut text = crate::label::text(control);
     // A selected edit box's text target draws its blinking caret after the text.
     if crate::widgets::bound_bool(control, crate::component::CARET_PROPERTY) == Some(true) {
-        text.push('_');
+        text.push(crate::component::CARET_GLYPH);
     }
     Draw::Text {
         text,

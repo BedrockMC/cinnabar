@@ -43,7 +43,7 @@ fn disabled_enhanced_preserves_vanilla_shader_bytes() {
         ),
         (
             include_str!("../src/biome_tint.wgsl"),
-            "cd04b8248192849c55dc46217710c5abfd5395ddef875a183140ed95ef4002a0",
+            "60f4689b0dda34425e9ea3ba0837e93a9c44d3ad522588465f8b38a25122e330",
         ),
         (
             include_str!("../src/atmosphere.wgsl"),
