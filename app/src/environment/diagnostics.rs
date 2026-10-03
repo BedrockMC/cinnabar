@@ -28,6 +28,7 @@ impl LightingLogState {
 }
 
 /// Logs solved eye light alongside the actual lightmap and atmosphere inputs.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn log_world_lighting(
     world: Res<ClientWorld>,
     player: Res<LocalPlayerFrameCarrier>,
