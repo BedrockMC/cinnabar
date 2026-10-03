@@ -158,27 +158,20 @@ impl PlayerInventoryLedger {
         let cells = self
             .crafting_grid_cells()
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let mut best = u8::MAX;
-        let mut claimed = vec![false; cells.len()];
-        for (index, per_craft) in recipe.ingredient_counts().enumerate() {
-            let cell = (0..cells.len())
-                .find(|cell| {
-                    !claimed[*cell]
-                        && cells[*cell]
-                            .as_ref()
-                            .is_some_and(|grid| recipe.ingredient_accepts(index, &grid.item(), 1))
-                })
-                .ok_or(InventoryGestureError::InvalidRequest)?;
-            claimed[cell] = true;
-            let held = cells[cell].as_ref().expect("claimed cells are occupied");
-            let fits = u16::from(u8::MAX) / u16::from(per_craft.max(1));
-            let crafts = (held.count / u16::from(per_craft.max(1))).min(fits);
-            best = best.min(u8::try_from(crafts).unwrap_or(u8::MAX));
+        let (mut low, mut high) = (0u8, u8::MAX);
+        while low < high {
+            let middle = low + (high - low).div_ceil(2);
+            if ingredient_assignment(recipe, &cells, middle).is_some() {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
         }
-        if best == 0 {
-            return Err(InventoryGestureError::InvalidRequest);
+        if low == 0 {
+            Err(InventoryGestureError::InvalidRequest)
+        } else {
+            Ok(low)
         }
-        Ok(best)
     }
 
     /// Crafts `recipe` once per `crafts` into `sink` as one request:
@@ -217,18 +210,10 @@ impl PlayerInventoryLedger {
             .crafting_grid_cells()
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let slots: Vec<u8> = self.crafting_grid().slots().collect();
-        let mut claimed = vec![false; slots.len()];
+        let assignment = ingredient_assignment(recipe, &cells, crafts)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
         let mut consumed = Vec::new();
-        for (index, per_craft) in recipe.ingredient_counts().enumerate() {
-            let cell = (0..slots.len())
-                .find(|cell| {
-                    !claimed[*cell]
-                        && cells[*cell].as_ref().is_some_and(|grid| {
-                            recipe.ingredient_accepts(index, &grid.item(), crafts)
-                        })
-                })
-                .ok_or(InventoryGestureError::InvalidRequest)?;
-            claimed[cell] = true;
+        for ((_, per_craft), cell) in recipe.ingredient_counts().enumerate().zip(assignment) {
             let held = self
                 .view()
                 .get(Cell::Craft(slots[cell]))
@@ -510,5 +495,63 @@ impl PlayerInventoryLedger {
             requires_distinct_stack_ids: true,
             registry_bound_merge: false,
         })
+    }
+}
+
+/// Finds a complete ingredient assignment, allowing broad matches to move for specific ones.
+fn ingredient_assignment(
+    recipe: &RecipeHandle,
+    cells: &[Option<super::CraftGridCell>],
+    crafts: u8,
+) -> Option<Vec<usize>> {
+    let matcher = IngredientMatcher {
+        recipe,
+        cells,
+        crafts,
+        counts: recipe.ingredient_counts().collect(),
+    };
+    let mut occupied = vec![None; cells.len()];
+    for ingredient in 0..matcher.counts.len() {
+        if !matcher.assign(ingredient, &mut occupied, &mut vec![false; cells.len()]) {
+            return None;
+        }
+    }
+    let mut assignment = vec![0; matcher.counts.len()];
+    for (cell, ingredient) in occupied.into_iter().enumerate() {
+        if let Some(ingredient) = ingredient {
+            assignment[ingredient] = cell;
+        }
+    }
+    Some(assignment)
+}
+
+struct IngredientMatcher<'a> {
+    recipe: &'a RecipeHandle,
+    cells: &'a [Option<super::CraftGridCell>],
+    crafts: u8,
+    counts: Vec<u8>,
+}
+impl IngredientMatcher<'_> {
+    /// Augments the matching through assigned cells, visiting each cell at most once.
+    fn assign(&self, ingredient: usize, occupied: &mut [Option<usize>], seen: &mut [bool]) -> bool {
+        if u16::from(self.counts[ingredient]) * u16::from(self.crafts) > u16::from(u8::MAX) {
+            return false;
+        }
+        for cell in 0..self.cells.len() {
+            if seen[cell]
+                || !self.cells[cell].as_ref().is_some_and(|grid| {
+                    self.recipe
+                        .ingredient_accepts(ingredient, &grid.item(), self.crafts)
+                })
+            {
+                continue;
+            }
+            seen[cell] = true;
+            if occupied[cell].is_none_or(|previous| self.assign(previous, occupied, seen)) {
+                occupied[cell] = Some(ingredient);
+                return true;
+            }
+        }
+        false
     }
 }
