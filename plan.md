@@ -1,9 +1,12 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
-2026-10-03 current checkpoint (in progress; not pushed): accumulated work is
-locally committed on dev at `81b52600`. Origin/dev `52196199` is merged in the
-worktree with conflicts resolved; that merge and follow-up fixes are not yet
-committed. The user accepts the rebuilt night snow-layer fix. Current TopSnow
+2026-10-03 current checkpoint (in progress; locally committed, not pushed):
+accumulated work and follow-up fixes are committed through `588e463d`, including
+the prior dev integrations through `d03d3dbf`. Origin/dev `58141bc6` is being
+integrated with its chunk-pipeline and pack-compiler ownership split and frame
+diagnostics; final integrated verification and live acceptance remain required.
+The user accepts the rebuilt night snow-layer colour and actor corrections.
+Current TopSnow
 `06a1b810` routes through ordinary terrain `06a07800` into AO/flat
 `06a07d80`/`06a0b950`. The real model-fragment Metal regression reproduced
 white snow at 101 versus native 33 before the fix; actual ordinary entry points
@@ -13,13 +16,25 @@ Players and mobs now use native gamma material order, byte-truncated bilinear
 light-table sampling and vertex-stage posed-normal shading. The actual actor
 fragment GPU witness passes all 36 cases; the canonical client rebuilt and the
 user accepts the live actor correction. FancyOff, dimension shade signs and
-exact pinned native galleries remain separate incomplete gates. A new user
-frame shows pale snow-layer edge bands; their AO/sample-plane audit is open,
-so publication remains held despite the accepted actor and snow colour fixes.
+exact pinned native galleries remain separate incomplete gates. For the new
+pale snow-layer edge report, pinned TopSnow constructor `0a5c5fb0`, component
+builder `0a5c70c0` and inherited light getter establish zero light dampening
+and non-solid shading at every height. Registry regeneration changes exactly
+the 16 snow states and preserves their emission. Native AO `069e5200` now
+drives distinct centre/tangential sample planes; full snow remains geometrically
+occluding but not solid for AO. The mesh regressions and 225 meshing tests pass.
+Ordinary terrain now interpolates light levels before fragment-stage bilinear
+lookup; actual cube/model GPU witnesses fail before and pass after the change.
+The `/15` shader lookup contract is corroborated by installed near-version
+Metal, not a pinned-version shader dump; exact-version parity remains incomplete.
+Actor `/16`, Enhanced and the existing valid-water witness are unchanged.
+The corrected carrier has rebuilt, but fresh integrated shoreline acceptance
+and the full gate must pass before publication; the edge issue is still open.
 The export-test allocator abort has a narrow initialized-cache representation
 fix; its 13 library and nine unchanged export tests, plus ten serial reruns,
-pass. Origin/dev advanced to `d03d3dbf`; its additional test fixes must be
-integrated, and the final gate must run before direct-dev publication.
+pass. The Go registry suite, vet, Rust light-registry tests and focused render
+CPU/actor GPU suites pass. These are focused results, not the final integrated
+gate. Direct-dev publication is still pending, without a PR or video.
 
 2026-10-03 night/weather integration checkpoint (local, not pushed): ordinary
 ambient admission and separate terrain skyDarken are rebuilt and the app suite
