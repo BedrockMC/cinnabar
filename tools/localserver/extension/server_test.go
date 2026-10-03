@@ -263,3 +263,21 @@ func TestWriteMarkerPackHoldsTheMarker(t *testing.T) {
 		t.Fatal("the marker pack survived RemoveMarkerPack")
 	}
 }
+
+// TestAudienceMatchesClientURLHost rejects spellings the Rust URL parser would normalize or refuse.
+func TestAudienceMatchesClientURLHost(t *testing.T) {
+	for _, audience := range []string{
+		":19132", "[0:0:0:0:0:0:0:1]:19132", "127.000.000.001:19132", "[::ffff:127.0.0.1]:19132",
+		"127.1:19132", "2130706433:19132", "0x7f000001:19132", "example.com/path:19132",
+		"user@example.com:19132", "éxample.com:19132", "[fe80::1%en0]:19132",
+	} {
+		if err := checkAudience(audience); err == nil {
+			t.Errorf("accepted noncanonical audience %q", audience)
+		}
+	}
+	for _, audience := range []string{"127.0.0.1:19132", "[::1]:19132", "[2001:db8::1]:19132", "[::ffff:7f00:1]:19132", "localhost:19132", "xn--xample-9ua.com:19132"} {
+		if err := checkAudience(audience); err != nil {
+			t.Errorf("rejected canonical audience %q: %v", audience, err)
+		}
+	}
+}

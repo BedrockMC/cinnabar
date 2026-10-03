@@ -34,6 +34,9 @@ func ReadBundles(dir string) ([]Bundle, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), bundleSuffix) {
 			continue
 		}
+		if len(bundles) == MaxBundles {
+			return nil, fmt.Errorf("more than %d bundles in %s", MaxBundles, dir)
+		}
 		bundle, err := ReadBundle(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			return nil, err
@@ -58,8 +61,22 @@ func ReadBundle(path string) (Bundle, error) {
 	return bundle, nil
 }
 
+// readBundle bounds the file before allocation and checks the signed manifest.
 func readBundle(path string) (Bundle, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return Bundle{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return Bundle{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > MaxBundleBytes {
+		return Bundle{}, fmt.Errorf("not a regular bundle file of 1 to %d bytes", MaxBundleBytes)
+	}
+	// Bound the read as well, because a regular file can grow after Stat.
+	data, err := io.ReadAll(io.LimitReader(file, MaxBundleBytes+1))
 	if err != nil {
 		return Bundle{}, err
 	}
