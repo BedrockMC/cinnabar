@@ -351,11 +351,36 @@ fn world_publication_snapshot_is_deterministic_and_keeps_stage_identities_separa
     assert_eq!(document["upload_queue_bytes"], 83);
     assert_eq!(document["gpu_upload_bytes"], 89);
     assert_eq!(document["frame_generation"], 67);
+    assert!(document.get("visibility_snapshot_valid").is_none());
     assert_eq!(document["draw_mode"], "Direct");
     assert_eq!(document["build_profile"], "debug");
     assert_eq!(document["requested_present_mode"], "Fifo");
     assert_eq!(document["effective_present_mode"], "Fifo");
     assert_eq!(document["present_mode_proven"], true);
+    let inactive_marker = world_publication_snapshot_marker(
+        stats,
+        79,
+        83,
+        89,
+        VisibilityDiagnosticSnapshot::default(),
+        AcceptanceRuntimeConfig {
+            build_profile: "debug",
+        },
+        &graphics,
+    );
+    let inactive: serde_json::Value =
+        serde_json::from_str(inactive_marker.split_once('=').unwrap().1).unwrap();
+    assert_eq!(inactive["accepted_light_jobs"], u64::MAX);
+    assert_eq!(inactive["gpu_upload_bytes"], 89);
+    assert_eq!(inactive["visibility_snapshot_valid"], false);
+    for identity in [
+        "frame_generation",
+        "pose_generation",
+        "view_generation",
+        "draw_mode",
+    ] {
+        assert!(inactive[identity].is_null());
+    }
 }
 
 #[test]

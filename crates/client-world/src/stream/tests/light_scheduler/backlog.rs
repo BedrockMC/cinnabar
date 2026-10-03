@@ -208,7 +208,7 @@ fn large_lighting_backlog_drains() {
 }
 
 /// Retires publications just as a completed upload acknowledgement does.
-fn acknowledge_mesh_changes(stream: &mut WorldStream) {
+pub(super) fn acknowledge_mesh_changes(stream: &mut WorldStream) {
     for change in stream.take_mesh_changes() {
         match change {
             WorldMeshChange::Upsert {
