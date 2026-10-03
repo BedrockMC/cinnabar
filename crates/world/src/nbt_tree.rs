@@ -95,7 +95,7 @@ impl NbtCompound {
     fn validate_encoding(&self) -> Result<(), &'static str> {
         self.0
             .values()
-            .try_for_each(|value| value.validate_encoding(0))
+            .try_for_each(|value| value.validate_encoding(1))
     }
 
     /// Encodes a root, rejecting mixed list tags or excessive nesting.
@@ -124,7 +124,9 @@ impl NbtCompound {
 impl NbtValue {
     /// Checks nested list tag homogeneity before the encoder writes any bytes.
     fn validate_encoding(&self, depth: usize) -> Result<(), &'static str> {
-        if depth > MAX_NBT_DEPTH {
+        if depth > MAX_NBT_DEPTH
+            || (matches!(self, Self::List(_) | Self::Compound(_)) && depth >= MAX_NBT_DEPTH)
+        {
             return Err("NBT encoding exceeds its depth bound");
         }
         match self {
@@ -438,5 +440,20 @@ mod review_tests {
             NbtValue::List(vec![NbtValue::Byte(1), NbtValue::Int(2)]),
         );
         assert!(root.encode_root().is_err());
+    }
+
+    #[test]
+    fn review_encoding_depth_matches_the_wire_decoder_bound() {
+        let mut root = NbtCompound::default();
+        for _ in 1..MAX_NBT_DEPTH {
+            let mut parent = NbtCompound::default();
+            parent.insert("nested", NbtValue::Compound(root));
+            root = parent;
+        }
+        let bytes = root.encode_root().unwrap();
+        assert!(BlockEntityNbt::decode_prefix(&bytes).is_ok());
+        let mut parent = NbtCompound::default();
+        parent.insert("nested", NbtValue::Compound(root));
+        assert!(parent.encode_root().is_err());
     }
 }
