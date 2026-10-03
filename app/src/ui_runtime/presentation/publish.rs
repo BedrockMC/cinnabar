@@ -149,6 +149,7 @@ pub(crate) fn prepare_ui_runtime(
                 ),
                 stream_work_drained,
                 render_work_drained,
+                world_entry_held: runtime.experiences.holds_world_entry(),
             },
             now_millis,
         );
