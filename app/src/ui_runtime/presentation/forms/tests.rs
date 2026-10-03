@@ -147,6 +147,83 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
 }
 
 #[test]
+fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
+    let mut presentation = mini_engine_presentation();
+    presentation.set_server_ui_pack(&super::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/server_form.json".to_owned(),
+            br#"{ "namespace": "server_form", "form_button": {
+                "type": "edit_box", "size": [200, 30], "text_control": "display", "max_length": 50,
+                "button_mappings": [{ "from_button_id": "button.menu_select",
+                    "to_button_id": "button.text_edit_box_selected", "mapping_type": "pressed",
+                    "handle_select": true, "handle_deselect": false }],
+                "controls": [{ "display": { "type": "label", "text": "A", "size": [200, 30] } }]
+            } }"#
+                .to_vec(),
+        )]],
+        ..Default::default()
+    });
+    let mut runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let render = |presentation: &mut UiPresentationRuntime, runtime: &UiRuntime| {
+        presentation
+            .build(runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+            .unwrap();
+        presentation
+            .form_presentation
+            .engine
+            .as_ref()
+            .unwrap()
+            .passes
+    };
+    render(&mut presentation, &runtime);
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let hits = presentation
+        .form_engine_frame(identity)
+        .unwrap()
+        .hits
+        .clone();
+    let edit = hits
+        .iter()
+        .find(|hit| hit.kind == json_ui::HitKind::EditBox)
+        .unwrap();
+    {
+        let engine = runtime.server_forms_mut().engine_mut();
+        engine.view.focused = Some(edit.key.clone());
+        engine.dispatcher.button(
+            &hits,
+            &mut engine.view,
+            json_ui::ButtonInput {
+                id: "button.menu_select",
+                down: true,
+                point: None,
+                mode: json_ui::InputMode::Gamepad,
+                now: 0.0,
+            },
+        );
+        assert_eq!(engine.view.components.selected(), Some(edit.key.as_str()));
+    }
+    let selected = render(&mut presentation, &runtime);
+    {
+        let engine = runtime.server_forms_mut().engine_mut();
+        assert!(!engine.dispatcher.tick(&hits, &mut engine.view, 1.0 / 60.0));
+    }
+    assert_eq!(
+        render(&mut presentation, &runtime),
+        selected,
+        "advancing the hidden caret timer must not resolve and lay out the form again"
+    );
+    {
+        let engine = runtime.server_forms_mut().engine_mut();
+        assert!(engine.dispatcher.tick(&hits, &mut engine.view, 0.31));
+    }
+    assert_eq!(
+        render(&mut presentation, &runtime),
+        [selected[0] + 1, selected[1] + 1],
+        "the caret becoming hidden must still update the form"
+    );
+}
+
+#[test]
 fn modal_without_the_carrier_uses_the_fallback_with_both_buttons() {
     let mut runtime = UiRuntime::new(1);
     let session = runtime.session_id();
