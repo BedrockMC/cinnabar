@@ -372,3 +372,57 @@ fn review_changing_trust_scope_preserves_the_prior_revision_floor() {
             .is_err()
     );
 }
+
+#[test]
+fn review_session_snapshots_share_single_use_handshake_authority() {
+    for revoke in [false, true] {
+        let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+        let value = offer(&key);
+        let marker = negotiation::Marker {
+            server_key: value.server_key.clone(),
+            offer: signed(&value, crypto::OFFER_DOMAIN, &key),
+        };
+        let mut settings = trust::Settings::default();
+        let mut session = session::Session::default();
+        session
+            .discover(
+                &serde_json::to_vec(&marker).unwrap(),
+                &value.audience,
+                &mut settings,
+                1000,
+                0,
+            )
+            .unwrap();
+        session
+            .choose(trust::Choice::Once, &mut settings, 0)
+            .unwrap();
+        let session::Control::Hello(hello) =
+            serde_json::from_slice(&session.take_outbound().unwrap()).unwrap()
+        else {
+            panic!("hello");
+        };
+        let accept = negotiation::Accept {
+            audience: value.audience.clone(),
+            offer_digest: hello.offer_digest.clone(),
+            revision: value.revision,
+            hello,
+            server_challenge: crypto::hex(&[2; 32]),
+            session: crypto::hex(&[3; 32]),
+            expires_unix: 1500,
+        };
+        let bytes = serde_json::to_vec(&session::Control::Accept(signed(
+            &accept,
+            crypto::ACCEPT_DOMAIN,
+            &key,
+        )))
+        .unwrap();
+        let mut snapshot = session.clone();
+        if revoke {
+            session.disable();
+        } else {
+            session.receive(&bytes, 1000, 1).unwrap();
+        }
+        assert!(snapshot.receive(&bytes, 1000, 1).is_err());
+        assert!(matches!(snapshot.state, session::State::Disabled));
+    }
+}
