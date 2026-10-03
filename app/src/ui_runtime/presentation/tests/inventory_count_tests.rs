@@ -358,12 +358,14 @@ fn review_carried_item_draws_after_the_recipe_panel() {
     let presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
-    let mut frame = super::super::hud_layout::HudFrame::default();
-    frame.cursor_icon = Some(IconRef {
-        page: 77,
-        uv: [0, 0, 16, 16],
-        glint: false,
-    });
+    let frame = super::super::hud_layout::HudFrame {
+        cursor_icon: Some(IconRef {
+            page: 77,
+            uv: [0, 0, 16, 16],
+            glint: false,
+        }),
+        ..Default::default()
+    };
     let mut layout = HudLayout::new(
         &mut nodes,
         &mut next,

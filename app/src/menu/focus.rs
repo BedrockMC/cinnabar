@@ -269,6 +269,15 @@ impl MenuRuntime {
     }
 }
 
+/// Whether two actions identify the same control despite a changed value.
+fn same_control(a: MenuAction, b: MenuAction) -> bool {
+    match (a, b) {
+        (MenuAction::SettingsOption(a, _), MenuAction::SettingsOption(b, _)) => a == b,
+        (MenuAction::SettingsScale(_), MenuAction::SettingsScale(_)) => true,
+        _ => a == b,
+    }
+}
+
 #[cfg(test)]
 mod review_tests {
     use super::*;
@@ -294,14 +303,5 @@ mod review_tests {
         );
         menu.move_horizontal_focus(1);
         assert_eq!(menu.settings_options.value("gamma"), value + 1);
-    }
-}
-
-/// Whether two actions identify the same control despite a changed value.
-fn same_control(a: MenuAction, b: MenuAction) -> bool {
-    match (a, b) {
-        (MenuAction::SettingsOption(a, _), MenuAction::SettingsOption(b, _)) => a == b,
-        (MenuAction::SettingsScale(_), MenuAction::SettingsScale(_)) => true,
-        _ => a == b,
     }
 }
