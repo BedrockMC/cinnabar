@@ -1078,8 +1078,20 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
             },
         )
         .unwrap();
+    // Force one FIFO event per poll slice. A heavy commit can spend the normal frame
+    // budget, so controls need later slices even though all three events are ready.
+    stream.poll_deadline = Some(Instant::now());
+    stream.polling = true;
     stream.apply_ready();
+    assert_eq!(stream.ordered.next_sequence(), 2);
+    assert_eq!(stream.current_dimension(), 0);
+    assert!(stream.take_committed_controls().is_empty());
 
+    stream.apply_ready();
+    assert_eq!(stream.ordered.next_sequence(), 3);
+    assert_eq!(stream.current_dimension(), 0);
+    stream.apply_ready();
+    assert_eq!(stream.ordered.next_sequence(), 4);
     assert_eq!(stream.current_dimension(), 1);
     assert_eq!(
         stream.take_committed_controls(),
