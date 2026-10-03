@@ -232,7 +232,7 @@ pub(crate) fn prepare_ui_runtime(
     let doll_state = client_world
         .stream
         .as_ref()
-        .and_then(|stream| super::paper_doll::observe(stream, &runtime, &physics));
+        .and_then(|stream| super::paper_doll::observe(stream, &runtime, &player_runtime, &physics));
     presentation.hud_frame.paper_doll_visible =
         presentation.paper_doll.update(now_millis, doll_state);
     let settings = menu_runtime.settings_snapshot().0;
