@@ -13,6 +13,8 @@ pub struct DecodeIds {
     pub assets: Arc<RuntimeAssets>,
     pub custom_blocks: std::ops::Range<u32>,
     pub remap: Arc<assets::SequentialIdRemap>,
+    pub(crate) diagnostics: Arc<super::DecodeDiagnostics>,
+    pub(crate) session_id: u64,
     pub mode: NetworkIdMode,
     pub air: u32,
     pub biome_tints: Arc<ResolvedBiomeTints>,
@@ -39,16 +41,16 @@ impl BlockIds for DecodeIds {
 
     /// Maps unknown wire ids to the same fallback used by vanilla decoding.
     fn resolve(&self, network_id: u32) -> u32 {
+        let wire_id = network_id;
         let network_id = if self.mode == NetworkIdMode::Sequential {
             self.remap.to_internal(network_id)
         } else {
             network_id
         };
-        if self.assets.is_known(self.mode, network_id) || self.custom_blocks.contains(&network_id) {
-            network_id
-        } else {
-            self.air
-        }
+        let known =
+            self.assets.is_known(self.mode, network_id) || self.custom_blocks.contains(&network_id);
+        self.diagnostics.observe(wire_id, network_id, self, known);
+        if known { network_id } else { self.air }
     }
 }
 
