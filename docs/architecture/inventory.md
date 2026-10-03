@@ -91,4 +91,4 @@ projection roles are consistent with these version-matched references:
 Moved tests retain exact request-byte fixtures, prediction/reconciliation and
 window-lifetime coverage. App tests cover the actual committed FIFO drain,
 same-frame physics reads, transport pressure and pre-send snapshot restoration.
-Build measurements are recorded separately in the step 2 timing evidence.
+Build measurements are recorded in the [step 2 timing evidence](../evidence/inventory-build-timings.md).
