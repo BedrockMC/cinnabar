@@ -49,34 +49,12 @@ impl UiRuntime {
         player_runtime.facts.server_authoritative_block_breaking()
     }
 
-    /// Predicts a physical hotbar selection and retains the latest slot until its packet is sent.
-    pub(crate) fn queue_local_hotbar_selection(
-        &mut self,
-        player_runtime: &mut crate::player_runtime::PlayerRuntime,
-        slot: u8,
-    ) {
-        player_runtime
-            .inventory
-            .queue_local_hotbar_selection(slot, player_runtime.facts.player_game_mode())
-    }
-
     /// Returns the latest locally selected slot whose packet has not entered the network queue.
     pub(crate) const fn pending_hotbar_selection(
         &self,
         player_runtime: &crate::player_runtime::PlayerRuntime,
     ) -> Option<u8> {
         player_runtime.inventory.pending_hotbar_selection()
-    }
-
-    /// Clears a pending hotbar selection only when it is still the slot that was sent.
-    pub(crate) fn clear_pending_hotbar_selection(
-        &mut self,
-        player_runtime: &mut crate::player_runtime::PlayerRuntime,
-        slot: u8,
-    ) -> bool {
-        player_runtime
-            .inventory
-            .clear_pending_hotbar_selection(slot)
     }
 
     /// Installs an explicit authoritative game mode. Stats are never
