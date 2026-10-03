@@ -78,7 +78,7 @@ fn app() -> App {
 #[test]
 #[ignore = "offline native GPU menu timings and snapshots"]
 fn menu_frames_on_native_gpu() {
-    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = pack_harness::scratch_dir("gpu-menu");
@@ -101,8 +101,10 @@ fn menu_frames_on_native_gpu() {
     .collect();
     let mut app = app();
     let mut runtime = pack_harness::menu_runtime();
-    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
-    runtime.publish_local_runtime_id(1, 42).unwrap();
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
     let stats = app.world().resource::<render::UiRenderStats>().clone();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
@@ -126,11 +128,11 @@ fn menu_frames_on_native_gpu() {
         ("loading", MenuScreen::Home),
     ] {
         if name == "inventory" {
-            runtime.toggle_inventory();
+            runtime.toggle_inventory(&mut player_runtime);
             assert!(runtime.inventory_open());
         }
         if name == "play" && runtime.inventory_open() {
-            runtime.toggle_inventory();
+            runtime.toggle_inventory(&mut player_runtime);
         }
         view.screen = screen;
         view.editing = (screen == MenuScreen::AddServer).then_some(0);
@@ -165,7 +167,10 @@ fn menu_frames_on_native_gpu() {
             let preview_done = Instant::now();
             if matches!(name, "paper-doll" | "inventory") {
                 presentation.set_menu_view(None);
-                runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+                runtime.publish_player_game_mode(
+                    &mut player_runtime,
+                    protocol::PlayerGameMode::Survival,
+                );
                 presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
                 presentation.hud_frame_mut().paper_doll_visible = true;
             }

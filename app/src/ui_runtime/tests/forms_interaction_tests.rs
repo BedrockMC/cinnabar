@@ -555,9 +555,12 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
-    let runtime = pack_harness::action_form("Menu", &["A", "B", "C"]);
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
     let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
-    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, physical, dpi)
+        .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap();
     let hit = frame
@@ -577,6 +580,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(runtime)
+        .insert_resource(player_runtime)
         .insert_resource(presentation)
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
@@ -620,34 +624,41 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     // The server's next page arrives while the button is still held.
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+            let mut player_runtime = world
+                .remove_resource::<crate::player_runtime::PlayerRuntime>()
+                .unwrap();
             runtime
-                .apply(SequencedUiEvent {
-                    session_id: 1,
-                    fifo_sequence: 2,
-                    local_millis: 0,
-                    server_tick: None,
-                    event: UiEvent::Form(FormRequestEvent {
-                        form_id: 4,
-                        kind: FormKind::Menu,
-                        title: Some(Arc::from("Next")),
-                        json: Arc::from("{}"),
-                        model: ServerFormModel::TextMenu(TextMenuForm {
-                            title: Arc::from("Next"),
-                            content: Arc::from(""),
-                            buttons: ["A", "B", "C"]
-                                .iter()
-                                .map(|text| Arc::from(*text))
-                                .collect(),
-                            button_images: Vec::new().into(),
-                            omitted_images: 0,
+                .apply(
+                    &mut player_runtime,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: 2,
+                        local_millis: 0,
+                        server_tick: None,
+                        event: UiEvent::Form(FormRequestEvent {
+                            form_id: 4,
+                            kind: FormKind::Menu,
+                            title: Some(Arc::from("Next")),
+                            json: Arc::from("{}"),
+                            model: ServerFormModel::TextMenu(TextMenuForm {
+                                title: Arc::from("Next"),
+                                content: Arc::from(""),
+                                buttons: ["A", "B", "C"]
+                                    .iter()
+                                    .map(|text| Arc::from(*text))
+                                    .collect(),
+                                button_images: Vec::new().into(),
+                                omitted_images: 0,
+                            }),
                         }),
-                    }),
-                })
+                    },
+                )
                 .unwrap();
             world
                 .resource_mut::<UiPresentationRuntime>()
-                .build(&runtime, 16, physical, dpi)
+                .build(&player_runtime, &runtime, 16, physical, dpi)
                 .unwrap();
+            world.insert_resource(player_runtime);
         });
     app.update();
     send(&mut app, ButtonState::Released);
