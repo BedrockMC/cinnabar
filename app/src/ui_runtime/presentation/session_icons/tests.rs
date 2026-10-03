@@ -94,6 +94,7 @@ fn large_session_icons_install_without_blocking_later_server_ui_textures() {
     let static_identity = presentation.textures.static_identity();
     let icons = Arc::new(SessionIcons {
         icons: (0..600).map(sprite).collect(),
+        block_sheets: Vec::new(),
         misses: HashMap::new(),
     });
     observe(&mut presentation, Some(&icons));
