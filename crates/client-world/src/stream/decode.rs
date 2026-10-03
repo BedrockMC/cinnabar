@@ -219,6 +219,8 @@ pub(super) struct DecodeIds {
     pub(super) assets: Arc<RuntimeAssets>,
     pub(super) custom_blocks: std::ops::Range<u32>,
     pub(super) remap: Arc<assets::SequentialIdRemap>,
+    pub(super) diagnostics: Arc<decode_diagnostics::DecodeDiagnostics>,
+    pub(super) session_id: u64,
     pub(super) mode: NetworkIdMode,
     pub(super) air: u32,
     pub(super) biome_tints: Arc<ResolvedBiomeTints>,
@@ -242,16 +244,16 @@ impl BlockIds for DecodeIds {
     }
 
     fn resolve(&self, network_id: u32) -> u32 {
+        let wire_id = network_id;
         let network_id = if self.mode == NetworkIdMode::Sequential {
             self.remap.to_internal(network_id)
         } else {
             network_id
         };
-        if self.assets.is_known(self.mode, network_id) || self.custom_blocks.contains(&network_id) {
-            network_id
-        } else {
-            self.air
-        }
+        let known =
+            self.assets.is_known(self.mode, network_id) || self.custom_blocks.contains(&network_id);
+        self.diagnostics.observe(wire_id, network_id, self, known);
+        if known { network_id } else { self.air }
     }
 }
 
@@ -280,6 +282,16 @@ impl WorldStream {
 
     /// Translates sequential wire ids when custom blocks sort among vanilla names.
     pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
+        eprintln!(
+            "SESSION_BLOCK_PALETTE session={} mode={:?} air={:#010x} visual_count={} block_registry_sha256={} custom_internal_ids={:?} sequential_id_remapped={}",
+            self.actor_session_id,
+            self.network_id_mode,
+            self.classifier.air_network_id(),
+            self.runtime_assets.visual_count(),
+            decode_diagnostics::block_registry_sha256(&self.runtime_assets),
+            self.custom_block_ids,
+            !remap.is_identity(),
+        );
         self.id_remap = Arc::new(remap);
     }
 
@@ -288,6 +300,8 @@ impl WorldStream {
             assets: Arc::clone(&self.runtime_assets),
             custom_blocks: self.custom_block_ids.clone(),
             remap: Arc::clone(&self.id_remap),
+            diagnostics: Arc::clone(&self.decode_diagnostics),
+            session_id: self.actor_session_id,
             mode: self.network_id_mode,
             air: self.classifier.air_network_id(),
             biome_tints: Arc::clone(&self.resolved_biome_tints),
