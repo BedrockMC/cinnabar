@@ -3902,6 +3902,12 @@ P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
 
+Windows DX12 debug builds remain incomplete: FXC's unoptimized compilation of the
+generated biome lookup table exceeds its temporary-register limit. The GPU bounds
+regression uses optimized shaders with backend validation enabled, matching release
+shader compilation. Supporting unoptimized FXC shaders still needs a table-layout
+change; the bounds regression does not close that follow-up.
+
 
 ### World-lighting follow-up (incomplete parity)
 

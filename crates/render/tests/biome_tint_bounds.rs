@@ -62,7 +62,13 @@ fn tint_table() -> [[u32; 8]; 2] {
 
 #[test]
 fn positions_outside_the_sub_chunk_tint_as_their_nearest_block() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        // FXC's unoptimized debug shader exceeds its temporary-register limit for the
+        // generated biome table. Exercise optimized shaders, as release builds do,
+        // while retaining backend validation and every GPU bounds assertion.
+        flags: wgpu::InstanceFlags::debugging() & !wgpu::InstanceFlags::DEBUG,
+        ..Default::default()
+    });
     let Ok(adapter) = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
     else {
         eprintln!("biome tint bounds GPU fixture skipped: no physical adapter");
