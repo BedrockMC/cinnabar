@@ -244,3 +244,70 @@ fn modal_screens_need_their_grants_and_an_indexed_template() {
     };
     assert!(denied.dispatch(&pick, 1).is_err());
 }
+
+/// The test client part shaped like SP3's terminal, built for wasm32 and turned into a
+/// component. The build gets a target directory of its own inside this test's, so it neither
+/// waits on the running `cargo test`'s lock nor leaves the shared target.
+fn terminal_component() -> Vec<u8> {
+    let exe = std::env::current_exe().unwrap();
+    let target = exe.ancestors().nth(3).unwrap().join("mod-host-guests");
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = std::process::Command::new(cargo)
+        .current_dir(&root)
+        .args(["build", "--locked", "--target", "wasm32-unknown-unknown"])
+        .args(["-p", "experience-terminal-client", "--target-dir"])
+        .arg(&target)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "building the terminal client part failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let module =
+        std::fs::read(target.join("wasm32-unknown-unknown/debug/experience_terminal_client.wasm"))
+            .unwrap();
+    wit_component::ComponentEncoder::default()
+        .module(&module)
+        .unwrap()
+        .validate(true)
+        .encode()
+        .unwrap()
+}
+
+/// A list record the size of SP3's terminal, about 22 KB of wire JSON in 144 records of an id, a
+/// count and a display name, decodes through the SDK and binds within one callback's
+/// `CALLBACK_FUEL`; at the earlier 100,000 it trapped and took the helper with it.
+#[test]
+fn terminal_sized_list_record_dispatches_within_callback_fuel() {
+    let item = |i: i64| {
+        format!(
+            r#"{{"type":"record","value":[{{"type":"text","value":"minecraft:polished_blackstone_brick_{i}"}},{{"type":"integer","value":{}}},{{"type":"text","value":"Polished Blackstone Brick {i}"}}]}}"#,
+            i * 37
+        )
+    };
+    let items: Vec<String> = (0..144).map(item).collect();
+    let record = format!(r#"[{{"type":"list","value":[{}]}}]"#, items.join(","));
+    assert!(
+        (20_000..=MAX_MESSAGE_BYTES).contains(&record.len()),
+        "{} bytes",
+        record.len()
+    );
+    let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
+    capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    let mut host = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    host.take_transaction();
+    let message = Event::Message {
+        channel: "benergistics.items".into(),
+        record: record.into_bytes(),
+    };
+    match host.dispatch(&message, 1).unwrap().commands.as_slice() {
+        [Command::Collection { name, rows }] => {
+            assert_eq!(name, "items");
+            assert_eq!(rows.len(), 144);
+            assert_eq!(rows[143]["#count"], screen::Value::Integer(143 * 37));
+        }
+        other => panic!("{other:?}"),
+    }
+}
