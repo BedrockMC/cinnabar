@@ -121,6 +121,15 @@ jobs:
           go -C tools/registrygen test ./... -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C tools/registrygen vet ./...
+      - name: Test and vet local server Experiences on Windows
+        working-directory: tools/localserver
+        env:
+          GOWORK: "off"
+        shell: powershell
+        run: |
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
 
   verify:
     runs-on: ubuntu-latest
@@ -188,6 +197,13 @@ jobs:
           go -C tools/registrygen vet ./...
       - name: Test and vet pinned chunk fixture generator
         working-directory: tools/chunkfix
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
+      - name: Test and vet local server Experiences
+        working-directory: tools/localserver
         env:
           GOWORK: "off"
         run: |

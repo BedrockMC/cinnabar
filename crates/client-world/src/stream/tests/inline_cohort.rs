@@ -61,6 +61,39 @@ fn inline_only_server_reaches_an_exact_required_cohort() {
     );
 }
 
+// Dragonfly sends no terrain until the client reports initialized; a session whose
+// server announced none before spawn has an empty startup view, until it publishes one.
+#[test]
+fn startup_view_waits_only_for_terrain_the_server_announced() {
+    let mut stream = publisher_cohort_stream();
+    stream.set_startup_terrain_announced(false);
+    assert!(
+        !stream.startup_view_complete(),
+        "a published view is awaited"
+    );
+    for (sequence, x) in [(2, -1), (3, 0), (4, 1)] {
+        stream.submit(sequence, inline_air_event(x)).unwrap();
+    }
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.startup_view_complete());
+
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(
+        !stream.startup_view_complete(),
+        "terrain announced before spawn is awaited"
+    );
+    stream.set_startup_terrain_announced(false);
+    assert!(stream.startup_view_complete(), "nothing to wait for");
+}
+
 #[test]
 fn malformed_inline_payload_joins_the_required_cohort_after_decode() {
     let mut stream = publisher_cohort_stream();

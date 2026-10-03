@@ -181,6 +181,9 @@ impl Harness {
     fn fields(&self, expected: [&str; 3], focused: MenuField) {
         let presentation = self.app.world().resource::<UiPresentationRuntime>();
         let nodes = pack_harness::menu_nodes(presentation);
+        let caret = self.app.world().resource::<MenuRuntime>().view().caret;
+        let selected = caret.selection.is_some();
+        let (mut rendered_carets, mut literal_carets) = (0, 0);
         for (action, value) in [
             MenuAction::AddName,
             MenuAction::AddAddress,
@@ -231,12 +234,28 @@ impl Harness {
             } else {
                 value
             };
+            literal_carets += wanted
+                .chars()
+                .filter(|&ch| ch == json_ui::CARET_GLYPH)
+                .count();
+            rendered_carets += texts
+                .iter()
+                .flat_map(|text| text.chars())
+                .filter(|&ch| ch == json_ui::CARET_GLYPH)
+                .count();
+            let mut wanted = wanted.to_owned();
+            if action == focused_action && !selected {
+                wanted.insert(caret.byte, json_ui::CARET_GLYPH);
+            }
             let actual: Vec<_> = texts
                 .iter()
-                .map(|text| text.trim_end_matches('_'))
+                .map(String::as_str)
                 .filter(|text| !text.is_empty())
                 .collect();
-            let wanted: Vec<_> = (!wanted.is_empty()).then_some(wanted).into_iter().collect();
+            let wanted: Vec<_> = (!wanted.is_empty())
+                .then_some(wanted.as_str())
+                .into_iter()
+                .collect();
             if actual != wanted {
                 eprintln!(
                     "field={:?} values={:?}",
@@ -255,18 +274,13 @@ impl Harness {
             self.app.world().resource::<MenuRuntime>().view().field,
             Some(focused)
         );
-        let selected = self.app.world().resource::<MenuRuntime>().text_selected;
-        let carets = pack_harness::drawn_texts(nodes)
-            .iter()
-            .filter(|text| text.ends_with('_'))
-            .count();
         let selections: Vec<_> = nodes
             .iter()
             .filter(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
             .collect();
         assert_eq!(
-            carets,
-            usize::from(!selected),
+            rendered_carets,
+            literal_carets + usize::from(!selected),
             "caret belongs only to the focused field"
         );
         assert_eq!(
@@ -323,13 +337,13 @@ fn exercise_server_fields(dpi: f32) {
     h.click(MenuAction::PlayAddServer);
     for editing in [false, true] {
         let mut values = if editing {
-            ["Server", "127.0.0.1", "19133"]
+            ["Server_Name_", "127.0.0.1", "19133"]
         } else {
             ["", "", DEFAULT_PORT]
         }
         .map(str::to_owned);
         for (index, action, field, pasted) in [
-            (0, MenuAction::AddName, MenuField::Name, "Server"),
+            (0, MenuAction::AddName, MenuField::Name, "Server_Name_"),
             (1, MenuAction::AddAddress, MenuField::Address, "127.0.0.1"),
             (2, MenuAction::AddPort, MenuField::Port, "19133"),
         ] {
@@ -349,7 +363,15 @@ fn exercise_server_fields(dpi: f32) {
             values[index].push('7');
             h.fields(values.each_ref().map(String::as_str), field);
             h.select_all();
-            assert!(h.app.world().resource::<MenuRuntime>().text_selected);
+            assert!(
+                h.app
+                    .world()
+                    .resource::<MenuRuntime>()
+                    .view()
+                    .caret
+                    .selection
+                    .is_some()
+            );
             h.fields(values.each_ref().map(String::as_str), field);
             h.paste(pasted);
             values[index] = pasted.into();
@@ -380,7 +402,7 @@ fn exercise_server_fields(dpi: f32) {
         assert_eq!(saved.len(), 1);
         assert_eq!(
             (&*saved[0].name, &*saved[0].address),
-            ("Server", "127.0.0.1:19133")
+            ("Server_Name_", "127.0.0.1:19133")
         );
         h.app
             .world_mut()

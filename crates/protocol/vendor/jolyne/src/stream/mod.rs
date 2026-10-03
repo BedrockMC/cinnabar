@@ -139,6 +139,7 @@ impl State for StartGame {}
 pub struct Play {
     pending_initialization: Option<u64>,
     resource_pack_handoff: Option<ResourcePackHandoff>,
+    terrain_before_spawn: bool,
 }
 impl State for Play {}
 
@@ -155,6 +156,14 @@ impl<R: Role, T: Transport> BedrockStream<Play, R, T> {
     /// The handoff is one-shot; subsequent calls return an empty collection.
     pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
         self.state.resource_pack_handoff.take().unwrap_or_default()
+    }
+
+    /// Whether the server sent terrain (a publisher update, level chunk or sub-chunk)
+    /// before login completed at PlayerSpawn. Some servers (Dragonfly) send none until
+    /// the client reports itself initialized.
+    #[must_use]
+    pub const fn terrain_before_spawn(&self) -> bool {
+        self.state.terrain_before_spawn
     }
 }
 
