@@ -233,14 +233,14 @@ impl UiTextureCatalog {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let dynamic = &pages[dynamic_start..];
-        let small = dynamic
-            .iter()
-            .filter(|page| page.dimensions != [UI_ART_PAGE_SIDE; 2])
-            .count();
         let art = dynamic
             .iter()
-            .filter(|page| page.dimensions == [UI_ART_PAGE_SIDE; 2])
+            .enumerate()
+            .filter(|(offset, page)| {
+                *offset != UI_SESSION_ICON_PAGE_OFFSET && page.dimensions == [UI_ART_PAGE_SIDE; 2]
+            })
             .count();
+        let small = dynamic.len() - art;
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
             || dynamic.iter().enumerate().any(|(offset, page)| {
@@ -261,14 +261,13 @@ impl UiTextureCatalog {
         static_pages.update(source_identity);
         all.update((dynamic_start as u64).to_le_bytes());
         static_pages.update((dynamic_start as u64).to_le_bytes());
-        // The number and identity of reserved logical slots are immutable, their model extents
-        // are not. Changing a skin cannot masquerade as changing the static catalog namespace.
+        // Reserved logical slots keep their identity when model or session icon pages resize.
         all.update((pages.len() as u64).to_le_bytes());
         static_pages.update((pages.len() as u64).to_le_bytes());
         for (index, page) in pages.iter().enumerate() {
             for side in page.dimensions {
                 all.update(side.to_le_bytes());
-                if index < dynamic_start || !is_model_slot(index - dynamic_start) {
+                if index < dynamic_start || !is_resizable_slot(index - dynamic_start) {
                     static_pages.update(side.to_le_bytes());
                 }
             }
@@ -296,7 +295,7 @@ impl UiTextureCatalog {
                 .iter()
                 .zip(&self.pages[self.dynamic_start..])
                 .enumerate()
-                .any(|(offset, (a, b))| !is_model_slot(offset) && a.dimensions != b.dimensions)
+                .any(|(offset, (a, b))| !is_resizable_slot(offset) && a.dimensions != b.dimensions)
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
@@ -321,10 +320,12 @@ impl UiTextureCatalog {
     }
 }
 
-fn is_model_slot(offset: usize) -> bool {
-    (UI_PLAYER_SKIN_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
+/// Model sources and session icons can resize without changing their logical slots.
+fn is_resizable_slot(offset: usize) -> bool {
+    (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
 }
 
+/// Accepts only the dimensions supported by each reserved dynamic page's producer.
 fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
@@ -338,6 +339,11 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
     }
     if (UI_MODEL_ATLAS_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset) {
         return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
+    }
+    if offset == UI_SESSION_ICON_PAGE_OFFSET {
+        return width == height
+            && width.is_power_of_two()
+            && (UI_DYNAMIC_PAGE_SIDE..=MAX_UI_TEXTURE_SIDE).contains(&width);
     }
     [width, height] == [UI_ART_PAGE_SIDE; 2]
 }
