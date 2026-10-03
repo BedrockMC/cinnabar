@@ -186,41 +186,9 @@ pub(crate) fn prepare_ui_runtime(
         }
     }
     runtime.expire_gameplay_effects(now_millis);
-    // Off-world the launcher's paper doll wears the local skin.
-    let skin = match client_world.stream.as_ref() {
-        Some(stream) => stream
-            .actor_player_profile(stream.local_player_runtime_id())
-            .and_then(|profile| match &profile.skin {
-                protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
-                    width: skin.width,
-                    height: skin.height,
-                    rgba8: Arc::clone(&skin.rgba8),
-                }),
-                _ => None,
-            }),
-        None => Some(ActorSkinPixels {
-            width: menu_runtime.player_skin().width,
-            height: menu_runtime.player_skin().height,
-            rgba8: Arc::clone(&menu_runtime.player_skin().rgba8),
-        }),
-    }
-    .and_then(|pixels| player_preview::validated_ui_skin(&pixels));
-    let pose = client_world
-        .stream
-        .as_ref()
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
-        .map_or_else(player_preview::PlayerPreviewPose::default, |actor| {
-            let sneaking = matches!(
-                actor.metadata.get(&0),
-                Some(protocol::ActorMetadataValue::Flags(flags)) if flags & (1_u64 << 1) != 0
-            );
-            player_preview::PlayerPreviewPose::new(
-                actor.body_yaw,
-                actor.head_yaw,
-                actor.pitch,
-                sneaking,
-            )
-        });
+    let stream = client_world.stream.as_ref();
+    let skin = player_preview::local_preview_skin(stream, menu_runtime.player_skin());
+    let pose = player_preview::PlayerPreviewPose::of_local_player(stream);
     // The model wears the local player's armor and held item.
     presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
         client_world
