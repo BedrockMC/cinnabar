@@ -251,6 +251,8 @@ pub(crate) struct MenuRuntime {
     gui_scale_choices: Vec<i8>,
     fullscreen: bool,
     fullscreen_change: Option<bool>,
+    video_settings_writer: Option<video_settings::writer::Writer>,
+    settings_focus: Vec<MenuAction>,
     last_saved_video_settings: video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
     render_mode: RenderMode,

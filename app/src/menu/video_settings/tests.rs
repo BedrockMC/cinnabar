@@ -83,6 +83,7 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::SettingsFullscreen(true));
     app.update();
+    wait_for_save(&mut app);
     let loaded = load(&root.0).unwrap();
     assert!(loaded.fullscreen);
     assert_eq!(loaded.gui_scale_offset, expected.gui_scale_offset);
@@ -90,6 +91,7 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
         .resource_mut::<MenuRuntime>()
         .activate(MenuAction::SettingsScale(-1));
     app.update();
+    wait_for_save(&mut app);
     assert_eq!(load(&root.0).unwrap().gui_scale_offset, -1);
 }
 
@@ -177,6 +179,7 @@ fn f11_can_disable_a_loaded_fullscreen_preference_and_saves_it() {
         window,
     });
     app.update();
+    wait_for_save(&mut app);
     assert!(!load(&root.0).unwrap().fullscreen);
     let restarted = root.menu();
     assert!(!restarted.view().fullscreen);
@@ -201,4 +204,25 @@ fn malformed_and_oversized_files_return_errors_without_overwriting_them() {
     assert_eq!(fs::read(&path).unwrap(), br#"{"fullscreen": "yes"}"#);
     fs::write(&path, vec![b' '; MAX_FILE_BYTES as usize + 1]).unwrap();
     assert!(load(&root.0).is_err());
+}
+
+/// Waits for the worker's acknowledgment while driving the normal persistence system.
+fn wait_for_save(app: &mut App) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        let current = SavedVideoSettings {
+            fullscreen: menu.fullscreen,
+            gui_scale_offset: menu.gui_scale_offset,
+        };
+        if menu.last_saved_video_settings == current {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "video settings were not acknowledged"
+        );
+        std::thread::yield_now();
+    }
 }
