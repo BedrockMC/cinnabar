@@ -6,7 +6,8 @@
 //! is valid only for that call. [`Callback::send_client`] stages a typed message for the actor's
 //! client part; build its payload as [`Value`]s and pass their [`nodes`].
 //! [`Experience::client_message`] receives what that client part sends back, and
-//! [`Experience::epoch`] when it moved to a new world epoch.
+//! [`Experience::epoch`] when it moved to a new world epoch; both may read and write the block
+//! of the player's focus, [`Callback::focus`].
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
@@ -72,8 +73,10 @@ pub trait Experience {
     }
 
     /// Handles `client-message`: `player`'s client part sent `payload` on `channel`, revision
-    /// `schema`. `ctx` has no snapshot, so it reads and writes no blocks; it may `tell` and
-    /// `send-client` to `player`.
+    /// `schema`. [`Callback::focus`] is the block of `player`'s focus, the block of this
+    /// Experience that `player` last used, if it is still valid: `ctx` then has its snapshot and
+    /// reads and writes it as [`Experience::on_interact`] would. Without a focus `ctx` reads and
+    /// writes no blocks. Either way it may `tell` and `send-client` to `player`.
     fn client_message(
         _ctx: &Callback,
         _player: PlayerId,
@@ -86,8 +89,7 @@ pub trait Experience {
 
     /// Handles `epoch`: `player`'s client part moved to a new world epoch, such as another
     /// dimension, and kept running, so it may have missed what was sent before; resend its state.
-    /// `ctx` has no snapshot, so it reads and writes no blocks; it may `tell` and `send-client`
-    /// to `player`.
+    /// `ctx` has the snapshot of `player`'s focus like [`Experience::client_message`]'s.
     fn epoch(_ctx: &Callback, _player: PlayerId) -> Result<(), GuestError> {
         Ok(())
     }

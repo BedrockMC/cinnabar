@@ -48,7 +48,7 @@ pub fn run_metered(engine: &Engine, loaded: &Loaded, request: &Request) -> (Outc
             return (Outcome::Rejected { reason }, 0);
         }
     };
-    if let Some(missing) = unsupported(&loaded.pre, &export) {
+    if let Some(missing) = unsupported(&loaded.pre, &export, res.focus.is_some()) {
         let reason = format!(
             "malformed callback request: api {} has {missing}",
             loaded.manifest.api
@@ -156,20 +156,45 @@ fn invoke(
                 Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
             }
         }
+        Pre::V0_4(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    let nodes = value::encode(payload);
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
+                }
+                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
+            }
+        }
     }?;
     let res = store.data_mut().table.delete(owned)?;
     Ok((result, res.ops))
 }
 
-/// What the world of `pre` lacks to run `export`, if anything: 0.1 has no client-message, 0.2 no
-/// list or record values, and neither has epoch.
-fn unsupported(pre: &Pre, export: &Export<'_>) -> Option<&'static str> {
+/// What the world of `pre` lacks to run `export`, `focused` when it has its player's focus, if
+/// anything: 0.1 has no client-message, 0.2 no list or record values, neither has epoch, and
+/// only 0.4 has a focus.
+fn unsupported(pre: &Pre, export: &Export<'_>, focused: bool) -> Option<&'static str> {
     match (pre, export) {
         (Pre::V0_1(_), Export::ClientMessage { .. }) => Some("no client-message"),
         (Pre::V0_1(_) | Pre::V0_2(_), Export::Epoch { .. }) => Some("no epoch"),
         (Pre::V0_2(_), Export::ClientMessage { payload, .. }) if value::depth(payload) > 0 => {
             Some("no list or record values")
         }
+        (Pre::V0_1(_) | Pre::V0_2(_) | Pre::V0_3(_), _) if focused => Some("no focus"),
         _ => None,
     }
 }
@@ -195,6 +220,9 @@ fn failed(error: &anyhow::Error) -> Outcome {
 pub struct CallbackRes {
     info: CallbackInfo,
     actor: Option<String>,
+    /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
+    /// its anchor would have.
+    focus: Option<BlockPos>,
     /// The ids of this Experience's blocks.
     own: Arc<[String]>,
     snapshot: Snapshot,
@@ -260,7 +288,7 @@ enum Export<'a> {
 
 /// The callback's host value and export for `request`, an Experience whose block ids are `own`.
 /// The anchor, whose chunk column bounds writes, is the call's position; a client message and an
-/// epoch have none, and no snapshot. Hex is decoded and player ids are checked here, so a request
+/// epoch have their player's focus, if any, and without one no snapshot. Hex is decoded and player ids are checked here, so a request
 /// that is not a callback, holds bad hex or a player id that is not canonical fails before
 /// anything runs.
 fn prepare<'a>(
@@ -281,6 +309,7 @@ fn prepare<'a>(
         return Err("not a callback".to_owned());
     };
     player_id("actor", actor.as_deref())?;
+    let mut focused = None;
     let (anchor, export) = match call {
         Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
         Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
@@ -305,8 +334,15 @@ fn prepare<'a>(
             channel,
             schema,
             payload,
+            focus,
         } => {
-            player_call("a client message", player, actor.as_deref(), snapshot)?;
+            player_call(
+                "a client message",
+                player,
+                actor.as_deref(),
+                snapshot,
+                *focus,
+            )?;
             if value::depth(payload) > MAX_VALUE_DEPTH {
                 let reason = format!("a client message nests values deeper than {MAX_VALUE_DEPTH}");
                 return Err(reason);
@@ -317,11 +353,13 @@ fn prepare<'a>(
                 schema: *schema,
                 payload,
             };
-            (None, export)
+            focused = *focus;
+            (*focus, export)
         }
-        Call::Epoch { player } => {
-            player_call("an epoch", player, actor.as_deref(), snapshot)?;
-            (None, Export::Epoch { player })
+        Call::Epoch { player, focus } => {
+            player_call("an epoch", player, actor.as_deref(), snapshot, *focus)?;
+            focused = *focus;
+            (*focus, Export::Epoch { player })
         }
     };
     let cells = snapshot
@@ -346,6 +384,7 @@ fn prepare<'a>(
             event_sequence: info.event_sequence,
         },
         actor: actor.clone(),
+        focus: focused,
         own: Arc::clone(own),
         snapshot: Snapshot {
             cells,
@@ -389,20 +428,21 @@ fn player_id(what: &str, id: Option<&str>) -> Result<(), String> {
     }
 }
 
-/// Refuses `what`, a callback for `player` alone, unless `player` is canonical and the actor and
-/// the snapshot is empty.
+/// Refuses `what`, a callback for `player` alone, unless `player` is canonical and the actor, and
+/// the snapshot is empty without a `focus`.
 fn player_call(
     what: &str,
     player: &str,
     actor: Option<&str>,
     snapshot: &[Cell],
+    focus: Option<BlockPos>,
 ) -> Result<(), String> {
     player_id("player", Some(player))?;
     if actor != Some(player) {
         return Err(format!("{what}'s actor is not its player"));
     }
-    if !snapshot.is_empty() {
-        return Err(format!("{what} has a snapshot"));
+    if focus.is_none() && !snapshot.is_empty() {
+        return Err(format!("{what} has a snapshot without a focus"));
     }
     Ok(())
 }
@@ -457,6 +497,12 @@ impl CallbackRes {
     pub(crate) fn info(&mut self) -> Result<CallbackInfo> {
         self.host_call()?;
         Ok(self.info.clone())
+    }
+
+    /// The actor's focus, which only a client message or an epoch may have.
+    pub(crate) fn focus(&mut self) -> Result<Option<BlockPos>> {
+        self.host_call()?;
+        Ok(self.focus)
     }
 
     pub(crate) fn get_block(&mut self, pos: BlockPos) -> Result<Result<String, WorldError>> {

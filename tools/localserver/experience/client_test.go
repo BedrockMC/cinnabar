@@ -297,7 +297,7 @@ func TestClientMessageReachesGuest(t *testing.T) {
 	if !f.host.DeliverClientMessage(f.actor, "probe", "probe.echo", 7, payload) {
 		t.Fatal("the client message was not queued")
 	}
-	f.waitTells(5*time.Second, "client probe.echo 7 6 read denied write denied echo ok")
+	f.waitTells(5*time.Second, "client probe.echo 7 6 focus none read denied write denied echo ok")
 	f.assertMessage(channels.waitSent(t, 1)[0], "probe.echo", 7, payload)
 }
 
@@ -311,7 +311,7 @@ func TestEpochReachesGuest(t *testing.T) {
 	if !f.host.DeliverEpoch(f.actor, "probe") {
 		t.Fatal("the epoch was not queued")
 	}
-	f.waitTells(5*time.Second, "epoch read denied write denied send ok")
+	f.waitTells(5*time.Second, "epoch focus none read denied write denied send ok")
 	f.assertMessage(channels.waitSent(t, 1)[0], probeItemsChannel, 1, probeItems(2))
 }
 

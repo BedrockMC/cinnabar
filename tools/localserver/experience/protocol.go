@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 3
+const protocolVersion = 4
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -133,18 +133,22 @@ type NeighborCall struct {
 }
 
 // ClientMessageCall is a typed message that Player's client part sent on Channel, revision
-// Schema. Its callback's actor is Player, and its snapshot is empty.
+// Schema. Its callback's actor is Player. With Focus, the block of Player's focus, its snapshot
+// is the one an interaction with that block would have; without, it is empty.
 type ClientMessageCall struct {
-	Player  string   `json:"player"`
-	Channel string   `json:"channel"`
-	Schema  uint16   `json:"schema"`
-	Payload []Scalar `json:"payload"`
+	Player  string    `json:"player"`
+	Channel string    `json:"channel"`
+	Schema  uint16    `json:"schema"`
+	Payload []Scalar  `json:"payload"`
+	Focus   *BlockPos `json:"focus"`
 }
 
 // EpochCall tells the guest that Player's client part moved to a new world epoch and kept
-// running. Its callback's actor is Player, and its snapshot is empty.
+// running. Its callback's actor is Player, and its snapshot that of Focus like a client
+// message's.
 type EpochCall struct {
-	Player string `json:"player"`
+	Player string    `json:"player"`
+	Focus  *BlockPos `json:"focus"`
 }
 
 // Request is a message from the adapter to the runtime. Exactly one field is set.
@@ -283,12 +287,15 @@ type Response struct {
 	Result     *Result
 }
 
-// Loaded answers load with the artifact's identity and its validated blocks.
+// Loaded answers load with the artifact's identity and its validated blocks. Focus is set when
+// the Experience's world takes its player's focus in client messages and epochs; one that does
+// not is never given one.
 type Loaded struct {
 	Protocol uint32     `json:"protocol"`
 	ID       string     `json:"id"`
 	Version  string     `json:"version"`
 	Blocks   []BlockDef `json:"blocks"`
+	Focus    bool       `json:"focus"`
 }
 
 // LoadFailed answers load when the artifact does not load; the runtime then exits.

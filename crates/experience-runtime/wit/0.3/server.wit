@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.4.0;
+package cinnabar:experience-server@0.3.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -44,13 +44,6 @@ interface world-access {
         /// Stages `payload` for `player`'s client part on `channel`, revision `schema`. It is sent
         /// after the callback commits, if that player's client part declares the channel.
         send-client: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
-        /// The block that a `client-message` or `epoch` callback got as its player's focus: the
-        /// block of this Experience that the player last used. Its snapshot is the one
-        /// `on-interact` gets, the block and its neighbors, and it is read and written the same
-        /// way. None when the player has no focus, or it is no longer valid: the block is gone or
-        /// was replaced, is unloaded, or is in another dimension than the player or out of range.
-        /// None in every other callback.
-        focus: func() -> option<block-pos>;
     }
 }
 
@@ -69,12 +62,10 @@ world server {
     export on-break: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-interact: func(ctx: borrow<callback>, player: player-id, pos: block-pos, clicked-face: face) -> result<_, guest-error>;
     export on-neighbor-changed: func(ctx: borrow<callback>, pos: block-pos, neighbor: block-pos) -> result<_, guest-error>;
-    /// `player`'s client part sent `payload` on `channel`, revision `schema`. `ctx` has the
-    /// snapshot of `player`'s focus (`callback.focus`); without one, every world read and write
-    /// is refused.
+    /// `player`'s client part sent `payload` on `channel`, revision `schema`. `ctx` has no
+    /// snapshot, so every world read and write is refused.
     export client-message: func(ctx: borrow<callback>, player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, guest-error>;
     /// `player`'s client part moved to a new world epoch and kept running, so it may have missed
-    /// what was sent before. `ctx` has the snapshot of `player`'s focus (`callback.focus`);
-    /// without one, every world read and write is refused.
+    /// what was sent before. `ctx` has no snapshot, so every world read and write is refused.
     export epoch: func(ctx: borrow<callback>, player: player-id) -> result<_, guest-error>;
 }

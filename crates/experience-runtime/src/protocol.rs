@@ -15,8 +15,8 @@ use crate::limits::{
 };
 
 /// 2 added the `client_message` call and the `send_client` op; 3 the `epoch` call and list and
-/// record values.
-pub const PROTOCOL_VERSION: u32 = 3;
+/// record values; 4 the `focus` of those calls and of `loaded`.
+pub const PROTOCOL_VERSION: u32 = 4;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -117,18 +117,21 @@ pub enum Call {
         pos: BlockPos,
         neighbor: BlockPos,
     },
-    /// `player`'s client part sent `payload` on `channel`. The callback's actor is `player`, and
-    /// its snapshot is empty.
+    /// `player`'s client part sent `payload` on `channel`. The callback's actor is `player`. With
+    /// `focus`, the block of `player`'s focus, its snapshot is the one an interaction with that
+    /// block would have; without, it is empty.
     ClientMessage {
         player: String,
         channel: String,
         schema: u16,
         payload: Vec<Scalar>,
+        focus: Option<BlockPos>,
     },
     /// `player`'s client part moved to a new world epoch and kept running. The callback's actor
-    /// is `player`, and its snapshot is empty.
+    /// is `player`, and its snapshot is that of `focus` like a client message's.
     Epoch {
         player: String,
+        focus: Option<BlockPos>,
     },
 }
 
@@ -248,11 +251,14 @@ pub enum Outcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    /// `focus` is set when the Experience's world takes its player's focus in client messages
+    /// and epochs; the adapter gives none to one that does not.
     Loaded {
         protocol: u32,
         id: String,
         version: String,
         blocks: Vec<BlockDef>,
+        focus: bool,
     },
     LoadFailed {
         reason: String,
@@ -444,15 +450,18 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             channel: "benergistics.ack".to_owned(),
             schema: 1,
             payload: record.clone(),
+            focus: None,
         },
     ));
-    let epoch = without_snapshot(callback(
+    // An epoch with its player's focus has the snapshot of an interaction with that block.
+    let epoch = callback(
         6,
         Some(player),
         Call::Epoch {
             player: player.to_owned(),
+            focus: Some(controller),
         },
-    ));
+    );
     let texture = |slot: &str, file: &str| Texture {
         slot: slot.to_owned(),
         path: format!("/srv/experiences/benergistics/assets/{file}"),
@@ -548,6 +557,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                         mining: Mining::Unbreakable {},
                     },
                 ],
+                focus: true,
             }),
         ),
         (

@@ -4,8 +4,8 @@
 mod common;
 
 use common::{
-    ACTOR, AIR, COUNTER, callback, cell, client_message, epoch, interact, items, outcome, p, send,
-    tell, up,
+    ACTOR, AIR, COUNTER, callback, cell, client_message, epoch, focused, interact, items, outcome,
+    p, send, tell, up,
 };
 use experience_runtime::limits::{MAX_REASON_BYTES, MAX_VALUE_DEPTH};
 use experience_runtime::protocol::{
@@ -327,8 +327,8 @@ fn staged_send_carries_lists_and_records() {
     );
 }
 
-/// A client message reaches the guest with its fields in order. Its callback has no snapshot,
-/// so the block read and write are refused, while the echo to the sender is staged.
+/// A client message reaches the guest with its fields in order. Without a focus its callback has
+/// no snapshot, so the block read and write are refused, while the echo to the sender is staged.
 #[test]
 fn client_message_reaches_guest_without_world_access() {
     let payload = vec![
@@ -341,7 +341,7 @@ fn client_message_reaches_guest_without_world_access() {
         outcome(&client_message("probe.echo", 7, payload.clone())),
         committed(vec![
             send("probe.echo", 7, payload),
-            tell("client probe.echo 7 4 read denied write denied echo ok"),
+            tell("client probe.echo 7 4 focus none read denied write denied echo ok"),
         ])
     );
 }
@@ -367,28 +367,68 @@ fn client_message_lists_and_records_reach_guest() {
         outcome(&client_message("probe.echo", 2, payload.clone())),
         committed(vec![
             send("probe.echo", 2, payload),
-            tell("client probe.echo 2 4 read denied write denied echo ok"),
+            tell("client probe.echo 2 4 focus none read denied write denied echo ok"),
         ])
     );
 }
 
 /// `epoch` tells the guest that its player's client part moved to a new world epoch. Like a
-/// client message it has no snapshot, so the block read and write are refused, while what it
-/// resends to the player is staged.
+/// client message without a focus it has no snapshot, so the block read and write are refused,
+/// while what it resends to the player is staged.
 #[test]
 fn epoch_reaches_guest_without_world_access() {
     assert_eq!(
         outcome(&epoch()),
         committed(vec![
             send("probe.items", 1, items(2)),
-            tell("epoch read denied write denied send ok"),
+            tell("epoch focus none read denied write denied send ok"),
         ])
     );
 }
 
-/// A client message or an epoch comes from its player, who is the callback's actor, and carries
-/// no snapshot, and a client message's values nest at most `MAX_VALUE_DEPTH` deep; otherwise
-/// nothing runs, though each of these would commit if it ran.
+/// With its player's focus, a client message gets that block's snapshot: the guest sees which
+/// block it is, reads it and writes its data, and the write commits before the echo.
+#[test]
+fn client_message_with_focus_reads_and_writes_it() {
+    assert_eq!(
+        outcome(&focused(client_message("probe.echo", 7, vec![]), p(0))),
+        committed(vec![
+            Op::SetBlockData {
+                pos: p(0),
+                data: Some("01".to_owned()),
+            },
+            send("probe.echo", 7, vec![]),
+            tell("client probe.echo 7 0 focus 0 64 0 read probe:counter write ok echo ok"),
+        ])
+    );
+}
+
+/// An epoch with its player's focus gets that block's snapshot like a client message does.
+#[test]
+fn epoch_with_focus_reads_and_writes_it() {
+    assert_eq!(
+        outcome(&focused(epoch(), p(0))),
+        committed(vec![
+            Op::SetBlockData {
+                pos: p(0),
+                data: Some("01".to_owned()),
+            },
+            send("probe.items", 1, items(2)),
+            tell("epoch focus 0 64 0 read probe:counter write ok send ok"),
+        ])
+    );
+}
+
+/// Only a client message or an epoch has a focus; x=23 tells what `focus` returns in an
+/// `on-interact`.
+#[test]
+fn block_callbacks_have_no_focus() {
+    assert_eq!(outcome(&interact(23)), committed(vec![tell("focus none")]));
+}
+
+/// A client message or an epoch comes from its player, who is the callback's actor, carries a
+/// snapshot only with a focus, and a client message's values nest at most `MAX_VALUE_DEPTH`
+/// deep; otherwise nothing runs, though each of these would commit if it ran.
 #[test]
 fn malformed_client_message_or_epoch_is_rejected_unrun() {
     let mut too_deep = Scalar::Bool(true);
@@ -407,7 +447,12 @@ fn malformed_client_message_or_epoch_is_rejected_unrun() {
     };
     for base in [client_message("probe.echo", 1, vec![]), epoch()] {
         let with = |edit| edited(base.clone(), edit);
+        let mut unattributed = focused(base.clone(), p(0));
+        if let Request::Callback { actor, .. } = &mut unattributed {
+            *actor = None;
+        }
         let malformed = [
+            unattributed,
             with(|actor, _| *actor = None),
             with(|actor, _| *actor = Some("00000000-0000-0000-0000-000000000000".to_owned())),
             with(|_, snapshot| snapshot.push(cell(p(0), COUNTER, true, None))),

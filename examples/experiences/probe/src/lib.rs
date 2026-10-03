@@ -1,9 +1,10 @@
 //! Test guest for the Experience runtime. `on-interact` selects a behavior by
 //! `pos.x`; every other position it touches is relative to the interacted block
 //! `p`, and `up` is the block above it. World errors are told by their WIT
-//! kebab-case names. `client-message` tries a block read and write, which its
-//! callback refuses, echoes the message back to the sender's client part and
-//! tells what happened. `epoch` tries the same read and write, resends a short
+//! kebab-case names. `client-message` reads the block of its player's focus and
+//! writes its data, or without a focus tries the same at the origin, which its
+//! callback refuses; it echoes the message back to the sender's client part and
+//! tells what happened. `epoch` does the same read and write, resends a short
 //! item list and tells what happened. Its channels come from its
 //! `experience.toml`.
 
@@ -87,23 +88,19 @@ impl Experience for Probe {
         schema: u16,
         payload: Vec<Value>,
     ) -> Result<(), GuestError> {
-        let (read, write) = world_access(ctx);
+        let access = world_access(ctx);
         let fields = payload.len();
         let echo = outcome(ctx.send_client(&player, &channel, schema, &nodes(payload)));
-        let text =
-            format!("client {channel} {schema} {fields} read {read} write {write} echo {echo}");
+        let text = format!("client {channel} {schema} {fields} {access} echo {echo}");
         let _ = ctx.tell(&player, &text);
         Ok(())
     }
 
     fn epoch(ctx: &Callback, player: PlayerId) -> Result<(), GuestError> {
-        let (read, write) = world_access(ctx);
+        let access = world_access(ctx);
         let channel = channels::ITEMS;
         let send = outcome(ctx.send_client(&player, channel.id, channel.schema, &nodes(items(2))));
-        let _ = ctx.tell(
-            &player,
-            &format!("epoch read {read} write {write} send {send}"),
-        );
+        let _ = ctx.tell(&player, &format!("epoch {access} send {send}"));
         Ok(())
     }
 }
@@ -220,18 +217,28 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
             let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
             tell(&format!("items {sent}"));
         }
+        23 => tell(&format!("focus {}", describe(ctx.focus()))),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())
 }
 
-/// A block read and a block write at the origin, as `(read, write)` outcomes; a callback without
-/// a snapshot refuses both.
-fn world_access(ctx: &Callback) -> (String, &'static str) {
-    let origin = BlockPos { x: 0, y: 64, z: 0 };
-    (
-        id_or_error(ctx.get_block(origin)),
-        outcome(ctx.set_block(origin, COUNTER)),
+/// The focus, and a block read and a data write at it, or at the origin without one, as
+/// `focus {x y z|none} read {id|error} write {outcome}`; a callback without a snapshot refuses
+/// both.
+fn world_access(ctx: &Callback) -> String {
+    let focus = ctx.focus();
+    let target = focus.unwrap_or(BlockPos { x: 0, y: 64, z: 0 });
+    let read = id_or_error(ctx.get_block(target));
+    let write = outcome(ctx.set_block_data(target, Some(&[1])));
+    format!("focus {} read {read} write {write}", describe(focus))
+}
+
+/// `x y z`, or `none`.
+fn describe(pos: Option<BlockPos>) -> String {
+    pos.map_or_else(
+        || "none".to_owned(),
+        |BlockPos { x, y, z }| format!("{x} {y} {z}"),
     )
 }
 

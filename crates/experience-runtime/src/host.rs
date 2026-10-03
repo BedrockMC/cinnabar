@@ -1,6 +1,6 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
-//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`] and [`v0_2`] keep
-//! the worlds that older artifacts target.
+//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`] and
+//! [`v0_3`] keep the worlds that older artifacts target.
 
 use std::fmt;
 use std::time::Duration;
@@ -17,6 +17,7 @@ use crate::manifest::SERVER_WASM;
 
 pub(crate) mod v0_1;
 pub(crate) mod v0_2;
+pub(crate) mod v0_3;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -41,12 +42,22 @@ pub(crate) enum Api {
     V0_1,
     /// The 0.2 world: client messages of scalars, and no epoch.
     V0_2,
-    /// The current world.
+    /// The 0.3 world: client messages and epochs without a focus.
     V0_3,
+    /// The current world.
+    V0_4,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 3] = [Api::V0_1, Api::V0_2, Api::V0_3];
+    pub(crate) const ALL: [Api; 4] = [Api::V0_1, Api::V0_2, Api::V0_3, Api::V0_4];
+
+    /// Whether this world's client messages and epochs take their player's focus.
+    pub(crate) fn focus(self) -> bool {
+        match self {
+            Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
+            Api::V0_4 => true,
+        }
+    }
 
     /// The version whose manifest `api` is `api`.
     pub(crate) fn of(api: &str) -> Option<Api> {
@@ -58,7 +69,8 @@ impl Api {
         let wit = match self {
             Api::V0_1 => v0_1::WIT,
             Api::V0_2 => v0_2::WIT,
-            Api::V0_3 => WIT,
+            Api::V0_3 => v0_3::WIT,
+            Api::V0_4 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -79,7 +91,8 @@ impl Api {
 pub(crate) enum Pre {
     V0_1(v0_1::ServerPre<HostState>),
     V0_2(v0_2::ServerPre<HostState>),
-    V0_3(ServerPre<HostState>),
+    V0_3(v0_3::ServerPre<HostState>),
+    V0_4(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -95,8 +108,12 @@ impl Pre {
                 Self::V0_2(v0_2::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_3 => {
+                v0_3::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_3(v0_3::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_4 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_3(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_4(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -117,6 +134,10 @@ impl Pre {
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_3(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_4(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -354,6 +375,10 @@ impl world_access::HostCallback for HostState {
         self.table
             .get_mut(&ctx)?
             .send_client(player, channel, schema, payload)
+    }
+
+    fn focus(&mut self, ctx: Resource<CallbackRes>) -> Result<Option<BlockPos>> {
+        Ok(self.table.get_mut(&ctx)?.focus()?.map(Into::into))
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.

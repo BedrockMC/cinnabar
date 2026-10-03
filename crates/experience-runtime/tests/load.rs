@@ -4,8 +4,8 @@ use std::fs;
 use std::path::Path;
 
 use common::{
-    client_message, edit_manifest, epoch, hello_wasm, interact, probe_dir, probe_dir_with,
-    probe_wasm, rehash, send, tell, v0_1_dir, v0_2_dir,
+    client_message, current_api, edit_manifest, epoch, focused, hello_wasm, interact, p, probe_dir,
+    probe_dir_with, probe_wasm, rehash, send, tell, v0_1_dir, v0_2_dir, v0_3_dir,
 };
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
@@ -349,6 +349,62 @@ fn v0_2_artifact_loads_and_runs() {
     }
 }
 
+/// A guest built against server WIT 0.3 still loads, and its callbacks run through the 0.3
+/// imports: client messages with lists and records, and epochs, exactly as before 0.4. 0.3 has
+/// no focus, so the artifact does not take one, and a client message or an epoch with a focus is
+/// rejected unrun.
+#[test]
+fn v0_3_artifact_loads_and_runs() {
+    let dir = v0_3_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert!(!loaded.focus);
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.3")]
+        }
+    );
+    let nested = vec![
+        Scalar::List(vec![Scalar::Record(vec![Scalar::Integer(1)])]),
+        Scalar::Text("ack".to_owned()),
+    ];
+    assert_eq!(
+        run(
+            &engine,
+            &loaded,
+            &client_message("probe.echo", 3, nested.clone())
+        ),
+        Outcome::Committed {
+            ops: vec![send("probe.echo", 3, nested)]
+        }
+    );
+    assert_eq!(
+        run(&engine, &loaded, &epoch()),
+        Outcome::Committed { ops: vec![] }
+    );
+    for request in [
+        focused(client_message("probe.echo", 1, vec![]), p(0)),
+        focused(epoch(), p(0)),
+    ] {
+        let outcome = run(&engine, &loaded, &request);
+        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    }
+}
+
+/// The probe targets the current world, which takes a focus; every older one does not.
+#[test]
+fn only_the_current_api_takes_a_focus() {
+    let (engine, _ticker) = engine().unwrap();
+    let probe = probe_dir();
+    let loaded = load(&engine, probe.path()).unwrap();
+    assert_eq!(loaded.manifest.api, current_api());
+    assert!(loaded.focus);
+    for dir in [v0_1_dir(), v0_2_dir()] {
+        assert!(!load(&engine, dir.path()).unwrap().focus);
+    }
+}
+
 /// The manifest's `api` names the world that `server.wasm` must target.
 #[test]
 fn api_must_match_the_component() {
@@ -361,6 +417,8 @@ fn api_must_match_the_component() {
     for dir in [
         with_api(v0_1_dir(), "0.2"),
         with_api(v0_2_dir(), "0.3"),
+        with_api(v0_3_dir(), current_api()),
+        with_api(probe_dir(), "0.3"),
         with_api(probe_dir(), "0.2"),
         with_api(probe_dir(), "0.1"),
     ] {
