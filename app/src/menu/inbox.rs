@@ -1,7 +1,10 @@
 //! Inbox selection and optimistic message state, keyed by the service instance identity.
 use super::{MenuRuntime, view::MenuHome};
 use protocol::launcher_control::MessageEvent;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+mod bulk_read;
+use bulk_read::BulkRead;
 
 pub(crate) const CATEGORIES: [&str; 5] =
     ["News", "Realms", "Invites", "Marketplace Pass", "Feedback"];
@@ -28,11 +31,21 @@ pub(crate) struct InboxState {
     read: BTreeSet<String>,
     deleted: BTreeSet<String>,
     delete_all_read: bool,
+    bulk_read: BulkRead,
+    service_counts: BTreeMap<usize, u32>,
 }
 
 impl InboxState {
     /// Keeps a stale polled feed from undoing locally submitted read/delete actions.
     pub(super) fn reconcile(&mut self, home: &mut MenuHome) {
+        self.service_counts.clone_from(&home.inbox_counts);
+        self.bulk_read.observe(home);
+        self.apply(home);
+    }
+
+    /// Applies local actions without treating their optimistic result as a service reply.
+    fn apply(&mut self, home: &mut MenuHome) {
+        self.bulk_read.apply(home, &self.read, &self.deleted);
         for item in &mut home.inbox {
             if item.unread
                 && (self.read.contains(&item.instance_id)
@@ -40,6 +53,7 @@ impl InboxState {
             {
                 if let Some(count) = category_index(&item.category)
                     .and_then(|index| home.inbox_counts.get_mut(&index))
+                    && !self.bulk_read.covers(&item.category)
                 {
                     *count = count.saturating_sub(1);
                 }
@@ -113,6 +127,9 @@ impl MenuRuntime {
                 let identities = if deleting {
                     state.delete_pending.take().unwrap_or_default()
                 } else {
+                    state
+                        .bulk_read
+                        .begin(&self.feeds.home, &state.service_counts, &state.read);
                     state.pending.push(MessageEvent {
                         event_type: "ReadAll".into(),
                         instance_id: String::new(),
@@ -147,7 +164,7 @@ impl MenuRuntime {
                         state.read.insert(identity);
                     }
                 }
-                state.reconcile(&mut self.feeds.home);
+                state.apply(&mut self.feeds.home);
             }
             Action::Open(index) => {
                 let Some(item) = self.feeds.home.inbox.get(index) else {
@@ -166,7 +183,7 @@ impl MenuRuntime {
                         button_id: String::new(),
                     });
                 }
-                state.reconcile(&mut self.feeds.home);
+                state.apply(&mut self.feeds.home);
             }
             _ => {}
         }
@@ -249,6 +266,7 @@ mod tests {
         assert!(menu.feeds.home.inbox.is_empty());
         assert_eq!(menu.feeds.home.inbox_unread, 29);
     }
+
     /// Builds a partial inbox page with a service total larger than its loaded rows.
     fn partial_feed() -> MenuHome {
         MenuHome {
@@ -262,6 +280,76 @@ mod tests {
             inbox_unread: 35,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn mark_all_read_clears_partial_page_totals_and_preserves_new_messages() {
+        let mut menu = MenuRuntime::new(true, 2, "Test".into());
+        let stale = partial_feed();
+        menu.feeds.home = stale.clone();
+        menu.activate_inbox(Action::MarkAllRead);
+        assert_eq!(menu.feeds.home.inbox_unread, 0);
+        assert!(
+            menu.feeds
+                .home
+                .inbox_counts
+                .values()
+                .all(|count| *count == 0)
+        );
+        assert_eq!(menu.feeds.inbox_state.pending[0].event_type, "ReadAll");
+        for _ in 0..2 {
+            menu.feeds.home = stale.clone();
+            menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+            assert_eq!(menu.feeds.home.inbox_unread, 0);
+        }
+        let mut fresh = stale;
+        fresh.inbox.push(super::super::InboxItem {
+            instance_id: "new".into(),
+            category: "News".into(),
+            unread: true,
+            ..Default::default()
+        });
+        for count in [30, 31] {
+            fresh.inbox_counts.insert(0, count);
+            menu.feeds.home = fresh.clone();
+            menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+            assert_eq!(menu.feeds.home.inbox_unread, 1);
+            assert!(menu.feeds.home.inbox[1].unread);
+        }
+        menu.activate_inbox(Action::Open(1));
+        assert_eq!(menu.feeds.home.inbox_unread, 0);
+        menu.feeds.home = fresh.clone();
+        menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+        assert_eq!(menu.feeds.home.inbox_unread, 0);
+
+        // The service catches up, then reports new unread messages outside the loaded page.
+        fresh.inbox.iter_mut().for_each(|item| item.unread = false);
+        fresh.inbox_counts = [(0, 0), (1, 0)].into();
+        menu.feeds.home = fresh.clone();
+        menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+        fresh.inbox_counts.insert(0, 2);
+        menu.feeds.home = fresh;
+        menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+        assert_eq!(menu.feeds.home.inbox_unread, 2);
+    }
+
+    #[test]
+    fn repeated_mark_all_uses_service_totals_and_ignores_already_read_rows() {
+        let mut menu = MenuRuntime::new(true, 2, "Test".into());
+        let mut stale = partial_feed();
+        stale.inbox.push(super::super::InboxItem {
+            instance_id: "already-read".into(),
+            category: "News".into(),
+            ..Default::default()
+        });
+        menu.feeds.home = stale.clone();
+        menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+        menu.activate_inbox(Action::Open(0));
+        menu.activate_inbox(Action::MarkAllRead);
+        menu.activate_inbox(Action::MarkAllRead);
+        menu.feeds.home = stale;
+        menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+        assert_eq!(menu.feeds.home.inbox_unread, 0);
     }
 
     #[test]
