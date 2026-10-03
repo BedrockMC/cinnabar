@@ -274,25 +274,14 @@ fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
 #[test]
 fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
     use bevy::prelude::Msaa;
-    use bevy::render::{
-        render_resource::{ShaderStages, Specializer},
-        view::ViewTarget,
-    };
+    use bevy::render::{render_resource::Specializer, view::ViewTarget};
 
     let layout = actor_bind_group_layout();
-    assert_eq!(layout.entries.len(), 9);
-    assert_eq!(
-        layout.entries[0].visibility,
-        ShaderStages::VERTEX | ShaderStages::FRAGMENT
+    crate::shader_test_support::assert_binding_visibility(
+        &standalone_actor_shader_source(),
+        0,
+        &layout,
     );
-    assert_eq!(layout.entries[1].visibility, ShaderStages::VERTEX);
-    assert_eq!(layout.entries[2].visibility, ShaderStages::VERTEX);
-    assert_eq!(layout.entries[3].visibility, ShaderStages::VERTEX);
-    assert_eq!(layout.entries[4].visibility, ShaderStages::VERTEX);
-    assert_eq!(layout.entries[5].visibility, ShaderStages::VERTEX);
-    assert_eq!(layout.entries[6].visibility, ShaderStages::FRAGMENT);
-    assert_eq!(layout.entries[7].visibility, ShaderStages::FRAGMENT);
-    assert_eq!(layout.entries[8].visibility, ShaderStages::FRAGMENT);
 
     let mut descriptor = actor_pipeline_descriptor(layout.clone());
     ActorPipelineSpecializer
@@ -329,7 +318,6 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
     assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
-    assert!(ACTOR_SHADER_SOURCE.contains("(input.light & 0x80000000u) != 0u"));
     // The one-sided plane sentinel lies below the shader's discard threshold.
     assert!(ACTOR_SHADER_SOURCE.contains("input.back_uv.x < -1.0e8"));
     const { assert!(crate::actor::ONE_SIDED_BACK_UV[0] < -1.0e8) };

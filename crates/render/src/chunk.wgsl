@@ -3,8 +3,8 @@
 #import cinnabar::enhanced_caster::caster_clip
 #endif
 #import bevy_render::view::View
-#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, tint_to_gamma, tint_to_linear}
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
+#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
+#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade, tint_to_gamma, tint_to_linear}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
@@ -388,7 +388,8 @@ fn native_leaf_colour(
 
 // Ordinary cubes arrive through the retained sRGB atlas view. Undo its input
 // transfer before native terrain lighting: logs behind leaf cutouts must not
-// receive a brighter, linear-domain AO product. Carried/model routes stay separate.
+// receive a brighter, linear-domain AO product. Carried/entity routes stay separate;
+// bounded world models use the same native terrain domain in model.wgsl.
 fn native_cube_colour(
     texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
     ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,

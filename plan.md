@@ -1,5 +1,26 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-03 current checkpoint (in progress; not pushed): accumulated work is
+locally committed on dev at `81b52600`. Origin/dev `52196199` is merged in the
+worktree with conflicts resolved; that merge and follow-up fixes are not yet
+committed. The user accepts the rebuilt night snow-layer fix. Current TopSnow
+`06a1b810` routes through ordinary terrain `06a07800` into AO/flat
+`06a07d80`/`06a0b950`. The real model-fragment Metal regression reproduced
+white snow at 101 versus native 33 before the fix; actual ordinary entry points
+now pass day/night/fog/animation/AO witnesses, and a fresh canonical live frame
+retains dark purple snow and readable terrain. Enhanced is unchanged.
+Players and mobs now use native gamma material order, byte-truncated bilinear
+light-table sampling and vertex-stage posed-normal shading. The actual actor
+fragment GPU witness passes all 36 cases; the canonical client rebuilt and the
+user accepts the live actor correction. FancyOff, dimension shade signs and
+exact pinned native galleries remain separate incomplete gates. A new user
+frame shows pale snow-layer edge bands; their AO/sample-plane audit is open,
+so publication remains held despite the accepted actor and snow colour fixes.
+The export-test allocator abort has a narrow initialized-cache representation
+fix; its 13 library and nine unchanged export tests, plus ten serial reruns,
+pass. Origin/dev advanced to `d03d3dbf`; its additional test fixes must be
+integrated, and the final gate must run before direct-dev publication.
+
 2026-10-03 night/weather integration checkpoint (local, not pushed): ordinary
 ambient admission and separate terrain skyDarken are rebuilt and the app suite
 passes2296 tests,25 ignored. Fresh Metal frames show readable dark canopy/logs,

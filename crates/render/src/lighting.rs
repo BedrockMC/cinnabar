@@ -80,7 +80,7 @@ pub(crate) fn install(app: &mut App) {
         app,
         SHADER,
         "lighting.wgsl",
-        crate::shader_safety::from_wgsl
+        |source, path| crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
     );
     load_internal_asset!(app, MATERIAL_SHADER, "material.wgsl", |source, path| {
         crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)

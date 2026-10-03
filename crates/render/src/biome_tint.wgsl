@@ -1,4 +1,5 @@
 #define_import_path cinnabar::biome_tint
+#import cinnabar::lighting::{tint_to_gamma, tint_to_linear}
 
 // The CPU packs vanilla's 27-sample biome counts at each 3D lattice point.
 // BIOME_CONSTANTS
@@ -113,17 +114,6 @@ fn special_foliage_tint(tint: BiomeTintGpu, material_flags: u32) -> vec3<f32> {
         case 0x600u: { return unpack_linear_rgb10(tint.dry_foliage); }
         default: { return unpack_linear_rgb10(tint.foliage); }
     }
-}
-
-// Tint tables are linear; vanilla averages normalized palette RGB before lighting.
-fn tint_to_gamma(rgba: vec4<f32>) -> vec4<f32> {
-    let linear = rgba.rgb;
-    return vec4(select(12.92 * linear, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055, linear > vec3(0.0031308)), rgba.a);
-}
-
-fn tint_to_linear(rgba: vec4<f32>) -> vec4<f32> {
-    let gamma = rgba.rgb;
-    return vec4(select(gamma / 12.92, pow((gamma + 0.055) / 1.055, vec3(2.4)), gamma > vec3(0.04045)), rgba.a);
 }
 
 fn lattice_point_index(position: vec3<i32>) -> u32 {

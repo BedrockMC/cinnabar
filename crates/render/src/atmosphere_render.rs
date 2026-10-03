@@ -868,3 +868,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "atmosphere_pipeline_tests.rs"]
+mod pipeline_tests;

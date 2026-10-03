@@ -20,8 +20,9 @@ fn native_rotation(position: [i32; 3]) -> u32 {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags() {
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let native = assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR;
     let isotropic = assets::MATERIAL_FLAG_LEAF_ISOTROPIC;
     // The pinned spruce definition authors exponent .80. Encoding is shared

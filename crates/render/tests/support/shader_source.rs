@@ -49,6 +49,7 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
     let mut lines = source.lines();
     let biome = meshing::biome_lattice::shader_source(include_str!("../../src/biome_tint.wgsl"));
     let material = material_shader::source(include_str!("../../src/material.wgsl"));
+    let lighting = material_shader::source(include_str!("../../src/lighting.wgsl"));
     while let Some(line) = lines.next() {
         let directive = line.trim();
         if directive.starts_with("#define_import_path") {
@@ -70,7 +71,7 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
             } else if module.starts_with("cinnabar::material") {
                 ("material", material.as_str())
             } else if module.starts_with("cinnabar::lighting") {
-                ("lighting", include_str!("../../src/lighting.wgsl"))
+                ("lighting", lighting.as_str())
             } else if module.starts_with("cinnabar::biome_tint") {
                 ("biome", biome.as_str())
             } else if module.starts_with("cinnabar::enhanced_common") {
@@ -116,7 +117,7 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
         ),
         (
             "cinnabar::lighting",
-            include_str!("../../src/lighting.wgsl").to_owned(),
+            material_shader::source(include_str!("../../src/lighting.wgsl")),
         ),
         (
             "cinnabar::biome_tint",

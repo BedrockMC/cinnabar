@@ -121,8 +121,9 @@ fn texture(gpu: &Gpu, page: usize) -> wgpu::Texture {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb_materials() {
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     assert!(material_shader::chunk_atlas_views_fit(&gpu.device.limits()));
     let textures =
         std::array::from_fn::<_, { assets::MAX_TEXTURE_PAGES }, _>(|page| texture(&gpu, page));
@@ -269,8 +270,9 @@ fn leaf_unorm_views_filter_both_pages_layers_and_frame_mix_without_changing_srgb
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_leaf_point_mip_filter_preserves_alpha_without_changing_carried_mips() {
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     assert!(material_shader::chunk_atlas_views_fit(&gpu.device.limits()));
     let mut base = vec![0; 4 * 4 * 4];
     for y in 0..2 {

@@ -3,8 +3,8 @@
 #import cinnabar::enhanced_caster::caster_clip
 #endif
 #import bevy_render::view::View
-#import cinnabar::biome_tint::blended_biome_tint
-#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}
+#import cinnabar::biome_tint::{blended_biome_tint, blended_biome_tint_gamma}
+#import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear}
 #ifdef ENHANCED
 #import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, waved_position}
 #endif
@@ -47,6 +47,9 @@ struct VertexOutput {
 #ifdef ENHANCED
     @location(11) sky_light: f32,
     @location(15) ambient_occlusion: f32,
+#else
+    @location(11) native_lightmap: vec3<f32>,
+    @location(15) native_ao_face: f32,
 #endif
     @location(10) @interpolate(flat) world_origin: vec3<f32>,
     @location(12) @interpolate(flat) two_sided: u32,
@@ -75,6 +78,9 @@ fn invisible_vertex() -> VertexOutput {
     invisible.sky_light = 0.0;
     invisible.ambient_occlusion = 0.0;
     invisible.surface_class = 0u;
+#else
+    invisible.native_lightmap = vec3(0.0);
+    invisible.native_ao_face = 0.0;
 #endif
     invisible.two_sided = 0u;
     invisible.world_origin = vec3(0.0);
@@ -227,6 +233,9 @@ fn vertex(
 #ifdef ENHANCED
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
+#else
+    out.native_lightmap = light_colour(light_sample);
+    out.native_ao_face = light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
 #endif
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
@@ -273,22 +282,51 @@ fn tinted(sampled: vec4<f32>, flags: u32, record: u32, position: vec3<f32>, worl
 
 fn sample_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let layer = i32(texture_ref & 0x7ffu);
+    var sampled: vec4<f32>;
     if ((texture_ref >> 31u) == 0u) {
-        return textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
+        sampled = textureSampleGrad(block_textures_page_0, block_sampler, uv, layer, dx, dy);
+    } else {
+        sampled = textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
     }
-    return textureSampleGrad(block_textures_page_1, block_sampler, uv, layer, dx, dy);
+#ifdef ENHANCED
+    return sampled;
+#else
+    // Ordinary RenderChunk samples a UNORM atlas. Undo our retained sRGB
+    // view before animation-frame interpolation as well as terrain lighting.
+    return tint_to_gamma(sampled);
+#endif
 }
 
-fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
     let distance_to_camera = distance(world_position, view.world_position);
-    let fog = clamp(
+    return clamp(
         (distance_to_camera - atmosphere.fog_color_start.w)
             / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
         0.0,
         1.0,
     );
-    return mix(colour, atmosphere.fog_color_start.rgb, fog);
 }
+
+fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+    return mix(colour, atmosphere.fog_color_start.rgb, distance_fog_amount(world_position));
+}
+
+#ifndef ENHANCED
+// Current TopSnow tessellator 06a1b810 -> ordinary terrain 06a07800 ->
+// AO/flat 06a07d80/06a0b950. A bounded world model is not an entity material:
+// RenderChunk multiplies atlas/palette, vertex AO and lightmap in gamma RGB.
+// Encode only at our existing Bevy sRGB framebuffer boundary.
+fn ordinary_world_model_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
+    var tint_gamma = vec3(1.0);
+    let tint_kind = in.material_flags & 0x30u;
+    if (tint_kind != 0u) {
+        tint_gamma = blended_biome_tint_gamma(tint_kind, in.material_flags, in.biome_record, in.local_position, in.world_origin).rgb;
+    }
+    let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * in.native_lightmap;
+    let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
+    return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a));
+}
+#endif
 
 @fragment
 fn fragment(
@@ -304,8 +342,8 @@ fn fragment(
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
-    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
 #ifdef ENHANCED
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     let shaded = shade_surface(
         colour.rgb,
         in.normal,
@@ -318,11 +356,7 @@ fn fragment(
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
-    let lit = lit_colour(
-        colour.rgb,
-        in.lighting,
-    );
-    return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+    return ordinary_world_model_colour(in, sampled);
 #endif
 }
 
@@ -339,10 +373,10 @@ fn fragment_blend(
     if (in.frame_blend > 0.0) {
         sampled = mix(sampled, sample_ref(in.next_texture, in.uv, dx, dy), in.frame_blend);
     }
-    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
 #ifdef ENHANCED
+    let colour = tinted(sampled, in.material_flags, in.biome_record, in.local_position, in.world_origin);
     let shaded = shade_surface(
         colour.rgb,
         in.normal,
@@ -355,11 +389,7 @@ fn fragment_blend(
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
-    let lit = lit_colour(
-        colour.rgb,
-        in.lighting,
-    );
-    return vec4(apply_distance_fog(lit, in.world_position), colour.a);
+    return ordinary_world_model_colour(in, sampled);
 #endif
 }
 #ifdef ENHANCED_SHADOW

@@ -3,9 +3,11 @@
 //! This crate owns publication authority, pacing bounds and shared skin layout
 //! rules. It has no dependencies and must not acquire game state or GPU types.
 
+mod actor_lighting;
 mod publication;
 mod skin;
 
+pub use actor_lighting::{ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
 };
