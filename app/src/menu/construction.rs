@@ -82,7 +82,7 @@ impl MenuRuntime {
             render_mode_request: None,
             display_name,
             servers: loaded.servers,
-            saves: ServerWriter::new(config_path.clone()),
+            saves: ServerWriter::new(config_path.clone(), loaded.allow_writes),
             config_path,
             pending_connect: None,
             connecting: false,
