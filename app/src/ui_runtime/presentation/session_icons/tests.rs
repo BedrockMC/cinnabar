@@ -187,9 +187,9 @@ fn review_duplicate_icon_selection_precedes_height_sorting() {
     second.rgba8 = vec![9; 16 * 32 * 4].into();
     let icons = SessionIcons {
         icons: vec![first, second],
-        misses: HashMap::new(),
+        ..Default::default()
     };
-    let (_, refs) = pack(&icons, 7).unwrap();
+    let refs = pack(&icons, 7).unwrap().refs;
     let uv = refs["test:variant"][&0].uv;
     assert_eq!(uv[3] - uv[1], 16);
 }
@@ -204,9 +204,9 @@ fn review_oversized_icons_are_rejected_before_gutter_arithmetic() {
     };
     let icons = SessionIcons {
         icons: vec![invalid, sprite(0)],
-        misses: HashMap::new(),
+        ..Default::default()
     };
-    let (_, refs) = pack(&icons, 7).unwrap();
+    let refs = pack(&icons, 7).unwrap().refs;
     assert!(refs["test:variant"].contains_key(&0));
     assert!(!refs["test:variant"].contains_key(&1));
 }
