@@ -1,14 +1,42 @@
 //! Screen cancel mappings survive rendering only a form's content subtree.
 
 use super::*;
-use crate::ui_runtime::presentation::forms::pack_harness;
+use crate::ui_runtime::presentation::{
+    UiPresentationRuntime,
+    forms::{ServerUiPack, pack_harness, tests::mini_engine_presentation},
+};
+
+/// Supplies a synthetic screen-level cancel mapping above the rendered content subtree.
+/// The inherited screen and form buttons exercise the real JSON-UI presentation without assets.
+fn cancel_presentation() -> UiPresentationRuntime {
+    let mut presentation = mini_engine_presentation();
+    presentation.set_server_ui_pack(&ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/server_form.json".into(),
+            br#"{
+                "namespace": "server_form",
+                "cancel_screen": {
+                    "type": "screen",
+                    "button_mappings": [{
+                        "from_button_id": "button.menu_cancel",
+                        "to_button_id": "button.menu_exit",
+                        "mapping_type": "global"
+                    }]
+                },
+                "third_party_server_screen@server_form.cancel_screen": {
+                    "$screen_content": "server_form.main_screen_content"
+                }
+            }"#
+            .to_vec(),
+        )]],
+        ..Default::default()
+    });
+    presentation
+}
 
 #[test]
 fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
-    // The installed carrier is gitignored; clean checkouts and CI skip.
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
-        return;
-    };
+    let mut presentation = cancel_presentation();
     let mut runtime = pack_harness::action_form("Shop", &["Buy"]);
     presentation
         .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
@@ -25,10 +53,7 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
 
 #[test]
 fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() {
-    // The installed carrier is gitignored; clean checkouts and CI skip.
-    let Some(mut presentation) = pack_harness::engine_presentation() else {
-        return;
-    };
+    let mut presentation = cancel_presentation();
     let mut runtime = pack_harness::action_form("Shop", &["Buy"]);
     presentation
         .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())

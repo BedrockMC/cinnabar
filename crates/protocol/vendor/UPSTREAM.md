@@ -76,6 +76,10 @@ growth out of line. Collection storage still grows fallibly, with the same
 allocation limits and errors; generated codecs are unchanged.
 
 
+Jolyne's StartGame handoff also records whether a publisher update, level chunk or
+sub-chunk preceded PlayerSpawn (`terrain_before_spawn`): servers such as Dragonfly
+stream terrain only after the client's initialized notification.
+
 The generated protocol crate is lowered from protocolgen's reconciled 1.26.51
 manifest (protocol 2193), which pins Mojang's `v1.26.51` metadata release and
 Endstone's 1.26.51.1 dump and is checked against the gophertunnel oracle.

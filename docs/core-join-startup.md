@@ -14,6 +14,21 @@ spawn prerequisites arrive. It retains a pending runtime ID. The app validates a
 packs, waits for its terrain presentation gate, closes its loading screen, then queues one
 completion command. That command sends loading-end followed by initialized once.
 
+A server may send no terrain until it receives initialized: the pinned Dragonfly blocks in
+`conn.StartGameContext` (`server/server.go` `finaliseConn`) until `SetLocalPlayerAsInitialised`
+and only then adds the player and streams chunks, answering the radius request with
+`ChunkRadiusUpdated` and `PlayerSpawn` alone. A probe sending Cinnabar's order to the local
+server received 0 chunks before initialized and 637 in the 8 s after. Jolyne therefore records
+whether a publisher update, level chunk or sub-chunk preceded spawn. When none did, the startup
+view is empty until the server publishes one, so the gate releases once received work drains.
+**Provisional:** vanilla must also complete loading without terrain here (it joins Dragonfly),
+but the reconstruction does not show which path does it. In
+`R:c/ClientLoadingProgressTickingSystem.cpp:649-716`, loading state 4 completes (0x10) only once
+loaded chunks reach the needed count or, after a deadline, every `_mChunksNeededForLoadOffsets`
+chunk is loaded, and a position check passes; state 0x200 completes directly unless the view's
+`bool` argument is set (`:809-810`); `R:l/LocalPlayer.cpp:11646-11685` (`stopLoading`) sets 0x10 directly,
+through callers not resolved here.
+
 `offline_core_preserves_spawn_order_and_startup_transfer` starts the production Go relay
 against a local scripted upstream and runs the actual Rust socket login. The upstream
 asserts every relevant outbound packet in order, with a round-trip barrier proving that

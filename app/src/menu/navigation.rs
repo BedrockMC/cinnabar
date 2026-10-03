@@ -54,7 +54,6 @@ impl MenuRuntime {
         self.focused = 0;
         self.hovered = None;
         self.field = None;
-        self.text_selected = false;
         self.dialog = None;
         self.message = None;
         self.visible = true;

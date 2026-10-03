@@ -5,7 +5,7 @@ use super::*;
 
 impl MenuAction {
     /// The text field a press on this control focuses.
-    pub(super) fn text_field(self) -> Option<MenuField> {
+    pub(crate) fn text_field(self) -> Option<MenuField> {
         match self {
             Self::AddName => Some(MenuField::Name),
             Self::AddAddress => Some(MenuField::Address),
@@ -27,10 +27,7 @@ impl MenuRuntime {
         self.focused = (self.focused as i32 + direction).rem_euclid(length) as usize;
         match actions[self.focused].text_field() {
             Some(field) => self.focus_field(field),
-            None => {
-                self.field = None;
-                self.text_selected = false;
-            }
+            None => self.field = None,
         }
     }
 

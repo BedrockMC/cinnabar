@@ -192,6 +192,15 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     {
         return Some(capacity);
     }
+    // An item vanilla does not know that the server defines no item of its own is a server
+    // block's BlockItem (Dragonfly sends it without components or an item version): the
+    // block registers it and it keeps Item's default stack size.
+    if vanilla.is_none()
+        && !entry.component_based
+        && matches!(entry.version, ItemRegistryVersion::None)
+    {
+        return Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE);
+    }
     vanilla.filter(|_| !entry.component_based && entry.canonical_empty_component_data)
 }
 
@@ -234,5 +243,18 @@ mod tests {
             entry_capacity(&entry("minecraft:stick", false, None)),
             Some(64)
         );
+    }
+
+    // A server block's own item is the BlockItem its block registers: not component based, no
+    // item version, and it keeps Item's default stack size whatever data rides along.
+    #[test]
+    fn server_block_items_stack_to_the_item_default() {
+        let block_item = |declared| ItemRegistryEntry {
+            version: ItemRegistryVersion::None,
+            ..entry("benergistics:controller", false, declared)
+        };
+        let default = Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE);
+        assert_eq!(entry_capacity(&block_item(Some(16))), default);
+        assert_eq!(entry_capacity(&block_item(None)), default);
     }
 }

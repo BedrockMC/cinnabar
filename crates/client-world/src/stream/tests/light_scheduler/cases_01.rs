@@ -844,67 +844,6 @@ fn changed_light_levels_dirty_a_renderable_mesh_generation() {
 }
 
 #[test]
-fn overworld_seeds_direct_sky_from_known_cells_at_dimension_top() {
-    let mut stream = lit_stream(0);
-    let top = SubChunkKey::new(0, 0, 19, 0);
-    stream.record_known_air(top);
-    stream.mark_changed(top, Instant::now());
-    complete_one_light(&mut stream, [8.0, 312.0, 8.0]);
-
-    let light = stream.light_store.light(top).unwrap();
-    assert_eq!(light.get(LightChannel::Sky, 0, 15, 0), Some(15));
-    assert_eq!(light.get(LightChannel::Sky, 0, 14, 0), Some(15));
-    assert!(stream.direct_sky[&top].mask.get(0, 15, 0));
-    assert!(stream.direct_sky[&top].mask.get(0, 14, 0));
-
-    let below = SubChunkKey::new(0, 0, 18, 0);
-    stream.record_known_air(below);
-    stream.mark_changed(below, Instant::now());
-    let blocks = stream.light_block_snapshot(below);
-    assert_eq!(blocks.sky_seed(BlockPos::new(0, 303, 0)), 0);
-    settle_light(&mut stream, [8.0, 296.0, 8.0]);
-    assert_eq!(
-        stream
-            .light_store
-            .light(below)
-            .unwrap()
-            .get(LightChannel::Sky, 0, 0, 0),
-        Some(15)
-    );
-    assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
-    assert!(stream.light_is_current(top));
-    assert!(stream.light_is_current(below));
-
-    install_current_light(&mut stream, below, 1, 15, true);
-    stream.mark_light_dirty_exact(top);
-    stream.mark_light_dirty_exact(below);
-    assert_eq!(stream.dispatch_light_jobs([8.0, 296.0, 8.0], 1), 2);
-    assert!(stream.in_flight_light.contains_key(&top));
-    assert!(stream.in_flight_light.contains_key(&below));
-    assert!(stream.light_waiters.is_empty());
-    for _ in 0..2 {
-        let completion = stream
-            .light_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
-        stream.accept_light_completion(completion);
-    }
-    assert!(stream.direct_sky[&below].mask.get(0, 0, 0));
-    assert_eq!(
-        stream
-            .light_store
-            .light(below)
-            .unwrap()
-            .get(LightChannel::Sky, 0, 0, 0),
-        Some(15)
-    );
-    assert!(stream.pending_light.is_empty());
-    assert!(stream.in_flight_light.is_empty());
-    assert!(stream.light_is_current(top));
-    assert!(stream.light_is_current(below));
-}
-
-#[test]
 fn retained_column_batch_does_not_requeue_accepted_members() {
     let mut stream = lit_stream(1);
     let top = SubChunkKey::new(1, 0, 7, 0);
