@@ -535,6 +535,49 @@ fn release_dense_mixed_boundary_dominance_benchmark() {
     assert_settled(&stream, &keys);
     let addition_hash = exact_light_hash(&stream, &keys);
     assert_eq!(addition_hash, 0x8406_a83a_02b2_6fbd);
+    let mesh_deadline = Instant::now() + Duration::from_secs(10);
+    while !stream.pending_mesh.is_empty()
+        || !stream.in_flight.is_empty()
+        || !stream.staged_mesh_completions.is_empty()
+    {
+        stream.poll([8.0, 80.0, 8.0], 64);
+        backlog::acknowledge_mesh_changes(&mut stream);
+        assert!(
+            Instant::now() < mesh_deadline,
+            "stationary meshes did not drain"
+        );
+        std::thread::yield_now();
+    }
+    backlog::acknowledge_mesh_changes(&mut stream);
+    let before_idle = stream.stats();
+    let mut idle_polls = Vec::with_capacity(2_000);
+    for _ in 0..idle_polls.capacity() {
+        let started = Instant::now();
+        let report = stream.poll([8.0, 80.0, 8.0], 64);
+        idle_polls.push(started.elapsed());
+        assert_eq!(report.light_jobs_dispatched, 0);
+        assert_eq!(report.mesh_jobs_dispatched, 0);
+        assert!(stream.take_mesh_changes().is_empty());
+    }
+    let after_idle = stream.stats();
+    assert_eq!(
+        after_idle.accepted_light_jobs,
+        before_idle.accepted_light_jobs
+    );
+    assert_eq!(
+        after_idle.light_mesh_invalidations,
+        before_idle.light_mesh_invalidations
+    );
+    assert_settled(&stream, &keys);
+    assert_eq!(exact_light_hash(&stream, &keys), addition_hash);
+    idle_polls.sort_unstable();
+    eprintln!(
+        "stationary mixed lighting: frames={} poll_p50_ns={} poll_p99_ns={} poll_max_ns={} accepted_delta=0 invalidations_delta=0 publications=0",
+        idle_polls.len(),
+        idle_polls[idle_polls.len() / 2].as_nanos(),
+        idle_polls[idle_polls.len() * 99 / 100].as_nanos(),
+        idle_polls.last().unwrap().as_nanos(),
+    );
     eprintln!(
         "dense mixed boundary benchmark: initial={initial:?} removal={removal:?} \
          addition={addition:?} hashes={initial_hash:016x}/{removal_hash:016x}/{addition_hash:016x}"
