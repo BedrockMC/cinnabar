@@ -79,7 +79,7 @@ fn new_crates_accept_the_domain_and_presentation_dependency_direction() {
     set_dependencies(
         root,
         "client-ui",
-        "[dependencies]\nlauncher={path='../launcher'}\nplayer-state={path='../player-state'}\nrender={path='../render'}",
+        "[dependencies]\nlauncher={path='../launcher'}\nplayer-state={path='../player-state'}\nrender={path='../render'}\nclient-world={package='chunk-pipeline',path='../chunk-pipeline'}\n[dev-dependencies]\npack-compiler={path='../pack-compiler'}",
     );
     write(
         &root.join("app/Cargo.toml"),
@@ -227,7 +227,7 @@ fn explicit_dev_dependencies_can_enable_shared_fixture_features() {
         [dev-dependencies]
         client-ui={path='../crates/client-ui',features=['test-support']}
         render={path='../crates/render',features=['publication-test-support']}
-        client-world={path='../crates/client-world',features=['publication-test-support']}
+        client-world={package='chunk-pipeline',path='../crates/chunk-pipeline',features=['publication-test-support']}
     "#,
     );
     assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
@@ -237,7 +237,7 @@ fn explicit_dev_dependencies_can_enable_shared_fixture_features() {
 fn fixture_features_cannot_be_enabled_by_default_or_default_aliases() {
     for (name, feature) in [
         ("client-ui", "test-support"),
-        ("client-world", "publication-test-support"),
+        ("chunk-pipeline", "publication-test-support"),
         ("render", "publication-test-support"),
     ] {
         for enabled in [feature, "fixtures"] {
@@ -319,5 +319,53 @@ fn dependency_feature_forwarding_cannot_expose_test_support() {
             ),
         );
         assert!(diagnostics(root).iter().any(|line| line == "app: production dependency `client-ui` enables test-support feature `test-support`"));
+    }
+}
+
+#[test]
+fn stream_facade_alias_cannot_enable_publication_fixtures_in_production() {
+    for kind in ["dependencies", "build-dependencies"] {
+        for prefix in ["", "target.'cfg(windows)'."] {
+            let temp = fixture();
+            write(
+                &temp.path().join("app/Cargo.toml"),
+                &format!(
+                    "[package]\nname='bedrock-client'\nversion='0.1.0'\n[{prefix}{kind}]\nclient-world={{package='chunk-pipeline',path='../crates/chunk-pipeline',features=['publication-test-support']}}\n"
+                ),
+            );
+            assert!(diagnostics(temp.path()).iter().any(|line| line
+                == "app: production dependency `chunk-pipeline` enables test-support feature `publication-test-support`"));
+        }
+    }
+}
+
+#[test]
+fn reusable_compilation_stays_out_of_ui_production_and_launcher_dependencies() {
+    for kind in ["dependencies", "build-dependencies"] {
+        let temp = fixture();
+        set_dependencies(
+            temp.path(),
+            "client-ui",
+            &format!("[{kind}]\ncompiler={{package='pack-compiler',path='../pack-compiler'}}"),
+        );
+        assert!(
+            diagnostics(temp.path())
+                .iter()
+                .any(|line| line == "client-ui: forbidden dependency `pack-compiler`")
+        );
+    }
+    for kind in ["dependencies", "build-dependencies", "dev-dependencies"] {
+        let temp = fixture();
+        set_dependencies(
+            temp.path(),
+            "launcher",
+            &format!("[{kind}]\ncompiler={{package='pack-compiler',path='../pack-compiler'}}"),
+        );
+        assert!(
+            diagnostics(temp.path())
+                .iter()
+                .any(|line| line
+                    == "launcher: forbidden dependency path `launcher -> pack-compiler`")
+        );
     }
 }

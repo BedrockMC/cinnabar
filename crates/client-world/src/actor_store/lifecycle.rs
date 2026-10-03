@@ -1,7 +1,6 @@
 use super::*;
 use crate::item::EquipmentOutcome;
 
-#[path = "lifecycle/interpolation.rs"]
 mod interpolation;
 
 impl ActorStore {
