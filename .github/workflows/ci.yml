@@ -106,7 +106,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
       - name: Test Rust workspace on Windows
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
       - name: Lint Rust workspace on Windows
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test and vet Go core on Windows
