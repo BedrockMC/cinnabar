@@ -9,17 +9,7 @@ impl WorldStream {
         if self.fatal_light_failure {
             return None;
         }
-        let popped = self.ordered.next_sequence().saturating_sub(1);
-        let popped = self
-            .pending_sub_chunk_commit
-            .as_ref()
-            .map_or(popped, |pending| {
-                popped.min(pending.sequence.saturating_sub(1))
-            });
-        Some(
-            self.blocking_block_updates
-                .map_or(popped, |sequence| popped.min(sequence.saturating_sub(1))),
-        )
+        Some(self.committed_sequence())
     }
 
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;

@@ -4,10 +4,11 @@ use std::sync::atomic::AtomicU64;
 
 use super::RuntimeAssets;
 use crate::{
-    Animation, AssetError, BlockVisual, LightProperties, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
-    MAX_TILE_SIZE, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TextureArray, TexturePage, TextureRef, VisualKind, compiled::material_flags_are_valid,
-    compiled::visual_semantics_are_valid, model::model_quad_flags_are_valid,
+    Animation, AssetError, BlockFlags, BlockVisual, LightProperties, MAX_MATERIALS,
+    MAX_TEXTURE_LAYERS, MAX_TILE_SIZE, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TextureArray, TexturePage, TextureRef, VisualKind,
+    compiled::material_flags_are_valid, compiled::visual_semantics_are_valid,
+    model::model_quad_flags_are_valid,
 };
 
 /// Repoints a base material at an overlay texture, keeping its flags (tint, alpha).
@@ -209,6 +210,18 @@ impl RuntimeAssets {
             {
                 return Err(invalid("overlay visual semantics are invalid"));
             }
+            if visual.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                && !visual.flags.contains(BlockFlags::CUBE_GEOMETRY)
+                && (visual.kind != VisualKind::Model
+                    || overlay
+                        .model_templates
+                        .get(visual.model_template as usize)
+                        .is_none_or(|template| template.quad_count == 0))
+            {
+                return Err(invalid(
+                    "overlay full-face occlusion requires a drawable model",
+                ));
+            }
             let mut faces = visual.faces;
             for face in &mut faces {
                 *face = local(*face, overlay.materials.len(), material_base, "face")?;
@@ -272,7 +285,7 @@ fn validate_texture(texture: &TextureArray) -> Result<(), AssetError> {
         let expected = (size as usize)
             .checked_mul(size as usize * 4)
             .and_then(|bytes| bytes.checked_mul(texture.layers as usize));
-        if mip.size != size || Some(mip.rgba8.len()) != expected {
+        if size == 0 || mip.size != size || Some(mip.rgba8.len()) != expected {
             return Err(invalid(format!("overlay texture mip {level} is malformed")));
         }
         size /= 2;
@@ -312,6 +325,40 @@ mod tests {
             layers: 1,
             mips: mips.into(),
         }
+    }
+
+    #[test]
+    fn review_zero_sized_extra_mips_are_rejected() {
+        let mut texture = page(16);
+        let mut mips = texture.mips.to_vec();
+        mips.push(TextureMip {
+            size: 0,
+            rgba8: Box::new([]),
+        });
+        texture.mips = mips.into();
+        assert!(
+            RuntimeAssets::diagnostic()
+                .with_block_overlay(1, &cube_overlay(texture))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn review_full_face_occlusion_requires_drawable_geometry() {
+        let mut overlay = cube_overlay(page(16));
+        overlay.visuals[0].kind = VisualKind::Model;
+        overlay.visuals[0].flags = BlockFlags::OCCLUDES_FULL_FACE;
+        overlay.visuals[0].model_template = 0;
+        overlay.model_templates = vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags: 0,
+        }];
+        assert!(
+            RuntimeAssets::diagnostic()
+                .with_block_overlay(1, &overlay)
+                .is_err()
+        );
     }
 
     fn cube_overlay(texture: TextureArray) -> BlockOverlay {

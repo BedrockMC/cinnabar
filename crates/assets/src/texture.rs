@@ -168,9 +168,16 @@ fn scaled_alpha(alpha: u8, scale: u32) -> u8 {
     ((u32::from(alpha) * scale + rounding) >> ALPHA_SCALE_FRACTION_BITS).min(255) as u8
 }
 
+#[cfg(test)]
+thread_local! { static COVERAGE_PIXEL_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
 fn scaled_survivors(rgba: &[u8], scale: u32) -> usize {
     rgba.chunks_exact(4)
-        .filter(|pixel| scaled_alpha(pixel[3], scale) >= ALPHA_TEST_THRESHOLD)
+        .filter(|pixel| {
+            #[cfg(test)]
+            COVERAGE_PIXEL_VISITS.with(|visits| visits.set(visits.get() + 1));
+            scaled_alpha(pixel[3], scale) >= ALPHA_TEST_THRESHOLD
+        })
         .count()
 }
 
@@ -206,12 +213,25 @@ fn smallest_scale_for_survivors(rgba: &[u8], survivors: usize, upper_bound: u32)
     const SURVIVOR_NUMERATOR: u32 = ((ALPHA_TEST_THRESHOLD as u32) << ALPHA_SCALE_FRACTION_BITS)
         - (1 << (ALPHA_SCALE_FRACTION_BITS - 1));
     let mut smallest = if survivors == 0 { 0 } else { upper_bound };
-    for alpha in rgba.chunks_exact(4).map(|pixel| pixel[3]) {
-        if alpha == 0 {
+    let mut histogram = [0usize; 256];
+    for pixel in rgba.chunks_exact(4) {
+        histogram[usize::from(pixel[3])] += 1;
+    }
+    let mut suffix = [0usize; 257];
+    for alpha in (0..histogram.len()).rev() {
+        suffix[alpha] = suffix[alpha + 1] + histogram[alpha];
+    }
+    for alpha in 1..=u8::MAX {
+        if histogram[usize::from(alpha)] == 0 {
             continue;
         }
         let threshold = SURVIVOR_NUMERATOR.div_ceil(u32::from(alpha));
-        if threshold <= upper_bound && scaled_survivors(rgba, threshold) == survivors {
+        if threshold > upper_bound {
+            continue;
+        }
+        let cutoff = SURVIVOR_NUMERATOR.div_ceil(threshold) as usize;
+        let count = suffix.get(cutoff).copied().unwrap_or(0);
+        if count == survivors {
             smallest = smallest.min(threshold);
         }
     }
@@ -313,6 +333,16 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_alpha_scale_selection_does_not_rescan_for_every_pixel() {
+        let rgba = [0, 0, 0, 128].repeat(4096);
+        super::COVERAGE_PIXEL_VISITS.with(|visits| visits.set(0));
+        let scale =
+            super::smallest_scale_for_survivors(&rgba, 4096, 1 << super::ALPHA_SCALE_FRACTION_BITS);
+        assert_eq!(super::scaled_alpha(128, scale), 128);
+        assert!(super::COVERAGE_PIXEL_VISITS.with(|visits| visits.get()) <= 4096 * 256);
+    }
+
     use super::{
         ALPHA_TEST_THRESHOLD, build_texture_mip_chain, downsample_linear_premultiplied,
         downsample_linear_unassociated,

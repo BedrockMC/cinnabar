@@ -1,9 +1,23 @@
 use super::*;
 
 impl WorldStream {
+    /// Last sequence whose complete ordered mutation has been applied.
     #[must_use]
     pub const fn committed_sequence(&self) -> u64 {
-        self.ordered.next_sequence().saturating_sub(1)
+        let mut committed = self.ordered.next_sequence().saturating_sub(1);
+        if let Some(pending) = &self.pending_sub_chunk_commit {
+            let before = pending.sequence.saturating_sub(1);
+            if before < committed {
+                committed = before;
+            }
+        }
+        if let Some(sequence) = self.blocking_block_updates {
+            let before = sequence.saturating_sub(1);
+            if before < committed {
+                committed = before;
+            }
+        }
+        committed
     }
 
     pub fn new(bootstrap: WorldBootstrap) -> Self {

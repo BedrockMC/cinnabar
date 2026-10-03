@@ -373,13 +373,16 @@ pub(super) fn drive_actor_audio(
             .actor(item.runtime_id)
             .is_some_and(|actor| actor.status.pickup.is_some());
         if collected && popped.insert(item.runtime_id) {
-            let request = engine
-                .bank()
-                .and_then(|bank| bank.tables().individual("pop").cloned())
-                .map_or_else(
-                    || SoundRequest::new("random.pop"),
-                    |route| SoundRequest::new(route.sound).with_ranges(route.volume, route.pitch),
-                );
+            let lookup = engine.bank().map_or(assets::RouteLookup::Absent, |bank| {
+                bank.tables().individual_lookup("pop")
+            });
+            let request = match lookup {
+                assets::RouteLookup::Route(route) => {
+                    SoundRequest::new(route.sound).with_ranges(route.volume, route.pitch)
+                }
+                assets::RouteLookup::Absent => SoundRequest::new("random.pop"),
+                assets::RouteLookup::Silent => continue,
+            };
             engine.enqueue(request.at(item.position));
         }
     }

@@ -60,7 +60,7 @@ fn the_sent_compound_keeps_both_faces_and_identity() {
     let mut edit = sign("old");
     edit.end();
     edit.insert('!', |_| true);
-    let bytes = edit.into_encoded_nbt();
+    let bytes = edit.into_encoded_nbt().unwrap();
     let (nbt, used) = world::BlockEntityNbt::decode_prefix(&bytes).unwrap();
     assert_eq!(used, bytes.len());
     let root = nbt.parse().unwrap();

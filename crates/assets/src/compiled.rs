@@ -26,6 +26,19 @@ impl BlockFace {
         Self::South,
     ];
 
+    /// Encodes this face for the model carrier's face flag field.
+    #[must_use]
+    pub const fn model_quad_face_id(self) -> u32 {
+        match self {
+            Self::Down => 1,
+            Self::Up => 2,
+            Self::West => 3,
+            Self::East => 4,
+            Self::North => 5,
+            Self::South => 6,
+        }
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub const fn is_horizontal(self) -> bool {

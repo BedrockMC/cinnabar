@@ -9,7 +9,7 @@ use protocol::{
 
 use super::{ActorApplyResult, ActorStore, NAMETAG_METADATA_KEY};
 
-fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
+pub(super) fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
     ActorEvent::Spawn(ActorSpawnEvent {
         dimension: 0,
         unique_id,

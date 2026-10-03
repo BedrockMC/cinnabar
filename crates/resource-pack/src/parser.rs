@@ -126,13 +126,13 @@ pub(crate) fn validate_archive_parts(
     pack_id: Uuid,
     version: &str,
     sub_pack_name: &str,
-    archive_bytes: Vec<u8>,
+    mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
     }
-    let expected_entries = preflight_eocd(&archive_bytes)?;
+    let expected_entries = prepare_zip_bytes(&mut archive_bytes)?;
     let bytes: Arc<[u8]> = archive_bytes.into();
     let mut zip = ZipArchive::new(Cursor::new(Arc::clone(&bytes)))
         .map_err(|_| AdmissionError::MalformedZip)?;
@@ -181,7 +181,7 @@ pub(crate) fn validate_archive_parts(
         Some(pack_key) => attach_file_keys(&zip, &mut rooted, &pack_key)?,
         None => Box::default(),
     };
-    let manifest_path = ["manifest.json", "pack_manifest.json"]
+    let manifest_path = MANIFEST_NAMES
         .into_iter()
         .find(|path| rooted.contains_key(*path))
         .ok_or(AdmissionError::MissingManifest)?;
@@ -228,14 +228,17 @@ pub(crate) fn validate_archive_parts(
 /// Returns the directory prefix holding the manifest when an archive wraps the
 /// pack in one top-level folder.
 fn pack_root(physical: &HashMap<Box<str>, EntryIndex>) -> String {
-    if physical.contains_key("manifest.json") || physical.contains_key("pack_manifest.json") {
+    if MANIFEST_NAMES
+        .iter()
+        .any(|name| physical.contains_key(*name))
+    {
         return String::new();
     }
     let mut roots = physical
         .keys()
         .filter_map(|path| {
             let (folder, rest) = path.split_once('/')?;
-            (rest == "manifest.json").then(|| format!("{folder}/"))
+            MANIFEST_NAMES.contains(&rest).then(|| format!("{folder}/"))
         })
         .collect::<Vec<_>>();
     roots.sort_unstable();
@@ -287,7 +290,11 @@ fn logical_files(
         let Some(logical) = selected_subpack_logical_path(path, sub_pack_name) else {
             continue;
         };
-        if logical.eq_ignore_ascii_case("manifest.json") || logical.is_empty() {
+        if MANIFEST_NAMES
+            .iter()
+            .any(|name| logical.eq_ignore_ascii_case(name))
+            || logical.is_empty()
+        {
             return Err(AdmissionError::InvalidSubpack);
         }
         let logical: Box<str> = logical.into();
@@ -313,16 +320,44 @@ fn selected_subpack_logical_path<'a>(path: &'a str, selected: &str) -> Option<&'
     (root.eq_ignore_ascii_case("subpacks") && name == selected).then_some(logical)
 }
 
-pub(crate) fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
+pub(crate) const MANIFEST_NAMES: [&str; 2] = ["manifest.json", "pack_manifest.json"];
+
+/// Checks fixture footer bounds without changing its comment bytes.
+#[cfg(test)]
+fn preflight_eocd(bytes: &[u8]) -> Result<usize, AdmissionError> {
+    find_eocd(bytes).map(|(_, entries)| entries)
+}
+
+/// Removes only the validated ZIP comment so downstream footer searches cannot select its bytes.
+pub(crate) fn prepare_zip_bytes(bytes: &mut Vec<u8>) -> Result<usize, AdmissionError> {
+    let (footer, entries) = find_eocd(bytes)?;
+    bytes[footer + 20..footer + 22].fill(0);
+    bytes.truncate(footer + EOCD_MIN_BYTES);
+    Ok(entries)
+}
+
+/// Finds the last structurally valid footer rather than an arbitrary signature in its comment.
+fn find_eocd(bytes: &[u8]) -> Result<(usize, usize), AdmissionError> {
     if bytes.len() < EOCD_MIN_BYTES {
         return Err(AdmissionError::InvalidZipFooter);
     }
     let start = bytes.len().saturating_sub(EOCD_MAX_SEARCH_BYTES);
     let signature = b"PK\x05\x06";
-    let eocd = (start..=bytes.len() - EOCD_MIN_BYTES)
+    let mut failure = AdmissionError::InvalidZipFooter;
+    for eocd in (start..=bytes.len() - EOCD_MIN_BYTES)
         .rev()
-        .find(|offset| bytes[*offset..].starts_with(signature))
-        .ok_or(AdmissionError::InvalidZipFooter)?;
+        .filter(|offset| bytes[*offset..].starts_with(signature))
+    {
+        match validate_eocd_at(bytes, eocd) {
+            Ok(entries) => return Ok((eocd, entries)),
+            Err(error) => failure = error,
+        }
+    }
+    Err(failure)
+}
+
+/// Validates one footer candidate, including its central directory and exact comment extent.
+fn validate_eocd_at(bytes: &[u8], eocd: usize) -> Result<usize, AdmissionError> {
     let tail = &bytes[eocd..];
     let disk = le_u16(tail, 4)?;
     let central_disk = le_u16(tail, 6)?;
