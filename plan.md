@@ -4322,3 +4322,19 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+
+### Lifeboat offline terrain investigation (incomplete live parity acceptance)
+
+The supplied scene publishes geometry, but almost every diagnostic quad resolves
+to one mushroom-stem ID. The installed older world carrier reproduces that ID's
+diagnostic support; the current pinned carrier resolves it as an exact cube and
+rejects the older carrier schema at startup. This narrows the cause to carrier/palette
+identity, but the session's StartGame and chunk bytes were not captured. All
+eleven cached Lifeboat packs are encrypted, and their cache intentionally stores
+no decryption keys, so their decoded catalogs cannot be replayed from that cache.
+
+Session ID-mode/custom-count, bounded palette/terrain failures and sampled
+lighting diagnostics now distinguish the remaining causes on the owner's next
+session. Diagnostic attribution logging is throttled without delaying metrics.
+See `docs/evidence/lifeboat-offline.md`. No public server connection was made;
+terrain, lighting and visual parity gates remain open.

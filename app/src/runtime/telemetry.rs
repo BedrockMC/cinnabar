@@ -1,3 +1,7 @@
+mod attribution;
+use attribution::DiagnosticAttributionLogState;
+pub(crate) use attribution::refresh_diagnostic_attribution;
+
 use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
 use std::{
     collections::VecDeque,
@@ -42,7 +46,7 @@ use crate::{
     camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
     local_player::LocalPlayerFrameCarrier,
     metrics::{
-        DiagnosticQuadTracker, GpuPassMeasurement, MetricsCollector, ModelWorkloadMetricsSnapshot,
+        GpuPassMeasurement, ModelWorkloadMetricsSnapshot,
         PipelineMetricsSnapshot, TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
     },
     movement::{
@@ -133,24 +137,9 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) visibility_elapsed: Duration,
     pub(crate) runtime_metadata_emitted: bool,
     pub(crate) diagnostic_attribution_revision: u64,
+    diagnostic_attribution_log: DiagnosticAttributionLogState,
     pub(crate) last_biome_blend_identity: Option<CommittedBiomeBlendIdentity>,
     pub(crate) last_phase2_snapshot: Option<CombinedPhase2Snapshot>,
-}
-
-pub(crate) fn refresh_diagnostic_attribution(
-    last_revision: &mut u64,
-    tracker: &DiagnosticQuadTracker,
-    metrics: &mut MetricsCollector,
-) -> Option<String> {
-    let revision = tracker.revision();
-    if *last_revision == revision {
-        return None;
-    }
-    let snapshot = tracker.snapshot();
-    let marker = format!("DIAGNOSTIC_GEOMETRY {}", snapshot.marker_fields());
-    metrics.record_diagnostic_attribution(snapshot);
-    *last_revision = revision;
-    Some(marker)
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -500,11 +489,12 @@ pub(crate) fn record_metrics_and_title(
         client_world.missing_asset_count(),
         diagnostic_quads.0.total(),
     );
-    if let Some(marker) = refresh_diagnostic_attribution(
+    let fresh_marker = refresh_diagnostic_attribution(
         &mut sampling.diagnostic_attribution_revision,
         &diagnostic_quads.0,
         &mut metrics.0,
-    ) {
+    );
+    if let Some(marker) = sampling.diagnostic_attribution_log.take(now, fresh_marker) {
         info!("{marker}");
     }
     let visibility_snapshot = visibility_diagnostics.snapshot();

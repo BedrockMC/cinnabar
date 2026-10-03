@@ -334,6 +334,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 poll_model_witness_request,
                 update_camera_medium,
                 update_atmosphere_frame,
+                crate::environment::log_world_lighting,
                 update_precipitation_scene,
                 update_lightning,
                 refresh_cave_visibility,
