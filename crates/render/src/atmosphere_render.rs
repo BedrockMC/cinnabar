@@ -731,9 +731,16 @@ mod tests {
         let mut app = app_with_noop_render_sub_app();
         app.insert_resource(RuntimeStageProfiler::for_gameplay(false, None));
         app.add_plugins(ChunkRenderPlugin::new(1));
-        let profiler = app.sub_app(RenderApp).world().resource::<RuntimeStageProfiler>();
+        let profiler = app
+            .sub_app(RenderApp)
+            .world()
+            .resource::<RuntimeStageProfiler>();
         assert!(!profiler.enabled());
-        assert!(profiler.take_snapshot_if_due(std::time::Duration::ZERO).is_none());
+        assert!(
+            profiler
+                .take_snapshot_if_due(std::time::Duration::ZERO)
+                .is_none()
+        );
     }
 
     #[test]
