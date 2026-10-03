@@ -435,6 +435,73 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
     );
 }
 
+// A key held from gameplay auto-repeats; repeats must never press form buttons (pages skipped).
+#[test]
+fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
+    use crate::ui_runtime::presentation::forms::pack_harness;
+    use bevy::input::mouse::MouseButtonInput;
+    let runtime = pack_harness::action_form("Menu", &["A", "B", "C"]);
+    // Vanilla's form screen carries the real key mappings; skipped without the installed pack.
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let (physical, dpi) = ([2560, 1440], ui::DpiScale::new(2.0).unwrap());
+    presentation.build(&runtime, 0, physical, dpi).unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.collection_index == Some(1))
+        .unwrap();
+    let centre = [
+        frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+    ];
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_server_form_input);
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window.resolution.set_scale_factor_override(Some(2.0));
+    window
+        .resolution
+        .set_physical_resolution(physical[0], physical[1]);
+    window.set_cursor_position(Some(Vec2::new(centre[0], centre[1])));
+    let entity = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    // Space held for a jump keeps auto-repeating after the form opens.
+    for _ in 0..4 {
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Space,
+            logical_key: Key::Space,
+            state: ButtonState::Pressed,
+            text: Some(" ".into()),
+            repeat: true,
+            window: entity,
+        });
+        app.update();
+    }
+    let mut response = None;
+    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
+        response = Some(packet);
+        Ok(())
+    })
+    .unwrap();
+    assert!(response.is_none(), "an auto-repeated key answered the form");
+}
+
 // With no form open, a left click stays gameplay's: the form input system never swallows it.
 #[test]
 fn a_click_without_a_form_reaches_gameplay() {

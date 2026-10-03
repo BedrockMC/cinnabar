@@ -122,9 +122,14 @@ pub(crate) fn drive_server_form_input(
                     (
                         input.key_code,
                         input.text.as_ref().map(|text| text.to_string()),
+                        input.repeat,
                     )
                 })
-                .chain(engine_focus::gamepad_keys(pads.iter(), &mut stick))
+                .chain(
+                    engine_focus::gamepad_keys(pads.iter(), &mut stick)
+                        .into_iter()
+                        .map(|(key, text)| (key, text, false)),
+                )
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
