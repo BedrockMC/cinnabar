@@ -299,6 +299,49 @@ fn gated_render_skips_scroll_content_outside_the_viewport() {
 }
 
 #[test]
+fn gated_render_keeps_pointer_and_drag_placement() {
+    let root = screen(vec![
+        ctrl(
+            "cursor",
+            "image",
+            json!({ "size": [20, 10], "follows_cursor": true, "color": [1, 1, 1] }),
+            vec![],
+        ),
+        ctrl(
+            "dragged",
+            "image",
+            json!({ "size": [20, 10], "anchor_from": "top_left", "anchor_to": "top_left",
+                    "draggable": "horizontal", "color": [1, 1, 1] }),
+            vec![],
+        ),
+    ]);
+    let mut state = ViewState {
+        pointer: Some([90.0, 40.0]),
+        ..ViewState::default()
+    };
+    state.drags.insert("/root/dragged".into(), [30.0, 30.0]);
+    let render = json_ui::render_bound_gated(
+        root,
+        [200.0, 100.0],
+        &env(),
+        &state,
+        &mut json_ui::MeasureCache::default(),
+    );
+    for (name, expected) in [("cursor", [80.0, 35.0]), ("dragged", [30.0, 0.0])] {
+        let node = render.nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!([node.dest.x, node.dest.y], expected, "{name} draw");
+    }
+    let hit = render
+        .hits
+        .iter()
+        .find(|hit| hit.name == "dragged")
+        .unwrap();
+    assert!(hit.contains([35.0, 5.0]), "input follows the dragged image");
+    assert!(!hit.contains([5.0, 5.0]), "input leaves its old position");
+    assert!(render.report.tracks_pointer);
+}
+
+#[test]
 fn slider_box_travels_with_the_value_and_progress_clips() {
     let slider = ctrl(
         "slider",
