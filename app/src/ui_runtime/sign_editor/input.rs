@@ -139,10 +139,15 @@ pub(crate) fn drive_sign_editor(
         && edit.changed()
     {
         let position = edit.position();
-        let nbt = edit.into_encoded_nbt();
-        if let Some(network) = network {
-            // A full queue drops this edit; the sign simply keeps its old text.
-            let _ = network.send_inventory_packet(protocol::sign_edit_packet(position, &nbt));
+        match edit.into_encoded_nbt() {
+            Ok(nbt) => {
+                if let Some(network) = network {
+                    // A full queue drops this edit; the sign simply keeps its old text.
+                    let _ =
+                        network.send_inventory_packet(protocol::sign_edit_packet(position, &nbt));
+                }
+            }
+            Err(detail) => bevy::log::warn!("sign edit NBT was not encodable: {detail}"),
         }
     }
     if !runtime.ui_focused() {

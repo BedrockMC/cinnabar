@@ -505,3 +505,6 @@ fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnv
 fn movement_impulse(axis: f64) -> f64 {
     f64::from(axis as f32 * INPUT_IMPULSE_MULTIPLIER as f32)
 }
+
+#[cfg(test)]
+mod environment_review_tests;

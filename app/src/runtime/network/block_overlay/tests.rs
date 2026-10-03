@@ -33,6 +33,11 @@ const GEOMETRY: &str = r#"{"format_version": "1.12.0", "minecraft:geometry": [{
     ]}]}]}"#;
 
 fn view() -> LayeredPackView {
+    view_with_geometry(GEOMETRY.as_bytes())
+}
+
+/// Builds the normal overlay fixture with an alternate geometry document.
+fn view_with_geometry(geometry: &[u8]) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000001";
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
@@ -57,7 +62,7 @@ fn view() -> LayeredPackView {
         ("textures/flipbook_textures.json", flipbook.as_bytes()),
         ("textures/blocks/lucky.png", &lucky),
         ("textures/blocks/gen.png", &gen_strip),
-        ("models/blocks/gen.geo.json", GEOMETRY.as_bytes()),
+        ("models/blocks/gen.geo.json", geometry),
     ] {
         writer
             .start_file(path, zip::write::SimpleFileOptions::default())
@@ -622,4 +627,31 @@ fn packcache_custom_block_items_draw_when_requested() {
         checked += icons.icons.len();
     }
     eprintln!("{checked} packcache custom block item icons drawn");
+}
+
+#[test]
+fn review_geometry_skips_overflowing_cube_bounds() {
+    let mut document: serde_json::Value = serde_json::from_str(GEOMETRY).unwrap();
+    document["minecraft:geometry"][0]["bones"][0]["cubes"] = serde_json::json!([
+        {"origin": [1e38, 0, 0], "size": [3e38, 1, 1], "uv": [0, 0]},
+        {"origin": [0, 0, 0], "size": [1, 1, 1], "uv": [0, 0]}
+    ]);
+    let parsed = super::geometry::parse_geometry_file(&serde_json::to_vec(&document).unwrap());
+    assert_eq!(parsed[0].1.cubes.len(), 1);
+    assert_eq!(parsed[0].1.skipped_cubes, 1);
+    assert!(parsed[0].1.cubes.iter().all(|cube| {
+        cube.min
+            .iter()
+            .chain(&cube.max)
+            .all(|value| value.is_finite())
+    }));
+}
+
+#[test]
+fn review_geometry_catalog_accepts_json_escaped_identifiers() {
+    let escaped = GEOMETRY.replace("geometry.gen", r"geometry\u002egen");
+    let view = view_with_geometry(escaped.as_bytes());
+    let wanted = std::collections::HashSet::from(["geometry.gen"]);
+    let catalog = super::geometry::geometry_catalog(&view, &wanted);
+    assert!(catalog.contains_key("geometry.gen"));
 }

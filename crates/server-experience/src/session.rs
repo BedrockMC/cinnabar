@@ -9,6 +9,7 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(
@@ -33,12 +34,29 @@ pub enum Control {
     Disabled,
 }
 
+/// Session snapshots share one consumption latch instead of copying the challenge.
+#[derive(Clone, Debug)]
+pub struct SharedPending(Arc<Mutex<Option<Pending>>>);
+
+impl SharedPending {
+    /// Consumes the challenge exactly once across every session snapshot.
+    fn accept(self, document: &SignedDocument, now_unix: u64, now_ms: u64) -> Result<Grant> {
+        let pending = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pending handshake poisoned"))?
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("handshake already consumed"))?;
+        pending.accept(document, now_unix, now_ms)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub enum State {
     #[default]
     Inert,
     Offered(VerifiedOffer),
-    Awaiting(Pending),
+    Awaiting(SharedPending),
     Granted(Grant),
     Disabled,
 }
@@ -126,7 +144,7 @@ impl Session {
         self.outbound = Some(serde_json::to_vec(&Control::Hello(
             pending.hello().clone(),
         ))?);
-        self.state = State::Awaiting(pending);
+        self.state = State::Awaiting(SharedPending(Arc::new(Mutex::new(Some(pending)))));
         self.rate = Some(RateLimit::new(now_ms));
         self.started_ms = now_ms;
         Ok(())
@@ -175,6 +193,11 @@ impl Session {
 
     /// Revokes pending output as well as live grants; no disable packet is required.
     pub fn disable(&mut self) {
+        if let State::Awaiting(pending) = &self.state
+            && let Ok(mut shared) = pending.0.lock()
+        {
+            shared.take();
+        }
         self.state = State::Disabled;
         self.outbound = None;
         self.rate = None;

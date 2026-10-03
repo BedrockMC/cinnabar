@@ -11,7 +11,7 @@ use std::{
 use assets::AssetError;
 use serde::{
     Deserialize,
-    de::{DeserializeOwned, IgnoredAny, MapAccess, Visitor},
+    de::{DeserializeOwned, IgnoredAny, MapAccess, SeqAccess, Visitor},
 };
 
 const MAX_JSON_BYTES: usize = 16 * 1024 * 1024;
@@ -169,4 +169,47 @@ fn strip_leading_comment_lines(input: &str) -> &str {
         }
     }
     &input[offset..]
+}
+
+/// Retains only the bounded prefix while counting all entries without decoding the excess.
+pub(super) struct BoundedSequence<T, const MAX: usize> {
+    pub(super) entries: Vec<T>,
+    pub(super) count: usize,
+}
+
+impl<'de, T: Deserialize<'de>, const MAX: usize> Deserialize<'de> for BoundedSequence<T, MAX> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SequenceVisitor<T, const MAX: usize>(PhantomData<T>);
+        impl<'de, T: Deserialize<'de>, const MAX: usize> Visitor<'de> for SequenceVisitor<T, MAX> {
+            type Value = BoundedSequence<T, MAX>;
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a bounded JSON array")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut entries = Vec::new();
+                while entries.len() < MAX {
+                    match sequence.next_element()? {
+                        Some(entry) => entries.push(entry),
+                        None => {
+                            return Ok(BoundedSequence {
+                                count: entries.len(),
+                                entries,
+                            });
+                        }
+                    }
+                }
+                let mut count = entries.len();
+                while sequence.next_element::<IgnoredAny>()?.is_some() {
+                    count = count
+                        .checked_add(1)
+                        .ok_or_else(|| serde::de::Error::custom("array count overflow"))?;
+                }
+                Ok(BoundedSequence { entries, count })
+            }
+        }
+        deserializer.deserialize_seq(SequenceVisitor::<T, MAX>(PhantomData))
+    }
 }

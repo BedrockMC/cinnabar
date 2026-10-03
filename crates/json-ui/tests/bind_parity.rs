@@ -805,3 +805,30 @@ fn edit_box_content_follows_the_host_text_despite_once() {
         Some(&json!("play.example"))
     );
 }
+
+#[test]
+fn edit_label_content_refreshes_while_ordinary_once_labels_stay_seeded() {
+    for editable in [false, true] {
+        let label = leaf(
+            "display_text",
+            "label",
+            json!({
+                "text": "#item_name",
+                "property_bag": if editable { json!({"#property_field": "#item_name"}) } else { json!({}) },
+                "bindings": [{
+                    "binding_name": "#content", "binding_name_override": "#item_name",
+                    "binding_condition": "once"
+                }]
+            }),
+        );
+        let bound = refresh(
+            &label,
+            &global("#content", text("first")),
+            &global("#content", text("typed")),
+        );
+        assert_eq!(
+            get(&bound, "text"),
+            Some(&json!(if editable { "typed" } else { "first" }))
+        );
+    }
+}

@@ -223,3 +223,57 @@ fn predicted_item_use_leaves_server_blocking_flag() {
     store.sync_local_player(1, -100, &feed);
     assert!(store.get(1).unwrap().flag(72));
 }
+
+#[test]
+fn synthetic_profile_skin_updates_and_removal_preserve_the_budget() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(
+        store.apply(
+            1,
+            1,
+            ActorEvent::Skin {
+                uuid: feed.uuid,
+                skin: standard_skin(2)
+            }
+        ),
+        ActorApplyResult::Updated
+    );
+    assert_eq!(
+        store.retained_player_skin_bytes,
+        super::retained_skin_bytes(&feed.skin)
+    );
+    feed.skin = standard_skin(4);
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(
+        store.retained_player_skin_bytes,
+        super::retained_skin_bytes(&feed.skin)
+    );
+    store.reset_dimension(1, 2, 2);
+    assert_eq!(store.retained_player_skin_bytes, 0);
+}
+
+#[test]
+fn synthetic_profile_obeys_the_skin_budget() {
+    let mut store = ActorStore::with_limits(1, 0, 4, 4, 0);
+    store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
+    assert_eq!(store.retained_player_skin_bytes, 0);
+    assert!(matches!(
+        profile_skin(&store, 1),
+        Some(PlayerSkin::Unavailable(_))
+    ));
+}
+
+#[test]
+fn review_authoritative_echo_under_the_fed_uuid_retains_its_skin() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    let skin = standard_skin(3);
+    store.apply(1, 1, list_add(feed.uuid, -100, skin.clone()));
+    store.sync_local_player(1, -100, &feed);
+    assert_eq!(profile_skin(&store, 1), Some(skin));
+    assert!(store.player_profile(1).unwrap().verified);
+}

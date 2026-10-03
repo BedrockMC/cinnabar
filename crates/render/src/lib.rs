@@ -1,6 +1,8 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
 mod lighting;
 mod lightmap;
+#[cfg(test)]
+mod shader_test_support;
 pub use lighting::WorldLighting;
 pub use lightmap::{LightmapInputs, darkness_pulse};
 
@@ -36,6 +38,9 @@ mod runtime_profile;
 mod runtime_profile_trace;
 mod screen_overlay;
 mod screen_overlay_render;
+#[cfg(test)]
+#[path = "../tests/support/shader_source.rs"]
+mod shader_source;
 mod ui;
 mod ui_textures;
 
@@ -217,3 +222,6 @@ pub use weather::{
 mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
+
+#[cfg(test)]
+mod queue_review_support;

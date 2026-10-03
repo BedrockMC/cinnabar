@@ -241,8 +241,12 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
     let mut parsed = Vec::new();
     if let Some(modern) = root.get("minecraft:geometry").and_then(Value::as_array) {
         for geometry in modern {
-            let description = geometry.get("description")?;
-            let identifier = description.get("identifier")?.as_str()?;
+            let Some(description) = geometry.get("description") else {
+                continue;
+            };
+            let Some(identifier) = description.get("identifier").and_then(Value::as_str) else {
+                continue;
+            };
             // Modern formats dropped inheritance; vanilla skips such an entry.
             if identifier.contains(':') {
                 continue;

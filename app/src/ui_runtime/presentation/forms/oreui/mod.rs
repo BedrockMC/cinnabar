@@ -58,6 +58,11 @@ impl UiPresentationRuntime {
         )
         .map_err(|error| format!("{error:?}"))?;
         self.textures = Arc::new(textures);
+        if let Some(engine) = self.form_presentation.engine.as_mut() {
+            engine.textures.server_page = (self.textures.dynamic_start()
+                + super::super::dynamic_textures::SERVER_UI_PAGE)
+                as u16;
+        }
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();

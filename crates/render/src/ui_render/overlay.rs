@@ -237,18 +237,10 @@ pub(super) fn queue_ui_overlay(
             gpu.view_pipelines.remove(&view_entity);
             continue;
         };
-        let Ok(invert_pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            UiPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                invert_blend: true,
-                layer: false,
-                depth_test: false,
-                depth_write: false,
-                isolated_depth: false,
-            },
-        ) else {
+        let Ok(invert_pipeline_id) = pipeline
+            .variants
+            .specialize(&pipeline_cache, hud_invert_pipeline_key(view.hdr))
+        else {
             gpu.view_pipelines.remove(&view_entity);
             continue;
         };
@@ -526,9 +518,8 @@ impl ViewNode for UiOverlayNode {
                     // Still compiling: skip the crosshair rather than blend it wrong.
                     continue;
                 };
-                // Model depth follows the single-sample UI layer. An inverted model
-                // addresses the resolved scene directly, never the world MSAA depth.
-                let attachments = [Some(if scoped {
+                // HUD layers and invert batches share the current resolved scene texture.
+                let attachments = [Some(
                     bevy::render::render_resource::RenderPassColorAttachment {
                         view: target.main_texture_view(),
                         depth_slice: None,
@@ -537,10 +528,8 @@ impl ViewNode for UiOverlayNode {
                             load: LoadOp::Load,
                             store: StoreOp::Store,
                         },
-                    }
-                } else {
-                    target.get_color_attachment()
-                })];
+                    },
+                )];
                 let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
                     label: Some("retained depth-free HUD invert"),
                     color_attachments: &attachments,
@@ -721,6 +710,19 @@ pub(crate) fn overlay_viewport(
     Viewport::from_viewport_and_override(viewport, resolution_override)
 }
 
+/// Selects the ordinary HUD invert pipeline independently of world depth modes.
+fn hud_invert_pipeline_key(hdr: bool) -> UiPipelineKey {
+    UiPipelineKey {
+        msaa: Msaa::Off,
+        hdr,
+        invert_blend: true,
+        layer: false,
+        depth_test: false,
+        depth_write: false,
+        isolated_depth: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -788,5 +790,18 @@ mod tests {
             resolved_batches(Some(7), &batches, &locations, plan.buckets()).is_none(),
             "late invalid physical layer must emit no prefix"
         );
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_render_hud_invert_uses_the_resolved_scene_sample_count() {
+        let mut descriptor = ui_pipeline_descriptor(ui_bind_group_layout());
+        UiPipelineSpecializer
+            .specialize(hud_invert_pipeline_key(false), &mut descriptor)
+            .unwrap();
+        assert_eq!(descriptor.multisample.count, 1);
     }
 }

@@ -75,7 +75,7 @@ pub(in crate::ui_runtime::presentation) fn with_caret<'a>(
     field: MenuField,
     text: &'a str,
 ) -> Cow<'a, str> {
-    if view.field != Some(field) || !view.caret.shown {
+    if view.field != Some(field) || !view.caret.shown || view.caret.selection.is_some() {
         return Cow::Borrowed(text);
     }
     let at = caret_byte(text, view.caret.byte);

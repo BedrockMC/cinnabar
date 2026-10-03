@@ -88,7 +88,7 @@ pub struct SoundEventTables {
     blocks: HashMap<Box<str>, EventSet>,
     entity_defaults: EventSet,
     entities: HashMap<Box<str>, EntitySet>,
-    individual: HashMap<Box<str>, SoundRoute>,
+    individual: HashMap<Box<str>, Option<SoundRoute>>,
     interactive_blocks: HashMap<Box<str>, EventSet>,
     interactive_defaults: EventSet,
     interactive_entities: HashMap<Box<str>, EventSet>,
@@ -248,7 +248,11 @@ impl SoundEventTables {
             if let Some(Value::Object(events)) = sounds.pointer(section) {
                 for (name, value) in events {
                     if let Some(found) = route(value) {
-                        tables.individual.insert(name.as_str().into(), found);
+                        tables.individual.insert(name.as_str().into(), Some(found));
+                    } else if value.as_str() == Some("")
+                        || value.get("sound").and_then(Value::as_str) == Some("")
+                    {
+                        tables.individual.insert(name.as_str().into(), None);
                     }
                 }
             }
@@ -374,14 +378,44 @@ impl SoundEventTables {
         resolve(&self.interactive_defaults, event, Some(material))
     }
 
+    /// Distinguishes explicit individual silence from an absent event before fallback routing.
+    pub fn individual_lookup(&self, event: &str) -> RouteLookup {
+        match self.individual.get(event) {
+            Some(Some(route)) => RouteLookup::Route(route.clone()),
+            Some(None) => RouteLookup::Silent,
+            None => RouteLookup::Absent,
+        }
+    }
+
     /// Named individual sound event (`bucket.fill.water`, `random.click`, ...).
     pub fn individual(&self, event: &str) -> Option<&SoundRoute> {
-        self.individual.get(event)
+        self.individual.get(event).and_then(Option::as_ref)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_explicit_individual_silence_overrides_an_earlier_route() {
+        for silent in [serde_json::json!(""), serde_json::json!({"sound":""})] {
+            let mut base = super::SoundEventTables::from_json(
+                &serde_json::json!({"individual_event_sounds":{"events":{"click":"base.click"}}}),
+                &serde_json::json!({}),
+            );
+            let later = super::SoundEventTables::from_json(
+                &serde_json::json!({"individual_event_sounds":{"events":{"click":silent}}}),
+                &serde_json::json!({}),
+            );
+            base.merge(later);
+            assert!(base.individual("click").is_none());
+            assert_eq!(base.individual_lookup("click"), super::RouteLookup::Silent);
+            assert_eq!(
+                base.individual_lookup("missing"),
+                super::RouteLookup::Absent
+            );
+        }
+    }
+
     use super::*;
     use serde_json::json;
 

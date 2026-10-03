@@ -192,12 +192,14 @@ fn changed_prefix_vertex_counts_invalidate_later_static_fragments() {
     assert_eq!(scene.static_rebuilds, 1);
     submissions[0].kind = BlockEntityKind::EndGateway;
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    // The gateway gets its own static fragment, and the changed prefix rebuilds the chest.
+    assert_eq!(scene.static_rebuilds, 3);
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 2);
+    assert_eq!(scene.static_rebuilds, 3);
     submissions[0].kind = BlockEntityKind::EndPortal;
     assert_matches_reference(&mut scene, 3.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 3);
+    // Returning to the animated portal rebuilds only the chest's static fragment.
+    assert_eq!(scene.static_rebuilds, 4);
 }
 
 #[test]

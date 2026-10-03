@@ -293,20 +293,22 @@ fn missing_geometry_uses_only_an_explicit_fallback_or_no_draw_route() {
 }
 
 #[test]
-fn skin_layer_outside_the_bounded_texture_array_fails_the_frame_closed() {
+fn skin_layer_outside_the_bounded_texture_array_rejects_only_that_actor() {
     let mut scene = ActorRenderScene::default();
     let mut actor = diagnostic_submission(1, 1);
     actor.texture_layer = 1;
 
+    let pixels: Arc<[u8]> = vec![255_u8; STANDARD_SKIN_BYTES].into();
     let frame = scene.update_rigs(
         0.5,
         None,
-        [actor],
-        Arc::from(vec![255_u8; STANDARD_SKIN_BYTES]),
+        [actor, diagnostic_submission(2, 1)],
+        Arc::clone(&pixels),
     );
 
-    assert!(frame.rig.instances.is_empty());
-    assert!(frame.skins_rgba8.is_empty());
+    assert_eq!(frame.rig.instances.len(), 1);
+    assert_eq!(frame.rig.manifest[0].identity.runtime_id, 2);
+    assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
     assert_eq!(frame.rig.rejects.invalid_geometry, 1);
 }
 
@@ -465,4 +467,35 @@ fn review_render_catalog_recomputes_mutated_vertex_bone_requirements() {
         builder.build(0.5, None, [actor]).rejects.invalid_geometry,
         1
     );
+}
+
+// Shared pixels and equal copies keep the revision; a changed final byte advances it.
+#[test]
+fn rig_skin_revision_tracks_pixels_across_shared_and_independent_payloads() {
+    let mut scene = ActorRenderScene::default();
+    let pixels: Arc<[u8]> = vec![7; STANDARD_SKIN_BYTES].into();
+    let revision = scene
+        .update_rigs(
+            0.0,
+            None,
+            [diagnostic_submission(1, 1)],
+            Arc::clone(&pixels),
+        )
+        .skin_revision;
+    for next in [Arc::clone(&pixels), Arc::from(pixels.to_vec())] {
+        let frame = scene.update_rigs(0.0, None, [diagnostic_submission(1, 1)], next);
+        assert_eq!(frame.skin_revision, revision);
+        assert!(Arc::ptr_eq(&frame.skins_rgba8, &pixels));
+    }
+    let mut changed = pixels.to_vec();
+    *changed.last_mut().unwrap() = 8;
+    let changed: Arc<[u8]> = changed.into();
+    let frame = scene.update_rigs(
+        0.0,
+        None,
+        [diagnostic_submission(1, 1)],
+        Arc::clone(&changed),
+    );
+    assert_eq!(frame.skin_revision, revision.wrapping_add(1));
+    assert!(Arc::ptr_eq(&frame.skins_rgba8, &changed));
 }

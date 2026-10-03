@@ -52,7 +52,7 @@ winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["process", "std", "stdio"] }
+rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
