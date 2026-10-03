@@ -26,6 +26,20 @@ pub(crate) struct EngineFrame {
     pub(crate) scale: f32,
     /// A container screen's `root_panel` rect `[x, y, w, h]` in virtual pixels.
     pub(crate) panel: Option<[f64; 4]>,
+    /// Where each edit box drew its text label.
+    pub(crate) edit_texts: Vec<EditText>,
+}
+
+/// Where an edit box's text label draws, for placing its caret under a press.
+#[derive(Clone, Debug)]
+pub(crate) struct EditText {
+    /// The edit box's region key.
+    pub(crate) key: String,
+    /// The label's left edge, window-logical px.
+    pub(crate) left: f32,
+    /// The label's font scale and named font.
+    pub(crate) scale: f32,
+    pub(crate) font: Option<String>,
 }
 
 impl EngineFrame {

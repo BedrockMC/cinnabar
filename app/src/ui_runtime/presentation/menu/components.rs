@@ -3,7 +3,7 @@
 use ui::{SafeArea, TextLayoutCache, UiNode, UiNodeId, UiRect, UiVisual};
 
 use crate::menu::{MenuAction, MenuField, MenuView};
-use crate::ui_runtime::presentation::IconRef;
+use crate::ui_runtime::presentation::{IconRef, forms::menu_caret::with_caret};
 
 use super::{
     ACCENT, BUTTON, BUTTON_FOCUSED, BUTTON_HOVERED, BUTTON_PRESSED, MUTED, PANEL_ALT, TEXT,
@@ -157,10 +157,7 @@ pub(super) fn field(
         },
     );
     hits.push((action, bounds));
-    let mut visible = value.to_owned();
-    if view.field == Some(field) {
-        visible.push('|');
-    }
+    let visible = with_caret(view, field, value);
     text(
         nodes,
         next_id,

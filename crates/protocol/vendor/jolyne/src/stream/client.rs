@@ -1206,6 +1206,24 @@ mod tests {
         // Dropping the pending join is the owner's cancellation path.
     }
 
+    // Dragonfly answers the radius request with PlayerSpawn alone and streams
+    // terrain only after initialization; BDS-style servers publish first.
+    #[tokio::test]
+    async fn start_game_reports_whether_terrain_preceded_spawn() {
+        let publisher =
+            McpePacket::from(crate::valentine::NetworkChunkPublisherUpdatePacket::default());
+        for (terrain, expected) in [(None, false), (Some(publisher), true)] {
+            let mut packets = vec![start_game_packet()];
+            packets.extend(terrain);
+            packets.extend(spawn_completion_packets());
+            let (play, _) = start_game_stream(vec![uncompressed_frame(&packets)])
+                .await_start_game()
+                .await
+                .expect("spawn sequence");
+            assert_eq!(play.terrain_before_spawn(), expected);
+        }
+    }
+
     #[tokio::test]
     async fn optional_start_game_packets_are_fifo_deferred_compact_frames() {
         let mut packets = vec![
@@ -2230,6 +2248,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
         let mut sent_chunk_radius = false;
         let mut received_chunk_radius = false;
         let mut received_player_spawn = false;
+        let mut terrain_before_spawn = false;
         let mut deferred_packets = DeferredPackets::default();
 
         // Captured game data
@@ -2336,6 +2355,12 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                 }
                 packet_id => {
                     tracing::debug!("StartGame: deferring packet {:?}", packet_id);
+                    terrain_before_spawn |= matches!(
+                        packet_id,
+                        McpePacketName::NetworkChunkPublisherUpdatePacket
+                            | McpePacketName::LevelChunkPacket
+                            | McpePacketName::SubChunkPacket
+                    );
                     deferred_packets.push(raw)?;
                 }
             }
@@ -2401,6 +2426,7 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                 state: Play {
                     resource_pack_handoff: self.state.resource_pack_handoff.take(),
                     pending_initialization: Some(runtime_entity_id),
+                    terrain_before_spawn,
                 },
                 _role: PhantomData,
             },

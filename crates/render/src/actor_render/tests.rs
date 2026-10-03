@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::shader_source;
+
 use bevy::{
     app::SubApp,
     asset::Assets,
@@ -211,24 +213,10 @@ fn app_with_noop_render_sub_app() -> App {
     app
 }
 
-/// The actor shader with its imports inlined, for naga parsing and validation.
-fn actor_shader_standalone() -> String {
-    let lighting =
-        include_str!("../lighting.wgsl").replacen("#define_import_path cinnabar::lighting", "", 1);
-    ACTOR_SHADER_SOURCE
-        .replace(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
-        )
-        .replace(
-            "#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}",
-            &lighting,
-        )
-}
-
 #[test]
 fn actor_shader_parses_as_wgsl() {
-    naga::front::wgsl::parse_str(&actor_shader_standalone()).expect("actor shader parses");
+    let source = shader_source::standalone(ACTOR_SHADER_SOURCE, &[]);
+    naga::front::wgsl::parse_str(&source).expect("actor shader parses");
 }
 
 // A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.
@@ -236,7 +224,7 @@ fn actor_shader_parses_as_wgsl() {
 fn fragment_view_reads_are_visible_to_the_fragment_stage() {
     use bevy::render::render_resource::ShaderStages;
     assert!(crate::shader_test_support::fragment_reads_binding(
-        &actor_shader_standalone(),
+        &shader_source::standalone(ACTOR_SHADER_SOURCE, &[]),
         0,
         0
     ));

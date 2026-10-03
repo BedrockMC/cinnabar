@@ -777,15 +777,16 @@ fn binding_fields_evaluate_constant_expressions() {
 }
 
 // An edit box's `once` content binding re-reads the host's live text: the host owns
-// the text vanilla's TextEditComponent keeps, so typing shows as it happens.
+// the text vanilla's TextEditComponent keeps, so typing shows as it happens. Vanilla's
+// `common.text_edit_box` puts that binding on its child label (`ui_common.json`).
 #[test]
 fn edit_box_content_follows_the_host_text_despite_once() {
-    let edit = leaf(
-        "edit_box",
-        "edit_box",
+    let label = leaf(
+        "text_edit_box_label",
+        "label",
         json!({
             "text": "#item_name",
-            "property_bag": { "#item_name": "" },
+            "property_bag": { "#property_field": "#item_name" },
             "bindings": [{
                 "binding_name": "#ip_text_box_content",
                 "binding_name_override": "#item_name",
@@ -793,13 +794,14 @@ fn edit_box_content_follows_the_host_text_despite_once() {
             }]
         }),
     );
+    let edit = ctrl("edit_box", "edit_box", json!({}), vec![label]);
     let bound = refresh(
         &edit,
         &global("#ip_text_box_content", text("pl")),
         &global("#ip_text_box_content", text("play.example")),
     );
     assert_eq!(
-        get(&bound, "#item_name").or(get(&bound, "text")),
+        get(find(&bound, "text_edit_box_label"), "text"),
         Some(&json!("play.example"))
     );
 }

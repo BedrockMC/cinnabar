@@ -8,7 +8,7 @@ use ui::{UiNode, UiRect};
 
 use super::super::menu_scroll::ScrollArea;
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_screens};
+use super::{engine, menu_caret::TextSpot, menu_screens};
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
 
@@ -29,9 +29,10 @@ impl UiPresentationRuntime {
         height: f32,
     ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
         self.gui_scale_drag_targets.clear();
-        let Some(view) = self.menu_view.take() else {
+        let Some(mut view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
+        self.begin_menu_caret(&mut view);
         let previous = self.form_presentation.ready_menu.take();
         let pending = view.screen == MenuScreen::Settings
             && previous
@@ -197,10 +198,7 @@ impl UiPresentationRuntime {
             }),
             ..ViewState::default()
         };
-        let edit = self
-            .form_presentation
-            .edit_clock
-            .update(view, self.menu_seconds);
+        let edit = engine::host_edit::Feedback::from_view(view);
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
         let mut layers = Vec::new();
@@ -285,6 +283,7 @@ impl UiPresentationRuntime {
         let mut hits = Vec::new();
         let mut keys = Vec::new();
         let mut sounds = Vec::new();
+        let mut spots = Vec::new();
         let origin = [self.safe_area.left(), self.safe_area.top()];
         self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
         for region in frame.hits.iter().filter(|region| region.enabled) {
@@ -313,8 +312,10 @@ impl UiPresentationRuntime {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
                 sounds.extend(region.sound.clone().map(|sound| (action, sound)));
+                spots.extend(text_spot(&frame, region, action, bounds, metrics));
             }
         }
+        self.add_menu_text_spots(spots);
         self.form_presentation.menu_sounds = sounds;
         // A launcher dialog opens the vanilla popup and takes over the input.
         if let Some(popup) =
@@ -435,6 +436,29 @@ pub(super) fn window_rect(region: &HitRegion, scale: f32, origin: [f32; 2]) -> O
     }
     let to = |value: f64, axis: usize| value as f32 * scale + origin[axis];
     rect(to(x0, 0), to(y0, 1), to(x1, 0), to(y1, 1)).ok()
+}
+
+/// Where a launcher text box's region drew its text, for placing a pressed caret.
+fn text_spot(
+    frame: &EngineFrame,
+    region: &HitRegion,
+    action: MenuAction,
+    bounds: UiRect,
+    metrics: TextMetrics,
+) -> Option<TextSpot> {
+    let field = action.text_field()?;
+    let text = frame
+        .edit_texts
+        .iter()
+        .find(|text| text.key == region.key)?;
+    Some(TextSpot {
+        field,
+        bounds,
+        left: text.left,
+        factor: text.scale,
+        font: text.font.clone(),
+        metrics,
+    })
 }
 
 /// The frame's scroll views in window-logical pixels, offsets in virtual px.
