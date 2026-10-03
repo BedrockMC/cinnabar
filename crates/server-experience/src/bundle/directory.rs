@@ -86,7 +86,6 @@ fn end_record_matches(bytes: &[u8], at: usize) -> bool {
                 && word(bytes, at + 4)? == 0
                 && word(bytes, at + 6)? == 0
                 && word(bytes, at + 8)? == count
-                && count <= crate::policy::MAX_FILES + 1
                 && dword(bytes, at + 16)?.checked_add(dword(bytes, at + 12)?) == Some(at),
         )
     })();
