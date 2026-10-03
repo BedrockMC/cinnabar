@@ -217,6 +217,13 @@ fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Reads a language source into its staging buffer.
+fn bounded_bytes(reader: impl std::io::Read, maximum: usize) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -295,11 +302,4 @@ mod tests {
 
         fs::remove_dir_all(root).unwrap();
     }
-}
-
-/// Reads a language source into its staging buffer.
-fn bounded_bytes(reader: impl std::io::Read, maximum: usize) -> std::io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    reader.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
-    Ok(bytes)
 }

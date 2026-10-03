@@ -46,14 +46,14 @@ impl MapImages {
     }
 
     fn apply(&mut self, event: &MapDataEvent) {
-        if !event
+        if event
             .start_x
             .checked_add(event.width)
-            .is_some_and(|end| end <= MAP_IMAGE_SIDE)
-            || !event
+            .is_none_or(|end| end > MAP_IMAGE_SIDE)
+            || event
                 .start_y
                 .checked_add(event.height)
-                .is_some_and(|end| end <= MAP_IMAGE_SIDE)
+                .is_none_or(|end| end > MAP_IMAGE_SIDE)
         {
             self.invalid_rectangles = self.invalid_rectangles.saturating_add(1);
             if self.invalid_rectangles.is_power_of_two() {

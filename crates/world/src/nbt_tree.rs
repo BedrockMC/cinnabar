@@ -131,10 +131,10 @@ impl NbtValue {
         }
         match self {
             Self::List(items) => {
-                if let Some(first) = items.first() {
-                    if items.iter().any(|item| item.tag() != first.tag()) {
-                        return Err("NBT list elements have different tag types");
-                    }
+                if let Some(first) = items.first()
+                    && items.iter().any(|item| item.tag() != first.tag())
+                {
+                    return Err("NBT list elements have different tag types");
                 }
                 items
                     .iter()
