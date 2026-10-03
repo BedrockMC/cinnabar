@@ -36,7 +36,12 @@ impl RegistryOwner {
                 .checked_add(size_of::<protocol::ItemRegistryEntry>())?
                 .checked_add(size_of::<usize>())?
                 .checked_add(entry.identifier.len())?
+                .checked_add(32)?
+                .checked_add(entry.item_tags.len().checked_mul(size_of::<Arc<str>>())?)?
                 .checked_add(32)?;
+            for tag in entry.item_tags.iter() {
+                bytes = bytes.checked_add(tag.len())?.checked_add(32)?;
+            }
         }
         // Credit precedes numeric index construction and retention of entry/name Arcs.
         let permit = credits.reserve(bytes)?;
