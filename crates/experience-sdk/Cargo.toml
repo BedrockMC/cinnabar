@@ -1,0 +1,9 @@
+[package]
+name = "experience-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+wit-bindgen.workspace = true

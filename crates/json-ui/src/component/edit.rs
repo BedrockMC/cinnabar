@@ -10,6 +10,8 @@ use crate::widgets::bound_bool;
 
 /// Seconds between caret blinks (`updateCaretBlink`).
 pub const CARET_BLINK_SECONDS: f64 = 0.3;
+/// The glyph a selected box's text target draws at its caret.
+pub const CARET_GLYPH: char = '_';
 
 /// `text_type`: the platform keyboard mode the box asks for; physical-keyboard
 /// characters are not filtered by it.

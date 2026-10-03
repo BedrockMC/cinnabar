@@ -16,6 +16,9 @@ pub const LATTICE_WORDS: usize = LATTICE_SIDE * LATTICE_SIDE * LATTICE_SIDE * LA
 pub const DESCRIPTOR_WORDS: usize = 2 + BIOME_NEIGHBOUR_SLOT_COUNT;
 pub const BLEND_SAMPLE_COUNT: usize = LATTICE_QUERY_POINTS * LATTICE_BIOME_LIMIT;
 
+/// A record answers block positions inside its own sub-chunk, on every axis.
+pub const BIOME_QUERY_SIDE: i32 = crate::SIDE as i32;
+
 /// Maps a local lattice point into the packed cache.
 pub fn lattice_index([x, y, z]: [i32; 3]) -> usize {
     let axis = |value| ((value + BIOME_LATTICE_STEP) / BIOME_LATTICE_STEP) as usize;
@@ -117,7 +120,10 @@ impl PackedBiomeRecord {
         &self,
         coordinate: [i32; 3],
     ) -> Option<[BiomeBlendSample; BLEND_SAMPLE_COUNT]> {
-        if coordinate.iter().any(|&v| !(0..16).contains(&v)) {
+        if coordinate
+            .iter()
+            .any(|&v| !(0..BIOME_QUERY_SIDE).contains(&v))
+        {
             return None;
         }
         let mut samples = [BiomeBlendSample {
@@ -150,7 +156,7 @@ impl PackedBiomeRecord {
 /// Supplies the shader layout and kernel constants from the CPU contract.
 pub fn shader_source(source: &str) -> String {
     let mut constants = format!(
-        "const BIOME_DESCRIPTOR_MAGIC: u32 = {}u;\nconst BIOME_LATTICE_STEP: i32 = {};\nconst BIOME_CACHE_ORIGIN: i32 = {};\nconst BIOME_RESIDUE_RADIUS: i32 = {};\nconst BIOME_RESIDUE_SIDE: u32 = {}u;\nconst BIOME_DESCRIPTOR_WORDS: u32 = {}u;\nconst BIOME_LATTICE_SIDE: u32 = {}u;\nconst BIOME_POINT_WORDS: u32 = {}u;\nconst BIOME_DISTANCE_EPSILON: f32 = {};\nconst BIOME_BIOME_LIMIT: u32 = {}u;\nconst BIOME_QUERY_POINTS: u32 = {}u;\n",
+        "const BIOME_DESCRIPTOR_MAGIC: u32 = {}u;\nconst BIOME_LATTICE_STEP: i32 = {};\nconst BIOME_CACHE_ORIGIN: i32 = {};\nconst BIOME_RESIDUE_RADIUS: i32 = {};\nconst BIOME_RESIDUE_SIDE: u32 = {}u;\nconst BIOME_DESCRIPTOR_WORDS: u32 = {}u;\nconst BIOME_LATTICE_SIDE: u32 = {}u;\nconst BIOME_POINT_WORDS: u32 = {}u;\nconst BIOME_DISTANCE_EPSILON: f32 = {};\nconst BIOME_BIOME_LIMIT: u32 = {}u;\nconst BIOME_QUERY_POINTS: u32 = {}u;\nconst BIOME_QUERY_SIDE: i32 = {};\n",
         super::biome::DESCRIPTOR_MAGIC,
         BIOME_LATTICE_STEP,
         BIOME_CACHE_ORIGIN,
@@ -162,6 +168,7 @@ pub fn shader_source(source: &str) -> String {
         BIOME_DISTANCE_EPSILON,
         LATTICE_BIOME_LIMIT,
         LATTICE_QUERY_POINTS,
+        BIOME_QUERY_SIDE,
     );
     let queries = (-BIOME_RESIDUE_RADIUS..=BIOME_RESIDUE_RADIUS).flat_map(|x| {
         (-BIOME_RESIDUE_RADIUS..=BIOME_RESIDUE_RADIUS).flat_map(move |y| {

@@ -19,7 +19,7 @@ mod toggle;
 
 pub(crate) use dispatch::CARET_PROPERTY;
 pub use dispatch::{ButtonInput, Dispatch, Dispatcher, PointerInput};
-pub use edit::{CARET_BLINK_SECONDS, EditMeta, TextEdit, TextType};
+pub use edit::{CARET_BLINK_SECONDS, CARET_GLYPH, EditMeta, TextEdit, TextType};
 pub(crate) use slider::SELECTED_PROPERTY as SLIDER_BOX_SELECTED;
 pub(crate) use slider::step_marks as slider_step_marks;
 pub use slider::{SliderManager, SliderMeta};
