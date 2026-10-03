@@ -268,6 +268,9 @@ pub fn destroy_progress_per_tick(
         speed *= 1.0 + 0.2 * level as f32;
         rate_scale *= 1.2_f32.powi(level);
     }
+    if !speed.is_finite() || !rate_scale.is_finite() {
+        return Some(0.0);
+    }
     if let Some(amplifier) = conditions.mining_fatigue_amplifier {
         // An odd negative amplifier must never yield a faster prediction.
         if amplifier < 0 {
@@ -288,7 +291,12 @@ pub fn destroy_progress_per_tick(
     } else {
         100.0
     };
-    Some(speed / block.hardness / divisor * rate_scale)
+    let progress = speed / block.hardness / divisor * rate_scale;
+    Some(if progress.is_finite() && progress >= 0.0 {
+        progress
+    } else {
+        0.0
+    })
 }
 
 fn tool_speed(block: &BlockDestroyInfo, tool: Option<HeldTool>) -> f32 {

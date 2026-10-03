@@ -1,5 +1,7 @@
 use super::*;
 
+const WORLD_STREAM_COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[test]
 fn windows_defaults_to_dx12_without_overriding_an_explicit_wgpu_backend() {
     use std::ffi::OsStr;
@@ -429,7 +431,7 @@ pub(super) fn overworld_biome_payload() -> Vec<u8> {
 
 pub(super) fn complete_world_stream_decodes(stream: &mut WorldStream) {
     // A wall-clock bound, not a spin count: decode workers can be starved on a loaded machine.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + WORLD_STREAM_COMPLETION_TIMEOUT;
     while std::time::Instant::now() < deadline {
         stream.poll([0.0; 3], 0);
         let stats = stream.stats();
@@ -496,34 +498,33 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
         .unwrap();
     complete_world_stream_decodes(&mut stream);
 
-    let acknowledgement = (0..128)
-        .find_map(|_| {
-            stream.poll([0.0; 3], 1);
-            let mut target = None;
-            while let Some(change) = stream.pop_mesh_change() {
-                let (changed, generation, dirty_since) = match change {
-                    WorldMeshChange::Upsert {
-                        key,
-                        generation,
-                        dirty_since,
-                        ..
-                    }
-                    | WorldMeshChange::Remove {
-                        key,
-                        generation,
-                        dirty_since,
-                        ..
-                    } => (key, generation, dirty_since),
-                };
-                stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());
-                if changed == key {
-                    target = Some((generation, dirty_since));
+    let acknowledgement = wait_for_mesh_publication(|| {
+        stream.poll([0.0; 3], 1);
+        let mut target = None;
+        while let Some(change) = stream.pop_mesh_change() {
+            let (changed, generation, dirty_since) = match change {
+                WorldMeshChange::Upsert {
+                    key,
+                    generation,
+                    dirty_since,
+                    ..
                 }
+                | WorldMeshChange::Remove {
+                    key,
+                    generation,
+                    dirty_since,
+                    ..
+                } => (key, generation, dirty_since),
+            };
+            stream.acknowledge_mesh_upload(changed, generation, dirty_since, Instant::now());
+            if changed == key {
+                target = Some((generation, dirty_since));
             }
-            std::thread::yield_now();
-            target
-        })
-        .expect("public mesh publication");
+        }
+        std::thread::yield_now();
+        target
+    })
+    .unwrap_or_else(|| panic!("public mesh publication timed out: {:?}", stream.stats()));
     assert_ne!(acknowledgement.0, 0);
     assert!(stream.is_mesh_clean(key));
 }
@@ -1149,4 +1150,28 @@ fn interactive_network_failure_requests_exit_without_waiting_for_acceptance_fina
         Some(AppExit::error())
     );
     assert_eq!(fatal_runtime_exit(""), None);
+}
+
+/// Polls the public mesh boundary while background work catches up.
+fn wait_for_mesh_publication<T>(mut poll: impl FnMut() -> Option<T>) -> Option<T> {
+    let deadline = Instant::now() + WORLD_STREAM_COMPLETION_TIMEOUT;
+    while Instant::now() < deadline {
+        if let Some(publication) = poll() {
+            return Some(publication);
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    None
+}
+
+#[test]
+fn review_mesh_publication_waits_beyond_a_scheduler_spin_count() {
+    let mut polls = 0;
+    assert_eq!(
+        wait_for_mesh_publication(|| {
+            polls += 1;
+            (polls > 128).then_some(1)
+        }),
+        Some(1)
+    );
 }

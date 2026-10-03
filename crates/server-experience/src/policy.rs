@@ -13,6 +13,7 @@ pub const MAX_MESSAGES_PER_SECOND: u64 = 64;
 pub const MAX_BYTES_PER_SECOND: u64 = 64 * 1024;
 pub const MAX_QUEUE_MESSAGES: usize = 256;
 pub const MAX_QUEUE_BYTES: usize = 256 * 1024;
+pub const MAX_ACTIONS: usize = 32;
 pub const MAX_CHANNELS: usize = 64;
 pub const MAX_CHANNEL_FIELDS: usize = 64;
 pub const INITIAL_BUNDLE_GENERATION: u64 = 1;
