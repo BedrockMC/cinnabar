@@ -368,3 +368,46 @@ fn view_bindings_read_the_scroll_view_bag() {
         "fed back from layout"
     );
 }
+
+#[test]
+fn gated_render_keeps_retained_scroll_state() {
+    let root = view(
+        json!({ "jump_to_bottom_on_update": true, "touch_mode": true }),
+        [100.0, 300.0],
+        [100.0, 100.0],
+        "vertical",
+    );
+    for (previous_extent, expected_offset) in [(100.0, 200.0), (200.0, 20.0)] {
+        let mut state = scrolled(20.0);
+        state.scroll_state.insert(
+            "/view".to_owned(),
+            json_ui::ScrollRetained {
+                extent: Some(previous_extent),
+                hit_bottom: true,
+                bar_fade: Some(0.0),
+                ..Default::default()
+            },
+        );
+        let render = json_ui::render_bound_gated(
+            root.clone(),
+            [200.0, 200.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        let metrics = &render.report.scrolls["/view"];
+        assert_eq!(
+            metrics.offset, expected_offset,
+            "previous extent {previous_extent}"
+        );
+        assert!(
+            metrics.hit_bottom,
+            "reaching the bottom stays latched after scrolling up"
+        );
+        assert_eq!(
+            metrics.bar_visible,
+            Some(false),
+            "the faded touch bar stays hidden"
+        );
+    }
+}

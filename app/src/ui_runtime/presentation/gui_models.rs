@@ -19,8 +19,8 @@ pub(super) const SKIN_PAGE: usize = render::UI_PLAYER_SKIN_PAGE_OFFSET;
 pub(super) const MODEL_PAGE: usize = render::UI_MODEL_ATLAS_PAGE_OFFSET;
 pub(super) const MODEL_PAGES: usize = render::MAX_UI_MODEL_ATLAS_PAGES;
 
-type IconKey = (u16, [u16; 4]);
-fn icon_key(icon: IconRef) -> IconKey {
+pub(super) type IconKey = (u16, [u16; 4]);
+pub(super) fn icon_key(icon: IconRef) -> IconKey {
     (icon.page, icon.uv)
 }
 
@@ -70,8 +70,7 @@ impl UiPresentationRuntime {
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
         for (visual, sprite) in &sources {
-            // Special translucent GUI tessellators (for example beacon) are not ordinary cubes.
-            if sprite.rgba8.chunks_exact(4).any(|pixel| pixel[3] != 255) {
+            if !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
@@ -201,7 +200,10 @@ impl UiPresentationRuntime {
             let mesh = if preview == Some(key) {
                 player.as_ref()
             } else {
-                self.gui_models.models.get(&key)
+                self.gui_models
+                    .models
+                    .get(&key)
+                    .or_else(|| self.session_icons.models.get(&key))
             };
             let Some(mesh) = mesh.and_then(|mesh| modulated(mesh, color, glint)) else {
                 continue;
@@ -269,7 +271,12 @@ impl UiPresentationRuntime {
     }
 }
 
-fn sheet_faces(icon: IconRef) -> [IconRef; 6] {
+/// Special translucent GUI tessellators (for example beacon) are not ordinary cubes.
+pub(super) fn ordinary_cube_sheet(rgba8: &[u8]) -> bool {
+    rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255)
+}
+
+pub(super) fn sheet_faces(icon: IconRef) -> [IconRef; 6] {
     let side = assets::BLOCK_ITEM_FACE_SIDE;
     let columns = usize::from(assets::BLOCK_ITEM_SHEET_GRID[0]);
     std::array::from_fn(|face| {

@@ -562,9 +562,10 @@ pub fn render_bound_cached(
     lay_out_and_emit(bound, root_size, env, state, Some((measures, false)))
 }
 
-/// [`render_bound`] independent of hover, press and focus: only `state`'s scroll
-/// offsets lay out, and state children emit gated ([`crate::emit_gated`]), so
-/// the result stays valid until the data, scroll, or root size change. Filter
+/// [`render_bound`] independent of hover, press and focus: scrolling, pointer
+/// tracking and dragging still affect layout. State children emit gated
+/// ([`crate::emit_gated`]), so the result stays valid while the data, layout
+/// state, root size and measurement environment stay unchanged. Filter
 /// its nodes with [`DrawNode::shown`]; its hit regions are the neutral state's,
 /// less scroll content wholly outside its viewport, which is not laid out.
 /// `measures` must belong to this tree, root size and `env`.
@@ -575,10 +576,7 @@ pub fn render_bound_gated(
     state: &ViewState,
     measures: &mut MeasureCache,
 ) -> FormRender {
-    let neutral = ViewState {
-        scroll: state.scroll.clone(),
-        ..ViewState::default()
-    };
+    let neutral = state.layout_part();
     lay_out_and_emit(bound, root_size, env, &neutral, Some((measures, true)))
 }
 
