@@ -446,9 +446,10 @@ fn unknown_or_inventory_pending_selection_fails_closed() {
     pending_hotbar
         .inventory_ledger_mut(&mut player_runtime)
         .apply(&inventory_slot(4, NetworkItemStack::empty()));
+    let game_mode = player_runtime.facts.player_game_mode();
     player_runtime
         .inventory
-        .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
+        .queue_local_hotbar_selection(4, game_mode);
     assert!(verified_use_selection(&player_runtime, &pending_hotbar).is_none());
 }
 

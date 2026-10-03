@@ -8,17 +8,47 @@ use crate::audio::{AudioCategory, AudioSettings};
 
 /// The sound section's mixer categories; text-to-speech persists without a mixer backend.
 pub(crate) const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
-    ("main_volume", Some(AudioCategory::Master)),
-    ("music_volume", Some(AudioCategory::Music)),
-    ("sound_volume", Some(AudioCategory::Sound)),
-    ("ambient_volume", Some(AudioCategory::Ambient)),
-    ("block_volume", Some(AudioCategory::Blocks)),
-    ("hostile_volume", Some(AudioCategory::Hostile)),
-    ("neutral_volume", Some(AudioCategory::Neutral)),
-    ("player_volume", Some(AudioCategory::Players)),
-    ("record_volume", Some(AudioCategory::Records)),
-    ("weather_volume", Some(AudioCategory::Weather)),
-    ("texttospeech_volume", None),
+    (
+        super::settings_options::VOLUME_SETTINGS[0],
+        Some(AudioCategory::Master),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[1],
+        Some(AudioCategory::Music),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[2],
+        Some(AudioCategory::Sound),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[3],
+        Some(AudioCategory::Ambient),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[4],
+        Some(AudioCategory::Blocks),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[5],
+        Some(AudioCategory::Hostile),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[6],
+        Some(AudioCategory::Neutral),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[7],
+        Some(AudioCategory::Players),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[8],
+        Some(AudioCategory::Records),
+    ),
+    (
+        super::settings_options::VOLUME_SETTINGS[9],
+        Some(AudioCategory::Weather),
+    ),
+    (super::settings_options::VOLUME_SETTINGS[10], None),
 ];
 impl MenuRuntime {
     /// A capture's fixed CLI scale, cleared when the native slider is changed.

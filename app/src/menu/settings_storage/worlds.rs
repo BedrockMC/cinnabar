@@ -37,7 +37,7 @@ impl MenuRuntime {
                         .file_name()
                         .is_some_and(|id| id == world.id.as_str())
                 }) {
-                    let card = crate::menu::worlds_tab::world_card(world);
+                    let card = launcher::menu::worlds_tab::world_card(world);
                     item.name = card.name;
                     item.date = card.date;
                     item.game_type = card.game_mode;

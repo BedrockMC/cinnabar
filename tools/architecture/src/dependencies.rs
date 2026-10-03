@@ -44,7 +44,14 @@ pub(super) fn check_dependencies(
             &workspace_dependencies,
             &["dev-dependencies"],
         ));
-        graph.insert(rule.name.clone(), CrateDependencies { production, all });
+        graph.insert(
+            rule.name.clone(),
+            CrateDependencies {
+                production,
+                all,
+                features: manifest_features(&value),
+            },
+        );
     }
     let declared_paths = rule_paths.clone();
     load_vendored_dependencies(
@@ -55,6 +62,7 @@ pub(super) fn check_dependencies(
         &mut rule_paths,
         diagnostics,
     )?;
+    check_test_support_features(policy, &graph, &rule_paths, diagnostics);
     for rule in &policy.crate_rules {
         let dependencies = &graph[rule.name.as_str()].production;
         if rule.dependency_free {
@@ -115,6 +123,99 @@ fn forbidden_package(pattern: &str, package: &str) -> bool {
 struct CrateDependencies {
     production: Vec<Dependency>,
     all: Vec<Dependency>,
+    features: BTreeMap<String, Vec<String>>,
+}
+
+/// Reads feature aliases so fixture activation cannot hide behind a default or another name.
+fn manifest_features(manifest: &toml::Value) -> BTreeMap<String, Vec<String>> {
+    manifest
+        .get("features")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flatten()
+        .map(|(name, values)| (name.clone(), feature_names(Some(values))))
+        .collect()
+}
+
+/// Reads a feature-name array without depending on Cargo metadata or an active target.
+fn feature_names(value: Option<&toml::Value>) -> Vec<String> {
+    value
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Expands local feature aliases while retaining dependency feature requests as terminal names.
+fn expanded_features(
+    start: &[String],
+    features: &BTreeMap<String, Vec<String>>,
+) -> BTreeSet<String> {
+    let mut pending = start.to_vec();
+    let mut found = BTreeSet::new();
+    while let Some(name) = pending.pop() {
+        if found.insert(name.clone())
+            && let Some(children) = features.get(&name)
+        {
+            pending.extend(children.iter().cloned());
+        }
+    }
+    found
+}
+
+/// Allows cross-crate fixtures only through explicit development dependency features.
+fn check_test_support_features(
+    policy: &Policy,
+    graph: &BTreeMap<String, CrateDependencies>,
+    paths: &BTreeMap<PathBuf, String>,
+    diagnostics: &mut Vec<String>,
+) {
+    for provider in &policy.crate_rules {
+        if provider.test_support_features.is_empty() {
+            continue;
+        }
+        let features = &graph[&provider.name].features;
+        let defaults = expanded_features(&["default".to_owned()], features);
+        for feature in &provider.test_support_features {
+            if defaults.contains(feature) {
+                diagnostics.push(format!(
+                    "{}: test-support feature `{feature}` is enabled by default",
+                    provider.name,
+                ));
+            }
+        }
+        for (consumer, dependencies) in graph {
+            for dependency in &dependencies.production {
+                let package = dependency
+                    .path
+                    .as_ref()
+                    .and_then(|path| paths.get(path))
+                    .unwrap_or(&dependency.package);
+                if package != &provider.name {
+                    continue;
+                }
+                let mut requested = dependency.features.clone();
+                for value in dependencies.features.values().flatten() {
+                    if let Some((name, feature)) = value.split_once('/')
+                        && name.trim_end_matches('?') == dependency.key
+                    {
+                        requested.push(feature.to_owned());
+                    }
+                }
+                let enabled = expanded_features(&requested, features);
+                for feature in &provider.test_support_features {
+                    if enabled.contains(feature) {
+                        diagnostics.push(format!(
+                            "{consumer}: production dependency `{}` enables test-support feature `{feature}`",
+                            provider.name,
+                        ));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Follow local build edges and reject forbidden packages at any depth.
@@ -228,7 +329,14 @@ fn load_vendored_dependencies(
         ));
         pending.extend(all.iter().filter_map(|dependency| dependency.path.clone()));
         paths.insert(path, name.clone());
-        graph.insert(name, CrateDependencies { production, all });
+        graph.insert(
+            name,
+            CrateDependencies {
+                production,
+                all,
+                features: manifest_features(&value),
+            },
+        );
     }
     Ok(())
 }
@@ -270,6 +378,7 @@ struct Dependency {
     key: String,
     package: String,
     path: Option<PathBuf>,
+    features: Vec<String>,
 }
 
 fn workspace_dependencies(root: &Path) -> Result<BTreeMap<String, Dependency>, ArchitectureError> {
@@ -340,6 +449,9 @@ fn append_dependency_table(
             if let Some(inherited) = workspace_dependencies.get(key) {
                 let mut inherited = inherited.clone();
                 inherited.key = key.clone();
+                inherited.features.extend(feature_names(
+                    details.and_then(|table| table.get("features")),
+                ));
                 dependencies.push(inherited);
             }
             continue;
@@ -357,6 +469,7 @@ fn append_dependency_table(
             key: key.clone(),
             package,
             path,
+            features: feature_names(details.and_then(|table| table.get("features"))),
         });
     }
 }

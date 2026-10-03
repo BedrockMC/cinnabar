@@ -331,9 +331,10 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         let runtime = identified_runtime(&mut player_runtime);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut sends = 0;
         let mut fatal = None;
 
@@ -353,9 +354,10 @@ mod tests {
 
         let mut runtime = identified_runtime(&mut player_runtime);
         let equipment_stack = present_stack();
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         runtime.retain_local_selected_equipment(
             &mut player_runtime,
             1,
@@ -399,9 +401,10 @@ mod tests {
         let mut runtime = identified_runtime(&mut player_runtime);
         let first = present_stack();
         publish_slot(&mut player_runtime, &mut runtime, 2, first);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut fatal = None;
 
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
@@ -441,9 +444,10 @@ mod tests {
             2,
             NetworkItemStack::empty(),
         );
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut attempts = 0;
         let mut fatal = None;
 
@@ -468,12 +472,14 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         let runtime = UiRuntime::new(1);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(7, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(7, game_mode);
 
         assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(7));
         assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(7));
@@ -490,17 +496,19 @@ mod tests {
             4,
             NetworkItemStack::empty(),
         );
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(4, game_mode);
         let mut fatal = None;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
             Err(PacketSendError::Full(packet))
         });
 
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(4, game_mode);
         let mut sent = false;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |_| {
             sent = true;
@@ -516,9 +524,10 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         let mut runtime = UiRuntime::new(1);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(5, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(5, game_mode);
 
         runtime.begin_session(&mut player_runtime, 2);
 
@@ -536,9 +545,10 @@ mod tests {
         open_personal_inventory(&mut player_runtime, &mut runtime);
         let authoritative = present_stack();
         publish_slot(&mut player_runtime, &mut runtime, 0, authoritative.clone());
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(0, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(0, game_mode);
         let authoritative_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
         assert_eq!(authoritative_snapshot.slot, 0);
         assert_eq!(
@@ -586,12 +596,14 @@ mod tests {
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
 
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(1, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(1, game_mode);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(0, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(0, game_mode);
         let mut restored_packet = None;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
             restored_packet = Some(packet);
@@ -671,9 +683,10 @@ mod tests {
                     ]),
                 }]),
             }));
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(0, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(0, game_mode);
         let place = runtime
             .inventory_ledger_mut(&mut player_runtime)
             .begin_click(0)
@@ -771,9 +784,10 @@ mod tests {
             .inventory_ledger_mut(&mut player_runtime)
             .begin_click(1)
             .unwrap();
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(1, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(1, game_mode);
         let mut fatal = None;
         let mut sent = Vec::new();
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
@@ -817,9 +831,10 @@ mod tests {
         let mut stack = present_stack();
         stack.stack_network_id = -1;
         publish_slot(&mut player_runtime, &mut runtime, 2, stack);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut fatal = None;
         let mut sends = 0;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |_| {
@@ -842,9 +857,10 @@ mod tests {
             2,
             NetworkItemStack::empty(),
         );
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         runtime
             .enqueue_inventory_event(
                 &mut player_runtime,
