@@ -36,10 +36,18 @@ fn cancel_presentation() -> UiPresentationRuntime {
 
 #[test]
 fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = cancel_presentation();
-    let mut runtime = pack_harness::action_form("Shop", &["Buy"]);
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Shop", &["Buy"]);
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap().clone();
@@ -53,10 +61,18 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
 
 #[test]
 fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let mut presentation = cancel_presentation();
-    let mut runtime = pack_harness::action_form("Shop", &["Buy"]);
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Shop", &["Buy"]);
     presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     let identity = runtime.server_forms().active().unwrap().identity;
     let mut frame = presentation.form_engine_frame(identity).unwrap().clone();

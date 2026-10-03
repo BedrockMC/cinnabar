@@ -63,11 +63,12 @@ impl UiPresentationRuntime {
     /// stack's item through `identify`.
     pub(crate) fn dress_player_preview(
         &mut self,
+        player_runtime: &crate::player_runtime::PlayerRuntime,
         runtime: &crate::ui_runtime::UiRuntime,
         identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
     ) {
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
-        let ledger = runtime.inventory_ledger();
+        let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
             stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
         };
@@ -76,7 +77,7 @@ impl UiPresentationRuntime {
         });
         let held = named(
             runtime
-                .selected_hotbar_slot()
+                .selected_hotbar_slot(player_runtime)
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
         self.set_player_preview_gear(

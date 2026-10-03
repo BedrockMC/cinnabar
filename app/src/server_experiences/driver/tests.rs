@@ -82,6 +82,7 @@ fn controller_follows_committed_drain_before_semantic_input() {
 
 #[test]
 fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
@@ -136,6 +137,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ClientWorld {
@@ -167,6 +169,8 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
 
 #[test]
 fn unadvertised_experience_preserves_input_and_rendered_menu() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use crate::ui_runtime::presentation::forms::{pack_harness, snapshot};
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let Some(mut presentation) = pack_harness::engine_presentation() else {
@@ -176,12 +180,19 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let menu = MenuRuntime::new(true, 2, "Test".into());
     presentation.set_menu_view(Some(menu.view()));
     let before = presentation
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     snapshot::write(&before, "experience-unadvertised-before");
     let mut app = App::new();
     app.insert_resource(menu)
         .insert_resource(runtime)
+        .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
         .insert_resource(NetworkHandle::disconnected())
         .init_resource::<ClientWorld>()
@@ -222,7 +233,13 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     let after = app
         .world_mut()
         .resource_mut::<UiPresentationRuntime>()
-        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
     snapshot::write(&after, "experience-unadvertised-after");
     assert_eq!(snapshot::rasterize(&before), snapshot::rasterize(&after));

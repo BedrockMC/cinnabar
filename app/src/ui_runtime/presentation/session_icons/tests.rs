@@ -27,6 +27,8 @@ fn metadata_variants_get_distinct_uvs_and_large_catalogs_grow_the_page() {
 
 #[test]
 fn large_session_icons_install_without_blocking_later_server_ui_textures() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     use super::super::forms::{ServerUiPack, pack_harness, tests::mini_engine_presentation};
 
     let mut presentation = mini_engine_presentation();
@@ -59,6 +61,7 @@ fn large_session_icons_install_without_blocking_later_server_ui_textures() {
         ..Default::default()
     });
     let runtime = pack_harness::image_form(
+        &mut player_runtime,
         "Image",
         &["Image"],
         vec![Some(protocol::FormButtonImage::Path(path.into()))],

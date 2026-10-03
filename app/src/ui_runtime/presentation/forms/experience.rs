@@ -259,6 +259,8 @@ mod tests {
 
     #[test]
     fn small_viewports_scroll_maximum_disclosures_before_enabling_approval() {
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
         let packages = (0..server_experience::policy::MAX_BUNDLES)
             .map(|i| {
                 format!(
@@ -294,7 +296,13 @@ mod tests {
                 .set_experience_chrome(Some(&text), true)
                 .unwrap();
             presentation
-                .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    size,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             assert!(presentation.experience_prompt_visible());
             assert!(!presentation.experience_approval_ready());
@@ -320,7 +328,13 @@ mod tests {
             for _ in 0..500 {
                 presentation.scroll_experience(1.0);
                 presentation
-                    .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                    .build(
+                        &player_runtime,
+                        &runtime,
+                        0,
+                        size,
+                        ui::DpiScale::new(1.0).unwrap(),
+                    )
                     .unwrap();
                 if presentation.experience_approval_ready() {
                     break;
@@ -341,7 +355,13 @@ mod tests {
                 "last disclosure was not painted: {texts:?}"
             );
             presentation
-                .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+                .build(
+                    &player_runtime,
+                    &runtime,
+                    0,
+                    size,
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
                 .unwrap();
             let frame = presentation
                 .form_presentation

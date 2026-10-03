@@ -29,6 +29,7 @@ struct FrameTime(u64);
 
 /// Publishes through the same presentation builder after the production input system.
 fn publish(
+    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     menu: Res<MenuRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut frame: ResMut<Frame>,
@@ -41,6 +42,7 @@ fn publish(
     let window = windows.single().unwrap();
     frame.0 = presentation
         .build(
+            &player_runtime,
             &runtime,
             time.0,
             [window.physical_width(), window.physical_height()],
@@ -59,9 +61,11 @@ struct Harness {
 impl Harness {
     /// Uses a temporary user directory; never touches the owner's saved servers.
     fn new(dpi: f32) -> Option<Self> {
+        let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
         let mut presentation = pack_harness::engine_presentation()?;
         let frame = presentation
             .build(
+                &player_runtime,
                 &UiRuntime::new(1),
                 0,
                 [1280, 720],
@@ -85,6 +89,7 @@ impl Harness {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Touches>()
+            .insert_resource(player_runtime)
             .insert_resource(presentation)
             .insert_resource(menu)
             .insert_resource(Frame(frame))

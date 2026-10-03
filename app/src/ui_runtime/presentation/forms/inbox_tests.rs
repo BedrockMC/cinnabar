@@ -8,6 +8,8 @@ use crate::ui_runtime::UiRuntime;
 
 #[test]
 fn inbox_rows_ellipsize_title_and_summary_without_crossing_the_border() {
+    let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+
     let Some(mut presentation) = pack_harness::engine_presentation() else {
         return;
     };
@@ -28,7 +30,13 @@ fn inbox_rows_ellipsize_title_and_summary_without_crossing_the_border() {
     for size in [[1280, 720], [800, 600]] {
         presentation.set_menu_view(Some(view.clone()));
         let frame = presentation
-            .build(&UiRuntime::new(1), 0, size, DpiScale::new(1.0).unwrap())
+            .build(
+                &player_runtime,
+                &UiRuntime::new(1),
+                0,
+                size,
+                DpiScale::new(1.0).unwrap(),
+            )
             .unwrap();
         let nodes = pack_harness::menu_nodes(&presentation);
         let mut rows = 0;
