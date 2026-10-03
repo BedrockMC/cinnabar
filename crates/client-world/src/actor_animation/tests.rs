@@ -443,6 +443,28 @@ fn first_person_driver_variables_track_pitch_and_enable_view_bob() {
     );
     assert_eq!(variables.number_at(0), Some(30.0));
     assert_eq!(variables.number_at(1), Some(1.0));
+    let context = ActorTickContext {
+        is_in_ui: true,
+        ..Default::default()
+    };
+    tick::apply_engine_variables(&engine, &mut variables, &actor, &context, &input, &motion);
+    assert_eq!(variables.number_at(0), Some(0.0));
+    assert_eq!(
+        read_with(&actor, &input, &context, 0, "query.is_in_ui", &[]).number(),
+        1.0
+    );
+    assert_eq!(
+        read_with(
+            &actor,
+            &input,
+            &ActorTickContext::default(),
+            0,
+            "query.is_in_ui",
+            &[]
+        )
+        .number(),
+        0.0
+    );
 }
 
 #[test]

@@ -582,9 +582,10 @@ impl ActorAnimationStore {
                 &mut budget,
                 None,
             );
-            if context.is_local_first_person {
+            if exempt == Some(actor.runtime_id) {
                 let ui_context = ActorTickContext {
                     is_local_first_person: false,
+                    is_in_ui: true,
                     ..context.clone()
                 };
                 state.ui_pose = Some(

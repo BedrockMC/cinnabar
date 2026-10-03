@@ -27,8 +27,9 @@ the vanilla control, and server packs retain their normal higher precedence.
 
 The HUD reuses the existing GUI triangle, skin, armor, held-item and lighting
 pipeline. Its body comes from the local actor's resolved geometry and evaluated
-bone pose, with a separate full-body evaluation while the world camera is in
-first person. This prevents the first-person hand skeleton from becoming the
+bone pose, with a separate full-body UI evaluation independent of the world camera.
+The UI context sets `query.is_in_ui`, clears `variable.player_x_rotation` and
+leaves the head rotation queries intact. This prevents the first-person hand skeleton from becoming the
 HUD body. The fixed preview yaw corresponds to native body yaw -22.5 degrees;
 head movement remains in the evaluated pose. The HUD retains the native 24-pixel ModelPart origin, scaled by the player model scale; its control center is therefore not the body midpoint. Swimming applies the native 0.8
 vertical adjustment. Original skin texels are sampled at final pixel resolution.
