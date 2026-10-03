@@ -335,3 +335,19 @@ fn go_server_half_passes_the_client_verifiers() {
     let delivered = ingress.pop(1, world_epoch).unwrap();
     assert_eq!(delivered.payload, envelope.payload);
 }
+
+#[test]
+fn bundle_metadata_is_independent_of_the_build_host() {
+    let generated = fixtures::generate().unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&generated.bundle)).unwrap();
+    for index in 0..archive.len() {
+        let file = archive.by_index(index).unwrap();
+        let header = usize::try_from(file.central_header_start()).unwrap();
+        // The creator OS occupies the high byte of ZIP's version-made-by field.
+        assert_eq!(generated.bundle[header + 5], 0, "creator OS must be DOS");
+        assert_eq!(file.compression(), zip::CompressionMethod::Stored);
+        assert_eq!(file.last_modified(), Some(zip::DateTime::default()));
+    }
+    let offer: Offer = canonical("offer_payload.json");
+    assert_eq!(crypto::digest(&generated.bundle), offer.packages[0].digest);
+}

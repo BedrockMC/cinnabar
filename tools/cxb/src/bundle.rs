@@ -16,7 +16,7 @@ use server_experience::{
     policy::{API_VERSION, MAX_EXPANDED_BYTES, WIRE_VERSION},
     wire::Channel,
 };
-use zip::{CompressionMethod, DateTime, ZipWriter, write::SimpleFileOptions};
+use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 use crate::keys;
 
@@ -135,5 +135,21 @@ fn archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>> {
         writer.start_file(*path, options)?;
         writer.write_all(bytes)?;
     }
-    Ok(writer.finish()?.into_inner())
+    let mut bytes = writer.finish()?.into_inner();
+    // zip selects the central-directory creator OS from the build host. Pin it to DOS,
+    // matching our original bundles, so signatures and content hashes remain portable.
+    // These entries are regular, writable files; their other attributes are already equal.
+    let offsets = {
+        let mut archive = ZipArchive::new(Cursor::new(&bytes))?;
+        (0..archive.len())
+            .map(|index| {
+                let file = archive.by_index(index)?;
+                Ok(usize::try_from(file.central_header_start())? + 5)
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
+    for offset in offsets {
+        bytes[offset] = 0;
+    }
+    Ok(bytes)
 }
