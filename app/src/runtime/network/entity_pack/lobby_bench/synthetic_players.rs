@@ -7,6 +7,9 @@ use protocol::{
 
 use super::*;
 
+const WARM_UP_FRAMES: u64 = 60;
+const SAMPLE_FRAMES: u64 = 600;
+
 /// Adds anonymous, visible vanilla player rigs without a socket, account, or captured session.
 fn add_players(world: &mut World, players: u64) {
     let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
@@ -155,7 +158,7 @@ fn synthetic_player_lobby_bench() {
         RuntimeStage::ActorPreparation,
         RuntimeStage::ActorRigBuild,
     ];
-    for index in 0u64..660 {
+    for index in 0..WARM_UP_FRAMES + SAMPLE_FRAMES {
         if moving && index.is_multiple_of(3) {
             move_players(&mut world, players, index / 3 + 1);
         }
@@ -175,7 +178,7 @@ fn synthetic_player_lobby_bench() {
             .resource::<RuntimeStageProfiler>()
             .take_snapshot_if_due(Duration::ZERO)
             .unwrap();
-        if index < 60 {
+        if index < WARM_UP_FRAMES {
             continue;
         }
         elapsed.0.push(wall_time.as_secs_f64() * 1e3);
@@ -191,7 +194,7 @@ fn synthetic_player_lobby_bench() {
     let drawn = world.resource::<ActorRenderFrame>().rig.instances.len();
     assert_eq!(drawn, (players as usize).min(render::MAX_RENDERED_PLAYERS));
     eprintln!(
-        "PLAYER_LOBBY_BENCH players={players} moving={moving} frames=600 drawn={}",
+        "PLAYER_LOBBY_BENCH players={players} moving={moving} frames={SAMPLE_FRAMES} drawn={}",
         drawn
     );
     eprintln!("PLAYER_LOBBY_BENCH wall_ms {}", elapsed.summary());

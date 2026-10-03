@@ -3,6 +3,8 @@
 use super::*;
 use std::time::{Duration, Instant};
 
+const SAMPLES: usize = 500;
+
 #[test]
 #[ignore = "release benchmark; needs local carriers and CINNABAR_FORM_PACK_DIR"]
 fn offline_server_hud_publication_cost() {
@@ -22,9 +24,10 @@ fn offline_server_hud_publication_cost() {
     let mut scene = render::UiRenderScene::default();
     let stats = render::UiRenderStats::default();
     for changing in [false, true] {
-        let mut samples = Vec::with_capacity(500);
+        let mut samples = Vec::with_capacity(SAMPLES);
         let before = presentation.hud_passes();
-        for index in 0_u64..=500 {
+        for sample in 0..=SAMPLES {
+            let index = sample as u64;
             let now = index * 8;
             if changing {
                 runtime.hud.set_actionbar(
@@ -62,7 +65,7 @@ fn report(changing: bool, samples: &mut [Duration], passes: usize) {
     eprintln!(
         "HUD_PUBLICATION changing={changing} n={} median_ms={:.3} p99_ms={:.3} bind_layout_passes={passes}",
         samples.len(),
-        samples[249].as_secs_f64() * 1e3,
-        samples[494].as_secs_f64() * 1e3
+        samples[(samples.len() - 1) / 2].as_secs_f64() * 1e3,
+        samples[(samples.len() - 1) * 99 / 100].as_secs_f64() * 1e3
     );
 }
