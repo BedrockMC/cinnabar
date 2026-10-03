@@ -281,6 +281,7 @@ pub struct DaylightCycleUpdateEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameRulesEvent {
     pub daylight_cycle: Option<DaylightCycleUpdateEvent>,
+    pub weather_cycle: Option<bool>,
     pub hud: crate::HudRules,
 }
 
@@ -381,6 +382,8 @@ pub struct BiomeDefinitionEvent {
     pub temperature: f32,
     pub downfall: f32,
     pub snow_foliage: f32,
+    /// Optional generation climate; absent does not imply a snowy biome.
+    pub max_snow_accumulation: Option<f32>,
     pub map_water_color: u32,
 }
 
@@ -428,6 +431,7 @@ pub enum WorldEvent {
     /// A server probe echoed only after preceding world controls are applied.
     NetworkStackLatency(u64),
     SetTime(SetTimeEvent),
+    WorldClocks(Vec<super::WorldClockUpdateEvent>),
     GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),
     Audio(AudioEvent),

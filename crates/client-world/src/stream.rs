@@ -77,6 +77,7 @@ mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;
 mod retries;
 mod scheduler_refresh;
+mod seasonal_foliage;
 mod sequencing;
 mod sign_edit;
 mod workers;
@@ -288,6 +289,7 @@ pub struct WorldStream {
     startup_terrain_announced: bool,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
+    seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     biome_tint_stream_id: u64,
     biome_tint_revision: u64,
     current_dimension: i32,

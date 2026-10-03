@@ -335,38 +335,7 @@ impl WorldStream {
     pub(super) fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
             WorldEvent::BiomeDefinitions(event) => {
-                let live = event
-                    .definitions
-                    .iter()
-                    .map(|definition| LiveBiomeDefinition {
-                        name: definition.name.as_ref(),
-                        biome_id: definition.biome_id,
-                        temperature: definition.temperature,
-                        downfall: definition.downfall,
-                        map_water_argb: definition.map_water_color,
-                    })
-                    .collect::<Vec<_>>();
-                let Ok(resolved) = self.runtime_assets.biome_assets().resolve_live(&live) else {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::BiomeDefinitionResolutionFailure,
-                    );
-                    return;
-                };
-                for _ in 0..resolved.skipped_definitions {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::BiomeDefinitionResolutionFailure,
-                    );
-                }
-                let Some(next_revision) = self.biome_tint_revision.checked_add(1) else {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::BiomeTintRevisionOverflow,
-                    );
-                    return;
-                };
-                self.biome_tint_revision = next_revision;
-                self.biome_definitions = event.definitions;
-                self.resolved_biome_tints = Arc::new(resolved);
-                self.invalidate_resident_biome_tints(Instant::now());
+                self.replace_biome_definitions(event.definitions);
             }
             WorldEvent::LevelChunk(_) => {
                 unreachable!("LevelChunk packets are prepared on workers")
@@ -599,12 +568,27 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
             }
+            WorldEvent::WorldClocks(updates) => {
+                let sequence = sequence.expect("sequenced world clocks commit through submit");
+                for update in updates {
+                    self.push_committed_control(CommittedControlEvent::WorldClocks {
+                        sequence,
+                        update,
+                    });
+                }
+            }
             WorldEvent::GameRules(rules) => {
                 let sequence = sequence.expect("sequenced game rules commit through submit");
                 if let Some(update) = rules.daylight_cycle {
                     self.push_committed_control(CommittedControlEvent::DaylightCycle {
                         sequence,
                         update,
+                    });
+                }
+                if let Some(enabled) = rules.weather_cycle {
+                    self.push_committed_control(CommittedControlEvent::WeatherCycle {
+                        sequence,
+                        enabled,
                     });
                 }
                 if !rules.hud.is_empty() {

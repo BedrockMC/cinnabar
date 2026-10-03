@@ -335,6 +335,7 @@ pub(in crate::chunk) fn begin_arena_migration(
         copy_bytes: growth.gpu_copy_bytes,
         copied_bytes: 0,
     });
+    super::telemetry::log_arena_capacity(arena, "migration started");
 }
 
 /// Copies at most `allowance` bytes of the active migration and swaps the
@@ -368,6 +369,7 @@ pub(in crate::chunk) fn advance_arena_migration(
     if migration.copied_bytes == migration.copy_bytes {
         *buffer = migration.buffer;
         *capacity = migration.new_capacity;
+        super::telemetry::log_arena_capacity(arena, "migration completed");
     } else {
         arena.migration = Some(migration);
     }

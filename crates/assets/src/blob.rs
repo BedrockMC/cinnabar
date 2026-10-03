@@ -7,7 +7,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::model::{
-    MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid,
+    MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
     transparent_cube_quad_geometry_is_valid,
 };
 use crate::{
@@ -17,14 +17,17 @@ use crate::{
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef, VisualKind,
+    MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
+    VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
     compiled::{material_flags_are_valid, visual_semantics_are_valid},
     model::{ANIMATION_FLAGS_MASK, model_quad_flags_are_valid},
 };
 
-pub const BLOB_VERSION: u32 = 8;
+// World leaves require native atlas mips, per-face isotropy and pack-authored
+// AO exponents. Reject earlier carriers that omit those material selectors.
+pub const BLOB_VERSION: u32 = 12;
 pub const BLOB_MAGIC: [u8; 8] = {
     let mut magic = *b"MCBEAS00";
     magic[6] += (BLOB_VERSION / 10) as u8;
@@ -317,6 +320,11 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
     let connected_bases = compiled_connected_bases(&compiled.model_templates)?;
     let mut referenced_connected_bases = vec![false; connected_bases.len()];
     for (index, visual) in compiled.visuals.iter().enumerate() {
+        if !covered_grass_variant_is_valid(visual.kind, visual.variant, compiled.materials.len()) {
+            return Err(invalid(format!(
+                "visual {index} has invalid covered-grass material"
+            )));
+        }
         if BlockFlags::from_bits(visual.flags.bits())
             .is_none_or(|flags| !flags.has_valid_semantics())
         {
@@ -448,6 +456,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             || template.quad_count > 32
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
+            || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }

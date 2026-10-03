@@ -45,7 +45,7 @@ mod windows;
 
 use cells::{Cell, CellSurface, Cells};
 pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination};
-pub use distribute::DistributeMode;
+pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
 use personal::PersonalWindow;

@@ -51,7 +51,10 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
     );
 }
 
-/// Resolves outline bounds from the same shapes that admitted the nearest block pick.
+/// Resolves reviewed visual bounds from the same shapes that admitted the pick.
+/// Named StairBlock::getOutline (26.30, 0x0b01f380) deliberately returns a full
+/// unit box: unioning its slab/step/inner collision pieces preserves that native
+/// wire outline. Model highlighting below uses the separate actual surface.
 fn target(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     context: &SelectionContext,
@@ -112,10 +115,10 @@ fn target(
     );
     let point = |point: sim::Vec3| [point.x as f32, point.y as f32, point.z as f32];
     let assets = stream.runtime_assets();
-    let shape = assets
-        .resolve(stream.network_id_mode(), hit.runtime_id)
+    let visual = assets.resolve(stream.network_id_mode(), hit.runtime_id);
+    let shape = visual
         .model_template()
-        .and_then(|template| crack_shape_from_template(assets, template))
+        .and_then(|template| crack_shape_from_template(assets, template, visual.variant()))
         .unwrap_or(CrackShape::Cube);
     Some(BlockSelectionTarget {
         block: hit.block_pos,

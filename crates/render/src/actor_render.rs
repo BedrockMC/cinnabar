@@ -79,7 +79,13 @@ fn install_actor_render(app: &mut App) {
     let presentation_gate = app.world().resource::<ActorPresentationGate>().clone();
     let runtime_witness = app.world().resource::<ActorRuntimeWitness>().clone();
     app.add_plugins(ExtractResourcePlugin::<ActorRenderFrame>::default());
-    load_internal_asset!(app, ACTOR_SHADER_HANDLE, "actor.wgsl", Shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        ACTOR_SHADER_HANDLE,
+        "actor.wgsl",
+        crate::shader_safety::from_actor_wgsl,
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS
+    );
     crate::nametag_render::install_nametag_render(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -110,6 +116,8 @@ struct ActorGpu {
     artwork: GpuArtwork,
     player_material: Buffer,
     neutral_material: Buffer,
+    color_mask_material: Buffer,
+    multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
     artwork_identity: [u8; 32],
     artwork_current: bool,
@@ -182,6 +190,17 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         neutral_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("neutral binary-alpha material class"),
             contents: bytemuck::cast_slice(&[1u32, 0, 0, 0]),
+            usage: BufferUsages::UNIFORM,
+        }),
+        color_mask_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("native actor color-mask material"),
+            // The shader consumes the second word as a Boolean, not a duplicated class ID.
+            contents: bytemuck::cast_slice(&[0u32, 1, 0, 0]),
+            usage: BufferUsages::UNIFORM,
+        }),
+        multitexture_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("native actor three-sampler material"),
+            contents: bytemuck::cast_slice(&[0u32, 0, 1, 0]),
             usage: BufferUsages::UNIFORM,
         }),
         spans: Vec::new(),
@@ -668,7 +687,13 @@ fn prepare_actor_bind_group(
                     },
                     BindGroupEntry {
                         binding: 8,
-                        resource: gpu.neutral_material.as_entire_binding(),
+                        resource: if page.multitexture {
+                            gpu.multitexture_material.as_entire_binding()
+                        } else if page.color_mask {
+                            gpu.color_mask_material.as_entire_binding()
+                        } else {
+                            gpu.neutral_material.as_entire_binding()
+                        },
                     },
                 ],
             )

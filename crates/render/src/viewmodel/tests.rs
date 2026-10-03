@@ -302,6 +302,7 @@ fn profile() -> assets::EntityGeometry {
             parent: parent.map(Into::into),
             pivot: Some(vec(pivot)),
             rotation: None,
+            bind_pose_rotation: None,
             inflate: None,
             mirror: None,
             never_render: None,

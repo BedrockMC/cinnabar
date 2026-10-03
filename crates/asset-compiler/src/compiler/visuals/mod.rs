@@ -32,6 +32,7 @@ pub(in crate::compiler) mod resin_clump;
 pub(in crate::compiler) mod selector_alias;
 pub(in crate::compiler) mod signs;
 pub(in crate::compiler) mod slabs;
+pub(in crate::compiler) mod snowy_grass;
 pub(in crate::compiler) mod stairs;
 pub(in crate::compiler) mod state;
 pub(in crate::compiler) mod surfaces;

@@ -392,7 +392,7 @@ pub(super) fn evaluate_state(
     let local = sample_clips(
         &evaluator,
         &mut variables,
-        state.bones.len(),
+        &state.bones,
         &weighted_clips,
         budget,
     )?;

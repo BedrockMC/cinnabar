@@ -17,6 +17,9 @@ const AIR: u32 = 0;
 const SOLID: u32 = 1;
 const MODEL: u32 = 2;
 const LIQUID: u32 = 3;
+const LEAF: u32 = 4;
+const EMITTING: u32 = 5;
+const TEST_HASH_BASE: u32 = 0x10000;
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -111,7 +114,7 @@ fn runtime_assets_with_model_geometry(
             .collect::<Vec<_>>()
             .into_boxed_slice(),
     };
-    let visuals = vec![
+    let mut visuals = vec![
         BlockVisual {
             faces: [DIAGNOSTIC_MATERIAL; 6],
             flags: BlockFlags::AIR,
@@ -153,10 +156,20 @@ fn runtime_assets_with_model_geometry(
             variant: 0,
         },
     ];
-    let light_properties = vec![assets::LightProperties::default(); visuals.len()];
+    let mut leaf = visuals[SOLID as usize];
+    leaf.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL;
+    visuals.push(leaf);
+    let mut emitting = leaf;
+    emitting.flags = BlockFlags::CUBE_GEOMETRY;
+    visuals.push(emitting);
+    let mut light_properties = vec![assets::LightProperties::default(); visuals.len()];
+    light_properties[EMITTING as usize] = assets::LightProperties::new(9, 0).unwrap();
+    let hashed = (0..visuals.len() as u32)
+        .map(|id| (TEST_HASH_BASE + id, id))
+        .collect();
     let compiled = CompiledAssets {
         visuals: visuals.into_boxed_slice(),
-        hashed: Box::new([]),
+        hashed,
         materials: vec![Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
@@ -181,6 +194,8 @@ fn runtime_assets_with_model_geometry(
     RuntimeAssets::decode(&encode_blob(&compiled).expect("encode lighting assets"))
         .expect("decode lighting assets")
 }
+
+include!("lighting/leaf_shade.rs");
 
 fn fixture() -> (RuntimeAssets, SubChunk) {
     // At the high corner of block 8,8,8, the up face sees both planar sides,

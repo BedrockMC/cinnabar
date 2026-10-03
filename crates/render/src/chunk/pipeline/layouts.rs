@@ -1,5 +1,7 @@
 use crate::chunk::*;
 
+mod terrain_blend;
+
 /// Minimum vertex storage slots required by the shared world layout.
 pub fn required_vertex_storage_buffers() -> u32 {
     chunk_bind_group_layout()
@@ -52,7 +54,9 @@ impl FromWorld for ChunkPipeline {
                 ..default()
             }),
             primitive: PrimitiveState {
-                cull_mode: Some(CullFace::Back),
+                // Native cutout leaves disable culling; opaque/deep faces keep
+                // their single-sided policy through the material fragment gate.
+                cull_mode: None,
                 ..default()
             },
             depth_stencil: Some(DepthStencilState {
@@ -85,15 +89,7 @@ impl FromWorld for ChunkPipeline {
             .as_mut()
             .expect("transparent model fragment");
         transparent_model_fragment.entry_point = Some("fragment_blend".into());
-        transparent_model_fragment.targets[0]
-            .as_mut()
-            .expect("transparent model colour target")
-            .blend = Some(BlendState::ALPHA_BLENDING);
-        transparent_model_descriptor
-            .depth_stencil
-            .as_mut()
-            .expect("transparent model depth state")
-            .depth_write_enabled = false;
+        terrain_blend::apply(&mut transparent_model_descriptor);
         let mut liquid_descriptor = descriptor.clone();
         liquid_descriptor.label = Some("packed transparent liquid pipeline".into());
         liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
@@ -108,20 +104,7 @@ impl FromWorld for ChunkPipeline {
             .as_mut()
             .expect("liquid fragment")
             .entry_point = Some("fragment".into());
-        liquid_descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap()
-            .blend = Some(BlendState::ALPHA_BLENDING);
-        liquid_descriptor
-            .depth_stencil
-            .as_mut()
-            .expect("liquid depth state")
-            .depth_write_enabled = false;
-        liquid_descriptor
-            .depth_stencil
-            .as_mut()
-            .expect("liquid depth state")
-            .depth_compare = CompareFunction::GreaterEqual;
+        terrain_blend::apply(&mut liquid_descriptor);
         liquid_descriptor.primitive.cull_mode = None;
         let mut depth_liquid_descriptor = descriptor.clone();
         depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
@@ -347,6 +330,32 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                     has_dynamic_offset: false,
                     min_binding_size: Some(AtmosphereFrame::min_size()),
                 },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
         ],

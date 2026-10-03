@@ -88,3 +88,9 @@ fn celestial_time_moves_the_star_mesh_on_the_gpu() {
         "a quarter turn must rotate the star around native +Z: {centers:?}"
     );
 }
+#[allow(
+    dead_code,
+    reason = "shared shader adapter uses production material definitions"
+)]
+#[path = "../src/material_shader.rs"]
+mod material_shader;

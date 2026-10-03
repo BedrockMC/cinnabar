@@ -30,6 +30,8 @@ use crate::{
 };
 
 mod classification;
+mod leaf_mips;
+mod seasonal_leaves;
 mod variations;
 mod visuals;
 
@@ -247,6 +249,13 @@ fn compile_pack_inner(
     let admit_bee_housing = bee_housing_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
+    if records
+        .iter()
+        .any(|record| record.name.as_ref() == "minecraft:grass_block")
+        && let Some((descriptor, key)) = visuals::snowy_grass::material_descriptor(&pack)
+    {
+        descriptor_keys.insert(descriptor, key);
+    }
     let mut fallback_descriptors = BTreeSet::<Descriptor>::new();
     for record in records.iter().filter(|record| {
         if is_mineral_cube_name(&record.name) {
@@ -450,6 +459,34 @@ fn compile_pack_inner(
             bee_housing: admit_bee_housing,
         },
     )?;
+    let mut materials = materials.into_vec();
+    let mut visuals = visuals.into_vec();
+    let seasonal_copies =
+        seasonal_leaves::install(records, &pack.blocks, &mut visuals, &mut materials)?;
+    let leaf_mips::CompiledLeafTextures {
+        pages: texture_pages,
+        animations,
+        frames: animation_frames,
+    } = leaf_mips::install(&mut materials, texture_pages, animations, animation_frames)?;
+    // World leaf selectors retain their original terrain keys even though their
+    // native mip chains are separate from carried/shared texture pixels.
+    let original_keys = material_keys
+        .keys()
+        .flat_map(|key| {
+            material_keys
+                .materials(key)
+                .iter()
+                .map(move |&id| (id, key))
+        })
+        .collect::<Vec<_>>();
+    let material_keys = MaterialKeys::from_entries(original_keys.iter().copied().chain(
+        seasonal_copies.iter().flat_map(|&(copy, original)| {
+            original_keys
+                .iter()
+                .filter_map(move |&(id, key)| (id == original).then_some((copy, key)))
+        }),
+    ))
+    .with_aliases(material_keys.aliases());
     if light_properties.len() != visuals.len() {
         return Err(AssetError::InvalidCompiledAssets {
             detail: "light-property count does not match sequential visual span".into(),
@@ -458,10 +495,10 @@ fn compile_pack_inner(
 
     Ok((
         CompiledAssets {
-            visuals,
+            visuals: visuals.into_boxed_slice(),
             light_properties: light_properties.into(),
             hashed,
-            materials,
+            materials: materials.into_boxed_slice(),
             model_templates,
             model_quads,
             animations,

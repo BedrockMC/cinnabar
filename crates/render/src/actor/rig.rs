@@ -189,9 +189,11 @@ pub struct ActorGpuInstance {
     pub overlay_rgba8: u32,
     pub uv_anim: [f32; 4],
     pub light: u32,
+    /// Two more samplers of a native multitexture material; MAX names no additional sampler.
+    pub multitexture_layers: [u32; 2],
 }
 
-pub const ACTOR_GPU_INSTANCE_WORDS: usize = 25;
+pub const ACTOR_GPU_INSTANCE_WORDS: usize = std::mem::size_of::<ActorGpuInstance>() / 4;
 const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == ACTOR_GPU_INSTANCE_WORDS * 4);
 
 /// Packs a non-premultiplied RGBA overlay (components clamped to 0..=1) into little-endian RGBA8.
@@ -731,6 +733,7 @@ impl ActorRigFrameBuilder {
                 uv_anim: sanitized_uv_anim(submission.uv_anim),
                 light: submission.light,
                 overlay_rgba8: submission.overlay_rgba8,
+                multitexture_layers: [u32::MAX; 2],
             });
             body_count += usize::from(is_body);
             manifest.push(ActorDrawManifestEntry {

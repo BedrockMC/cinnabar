@@ -255,6 +255,7 @@ mod tests {
             parent: parent.map(Into::into),
             pivot: None,
             rotation: None,
+            bind_pose_rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,

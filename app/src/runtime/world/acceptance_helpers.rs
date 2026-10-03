@@ -13,7 +13,9 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::ChangeDimension { resolved, .. }
         | CommittedControlEvent::Respawn { resolved, .. } => resolved,
         CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::WorldClocks { .. }
         | CommittedControlEvent::DaylightCycle { .. }
+        | CommittedControlEvent::WeatherCycle { .. }
         | CommittedControlEvent::Weather { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }

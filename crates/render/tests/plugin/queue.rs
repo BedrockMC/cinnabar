@@ -360,7 +360,12 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
+    assert_eq!(
+        shader.matches("@group(0) @binding(").count(),
+        12 + material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+            + material_shader::CHUNK_SAMPLER_COUNT as usize
+            - 1
+    );
     for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
@@ -369,7 +374,10 @@ fn packed_chunk_shader_parses_and_validates() {
     }
     assert!(shader.contains("@group(0) @binding(15)"));
     assert_eq!(shader.matches("textureSample(").count(), 0);
-    assert_eq!(shader.matches("textureSampleGrad(").count(), 2);
+    assert_eq!(
+        shader.matches("textureSampleGrad(").count(),
+        material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+    );
     assert!(shader.contains("fn sample_texture_ref("));
     assert!(shader.contains("texture_ref >> 31u"));
     assert!(shader.contains("texture_ref & 0x7ffu"));
@@ -390,7 +398,7 @@ fn packed_chunk_shader_parses_and_validates() {
     );
     assert!(shader.contains("material_flags & (1u << 8u)"));
     assert!(shader.contains("sampled.a < 0.5"));
-    assert_eq!(shader.matches("discard").count(), 1);
+    assert_eq!(shader.matches("discard").count(), 2);
     assert!(shader.contains("material_flags & 0x30u"));
     assert!(shader.contains("material_flags & (1u << 6u)"));
     assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
@@ -485,7 +493,7 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
 }
 
 #[test]
-fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings() {
+fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bindings() {
     let shader = include_str!("../../src/chunk.wgsl");
     assert!(shader.contains("struct ChunkOrigin"));
     assert!(shader.contains("cube_bases: vec4<u32>"));
@@ -496,7 +504,9 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings(
         standalone_world_shader(shader)
             .matches("@group(0) @binding(")
             .count(),
-        14
+        12 + material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+            + material_shader::CHUNK_SAMPLER_COUNT as usize
+            - 1
     );
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
@@ -602,11 +612,17 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
         1
     );
     assert_eq!(plugin.matches("render_device.create_texture(").count(), 1);
-    assert_eq!(plugin.matches("render_device.create_sampler(").count(), 1);
+    assert_eq!(
+        plugin.matches("render_device.create_sampler(").count(),
+        material_shader::CHUNK_SAMPLER_COUNT as usize
+    );
     assert!(plugin.contains("layout: vec![bind_group_layout.clone(), crate::lighting::layout()]"));
     assert!(plugin.contains("blend: None"));
     assert!(plugin.contains("depth_write_enabled: true"));
-    assert_eq!(plugin.matches("binding: ").count(), 32);
+    assert_eq!(
+        plugin.matches("binding: ").count(),
+        32 + (assets::MAX_TEXTURE_PAGES + material_shader::CHUNK_SAMPLER_COUNT as usize - 1) * 2
+    );
     for binding in 0..=15 {
         assert_eq!(
             plugin.matches(&format!("binding: {binding},")).count(),
@@ -628,7 +644,19 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
     );
     assert_eq!(
         plugin
+            .matches("BindingResource::TextureView(&texture_assets.native_leaf_views[")
+            .count(),
+        assets::MAX_TEXTURE_PAGES
+    );
+    assert_eq!(
+        plugin
             .matches("BindingResource::Sampler(&texture_assets.sampler)")
+            .count(),
+        1
+    );
+    assert_eq!(
+        plugin
+            .matches("BindingResource::Sampler(&texture_assets.native_leaf_sampler)")
             .count(),
         1
     );
@@ -637,8 +665,12 @@ fn packed_chunk_pipeline_family_shares_one_opaque_depth_writing_phase() {
         plugin
             .matches(".add_render_command::<Transparent3d")
             .count(),
-        3
+        4
     );
+    assert!(plugin.contains("add_render_command::<Transparent3d, DrawMixedTerrainCommands>()"));
+    let mixed = include_str!("../../src/chunk/transparent/mixed/command.rs");
+    assert!(mixed.contains("pass.set_bind_group(0, bind_group, &[view_offset.offset]);"));
+    assert!(!mixed.contains("create_bind_group"));
     assert_eq!(size_of::<Material>(), assets::MATERIAL_BYTES);
     assert_eq!(size_of::<PackedQuad>(), 8);
     assert_eq!(
@@ -655,8 +687,8 @@ fn greedy_uvs_match_every_face_and_repeat_once_per_block() {
     // Resource-pack PNGs and WGPU both treat v=0 as the top row. Vertical
     // faces must therefore assign v=0 to their upper-Y geometry corners.
     let vertical_standard = [[0.0, 1.0], [16.0, 1.0], [16.0, 0.0], [0.0, 0.0]];
-    let vertical_transposed = [[0.0, 1.0], [0.0, 0.0], [16.0, 0.0], [16.0, 1.0]];
-    let horizontal_standard = [[0.0, 0.0], [16.0, 0.0], [16.0, 1.0], [0.0, 1.0]];
+    let vertical_transposed = [[16.0, 1.0], [16.0, 0.0], [0.0, 0.0], [0.0, 1.0]];
+    let horizontal_standard = [[0.0, 1.0], [16.0, 1.0], [16.0, 0.0], [0.0, 0.0]];
     let horizontal_transposed = [[0.0, 0.0], [0.0, 1.0], [16.0, 1.0], [16.0, 0.0]];
 
     for face in [Face::NegativeX, Face::PositiveZ] {

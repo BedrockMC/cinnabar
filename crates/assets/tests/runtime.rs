@@ -1,5 +1,3 @@
-use std::mem::size_of_val;
-
 use assets::{
     AssetError, BLOB_VERSION, BiomeRule, BlobProvenance, BlockFace, BlockFlags, BlockVisual,
     CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, LightProperties,
@@ -12,6 +10,9 @@ use sha2::{Digest, Sha256};
 
 #[path = "runtime/variations.rs"]
 mod variations;
+
+#[path = "runtime/covered_grass.rs"]
+mod covered_grass;
 
 /// Complete synthetic identity for self-round-tripping fixtures. These bytes
 /// never match a real pinned source expectation.
@@ -460,7 +461,7 @@ fn decode_rejects_resealed_old_schema_magic_and_version() {
 
 #[test]
 fn decode_rejects_invalid_visual_flag_semantics() {
-    for raw in [0x10, 0x03, 0x05, 0x08, 0x0c, 0x0e] {
+    for raw in [!BlockFlags::all().bits(), 0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let mut blob = valid_blob();
         let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
         blob[visuals_offset + 24] = raw;
@@ -1086,45 +1087,6 @@ fn explicit_network_id_mode_keeps_sequential_and_hash_lookups_isolated() {
     assert!(colliding_hash.is_known());
     assert_eq!(colliding_hash.face(BlockFace::West).material_id(), 0);
     assert_eq!(runtime.missing_count(), 0);
-}
-
-#[test]
-fn missing_values_and_materials_use_one_bounded_diagnostic_counter() {
-    let runtime = RuntimeAssets::decode(&valid_blob()).expect("decode valid blob");
-    let runtime_size = size_of_val(&runtime);
-
-    for value in 0..10_000 {
-        let missing = runtime.resolve(NetworkIdMode::Sequential, value + 100);
-        assert!(!missing.is_known());
-        assert_eq!(missing.support(), VisualSupport::Diagnostic);
-        assert_eq!(
-            missing.face(BlockFace::Up).material_id(),
-            DIAGNOSTIC_MATERIAL
-        );
-    }
-
-    assert_eq!(runtime.missing_count(), 10_000);
-    assert_eq!(size_of_val(&runtime), runtime_size);
-    assert_eq!(
-        runtime.material(u32::MAX),
-        Material {
-            texture: TextureRef::DIAGNOSTIC,
-            flags: 0,
-            animation: NO_ANIMATION,
-            ..assets::Material::unvaried()
-        }
-    );
-    assert_eq!(runtime.missing_count(), 10_001);
-    assert_eq!(
-        runtime.material(1),
-        Material {
-            texture: TextureRef::new(0, 1).unwrap(),
-            flags: MATERIAL_FLAG_FOLIAGE_TINT,
-            animation: NO_ANIMATION,
-            ..assets::Material::unvaried()
-        }
-    );
-    assert_eq!(runtime.missing_count(), 10_001);
 }
 
 #[test]

@@ -135,6 +135,8 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
         width: 16,
         height: 16,
         layers: 1,
+        color_mask: false,
+        multitexture: false,
         rgba8: vec![255; 1024].into(),
     }]);
     frame.artwork = Arc::new(artwork);
@@ -213,10 +215,28 @@ fn app_with_noop_render_sub_app() -> App {
     app
 }
 
+fn standalone_actor_shader_source() -> String {
+    let shader = crate::shader_safety::from_actor_wgsl(
+        ACTOR_SHADER_SOURCE,
+        "actor.wgsl",
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+    );
+    let bevy::shader::Source::Wgsl(source) = shader.source else {
+        panic!("actor source is WGSL");
+    };
+    shader_source::standalone(&source, &[])
+}
+
 #[test]
 fn actor_shader_parses_as_wgsl() {
-    let source = shader_source::standalone(ACTOR_SHADER_SOURCE, &[]);
-    naga::front::wgsl::parse_str(&source).expect("actor shader parses");
+    let module = naga::front::wgsl::parse_str(&standalone_actor_shader_source())
+        .expect("actor shader parses");
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("shared fog and native multitexture varyings validate together");
 }
 
 // A binding the fragment stage reads must be visible to it, or pipeline creation fails validation.
@@ -224,7 +244,7 @@ fn actor_shader_parses_as_wgsl() {
 fn fragment_view_reads_are_visible_to_the_fragment_stage() {
     use bevy::render::render_resource::ShaderStages;
     assert!(crate::shader_test_support::fragment_reads_binding(
-        &shader_source::standalone(ACTOR_SHADER_SOURCE, &[]),
+        &standalone_actor_shader_source(),
         0,
         0
     ));
@@ -305,10 +325,7 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
         std::mem::offset_of!(crate::actor::ActorRigVertex, bone_index),
         40
     );
-    assert!(ACTOR_SHADER_SOURCE.contains(&format!(
-        "instance_index * {}u",
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS
-    )));
+    assert!(ACTOR_SHADER_SOURCE.contains("instance_index * ACTOR_GPU_INSTANCE_WORDS"));
     assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
@@ -317,4 +334,36 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
     assert!(ACTOR_SHADER_SOURCE.contains("input.back_uv.x < -1.0e8"));
     const { assert!(crate::actor::ONE_SIDED_BACK_UV[0] < -1.0e8) };
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 1u && color.a == 0.0"));
+}
+
+#[test]
+fn native_color_mask_alpha_controls_dye_not_opacity() {
+    assert!(ACTOR_SHADER_SOURCE.contains("let color_mask_material = material_class.y != 0u;"));
+    assert!(ACTOR_SHADER_SOURCE.contains("if (!color_mask_material && !multitexture_material &&"));
+    assert!(ACTOR_SHADER_SOURCE.contains("mix(color.rgb, color.rgb * dye, color.a)"));
+    assert!(ACTOR_SHADER_SOURCE.contains("color.a * change_color.a"));
+    let descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+    assert!(
+        descriptor.fragment.unwrap().targets[0]
+            .as_ref()
+            .unwrap()
+            .blend
+            .is_none()
+    );
+    assert!(descriptor.depth_stencil.unwrap().depth_write_enabled);
+}
+
+#[test]
+fn native_multitexture_mixes_rgb_once_without_using_base_alpha_as_coverage() {
+    assert!(
+        ACTOR_SHADER_SOURCE.contains("material_class.z != 0u && all(input.multitexture_layers")
+    );
+    assert!(
+        ACTOR_SHADER_SOURCE.contains("mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a)")
+    );
+    assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
+    assert_eq!(
+        std::mem::offset_of!(crate::actor::ActorGpuInstance, multitexture_layers) / 4,
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS - 2
+    );
 }

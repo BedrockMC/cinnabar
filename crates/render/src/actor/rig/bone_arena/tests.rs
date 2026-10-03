@@ -133,6 +133,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             uv_anim: input.uv_anim,
             light: input.light,
             overlay_rgba8: input.overlay_rgba8,
+            multitexture_layers: [u32::MAX; 2],
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,

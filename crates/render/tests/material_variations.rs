@@ -4,6 +4,12 @@ use std::{
     task::{Context, Poll, Waker},
 };
 use wgpu::util::DeviceExt;
+#[path = "../src/material_shader.rs"]
+#[allow(
+    dead_code,
+    reason = "this fixture only consumes material shader generation"
+)]
+mod material_shader;
 
 /// Polls the adapter/device futures without adding another executor dependency.
 fn finish<T>(future: impl Future<Output = T>) -> T {
@@ -31,8 +37,8 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
     eprintln!("positional material GPU fixture: {:?}", adapter.get_info());
     let (device, queue) =
         finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-    let source =
-        include_str!("../src/material.wgsl").replace("#define_import_path cinnabar::material", "");
+    let source = material_shader::source(include_str!("../src/material.wgsl"))
+        .replace("#define_import_path cinnabar::material", "");
     let source = format!(
         "{source}\n{}",
         r#"

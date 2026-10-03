@@ -404,9 +404,17 @@ pub enum CommittedControlEvent {
         sequence: u64,
         update: SetTimeEvent,
     },
+    WorldClocks {
+        sequence: u64,
+        update: protocol::WorldClockUpdateEvent,
+    },
     DaylightCycle {
         sequence: u64,
         update: DaylightCycleUpdateEvent,
+    },
+    WeatherCycle {
+        sequence: u64,
+        enabled: bool,
     },
     Weather {
         sequence: u64,

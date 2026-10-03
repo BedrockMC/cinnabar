@@ -1,11 +1,14 @@
 use crate::chunk::*;
 
+/// Returns whether retirement capacity deferred a resident removal this frame.
+/// The independent zero-byte operation allowance is not retirement pressure.
 pub(super) fn prepare_publication_removals(
     arena: &mut ChunkGpuArena,
     budget: ChunkUploadBudget,
     gpu_removals: &ChunkGpuRemovalQueue,
     acknowledgements: &ChunkUploadAcknowledgements,
-) {
+) -> bool {
+    let mut retirement_pressure = false;
     let maximum_zero_byte_operations = budget
         .max_zero_byte_operations_per_frame
         .min(PublicationServiceConfig::PHASE2_GATE.maximum_zero_byte_operations_per_frame);
@@ -35,6 +38,7 @@ pub(super) fn prepare_publication_removals(
         let retirement = RetiredArenaAllocation::full(entity, allocation);
         let bytes = retirement.owned_bytes();
         if !arena.retirement_budget.can_reserve(1, bytes) {
+            retirement_pressure = true;
             continue;
         }
         arena
@@ -91,4 +95,5 @@ pub(super) fn prepare_publication_removals(
         let retired = permit.retire();
         debug_assert!(retired);
     }
+    retirement_pressure
 }

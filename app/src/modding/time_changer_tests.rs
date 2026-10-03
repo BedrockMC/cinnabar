@@ -28,6 +28,7 @@ fn configured_time_changer_is_visual_only_offline() {
             initial_time: 6_000,
             day_cycle_lock_time: 6_000,
             daylight_cycle_enabled: true,
+            weather_cycle_enabled: true,
             rain_level: 0.0,
             lightning_level: 0.0,
         },

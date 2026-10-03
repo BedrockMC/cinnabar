@@ -137,6 +137,7 @@ impl WorldStream {
             startup_terrain_announced: true,
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
+            seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
             biome_tint_stream_id,
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,

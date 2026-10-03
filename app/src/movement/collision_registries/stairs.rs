@@ -8,13 +8,10 @@ pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<Aabb>> {
     }
     let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
     let value = |name: &str| state.get(name)?.get("value");
-    let turns = match value("weirdo_direction")?.as_u64()? {
-        0 => 0,
-        1 => 2,
-        2 => 1,
-        3 => 3,
-        _ => return None,
-    };
+    let turns = assets::StairDirection::from_raw(
+        u32::try_from(value("weirdo_direction")?.as_u64()?).ok()?,
+    )?
+    .turns_from_east();
     let upside_down = value("upside_down_bit")?.as_i64()? != 0;
     let corner = value("minecraft:corner")?.as_str()?;
     let side = match corner {

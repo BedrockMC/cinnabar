@@ -1011,7 +1011,37 @@ fn mesh_mixed(chunks: &[SubChunk]) -> meshing::ChunkMesh {
     )
 }
 
+/// Cube-shaped transparent barriers are excluded from the native height sample
+/// (0x06a9cf80), and their motion-blocking material stops downhill flow
+/// (0x0395d2f0). Face transparency must not turn glass into an air sample.
+#[test]
+fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
+    let mut placements = Vec::new();
+    for x in 7..=9 {
+        for z in 7..=9 {
+            placements.push((
+                if [x, z] == [9, 8] {
+                    GLASS
+                } else {
+                    WATER_SOURCE
+                },
+                [x, 8, z],
+            ));
+        }
+    }
+    placements.push((WATER_SOURCE, [9, 7, 8]));
+    let mesh = mesh(&blocks(&placements));
+    let top = quad_at(&mesh, [8, 8, 8], Face::PositiveY);
+    assert_eq!(top.flow_gradient(), [0, 0]);
+    assert_eq!(
+        top.heights(),
+        [LiquidLevel::from_variant(0).unwrap().height(); 4]
+    );
+    assert_eq!(top.material_id(), STILL);
+}
+
 /// Mesh output for dense mixed cube/model/liquid scenes must stay byte-identical.
+/// This baseline includes native transparent-cube flow/height barrier handling.
 #[test]
 fn mixed_neighbourhood_mesh_output_is_golden() {
     let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
@@ -1026,10 +1056,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            4_776_793_893_981_224_684,
-            14_653_987_338_179_714_709,
-            3_221_800_902_809_347_645,
-            3_205_213_798_545_330_495
+            14_654_652_482_365_600_924,
+            13_039_309_695_558_536_809,
+            7_295_938_615_817_743_962,
+            1_487_539_637_164_714_131
         ]
     );
 }

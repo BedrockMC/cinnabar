@@ -3,7 +3,7 @@
 
 use assets::{BiomeVisualProfile, FogMedium, FogProfile};
 use bevy::{
-    prelude::{Local, Res, ResMut, Time},
+    prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
 use meshing::CameraMedium;
@@ -52,8 +52,12 @@ fn derive_base_frame(
     medium: CameraMedium,
     context: &EnvironmentContext,
 ) -> AtmosphereFrame {
-    let cloud_fade = context.render_distance_blocks.unwrap_or(0.0)
-        * f32::from(render::CloudRenderConfig::default().distance_scale());
+    // Ordinary current preRenderParameters supplies coefficient1. Optional
+    // AppPlatform caps need their own admission witness; quality is not a multiplier.
+    let cloud_fade = context
+        .render_distance_blocks
+        .and_then(|blocks| render::adjusted_cloud_distance_blocks(blocks, 1.0, None))
+        .unwrap_or(0.0);
     let frame = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium)
         .with_sky_kind(SkyKind::from_dimension(context.dimension))
         .with_cloud_fade_distance(cloud_fade);
@@ -62,6 +66,14 @@ fn derive_base_frame(
         None => frame,
     }
 }
+
+type AtmosphereOutputs<'w> = (
+    ResMut<'w, AtmosphereFrame>,
+    ResMut<'w, EnvironmentProfileRoute>,
+    ResMut<'w, render::WorldLighting>,
+    ResMut<'w, super::WeatherTickFrame>,
+    ResMut<'w, render::AtmosphereViewInputs>,
+);
 
 #[must_use]
 #[allow(clippy::too_many_arguments)]
@@ -74,6 +86,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     biome_profiles: &[BiomeVisualProfile],
     fog_profiles: &[FogProfile],
     transition_seconds: Option<f32>,
+    fog_weather_level: f32,
 ) -> (AtmosphereFrame, EnvironmentProfileRoute) {
     let base = derive_base_frame(clock, weather, elapsed_seconds, medium, context);
     let profile = context
@@ -124,9 +137,11 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     };
     let profiled = base.with_environment_profile(profile.sky_rgb8, None);
     let frame = match medium {
-        CameraMedium::Air => {
-            profiled.with_blended_fog(resolve(FogMedium::Air), resolve(FogMedium::Weather))
-        }
+        CameraMedium::Air => profiled.with_blended_fog(
+            resolve(FogMedium::Air),
+            resolve(FogMedium::Weather),
+            fog_weather_level,
+        ),
         CameraMedium::Water => profiled.with_environment_profile(None, resolve(FogMedium::Water)),
         CameraMedium::Lava => profiled.with_environment_profile(None, resolve(FogMedium::Lava)),
     };
@@ -153,18 +168,20 @@ pub(crate) fn update_atmosphere_frame(
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
     vision: Res<crate::camera::VisionEffects>,
-    outputs: (
-        ResMut<AtmosphereFrame>,
-        ResMut<EnvironmentProfileRoute>,
-        ResMut<render::WorldLighting>,
-    ),
+    outputs: AtmosphereOutputs,
     settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
+    mut renderer_clock: Local<super::renderer_clock::RendererClock>,
     preferences: (
         Option<Res<crate::menu::MenuRuntime>>,
         Option<ResMut<render::CloudVisibility>>,
     ),
+    cameras: Query<&Transform, With<crate::camera::FlyCamera>>,
 ) {
+    let renderer_ticks = renderer_clock.advance(
+        clock.server_time().map(|_| clock.session_generation),
+        time.elapsed_secs_f64(),
+    );
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
@@ -178,9 +195,18 @@ pub(crate) fn update_atmosphere_frame(
     let darkness_scale = options
         .as_ref()
         .map_or(1.0, |options| options.value("darkness") as f32 / 100.0);
-    let (mut frame, mut route, mut lighting) = outputs;
+    let (mut frame, mut route, mut lighting, mut weather_ticks, mut view_inputs) = outputs;
     let elapsed = time.elapsed_secs_f64();
-    let shown = display.advance(*weather, elapsed);
+    display.set_precipitation_count(context.precipitation_sample_count);
+    let shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
+    *view_inputs = render::AtmosphereViewInputs {
+        forward: cameras
+            .single()
+            .map_or([0.0; 3], |transform| transform.forward().to_array()),
+        fog_weather_level: display.fog_level(),
+        current_rain_level: display.current_rain_level(),
+    };
+    display.publish_ticks(&mut weather_ticks);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
     let submerged = display.submerged_seconds(medium.0);
     let (next_frame, next_route) = match atmosphere_assets.runtime() {
@@ -193,6 +219,7 @@ pub(crate) fn update_atmosphere_frame(
             assets.biome_profiles(),
             assets.fog_profiles(),
             Some(submerged),
+            display.fog_level(),
         ),
         None => (
             derive_base_frame(clock, shown, elapsed, medium.0, &context),
@@ -200,6 +227,8 @@ pub(crate) fn update_atmosphere_frame(
         ),
     };
     let next_frame = next_frame
+        .with_camera_environment(*view_inputs)
+        .with_cloud_renderer_ticks(renderer_ticks)
         .with_lightning_flash(flash.level(elapsed))
         .with_vision_effects(
             vision.blindness,
@@ -216,7 +245,15 @@ pub(crate) fn update_atmosphere_frame(
         };
     }
     lighting.0 = render::LightmapInputs {
-        sky_darken: frame.daylight(),
+        // Ordinary native renderer04fe3f20 supplies flag1 to update07083390.
+        // buildImage07080cd0 uses it for both ambient stages around gamma;
+        // omitting it crushes shaded terrain at night, despite matching gamma.
+        ambient_adjustment: true,
+        sky_darken: render::lightmap_sky_darken(
+            frame.celestial_angle(),
+            display.fog_level(),
+            shown.lightning_level,
+        ),
         sunrise,
         lightning: frame.lightning_flash() > 0.0,
         brightness: settings.user_settings_update().1.video.brightness,

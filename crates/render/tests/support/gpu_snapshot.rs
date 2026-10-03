@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "shared GPU helpers serve different shader test targets"
+)]
+
 use std::{
     borrow::Cow,
     future::Future,
@@ -17,6 +22,22 @@ pub struct Draw<'a> {
     pub bindings: &'a [wgpu::BindGroupEntry<'a>],
     pub blend: Option<wgpu::BlendState>,
     pub write_depth: bool,
+}
+
+pub struct RasterState {
+    pub primitive: wgpu::PrimitiveState,
+    pub depth_compare: wgpu::CompareFunction,
+    pub write_mask: wgpu::ColorWrites,
+}
+
+impl Default for RasterState {
+    fn default() -> Self {
+        Self {
+            primitive: Default::default(),
+            depth_compare: wgpu::CompareFunction::GreaterEqual,
+            write_mask: wgpu::ColorWrites::ALL,
+        }
+    }
 }
 
 /// Polls wgpu futures without an additional executor dependency.
@@ -60,6 +81,44 @@ impl Gpu {
 
     /// Renders production entry points with reverse depth, then reads their actual pixels.
     pub fn render(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
+        self.render_with_state(source, vertex, draws, RasterState::default())
+    }
+
+    pub fn render_with_state(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        state: RasterState,
+    ) -> Vec<u8> {
+        self.render_to_format(
+            source,
+            vertex,
+            draws,
+            wgpu::TextureFormat::Rgba8Unorm,
+            state,
+        )
+    }
+
+    /// Exercises the same hardware transfer as Bevy's ordinary sRGB target.
+    pub fn render_srgb(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
+        self.render_to_format(
+            source,
+            vertex,
+            draws,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            RasterState::default(),
+        )
+    }
+
+    fn render_to_format(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        target_format: wgpu::TextureFormat,
+        state: RasterState,
+    ) -> Vec<u8> {
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -84,7 +143,7 @@ impl Gpu {
             })
         };
         let target = texture(
-            wgpu::TextureFormat::Rgba8Unorm,
+            target_format,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         );
         let depth = texture(
@@ -106,11 +165,11 @@ impl Gpu {
                         compilation_options: Default::default(),
                         buffers: &[],
                     },
-                    primitive: Default::default(),
+                    primitive: state.primitive,
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: draw.write_depth,
-                        depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        depth_compare: state.depth_compare,
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -120,9 +179,9 @@ impl Gpu {
                         entry_point: Some(draw.fragment),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            format: target_format,
                             blend: draw.blend,
-                            write_mask: wgpu::ColorWrites::ALL,
+                            write_mask: state.write_mask,
                         })],
                     }),
                     multiview: None,
