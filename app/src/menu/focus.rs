@@ -3,19 +3,6 @@
 
 use super::*;
 
-impl MenuAction {
-    /// The text field a press on this control focuses.
-    pub(crate) fn text_field(self) -> Option<MenuField> {
-        match self {
-            Self::AddName => Some(MenuField::Name),
-            Self::AddAddress => Some(MenuField::Address),
-            Self::AddPort => Some(MenuField::Port),
-            Self::LocalWorld(action) => action.field(),
-            _ => None,
-        }
-    }
-}
-
 impl MenuRuntime {
     pub(crate) fn move_focus(&mut self, direction: i32) {
         let actions = self.focus_actions();

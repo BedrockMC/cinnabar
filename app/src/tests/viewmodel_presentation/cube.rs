@@ -184,7 +184,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         &mut runtime,
         &mut presentation,
         world.stream.as_ref(),
-        &Default::default(),
+        crate::camera::CameraSettingsAuthority::default().perspective(),
         0,
     );
     // Block-routed items are absent from the sprite-only icon catalog. The

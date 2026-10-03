@@ -1,5 +1,5 @@
 //! Offline menu frames through the native GPU and production UI pass.
-use super::{pack_harness, panorama, play_flow_snapshots};
+use super::{pack_harness, play_flow_snapshots};
 use crate::menu::MenuScreen;
 use bevy::{
     asset::AssetPlugin,
@@ -15,6 +15,7 @@ use bevy::{
     },
     window::WindowPlugin,
 };
+use client_ui::ui_runtime::presentation::forms::panorama;
 use std::{sync::Arc, time::Instant};
 
 const SIZE: [u32; 2] = [1280, 720];

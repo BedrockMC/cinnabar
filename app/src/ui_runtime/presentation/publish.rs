@@ -3,12 +3,11 @@ use super::*;
 use bevy::prelude::Transform;
 
 mod commit;
-mod item_icons;
-#[cfg(test)]
-pub(crate) use commit::refresh_hud_frame;
-use commit::{PendingUiPublication, PreviewCapture};
-pub(crate) use commit::{PreparedUiPublication, publish_ui_runtime};
-use item_icons::{ItemIconFrames, stack_icon};
+use client_ui::ui_runtime::presentation::{
+    ItemIconFrames, PendingUiPublication, PreparedUiPublication, PreviewCapture, capture_hud_frame,
+    nametags, player_preview, startup::StartupReadinessInput,
+};
+pub(crate) use commit::publish_ui_runtime;
 
 pub(crate) fn observe_mount_jump_input(
     input: Res<crate::semantic_controls::SemanticInputSnapshot>,
@@ -84,7 +83,7 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     prepared.0 = None;
-    runtime.toast_display_millis = menu_runtime.settings_snapshot().0.toast_lifetime_millis();
+    runtime.set_toast_lifetime(menu_runtime.settings_snapshot().0.toast_lifetime_millis());
     if let Some(mut glint_settings) = glint_settings {
         *glint_settings = menu_runtime.ui_glint_settings();
     }
@@ -108,7 +107,7 @@ pub(crate) fn prepare_ui_runtime(
         return;
     };
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    runtime.hud.expire(now_millis);
+    runtime.expire_hud(now_millis);
     if menu_runtime.is_visible() {
         presentation.set_loading_stage(None);
         diagnostics_input.set_startup_probe_enabled(false);
@@ -137,43 +136,45 @@ pub(crate) fn prepare_ui_runtime(
                 });
         let render_work_drained =
             render_queue.retained_len() == 0 && upload_acknowledgements.is_empty();
-        let loading = presentation.startup.probe_enabled(connected);
-        let (startup_released, loading_milestone) = presentation.startup.observe_with_milestone(
-            StartupReadinessInput {
-                session_generation: runtime.session_id(),
-                connected,
-                diagnostics_frame_generation: diagnostics_input.frame_generation(),
-                snapshot: visibility_diagnostics.snapshot(),
-                visible_rendered: visibility.visible_rendered,
-                local_terrain_ready: loading
-                    && client_world
-                        .stream
-                        .as_ref()
-                        .is_some_and(client_world::WorldStream::local_terrain_ready),
-                cohort_target_complete: frame_poll.cohort.map_or_else(
-                    // Outside acceptance runs the cohort is only scanned while loading, so a
-                    // sparse view (a Flat world) can still release the loading screen. A
-                    // server that sent no terrain before spawn (Dragonfly) sends none until
-                    // initialized, so its empty startup view releases once work drains.
-                    || {
-                        loading
-                            && client_world
-                                .stream
-                                .as_ref()
-                                .is_some_and(|stream| stream.startup_view_complete())
-                    },
-                    |status| status.target_is_complete(),
-                ),
-                stream_work_drained,
-                render_work_drained,
-                world_entry_held: runtime.experiences.holds_world_entry(),
-            },
-            now_millis,
-        );
+        let loading = presentation.startup_mut().probe_enabled(connected);
+        let (startup_released, loading_milestone) =
+            presentation.startup_mut().observe_with_milestone(
+                StartupReadinessInput {
+                    session_generation: runtime.session_id(),
+                    connected,
+                    diagnostics_frame_generation: diagnostics_input.frame_generation(),
+                    snapshot: visibility_diagnostics.snapshot(),
+                    visible_rendered: visibility.visible_rendered,
+                    local_terrain_ready: loading
+                        && client_world
+                            .stream
+                            .as_ref()
+                            .is_some_and(client_world::WorldStream::local_terrain_ready),
+                    cohort_target_complete: frame_poll.cohort.map_or_else(
+                        // Outside acceptance runs the cohort is only scanned while loading, so a
+                        // sparse view (a Flat world) can still release the loading screen. A
+                        // server that sent no terrain before spawn (Dragonfly) sends none until
+                        // initialized, so its empty startup view releases once work drains.
+                        || {
+                            loading
+                                && client_world
+                                    .stream
+                                    .as_ref()
+                                    .is_some_and(|stream| stream.startup_view_complete())
+                        },
+                        |status| status.target_is_complete(),
+                    ),
+                    stream_work_drained,
+                    render_work_drained,
+                    world_entry_held: runtime.experiences.holds_world_entry(),
+                },
+                now_millis,
+            );
         if let Some(milestone) = loading_milestone {
             eprintln!("{milestone}");
         }
-        diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
+        diagnostics_input
+            .set_startup_probe_enabled(presentation.startup_mut().probe_enabled(connected));
         presentation.set_loading_stage(if !connected {
             Some(LoadingStage::Connecting)
         } else if startup_released {
@@ -181,13 +182,21 @@ pub(crate) fn prepare_ui_runtime(
         } else {
             Some(LoadingStage::BuildingTerrain)
         });
-        if startup_released && !presentation.startup.completion_queued {
-            presentation.startup.completion_queued = network.finish_loading();
+        if startup_released && !presentation.startup_mut().completion_queued {
+            presentation.startup_mut().completion_queued = network.finish_loading();
         }
     }
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
-    let skin = player_preview::local_preview_skin(stream, menu_runtime.player_skin());
+    let menu_skin = menu_runtime.player_skin();
+    let skin = player_preview::local_preview_skin(
+        stream,
+        &render::ActorSkinPixels {
+            width: menu_skin.width,
+            height: menu_skin.height,
+            rgba8: Arc::clone(&menu_skin.rgba8),
+        },
+    );
     let pose = player_preview::PlayerPreviewPose::of_local_player(stream);
     // The model wears the local player's armor and held item.
     presentation.dress_player_preview(&player_runtime, &runtime, |stack| {
@@ -200,11 +209,10 @@ pub(crate) fn prepare_ui_runtime(
     let doll_state = client_world
         .stream
         .as_ref()
-        .and_then(|stream| super::paper_doll::observe(stream, &runtime, &player_runtime, &physics));
-    presentation.hud_frame.paper_doll_visible =
-        presentation.paper_doll.update(now_millis, doll_state);
+        .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
+    presentation.observe_paper_doll(now_millis, doll_state);
     let settings = menu_runtime.settings_snapshot().0;
-    let hud_doll = presentation.hud_frame.paper_doll_visible
+    let hud_doll = presentation.hud_frame_mut().paper_doll_visible
         && settings.value("hide_hud") == 0
         && settings.value("hide_paperdoll") == 0
         && !menu_runtime.is_visible()
@@ -229,37 +237,54 @@ pub(crate) fn prepare_ui_runtime(
         &player_runtime,
         &mut runtime,
         client_world.stream.as_ref(),
-        collisions.as_deref(),
+        |position| {
+            station_triggered(
+                client_world.stream.as_ref()?,
+                collisions.as_deref()?,
+                position,
+            )
+        },
         now_millis,
     );
+    let icon_frames = ItemIconFrames(std::array::from_fn(|slot| {
+        client_world.stream.as_ref().and_then(|stream| {
+            item_use.inventory_animation_frame(
+                &player_runtime,
+                stream,
+                &runtime,
+                slot as u8,
+                movement.completed_tick(),
+            )
+        })
+    }));
     let item_icons = capture_hud_frame(
         &player_runtime,
         &mut runtime,
         &mut presentation,
         client_world.stream.as_ref(),
-        &camera_settings,
+        camera_settings.perspective(),
         now_millis,
-        Some((&item_use, movement.completed_tick())),
+        icon_frames,
     );
     // Floored feet position and absolute world tick for the HUD's position and days-played text.
-    presentation.hud_frame.player_block = local_frame.snapshot().map(|frame| {
+    presentation.hud_frame_mut().player_block = local_frame.snapshot().map(|frame| {
         let feet = frame.pose().translation;
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
-    presentation.hud_frame.thunderstorm = weather.lightning_level() > 0.0;
-    presentation.hud_frame.dimension = client_world
+    presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame_mut().dimension = client_world
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
-    presentation.hud_frame.world_time = Some(crate::environment::visual_world_time(
+    presentation.hud_frame_mut().world_time = Some(crate::environment::visual_world_time(
         *clock,
         time.elapsed_secs_f64(),
     ));
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
-    presentation.hud_frame.first_person &= !hide_hand;
-    presentation.hud_frame.hand_rig_active = hand_rig.is_active();
+    presentation.hud_frame_mut().first_person &= !hide_hand;
+    presentation.hud_frame_mut().hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
     } else {
@@ -267,10 +292,10 @@ pub(crate) fn prepare_ui_runtime(
             &player_runtime,
             &runtime,
             &client_world,
-            presentation.hud_frame.first_person,
+            presentation.hud_frame_mut().first_person,
             hide_hand
-                || !presentation.renders_game_behind(&player_runtime, &runtime, &menu_runtime)
-                || presentation.loading_stage.is_some(),
+                || !presentation.renders_game_behind(&player_runtime, &runtime, &*menu_runtime)
+                || presentation.loading_stage().is_some(),
             physical_size,
         );
     }
@@ -295,7 +320,7 @@ pub(crate) fn prepare_ui_runtime(
                 camera,
                 &transform,
                 [logical_width, logical_height],
-                collisions.as_deref(),
+                picked_nametag_actor(stream, &transform, collisions.as_deref()),
                 actor_partial.0,
                 show_names,
             )
@@ -305,7 +330,9 @@ pub(crate) fn prepare_ui_runtime(
     presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
-        presentation.sync_menu_artwork(super::menu_artwork::view_paths(&view));
+        presentation.sync_menu_artwork(
+            client_ui::ui_runtime::presentation::menu_artwork::view_paths(&view),
+        );
         for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }
@@ -331,651 +358,96 @@ pub(crate) fn prepare_ui_runtime(
     });
 }
 
-/// Captures HUD display values and applies its required local authority observations.
-fn capture_hud_frame(
+/// Captures predicted local movement and authoritative armor without server echo latency.
+fn observe_paper_doll(
+    stream: &client_world::WorldStream,
+    runtime: &crate::ui_runtime::UiRuntime,
     player_runtime: &crate::player_runtime::PlayerRuntime,
-    runtime: &mut UiRuntime,
-    presentation: &mut UiPresentationRuntime,
-    stream: Option<&client_world::WorldStream>,
-    camera_settings: &CameraSettingsAuthority,
-    now_millis: u64,
-    item_use: Option<(&crate::item_use::ItemUseRuntime, u64)>,
-) -> (Option<IconRef>, Option<IconRef>) {
-    let icon_frames = ItemIconFrames::capture(player_runtime, item_use, stream, runtime);
-    let resolve_identifier = |stack: &protocol::NetworkItemStack| {
-        stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
+    physics: &crate::movement::LocalPhysicsController,
+) -> Option<client_ui::ui_runtime::presentation::paper_doll::State> {
+    use crate::ui_runtime::inventory_ledger::InventoryTarget;
+    let actor = stream.actor(stream.local_player_runtime_id())?;
+    let flag = |bit: u32| {
+        let key = if bit < 64 { 0 } else { 92 };
+        match actor.metadata.get(&key) {
+            Some(
+                protocol::ActorMetadataValue::Flags(bits)
+                | protocol::ActorMetadataValue::FlagsExtended(bits),
+            ) => bits & (1 << (bit % 64)) != 0,
+            _ => false,
+        }
     };
-    let worn = runtime.local_armor(player_runtime);
-    let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
-    let identifiers = worn.map(|stack| {
-        (!stack.is_empty())
-            .then(|| resolve_identifier(stack))
-            .flatten()
-    });
-    runtime.set_derived_armor(Some(item_facts::total_armor_points(
-        identifiers.iter().map(|id| id.as_deref()),
-    )));
-    let mount_health = runtime
-        .gameplay_hud()
-        .mount_unique_id()
-        .and_then(|unique| stream.and_then(|stream| stream.actor_health_by_unique(unique)));
-    let mut hotbar_durability = [None; 9];
-    let mut hotbar_icons = [None; 9];
-    let mut hotbar_stacks: [Option<protocol::NetworkItemStack>; 9] = Default::default();
-    let mut logged_hotbar: [Option<(Arc<str>, bool)>; 9] = Default::default();
-    let mut inventory_icons = super::hud_layout::InventoryIcons::default();
-    for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
-        if let Some(stack) = runtime
-            .inventory_ledger(player_runtime)
-            .displayed_stack(slot as u8)
-        {
-            *icon = resolve_identifier(stack).as_deref().and_then(|id| {
-                stack_icon(
-                    runtime,
-                    presentation,
-                    stack,
-                    id,
-                    icon_frames.slot(slot as u8),
-                )
-            });
-        }
-    }
-    let mut storage_icons = super::hud_layout::StorageIcons::default();
-    for (slot, icon) in storage_icons.0.iter_mut().enumerate() {
-        if let Some(stack) = runtime
-            .inventory_ledger(player_runtime)
-            .storage_stack(slot as u8)
-        {
-            *icon = resolve_identifier(stack)
-                .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
-        }
-    }
-    let mut crafting = super::hud_layout::CraftingFrame::default();
-    if runtime.inventory_open() {
-        let ledger = runtime.inventory_ledger(player_runtime);
-        for (icon, slot) in crafting
-            .icons
-            .iter_mut()
-            .zip(ledger.crafting_grid().slots())
-        {
-            let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot);
-            if let Some(stack) = ledger.target_stack(target) {
-                *icon = resolve_identifier(stack)
-                    .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
-            }
-        }
-        if let inventory::CraftGridMatch::Unique(recipe) = runtime.crafting_match(player_runtime) {
-            let output = recipe.output();
-            let stack = protocol::NetworkItemStack {
-                network_id: output.network_id,
-                metadata: u32::from(output.aux),
-                count: u16::from(output.count),
-                block_runtime_id: output.block_runtime_id as i32,
-                ..protocol::NetworkItemStack::empty()
-            };
-            let icon = resolve_identifier(&stack)
-                .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
-            crafting.output = Some((icon, stack));
-        }
-    }
-    // Hover names for the open container's cells (JSON-UI tooltips).
-    let item_names = if runtime.inventory_open() {
-        let ledger = runtime.inventory_ledger(player_runtime);
-        (0..36u8)
-            .filter_map(|slot| ledger.displayed_stack(slot))
-            .chain((0..54u8).filter_map(|slot| ledger.storage_stack(slot)))
-            .filter_map(|stack| {
-                let name = runtime.localized_item_name(&resolve_identifier(stack)?);
-                Some(((stack.network_id, stack.metadata), Arc::from(name)))
-            })
-            .collect()
-    } else {
-        Default::default()
-    };
-    let mut durability = super::hud_layout::Durability::default();
-    let mut window_icons = super::hud_layout::WindowIcons::default();
-    if runtime.inventory_open() {
-        for (row, name) in ["helmet", "chestplate", "leggings", "boots"]
-            .iter()
-            .enumerate()
-        {
-            window_icons.ghost_armor[row] =
-                presentation.item_icon(&format!("minecraft:empty_armor_slot_{name}"), 0);
-        }
-        window_icons.ghost_shield = presentation.item_icon("minecraft:empty_armor_slot_shield", 0);
-        window_icons.ghost_template =
-            presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
-    }
-    {
-        use crate::ui_runtime::inventory_ledger::InventoryTarget;
-        let ledger = runtime.inventory_ledger(player_runtime);
-        let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
-            let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
-            item_facts::cell_durability_fraction(stack, maximum, correction)
-        };
-        for (slot, bar) in durability.player.iter_mut().enumerate() {
-            if let Some(stack) = ledger.displayed_stack(slot as u8) {
-                let correction = ledger
-                    .presented_slot_overlay(slot as u8)
-                    .and_then(|overlay| overlay.durability_correction);
-                *bar = fraction(stack, correction);
-            }
-        }
-        for (slot, bar) in durability.storage.iter_mut().enumerate() {
-            if let Some(stack) = ledger.storage_stack(slot as u8) {
-                *bar = fraction(stack, None);
-            }
-        }
-        for slot in 0..protocol::UI_SLOT_COUNT as u8 {
-            let stack = if slot == protocol::CREATED_OUTPUT_SLOT {
-                ledger.created_output_stack()
-            } else if protocol::ui_slot_container_name(slot).is_some() {
-                ledger.target_stack(InventoryTarget::Craft(slot))
-            } else {
-                None
-            };
-            if let Some(stack) = stack {
-                durability.ui[usize::from(slot)] = fraction(stack, None);
-                window_icons.ui[usize::from(slot)] = resolve_identifier(stack)
-                    .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, stack, id, None));
-            }
-        }
-    }
-    if runtime.inventory_open()
-        && runtime.inventory_ledger(player_runtime).window_kind()
-            == Some(protocol::WindowKind::Lectern)
-        && runtime.screen_state().book.is_none()
-        && let Some(position) = runtime.inventory_ledger(player_runtime).window_position()
-        && let Some(nbt) = stream.and_then(|stream| stream.block_entity_compound(position))
-    {
-        let pages: Vec<String> = nbt
-            .compound("book")
-            .and_then(|book| book.compound("tag"))
-            .and_then(|tag| tag.list("pages"))
-            .map(|pages| {
-                pages
-                    .iter()
-                    .map(|page| match page {
-                        world::NbtValue::Compound(page) => {
-                            page.string("text").unwrap_or_default().to_owned()
-                        }
-                        _ => String::new(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut state = crate::ui_runtime::book_screen::BookState::new(
-            crate::ui_runtime::book_screen::BookSource::Lectern(position),
-            pages,
-            false,
-            String::new(),
-            String::new(),
-        );
-        state.page = nbt
-            .integer("page")
-            .and_then(|page| usize::try_from(page).ok())
-            .map_or(0, |page| page.min(state.pages.len() - 1));
-        runtime.open_book(state);
-    }
-    let inventory_screen =
-        super::inventory_pointer::InventoryScreen::of_runtime(player_runtime, runtime);
-    let mut window_text = super::hud_layout::WindowText::default();
-    if runtime.inventory_open() {
-        let stated_title = runtime
-            .inventory_ledger(player_runtime)
-            .window_position()
-            .and_then(|position| stream?.block_entity_custom_name(position));
-        window_text.custom_title.clone_from(&stated_title);
-        window_text.block_entity = runtime
-            .inventory_ledger(player_runtime)
-            .window_position()
-            .and_then(|position| stream?.block_entity_compound(position))
-            .and_then(|nbt| nbt.string("id").map(str::to_owned));
-        window_text.inventory_label = runtime
-            .translation("container.inventory")
-            .map(|text| text.to_string());
-        window_text.title = match inventory_screen {
-            super::inventory_pointer::InventoryScreen::Window(kind, _) => {
-                stated_title.or_else(|| {
-                    runtime
-                        .translation(super::hud_layout::title_key(kind))
-                        .map(|text| text.to_string())
-                })
-            }
-            super::inventory_pointer::InventoryScreen::Storage(count) => {
-                stated_title.or_else(|| {
-                    runtime
-                        .translation(if count == 54 {
-                            "container.chestDouble"
-                        } else {
-                            "container.chest"
-                        })
-                        .map(|text| text.to_string())
-                })
-            }
-            super::inventory_pointer::InventoryScreen::Workbench => stated_title.or_else(|| {
-                runtime
-                    .translation("container.crafting")
-                    .map(|text| text.to_string())
-            }),
-            super::inventory_pointer::InventoryScreen::Creative => {
-                let key = match runtime.screen_state().creative_tab {
-                    0 => "itemGroup.name.construction",
-                    1 => "itemGroup.name.nature",
-                    2 => "itemGroup.name.equipment",
-                    3 => "itemGroup.name.items",
-                    _ => "itemGroup.name.search",
-                };
-                runtime.translation(key).map(|text| text.to_string())
-            }
-            super::inventory_pointer::InventoryScreen::Personal
-            | super::inventory_pointer::InventoryScreen::Book => None,
-        };
-        if matches!(
-            inventory_screen,
-            super::inventory_pointer::InventoryScreen::Window(protocol::WindowKind::Beacon, _)
-        ) {
-            window_text.effect_names = [
-                (1, "effect.moveSpeed"),
-                (3, "effect.digSpeed"),
-                (11, "effect.resistance"),
-                (8, "effect.jump"),
-                (5, "effect.damageBoost"),
-                (10, "effect.regeneration"),
-            ]
-            .iter()
-            .map(|(id, key)| {
-                let name = runtime
-                    .translation(key)
-                    .map_or_else(|| (*key).to_owned(), |text| text.to_string());
-                (*id, name)
-            })
-            .collect();
-        }
-        if matches!(
-            inventory_screen,
-            super::inventory_pointer::InventoryScreen::Personal
-                | super::inventory_pointer::InventoryScreen::Workbench
-                | super::inventory_pointer::InventoryScreen::Creative
-        ) && super::forms::recipe_book_shown(player_runtime, runtime)
-        {
-            window_icons.book_entries =
-                super::forms::recipe_book_icons(player_runtime, runtime, |stack| {
-                    resolve_identifier(stack)
-                        .as_deref()
-                        .and_then(|id| presentation.item_icon(id, stack.metadata))
-                });
-        }
-        if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
-            let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-                runtime.inventory_ledger(player_runtime),
-                runtime.screen_state(),
-            );
-            let first = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS;
-            for (cell, item) in entries
-                .iter()
-                .skip(first)
-                .take(super::screens::GRID_CELLS)
-                .enumerate()
-            {
-                window_icons.creative[cell] = resolve_identifier(&item.stack)
-                    .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, &item.stack, id, None));
-            }
-            for (tab, id) in [
-                "minecraft:brick",
-                "minecraft:oak_sapling",
-                "minecraft:iron_sword",
-                "minecraft:stick",
-                "minecraft:compass",
-            ]
-            .iter()
-            .enumerate()
-            {
-                window_icons.creative_tabs[tab] = presentation.item_icon(id, 0);
-            }
-        }
-        if let Some(kind) = runtime.inventory_ledger(player_runtime).window_kind() {
-            let output_stack = |output: protocol::RecipeOutput| protocol::NetworkItemStack {
-                network_id: output.network_id,
-                metadata: u32::from(output.aux),
-                count: u16::from(output.count),
-                block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
-                ..protocol::NetworkItemStack::empty()
-            };
-            if kind == protocol::WindowKind::Stonecutter {
-                let outputs: Vec<_> = runtime
-                    .stonecutter_options(player_runtime)
-                    .iter()
-                    .take(super::screens::STONECUTTER_CELLS)
-                    .map(|recipe| recipe.output)
-                    .collect();
-                for (cell, output) in outputs.into_iter().enumerate() {
-                    if let Some(output) = output {
-                        let stack = output_stack(output);
-                        window_icons.recipe[cell] = resolve_identifier(&stack)
-                            .as_deref()
-                            .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
-                    }
-                }
-            }
-            if runtime
-                .inventory_ledger(player_runtime)
-                .created_output_stack()
-                .is_none()
-                && let Some(output) = runtime.predicted_screen_output(player_runtime)
-            {
-                let stack = output_stack(output);
-                let icon = resolve_identifier(&stack)
-                    .as_deref()
-                    .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
-                window_icons.recipe_output = Some((icon, stack));
-            }
-        }
-        if matches!(
-            inventory_screen,
-            super::inventory_pointer::InventoryScreen::Personal
-                | super::inventory_pointer::InventoryScreen::Workbench
-        ) {
-            window_icons.book_button = presentation.item_icon("minecraft:book", 0);
-            window_text.book_title = runtime
-                .translation("recipe.book.title")
-                .map(|text| text.to_string());
-            if runtime.screen_state().book_open {
-                let first = runtime.screen_state().book_page * super::screens::BOOK_CELLS;
-                let page =
-                    runtime.book_recipes(player_runtime, first, super::screens::BOOK_CELLS + 1);
-                window_icons.book_more = page.len() > super::screens::BOOK_CELLS;
-                for (cell, recipe) in page.iter().take(super::screens::BOOK_CELLS).enumerate() {
-                    let output = recipe.output();
-                    let stack = protocol::NetworkItemStack {
-                        network_id: output.network_id,
-                        metadata: u32::from(output.aux),
-                        count: u16::from(output.count),
-                        block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
-                        ..protocol::NetworkItemStack::empty()
-                    };
-                    window_icons.book[cell] = resolve_identifier(&stack)
-                        .as_deref()
-                        .and_then(|id| stack_icon(runtime, presentation, &stack, id, None));
-                }
-            }
-        }
-        // The tooltip follows the hovered cell's stack.
-        let hovered = runtime.screen_state().hover.and_then(|hit| {
-            use super::inventory_pointer::InventoryCellHit as Hit;
-            let ledger = runtime.inventory_ledger(player_runtime);
-            let (stack, name) = match hit {
-                Hit::Player(slot) => (
-                    ledger.displayed_stack(slot),
-                    ledger
-                        .presented_slot_overlay(slot)
-                        .and_then(|overlay| overlay.custom_name.clone()),
-                ),
-                Hit::Storage(slot) => (ledger.storage_stack(slot), None),
-                Hit::Craft(slot) => (
-                    ledger.target_stack(
-                        crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot),
-                    ),
-                    None,
-                ),
-                Hit::Armor(row) => (
-                    ledger.target_stack(
-                        crate::ui_runtime::inventory_ledger::InventoryTarget::Armor(row),
-                    ),
-                    None,
-                ),
-                Hit::Offhand => (
-                    ledger.target_stack(
-                        crate::ui_runtime::inventory_ledger::InventoryTarget::Offhand,
-                    ),
-                    None,
-                ),
-                Hit::CraftOutput => (ledger.created_output_stack(), None),
-                Hit::CreativeGrid(index) => {
-                    let position = runtime.screen_state().creative_row
-                        * super::screens::GRID_COLUMNS
-                        + usize::from(index);
-                    let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
-                        ledger,
-                        runtime.screen_state(),
-                    );
-                    (entries.get(position).copied().map(|item| &item.stack), None)
-                }
-                Hit::Widget(super::screens::Widget::BookRecipe(index)) => {
-                    let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
-                        + usize::from(index);
-                    let output = runtime
-                        .book_recipes(player_runtime, skip, 1)
-                        .first()
-                        .map(protocol::RecipeHandle::output);
-                    return output.map(|output| {
-                        let stack = protocol::NetworkItemStack {
-                            network_id: output.network_id,
-                            metadata: u32::from(output.aux),
-                            count: u16::from(output.count),
-                            block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
-                            ..protocol::NetworkItemStack::empty()
-                        };
-                        (stack, None)
-                    });
-                }
-                Hit::RecipeBook(index) => {
-                    return super::forms::recipe_book_hover(player_runtime, runtime, index);
-                }
-                Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
-            };
-            stack.map(|stack| (stack.clone(), name))
-        });
-        if let Some((stack, name)) = hovered {
-            let identifier = resolve_identifier(&stack);
-            window_text.tooltip = super::inventory_tooltip::tooltip_lines(
-                runtime,
-                &stack,
-                identifier.as_deref(),
-                name.as_deref(),
-            );
-            if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
-                .and_then(|id| runtime.inventory_ledger(player_runtime).bundle_contents(id))
-            {
-                for held in contents.iter().filter(|held| !held.is_empty()).take(8) {
-                    let item_name = resolve_identifier(held)
-                        .map_or_else(|| "?".to_owned(), |id| runtime.localized_item_name(&id));
-                    window_text.tooltip.push(super::hud_layout::TooltipLine {
-                        text: format!("{}x {item_name}", held.count),
-                        color: [200, 200, 200, 255],
-                    });
-                }
-            }
-        }
-    }
-    let cursor_icon = runtime
-        .inventory_ledger(player_runtime)
-        .cursor_stack()
-        .and_then(|stack| {
-            resolve_identifier(stack)
-                .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
-        });
-    let selected_snapshot = runtime.selected_stack_snapshot(player_runtime);
-    let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
-    let selected_stack = selected_snapshot.and_then(|snapshot| match snapshot.state {
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => Some(stack),
-        crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown
-        | crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => None,
-    });
-    for (slot, durability) in hotbar_durability.iter_mut().enumerate() {
-        let slot = slot as u8;
-        let stack = if selected_slot == Some(slot) {
-            selected_stack
-        } else {
+    let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or((flag(1), flag(3)));
+    Some(client_ui::ui_runtime::presentation::paper_doll::State {
+        sneaking,
+        sprinting,
+        in_water: physics.in_water(),
+        swimming: physics.mode() == sim::MovementMode::Swimming || flag(57),
+        crawling: flag(114),
+        flying: physics.mode() == sim::MovementMode::Flying,
+        gliding: physics.mode() == sim::MovementMode::Gliding || flag(32),
+        emoting: flag(92),
+        armor: std::array::from_fn(|slot| {
             runtime
                 .inventory_ledger(player_runtime)
-                .displayed_stack(slot)
-        };
-        if let Some(stack) = stack {
-            let identifier = resolve_identifier(stack);
-            // Every hotbar cell — selected or not — derives from one
-            // ledger-snapshot authority revision: the travelling predicted
-            // overlay beside its predicted stack while a gesture is in
-            // flight, otherwise the committed overlay. One accepted sparse
-            // response therefore refreshes the whole presented row at once.
-            let overlay = runtime
-                .inventory_ledger(player_runtime)
-                .presented_slot_overlay(slot);
-            *durability = item_facts::cell_durability_fraction(
-                stack,
-                runtime.item_max_durability(identifier.as_deref()),
-                overlay.and_then(|overlay| overlay.durability_correction),
-            );
-            hotbar_icons[usize::from(slot)] = identifier.as_deref().and_then(|id| {
-                stack_icon(runtime, presentation, stack, id, icon_frames.slot(slot))
-            });
-            hotbar_stacks[usize::from(slot)] = Some(stack.clone());
-            logged_hotbar[usize::from(slot)] = Some((
-                identifier
-                    .unwrap_or_else(|| Arc::from(format!("<network id {}>", stack.network_id))),
-                hotbar_icons[usize::from(slot)].is_some(),
-            ));
-        }
-    }
-    presentation.note_hotbar(logged_hotbar);
-    let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
-        item_facts::durability_fraction(stack, maximum)
-    });
-    let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let identifier = resolve_identifier(stack);
-        identifier
-            .as_deref()
-            .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
-    });
-    let armor_icons = {
-        let armor = runtime.local_armor(player_runtime);
-        [
-            &armor.helmet,
-            &armor.chestplate,
-            &armor.leggings,
-            &armor.boots,
-        ]
-        .map(|stack| {
-            resolve_identifier(stack)
-                .as_deref()
-                .and_then(|id| stack_icon(runtime, presentation, stack, id, None))
-        })
-    };
-    let held_item_icon = selected_stack.and_then(|stack| {
-        resolve_identifier(stack).as_deref().and_then(|id| {
-            stack_icon(
-                runtime,
-                presentation,
-                stack,
-                id,
-                selected_slot.and_then(|slot| icon_frames.slot(slot)),
-            )
-        })
-    });
-    let selected_item_name = runtime
-        .selected_stack_custom_name(player_runtime)
-        .or_else(|| {
-            selected_stack.and_then(|stack| {
-                let id = resolve_identifier(stack)?;
-                let name = runtime.localized_item_name(&id);
-                let format = runtime
-                    .item_components(&id)
-                    .and_then(item_facts::name_format);
-                Some(Arc::from(match format {
-                    Some((code, _)) => format!("\u{a7}{code}{name}"),
-                    None => name,
-                }))
-            })
-        });
-    let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
-    let holding_filled_map = selected_stack
-        .and_then(resolve_identifier)
-        .is_some_and(|id| &*id == "minecraft:filled_map");
-    let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
-        stream
-            .filter(|stream| {
-                stream.actor_has_attribute_by_unique(unique, "minecraft:horse.jump_strength")
-            })
-            .map(|_| runtime.mount_jump_charge(now_millis))
-    });
-    let first_person =
-        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let player_preview_icon = presentation.player_preview_icon();
-    let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
-    runtime.observe_selected_item_identity_value(selected_identity, now_millis);
-    let sleeping = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
-        .is_some_and(|actor| actor.is_sleeping());
-    runtime.set_local_sleeping(sleeping);
-    let frame = presentation.hud_frame_mut();
-    frame.sleep.observe(sleeping, now_millis);
-    frame.first_person = first_person;
-    frame.mount_health = mount_health;
-    frame.hotbar_durability = hotbar_durability;
-    frame.hotbar_stacks = hotbar_stacks;
-    frame.offhand_durability = offhand_durability;
-    frame.hotbar_icons = hotbar_icons;
-    frame.inventory_icons = inventory_icons;
-    frame.storage_icons = storage_icons;
-    frame.crafting = crafting;
-    frame.window_icons = window_icons;
-    frame.durability = durability;
-    frame.window_text = window_text;
-    frame.cursor_icon = cursor_icon;
-    frame.armor_icons = armor_icons;
-    frame.offhand_icon = offhand_icon;
-    frame.offhand_viewmodel_icon = None;
-    frame.held_item_icon = None;
-    frame.player_preview = player_preview_icon;
-    frame.left_hand = left_hand_icon;
-    frame.right_hand = right_hand_icon;
-    frame.viewmodel_pitch_degrees = stream
-        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
-        .map_or(0.0, |actor| actor.pitch);
-    frame.selected_item_name = selected_item_name;
-    frame.holding_filled_map = holding_filled_map;
-    frame.item_names = item_names;
-    frame.mount_jump = mount_jump;
-    frame.attack_indicator_charge = Some(1.0);
-    let diagnostics = runtime.gameplay_hud().diagnostics();
-    if diagnostics != presentation.last_hud_diagnostics {
-        bevy::log::debug!(
-            skipped_effect_actions = diagnostics.skipped_effect_actions,
-            evicted_effects = diagnostics.evicted_effects,
-            odd_metadata_values = diagnostics.odd_metadata_values,
-            dropped_inventory_events = diagnostics.dropped_inventory_events,
-            unknown_container_events = diagnostics.unknown_container_events,
-            odd_attribute_values = diagnostics.odd_attribute_values,
-            odd_hud_packets = diagnostics.odd_hud_packets,
-            oversized_chat_rows = diagnostics.oversized_chat_rows,
-            unknown_effect_ids = diagnostics.unknown_effect_ids,
-            "gameplay HUD skipped odd remote data"
-        );
-        presentation.last_hud_diagnostics = diagnostics;
-    }
-    (held_item_icon, offhand_icon)
+                .target_stack(InventoryTarget::Armor(slot as u8))
+                .map_or(0, |stack| stack.network_id)
+        }),
+    })
 }
 
-impl UiPresentationRuntime {
-    /// Returns the previous frame when only the revision would differ, so the
-    /// renderer keeps its accepted publication and skips re-uploading.
-    pub(super) fn stabilize_revision(&mut self, mut input: UiRenderInput) -> UiRenderInput {
-        if let Some(previous) = &self.last_input {
-            input.revision = previous.revision;
-            if *previous == input {
-                return previous.clone();
-            }
-        }
-        self.revision = self.revision.saturating_add(1);
-        input.revision = self.revision;
-        self.last_input = Some(input.clone());
-        input
-    }
+/// Resolves the crafter block's triggered state at the existing UI capture boundary.
+fn station_triggered(
+    stream: &client_world::WorldStream,
+    collisions: &crate::movement::PhysicsCollisionRegistries,
+    position: [i32; 3],
+) -> Option<bool> {
+    let mode = stream.network_id_mode();
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+    );
+    let runtime_id = world.primary_runtime_id(position).ok()?;
+    client_ui::ui_runtime::presentation::forms::container_data::state_bit(
+        collisions.block_canonical_state(mode, runtime_id)?,
+        "triggered_bit",
+    )
 }
+
+/// Captures nametag picking with gameplay's reach and collision policy before UI projection.
+fn picked_nametag_actor(
+    stream: &client_world::WorldStream,
+    camera_transform: &GlobalTransform,
+    collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+) -> Option<u64> {
+    let eye = camera_transform.translation();
+    let direction = *camera_transform.forward();
+    crate::melee::pick_actor(
+        stream.remote_actors(),
+        None,
+        eye.to_array(),
+        direction.to_array(),
+        crate::mining::survival_reach(protocol::PlayerInputMode::Mouse),
+    )
+    .filter(|hit| {
+        let Some(collisions) = collisions else {
+            return true;
+        };
+        let world = sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+        );
+        let vector =
+            |v: bevy::math::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
+        !matches!(
+            world.block_interaction_ray_current(vector(eye), vector(direction), hit.distance),
+            Ok(Some(_))
+        )
+    })
+    .map(|hit| hit.runtime_id)
+}
+
+#[cfg(test)]
+mod item_icons;

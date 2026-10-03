@@ -4,11 +4,11 @@
 //! channel. The menu module embeds it by calling `attach`, `input`, `menu` and `take_ready`.
 
 mod client;
-mod form;
+use launcher::local_worlds::form;
 mod launch;
-mod model;
-mod progress;
-mod prompt;
+use launcher::local_worlds::model;
+use launcher::local_worlds::progress;
+use launcher::local_worlds::prompt;
 #[cfg(test)]
 mod settings_storage_flow_tests;
 

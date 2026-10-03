@@ -154,7 +154,7 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         &mut runtime,
         &mut presentation,
         Some(&stream),
-        &Default::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     let frame = presentation.hud_frame().clone();
@@ -267,7 +267,7 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
         &mut runtime,
         &mut presentation,
         Some(&stream),
-        &Default::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     // Diamond helmet 3, chestplate 8, iron leggings 5, boots 2.

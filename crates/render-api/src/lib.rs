@@ -13,3 +13,6 @@ pub use skin::{
     CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE, MAX_SKIN_ANIMATION_LAYERS, MAX_STANDARD_SKIN_SIDE,
     expand_legacy_skin_rgba8,
 };
+
+/// Maximum view radius supported by the initial world streaming pipeline.
+pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;

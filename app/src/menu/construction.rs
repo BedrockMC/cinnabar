@@ -44,24 +44,25 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices =
             settings_options::SettingsOptions::language_choices(&layout.resource_root);
+        let initial = MenuView::new(visible, display_name);
         Self {
             // The launcher owns the session lifecycle only when the client
             // started on the menu. `--address` keeps the historical behaviour
             // of exiting the process when its one session fails.
             launcher: visible,
             visible,
-            screen: MenuScreen::Home,
+            screen: initial.screen,
             focused: 0,
-            hovered: None,
-            pressed: None,
+            hovered: initial.hovered,
+            pressed: initial.pressed,
             pointer_down: false,
-            server_tab: MenuServerTab::Featured,
-            dialog: None,
-            field: None,
+            server_tab: initial.server_tab,
+            dialog: initial.dialog,
+            field: initial.field,
             caret_revision: 0,
             history: {
                 let mut history = json_ui::ScreenNav::default();
-                history.reset(MenuScreen::Home);
+                history.reset(initial.screen);
                 history
             },
             name: field_editor(MenuField::Name),
@@ -73,30 +74,30 @@ impl MenuRuntime {
                 .map(|scale| scale.clamp(1, 4)),
             gui_scale_offset: saved_video_settings.gui_scale_offset,
             gui_scale_display_offset: saved_video_settings.gui_scale_offset,
-            gui_scale_choices: vec![0],
+            gui_scale_choices: initial.gui_scale_choices,
             fullscreen: saved_video_settings.fullscreen,
             fullscreen_change: saved_video_settings.fullscreen.then_some(true),
             video_settings_writer: None,
             settings_focus: Vec::new(),
             last_saved_video_settings: saved_video_settings,
             failed_video_settings_save: None,
-            render_mode: RenderMode::Vanilla,
+            render_mode: initial.render_mode,
             render_mode_request: None,
-            display_name,
+            display_name: initial.display_name,
             servers: loaded.servers,
             saves: ServerWriter::new(config_path.clone(), loaded.allow_writes),
             config_path,
             pending_connect: None,
-            connecting: false,
+            connecting: initial.connecting,
             disconnect_requested: false,
             exit_requested: false,
             session_generation: 1,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
-            featured: Vec::new(),
-            gatherings: Vec::new(),
-            realms: Vec::new(),
-            friends: Vec::new(),
-            catalog_message: None,
+            featured: initial.featured,
+            gatherings: initial.gatherings,
+            realms: initial.realms,
+            friends: initial.friends,
+            catalog_message: initial.catalog_message,
             catalog_started: false,
             catalog_path: layout.catalog_file(std::process::id()),
             catalog_process: None,
@@ -107,12 +108,12 @@ impl MenuRuntime {
             player_skin,
             session_directory: None,
             join: None,
-            editing: None,
-            settings_section: 0,
-            disconnect_message: None,
+            editing: initial.editing,
+            settings_section: initial.settings_section,
+            disconnect_message: initial.disconnect_message,
             death_shown: false,
             respawn_requested: false,
-            local_worlds: Vec::new(),
+            local_worlds: initial.local_worlds,
             local_world_requested: None,
             local_ui: Default::default(),
             control_auth: None,
@@ -120,22 +121,55 @@ impl MenuRuntime {
             sign_out_requested: false,
             store_actions: Vec::new(),
             global_resource_actions: Vec::new(),
-            global_resources: Default::default(),
-            store_snapshot: None,
+            global_resources: initial.global_resources,
+            store_snapshot: initial.store,
             settings_options: std::sync::Arc::new(settings_options),
-            storage: Default::default(),
-            settings_dropdown: None,
+            storage: initial.storage,
+            settings_dropdown: initial.settings_dropdown,
             settings_dirty: false,
             settings_apply: true,
             language_choices,
             language_pending,
             language_asset_path,
             settings_slider_drag: None,
-            key_remap: None,
-            settings_advanced_graphics: false,
+            key_remap: initial.key_remap,
+            settings_advanced_graphics: initial.settings_advanced_graphics,
             local_world_joined: false,
             local_world_active: false,
-            feeds: MenuFeeds::default(),
+            feeds: initial.feeds,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_initial_view_matches_the_host_before_services_are_loaded() {
+        let layout = crate::install_layout::scratch("initial-menu-view");
+        let display_name = "Initial view".to_owned();
+        for visible in [false, true] {
+            let initial = MenuView::new(visible, display_name.clone());
+            let actual = MenuRuntime::new_with_layout(
+                visible,
+                Some(2),
+                display_name.clone(),
+                layout.clone(),
+                crate::player_skin::LocalPlayerSkin::generated_default(&display_name),
+            )
+            .view();
+            assert_eq!(actual.visible, initial.visible);
+            assert_eq!(actual.over_world, initial.over_world);
+            assert_eq!(actual.screen, initial.screen);
+            assert_eq!(actual.focused_action, initial.focused_action);
+            assert_eq!(actual.caret, initial.caret);
+            assert_eq!(actual.name, initial.name);
+            assert_eq!(actual.address, initial.address);
+            assert_eq!(actual.port, initial.port);
+            assert_eq!(actual.local, initial.local);
+            assert_eq!(actual.auth_state, initial.auth_state);
+            assert_eq!(actual.catalog_loading, initial.catalog_loading);
         }
     }
 }

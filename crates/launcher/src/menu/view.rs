@@ -1,0 +1,453 @@
+//! The menu's presented data: saved servers, catalog cards, and the per-frame
+//! view the renderers draw from.
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use super::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab, auth::AuthState};
+use ui::IconRef;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SavedServer {
+    pub name: String,
+    pub address: String,
+    #[serde(default)]
+    pub favorite: bool,
+    #[serde(default)]
+    pub last_joined_unix: u64,
+}
+
+/// One local world for the play screen's worlds tab, supplied by the local
+/// worlds module through [`MenuView::local_worlds`].
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LocalWorldCard {
+    pub name: String,
+    pub game_mode: String,
+    /// The owner's world type label (Normal (BDS) or Flat (Dragonfly)).
+    pub world_type: String,
+    pub date: String,
+    pub size: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct MenuServerCard {
+    pub name: String,
+    pub address: String,
+    pub caption: String,
+    #[serde(default)]
+    pub image_path: String,
+    #[serde(skip)]
+    pub icon: Option<IconRef>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct MenuRealmCard {
+    pub name: String,
+    pub state: String,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub online_players: u32,
+    #[serde(default)]
+    pub max_players: u32,
+    #[serde(default)]
+    pub days_left: i32,
+    #[serde(default)]
+    pub expired: bool,
+    /// Joined as a member rather than owned.
+    #[serde(default)]
+    pub member: bool,
+}
+
+/// A featured server's info-panel details; artwork is a local cached path.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ServerDetails {
+    pub description: String,
+    pub news_title: String,
+    pub news: String,
+    pub screenshots: Vec<String>,
+    pub games: Vec<MenuGameCard>,
+}
+
+/// One game a featured server advertises.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MenuGameCard {
+    pub title: String,
+    pub subtitle: String,
+    pub description: String,
+    pub image_path: String,
+}
+
+/// The signed-in profile as the start screen shows it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MenuProfile {
+    pub gamertag: String,
+    pub picture_path: String,
+    pub real_name: String,
+    pub presence: String,
+    pub gamerscore: Option<i64>,
+    pub friends: Option<u32>,
+    pub followers: Option<u32>,
+}
+
+/// Service feed data beyond the catalog cards: featured-server details keyed
+/// by address, the profile, and the featured server the info panel shows.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MenuFeeds {
+    pub inbox_state: super::inbox::InboxState,
+    pub details: HashMap<String, ServerDetails>,
+    pub profile: MenuProfile,
+    pub selected_featured: Option<usize>,
+    /// The saved server the Servers tab's details show, instead of a featured one.
+    pub selected_saved: Option<usize>,
+    /// The Realm the Realms tab's details show.
+    pub selected_realm: Option<usize>,
+    /// RakNet pongs keyed by the address the row joins.
+    pub pings: HashMap<String, PingInfo>,
+    /// The info panel's description and news are expanded past "read more".
+    pub description_expanded: bool,
+    pub news_expanded: bool,
+    pub home: MenuHome,
+    /// The join the progress screen reports while connecting.
+    pub join: JoinProgress,
+}
+
+/// Which kind of join is under way; picks vanilla's connect title and progress screen.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum JoinKind {
+    #[default]
+    External,
+    Realm,
+    Local,
+}
+
+/// A join's stage, as vanilla's progress handlers split it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum JoinStage {
+    /// The Realm lookup.
+    Realm,
+    /// Transport connect and login.
+    #[default]
+    Connecting,
+    /// Pack acquisition; the byte total stays zero until a download begins.
+    Packs {
+        done: u32,
+        total: u32,
+        received_bytes: u64,
+        total_bytes: u64,
+    },
+    /// The core handed the session over and the world is not ready yet.
+    Generating,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct JoinProgress {
+    pub kind: JoinKind,
+    pub stage: JoinStage,
+    /// The core reported this join, so its report vanishing means the handoff.
+    reported: bool,
+}
+
+impl JoinProgress {
+    pub fn new(kind: JoinKind) -> Self {
+        Self {
+            kind,
+            ..Self::default()
+        }
+    }
+
+    /// Folds in the core's latest report; `None` before its first or after the handoff.
+    pub fn observe(&mut self, core: Option<JoinStage>) {
+        match core {
+            Some(stage) => {
+                self.stage = stage;
+                self.reported = true;
+            }
+            None if self.reported => self.stage = JoinStage::Generating,
+            None => {}
+        }
+    }
+
+    /// Whether vanilla's handler for this stage lets the player cancel.
+    pub fn cancellable(&self) -> bool {
+        match self.stage {
+            JoinStage::Realm => false,
+            JoinStage::Connecting => self.kind == JoinKind::External,
+            JoinStage::Packs { total_bytes, .. } => total_bytes > 0,
+            JoinStage::Generating => true,
+        }
+    }
+}
+
+/// The start screen's service data: messaging tile art, inbox and invite
+/// counts, the live event button and the rendered persona head.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MenuHome {
+    pub play_art: Option<ButtonArt>,
+    pub store_art: Option<ButtonArt>,
+    pub inbox_unread: u32,
+    pub inbox_counts: std::collections::BTreeMap<usize, u32>,
+    pub realm_invites: u32,
+    pub live_event: Option<LiveEventCard>,
+    pub persona_head: String,
+    /// Inbox messages, newest first as the service lists them.
+    pub inbox: Vec<InboxItem>,
+}
+
+/// One inbox message.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct InboxItem {
+    pub instance_id: String,
+    pub report_id: String,
+    pub received: String,
+    pub source: String,
+    pub header: String,
+    pub body: String,
+    pub category: String,
+    pub unread: bool,
+}
+
+/// A main button's messaging art: local image paths per layer and its banner.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ButtonArt {
+    pub banner_texture: String,
+    pub colors: std::collections::BTreeMap<String, [u8; 3]>,
+    pub default_background: String,
+    pub hover_background: String,
+    pub default_foreground: String,
+    pub hover_foreground: String,
+    pub banner: String,
+}
+
+/// The live gathering the start screen's event button leads to.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LiveEventCard {
+    pub button_text: String,
+    pub caption: String,
+    pub countdown: bool,
+    pub start_unix: i64,
+    pub badge_path: String,
+    pub address: String,
+    pub route_to_servers: bool,
+}
+
+impl MenuFeeds {
+    /// Show another featured server; its panel opens collapsed.
+    pub fn select(&mut self, index: usize) {
+        if self.selected_featured != Some(index) {
+            self.description_expanded = false;
+            self.news_expanded = false;
+        }
+        self.selected_featured = Some(index);
+        self.selected_saved = None;
+    }
+
+    /// Show a saved server's details in place of the featured one.
+    pub fn select_saved(&mut self, index: usize) {
+        self.selected_saved = Some(index);
+        self.selected_featured = None;
+    }
+
+    pub fn toggle_read_more(&mut self, section: u8) {
+        match section {
+            0 => self.description_expanded = !self.description_expanded,
+            _ => self.news_expanded = !self.news_expanded,
+        }
+    }
+}
+
+/// One server's pong: `online` is false when it did not answer.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PingInfo {
+    pub online: bool,
+    pub players: u32,
+    pub max_players: u32,
+    pub ping_ms: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MenuFriendCard {
+    pub gamertag: String,
+    pub world_name: String,
+    pub members: String,
+    pub xuid: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct MenuView {
+    pub visible: bool,
+    /// The menu opened over the session's world rather than the launcher's.
+    pub over_world: bool,
+    pub screen: MenuScreen,
+    pub focused_action: Option<MenuAction>,
+    pub hovered: Option<MenuAction>,
+    pub pressed: Option<MenuAction>,
+    pub server_tab: MenuServerTab,
+    pub dialog: Option<MenuDialog>,
+    pub field: Option<MenuField>,
+    /// The focused field's caret.
+    pub caret: MenuCaret,
+    pub name: String,
+    pub address: String,
+    pub port: String,
+    pub message: Option<String>,
+    pub gui_scale_offset: i8,
+    pub gui_scale_choices: Vec<i8>,
+    pub fullscreen: bool,
+    pub render_mode: ui::RenderMode,
+    pub display_name: String,
+    pub servers: Vec<SavedServer>,
+    pub featured: Vec<MenuServerCard>,
+    pub gatherings: Vec<MenuServerCard>,
+    pub realms: Vec<MenuRealmCard>,
+    pub friends: Vec<MenuFriendCard>,
+    pub featured_icon: Option<IconRef>,
+    pub gathering_icon: Option<IconRef>,
+    pub realm_icon: Option<IconRef>,
+    pub friend_icon: Option<IconRef>,
+    pub saved_icon: Option<IconRef>,
+    pub profile_icon: Option<IconRef>,
+    pub catalog_loading: bool,
+    pub catalog_message: Option<String>,
+    pub auth_state: AuthState,
+    pub connecting: bool,
+    pub settings_section: u8,
+    pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
+    /// Why the last session ended, shown until acknowledged.
+    pub disconnect_message: Option<String>,
+    /// The saved server the add screen is editing.
+    pub editing: Option<usize>,
+    pub local_worlds: Vec<LocalWorldCard>,
+    /// The local-world create, edit and template screens and their modals.
+    pub local: crate::local_worlds::WorldsView,
+    pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
+    pub storage: std::sync::Arc<super::settings_storage::StorageView>,
+    pub settings_dropdown: Option<u16>,
+    pub key_remap: Option<u16>,
+    pub settings_advanced_graphics: bool,
+    pub language_choices: std::sync::Arc<[(String, String)]>,
+    pub feeds: MenuFeeds,
+    /// The Marketplace's state while its screen is up.
+    pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+}
+
+/// The focused text field's caret.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MenuCaret {
+    /// Byte offset into the focused field's text.
+    pub byte: usize,
+    /// Selected byte range, when the focused editor has a selection.
+    pub selection: Option<[usize; 2]>,
+    /// Changes with every edit and caret move, restarting the blink.
+    pub revision: u64,
+    /// The blink phase, which the presentation sets from its clock.
+    pub shown: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CatalogFile {
+    #[serde(default)]
+    pub featured: Vec<MenuServerCard>,
+    #[serde(default)]
+    pub gatherings: Vec<MenuServerCard>,
+    #[serde(default)]
+    pub realms: Vec<MenuRealmCard>,
+    #[serde(default)]
+    pub friends: Vec<CatalogFriend>,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CatalogFriend {
+    pub gamertag: String,
+    pub world_name: String,
+    pub xuid: String,
+    pub members: i32,
+    pub max_members: i32,
+}
+
+impl From<CatalogFriend> for MenuFriendCard {
+    fn from(friend: CatalogFriend) -> Self {
+        let members = if friend.max_members > 0 {
+            format!("{}/{} players", friend.members, friend.max_members)
+        } else {
+            format!("{} players", friend.members)
+        };
+        Self {
+            gamertag: friend.gamertag,
+            world_name: friend.world_name,
+            members,
+            xuid: friend.xuid,
+        }
+    }
+}
+
+impl MenuView {
+    /// Whether the launcher is waiting for the player to complete device-code sign-in.
+    pub fn auth_state_awaiting_code(&self) -> bool {
+        matches!(self.auth_state, AuthState::AwaitingCode { .. })
+    }
+
+    /// Creates the empty home view used before host settings and service feeds are loaded.
+    pub fn new(visible: bool, display_name: String) -> Self {
+        Self {
+            visible,
+            over_world: !visible,
+            screen: MenuScreen::Home,
+            focused_action: Some(MenuAction::Navigate(MenuScreen::Home)),
+            hovered: None,
+            pressed: None,
+            server_tab: MenuServerTab::Featured,
+            dialog: None,
+            field: None,
+            caret: MenuCaret {
+                shown: true,
+                ..MenuCaret::default()
+            },
+            name: String::new(),
+            address: String::new(),
+            port: String::new(),
+            message: None,
+            gui_scale_offset: 0,
+            gui_scale_choices: vec![0],
+            fullscreen: false,
+            render_mode: ui::RenderMode::Vanilla,
+            display_name,
+            servers: Vec::new(),
+            featured: Vec::new(),
+            gatherings: Vec::new(),
+            realms: Vec::new(),
+            friends: Vec::new(),
+            featured_icon: None,
+            gathering_icon: None,
+            realm_icon: None,
+            friend_icon: None,
+            saved_icon: None,
+            profile_icon: None,
+            catalog_loading: false,
+            catalog_message: None,
+            auth_state: AuthState::SignedOut,
+            connecting: false,
+            settings_section: 0,
+            global_resources: Default::default(),
+            disconnect_message: None,
+            editing: None,
+            local_worlds: Vec::new(),
+            local: Default::default(),
+            settings_options: Default::default(),
+            storage: Default::default(),
+            settings_dropdown: None,
+            key_remap: None,
+            settings_advanced_graphics: false,
+            language_choices: Default::default(),
+            feeds: Default::default(),
+            store: None,
+        }
+    }
+}

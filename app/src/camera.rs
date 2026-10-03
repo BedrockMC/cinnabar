@@ -750,9 +750,14 @@ pub(crate) fn update_cursor_capture(
         return;
     }
 
-    let steals = ui
-        .as_deref()
-        .map(|ui| ui.steals_mouse(&player_runtime, menu.as_deref()));
+    let steals = ui.as_deref().map(|ui| {
+        ui.steals_mouse(
+            &player_runtime,
+            menu.as_deref().map(|menu| {
+                menu as &dyn client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene
+            }),
+        )
+    });
     if crate::screen_policy::absorbs_input(
         &player_runtime,
         ui.as_deref(),

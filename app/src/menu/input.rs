@@ -537,10 +537,16 @@ pub(crate) fn drive_menu_input(
         if gamepad.just_pressed(GamepadButton::DPadDown) {
             menu.move_focus(1);
         }
-        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::South)) {
+        if gamepad.just_pressed(super::settings_options::gamepad_button(
+            &menu.settings_options,
+            GamepadButton::South,
+        )) {
             menu.activate_focused();
         }
-        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::East)) {
+        if gamepad.just_pressed(super::settings_options::gamepad_button(
+            &menu.settings_options,
+            GamepadButton::East,
+        )) {
             menu.go_back_from_input();
         }
     }

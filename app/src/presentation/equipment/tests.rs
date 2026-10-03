@@ -12,7 +12,7 @@ use super::{
     atlas::{ATLAS_SIDE, SpriteAtlas},
     display::{
         FirstPersonHand, FirstPersonShape, ItemDisplay, attach_to_bone, first_person_display,
-        held_block_display, held_sprite_display, is_hand_equipped, is_mirrored_art,
+        held_block_display, is_mirrored_art,
     },
     runtime::{FirstPersonArms, layer_presentation},
 };
@@ -74,61 +74,6 @@ fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
     assert_eq!(atlas.layers.len(), 3);
     assert!(atlas.placements[..600].iter().all(Option::is_some));
     assert!(atlas.placements[600].is_none());
-}
-
-#[test]
-fn attach_with_identity_display_passes_the_hand_pose_through() {
-    let display = ItemDisplay {
-        rotation: Quat::IDENTITY,
-        translation: Vec3::ZERO,
-        scale: 1.0,
-    };
-    let attached = attach_to_bone(bone([0.25, 0.5, -0.75], 1.0), display).unwrap();
-    assert_eq!(attached.translation_scale, [0.25, 0.5, -0.75, 1.0]);
-    assert_eq!(attached.rotation, [0.0, 0.0, 0.0, 1.0]);
-}
-
-#[test]
-fn attach_scales_the_display_offset_by_the_hand_scale_and_hides_with_it() {
-    let display = ItemDisplay {
-        rotation: Quat::IDENTITY,
-        translation: Vec3::new(0.0, 1.0, 0.0),
-        scale: 0.5,
-    };
-    let attached = attach_to_bone(bone([0.0, 2.0, 0.0], 2.0), display).unwrap();
-    assert_eq!(attached.translation_scale, [0.0, 4.0, 0.0, 1.0]);
-    let hidden = attach_to_bone(bone([1.0, 1.0, 1.0], 0.0), display).unwrap();
-    assert_eq!(hidden.translation_scale[3], 0.0);
-    let mut bad = bone([0.0; 3], 1.0);
-    bad.rotation = [0.0; 4];
-    assert!(attach_to_bone(bad, display).is_none());
-}
-
-#[test]
-fn hand_rotation_turns_the_display_offset() {
-    let mut hand = bone([0.0; 3], 1.0);
-    hand.rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2).to_array();
-    let display = ItemDisplay {
-        rotation: Quat::IDENTITY,
-        translation: Vec3::X,
-        scale: 1.0,
-    };
-    let attached = attach_to_bone(hand, display).unwrap();
-    assert!((attached.translation_scale[1] - 1.0).abs() < 1e-5);
-    assert!(attached.translation_scale[0].abs() < 1e-5);
-}
-
-// Held items take the reference's sizes: the item default scale (1.5) over the grip scale.
-#[test]
-fn held_item_placements_follow_the_reference_scales() {
-    let sprite = held_sprite_display(false);
-    let sword = held_sprite_display(true);
-    let block = held_block_display();
-    assert!((sprite.scale - 0.5625).abs() < 1e-5, "{}", sprite.scale);
-    assert!((sword.scale - 0.9375).abs() < 1e-5, "{}", sword.scale);
-    assert!((block.scale - 0.375).abs() < 1e-5, "{}", block.scale);
-    assert!(is_hand_equipped("minecraft:diamond_sword") && is_hand_equipped("minecraft:stick"));
-    assert!(!is_hand_equipped("minecraft:name_tag"));
 }
 
 #[test]
@@ -262,13 +207,6 @@ fn undrawn_main_hand_item_keeps_the_swinging_arm() {
 }
 
 #[test]
-fn block_face_rects_tile_the_three_by_two_sheet() {
-    let rects = super::blocks::face_rects([0.0, 0.0, 0.75, 0.5]);
-    assert_eq!(rects[0], [0.0, 0.0, 0.25, 0.25]);
-    assert_eq!(rects[5], [0.5, 0.25, 0.75, 0.5]);
-}
-
-#[test]
 fn elytra_wings_hang_off_the_body_at_their_literal_offsets() {
     use assets::{AttachablePose, AttachablePoseBone, ItemDisplayScalar};
     let scalar = |value: f32| ItemDisplayScalar::new(value).unwrap();
@@ -314,27 +252,6 @@ fn head_items_map_to_their_skull_kinds_and_others_to_none() {
     assert_eq!(kind("minecraft:player_head"), Some(SkullKind::Player));
     assert_eq!(kind("minecraft:dragon_head"), None);
     assert_eq!(kind("minecraft:carved_pumpkin"), None);
-}
-
-#[test]
-fn attachable_bone_sits_at_its_pivot_plus_the_mirrored_literal_offset() {
-    use super::attachable::{BoneChannels, attach};
-    let hand = bone([1.0, 1.0, 1.0], 2.0);
-    let channels = BoneChannels {
-        translation: [16.0, 8.0, -16.0],
-        rotation: [0.0; 3],
-        scale: [1.0, -1.0, -1.0],
-    };
-    let posed = attach(hand, [0.0, 1.5, 0.0], channels).unwrap();
-    // Pivot and offset are in the hand frame, so the hand scale (2) stretches them.
-    assert_eq!(
-        posed.translation_scale,
-        [1.0 - 2.0, 1.0 + 2.0 * (1.5 + 0.5), 1.0 - 2.0, 2.0]
-    );
-    assert_eq!(posed.axis_scale, [1.0, -1.0, -1.0, 1.0]);
-    let mut broken = hand;
-    broken.rotation = [0.0; 4];
-    assert!(attach(broken, [0.0; 3], channels).is_none());
 }
 
 fn local_carrier(name: &str) -> Option<Vec<u8>> {
@@ -770,17 +687,6 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let right_item = body.input.current_bones[5];
     let grip = attach_to_bone(right_item, held_block_display()).unwrap();
     assert_eq!(&*third[0].submission.input.current_bones, &[grip]);
-}
-
-// With the arm hanging (identity hand in the rig frame, facing -Z), a held sword points forward
-// and slightly up out of the fist, as vanilla's third-person grip holds it.
-#[test]
-fn third_person_sword_points_forward_and_up_from_a_hanging_arm() {
-    let sword = held_sprite_display(true);
-    let handle = icon_point(sword, 1.0, 15.0);
-    let tip = icon_point(sword, 15.0, 1.0);
-    let blade = tip - handle;
-    assert!(blade.z < -0.5 && blade.y > 0.0, "{blade}");
 }
 
 const REST: FirstPersonHand = FirstPersonHand {

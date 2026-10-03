@@ -8,8 +8,6 @@
 
 mod account;
 mod account_control;
-#[cfg(test)]
-mod address_tests;
 pub(crate) mod auth;
 mod connection;
 mod construction;
@@ -47,14 +45,13 @@ pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
-pub(crate) use view::{
-    ButtonArt, InboxItem, JoinKind, JoinProgress, JoinStage, LocalWorldCard, MenuFriendCard,
-    MenuHome, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
-};
 use view::{CatalogFile, MenuFeeds};
 #[cfg(test)]
-pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
-pub(crate) use worlds_tab::{LocalWorldAction, civil_date, file_size};
+pub(crate) use view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
+pub(crate) use view::{
+    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+};
+pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
     fs,
@@ -70,26 +67,9 @@ const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
 /// Vanilla's port box: six number characters, prefilled with the Bedrock default.
 const MAX_SERVER_PORT_BYTES: usize = 6;
-const DEFAULT_PORT: &str = "19132";
+use launcher::menu::DEFAULT_PORT;
 
-/// Host and port of a saved `host:port`; a bare host gets the default port.
-pub(crate) fn split_address(address: &str) -> (String, String) {
-    let literal = address
-        .strip_prefix('[')
-        .and_then(|host| host.strip_suffix(']'))
-        .unwrap_or(address);
-    if literal.parse::<std::net::Ipv6Addr>().is_ok() {
-        return (literal.to_owned(), DEFAULT_PORT.to_owned());
-    }
-    match address.rsplit_once(':') {
-        Some((host, port))
-            if !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) =>
-        {
-            (host.trim_matches(['[', ']']).to_owned(), port.to_owned())
-        }
-        _ => (address.to_owned(), DEFAULT_PORT.to_owned()),
-    }
-}
+pub(crate) use launcher::menu::split_address;
 
 /// Bounded number of consecutive automatic transfer-follow hops.
 ///
@@ -111,121 +91,7 @@ pub(crate) fn format_transfer_address(host: &str, port: u16) -> String {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuScreen {
-    Home,
-    Play,
-    Social,
-    Servers,
-    Profile,
-    Settings,
-    AddServer,
-    Pause,
-    Death,
-    /// OreUI-only screens.
-    Inbox,
-    Friends,
-    /// The Marketplace; its content is owned by [`crate::store`].
-    Store,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuServerTab {
-    Featured,
-    Favorites,
-    Recent,
-    Saved,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuDialog {
-    Exit,
-    RemoveSaved(usize),
-    StorageDelete,
-    StorageError,
-    SettingsSupport(settings_support::SupportDialog),
-    SettingsResetBindings(bool),
-    SettingsResetGroup(settings_options::SettingsGroup),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuField {
-    Name,
-    Address,
-    Port,
-    /// The local-world create or edit screen's name field.
-    WorldName,
-    WorldSeed,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MenuAction {
-    Inbox(inbox::Action),
-    Navigate(MenuScreen),
-    OpenExitDialog,
-    ConfirmExit,
-    DismissDialog,
-    SelectServerTab(MenuServerTab),
-    RefreshCatalog,
-    StartSignIn,
-    CancelSignIn,
-    PlayAddServer,
-    PlaySaved(usize),
-    PlayFeatured(usize),
-    PlayGathering(usize),
-    PlayRealm(usize),
-    PlayFriend(usize),
-    ToggleFavorite(usize),
-    RemoveSavedDialog(usize),
-    ConfirmRemoveSaved(usize),
-    AddName,
-    AddAddress,
-    AddPort,
-    AddSave,
-    AddSaveConnect,
-    AddBack,
-    SettingsScale(i8),
-    SettingsFullscreen(bool),
-    SettingsStorage(settings_storage::StorageAction),
-    SettingsSupport(settings_support::SupportAction),
-    SettingsOption(u16, i32),
-    SettingsDropdown(u16),
-    SettingsLanguage(u16),
-    SettingsKey(u16),
-    SettingsResetKey(u16),
-    SettingsResetBindings(bool),
-    SettingsResetGroup(settings_options::SettingsGroup),
-    SettingsConfirmResetBindings(bool),
-    SettingsConfirmResetGroup(settings_options::SettingsGroup),
-    SettingsResetChat,
-    SettingsAdvancedGraphics,
-    ToggleRenderMode,
-    PauseResume,
-    PauseDisconnect,
-    PauseSettings,
-    /// Load a saved server into the add/edit draft.
-    EditSaved(usize),
-    /// Pick a settings section by its selector index.
-    SettingsSection(u8),
-    Respawn,
-    PlayLocalWorld(usize),
-    /// A press on a local-world screen (create, edit, templates) or its modals.
-    LocalWorld(LocalWorldAction),
-    SignOut,
-    /// Show a featured server in the Servers tab's info panel.
-    SelectFeatured(usize),
-    /// Show a saved server's details on the Servers tab.
-    SelectSaved(usize),
-    /// Show a Realm's details on the Realms tab.
-    SelectRealm(usize),
-    /// Flip the info panel's description (0) or news (1) past "read more".
-    ToggleReadMore(u8),
-    /// The start screen's live-event button.
-    OpenLiveEvent,
-    /// A press on a Marketplace screen.
-    Store(crate::store::StoreAction),
-    GlobalResources(crate::global_resources::Action),
-}
+pub(crate) use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab};
 
 #[derive(Debug, Resource)]
 pub(crate) struct MenuRuntime {
