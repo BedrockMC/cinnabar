@@ -5,16 +5,18 @@ use crate::menu::InboxItem;
 
 /// Creates a bulk-read baseline followed by a larger, partially loaded service page.
 fn refreshed_bulk_read() -> MenuFeeds {
-    let mut menu = MenuFeeds::default();
-    menu.home = MenuHome {
-        inbox: vec![InboxItem {
-            instance_id: "old".into(),
-            category: "News".into(),
-            unread: true,
+    let mut menu = MenuFeeds {
+        home: MenuHome {
+            inbox: vec![InboxItem {
+                instance_id: "old".into(),
+                category: "News".into(),
+                unread: true,
+                ..Default::default()
+            }],
+            inbox_counts: [(0, 30)].into(),
+            inbox_unread: 30,
             ..Default::default()
-        }],
-        inbox_counts: [(0, 30)].into(),
-        inbox_unread: 30,
+        },
         ..Default::default()
     };
     menu.inbox_state.reconcile(&mut menu.home);
