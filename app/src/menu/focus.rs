@@ -196,7 +196,49 @@ impl MenuRuntime {
                 MenuAction::PauseDisconnect,
             ],
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
-            MenuScreen::Inbox | MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Inbox => {
+                use super::inbox::{Action, CATEGORIES, category_index};
+                if self.feeds.inbox_state.opened.is_some() {
+                    return vec![MenuAction::Inbox(Action::Cancel)];
+                }
+                let mut actions = vec![
+                    MenuAction::Navigate(MenuScreen::Home),
+                    MenuAction::Inbox(Action::Filters),
+                ];
+                actions
+                    .extend((0..CATEGORIES.len()).map(|i| MenuAction::Inbox(Action::Category(i))));
+                if self.feeds.inbox_state.filters {
+                    actions.extend([
+                        MenuAction::Inbox(Action::MarkAllRead),
+                        MenuAction::Inbox(Action::DeleteAllRead),
+                    ]);
+                }
+                for (i, _) in self
+                    .feeds
+                    .home
+                    .inbox
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| {
+                        category_index(&item.category) == Some(self.feeds.inbox_state.category)
+                    })
+                {
+                    if self.feeds.inbox_state.delete_pending.is_none() {
+                        actions.extend([
+                            MenuAction::Inbox(Action::Open(i)),
+                            MenuAction::Inbox(Action::Delete(i)),
+                        ]);
+                    }
+                }
+                if self.feeds.inbox_state.delete_pending.is_some() {
+                    return vec![
+                        MenuAction::Inbox(Action::Cancel),
+                        MenuAction::Inbox(Action::ConfirmDelete),
+                    ];
+                }
+                actions
+            }
+            MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
             MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
         }
     }

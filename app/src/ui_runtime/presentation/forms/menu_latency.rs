@@ -116,6 +116,7 @@ fn grow(view: &mut MenuView) {
             body: "A long message body that wraps across several lines of the row.".to_owned(),
             category: ["news", "realms", "store"][index % 3].to_owned(),
             unread: index % 2 == 0,
+            ..Default::default()
         })
         .collect();
 }
