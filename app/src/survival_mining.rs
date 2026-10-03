@@ -544,6 +544,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
 
 /// Runs after committed world publication and before the movement flush.
 pub(crate) fn produce_survival_mining(
+    mut player_runtime: bevy::prelude::ResMut<crate::player_runtime::PlayerRuntime>,
     mut context: SurvivalMiningContext,
     mut runtime: ResMut<SurvivalMiningRuntime>,
     mut swings: ResMut<SwingTracker>,
@@ -554,9 +555,9 @@ pub(crate) fn produce_survival_mining(
     // may happen; the capability gate below owns that.
     let authority = context
         .ui
-        .server_authoritative_block_breaking()
+        .server_authoritative_block_breaking(&player_runtime)
         .map(BlockBreakingAuthority::from_negotiation);
-    let caps = context.ui.game_mode_capabilities();
+    let caps = context.ui.game_mode_capabilities(&player_runtime);
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let attack = context.input.phase(Action::Attack);
@@ -572,6 +573,7 @@ pub(crate) fn produce_survival_mining(
                 (!actor_in_front)
                     .then(|| {
                         observe_destroy_target(
+                            &player_runtime,
                             &context,
                             caps,
                             input.input_mode,
@@ -625,7 +627,7 @@ pub(crate) fn produce_survival_mining(
                 ));
             }
         },
-        |slot, damage| ui.begin_mining_request(slot, damage),
+        |slot, damage| ui.begin_mining_request(&mut player_runtime, slot, damage),
         |position| {
             if let Some(stream) = client_world.stream.as_mut() {
                 let air = stream.air_block_id();
@@ -634,7 +636,7 @@ pub(crate) fn produce_survival_mining(
         },
     );
     for request_id in unsent {
-        ui.cancel_mining_request(request_id);
+        ui.cancel_mining_request(&mut player_runtime, request_id);
     }
     for cue in runtime.take_break_cues() {
         context.block_cues.write(cue);
@@ -672,6 +674,7 @@ fn blocked_mining_reason(
 }
 
 fn observe_destroy_target(
+    player_runtime: &crate::player_runtime::PlayerRuntime,
     context: &SurvivalMiningContext,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
@@ -682,10 +685,10 @@ fn observe_destroy_target(
     // The capability gate in the producer already confirmed this mode edits;
     // here only an open UI blocks the pick.
     let caps = caps?;
-    if ui.ui_focused() {
+    if ui.ui_focused(player_runtime) {
         return None;
     }
-    let selection = hand_interaction_selection(ui)?;
+    let selection = hand_interaction_selection(player_runtime, ui)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
         &context.origin,
@@ -716,7 +719,7 @@ fn observe_destroy_target(
     let item = &observed.selection.item;
     let identifier = (item.network_id() != 0)
         .then(|| {
-            ui.inventory_ledger()
+            ui.inventory_ledger(player_runtime)
                 .negotiated_item_entry(item.network_id())
         })
         .flatten()
@@ -732,14 +735,14 @@ fn observe_destroy_target(
         stream.current_dimension(),
     );
     let effects = context.effects.mining_effects();
-    let helmet = ui.local_armor().helmet;
+    let helmet = ui.local_armor(player_runtime).helmet;
     let unbreaking =
         protocol::item_enchantment_level(item.extra_data(), UNBREAKING_ENCHANTMENT_ID).unwrap_or(0);
     let wear = tool.filter(|_| !instant).and_then(|tool| {
         (item.stack_network_id() > 0).then(|| ToolWear {
             // Outstanding and corrected predictions outrank the stack's own tag.
             current_damage: ui
-                .inventory_ledger()
+                .inventory_ledger(player_runtime)
                 .predicted_slot_damage(observed.selection.slot)
                 .or_else(|| {
                     protocol::item_extra_damage(item.extra_data())
