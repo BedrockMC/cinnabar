@@ -702,3 +702,18 @@ fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_fron
     );
     assert!(!probe.spent[0] && !probe.spent[2]);
 }
+
+#[test]
+fn review_contention_during_an_action_retires_its_terminal_receipt() {
+    let owner = std::sync::Mutex::new(Probe::new());
+    let retired = std::sync::atomic::AtomicBool::new(false);
+    try_action(&owner, &retired, |probe| {
+        probe.spent[..4].fill(true);
+        try_action(&owner, &retired, |_| panic!("contending action ran"));
+        probe.terminal();
+    });
+    let probe = owner.lock().unwrap();
+    assert!(probe.retired);
+    assert!(probe.incomplete);
+    assert!(probe.spent[4]);
+}

@@ -186,11 +186,8 @@ pub(crate) fn flush_chat_network(
     if network.closed_command_has_pending_control() {
         return;
     }
-    if runtime.take_wake_request()
-        && let Some(runtime_id) = runtime.local_runtime_id()
-    {
-        let _ = network.send_inventory_packet(protocol::stop_sleeping_packet(runtime_id));
-    }
+    let runtime_id = runtime.local_runtime_id();
+    runtime.flush_wake_request(runtime_id, |packet| network.send_inventory_packet(packet));
     match flush_chat_sends(
         &mut runtime,
         8,
@@ -237,19 +234,25 @@ pub(crate) struct InventoryKeys {
     presses: Vec<KeyCode>,
     shift: bool,
     control: bool,
+    modifier_sides: [bool; 4],
 }
 
 impl InventoryKeys {
     /// Bounds one frame's buffered presses.
     const MAX_PRESSES: usize = 16;
 
+    /// Tracks each physical modifier independently across suppressed gameplay frames.
     fn track_modifier(&mut self, input: &KeyboardInput) {
-        let pressed = input.state == ButtonState::Pressed;
-        match input.key_code {
-            KeyCode::ShiftLeft | KeyCode::ShiftRight => self.shift = pressed,
-            KeyCode::ControlLeft | KeyCode::ControlRight => self.control = pressed,
-            _ => {}
-        }
+        let index = match input.key_code {
+            KeyCode::ShiftLeft => 0,
+            KeyCode::ShiftRight => 1,
+            KeyCode::ControlLeft => 2,
+            KeyCode::ControlRight => 3,
+            _ => return,
+        };
+        self.modifier_sides[index] = input.state == ButtonState::Pressed;
+        self.shift = self.modifier_sides[0] || self.modifier_sides[1];
+        self.control = self.modifier_sides[2] || self.modifier_sides[3];
     }
 
     fn press(&mut self, key: KeyCode) {
@@ -712,9 +715,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 // A text field owns typed text, including `e`.
                 match input.key_code {
                     KeyCode::Escape => {
-                        runtime.commit_book(false);
-                        runtime.close_inventory();
-                        inventory_ownership_changed = true;
+                        if runtime.commit_book(false) {
+                            runtime.close_inventory();
+                            inventory_ownership_changed = true;
+                        }
                     }
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(key) => {}
@@ -931,3 +935,7 @@ pub(crate) fn suppress_gameplay_input_for_chat(
     mouse_buttons.reset_all();
     mouse_motion.delta = bevy::math::Vec2::ZERO;
 }
+
+#[cfg(test)]
+#[path = "interaction/modifier_tests.rs"]
+mod modifier_tests;

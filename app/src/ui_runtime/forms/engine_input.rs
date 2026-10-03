@@ -41,6 +41,7 @@ pub(super) struct EngineInput<'a> {
     pub(super) cursor: Option<UiPoint>,
     pub(super) keys: &'a ButtonInput<KeyCode>,
     pub(super) pointer: PointerButtons,
+    pub(super) pointer_edges: Vec<bool>,
     pub(super) wheel: Vec<(f32, MouseScrollUnit)>,
     /// Pressed keys this frame with their produced text.
     /// Key presses with their text and whether the OS auto-repeated them.
@@ -109,28 +110,40 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
         engine_scroll::drag(runtime, frame, point);
     }
     // Each release answers only for the control its press went down on.
-    let mut release = None;
-    if input.pointer.pressed
-        && let Some(point) = point
-    {
-        let region = hit_test(&frame.hits, point);
-        engine_scroll::press(runtime, frame, region, point);
-        events.extend(button(runtime, frame, SELECT, true, Some(point), input.now).events);
-    }
-    if input.pointer.released {
-        runtime.server_forms_mut().engine_mut().drag = None;
-        // A touch pan past the tap slop presses nothing.
-        let tapped = engine_scroll::release(runtime);
-        let pressed = runtime
-            .server_forms()
-            .engine()
-            .view
-            .pressed
-            .clone()
-            .filter(|_| tapped);
-        let up = button(runtime, frame, SELECT, false, point, input.now).events;
-        release = Some((events.len()..events.len() + up.len(), pressed));
-        events.extend(up);
+    let mut releases = Vec::new();
+    let edges = if input.pointer_edges.is_empty() {
+        [
+            input.pointer.pressed.then_some(true),
+            input.pointer.released.then_some(false),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    } else {
+        std::mem::take(&mut input.pointer_edges)
+    };
+    for down in edges {
+        if down {
+            if let Some(point) = point {
+                let region = hit_test(&frame.hits, point);
+                engine_scroll::press(runtime, frame, region, point);
+                events.extend(button(runtime, frame, SELECT, true, Some(point), input.now).events);
+            }
+        } else {
+            runtime.server_forms_mut().engine_mut().drag = None;
+            // A touch pan past the tap slop presses nothing.
+            let tapped = engine_scroll::release(runtime);
+            let pressed = runtime
+                .server_forms()
+                .engine()
+                .view
+                .pressed
+                .clone()
+                .filter(|_| tapped);
+            let up = button(runtime, frame, SELECT, false, point, input.now).events;
+            releases.push((events.len()..events.len() + up.len(), pressed));
+            events.extend(up);
+        }
     }
     if let Some(point) = point
         && !input.wheel.is_empty()
@@ -156,9 +169,9 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
     }
     let mut action = None;
     for (at, event) in events.iter().enumerate() {
-        let pressed = release
-            .as_ref()
-            .filter(|(range, _)| range.contains(&at))
+        let pressed = releases
+            .iter()
+            .find(|(range, _)| range.contains(&at))
             .and_then(|(_, pressed)| pressed.as_deref());
         if let Some(found) = controller(runtime, frame, &model, event, pressed) {
             action = Some(found);
@@ -174,6 +187,7 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: Eng
 fn animate(animator: &mut json_ui::Animator, events: &mut Vec<ScreenEvent>) {
     // Ends that start animations ending at once must not feed back forever.
     let cap = events.len() + MAX_END_EVENTS;
+    append_animation_ends(animator, events, cap);
     let mut at = 0;
     while at < events.len() {
         if let ScreenEvent::Button(button) = &events[at]
@@ -181,23 +195,32 @@ fn animate(animator: &mut json_ui::Animator, events: &mut Vec<ScreenEvent>) {
         {
             animator.fire(&button.id);
         }
-        for ended in animator.take_events() {
-            if let json_ui::AnimEvent::End(id) = ended
-                && events.len() < cap
-            {
-                events.push(ScreenEvent::Button(ButtonEvent {
-                    id,
-                    from: String::new(),
-                    key: String::new(),
-                    collection_index: None,
-                    collection: None,
-                    down: true,
-                    interacted: true,
-                    scope: json_ui::MappingScope::Controller,
-                }));
-            }
-        }
+        append_animation_ends(animator, events, cap);
         at += 1;
+    }
+}
+
+/// Relays pending end events even when this frame has no physical input.
+fn append_animation_ends(
+    animator: &mut json_ui::Animator,
+    events: &mut Vec<ScreenEvent>,
+    cap: usize,
+) {
+    for ended in animator.take_events() {
+        if let json_ui::AnimEvent::End(id) = ended
+            && events.len() < cap
+        {
+            events.push(ScreenEvent::Button(ButtonEvent {
+                id,
+                from: String::new(),
+                key: String::new(),
+                collection_index: None,
+                collection: None,
+                down: true,
+                interacted: true,
+                scope: json_ui::MappingScope::Controller,
+            }));
+        }
     }
 }
 

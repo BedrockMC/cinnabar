@@ -204,7 +204,9 @@ impl UiRuntime {
     }
 
     pub(crate) fn take_client_packet(&mut self) -> Option<Packet> {
-        self.client_packets.pop_front()
+        self.client_packets
+            .pop_front()
+            .or_else(|| self.book_packets.pop_front())
     }
 
     pub(crate) fn requeue_client_packet(&mut self, packet: Packet) {
@@ -249,22 +251,30 @@ impl UiRuntime {
         true
     }
 
-    /// Sends the open writable book's page edits, then closes the screen.
-    pub(crate) fn commit_book(&mut self, sign: bool) {
-        let Some(book) = self.screen.book.take() else {
-            return;
+    /// Retains a complete book commit before removing the editable screen state.
+    pub(crate) fn commit_book(&mut self, sign: bool) -> bool {
+        let Some(book) = self.screen.book.as_ref() else {
+            return true;
         };
         let BookSource::Held(slot) = book.source else {
-            return;
+            self.screen.book = None;
+            return true;
         };
         if !book.editable {
-            return;
+            self.screen.book = None;
+            return true;
         }
-        for edit in book.edits() {
-            if let Some(packet) = protocol::book_edit_packet(slot, &edit) {
-                self.queue_client_packet(packet);
-            }
+        if !self.book_packets.is_empty()
+            || book.pages.len() > MAX_BOOK_PAGES
+            || book.baseline.len() > MAX_BOOK_PAGES
+        {
+            return false;
         }
+        let mut packets: std::collections::VecDeque<_> = book
+            .edits()
+            .iter()
+            .filter_map(|edit| protocol::book_edit_packet(slot, edit))
+            .collect();
         if sign
             && let Some(packet) = protocol::book_edit_packet(
                 slot,
@@ -275,14 +285,18 @@ impl UiRuntime {
                 },
             )
         {
-            self.queue_client_packet(packet);
+            packets.push_back(packet);
         }
+        self.book_packets = packets;
+        self.screen.book = None;
+        true
     }
 
-    /// Sends a writable book's edits (signing it when `sign`) and closes the screen.
+    /// Closes the book after all its edits have been retained for transport.
     pub(crate) fn finish_book(&mut self, sign: bool) {
-        self.commit_book(sign);
-        self.close_inventory();
+        if self.commit_book(sign) {
+            self.close_inventory();
+        }
     }
 
     /// Book navigation keys: arrows and page keys turn pages; Enter starts a
@@ -411,3 +425,7 @@ mod tests {
         assert_eq!(state.title.chars().count(), MAX_TITLE_CHARS);
     }
 }
+
+#[cfg(test)]
+#[path = "book_screen_tests.rs"]
+mod regression_tests;
