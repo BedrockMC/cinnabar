@@ -11,6 +11,7 @@ pub(super) struct StartupReadinessInput {
     pub(super) diagnostics_frame_generation: u64,
     pub(super) snapshot: VisibilityDiagnosticSnapshot,
     pub(super) visible_rendered: usize,
+    pub(super) local_terrain_ready: bool,
     pub(super) cohort_target_complete: bool,
     pub(super) stream_work_drained: bool,
     pub(super) render_work_drained: bool,
@@ -30,6 +31,7 @@ pub(super) struct StartupPresentationState {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StartupReadinessClass {
+    LocalTerrain,
     DenseOpaque,
     Drained,
 }
@@ -37,6 +39,7 @@ enum StartupReadinessClass {
 impl fmt::Display for StartupReadinessClass {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::LocalTerrain => "local_terrain",
             Self::DenseOpaque => "dense_opaque",
             Self::Drained => "drained",
         })
@@ -97,7 +100,9 @@ impl StartupPresentationState {
             .snapshot
             .gpu_completed_opaque
             .expect("startup release requires a GPU-completed opaque digest");
-        let readiness = if input.visible_rendered >= MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION
+        let readiness = if input.local_terrain_ready {
+            StartupReadinessClass::LocalTerrain
+        } else if input.visible_rendered >= MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION
             && gpu_completed_opaque.count != 0
         {
             StartupReadinessClass::DenseOpaque
@@ -145,7 +150,10 @@ impl StartupPresentationState {
         let dense_view_ready = input.visible_rendered >= MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION;
         let bounded_small_or_zero_opaque_view_ready =
             input.cohort_target_complete && input.stream_work_drained && input.render_work_drained;
-        if !dense_view_ready && !bounded_small_or_zero_opaque_view_ready {
+        if !input.local_terrain_ready
+            && !dense_view_ready
+            && !bounded_small_or_zero_opaque_view_ready
+        {
             self.readiness_frame_baseline = None;
             return false;
         }
@@ -164,7 +172,8 @@ impl StartupPresentationState {
         // Like vanilla's join-time pack prompt, a pending decision keeps the loading screen.
         if !input.world_entry_held
             && ((dense_view_ready && gpu_completed_opaque.count != 0)
-                || bounded_small_or_zero_opaque_view_ready)
+                || bounded_small_or_zero_opaque_view_ready
+                || input.local_terrain_ready)
         {
             self.released = true;
         }
@@ -211,11 +220,27 @@ mod tests {
                 ..VisibilityDiagnosticSnapshot::default()
             },
             visible_rendered: 0,
+            local_terrain_ready: false,
             cohort_target_complete: false,
             stream_work_drained: false,
             render_work_drained: false,
             world_entry_held: false,
         }
+    }
+
+    #[test]
+    fn local_terrain_releases_after_a_gpu_frame_with_distant_work_pending() {
+        let mut state = StartupPresentationState::default();
+        assert!(!state.observe(startup_input(1, 0, 0, 0)));
+        let mut evidence = startup_input(1, 1, 1, 2);
+        evidence.local_terrain_ready = true;
+        assert!(!state.observe(evidence));
+        evidence.diagnostics_frame_generation = 2;
+        evidence.snapshot.frame_generation = 2;
+        assert!(state.observe(evidence));
+        assert!(!evidence.cohort_target_complete);
+        assert!(!evidence.stream_work_drained);
+        assert!(!evidence.render_work_drained);
     }
 
     #[test]

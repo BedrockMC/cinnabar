@@ -246,7 +246,9 @@ fn emit_own(
     order: &mut usize,
 ) {
     for (dest, draw) in draws_for(node, env) {
-        if matches!(&draw, Draw::Text { text, .. } if text.is_empty()) {
+        if matches!(&draw, Draw::Text { text, .. } if text.is_empty())
+            && !crate::label::is_editable(node.control)
+        {
             continue;
         }
         // A primitive wholly outside its clip (a scrolled-away cell) draws nothing;

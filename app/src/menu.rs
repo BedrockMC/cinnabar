@@ -20,6 +20,8 @@ mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
 mod navigation;
+#[cfg(test)]
+mod server_input_tests;
 pub(crate) mod servers;
 pub(crate) mod settings_options;
 mod settings_paths;

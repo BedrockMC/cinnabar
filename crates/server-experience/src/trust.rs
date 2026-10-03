@@ -37,6 +37,9 @@ pub struct Pin {
     pub scope_digest: String,
     pub decision: Decision,
     pub highest_revision: u64,
+    /// Current consent; inactive pins retain only their rollback history.
+    #[serde(default = "active_default")]
+    pub active: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -119,11 +122,9 @@ impl Settings {
         if self.disabled {
             return Ok(Some(Decision::Never));
         }
-        if self
-            .pins
-            .iter()
-            .any(|pin| pin.audience == offer.audience && pin.decision == Decision::Never)
-        {
+        if self.pins.iter().any(|pin| {
+            pin.active && pin.audience == offer.audience && pin.decision == Decision::Never
+        }) {
             return Ok(Some(Decision::Never));
         }
         let scope = scope_digest(offer)?;
@@ -131,7 +132,8 @@ impl Settings {
             .pins
             .iter()
             .find(|pin| {
-                pin.audience == offer.audience
+                pin.active
+                    && pin.audience == offer.audience
                     && pin.server_key == offer.server_key
                     && pin.scope_digest == scope
                     && offer.revision >= pin.highest_revision
@@ -157,24 +159,49 @@ impl Settings {
             decision == Decision::Never || offer.revision >= previous,
             "deployment rollback denied"
         );
-        self.pins.retain(|pin| pin.audience != offer.audience);
-        ensure!(self.pins.len() < MAX_DECISIONS, "trust settings are full");
-        self.pins.push(Pin {
+        let existing = self.pins.iter().position(|pin| {
+            pin.audience == offer.audience
+                && pin.server_key == offer.server_key
+                && pin.scope_digest == scope_digest
+        });
+        ensure!(
+            existing.is_some() || self.pins.len() < MAX_DECISIONS,
+            "trust settings are full"
+        );
+        for pin in self
+            .pins
+            .iter_mut()
+            .filter(|pin| pin.audience == offer.audience)
+        {
+            pin.active = false;
+        }
+        let pin = Pin {
             audience: offer.audience.clone(),
             server_key: offer.server_key.clone(),
             scope_digest,
             decision,
             highest_revision: previous.max(offer.revision),
-        });
+            active: true,
+        };
+        if let Some(index) = existing {
+            self.pins[index] = pin;
+        } else {
+            self.pins.push(pin);
+        }
         Ok(())
     }
 
     /// Indicates a changed identity so the trusted prompt can explain it.
     pub fn key_changed(&self, offer: &Offer) -> bool {
-        self.pins
-            .iter()
-            .any(|pin| pin.audience == offer.audience && pin.server_key != offer.server_key)
+        self.pins.iter().any(|pin| {
+            pin.active && pin.audience == offer.audience && pin.server_key != offer.server_key
+        })
     }
+}
+
+/// Older settings stored only active decisions, so their pins retain that meaning.
+fn active_default() -> bool {
+    true
 }
 
 /// Includes publishers and package IDs while allowing signed content updates.

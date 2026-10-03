@@ -27,6 +27,26 @@ pub(crate) fn consume(world: &mut World) {
     if let Some(mut messages) = world.get_resource_mut::<Messages<MouseWheel>>() {
         messages.clear();
     }
+    clear_messages::<bevy::input::touch::TouchInput>(world);
+    clear_messages::<bevy::input::gamepad::GamepadButtonChangedEvent>(world);
+    clear_messages::<bevy::input::gamepad::GamepadButtonStateChangedEvent>(world);
+    clear_messages::<bevy::input::gamepad::GamepadAxisChangedEvent>(world);
+    if let Some(mut touches) = world.get_resource_mut::<bevy::input::touch::Touches>() {
+        touches.reset_all();
+    }
+    for mut gamepad in world
+        .query::<&mut bevy::input::gamepad::Gamepad>()
+        .iter_mut(world)
+    {
+        gamepad.digital_mut().reset_all();
+    }
+}
+
+/// Discards one event stream owned by the consent frame when that stream is installed.
+fn clear_messages<T: Message>(world: &mut World) {
+    if let Some(mut messages) = world.get_resource_mut::<Messages<T>>() {
+        messages.clear();
+    }
 }
 
 /// Keeps ordinary UI readers from observing controller and touch input owned by consent.
@@ -45,6 +65,42 @@ mod tests {
     /// Models an ordinary form reader skipped for the consent dismissal frame.
     fn read_clicks(mut messages: MessageReader<MouseButtonInput>, mut clicks: ResMut<Clicks>) {
         clicks.0 += messages.read().count();
+    }
+
+    #[test]
+    fn review_consent_clears_touch_and_controller_events_before_readers_resume() {
+        use bevy::input::{
+            gamepad::{GamepadButton, GamepadButtonChangedEvent},
+            touch::{TouchInput, TouchPhase},
+        };
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .insert_resource(ConsentInput(true))
+            .add_message::<TouchInput>()
+            .add_message::<GamepadButtonChangedEvent>();
+        let entity = app.world_mut().spawn_empty().id();
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: Vec2::ZERO,
+            window: entity,
+            force: None,
+            id: 1,
+        });
+        app.world_mut()
+            .write_message(GamepadButtonChangedEvent::new(
+                entity,
+                GamepadButton::South,
+                ButtonState::Pressed,
+                1.0,
+            ));
+        consume(app.world_mut());
+        assert!(app.world().resource::<Messages<TouchInput>>().is_empty());
+        assert!(
+            app.world()
+                .resource::<Messages<GamepadButtonChangedEvent>>()
+                .is_empty()
+        );
     }
 
     #[test]

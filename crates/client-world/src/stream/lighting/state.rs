@@ -344,15 +344,9 @@ impl WorldStream {
             _ => DimensionLightProfile::End,
         };
         let overworld_top_y = (key.dimension == 0)
-            .then(|| vanilla_dimension_range(0))
+            .then(|| self.light_column_top_sub_chunk_y(key))
             .flatten()
-            .and_then(|range| {
-                range
-                    .base_sub_chunk_y
-                    .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
-                    .checked_mul(16)?
-                    .checked_sub(1)
-            });
+            .and_then(|y| y.checked_mul(16)?.checked_add(15));
         LightBlockSnapshot {
             dimension: key.dimension,
             blocks,
@@ -433,24 +427,44 @@ impl WorldStream {
         &self,
         key: SubChunkKey,
     ) -> Option<(SubChunkKey, PendingLight)> {
-        let Some(range) = vanilla_dimension_range(key.dimension) else {
-            return self
-                .pending_light
-                .get(&key)
-                .copied()
-                .map(|pending| (key, pending));
-        };
-        (0..range.sub_chunk_count).rev().find_map(|offset| {
-            let y = range
-                .base_sub_chunk_y
-                .checked_add(i32::try_from(offset).ok()?)?;
-            let candidate = SubChunkKey::new(key.dimension, key.x, y, key.z);
-            self.pending_light
-                .get(&candidate)
-                .copied()
-                .map(|pending| (candidate, pending))
-        })
+        self.light_column_sources(key)
+            .filter_map(|candidate| {
+                self.pending_light
+                    .get(&candidate)
+                    .copied()
+                    .map(|pending| (candidate, pending))
+            })
+            .max_by_key(|(candidate, _)| candidate.y)
     }
+
+    /// Iterates loaded sources in one column without scanning unrelated X coordinates.
+    pub(in crate::stream) fn light_column_sources(
+        &self,
+        key: SubChunkKey,
+    ) -> impl Iterator<Item = SubChunkKey> + '_ {
+        self.resident
+            .range(
+                SubChunkKey::new(key.dimension, key.x, i32::MIN, i32::MIN)
+                    ..=SubChunkKey::new(key.dimension, key.x, i32::MAX, i32::MAX),
+            )
+            .copied()
+            .filter(move |candidate| candidate.z == key.z)
+    }
+
+    /// Extends the vanilla sky ceiling to include taller loaded columns.
+    pub(in crate::stream) fn light_column_top_sub_chunk_y(&self, key: SubChunkKey) -> Option<i32> {
+        let vanilla_top = vanilla_dimension_range(key.dimension).and_then(|range| {
+            range
+                .base_sub_chunk_y
+                .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
+                .checked_sub(1)
+        });
+        vanilla_top
+            .into_iter()
+            .chain(self.light_column_sources(key).map(|source| source.y))
+            .max()
+    }
+
     pub(in crate::stream) fn prior_light_may_seed(
         &self,
         target: SubChunkKey,

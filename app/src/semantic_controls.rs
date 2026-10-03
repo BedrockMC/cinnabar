@@ -205,12 +205,13 @@ impl SemanticInputRuntime {
     fn stamp_activity(&mut self, frame: &mut DeviceFrame) {
         if let Some(current) = frame.keyboard_mouse.as_mut() {
             let previous = self.previous.keyboard_mouse.as_ref();
-            current.activity_sequence =
-                if previous.is_some_and(|previous| keyboard_physical_eq(previous, current)) {
-                    previous.map_or(0, |previous| previous.activity_sequence)
-                } else {
-                    self.next_activity()
-                };
+            current.activity_sequence = if current.mouse_motion.iter().all(|delta| *delta == 0.0)
+                && previous.is_some_and(|previous| keyboard_physical_eq(previous, current))
+            {
+                previous.map_or(0, |previous| previous.activity_sequence)
+            } else {
+                self.next_activity()
+            };
         }
         frame
             .controllers
@@ -381,6 +382,26 @@ mod tests {
             phases: [ActionPhase::default(); Action::COUNT],
             release_reasons: [None; Action::COUNT],
         }))
+    }
+
+    #[test]
+    fn review_equal_nonzero_mouse_deltas_are_new_activity_each_frame() {
+        let mut runtime = SemanticInputRuntime::default();
+        let mut first = DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_motion: [1.0, 0.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        runtime.stamp_activity(&mut first);
+        runtime.previous = first.clone();
+        let mut second = first;
+        runtime.stamp_activity(&mut second);
+        assert!(
+            second.keyboard_mouse.unwrap().activity_sequence
+                > runtime.previous.keyboard_mouse.unwrap().activity_sequence
+        );
     }
 
     #[test]

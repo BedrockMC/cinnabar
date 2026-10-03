@@ -147,17 +147,15 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
 
     let mut sent = 0;
     for _ in 0..budget {
+        let Some(mut sample) = ticker.outbox.front().cloned() else {
+            break;
+        };
         if ticker.tick_evidence.len() == OUTBOX_CAPACITY {
             ticker.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
             break;
         }
-        let Some(mut sample) = ticker.pop_pending() else {
-            break;
-        };
-        // Opt-in HandledTeleport acknowledgement: the flag is applied at
-        // flush time on the popped record, so retries restore it with the bit
-        // intact, and pending state is consumed only after the transport
-        // accepts the packet. See the `teleport_ack` module.
+        // Retries project current teleport authority. Consume the one-shot
+        // acknowledgement only after transport accepts the packet.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
         let interaction_epoch = sample
             .mining
@@ -189,6 +187,9 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         let packet =
             player_auth_input_with_mining_request(sample.snapshot, &interactions, mining_request)
                 .map_err(MovementSendError::Encode)?;
+        ticker
+            .pop_pending()
+            .expect("encoded sample remains at the FIFO front");
         let identity = ticker.next_send_identity(&sample);
         ticker.note_command_admitted(
             identity,

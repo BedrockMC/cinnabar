@@ -270,7 +270,7 @@ impl Contributions {
 #[derive(Default)]
 pub struct Budget {
     reservations: BTreeMap<Principal, (u64, u64)>,
-    quarantined: BTreeSet<Principal>,
+    quarantined: BTreeSet<(String, String)>,
     fuel: u64,
 }
 
@@ -278,7 +278,10 @@ impl Budget {
     /// Reserves worst-case guest and GPU memory before launching a helper.
     pub fn reserve(&mut self, owner: Principal, memory: u64, gpu: u64) -> Result<()> {
         ensure!(
-            !self.quarantined.contains(&owner) && !self.reservations.contains_key(&owner),
+            !self
+                .quarantined
+                .contains(&(owner.session.clone(), owner.bundle.clone()))
+                && !self.reservations.contains_key(&owner),
             "instance unavailable"
         );
         ensure!(
@@ -315,6 +318,7 @@ impl Budget {
     /// A crashed bundle cannot be restarted until the whole session is replaced.
     pub fn quarantine(&mut self, owner: &Principal) {
         self.reservations.remove(owner);
-        self.quarantined.insert(owner.clone());
+        self.quarantined
+            .insert((owner.session.clone(), owner.bundle.clone()));
     }
 }

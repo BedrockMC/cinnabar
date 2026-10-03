@@ -1,8 +1,12 @@
 use super::{decode_pack_texture, parse_pack_json};
+use crate::runtime::network::resource_packs::DecodedTexture;
 use assets::{ParticleEffectFile, ParticleTexture, RuntimeParticleAssets};
 use resource_pack::LayeredPackView;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// Rebuilds particle effects and their referenced textures from the base plus winning layers.
 pub(super) fn prepare_particles(
@@ -20,7 +24,7 @@ pub(super) fn prepare_particles(
         .map(|texture| (texture.path.clone(), texture.clone()))
         .collect();
     let mut effect_bytes: usize = effects.values().map(|effect| effect.bytes.len()).sum();
-    let mut texture_bytes: usize = textures.values().map(|texture| texture.rgba8.len()).sum();
+    let texture_bytes: usize = textures.values().map(|texture| texture.rgba8.len()).sum();
     for (_, bytes) in super::layered_json(view, "particles/") {
         if bytes.len() > assets::MAX_PARTICLE_EFFECT_BYTES {
             continue;
@@ -42,7 +46,11 @@ pub(super) fn prepare_particles(
                 .get(identifier)
                 .map_or(0, |effect| effect.bytes.len())
             + bytes.len();
-        if next_bytes > assets::MAX_PARTICLE_CARRIER_BYTES {
+        if !effects_fit(
+            next_bytes,
+            texture_bytes,
+            assets::MAX_PARTICLE_CARRIER_BYTES,
+        ) {
             continue;
         }
         effect_bytes = next_bytes;
@@ -54,6 +62,49 @@ pub(super) fn prepare_particles(
             },
         );
     }
+    prepare_textures(
+        &effects,
+        &mut textures,
+        effect_bytes,
+        texture_bytes,
+        |path| decode_pack_texture(view, path),
+    );
+    let textures: Vec<_> = textures.into_values().collect();
+    let effects: Vec<_> = effects.into_values().collect();
+    let identity = base.map_or_else(
+        || Sha256::digest(b"Cinnabar optional particle layer").into(),
+        RuntimeParticleAssets::source_manifest_sha256,
+    );
+    match assets::encode_particle_catalog(identity, &textures, &effects)
+        .and_then(|bytes| RuntimeParticleAssets::decode(&bytes))
+    {
+        Ok(assets) => render::ParticleSystem::from_assets(&assets),
+        Err(error) => {
+            bevy::log::warn!(%error, "optional particle layers ignored");
+            base.map_or_else(
+                render::ParticleSystem::default,
+                render::ParticleSystem::from_assets,
+            )
+        }
+    }
+}
+
+/// Checks effect admission against the retained texture payload.
+fn effects_fit(effect_bytes: usize, texture_bytes: usize, limit: usize) -> bool {
+    effect_bytes
+        .checked_add(texture_bytes)
+        .is_some_and(|total| total <= limit)
+}
+
+/// Resolves referenced textures while retaining the shared catalog budget.
+fn prepare_textures(
+    effects: &BTreeMap<Box<str>, ParticleEffectFile>,
+    textures: &mut BTreeMap<Box<str>, ParticleTexture>,
+    effect_bytes: usize,
+    mut texture_bytes: usize,
+    mut decode: impl FnMut(&str) -> Option<DecodedTexture>,
+) {
+    let mut attempted = BTreeSet::new();
     for effect in effects.values() {
         let Some(root) = parse_pack_json(&effect.bytes) else {
             continue;
@@ -69,7 +120,10 @@ pub(super) fn prepare_particles(
         {
             continue;
         }
-        if let Some(texture) = decode_pack_texture(view, path) {
+        if !attempted.insert(path.to_owned()) {
+            continue;
+        }
+        if let Some(texture) = decode(path) {
             let next_bytes = texture_bytes
                 - textures.get(path).map_or(0, |texture| texture.rgba8.len())
                 + texture.rgba8.len();
@@ -88,22 +142,42 @@ pub(super) fn prepare_particles(
             );
         }
     }
-    let textures: Vec<_> = textures.into_values().collect();
-    let effects: Vec<_> = effects.into_values().collect();
-    let identity = base.map_or_else(
-        || Sha256::digest(b"Cinnabar optional particle layer").into(),
-        RuntimeParticleAssets::source_manifest_sha256,
-    );
-    match assets::encode_particle_catalog(identity, &textures, &effects)
-        .and_then(|bytes| RuntimeParticleAssets::decode(&bytes))
-    {
-        Ok(assets) => render::ParticleSystem::from_assets(&assets),
-        Err(error) => {
-            bevy::log::warn!(%error, "optional particle layers ignored");
-            base.map_or_else(
-                render::ParticleSystem::default,
-                render::ParticleSystem::from_assets,
-            )
-        }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_particle_effect_budget_includes_retained_textures() {
+        assert!(!effects_fit(12, 24, 32));
+        assert!(effects_fit(8, 24, 32));
+    }
+
+    #[test]
+    fn review_shared_particle_texture_is_decoded_once() {
+        let bytes: Arc<[u8]> = Arc::from(br#"{"particle_effect":{"description":{"basic_render_parameters":{"texture":"textures/shared"}}}}"#.as_slice());
+        let effects = ["a", "b"]
+            .into_iter()
+            .map(|identifier| {
+                (
+                    identifier.into(),
+                    ParticleEffectFile {
+                        identifier: identifier.into(),
+                        bytes: Arc::clone(&bytes),
+                    },
+                )
+            })
+            .collect();
+        let mut calls = 0;
+        prepare_textures(&effects, &mut BTreeMap::new(), 0, 0, |_| {
+            calls += 1;
+            Some(DecodedTexture {
+                width: 1,
+                height: 1,
+                rgba8: vec![0; 4].into(),
+            })
+        });
+        assert_eq!(calls, 1);
     }
 }

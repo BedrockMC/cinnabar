@@ -56,11 +56,16 @@ pub(super) fn icon_keys(
 ) -> Vec<(Arc<str>, Arc<str>)> {
     let mut keys: std::collections::BTreeMap<Arc<str>, Arc<str>> =
         registry.iter().cloned().collect();
-    for path in view.list("items/") {
-        if !path.starts_with("items/") || !path.ends_with(".json") {
-            continue;
-        }
-        for bytes in view.read_layers(path) {
+    let paths = view
+        .list("items/")
+        .into_iter()
+        .filter(|path| path.starts_with("items/") && path.ends_with(".json"))
+        .collect::<Vec<_>>();
+    for layer in view.layers() {
+        for path in &paths {
+            let Ok(Some(bytes)) = layer.read_file(path) else {
+                continue;
+            };
             let Some(root) = parse_pack_json(&bytes) else {
                 continue;
             };

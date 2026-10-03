@@ -11,11 +11,17 @@ mod experience;
 mod fallback;
 mod global_resources;
 mod hud;
+#[cfg(test)]
+mod inbox_tests;
 mod join_progress;
 mod loading_screen;
 #[cfg(test)]
+mod loading_sequence_tests;
+#[cfg(test)]
 mod loading_texture_tests;
 pub(super) mod menu_caret;
+#[cfg(test)]
+mod menu_gpu_tests;
 #[cfg(test)]
 mod menu_latency;
 mod menu_screens;

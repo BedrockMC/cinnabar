@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn inventory_frontier_waits_for_actual_block_mutation_then_releases_fifo_suffix() {
+fn review_commit_frontier_waits_for_actual_block_mutation_then_releases_fifo_suffix() {
     let mut stream = block_entity_visual_stream();
     stream.submit(1, inline_air_event(0)).unwrap();
     complete_pending_decode_jobs(&mut stream);
@@ -21,12 +21,13 @@ fn inventory_frontier_waits_for_actual_block_mutation_then_releases_fifo_suffix(
     assert_eq!(stream.blocking_block_updates, Some(2));
     assert_eq!(
         stream.committed_sequence(),
-        2,
-        "pop-through is not mutation-through"
+        1,
+        "the pending mutation must not advance the commit frontier"
     );
     assert_eq!(stream.inventory_committed_through(), Some(1));
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.inventory_committed_through(), Some(3));
+    assert_eq!(stream.committed_sequence(), 3);
 }
 
 #[test]
