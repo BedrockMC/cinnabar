@@ -34,9 +34,9 @@ impl PaperDoll {
             .replace(now)
             .map_or(0, |last| now.saturating_sub(last));
         self.remaining = if state.sneaking
-            || (state.sprinting && !state.swimming && !state.in_water)
             || state.swimming
             || state.crawling
+            || (state.sprinting && !state.in_water)
         {
             1_000
         } else if state.flying || state.gliding {

@@ -99,6 +99,8 @@ fn menu_frames_on_native_gpu() {
     .collect();
     let mut app = app();
     let mut runtime = pack_harness::menu_runtime();
+    runtime.publish_inventory_authority(protocol::InventoryAuthority::Server);
+    runtime.publish_local_runtime_id(1, 42).unwrap();
     let stats = app.world().resource::<render::UiRenderStats>().clone();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
@@ -123,6 +125,7 @@ fn menu_frames_on_native_gpu() {
     ] {
         if name == "inventory" {
             runtime.toggle_inventory();
+            assert!(runtime.inventory_open());
         }
         if name == "play" && runtime.inventory_open() {
             runtime.toggle_inventory();
