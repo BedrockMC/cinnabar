@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[path = "../../tests/support/shader_source.rs"]
+mod shader_source;
+
 use bevy::{
     app::SubApp,
     asset::Assets,
@@ -213,17 +216,7 @@ fn app_with_noop_render_sub_app() -> App {
 
 #[test]
 fn actor_shader_parses_as_wgsl() {
-    let lighting =
-        include_str!("../lighting.wgsl").replacen("#define_import_path cinnabar::lighting", "", 1);
-    let source = ACTOR_SHADER_SOURCE
-        .replace(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, }",
-        )
-        .replace(
-            "#import cinnabar::lighting::{lit_colour, light_colour}",
-            &lighting,
-        );
+    let source = shader_source::standalone(ACTOR_SHADER_SOURCE, &[]);
     naga::front::wgsl::parse_str(&source).expect("actor shader parses");
 }
 
