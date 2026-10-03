@@ -654,7 +654,12 @@ pub trait CollisionWorld {
         })
     }
 
-    fn block_physics(&self, _block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let origin = Vec3::new(
+            f64::from(block[0]),
+            f64::from(block[1]),
+            f64::from(block[2]),
+        );
         Ok(BlockPhysicsSample {
             layers: Box::new([BlockPhysicsFacts {
                 friction: DEFAULT_SURFACE_FRICTION,
@@ -664,15 +669,9 @@ pub trait CollisionWorld {
                 flags: BlockPhysicsFlags::default(),
                 surface_response: SurfaceResponse::None,
             }]),
-            identity: WorldCollisionIdentity::new(
-                CollisionRegistryIdentity {
-                    protocol: 1001,
-                    id_space: CollisionIdSpace::Sequential,
-                    preg_sha256: [0; 32],
-                },
-                [],
-            )
-            .expect("empty collision identity is bounded"),
+            identity: self
+                .collision_boxes(Aabb::new(origin, origin + Vec3::ONE))?
+                .identity,
         })
     }
 }
@@ -996,3 +995,6 @@ fn convert_block_coords(
     }
     Ok(values.map(|value| value as i32))
 }
+
+#[cfg(test)]
+mod review_default_tests;

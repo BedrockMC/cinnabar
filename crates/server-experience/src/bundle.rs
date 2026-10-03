@@ -78,7 +78,7 @@ impl VerifiedBundle {
             "undeclared permission"
         );
         ensure!(
-            manifest.channels.len() <= MAX_CHANNELS && manifest.actions.len() <= 32,
+            manifest.channels.len() <= MAX_CHANNELS && manifest.actions.len() <= MAX_ACTIONS,
             "declaration limit exceeded"
         );
         let mut channels = BTreeSet::new();

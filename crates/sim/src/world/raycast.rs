@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use world::{ChunkCollisionRevision, ChunkKey};
@@ -217,10 +218,18 @@ impl PaletteWorld<'_> {
             f64::from(block[2]),
         );
         for runtime_id in self.runtime_ids_at(block)? {
-            let pickable = self
+            let physics = self
                 .registry
-                .selection_shapes(runtime_id)
+                .physics(runtime_id)
                 .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
+            let pickable = match physics.pick_shapes.as_deref() {
+                Some(shapes) => Cow::Borrowed(shapes),
+                None => self.block_collision_shapes(
+                    block,
+                    physics,
+                    Aabb::new(offset, offset + Vec3::ONE),
+                )?,
+            };
             for (shape_index, shape) in pickable.iter().copied().enumerate() {
                 if shape.min.x == shape.max.x
                     || shape.min.y == shape.max.y

@@ -395,20 +395,32 @@ pub(crate) fn drain_sequenced_audio_into_session(
         session.end_session();
         return;
     };
-    let events: Vec<_> = messages.read().cloned().collect();
-    // Producer-owned stream lifetime rejects retained messages from replaced streams.
-    // This observation precedes catalog resolution and makes no playback claim.
-    let origin_stream_session_id = stream.actor_session_id();
-    session.wire_evidence.bind(Some(origin_stream_session_id));
-    for event in &events {
-        session.wire_evidence.emit(origin_stream_session_id, event);
-    }
-    session.admit(
+    session.admit_from_stream(
+        stream.actor_session_id(),
         clock.session_generation(),
         stream.current_dimension(),
-        events,
+        messages.read().cloned().collect(),
         catalog.0.as_deref(),
     );
+}
+
+impl SessionAudio {
+    /// Admits only events produced by the currently bound world stream.
+    fn admit_from_stream(
+        &mut self,
+        stream_session: u64,
+        generation: u64,
+        dimension: i32,
+        mut events: Vec<SequencedAudioEvent>,
+        catalog: Option<&RuntimeAudioCatalog>,
+    ) {
+        events.retain(|event| event.origin_stream_session_id == stream_session);
+        self.wire_evidence.bind(Some(stream_session));
+        for event in &events {
+            self.wire_evidence.emit(stream_session, event);
+        }
+        self.admit(generation, dimension, events, catalog);
+    }
 }
 
 #[cfg(test)]

@@ -125,3 +125,29 @@ fn unrelated_upper_door_does_not_require_unloaded_lower_half() {
             .is_err()
     );
 }
+
+#[test]
+fn review_door_pick_ray_observes_the_paired_hinge() {
+    let (registry, mut store) = fixture();
+    let origin = Vec3::new(7.0, 8.5, 8.9);
+    let direction = Vec3::new(1.0, 0.0, 0.0);
+    assert!(
+        PaletteWorld::new(&store, &registry, 0)
+            .block_interaction_ray_current(origin, direction, 3.0)
+            .unwrap()
+            .is_some()
+    );
+    store
+        .update_block(
+            SubChunkKey::new(0, 0, 0, 0),
+            BlockUpdate::new(8, 9, 8, 0, 3),
+            0,
+        )
+        .unwrap();
+    assert!(
+        PaletteWorld::new(&store, &registry, 0)
+            .block_interaction_ray_current(origin, direction, 3.0)
+            .unwrap()
+            .is_none()
+    );
+}
