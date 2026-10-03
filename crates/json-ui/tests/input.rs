@@ -493,3 +493,19 @@ fn bound_grid_cells_report_their_collection_and_index() {
         Some("button.container_take_all_place_all")
     );
 }
+
+#[test]
+fn review_hit_test_does_not_return_disabled_controls_or_click_through_them() {
+    let underneath = button();
+    let mut disabled = button();
+    disabled.name = "disabled".into();
+    disabled.properties.insert("enabled".into(), json!(false));
+    let root = ctrl(
+        "root",
+        "panel",
+        top_left(json!([100, 100])),
+        vec![underneath, disabled],
+    );
+    let (laid, _) = layout_with(&root, [100.0, 100.0], &env(), &ViewState::default());
+    assert!(hit_test(&hit_regions(&laid), [10.0, 10.0]).is_none());
+}
