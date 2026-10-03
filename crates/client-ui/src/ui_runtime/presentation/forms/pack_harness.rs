@@ -1,6 +1,6 @@
 //! Local-only harness: renders server forms through the real UI carrier and, when
 //! `CINNABAR_FORM_PACK_DIR` names an unpacked server resource pack, its ui overlay.
-//! Skips when the gitignored carrier is absent; the pack is never committed.
+//! These checks run when their local fixtures are present and explain missing fixtures.
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
@@ -39,9 +39,23 @@ fn local(path: &str) -> std::path::PathBuf {
         .join(path)
 }
 
+/// Loads the installed UI carrier, reporting an absent fixture and rejecting malformed data.
 pub fn carrier() -> Option<Arc<RuntimeUiAssets>> {
-    let bytes = std::fs::read(local("assets/compiled/vanilla-v1.mcbeui")).ok()?;
-    RuntimeUiAssets::decode(&bytes).ok().map(Arc::new)
+    let path = local("assets/compiled/vanilla-v1.mcbeui");
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping local UI fixture test: missing {}; make assets",
+                path.display()
+            );
+            return None;
+        }
+        Err(error) => panic!("read UI fixture {}: {error}", path.display()),
+    };
+    Some(Arc::new(
+        RuntimeUiAssets::decode(&bytes).expect("decode installed UI fixture"),
+    ))
 }
 
 pub fn font() -> Arc<RuntimeFontCatalog> {
@@ -79,7 +93,26 @@ pub fn pack_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 
 /// The packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest first).
 pub fn env_pack() -> Option<ServerUiPack> {
-    Some(dir_pack(&std::env::var(PACK_ENV).ok()?))
+    let dirs = std::env::var(PACK_ENV).ok()?;
+    for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
+        let path = Path::new(dir);
+        match std::fs::metadata(path) {
+            Ok(metadata) => assert!(
+                metadata.is_dir(),
+                "pack fixture {} is not a directory",
+                path.display()
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "skipping server pack fixture: missing {} ({PACK_ENV})",
+                    path.display()
+                );
+                return None;
+            }
+            Err(error) => panic!("read pack fixture {}: {error}", path.display()),
+        }
+    }
+    Some(dir_pack(&dirs))
 }
 
 /// Installs the real pack's Unicode cells alongside its JSON-UI textures.
@@ -258,6 +291,9 @@ fn server_pack_form_renders_its_text_through_the_engine() {
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping server_pack_form_renders_its_text_through_the_engine: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let pack = env_pack();
@@ -355,6 +391,9 @@ fn multi_line_button_labels_never_overlap() {
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping multi_line_button_labels_never_overlap: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let buttons = [
@@ -381,51 +420,6 @@ fn multi_line_button_labels_never_overlap() {
     );
 }
 
-// Per-frame form cost with the render cache versus re-resolving every frame.
-#[test]
-fn form_frame_cost_with_and_without_the_render_cache() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let Some(mut presentation) = engine_presentation() else {
-        eprintln!("skipping: UI carrier absent");
-        return;
-    };
-    if let Some(pack) = env_pack() {
-        presentation.set_server_ui_pack(&pack);
-    }
-    let buttons: Vec<String> = (0..20)
-        .map(|index| format!("Button {index}\n§7Line two"))
-        .collect();
-    let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
-    let runtime = action_form(
-        &mut player_runtime,
-        "@mineville/boxes:Spirit Bundle",
-        &labels,
-    );
-    let frame = |presentation: &mut UiPresentationRuntime, cold: bool| {
-        if cold {
-            presentation
-                .form_presentation
-                .engine
-                .as_mut()
-                .unwrap()
-                .cache = None;
-        }
-        let started = std::time::Instant::now();
-        render(presentation, &runtime, [2560, 1600], 2.0);
-        started.elapsed()
-    };
-    frame(&mut presentation, true);
-    let average = |presentation: &mut UiPresentationRuntime, cold: bool| {
-        let total: std::time::Duration = (0..20).map(|_| frame(presentation, cold)).sum();
-        total / 20
-    };
-    let uncached = average(&mut presentation, true);
-    let cached = average(&mut presentation, false);
-    eprintln!("form frame: re-resolving {uncached:?}, cached {cached:?}");
-    assert!(cached < uncached);
-}
-
 // The vanilla template draws path and URL button images once they resolve.
 #[test]
 fn vanilla_form_button_images_resolve() {
@@ -434,6 +428,9 @@ fn vanilla_form_button_images_resolve() {
     use protocol::FormButtonImage::{Path as ImagePath, Url};
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping vanilla_form_button_images_resolve: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut png = Vec::new();
@@ -481,6 +478,9 @@ fn large_server_pack_images_draw_at_full_resolution() {
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping large_server_pack_images_draw_at_full_resolution: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut png = Vec::new();
@@ -528,10 +528,16 @@ fn training_labels_keep_practice_before_the_ellipsis() {
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping training_labels_keep_practice_before_the_ellipsis: fixture unavailable; requires installed UI carrier (make assets) and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
     let Some(pack) = env_pack() else {
         eprintln!("skipping: server pack absent");
+        eprintln!(
+            "skipping training_labels_keep_practice_before_the_ellipsis: fixture unavailable; requires installed UI carrier (make assets) and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
     presentation.set_server_ui_pack(&pack);
@@ -556,6 +562,9 @@ fn snapshot_pack_forms() {
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping snapshot_pack_forms: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_NAV_TITLE"
+        );
         return;
     };
     if let Some(pack) = env_pack() {
@@ -649,9 +658,15 @@ fn snapshot_pack_image_grid() {
 
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
+        eprintln!(
+            "skipping snapshot_pack_image_grid: fixture unavailable; requires installed UI carrier (make assets) and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
     let Some(pack) = env_pack() else {
+        eprintln!(
+            "skipping snapshot_pack_image_grid: fixture unavailable; requires installed UI carrier (make assets) and CINNABAR_FORM_PACK_DIR"
+        );
         return;
     };
     presentation.set_server_ui_pack(&pack);

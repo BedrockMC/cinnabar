@@ -1,11 +1,17 @@
 //! One handoff applies menu edits to the camera, input, window and sound authorities.
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use bevy::prelude::ResMut;
 
 use super::{SETTINGS_OPTIONS, persistence::SETTINGS_FILE};
 use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
+
+/// Limits disk retries after a failed write without discarding pending preferences.
+const SETTINGS_RETRY: Duration = Duration::from_secs(1);
 
 impl MenuRuntime {
     /// Publishes normalized glint factors to the shared UI renderer.
@@ -47,11 +53,19 @@ impl MenuRuntime {
             runtime.replace_user_settings(user);
             self.settings_apply = false;
         }
-        if self.settings_dirty {
+        if self.settings_dirty
+            && self
+                .settings_retry_at
+                .is_none_or(|due| Instant::now() >= due)
+        {
             let path = self.config_path.with_file_name(SETTINGS_FILE);
             match self.settings_options.save(&path) {
-                Ok(()) => self.settings_dirty = false,
+                Ok(()) => {
+                    self.settings_dirty = false;
+                    self.settings_retry_at = None;
+                }
                 Err(error) => {
+                    self.settings_retry_at = Some(Instant::now() + SETTINGS_RETRY);
                     self.message = Some(format!("Could not save settings: {error}"));
                 }
             }

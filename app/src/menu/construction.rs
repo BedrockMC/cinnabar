@@ -127,6 +127,7 @@ impl MenuRuntime {
             storage: initial.storage,
             settings_dropdown: initial.settings_dropdown,
             settings_dirty: false,
+            settings_retry_at: None,
             settings_apply: true,
             language_choices,
             language_pending,

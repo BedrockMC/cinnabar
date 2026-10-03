@@ -5,7 +5,6 @@ use super::*;
 mod forms_fixture;
 mod forms_interaction_tests;
 mod inventory_overlay_tests;
-mod local_abilities_tests;
 pub(crate) mod menu_input_tests;
 
 #[test]

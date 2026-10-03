@@ -38,6 +38,9 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping loading_screen_keeps_artwork_uvs_with_the_pixels_they_address: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let title = menu_artwork::TITLE_KEY;
@@ -126,6 +129,9 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(pack) = pack_harness::env_pack() else {
+        eprintln!(
+            "skipping zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut presentation = pack_harness::engine_presentation().expect("real UI carrier required");
@@ -218,6 +224,9 @@ fn zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut pack) = pack_harness::env_pack() else {
+        eprintln!(
+            "skipping zeqa_loading_screen_animates_the_vanilla_bar_when_not_overridden: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     // This offline variant removes only Zeqa's intentionally transparent image.

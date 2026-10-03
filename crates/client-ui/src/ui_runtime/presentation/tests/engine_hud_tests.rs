@@ -208,6 +208,9 @@ fn crosshair_centres_exactly_across_scales_dpi_and_insets() {
         ),
     ] {
         let Some(mut presentation) = engine_presentation() else {
+            eprintln!(
+                "skipping crosshair_centres_exactly_across_scales_dpi_and_insets: fixture unavailable; requires installed local carriers (make assets)"
+            );
             return;
         };
         presentation.set_gui_scale_preference(preference);
@@ -247,6 +250,9 @@ fn crosshair_is_first_person_only_and_mode_gated() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping crosshair_is_first_person_only_and_mode_gated: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -305,6 +311,9 @@ fn game_mode_matrix_gates_each_surface_exactly() {
         (PlayerGameMode::Spectator, false, false),
     ] {
         let Some(mut presentation) = engine_presentation() else {
+            eprintln!(
+                "skipping game_mode_matrix_gates_each_surface_exactly: fixture unavailable; requires installed local carriers (make assets)"
+            );
             return;
         };
         let mut runtime = UiRuntime::new(1);
@@ -349,6 +358,9 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping live_spectator_switch_drops_the_hotbar_despite_a_retained_slot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -389,6 +401,9 @@ fn java_pack_geometry_on_a_real_viewport() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping java_pack_geometry_on_a_real_viewport: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -451,6 +466,9 @@ fn hotbar_stays_bottom_centred_and_tracks_the_auto_scale() {
 
     for (physical, scale) in [([1280u32, 720u32], 2.0f64), ([2560, 1344], 5.0)] {
         let Some(mut presentation) = engine_presentation() else {
+            eprintln!(
+                "skipping hotbar_stays_bottom_centred_and_tracks_the_auto_scale: fixture unavailable; requires installed local carriers (make assets)"
+            );
             return;
         };
         let mut runtime = UiRuntime::new(1);
@@ -569,6 +587,9 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping selected_item_label_counts_and_durability_render_and_fade: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -626,6 +647,9 @@ fn spectator_still_presents_boss_bars_and_chat() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping spectator_still_presents_boss_bars_and_chat: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -664,6 +688,9 @@ fn mount_jump_bar_replaces_the_experience_row_while_riding() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping mount_jump_bar_replaces_the_experience_row_while_riding: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -700,6 +727,9 @@ fn boss_bars_render_titled_tinted_tracks_and_updates() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping boss_bars_render_titled_tinted_tracks_and_updates: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -783,6 +813,9 @@ fn sidebar_resolves_owned_actor_names_and_draws_java_scores() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping sidebar_resolves_owned_actor_names_and_draws_java_scores: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -825,6 +858,9 @@ fn titles_and_chat_carry_their_fades() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping titles_and_chat_carry_their_fades: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -861,6 +897,9 @@ fn unchanged_hud_reuses_its_layout_across_frames() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping unchanged_hud_reuses_its_layout_across_frames: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -888,6 +927,9 @@ fn world_rules_raise_the_position_and_days_lines() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping world_rules_raise_the_position_and_days_lines: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -993,17 +1035,14 @@ fn busy_session(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     runtime
 }
 
-// Steady and changing-data frame costs, printed for profiling (HUD_TIMING=1).
+// Steady and changing-data frame costs, printed when the ignored benchmark is selected.
 #[test]
+#[ignore = "manual HUD frame-cost benchmark; requires installed local carriers (make assets)"]
 fn hud_frame_timing() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    if std::env::var_os("HUD_TIMING").is_none() {
-        return;
-    }
-    let Some(mut presentation) = engine_presentation() else {
-        return;
-    };
+    let mut presentation =
+        engine_presentation().expect("required offline fixture; see the ignore reason");
     *presentation.hud_frame_mut() = first_person();
     let mut runtime = busy_session(&mut player_runtime);
     let frames: u32 = std::env::var("HUD_FRAMES")
@@ -1080,6 +1119,9 @@ fn notched_boss_overlays_draw_their_dividers() {
         )
     };
     let Some(plain) = quads(ProtocolBossOverlay::Progress) else {
+        eprintln!(
+            "skipping notched_boss_overlays_draw_their_dividers: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     assert_eq!(quads(ProtocolBossOverlay::Notched6), Some(plain + 5));
@@ -1093,6 +1135,9 @@ fn settings_hide_hud_suppresses_the_rendered_overlay() {
 
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping settings_hide_hud_suppresses_the_rendered_overlay: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);

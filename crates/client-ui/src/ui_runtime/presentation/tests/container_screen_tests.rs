@@ -389,6 +389,9 @@ fn every_container_screen_draws_through_the_engine() {
         let Some(mut presentation) =
             engine_presentation_with(super::super::forms::pack_harness::font())
         else {
+            eprintln!(
+                "skipping every_container_screen_draws_through_the_engine: fixture unavailable; requires installed local carriers (make assets) and CINNABAR_CONTAINER_SCREEN"
+            );
             return;
         };
         assert!(runtime.inventory_open(), "{name}");
@@ -437,6 +440,9 @@ fn crafter_slots_toggle_through_their_buttons() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping crafter_slots_toggle_through_their_buttons: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_CRAFTER, 9);
@@ -492,6 +498,9 @@ fn llama_equip_cell_addresses_the_carpet_slot() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping llama_equip_cell_addresses_the_carpet_slot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_HORSE, 17);
@@ -528,6 +537,9 @@ fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping creative_wide_layout_keeps_only_the_hotbar_under_the_catalog: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = creative(&mut player_runtime);
@@ -574,6 +586,9 @@ fn hovering_slots_never_lays_the_screen_out_again() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping hovering_slots_never_lays_the_screen_out_again: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = creative_with(&mut player_runtime, 1500);
@@ -620,6 +635,9 @@ fn scrolling_the_creative_catalog_stays_interactive() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping scrolling_the_creative_catalog_stays_interactive: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = creative_with(&mut player_runtime, 1500);

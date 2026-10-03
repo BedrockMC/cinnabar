@@ -148,6 +148,9 @@ fn carrier_settings_route_input_like_vanilla() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(carrier) = super::super::presentation::forms::pack_harness::carrier() else {
+        eprintln!(
+            "skipping carrier_settings_route_input_like_vanilla: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let catalog = Catalog::from_files(
