@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv,
-    RuntimeEntityAssets, validate_entity_geometry_inheritance,
+    RuntimeEntityAssets,
 };
 
 use crate::{BlockEntityAtlas, SkullKind};
@@ -100,12 +100,6 @@ pub(super) fn geometry_from_geometry_index(
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
-        }
-    }
-    // The neutral catalog profile draws a plane's textured face from either side.
-    for vertex in &mut vertices {
-        if vertex.back_uv == super::geometry::ONE_SIDED_BACK_UV {
-            vertex.back_uv = vertex.uv;
         }
     }
     material::apply_native_arrow_material(assets, geometry_index, &mut vertices);
@@ -255,8 +249,7 @@ pub(super) fn resolve_geometry_bones(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
 ) -> Result<Vec<EntityGeometryBone>, ActorRigGeometryError> {
-    let parents = validate_entity_geometry_inheritance(assets.geometries())
-        .map_err(|_| ActorRigGeometryError::InvalidAssetGeometry)?;
+    let parents = assets.geometry_parents();
     let mut chain = Vec::new();
     let mut current = geometry_index;
     for _ in 0..=parents.len() {
@@ -348,7 +341,7 @@ mod tests {
     use super::overlay_geometry_bone;
 
     #[test]
-    fn catalog_arrow_planes_keep_their_front_texture_on_the_back() {
+    fn catalog_planes_preserve_untextured_back_faces() {
         let temporary = tempfile::tempdir().unwrap();
         for family in [
             "entity",
@@ -376,7 +369,7 @@ mod tests {
             geometry
                 .vertices
                 .iter()
-                .all(|vertex| vertex.back_uv == vertex.uv)
+                .all(|vertex| vertex.back_uv == super::super::geometry::ONE_SIDED_BACK_UV)
         );
     }
 

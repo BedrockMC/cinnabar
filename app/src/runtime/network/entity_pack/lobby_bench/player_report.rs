@@ -273,6 +273,7 @@ fn lobby_player_report() {
     world
         .resource_mut::<Time<Real>>()
         .update_with_instant(clock);
+    world.run_system_cached(prepare_actor_render_frame).unwrap();
     world.run_system_cached(publish_actor_render_frame).unwrap();
     let mut seen = BTreeMap::new();
     let mut records = Vec::new();
@@ -280,7 +281,11 @@ fn lobby_player_report() {
         {
             let mut client = world.resource_mut::<ClientWorld>();
             replay.apply(client.stream.as_mut().unwrap(), *id, body);
-            drain(client.stream.as_mut().unwrap(), replay.local_position);
+            drain_through(
+                client.stream.as_mut().unwrap(),
+                replay.local_position,
+                replay.sequence,
+            );
         }
         if ![12, 39, 63, 93].contains(id) {
             continue;
@@ -291,6 +296,7 @@ fn lobby_player_report() {
             world
                 .resource_mut::<Time<Real>>()
                 .update_with_instant(clock);
+            world.run_system_cached(prepare_actor_render_frame).unwrap();
             world.run_system_cached(publish_actor_render_frame).unwrap();
         }
         report_states(&world, &labels, &mut seen, &mut records, index, &out);

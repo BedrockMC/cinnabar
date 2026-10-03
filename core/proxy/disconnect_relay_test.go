@@ -14,6 +14,34 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
+// Successful flushes and downstream failures must not allocate an upstream error inspection target.
+func TestRelayErrorPassthroughDoesNotAllocate(t *testing.T) {
+	downstream := errors.New("downstream write failed")
+	for _, test := range []struct {
+		name     string
+		err      error
+		upstream bool
+	}{
+		{"upstream success", nil, true},
+		{"downstream success", nil, false},
+		{"downstream failure", downstream, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := attributeRelayError(test.err, test.upstream); got != test.err {
+				t.Fatalf("error = %v, want original %v", got, test.err)
+			}
+			allocations := testing.AllocsPerRun(100, func() {
+				if attributeRelayError(test.err, test.upstream) != test.err {
+					panic("relay error changed")
+				}
+			})
+			if allocations != 0 {
+				t.Fatalf("passthrough allocations = %v, want zero", allocations)
+			}
+		})
+	}
+}
+
 func TestRelayPreservesUpstreamDisconnectBeforeClosing(t *testing.T) {
 	for _, hidden := range []bool{false, true} {
 		t.Run(fmt.Sprintf("hidden=%t", hidden), func(t *testing.T) {
@@ -26,7 +54,7 @@ func TestRelayPreservesUpstreamDisconnectBeforeClosing(t *testing.T) {
 			before := &packet.NetworkStackLatency{Timestamp: 42}
 			up.reads <- packetResult{packet: before}
 			up.reads <- packetResult{err: fmt.Errorf("receive: %w", reason)}
-			err := relayPackets(context.Background(), down, up)
+			err := relayWithSessions(context.Background(), down, up)
 			if !errors.Is(err, reason) {
 				t.Fatalf("relay error = %v, want original disconnect", err)
 			}
@@ -50,7 +78,7 @@ func TestRelayDoesNotReflectDownstreamDisconnectUpstream(t *testing.T) {
 	up := newFakeUpstream(nil)
 	reason := &minecraft.DisconnectPacketError{Message: "local disconnect"}
 	down.reads <- packetResult{err: reason}
-	if err := relayPackets(context.Background(), down, up); !errors.Is(err, reason) {
+	if err := relayWithSessions(context.Background(), down, up); !errors.Is(err, reason) {
 		t.Fatalf("relay error = %v, want original disconnect", err)
 	}
 	if len(up.written()) != 0 || len(down.written()) != 0 {
@@ -65,7 +93,7 @@ func TestRelayDisconnectFlushFailurePreservesBothErrors(t *testing.T) {
 	flushErr := errors.New("local transport flush failed")
 	down.flushErr = flushErr
 	up.reads <- packetResult{err: reason}
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, reason) || !errors.Is(err, flushErr) {
 		t.Fatalf("relay error = %v, want disconnect and flush failure", err)
 	}
@@ -95,7 +123,7 @@ func TestRelayPreservesDisconnectWhenReverseWriterFinishesFirst(t *testing.T) {
 	reason := &minecraft.DisconnectPacketError{Reason: 7, Message: "server stopped"}
 	up := &reverseFirstDisconnectSession{fakeUpstream: newFakeUpstream(nil), reason: reason}
 	down.reads <- packetResult{packet: &packet.NetworkStackLatency{Timestamp: 1}}
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, reason) {
 		t.Fatalf("relay error = %v, want original server disconnect", err)
 	}
@@ -110,7 +138,7 @@ func TestRelayRetainsDistinctErrorsFromBothPumps(t *testing.T) {
 	upErr := errors.New("upstream read failed after teardown")
 	up := &reverseFirstDisconnectSession{fakeUpstream: newFakeUpstream(nil), reason: upErr}
 	down.reads <- packetResult{err: downErr}
-	err := relayPackets(context.Background(), down, up)
+	err := relayWithSessions(context.Background(), down, up)
 	if !errors.Is(err, downErr) || !errors.Is(err, upErr) {
 		t.Fatalf("relay error = %v, want both independent pump failures", err)
 	}
@@ -134,7 +162,7 @@ func TestRelayCancellationUnblocksDisconnectDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- relayPackets(ctx, down, up) }()
+	go func() { done <- relayWithSessions(ctx, down, up) }()
 	select {
 	case <-down.started:
 	case <-time.After(time.Second):
