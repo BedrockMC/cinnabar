@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{Buf, Bytes};
+pub use render_api::MAX_STANDARD_SKIN_SIDE;
 use thiserror::Error;
 use valentine::{
     bedrock::version::v1_26_51::{
@@ -43,7 +44,6 @@ pub const MAX_ACTOR_ATTRIBUTE_MODIFIERS: usize = 64;
 pub const MAX_ACTOR_METADATA_STRING_BYTES: usize = 4_096;
 pub const MAX_ACTOR_METADATA_NBT_BYTES: usize = 1_048_576;
 pub const MAX_PLAYER_LIST_RECORDS: usize = 4_096;
-pub const MAX_STANDARD_SKIN_SIDE: u32 = 512;
 pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 
 /// Native ItemActor origin above collision-box feet. Current ctor 0383fdc0 sets

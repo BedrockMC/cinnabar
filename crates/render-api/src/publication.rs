@@ -267,6 +267,7 @@ impl PublicationAllowance {
             .sum()
     }
 
+    /// Recovers the shared allowance state even if an earlier holder panicked.
     fn lock(&self) -> std::sync::MutexGuard<'_, PublicationAllowanceState> {
         self.inner
             .lock()
@@ -299,6 +300,7 @@ impl PublicationPermit {
             .is_some_and(|permit| matches!(permit.class, PublicationPermitClass::ZeroByte))
     }
 
+    /// Moves the same permit to its next stage only when its current stage matches.
     fn transfer(
         mut self,
         expected: PublicationPermitStage,
@@ -404,6 +406,7 @@ impl PublicationPermit {
         retired
     }
 
+    /// Recovers the shared allowance state even if an earlier holder panicked.
     fn lock(&self) -> std::sync::MutexGuard<'_, PublicationAllowanceState> {
         self.inner
             .lock()
@@ -423,6 +426,7 @@ impl Drop for PublicationPermit {
     }
 }
 
+/// Records a newly admitted permit and charges its live resource counts.
 fn insert_permit(
     state: &mut PublicationAllowanceState,
     inner: &Arc<Mutex<PublicationAllowanceState>>,
@@ -452,6 +456,7 @@ fn insert_permit(
     }
 }
 
+/// Retires a permit and releases live capacity without refunding spent authority.
 fn remove_live_permit(state: &mut PublicationAllowanceState, id: u64) -> bool {
     let Some(permit) = state.live.remove(&id) else {
         return false;

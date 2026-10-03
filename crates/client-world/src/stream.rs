@@ -68,8 +68,6 @@ mod particle_events;
 mod polling;
 mod prediction;
 mod publication;
-#[path = "publication_config.rs"]
-mod publication_config;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod request_queue;
@@ -95,11 +93,11 @@ pub use diagnostics::{
     PublicationStageCounters, RequestClass, RequestClassDepth, RequestQueueEvidence,
     StageDurations, SubChunkOutcomeCounters,
 };
-pub use publication_config::{
-    PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
-};
 #[cfg(feature = "publication-test-support")]
 pub use publication_test_support::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
+pub use render_api::{
+    PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
+};
 
 /// Decode and mesh workers may each have at most this many completed results
 /// waiting for the main thread. A full channel applies backpressure to Rayon.

@@ -64,9 +64,9 @@ pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
 /// axis (`LevelRendererCamera::queueRenderEntities`, `min(radius, 72)`); players are added apart.
 pub const ACTOR_CANDIDATE_RADIUS_BLOCKS: f32 = 72.0;
 /// Classic skin UV layouts use this many texels per side regardless of image resolution.
-const CLASSIC_SKIN_SIDE: usize = client_world::CLASSIC_SKIN_SIDE;
+const CLASSIC_SKIN_SIDE: usize = render_api::CLASSIC_SKIN_SIDE;
 /// The shared player array preserves every texel of every admitted skin resolution.
-pub const STANDARD_SKIN_SIDE: usize = client_world::MAX_STANDARD_SKIN_SIDE as usize;
+pub const STANDARD_SKIN_SIDE: usize = render_api::MAX_STANDARD_SKIN_SIDE as usize;
 pub const STANDARD_SKIN_BYTES: usize = STANDARD_SKIN_SIDE * STANDARD_SKIN_SIDE * 4;
 pub const STANDARD_BIPED_VERTEX_COUNT: usize = 6 * 6 * 6;
 pub const DEFAULT_SKIN_PROVENANCE: &str = "locally generated Cinnabar Default skin";
@@ -701,7 +701,7 @@ pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
 pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
     if !skin.width.is_power_of_two()
         || skin.width < CLASSIC_SKIN_SIDE as u32
-        || skin.width > client_world::MAX_STANDARD_SKIN_SIDE
+        || skin.width > render_api::MAX_STANDARD_SKIN_SIDE
         || (skin.height != skin.width && skin.height.checked_mul(2) != Some(skin.width))
     {
         return None;
@@ -715,7 +715,7 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
         return normalize_actor_skin(&ActorSkinPixels {
             width: skin.width,
             height: skin.width,
-            rgba8: client_world::expand_legacy_skin_rgba8(&skin.rgba8, side).into(),
+            rgba8: render_api::expand_legacy_skin_rgba8(&skin.rgba8, side).into(),
         });
     }
     if side == STANDARD_SKIN_SIDE {

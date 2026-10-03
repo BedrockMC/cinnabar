@@ -47,6 +47,12 @@ pub(super) struct CrateRule {
     pub(super) allowed_dependencies: Vec<String>,
     #[serde(default)]
     pub(super) forbidden_dependencies: Vec<String>,
+    /// Reject every dependency, including external and development dependencies.
+    #[serde(default)]
+    pub(super) dependency_free: bool,
+    /// Reject these packages through local dependency paths, including this crate's tests.
+    #[serde(default)]
+    pub(super) forbidden_transitive_dependencies: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

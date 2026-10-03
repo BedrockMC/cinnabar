@@ -1647,6 +1647,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-cxb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "protocol",
+ "serde",
+ "serde_json",
+ "server-experience",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "wit-component",
+ "zip",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1719,6 +1734,7 @@ dependencies = [
  "meshing",
  "protocol",
  "rayon",
+ "render-api",
  "sha2",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
@@ -4789,6 +4805,7 @@ dependencies = [
  "jolyne",
  "jsonwebtoken",
  "p384",
+ "render-api",
  "serde",
  "serde_json",
  "sha2",
@@ -5132,19 +5149,23 @@ dependencies = [
  "assets",
  "bevy",
  "bytemuck",
- "client-world",
  "image",
  "meshing",
  "mod-api",
  "naga",
  "naga_oil",
  "rayon",
+ "render-api",
  "serde_json",
  "sha2",
  "tempfile",
  "wgpu",
  "world",
 ]
+
+[[package]]
+name = "render-api"
+version = "0.1.0"
 
 [[package]]
 name = "renderdoc-sys"

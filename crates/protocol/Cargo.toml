@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+render-api = { path = "../render-api" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }
 bytes.workspace = true
