@@ -53,7 +53,7 @@ An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/
 ```toml
 id = "benergistics"   # owns the block namespace "benergistics:"
 version = "0.1.0"
-api = "0.2"           # server WIT major.minor
+api = "0.3"           # server WIT major.minor
 data-schema = 1       # block-data schema
 [files]               # every other file, '/'-separated, with its lowercase hex SHA-256
 "server.wasm" = "…"
@@ -93,13 +93,18 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server.wit`, package
-`cinnabar:experience-server@0.2.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.3.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks, the callbacks `on-place`, `on-break`, `on-interact` and
-`on-neighbor-changed`, and `client-message`. Every world method goes through the borrowed
-`callback` resource, valid for one callback only. The runtime still runs artifacts with
-`api = "0.1"` against the frozen 0.1 world in `crates/experience-runtime/wit/0.1/server.wit`,
-which has neither `send-client` nor `client-message`; a client message for such an Experience is
-rejected without running it.
+`on-neighbor-changed`, `client-message` and `epoch`. Every world method goes through the borrowed
+`callback` resource, valid for one callback only. The runtime still runs older artifacts against
+their frozen worlds, by the manifest's `api`:
+
+- `api = "0.2"`, `crates/experience-runtime/wit/0.2/server.wit`: client messages and sends hold
+  scalars only, and there is no `epoch`. A client message holding a list or record, or an epoch,
+  for such an Experience is rejected without running it.
+- `api = "0.1"`, `crates/experience-runtime/wit/0.1/server.wit`: neither `send-client` nor
+  `client-message` nor `epoch`; a client message or an epoch for it is rejected without running
+  it.
 
 WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
 (`tools/localserver/experience`) both enforce them.
@@ -135,18 +140,35 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 - **`tell`.** Only to the event's actor, else `denied`; `player-unavailable` when the event has no
   actor. Control characters and `§` are `invalid-text`; text over `MAX_TELL_BYTES` is
   `too-large`; at most `MAX_TELLS` per callback.
-- **`send-client`.** Stages a typed record (a list of `scalar`s, the client wire protocol's field
-  values) for the actor's client part on a channel and schema revision; `denied` and
-  `player-unavailable` as for `tell`. A callback's channels and payloads hold at most
-  `MAX_CLIENT_SEND_BYTES` as JSON, else `too-large`; at most `MAX_CLIENT_SENDS` per callback. The
-  adapter sends a staged message only after the whole result commits, and only on a channel, in
-  the direction to the client, that the Experience's own client part declares; anything else, or
-  a player without an active client part, is dropped and counted. Without the server half of
-  client parts every staged message is dropped.
+- **`send-client`.** Stages a typed record (the client wire protocol's field values) for the
+  actor's client part on a channel and schema revision; `denied` and `player-unavailable` as for
+  `tell`. A callback's channels and payloads hold at most `MAX_CLIENT_SEND_BYTES` as JSON, else
+  `too-large`; that is room for one message as large as wire v2 carries, on a channel with the
+  longest id, which `TestRuntimeClientSendsFitTheWire` in `tools/localserver` checks against the
+  wire's constants. At most `MAX_CLIENT_SENDS` per callback. The adapter sends a staged message
+  only after the whole result commits, and only on a channel, in the direction to the client,
+  that the Experience's own client part declares; anything else, or a player without an active
+  client part, is dropped and counted. Without the server half of client parts every staged
+  message is dropped.
+- **Payload values.** A record's values are scalars, lists and records, as the channel declares
+  them. WIT has no recursive types, so a payload is a `list<value-node>`: its values in
+  pre-order, a scalar as a `leaf`, a list or record as a header holding its item count followed
+  by that many values. That is the layout of MessagePack and CBOR arrays, and the boring choice:
+  unlike a node table with child indices it cannot share a node or form a cycle, so the only
+  malformed input is a header that counts more items than follow it, and unlike JSON text the
+  leaves stay typed and neither side runs a parser. Lists and records nest at most
+  `MAX_VALUE_DEPTH` deep, a top-level one being level 1, which is the wire's `MAX_FIELD_DEPTH`;
+  a deeper payload is `too-large`. A malformed payload traps. The SDK's `Value`, `nodes` and
+  `values` build and read payloads, and `Experience::client_message` receives `Value`s.
 - **`client-message`.** A typed record that a player's client part sent arrives through the same
-  queue as the block callbacks, with that player as the actor. Its `callback` has no snapshot, so
-  every block read and write is refused; it may `tell` and `send-client` to the player, and its
-  result commits like any other, in the world the player is in when it runs.
+  queue as the block callbacks, with that player as the actor, its lists and records as pre-order
+  nodes like a send's. Its `callback` has no snapshot, so every block read and write is refused;
+  it may `tell` and `send-client` to the player, and its result commits like any other, in the
+  world the player is in when it runs.
+- **`epoch`.** A player's client part moved to a new world epoch, such as another dimension, and
+  kept running, so it may have missed what was sent before; the guest resends its state. The
+  callback comes through the same queue, with that player as the actor and no snapshot, and
+  acts exactly like `client-message`'s.
 - **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
 - **Fresh instance per callback.** Each callback runs on a new instance of the precompiled
   component, so guest memory never survives a callback; durable state belongs in block data.
@@ -214,8 +236,9 @@ bedrock-local-server … -extension-key <seed file> -extension-audience <host:po
   knows the exact manifest; so is another world epoch on wire v1.
 - **World epochs.** On wire v2 a dimension change keeps the client part. The client's `epoch`
   control moves the session to its new epoch: the server's later envelopes carry it, the client's
-  envelopes of the old epoch are dropped and counted, and `Server.OnEpoch` tells each Experience
-  with an active client part for that player, so it can resend its state.
+  envelopes of the old epoch are dropped and counted, and `Server.OnEpoch` queues the `epoch`
+  callback (`Host.DeliverEpoch`) of each Experience with an active client part for that player,
+  so it can resend its state.
 - **Fallback.** Any violation, the Accept's expiry, a dimension change on wire v1 (it resets the
   client's world epoch) or a disconnect puts that connection in fallback for good: its client
   part gets nothing more, its messages are dropped, and the player stays connected and plays on
@@ -252,9 +275,12 @@ many bytes of JSON, at most `MAX_FRAME_BYTES`; bytes inside messages are lowerca
 `tools/localserver/experience/testdata/protocol` come from
 `experience-runtime write-fixtures <dir>`; the Go tests decode and re-encode each one and require
 identical JSON, and reject unknown fields. A helper that answers `load` with another protocol
-version fails the load. A client message is a `callback` whose `call` is `client_message` and
-whose snapshot is empty; a staged client message is a `send_client` op. Their `scalar` values
-have the client wire protocol's form, `{"type": "integer", "value": 42}`.
+version fails the load. A client message is a `callback` whose `call` is `client_message`, and an
+epoch one whose `call` is `epoch`; both have an empty snapshot. A staged client message is a
+`send_client` op. Their `scalar` values have the client wire protocol's form,
+`{"type": "integer", "value": 42}`, a list or record holding its values in an array,
+`{"type": "list", "value": [...]}`; the runtime turns them into and out of the guest's pre-order
+nodes.
 
 ## Private data store
 
@@ -307,8 +333,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.2; 0.1 still accepted | `crates/experience-sdk/wit/server.wit`; 0.1 in `crates/experience-runtime/wit/0.1/server.wit` |
-| IPC protocol | 2 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.3; 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server.wit`; 0.2 and 0.1 in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 3 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema` | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/mod-api/wit/deps/server-experience/capabilities.wit`, world in `crates/mod-api/wit/extension.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
@@ -333,7 +359,8 @@ Another server can host the same artifacts by speaking the protocol to `experien
    ownership rules and the commit limits again, since the helper is not trusted.
 5. After the commit, send each `send_client` op to the actor's client part if that Experience's
    client part declares the channel; drop and count the rest. Deliver a client part's messages
-   as `client_message` callbacks with the sender as actor and an empty snapshot.
+   as `client_message` callbacks, and its moves to a new world epoch as `epoch` callbacks, with
+   that player as actor and an empty snapshot.
 6. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
    described above.
 7. Own the store: generations, revisions, the quota and atomic flushes.

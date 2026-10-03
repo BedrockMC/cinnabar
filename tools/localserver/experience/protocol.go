@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 2
+const protocolVersion = 3
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -106,6 +106,7 @@ type Call struct {
 	Interact      *InteractCall
 	Neighbor      *NeighborCall
 	ClientMessage *ClientMessageCall
+	Epoch         *EpochCall
 }
 
 // PlaceCall follows a successful player placement.
@@ -138,6 +139,12 @@ type ClientMessageCall struct {
 	Channel string   `json:"channel"`
 	Schema  uint16   `json:"schema"`
 	Payload []Scalar `json:"payload"`
+}
+
+// EpochCall tells the guest that Player's client part moved to a new world epoch and kept
+// running. Its callback's actor is Player, and its snapshot is empty.
+type EpochCall struct {
+	Player string `json:"player"`
 }
 
 // Request is a message from the adapter to the runtime. Exactly one field is set.
@@ -384,6 +391,7 @@ const (
 	typeInteract      = "interact"
 	typeNeighbor      = "neighbor"
 	typeClientMessage = "client_message"
+	typeEpoch         = "epoch"
 	typeUnbreakable   = "unbreakable"
 	typeBreakable     = "breakable"
 	typeSetBlock      = "set_block"
@@ -444,6 +452,10 @@ type (
 	clientMessageWire struct {
 		variantTag
 		*ClientMessageCall
+	}
+	epochWire struct {
+		variantTag
+		*EpochCall
 	}
 	unbreakableWire struct {
 		variantTag
@@ -533,6 +545,8 @@ func (c Call) MarshalJSON() ([]byte, error) {
 		return json.Marshal(neighborWire{variantTag{typeNeighbor}, c.Neighbor})
 	case c.ClientMessage != nil:
 		return json.Marshal(clientMessageWire{variantTag{typeClientMessage}, c.ClientMessage})
+	case c.Epoch != nil:
+		return json.Marshal(epochWire{variantTag{typeEpoch}, c.Epoch})
 	}
 	return nil, errors.New("empty call")
 }
@@ -554,6 +568,8 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &neighborWire{NeighborCall: fresh(&c.Neighbor)})
 	case typeClientMessage:
 		return decodeStrict(data, &clientMessageWire{ClientMessageCall: fresh(&c.ClientMessage)})
+	case typeEpoch:
+		return decodeStrict(data, &epochWire{EpochCall: fresh(&c.Epoch)})
 	}
 	return fmt.Errorf("unknown call type %q", tag)
 }

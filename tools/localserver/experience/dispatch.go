@@ -89,8 +89,8 @@ type neighborTick struct {
 	seen map[cube.Pos]struct{}
 }
 
-// event is one hook's callback, queued for its Experience's worker. A client message's event has
-// no world until its snapshot finds the actor's.
+// event is one hook's callback, queued for its Experience's worker. A client message's or an
+// epoch's event has no world until its snapshot finds the actor's.
 type event struct {
 	w   *world.World
 	dim dimension
@@ -99,6 +99,13 @@ type event struct {
 	// actor is the player who caused the event; nil for a neighbor event.
 	actor *world.EntityHandle
 	call  Call
+}
+
+// anchored reports whether the call is about a block, its event's anchor. A client message and
+// an epoch are about their player alone: they have no anchor and no snapshot, and run in the
+// world that player is in.
+func (c Call) anchored() bool {
+	return c.ClientMessage == nil && c.Epoch == nil
 }
 
 // dimension is a world's dimension as the store and the guest name it.
@@ -468,11 +475,11 @@ type cellState struct {
 }
 
 // snapshot reads the event's anchor and its loaded neighbors in a fresh task of the event's
-// world. A client message has no anchor, so its snapshot holds no cell; it runs in the world its
-// actor is in at the time, which becomes the event's world.
+// world. A client message or an epoch has no anchor, so its snapshot holds no cell; it runs in
+// the world its actor is in at the time, which becomes the event's world.
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
-	if ev.call.ClientMessage == nil {
+	if ev.call.anchored() {
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) { snap = h.read(tx, d, *ev) })); err != nil {
 			return snapshot{}, err
 		}
@@ -486,10 +493,10 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 		}
 	})
 	if err := await(ctx, task); err != nil {
-		return snapshot{}, fmt.Errorf("finding the sender of a client message: %w", err)
+		return snapshot{}, fmt.Errorf("finding the actor of a player's callback: %w", err)
 	}
 	if !found {
-		return snapshot{}, errors.New("the sender of a client message is in a world without a dimension id")
+		return snapshot{}, errors.New("the actor of a player's callback is in a world without a dimension id")
 	}
 	return snap, nil
 }
@@ -506,7 +513,7 @@ func await(ctx context.Context, task *world.Task) error {
 }
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
-// height, loaded or not, with the data of the owned ones; nothing for a client message.
+// height, loaded or not, with the data of the owned ones; nothing for an unanchored call.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
@@ -528,7 +535,7 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		snap.req.Actor = &id
 	}
 	var positions []cube.Pos
-	if ev.call.ClientMessage == nil {
+	if ev.call.anchored() {
 		positions = append(positions, ev.anchor)
 		for _, f := range cube.Faces() {
 			if side := ev.anchor.Side(f); !side.OutOfBounds(r) {

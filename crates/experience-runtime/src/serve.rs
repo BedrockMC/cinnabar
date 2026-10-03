@@ -157,6 +157,7 @@ fn call_kind(call: &Call) -> &'static str {
         Call::Interact { .. } => "interact",
         Call::Neighbor { .. } => "neighbor",
         Call::ClientMessage { .. } => "client_message",
+        Call::Epoch { .. } => "epoch",
     }
 }
 

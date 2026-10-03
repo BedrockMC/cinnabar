@@ -107,7 +107,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 	}
 	if ext != nil {
-		deliverClientMessages(ext, srv.Player, host, logger)
+		deliverClientPartEvents(ext, srv.Player, host, logger)
 	}
 	srv.Listen()
 	accepting := make(chan struct{})

@@ -4,9 +4,10 @@
 mod common;
 
 use common::{
-    ACTOR, AIR, COUNTER, callback, cell, client_message, interact, outcome, p, send, tell, up,
+    ACTOR, AIR, COUNTER, callback, cell, client_message, epoch, interact, items, outcome, p, send,
+    tell, up,
 };
-use experience_runtime::limits::MAX_REASON_BYTES;
+use experience_runtime::limits::{MAX_REASON_BYTES, MAX_VALUE_DEPTH};
 use experience_runtime::protocol::{
     Call, Cause, Cell, Change, Face, FailKind, Op, Outcome, Request, Scalar,
 };
@@ -316,6 +317,16 @@ fn oversized_send_is_too_large() {
     assert_eq!(outcome(&interact(21)), committed(vec![tell("too-large")]));
 }
 
+/// Lists and records stage like scalars: x=22 sends its item list, 400 records whose JSON is
+/// more than twice the original wire's inline limit, in one message.
+#[test]
+fn staged_send_carries_lists_and_records() {
+    assert_eq!(
+        outcome(&interact(22)),
+        committed(vec![send("probe.items", 1, items(400)), tell("items ok")])
+    );
+}
+
 /// A client message reaches the guest with its fields in order. Its callback has no snapshot,
 /// so the block read and write are refused, while the echo to the sender is staged.
 #[test]
@@ -335,12 +346,56 @@ fn client_message_reaches_guest_without_world_access() {
     );
 }
 
-/// A client message comes from its player, who is the callback's actor, and carries no
-/// snapshot; otherwise nothing runs, though each of these would commit if it ran.
+/// Lists and records in a client message reach the guest whole and in order, nested as deep as
+/// a payload may be, and come back the same in its echo.
 #[test]
-fn malformed_client_message_is_rejected_unrun() {
-    let with = |edit: fn(&mut Option<String>, &mut Vec<Cell>)| {
-        let mut request = client_message("probe.echo", 1, vec![]);
+fn client_message_lists_and_records_reach_guest() {
+    let mut deep = Scalar::Choice(1);
+    for level in 0..MAX_VALUE_DEPTH {
+        deep = if level % 2 == 0 {
+            Scalar::List(vec![deep, Scalar::Text(format!("{level}"))])
+        } else {
+            Scalar::Record(vec![Scalar::Bool(false), deep])
+        };
+    }
+    let payload = [
+        items(3),
+        vec![Scalar::List(Vec::new()), deep, Scalar::Integer(7)],
+    ]
+    .concat();
+    assert_eq!(
+        outcome(&client_message("probe.echo", 2, payload.clone())),
+        committed(vec![
+            send("probe.echo", 2, payload),
+            tell("client probe.echo 2 4 read denied write denied echo ok"),
+        ])
+    );
+}
+
+/// `epoch` tells the guest that its player's client part moved to a new world epoch. Like a
+/// client message it has no snapshot, so the block read and write are refused, while what it
+/// resends to the player is staged.
+#[test]
+fn epoch_reaches_guest_without_world_access() {
+    assert_eq!(
+        outcome(&epoch()),
+        committed(vec![
+            send("probe.items", 1, items(2)),
+            tell("epoch read denied write denied send ok"),
+        ])
+    );
+}
+
+/// A client message or an epoch comes from its player, who is the callback's actor, and carries
+/// no snapshot, and a client message's values nest at most `MAX_VALUE_DEPTH` deep; otherwise
+/// nothing runs, though each of these would commit if it ran.
+#[test]
+fn malformed_client_message_or_epoch_is_rejected_unrun() {
+    let mut too_deep = Scalar::Bool(true);
+    for _ in 0..=MAX_VALUE_DEPTH {
+        too_deep = Scalar::List(vec![too_deep]);
+    }
+    let edited = |mut request: Request, edit: fn(&mut Option<String>, &mut Vec<Cell>)| {
         let Request::Callback {
             actor, snapshot, ..
         } = &mut request
@@ -350,17 +405,22 @@ fn malformed_client_message_is_rejected_unrun() {
         edit(actor, snapshot);
         request
     };
-    let malformed = [
-        with(|actor, _| *actor = None),
-        with(|actor, _| *actor = Some("00000000-0000-0000-0000-000000000000".to_owned())),
-        with(|_, snapshot| snapshot.push(cell(p(0), COUNTER, true, None))),
-    ];
-    for request in malformed {
-        let outcome = outcome(&request);
-        assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+    for base in [client_message("probe.echo", 1, vec![]), epoch()] {
+        let with = |edit| edited(base.clone(), edit);
+        let malformed = [
+            with(|actor, _| *actor = None),
+            with(|actor, _| *actor = Some("00000000-0000-0000-0000-000000000000".to_owned())),
+            with(|_, snapshot| snapshot.push(cell(p(0), COUNTER, true, None))),
+        ];
+        for request in malformed {
+            let outcome = outcome(&request);
+            assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
+        }
+        assert!(matches!(
+            outcome(&with(|_, _| {})),
+            Outcome::Committed { .. }
+        ));
     }
-    assert!(matches!(
-        outcome(&with(|_, _| {})),
-        Outcome::Committed { .. }
-    ));
+    let outcome = outcome(&client_message("probe.echo", 1, vec![too_deep]));
+    assert!(matches!(outcome, Outcome::Rejected { .. }), "{outcome:?}");
 }

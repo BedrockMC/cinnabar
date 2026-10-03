@@ -3,18 +3,21 @@
 //! `p`, and `up` is the block above it. World errors are told by their WIT
 //! kebab-case names. `client-message` tries a block read and write, which its
 //! callback refuses, echoes the message back to the sender's client part and
-//! tells what happened.
+//! tells what happened. `epoch` tries the same read and write, resends a short
+//! item list and tells what happened.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use experience_sdk::{
     BlockChange, BlockDef, BlockPos, Callback, Experience, Face, GuestError, LogLevel, Mining,
-    PlayerId, Scalar, TextureBinding, WorldError, log,
+    PlayerId, TextureBinding, Value, WorldError, log, nodes,
 };
 
 const COUNTER: &str = "probe:counter";
 /// The client channel that x=19 sends the counter on.
 const COUNTER_CHANNEL: &str = "probe.counter";
+/// The client channel that x=22 and `epoch` send the item list on.
+const ITEMS_CHANNEL: &str = "probe.items";
 const AIR: &str = "minecraft:air";
 const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 const MIB: usize = 1 << 20;
@@ -77,16 +80,24 @@ impl Experience for Probe {
         player: PlayerId,
         channel: String,
         schema: u16,
-        payload: Vec<Scalar>,
+        payload: Vec<Value>,
     ) -> Result<(), GuestError> {
-        let origin = BlockPos { x: 0, y: 64, z: 0 };
-        let read = id_or_error(ctx.get_block(origin));
-        let write = outcome(ctx.set_block(origin, COUNTER));
-        let echo = outcome(ctx.send_client(&player, &channel, schema, &payload));
+        let (read, write) = world_access(ctx);
         let fields = payload.len();
+        let echo = outcome(ctx.send_client(&player, &channel, schema, &nodes(payload)));
         let text =
             format!("client {channel} {schema} {fields} read {read} write {write} echo {echo}");
         let _ = ctx.tell(&player, &text);
+        Ok(())
+    }
+
+    fn epoch(ctx: &Callback, player: PlayerId) -> Result<(), GuestError> {
+        let (read, write) = world_access(ctx);
+        let send = outcome(ctx.send_client(&player, ITEMS_CHANNEL, 1, &nodes(items(2))));
+        let _ = ctx.tell(
+            &player,
+            &format!("epoch read {read} write {write} send {send}"),
+        );
         Ok(())
     }
 }
@@ -104,7 +115,7 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         1 => {
             let _ = ctx.set_block_data(p, Some(&[1]));
             tell("staged");
-            let _ = ctx.send_client(player, COUNTER_CHANNEL, 1, &[Scalar::Integer(1)]);
+            let _ = ctx.send_client(player, COUNTER_CHANNEL, 1, &nodes(vec![Value::Integer(1)]));
             // Lowers to the Wasm `unreachable` instruction.
             std::process::abort();
         }
@@ -173,8 +184,9 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         18 => return Err(GuestError::Rejected("€".repeat(2 * MIB / 3))),
         19 => match next_count(ctx, p) {
             Ok(n) => {
-                let value = Scalar::Integer(n.into());
-                let sent = outcome(ctx.send_client(player, COUNTER_CHANNEL, 1, &[value]));
+                let value = Value::Integer(n.into());
+                let sent =
+                    outcome(ctx.send_client(player, COUNTER_CHANNEL, 1, &nodes(vec![value])));
                 tell(&format!("count {n} {sent}"));
             }
             Err(error) => tell(&format!("error {}", error.name())),
@@ -186,17 +198,37 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
             &[],
         ))),
         21 => {
-            let text = Scalar::Text("x".repeat(MIB));
+            let text = Value::Text("x".repeat(MIB));
             tell(outcome(ctx.send_client(
                 player,
                 COUNTER_CHANNEL,
                 1,
-                &[text],
+                &nodes(vec![text]),
             )));
+        }
+        22 => {
+            let sent = outcome(ctx.send_client(player, ITEMS_CHANNEL, 1, &nodes(items(400))));
+            tell(&format!("items {sent}"));
         }
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())
+}
+
+/// A block read and a block write at the origin, as `(read, write)` outcomes; a callback without
+/// a snapshot refuses both.
+fn world_access(ctx: &Callback) -> (String, &'static str) {
+    let origin = BlockPos { x: 0, y: 64, z: 0 };
+    (
+        id_or_error(ctx.get_block(origin)),
+        outcome(ctx.set_block(origin, COUNTER)),
+    )
+}
+
+/// An item list of `count` entries: one list of records, each an index and a name.
+fn items(count: i64) -> Vec<Value> {
+    let item = |i: i64| Value::Record(vec![Value::Integer(i), Value::Text(format!("item {i}"))]);
+    vec![Value::List((0..count).map(item).collect())]
 }
 
 /// Describes [`next_count`]: `count {n}`, or `error {name}` if a call failed.

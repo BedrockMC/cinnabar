@@ -1,16 +1,16 @@
-//! The host side of server WIT 0.1, which artifacts built before 0.2 target. Later versions only
-//! added to 0.1's types, so the 0.1 world shares the current WIT's types and its imports act
-//! exactly like theirs.
+//! The host side of server WIT 0.2, which artifacts built before 0.3 target. 0.3 only added to
+//! 0.2's types, so the 0.2 world shares the current WIT's types, and its imports act exactly like
+//! the current ones: a 0.2 payload is all scalars, which are the current world's leaf nodes.
 
 use anyhow::{Result, bail};
 use wasmtime::component::Resource;
 
 use super::HostState;
-use super::cinnabar::experience_server::types::{CallbackInfo, LogLevel, WorldError};
+use super::cinnabar::experience_server::types::{CallbackInfo, LogLevel, ValueNode, WorldError};
 use crate::callback::CallbackRes;
 
 wasmtime::component::bindgen!({
-    path: "wit/0.1",
+    path: "wit/0.2",
     world: "server",
     imports: { default: trappable },
     with: {
@@ -21,8 +21,8 @@ wasmtime::component::bindgen!({
 
 use cinnabar::experience_server::{diagnostics, world_access};
 
-/// The 0.1 WIT that `bindgen!` reads; its `package` line names the version.
-pub(crate) const WIT: &str = include_str!("../../wit/0.1/server.wit");
+/// The 0.2 WIT that `bindgen!` reads; its `package` line names the version.
+pub(crate) const WIT: &str = include_str!("../../wit/0.2/server.wit");
 
 impl diagnostics::Host for HostState {
     fn log(&mut self, level: LogLevel, text: String) -> Result<()> {
@@ -79,6 +79,20 @@ impl world_access::HostCallback for HostState {
         text: String,
     ) -> Result<Result<(), WorldError>> {
         self.table.get_mut(&ctx)?.tell(player, text)
+    }
+
+    fn send_client(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<Scalar>,
+    ) -> Result<Result<(), WorldError>> {
+        let payload = payload.into_iter().map(ValueNode::Leaf).collect();
+        self.table
+            .get_mut(&ctx)?
+            .send_client(player, channel, schema, payload)
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.
