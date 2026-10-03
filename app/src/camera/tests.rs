@@ -509,6 +509,18 @@ fn left_click_recaptures_with_locked_invisible_cursor() {
 }
 
 #[test]
+fn consent_popup_releases_a_captured_cursor_whatever_the_scene_asks() {
+    let (mut app, window) = capture_test_app(true, CursorGrabMode::Locked, false, true);
+    app.insert_resource(crate::server_experiences::input::ConsentInput(true));
+
+    app.update();
+
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    assert!(cursor.visible);
+}
+
+#[test]
 fn production_schedule_consumes_recapture_click_until_physical_release() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);

@@ -60,8 +60,8 @@ use bevy::{
         },
     },
 };
-use client_world::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
 use meshing::{ChunkBiomeTintIdentity, Face, chunk_publication_byte_len};
+use render_api::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
 use world::SubChunkKey;
 
 use crate::{

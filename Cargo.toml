@@ -19,6 +19,7 @@ members = [
     "crates/resource-pack",
     "crates/server-experience",
     "crates/render",
+    "crates/render-api",
     "crates/sim",
     "crates/ui",
     "crates/world",
@@ -29,6 +30,7 @@ members = [
     "tools/phase2-evidence",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",
+    "tools/cxb",
 ]
 resolver = "3"
 

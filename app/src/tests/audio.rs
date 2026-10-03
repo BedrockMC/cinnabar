@@ -166,9 +166,10 @@ fn fixture_catalog() -> RuntimeAudioCatalog {
     RuntimeAudioCatalog::decode(&bytes).unwrap()
 }
 
-fn sequenced_play(sequence: u64, name: &str) -> SequencedAudioEvent {
+/// Builds a play message for the fixture stream that produced it.
+fn sequenced_play(origin_stream_session_id: u64, sequence: u64, name: &str) -> SequencedAudioEvent {
     SequencedAudioEvent {
-        origin_stream_session_id: 1,
+        origin_stream_session_id,
         dimension: 0,
         dimension_epoch: 0,
         sequence,
@@ -183,9 +184,10 @@ fn sequenced_play(sequence: u64, name: &str) -> SequencedAudioEvent {
     }
 }
 
-fn sequenced_stop(sequence: u64) -> SequencedAudioEvent {
+/// Builds a stop message for the fixture stream that produced it.
+fn sequenced_stop(origin_stream_session_id: u64, sequence: u64) -> SequencedAudioEvent {
     SequencedAudioEvent {
-        origin_stream_session_id: 1,
+        origin_stream_session_id,
         dimension: 0,
         dimension_epoch: 0,
         sequence,
@@ -226,15 +228,22 @@ fn write_pending_audio(
 
 #[test]
 fn session_audio_reader_consumes_each_sequenced_event_exactly_once() {
+    // Create an earlier session even when this test runs alone in nextest.
+    let previous_world = connected_client_world();
+    let previous_session = previous_world.stream.as_ref().unwrap().actor_session_id();
+    let world = connected_client_world();
+    let stream_session = world.stream.as_ref().unwrap().actor_session_id();
+    assert_ne!(stream_session, previous_session);
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
         .init_resource::<crate::environment::WorldClock>()
         .init_resource::<SessionAudio>()
         .insert_resource(SessionAudioCatalog(Some(Arc::new(fixture_catalog()))))
-        .insert_resource(connected_client_world())
+        .insert_resource(world)
         .insert_resource(PendingAudio(vec![
-            sequenced_play(1, "random.orb"),
-            sequenced_stop(2),
+            sequenced_play(stream_session, 1, "random.orb"),
+            sequenced_stop(stream_session, 2),
+            sequenced_play(previous_session, 3, "random.orb"),
         ]))
         .add_systems(
             Update,
@@ -257,13 +266,19 @@ fn session_audio_reader_consumes_each_sequenced_event_exactly_once() {
 
 #[test]
 fn production_audio_reader_clears_disconnect_state_and_drops_stale_messages() {
+    let world = connected_client_world();
+    let stream_session = world.stream.as_ref().unwrap().actor_session_id();
     let mut app = App::new();
     app.add_message::<SequencedAudioEvent>()
         .init_resource::<crate::environment::WorldClock>()
         .init_resource::<SessionAudio>()
         .insert_resource(SessionAudioCatalog(Some(Arc::new(fixture_catalog()))))
-        .insert_resource(connected_client_world())
-        .insert_resource(PendingAudio(vec![sequenced_play(1, "random.orb")]))
+        .insert_resource(world)
+        .insert_resource(PendingAudio(vec![sequenced_play(
+            stream_session,
+            1,
+            "random.orb",
+        )]))
         .add_systems(
             Update,
             (write_pending_audio, drain_sequenced_audio_into_session).chain(),
@@ -276,7 +291,7 @@ fn production_audio_reader_clears_disconnect_state_and_drops_stale_messages() {
     app.world_mut()
         .resource_mut::<PendingAudio>()
         .0
-        .push(sequenced_play(2, "random.orb"));
+        .push(sequenced_play(stream_session, 2, "random.orb"));
     app.update();
 
     let disconnected = app.world().resource::<SessionAudio>();
@@ -311,7 +326,7 @@ fn production_audio_reader_clears_disconnect_state_and_drops_stale_messages() {
 
 fn retained_session_audio() -> SessionAudio {
     let mut audio = SessionAudio::default();
-    audio.admit(1, 0, [sequenced_stop(1)], None);
+    audio.admit(1, 0, [sequenced_stop(1, 1)], None);
     audio
 }
 

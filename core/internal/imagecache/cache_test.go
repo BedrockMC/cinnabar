@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,8 +46,13 @@ func TestCacheStoresAndReusesAnImage(t *testing.T) {
 	if err != nil || first.ContentType != "image/png" || filepath.Ext(first.Path) != ".png" {
 		t.Fatalf("first = %+v err=%v", first, err)
 	}
-	if info, err := os.Stat(first.Path); err != nil || info.Mode().Perm() != 0o600 {
+	info, err := os.Stat(first.Path)
+	if err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("stat = %v err=%v", info, err)
+	}
+	// Windows exposes a read-only attribute rather than Unix permission bits.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("cache permissions = %o, want 600", info.Mode().Perm())
 	}
 	second, err := cache.Fetch(context.Background(), "https://example.com/a.png")
 	if err != nil || second != first || hits.Load() != 1 {

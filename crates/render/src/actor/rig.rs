@@ -34,7 +34,7 @@ pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
 /// Existing body/equipment allowance plus every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
-    MAX_RENDERED_PLAYERS * (4 + client_world::MAX_SKIN_ANIMATION_LAYERS);
+    MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
     MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
 pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;

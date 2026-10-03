@@ -132,6 +132,11 @@ fn flush_pending_hotbar_selection(
             select_hotbar_slot_packet(runtime_id, target, &protocol::NetworkItemStack::empty())
         }
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+            // Sparse inventory predictions carry negative request IDs until the server answers.
+            // Keep the local selection visible and retry after correction; -1 means untracked.
+            if stack.stack_network_id < -1 {
+                return;
+            }
             select_hotbar_slot_packet(runtime_id, target, stack)
         }
     };
@@ -503,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_selected_slot_correction_updates_snapshot_without_reselection() {
+    fn pending_selected_slot_waits_for_correction_without_reselection() {
         let mut runtime = identified_runtime();
         runtime
             .inventory_ledger_mut()
@@ -558,12 +563,23 @@ mod tests {
                     ]),
                 }]),
             }));
-        runtime.set_local_selected_slot(0);
+        runtime.queue_local_hotbar_selection(0);
         let place = runtime.inventory_ledger_mut().begin_click(0).unwrap();
         assert!(matches!(
             runtime.selected_stack_snapshot().unwrap().state,
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
         ));
+
+        let mut fatal = None;
+        let mut sent = Vec::new();
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            sent.push(packet);
+            Ok(())
+        });
+        assert_eq!(fatal, None, "pending stack identity must not disconnect");
+        assert!(sent.is_empty());
+        assert_eq!(runtime.selected_hotbar_slot(), Some(0));
+        assert_eq!(runtime.pending_hotbar_selection(), Some(0));
 
         runtime
             .inventory_ledger_mut()
@@ -600,6 +616,86 @@ mod tests {
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&corrected)
         );
         assert_eq!(runtime.selected_hotbar_slot(), Some(0));
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            sent.push(packet);
+            Ok(())
+        });
+        assert_eq!(sent.len(), 1);
+        let session = protocol::BedrockSession { shield_item_id: 0 };
+        let expected = select_hotbar_slot_packet(42, 0, &corrected).unwrap();
+        assert_eq!(
+            protocol::encode(&sent[0], &session).unwrap(),
+            protocol::encode(&expected, &session).unwrap()
+        );
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(fatal, None);
+    }
+
+    /// Rejecting a pending placement resumes the retained selection with the restored empty slot.
+    #[test]
+    fn rejected_pending_place_sends_restored_slot_without_reselection() {
+        let mut runtime = identified_runtime();
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        open_personal_inventory(&mut runtime);
+        publish_slot(&mut runtime, 0, present_stack());
+        publish_slot(&mut runtime, 1, NetworkItemStack::empty());
+        runtime.inventory_ledger_mut().begin_click(0).unwrap();
+        let place = runtime.inventory_ledger_mut().begin_click(1).unwrap();
+        runtime.queue_local_hotbar_selection(1);
+        let mut fatal = None;
+        let mut sent = Vec::new();
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            sent.push(packet);
+            Ok(())
+        });
+        assert_eq!(fatal, None);
+        assert!(sent.is_empty());
+        assert_eq!(runtime.selected_hotbar_slot(), Some(1));
+        assert_eq!(runtime.pending_hotbar_selection(), Some(1));
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+                responses: Arc::from([StackResponse {
+                    status: StackResponseStatus::Rejected,
+                    request_id: place,
+                    containers: Arc::from([]),
+                }]),
+            }));
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |packet| {
+            sent.push(packet);
+            Ok(())
+        });
+        assert_eq!(sent.len(), 1);
+        let session = protocol::BedrockSession { shield_item_id: 0 };
+        let expected = select_hotbar_slot_packet(42, 1, &NetworkItemStack::empty()).unwrap();
+        assert_eq!(
+            protocol::encode(&sent[0], &session).unwrap(),
+            protocol::encode(&expected, &session).unwrap()
+        );
+        assert_eq!(runtime.selected_hotbar_slot(), Some(1));
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(fatal, None);
+    }
+
+    /// A server stack without network tracking is ready, unlike a pending request identity.
+    #[test]
+    fn untracked_stack_identity_does_not_defer_hotbar_selection() {
+        let mut runtime = identified_runtime();
+        let mut stack = present_stack();
+        stack.stack_network_id = -1;
+        publish_slot(&mut runtime, 2, stack);
+        runtime.queue_local_hotbar_selection(2);
+        let mut fatal = None;
+        let mut sends = 0;
+        flush_pending_hotbar_selection(&mut runtime, &mut fatal, |_| {
+            sends += 1;
+            Ok(())
+        });
+        assert_eq!(sends, 1);
+        assert_eq!(runtime.pending_hotbar_selection(), None);
+        assert_eq!(fatal, None);
     }
 
     #[test]

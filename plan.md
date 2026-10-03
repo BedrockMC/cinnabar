@@ -3421,6 +3421,11 @@ and dropped-item rendering, paper-doll first-person arm/held item.
     This is a static geometry slice, not complete item, pose, animation, lighting,
     or matched retail visual parity. Tinted, animated, partial, and unsupported
     items remain on the existing fallback path.
+  - [ ] Server custom opaque cubes now use the shared block-item face sheets for
+    inventory and held rendering. Preserving higher-resolution custom face textures
+    is incomplete: the sheet builder currently selects the mip matching
+    `BLOCK_ITEM_FACE_SIDE`. Custom shapes, tinting, animation, and matched retail
+    visual parity remain incomplete as well.
 
 ## Phase 5 — Interaction, inventory, UI
 
