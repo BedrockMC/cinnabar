@@ -186,11 +186,8 @@ pub(crate) fn flush_chat_network(
     if network.closed_command_has_pending_control() {
         return;
     }
-    if runtime.take_wake_request()
-        && let Some(runtime_id) = runtime.local_runtime_id()
-    {
-        let _ = network.send_inventory_packet(protocol::stop_sleeping_packet(runtime_id));
-    }
+    let runtime_id = runtime.local_runtime_id();
+    runtime.flush_wake_request(runtime_id, |packet| network.send_inventory_packet(packet));
     match flush_chat_sends(
         &mut runtime,
         8,
