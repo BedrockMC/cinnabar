@@ -28,8 +28,12 @@ mod lightning;
 mod lightning_render;
 mod media;
 pub use media::MediaTexture;
+mod material_shader;
 mod nametag;
 mod nametag_render;
+mod native_sunlight;
+mod native_trig;
+pub use native_sunlight::AtmosphereViewInputs;
 mod panorama;
 mod panorama_render;
 mod particles;
@@ -38,6 +42,7 @@ mod runtime_profile;
 mod runtime_profile_trace;
 mod screen_overlay;
 mod screen_overlay_render;
+mod shader_safety;
 #[cfg(test)]
 #[path = "../tests/support/shader_source.rs"]
 mod shader_source;
@@ -76,8 +81,8 @@ mod weather;
 mod weather_render;
 
 use meshing::{
-    ChunkMesh, PackedBiomeRecord, PackedCloudQuad, PackedLiquidQuad, PackedModelDrawRef,
-    PackedModelRef, PackedQuad, PackedQuadLighting, mesh_cloud_texture,
+    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
+    PackedQuadLighting,
 };
 
 pub use actor::{
@@ -125,8 +130,8 @@ pub use block_entity::{
     matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, swing_degrees,
 };
 pub use celestial::{
-    NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
-    sun_direction, sunrise_band,
+    NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,
+    star_brightness, sun_direction, sunrise_band,
 };
 pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
@@ -161,7 +166,7 @@ pub use chunk::{
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
-    CloudMatchingView, CloudQuality, CloudRenderConfig,
+    CloudMatchingView, CloudQuality, CloudRenderConfig, adjusted_cloud_distance_blocks,
 };
 pub use dropped_item::{
     DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
@@ -211,12 +216,13 @@ pub use visibility_diagnostics::{
 pub use weather::{
     ColumnSample, ColumnSampler, LAYERS_PER_KIND, MAX_PRECIPITATION_LAYERS, OCCLUSION_BLOCKED,
     OCCLUSION_OPEN, OCCLUSION_SIDE, OcclusionGrid, PARTICLE_BOX, PARTICLE_MESH_QUADS,
-    PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_SAMPLE_OFFSETS,
-    PRECIPITATION_TICKS_PER_SECOND, Precipitation, PrecipitationLayerRecord, PrecipitationMix,
-    PrecipitationParams, PrecipitationScene, PrecipitationSim, RAIN_PARAMS, RainSplashQueue,
-    SNOW_PARAMS, WeatherTextureAssets, altitude_adjusted_temperature, approach_level,
-    average_precipitation, classify_precipitation, column_heights, particle_mesh,
-    particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
+    PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_LEVEL_PER_TICK,
+    PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND, Precipitation,
+    PrecipitationLayerRecord, PrecipitationMix, PrecipitationParams, PrecipitationScene,
+    PrecipitationSim, RAIN_PARAMS, RainSplashQueue, SNOW_PARAMS, WeatherTextureAssets,
+    altitude_adjusted_temperature, approach_level, average_precipitation, classify_precipitation,
+    column_heights, particle_mesh, particles_per_layer, pick_rain_splashes,
+    precipitation_forward_offset,
 };
 
 mod opaque_phase;

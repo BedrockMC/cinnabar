@@ -8,7 +8,11 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
     assert_eq!(MATERIAL_FLAG_UV_MASK, 0x0f);
     assert_eq!(MATERIAL_FLAG_ALPHA_CUTOUT, 0x100);
     assert_eq!(MATERIAL_FLAG_LIQUID_DEPTH_WRITE, 0x800);
-    assert_eq!(MATERIAL_FLAGS_MASK, 0xfff);
+    assert_eq!(
+        MATERIAL_FLAGS_MASK
+            & (assets::MATERIAL_FLAG_SEASONAL_FOLIAGE | assets::MATERIAL_FLAG_EXPOSED_FOLIAGE),
+        assets::MATERIAL_FLAG_SEASONAL_FOLIAGE | assets::MATERIAL_FLAG_EXPOSED_FOLIAGE
+    );
     assert_eq!(std::mem::size_of::<Material>(), assets::MATERIAL_BYTES);
     let opaque_id = compiled.visuals[0].faces[BlockFace::Up as usize];
     let opaque = compiled.materials[opaque_id as usize];
@@ -36,6 +40,11 @@ fn compiler_marks_only_leaf_faces_as_alpha_cutout() {
         opaque_id, cherry_id,
         "opaque and cutout descriptors must differ"
     );
+    // Carried faces keep their shared texture; world selectors deliberately
+    // use separate native mip copies and opaque deep materials.
+    for leaf in 1..=3 {
+        super::leaf_metadata::assert_agnostic_world_copy(&compiled, leaf);
+    }
     assert!(
         compiled
             .materials
@@ -105,6 +114,15 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     // Real registries always carry canonical air; the fixture appends one so
     // the CLI path sees the same shape as a protocol triple.
     let records = with_canonical_air(&records);
+    let leaf_count = records
+        .iter()
+        .filter(|record| record.flags.contains(BlockFlags::LEAF_MODEL))
+        .count();
+    let original_materials = records
+        .iter()
+        .filter(|record| !record.flags.contains(BlockFlags::AIR))
+        .count()
+        + 1; // Diagnostic material.
     let registry = directory.path().join("registry.bin");
     let light_registry = directory.path().join("light-registry.bin");
     let biome_registry = directory.path().join("biome-registry.bin");
@@ -144,7 +162,13 @@ fn assetc_summary_reports_deterministic_cutout_material_count() {
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 summary"),
         format!(
-            "compiled 5 visuals, 5 materials (3 alpha cutout), 4 texture layers, and 1 biome rules to {}\n",
+            "compiled {} visuals, {} materials ({} alpha cutout), {} texture layers, and 1 biome rules to {}\n",
+            records.len(),
+            // Three distinct authored leaf textures (stone shares cherry)
+            // retain carried layers and gain their own native world layers.
+            original_materials + leaf_count * assets::SEASONAL_LEAF_MATERIAL_COUNT as usize,
+            leaf_count * (1 + assets::SEASONAL_LEAF_DEEP_OFFSET as usize),
+            1 + leaf_count * 2, // Diagnostic + authored/native leaf layers.
             output_blob.display()
         )
     );
@@ -298,7 +322,7 @@ fn compiler_rejects_invalid_block_flag_semantics() {
     );
 
     for invalid in [
-        BlockFlags::from_bits_retain(0x10),
+        BlockFlags::from_bits_retain(!BlockFlags::all().bits()),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
         BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,

@@ -37,7 +37,7 @@ pub(crate) fn install_lightning_render(app: &mut App) {
         app,
         LIGHTNING_SHADER_HANDLE,
         "lightning.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .init_resource::<LightningPipeline>()

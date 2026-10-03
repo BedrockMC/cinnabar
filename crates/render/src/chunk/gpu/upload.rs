@@ -89,7 +89,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
 
     arena.pending_removals.extend(removed_instances.read());
-    prepare_publication_removals(&mut arena, *budget, &gpu_removals, &acknowledgements);
+    let retirement_pressure =
+        prepare_publication_removals(&mut arena, *budget, &gpu_removals, &acknowledgements);
 
     let mut writes = ArenaWrites::default();
     let mut applied_tokens = Vec::new();
@@ -114,6 +115,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
+        let old = arena.allocations.get(&entity).cloned();
+        // Deferred removals already occupy resident GPU ranges. Do not admit
+        // more fresh chunks while completion cannot make retirement room.
+        // Replacements still use their ordinary bounded COW admission below.
+        if retirement_pressure && old.is_none() {
+            continue;
+        }
         let instance_bytes = chunk_instance_upload_byte_len(instance);
         if !validate_partitioned_model_streams(
             &instance.model_refs,
@@ -127,7 +135,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             bevy::log::error!("sub-chunk model streams are not an exact material partition");
             continue;
         }
-        let old = arena.allocations.get(&entity).cloned();
         let required = match u32::try_from(instance.cube_quads.len()) {
             Ok(required) => required,
             Err(_) => {

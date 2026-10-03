@@ -123,6 +123,11 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
 /// Occlusion and light lookups shared by the direct and cached bake paths.
 pub(crate) trait LightingInputs {
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
+    /// Native shade brightness is 0.2 for leaves, emitting blocks and solid
+    /// render blocks; only the last group also blocks diagonal light sampling.
+    fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
+        self.occludes(coordinate)
+    }
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
     /// Selects the emitting-block directional shade branch.
     fn emits(&self, _coordinate: [i32; 3]) -> bool {
@@ -147,6 +152,25 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
             self.neighbourhood,
             coordinate,
         )
+    }
+
+    fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
+        if self.occludes(coordinate) {
+            return true;
+        }
+        let Some((chunk, local)) = self.neighbourhood.block_source(coordinate) else {
+            return false;
+        };
+        chunk
+            .runtime_id(0, local[0], local[1], local[2])
+            .filter(|&id| !self.classifier.is_air(id))
+            .is_some_and(|id| {
+                let visual = self.assets.resolve(self.network_id_mode, id);
+                // BlockType::getShadeBrightness (1.26.50.26 0x0365c200):
+                // property 0x20 and Block+0x71, independently of Block+0xa3.
+                visual.flags().contains(assets::BlockFlags::LEAF_MODEL)
+                    || visual.light_properties().emission() > 0
+            })
     }
 
     fn emits(&self, coordinate: [i32; 3]) -> bool {
@@ -183,6 +207,8 @@ pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
     light_known: [Cell<u64>; HALO_WORDS],
     occluder_known: [Cell<u64>; HALO_WORDS],
     occluders: [Cell<u64>; HALO_WORDS],
+    shade_known: [Cell<u64>; HALO_WORDS],
+    darkened_shades: [Cell<u64>; HALO_WORDS],
 }
 
 impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
@@ -205,6 +231,8 @@ impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
             light_known: [const { Cell::new(0) }; HALO_WORDS],
             occluder_known: [const { Cell::new(0) }; HALO_WORDS],
             occluders: [const { Cell::new(0) }; HALO_WORDS],
+            shade_known: [const { Cell::new(0) }; HALO_WORDS],
+            darkened_shades: [const { Cell::new(0) }; HALO_WORDS],
         }
     }
 }
@@ -222,6 +250,20 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, 
             self.occluder_known[word].set(self.occluder_known[word].get() | bit);
         }
         self.occluders[word].get() & bit != 0
+    }
+
+    fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
+        let Some(index) = halo_index(coordinate) else {
+            return self.direct.shade_darkened(coordinate);
+        };
+        let (word, bit) = (index / 64, 1_u64 << (index % 64));
+        if self.shade_known[word].get() & bit == 0 {
+            if self.direct.shade_darkened(coordinate) {
+                self.darkened_shades[word].set(self.darkened_shades[word].get() | bit);
+            }
+            self.shade_known[word].set(self.shade_known[word].get() | bit);
+        }
+        self.darkened_shades[word].get() & bit != 0
     }
 
     fn emits(&self, coordinate: [i32; 3]) -> bool {
@@ -288,7 +330,7 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
     };
     let light_origin = add_normal(block, light_normal);
     let emitter = u16::from(inputs.emits(block)) << 11;
-    let shade_face = u8::from(inputs.occludes(outward));
+    let shade_face = u8::from(inputs.shade_darkened(outward));
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
@@ -304,11 +346,14 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
         let solid_a = inputs.occludes(side_a);
         let solid_b = inputs.occludes(side_b);
         let blocked_diagonal = solid_a && solid_b;
-        let ao = if blocked_diagonal {
-            3
-        } else {
-            u8::from(solid_a) + u8::from(solid_b) + u8::from(inputs.occludes(corner))
-        };
+        // AmbientOcclusionCalculator::calculateWithCache (0x069e5200)
+        // averages four independent 0.2/1 shade samples. Its diagonal fallback
+        // uses the solid-render bits, not those shade samples: two leaves may
+        // darken the vertex while still admitting the diagonal's light.
+        let shade_diagonal = if blocked_diagonal { side_a } else { corner };
+        let ao = u8::from(inputs.shade_darkened(side_a))
+            + u8::from(inputs.shade_darkened(side_b))
+            + u8::from(inputs.shade_darkened(shade_diagonal));
         let light_side_a = offset(block, light_normal, tangent_a, sign_a, None);
         let light_side_b = offset(block, light_normal, tangent_b, sign_b, None);
         let light_corner = if blocked_diagonal {
@@ -440,7 +485,13 @@ pub fn mesh_dependency_mask(
                 VisualKind::Liquid => mask.liquid = true,
                 VisualKind::Diagnostic | VisualKind::Invisible => {}
             }
-            if mask.diagonal_ao && mask.liquid {
+            if assets.resolve(network_id_mode, network_value).variant()
+                & assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF
+                != 0
+            {
+                mask.seasonal_foliage = true;
+            }
+            if mask.diagonal_ao && mask.liquid && mask.seasonal_foliage {
                 return mask;
             }
         }

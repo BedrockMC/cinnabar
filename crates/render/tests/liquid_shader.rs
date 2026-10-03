@@ -278,3 +278,9 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
     assert!(fragment.contains("let colour = lit_colour("));
     assert!(fragment.contains("sampled.rgb * in.water_tint.rgb,"));
 }
+#[allow(
+    dead_code,
+    reason = "shared shader adapter uses production material definitions"
+)]
+#[path = "../src/material_shader.rs"]
+mod material_shader;

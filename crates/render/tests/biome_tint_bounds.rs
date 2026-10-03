@@ -2,6 +2,12 @@
 //! that leave the record's sub-chunk: at face edges, and in derivative helper lanes that
 //! extrapolate past the horizon. Those must tint like the block that owns the face and never
 //! address words outside the record.
+#[path = "../src/material_shader.rs"]
+#[allow(
+    dead_code,
+    reason = "standalone shader tests use only the production source substitutions"
+)]
+mod material_shader;
 #[path = "support/shader_source.rs"]
 mod shader_source;
 
@@ -52,12 +58,20 @@ fn edge_record() -> meshing::PackedBiomeRecord {
     record
 }
 
+/// Matches the packed tint header followed by the production seasonal palette cells.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct TintRow {
+    packed: [u32; 8],
+    seasonal_foliage: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
+}
+
 /// Grass tint rows for tint indices 0 (red) and 1 (green), laid out as `BiomeTintGpu`.
-fn tint_table() -> [[u32; 8]; 2] {
-    [
-        [0x3ff, 0, 0, 0, 0, 0, 0, 0],
-        [0x3ff << 10, 0, 0, 0, 0, 0, 0, 0],
-    ]
+fn tint_table() -> [TintRow; 2] {
+    [0x3ff, 0x3ff << 10].map(|grass| TintRow {
+        packed: [grass, 0, 0, 0, 0, 0, 0, 0],
+        seasonal_foliage: [[0.0; 4]; assets::SEASONAL_FOLIAGE_COUNT],
+    })
 }
 
 #[test]

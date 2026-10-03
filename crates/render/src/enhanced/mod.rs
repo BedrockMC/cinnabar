@@ -102,19 +102,19 @@ pub(crate) fn load_shader_imports(app: &mut App) {
         app,
         ENHANCED_COMMON_SHADER_HANDLE,
         "common.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     load_internal_asset!(
         app,
         ENHANCED_VIEW_SHADER_HANDLE,
         "view.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     load_internal_asset!(
         app,
         ENHANCED_CASTER_SHADER_HANDLE,
         "caster.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
 }
 
@@ -128,7 +128,7 @@ impl Plugin for EnhancedRenderPlugin {
             app,
             ENHANCED_POST_SHADER_HANDLE,
             "post.wgsl",
-            Shader::from_wgsl
+            crate::shader_safety::from_wgsl
         );
         app.add_plugins(ExtractComponentPlugin::<EnhancedRendering>::default());
         app.add_systems(Last, enforce_single_sample_depth);

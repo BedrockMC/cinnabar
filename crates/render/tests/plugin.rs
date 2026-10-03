@@ -80,6 +80,13 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
 );
 use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey};
 
+#[path = "../src/material_shader.rs"]
+#[allow(
+    dead_code,
+    reason = "standalone shader tests use only the source substitutions"
+)]
+mod material_shader;
+
 const AIR: u32 = 12_530;
 
 /// Resolve the vanilla shader for standalone validation.

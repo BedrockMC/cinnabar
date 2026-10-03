@@ -64,8 +64,8 @@ use std::cell::{Cell, RefCell};
 
 use assets::{
     BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets,
-    VisualKind,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::MeshNeighbourhood;
 
@@ -129,6 +129,11 @@ impl LiquidPart {
 #[derive(Clone, Copy)]
 struct OcclusionPart {
     occludes: bool,
+    /// A full cube can block the liquid sampler without hiding a liquid face.
+    /// Native flow reads Material.blocksMotion (RVA 0x0395d2f0), while height
+    /// samples exclude cube-shaped neighbours (RVA 0x06a9cf80). In particular,
+    /// transparent ice is not an air sample or a downhill opening.
+    full_cube: bool,
     /// Bit per face: the primary occludes and that face's material is opaque.
     opaque_faces: u8,
 }
@@ -140,6 +145,16 @@ impl OcclusionPart {
             .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
         Self {
             occludes: occluder.is_some(),
+            full_cube: contributors.primary_entry().is_some_and(|entry| {
+                entry.kind == VisualKind::Cube
+                    || (entry.kind == VisualKind::Model
+                        && assets
+                            .model_templates()
+                            .get(entry.model_template as usize)
+                            .is_some_and(|template| {
+                                template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+                            }))
+            }),
             opaque_faces: occluder.map_or(0, |entry| {
                 Face::ALL
                     .into_iter()
@@ -161,6 +176,7 @@ const LIQUID_KNOWN: u16 = 1 << 14;
 const LIQUID_PRESENT: u16 = 1 << 13;
 const OCCLUSION_KNOWN: u16 = 1 << 12;
 const OCCLUDES: u16 = 1 << 11;
+const FULL_CUBE: u16 = 1 << 10;
 
 /// Mesh-job sampler that memoizes each halo cell's facts on first use; flow,
 /// corner-height and face checks revisit the same cells many times. The two
@@ -254,6 +270,9 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
             if part.occludes {
                 updated |= OCCLUDES;
             }
+            if part.full_cube {
+                updated |= FULL_CUBE;
+            }
         }
         self.facts[index].set(updated);
         Some(updated)
@@ -295,8 +314,9 @@ trait LiquidSampler {
             Some(_) => self
                 .occlusion_part(neighbourhood, coordinate)
                 .is_none_or(|occlusion| {
-                    !(occlusion.occludes
-                        && contacting_faces.iter().all(|&face| occlusion.opaque(face)))
+                    !(occlusion.full_cube
+                        || (occlusion.occludes
+                            && contacting_faces.iter().all(|&face| occlusion.opaque(face))))
                 }),
         }
     }
@@ -349,6 +369,7 @@ impl LiquidSampler for Sampler<'_, '_> {
         let flags = self.flags(neighbourhood, index, coordinate, OCCLUSION_KNOWN)?;
         (flags & NO_SOURCE == 0).then_some(OcclusionPart {
             occludes: flags & OCCLUDES != 0,
+            full_cube: flags & FULL_CUBE != 0,
             opaque_faces: flags as u8,
         })
     }

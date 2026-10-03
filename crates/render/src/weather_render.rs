@@ -57,7 +57,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
         app,
         WEATHER_SHADER_HANDLE,
         "weather.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .init_resource::<WeatherPipeline>()

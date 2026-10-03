@@ -234,7 +234,14 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || is_ladder(record)
         || is_rail(record)
         || is_chain(record)
+        // Snow's inventory envelope incorrectly marks it alpha-blended; its
+        // reviewed height-state rule owns both geometry and opaque materials.
+        || (record.name.as_ref() == "minecraft:snow_layer" && is_named_block(record))
 }
+
+#[cfg(test)]
+#[path = "fallback/snow_tests.rs"]
+mod snow_tests;
 
 fn invalid_fallback(detail: &'static str) -> AssetError {
     AssetError::InvalidCompiledAssets {

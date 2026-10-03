@@ -6,6 +6,9 @@ use serde_json::{Map, Value};
 
 use super::parse::{BoundedMapIssue, BoundedUniqueMap, MAX_TEXTURE_KEYS, read_json};
 
+#[path = "block/leaf_metadata.rs"]
+mod leaf_metadata;
+
 /// A source texture key and the pillar UV transform needed for the face.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextureKey {

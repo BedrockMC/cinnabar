@@ -129,8 +129,8 @@ fn decode_raster(path: &str, bytes: &[u8], binary_alpha: bool) -> Option<Decoded
         u16::try_from(image.height()).ok()?,
     );
     let pixels = image.into_rgba8().into_raw();
-    // The actor pipeline discards on alpha, so only binary alpha reproduces the raster;
-    // a lenient (server pack) build keeps partial alpha and lets the discard threshold decide.
+    // Neutral opacity rasters require binary alpha. A witnessed native material raster,
+    // or a lenient server-pack build, retains every alpha byte instead of quantizing it.
     (!binary_alpha
         || pixels
             .chunks_exact(4)
@@ -209,7 +209,14 @@ fn build_artwork(
                 }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
-                    slot.insert(decode_raster(path, &read(source)?, !lenient));
+                    let binary_alpha = !lenient
+                        && !assets::native_actor_texture_uses_color_mask(
+                            &entities.sources[source as usize],
+                        )
+                        && !assets::native_actor_texture_uses_multitexture(
+                            &entities.sources[source as usize],
+                        );
+                    slot.insert(decode_raster(path, &read(source)?, binary_alpha));
                 }
                 let Some(raster) = decoded[&source].as_ref() else {
                     continue;
@@ -274,7 +281,14 @@ fn build_artwork(
             }
             if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                 let path = entities.sources[source as usize].path.as_ref();
-                slot.insert(decode_raster(path, &read(source)?, !lenient));
+                let binary_alpha = !lenient
+                    && !assets::native_actor_texture_uses_color_mask(
+                        &entities.sources[source as usize],
+                    )
+                    && !assets::native_actor_texture_uses_multitexture(
+                        &entities.sources[source as usize],
+                    );
+                slot.insert(decode_raster(path, &read(source)?, binary_alpha));
             }
             let Some(raster) = decoded[&source].as_ref() else {
                 continue;

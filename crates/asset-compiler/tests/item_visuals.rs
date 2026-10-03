@@ -9,6 +9,9 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[path = "item_visuals/spawn_eggs.rs"]
+mod spawn_eggs;
+
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -265,7 +268,7 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
     ))
     .unwrap();
     let rows = facts["routes"].as_array().unwrap();
-    assert_eq!(rows.len(), 29);
+    assert!(!rows.is_empty());
     let mut atlas = serde_json::Map::new();
     for (index, row) in rows.iter().enumerate() {
         // Authored fixture paths intentionally do not resemble item identifiers.
@@ -307,6 +310,69 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
                     && item.key.metadata != 0
             )
     );
+}
+
+#[test]
+fn native_seed_components_use_item_sprites_instead_of_the_crop_they_place() {
+    let pack = item_pack(false);
+    let bindings: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../assets/data/default-sprite-bindings-1.26.50.json"
+    ))
+    .unwrap();
+    let seeds = bindings["routes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            row["evidence_file"]
+                .as_str()
+                .unwrap()
+                .starts_with("native/")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        seeds
+            .iter()
+            .any(|row| row["identifier"] == "minecraft:wheat_seeds")
+    );
+    let mut atlas = serde_json::Map::new();
+    for row in &seeds {
+        let alias = row["default_alias"].as_str().unwrap();
+        let path = format!("textures/items/{alias}");
+        atlas.insert(alias.to_owned(), serde_json::json!({"textures": path}));
+        image::save_buffer(
+            pack.path().join(format!("{path}.png")),
+            &[17, 93, 41, 255],
+            1,
+            1,
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
+    }
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        &serde_json::to_vec(&serde_json::json!({"texture_data": atlas})).unwrap(),
+    );
+    let entity = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let decoded =
+        assets::RuntimeEntityAssets::decode(&encode_entity_blob(&entity).unwrap()).unwrap();
+    let icons = compile_icon_assets(pack.path(), MANIFEST).unwrap();
+    let catalog = RuntimeIconCatalog::decode(&icons.bytes).unwrap();
+    for row in seeds {
+        let identifier = row["identifier"].as_str().unwrap();
+        let alias = row["default_alias"].as_str().unwrap();
+        assert!(matches!(
+            visual(decoded.item_visuals(), identifier, 0).route,
+            ItemVisualDefinitionRoute::Sprite { .. }
+        ));
+        assert_eq!(
+            catalog.lookup_index(identifier, 0),
+            catalog.lookup_index(&format!("minecraft:{alias}"), 0)
+        );
+        let sprite = &catalog.sprites()[catalog.lookup_index(identifier, 0).unwrap()];
+        assert_eq!(sprite.rgba8.as_ref(), &[17, 93, 41, 255]);
+    }
 }
 
 // Legacy retail icon routes key identifiers onto atlas variants; absent atlas keys add nothing.

@@ -193,8 +193,20 @@ impl UiRuntime {
                 } else {
                     DistributeMode::Even
                 };
-                self.inventory_ledger_mut(player_runtime)
-                    .begin_distribute(&targets, mode)
+                let mut distribution = self.screen_state_mut().pointer.distribution.take();
+                let result = self
+                    .inventory_ledger_mut(player_runtime)
+                    .advance_distribute(&mut distribution, &targets, mode);
+                if result.is_ok() {
+                    self.screen_state_mut().pointer.distribution = distribution;
+                } else {
+                    self.screen_state_mut().pointer.reset();
+                }
+                result.map(|request| request.unwrap_or(0))
+            }
+            PointerAction::EndDistribute => {
+                self.screen_state_mut().pointer.distribution = None;
+                Ok(0)
             }
             PointerAction::Gather => self.inventory_ledger_mut(player_runtime).begin_gather(),
         };

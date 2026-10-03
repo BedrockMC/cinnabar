@@ -1,5 +1,7 @@
 use super::{evaluation::MolangValue, *};
 
+mod wolf;
+
 // Actor flag bits and metadata keys follow gophertunnel v1.61.0
 // `minecraft/protocol/entity_metadata.go` (`EntityDataFlag*` and `EntityDataKey*`, iota from
 // zero); flag bits from 64 live in the overflow flag word.
@@ -9,7 +11,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("facing_target_to_range_attack", 88),
     ("has_dash_cooldown", 108),
     ("is_admiring", 94),
-    ("is_angry", 25),
+    ("is_angry", FLAG_ANGRY),
     ("is_baby", FLAG_BABY),
     ("is_casting", 42),
     ("is_celebrating", 93),
@@ -56,7 +58,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_standing", 39),
     ("is_stunned", 83),
     ("is_swimming", 57),
-    ("is_tamed", 28),
+    ("is_tamed", FLAG_TAMED),
     ("is_using_item", FLAG_USING_ITEM),
     ("show_bottom", 38),
     ("timer_flag_1", 115),
@@ -69,6 +71,8 @@ pub(super) const FLAG_BABY: u32 = 11;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
+const FLAG_ANGRY: u32 = 25;
+const FLAG_TAMED: u32 = 28;
 
 const INTEGER_QUERIES: [(&str, u32); 8] = [
     ("fuse_time", 55),
@@ -370,6 +374,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "is_moving" => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
         "is_alive" => truth(health(actor).is_none_or(|health| health > 0.0)),
         "health" => health(actor).unwrap_or(0.0),
+        "tail_angle" => wolf::tail_angle(actor),
         "is_sleeping" => truth(actor.player_is_sleeping()),
         "body_y_rotation" => input.body_yaw,
         "body_x_rotation" | "target_x_rotation" => input.pitch,

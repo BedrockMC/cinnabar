@@ -43,6 +43,7 @@ use crate::{
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame, update_lightning, update_precipitation_scene,
+        update_seasonal_foliage,
     },
     install_layout::InstallLayout,
     local_player::{
@@ -334,6 +335,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 poll_model_witness_request,
                 update_camera_medium,
                 update_atmosphere_frame,
+                update_seasonal_foliage,
                 update_precipitation_scene,
                 update_lightning,
                 refresh_cave_visibility,
@@ -821,6 +823,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(ui_presentation)
     .insert_resource(WorldClock::default())
     .insert_resource(WeatherState::default())
+    .init_resource::<environment::WeatherTickFrame>()
     .insert_resource(environment::CameraMediumState::default())
     .insert_resource(environment::LightningFlashState::default())
     .insert_resource(EnvironmentContext::default())

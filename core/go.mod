@@ -4,11 +4,13 @@ go 1.26.1
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
+	github.com/coder/websocket v1.8.14
 	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58
 	github.com/df-mc/go-playfab/v2 v2.0.3
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20260925130556-58a99d3044b7
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/uuid v1.6.0
+	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f
 	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6
 	github.com/sandertv/gophertunnel v1.57.0
 	golang.org/x/oauth2 v0.36.0
@@ -17,8 +19,8 @@ require (
 )
 
 require (
+	github.com/andreburgaud/crypt2go v1.8.0 // indirect
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
-	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/creachadair/jrpc2 v1.3.5 // indirect
 	github.com/creachadair/mds v0.26.1 // indirect
@@ -40,7 +42,6 @@ require (
 	github.com/pion/stun/v4 v4.0.1 // indirect
 	github.com/pion/transport/v5 v5.0.1 // indirect
 	github.com/pion/turn/v5 v5.1.2 // indirect
-	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect

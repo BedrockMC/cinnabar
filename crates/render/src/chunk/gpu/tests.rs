@@ -1,8 +1,5 @@
 use super::*;
-use crate::chunk::{
-    gpu::upload::validate_local_model_streams,
-    transparent::model::sorted_transparent_model_draw_words,
-};
+use crate::chunk::gpu::upload::validate_local_model_streams;
 
 #[test]
 fn chunk_sampler_keeps_native_texels_crisp_without_discarding_minification_mips() {
@@ -716,7 +713,7 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
 }
 
 #[test]
-fn transparent_model_face_order_reverses_with_camera_rotation() {
+fn transparent_model_face_order_tracks_camera_position_not_rotation() {
     let model_refs = [PackedModelRef::new(0, 0, 0, 0b11)];
     let draw_refs = [PackedModelDrawRef::new(0, 0), PackedModelDrawRef::new(0, 1)];
     let templates = [assets::ModelTemplate {
@@ -738,40 +735,6 @@ fn transparent_model_face_order_reverses_with_camera_rotation() {
             flags: 0,
         },
     ];
-    let identity_view = ViewRangefinder3d::from_world_from_view(&bevy::math::Affine3A::IDENTITY);
-    let reversed_view =
-        ViewRangefinder3d::from_world_from_view(&bevy::math::Affine3A::from_rotation_translation(
-            Quat::from_rotation_y(std::f32::consts::PI),
-            Vec3::ZERO,
-        ));
-
-    assert_eq!(
-        sorted_transparent_model_draw_words(
-            &identity_view,
-            SubChunkKey::new(0, 0, 0, 0),
-            &model_refs,
-            &draw_refs,
-            &templates,
-            &quads,
-            5,
-        )
-        .unwrap(),
-        [[5, 0], [5, 1]],
-    );
-    assert_eq!(
-        sorted_transparent_model_draw_words(
-            &reversed_view,
-            SubChunkKey::new(0, 0, 0, 0),
-            &model_refs,
-            &draw_refs,
-            &templates,
-            &quads,
-            5,
-        )
-        .unwrap(),
-        [[5, 1], [5, 0]],
-    );
-
     let entity = Entity::from_bits(1);
     let candidates = Arc::from(
         draw_refs
@@ -803,16 +766,25 @@ fn transparent_model_face_order_reverses_with_camera_rotation() {
         sort_transparent_model_candidates(Mat4::IDENTITY, Arc::clone(&candidates))[0]
             .words
             .as_ref(),
-        [[5, 0], [5, 1]],
+        [[5, 1], [5, 0]],
     );
     assert_eq!(
         sort_transparent_model_candidates(
             Mat4::from_quat(Quat::from_rotation_y(std::f32::consts::PI)),
-            candidates,
+            Arc::clone(&candidates),
         )[0]
         .words
         .as_ref(),
         [[5, 1], [5, 0]],
+    );
+    assert_eq!(
+        sort_transparent_model_candidates(
+            Mat4::from_translation(Vec3::new(0.0, 0.0, -2.0)),
+            candidates,
+        )[0]
+        .words
+        .as_ref(),
+        [[5, 0], [5, 1]],
     );
 }
 

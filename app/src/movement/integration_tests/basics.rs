@@ -163,6 +163,7 @@ fn start_game_world_time_does_not_seed_prediction_and_replacement_restarts_local
                 initial_time: world_time,
                 day_cycle_lock_time: 0,
                 daylight_cycle_enabled: true,
+                weather_cycle_enabled: true,
                 rain_level: 0.0,
                 lightning_level: 0.0,
             },
@@ -177,7 +178,11 @@ fn start_game_world_time_does_not_seed_prediction_and_replacement_restarts_local
         );
 
         assert_eq!(clock.session_generation(), expected_session);
-        assert_eq!(clock.server_time(), Some(world_time as f64));
+        assert_eq!(
+            clock.server_time(),
+            Some(0.0),
+            "StartGame elapsed world age seeds neither daylight nor movement prediction"
+        );
         assert_eq!(ticker.session_generation(), expected_session);
         assert_eq!(ticker.next_tick(), 1);
         assert_eq!(ticker.pending_count(), 0);

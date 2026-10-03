@@ -1,3 +1,5 @@
+github.com/andreburgaud/crypt2go v1.8.0 h1:J73vGTb1P6XL69SSuumbKs0DWn3ulbl9L92ZXBjw6pc=
+github.com/andreburgaud/crypt2go v1.8.0/go.mod h1:L5nfShQ91W78hOWhUH2tlGRPO+POAPJAF5fKOLB9SXg=
 github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEosZ6A=
 github.com/cenkalti/backoff/v7 v7.0.0/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

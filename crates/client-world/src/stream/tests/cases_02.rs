@@ -302,6 +302,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
             2,
             WorldEvent::GameRules(protocol::GameRulesEvent {
                 daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
+                weather_cycle: None,
                 hud: protocol::HudRules {
                     show_coordinates: Some(true),
                     show_days_played: None,

@@ -425,6 +425,7 @@ pub(in crate::compiler) fn compile_visuals(
                     {
                         visual.support = VisualSupport::Exact;
                     }
+                    super::snowy_grass::apply(record, &mut visual, &inputs);
                     visual
                 }
                 CompileRuleResult::NoMatch | CompileRuleResult::Reject => {

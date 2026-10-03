@@ -208,6 +208,7 @@ pub(crate) fn update_camera_medium(
     camera: Query<&Transform, With<FlyCamera>>,
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
+    mut precipitation: Local<environment::FogPrecipitationSamples>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
         medium.0 = CameraMedium::Air;
@@ -228,6 +229,11 @@ pub(crate) fn update_camera_medium(
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
         fog_biomes: environment::fog_biome_samples(stream, &client_world.runtime_assets, position),
+        precipitation_sample_count: precipitation.count(
+            stream,
+            &client_world.runtime_assets,
+            position,
+        ),
         camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
         camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
         render_distance_blocks: Some(stream.render_distance_blocks()),
@@ -670,7 +676,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 LocalPlayerFrameReset::Correction
             }
             CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::WorldClocks { .. }
             | CommittedControlEvent::DaylightCycle { .. }
+            | CommittedControlEvent::WeatherCycle { .. }
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }

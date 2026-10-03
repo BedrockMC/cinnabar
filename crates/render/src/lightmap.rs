@@ -18,7 +18,8 @@ pub struct LightmapInputs {
 impl Default for LightmapInputs {
     fn default() -> Self {
         Self {
-            // R:d/DimensionBrightnessRamp.cpp; current dimension dispatch remains unverified.
+            // Current ramp0260c870, ordinary zero-ambient dispatch00093000.
+            // This curve matches its table apart from a few f32 ULPs.
             ramp: std::array::from_fn(|level| level as f32 / (60 - 3 * level) as f32),
             sky_darken: 1.0,
             sunrise: [0.0; 4],

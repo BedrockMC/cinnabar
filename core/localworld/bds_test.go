@@ -20,19 +20,19 @@ import (
 
 func TestServerPropertiesForLocalPlay(t *testing.T) {
 	world := World{ID: "0123456789abcdef", Name: "My\nWorld #1", GameMode: "creative", Generator: GeneratorFlat, Difficulty: "hard", Seed: -5}
-	props := string(serverProperties(StartSpec{World: world, Options: OpenOptions{ViewDistance: 64}}, 5000, 5001, 1))
+	props := string(serverProperties(StartSpec{World: world, Options: OpenOptions{ViewDistance: 64}}, 5000, 1, false))
 	for _, want := range []string{
 		"server-name=MyWorld 1\n", "gamemode=creative\n", "difficulty=hard\n", "online-mode=false\n", "allow-list=false\n",
-		"max-players=1\n", "server-port=5000\n", "server-portv6=5001\n", "level-name=0123456789abcdef\n",
+		"max-players=1\n", "server-port=5000\n", "server-udp-ports=127.0.0.1:5000:5000\n", "level-name=0123456789abcdef\n",
 		"level-seed=-5\n", "level-type=FLAT\n", "view-distance=32\n", "tick-distance=12\n",
-		"transport=raknet\n", "enable-lan-visibility=false\n",
+		"transport=" + string(TransportNetherNetHTTP) + "\n", "server-ip=" + localServerHost + "\n", "enable-lan-visibility=false\n",
 	} {
 		if !strings.Contains(props, want) {
 			t.Fatalf("properties missing %q:\n%s", want, props)
 		}
 	}
 	world.Generator = GeneratorNormal
-	props = string(serverProperties(StartSpec{World: world}, 1, 2, 1))
+	props = string(serverProperties(StartSpec{World: world}, 1, 1, false))
 	if !strings.Contains(props, "level-type=DEFAULT\n") || !strings.Contains(props, "view-distance=10\n") {
 		t.Fatalf("defaults wrong:\n%s", props)
 	}
