@@ -7,10 +7,11 @@ mod shader_source;
 /// decagon rim. renderSky (04e34e40) translates it to Y256 and scales it by2000.
 /// The native Sky vertex shader uses that red channel to interpolate sky→fog.
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_sky_fan_interpolates_center_edges_and_below_horizon_on_the_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let mut shader = shader_source::standalone(include_str!("../src/atmosphere.wgsl"), &[]);
     shader.push_str(
         r#"
@@ -77,10 +78,11 @@ fn sky_uses_native_fan_interpolation_instead_of_screen_space_gradient() {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_celestial_size_basis_rain_alpha_and_star_colour_on_the_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let mut shader = shader_source::standalone(include_str!("../src/atmosphere.wgsl"), &[]);
     shader.push_str(
         r#"
@@ -157,9 +159,10 @@ fn native_celestial_size_basis_rain_alpha_and_star_colour_on_the_gpu() {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_sky_gamma_interpolation_and_addition_survive_the_srgb_target() {
     use gpu_snapshot::{Draw, Gpu};
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let mut shader = shader_source::standalone(include_str!("../src/atmosphere.wgsl"), &[]);
     shader.push_str(
         r#"
@@ -229,9 +232,10 @@ fn native_sky_gamma_interpolation_and_addition_survive_the_srgb_target() {
 /// Current renderSunAndMoon04e3a330 admits orbital phase through105/255.
 /// Probe on either side, including the moon's180 offset, in the real shader.
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn orbital_phase_visibility_and_star_brightness_survive_the_srgb_target() {
     use gpu_snapshot::{Draw, Gpu};
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let mut shader = shader_source::standalone(include_str!("../src/atmosphere.wgsl"), &[]);
     shader.push_str(
         r#"

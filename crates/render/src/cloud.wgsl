@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::biome_tint::{tint_to_linear}
+#import cinnabar::lighting::{tint_to_linear}
 
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>,

@@ -543,3 +543,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawClouds {
 #[cfg(test)]
 #[path = "cloud_render/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cloud_pipeline_tests.rs"]
+mod pipeline_tests;

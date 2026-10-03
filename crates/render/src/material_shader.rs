@@ -31,6 +31,15 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
 pub(crate) fn source(source: &str) -> String {
     source
         .replace(
+            "// ACTOR_SHADE_CONSTANTS",
+            &format!(
+                "const ACTOR_SHADE: array<f32, 5> = array({});",
+                render_api::ACTOR_SHADE_COEFFICIENTS
+                    .map(|coefficient| format!("{coefficient:?}"))
+                    .join(", "),
+            ),
+        )
+        .replace(
             "MATERIAL_TWO_SIDED_FLAG",
             &format!("{}u", assets::MATERIAL_FLAG_TWO_SIDED),
         )

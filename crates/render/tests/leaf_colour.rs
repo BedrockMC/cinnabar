@@ -105,7 +105,7 @@ fn cases() -> Vec<Case> {
             layer: 0,
         });
     }
-    // Carried/model materials retain their independent linear route.
+    // Carried materials retain their independent linear route.
     cases.push(Case {
         tint: spruce,
         ao: 0.6,
@@ -134,11 +134,9 @@ fn cases() -> Vec<Case> {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_colour() {
-    let Some(gpu) = Gpu::new() else {
-        eprintln!("native leaf colour GPU fixture skipped: no physical adapter");
-        return;
-    };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     assert!(material_shader::chunk_atlas_views_fit(&gpu.device.limits()));
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("leaf sRGB input witness"),

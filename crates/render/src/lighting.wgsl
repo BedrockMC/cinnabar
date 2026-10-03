@@ -1,10 +1,53 @@
 #define_import_path cinnabar::lighting
+// ACTOR_SHADE_CONSTANTS
+
+// Native ordinary materials compose normalized UNORM RGB. Bevy's sRGB textures
+// and targets need these transfers at the boundaries, never between products.
+fn tint_to_gamma(rgba: vec4<f32>) -> vec4<f32> {
+    let linear = rgba.rgb;
+    return vec4(select(12.92 * linear, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055, linear > vec3(0.0031308)), rgba.a);
+}
+
+fn tint_to_linear(rgba: vec4<f32>) -> vec4<f32> {
+    let gamma = rgba.rgb;
+    return vec4(select(gamma / 12.92, pow((gamma + 0.055) / 1.055, vec3(2.4)), gamma > vec3(0.04045)), rgba.a);
+}
 
 @group(1) @binding(0) var<uniform> world_lightmap: array<vec4<f32>, 256>;
 
 // Both nibbles address the same environment table in every ordinary world pass.
 fn light_colour(sample: u32) -> vec3<f32> {
     return world_lightmap[sample & 255u].rgb;
+}
+
+// Current classic builder 07080cd0 stores Color::toABGR (02965e80), which
+// truncates RGB to bytes before LightTexture::getColorForUV reads them.
+fn actor_light_texel(sample: u32) -> vec3<f32> {
+    return floor(clamp(light_colour(sample), vec3(0.0), vec3(1.0)) * 255.0) / 255.0;
+}
+
+// Actor constants 0213d220 use (sky, block)/16, without a half-texel bias.
+// Native 07083ac0 clamps 16*uv-.5 then interpolates the byte table in gamma.
+// Our shared table is transposed: block in the low nibble, sky in the high.
+fn actor_light_colour(sample: u32) -> vec3<f32> {
+    let block = sample & 15u;
+    let sky = (sample >> 4u) & 15u;
+    let previous_block = max(block, 1u) - 1u;
+    let previous_sky = max(sky, 1u) - 1u;
+    return mix(
+        mix(actor_light_texel(previous_block | (previous_sky << 4u)), actor_light_texel(block | (previous_sky << 4u)), 0.5),
+        mix(actor_light_texel(previous_block | (sky << 4u)), actor_light_texel(block | (sky << 4u)), 0.5),
+        0.5,
+    );
+}
+
+// Ordinary Fancy Actor/Entity materials shade posed world normals in the
+// vertex stage, not with terrain's face coefficients. Overworld TileLightColor
+// W is +1 (current 0213d220); other dimension signs remain a separate gate.
+fn actor_lighting(sample: u32, normal: vec3<f32>, overlay_alpha: f32) -> vec3<f32> {
+    if ((sample & 0x80000000u) == 0u) { return vec3(1.0); }
+    let shade = (((1.0 + normal.y) * ACTOR_SHADE[0] + normal.x * normal.x * ACTOR_SHADE[1]) + normal.z * normal.z * ACTOR_SHADE[2]) + ACTOR_SHADE[3] + overlay_alpha * ACTOR_SHADE[4];
+    return actor_light_colour(sample) * shade;
 }
 
 // Kept separate from the lightmap: AO shades geometry, not light coordinates.
@@ -34,9 +77,17 @@ struct WorldAtmosphere {
 @group(1) @binding(1) var<uniform> world_atmosphere: WorldAtmosphere;
 
 // Uses the same distance fade as the terrain passes after lighting and overlays.
-fn world_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
+fn world_fog_amount(position: vec3<f32>, camera: vec3<f32>) -> f32 {
     let start = world_atmosphere.fog_color_start.w;
     let end = world_atmosphere.fog_end_time.x;
-    let fog = clamp((distance(position, camera) - start) / max(end - start, 0.0001), 0.0, 1.0);
-    return mix(colour, world_atmosphere.fog_color_start.rgb, fog);
+    return clamp((distance(position, camera) - start) / max(end - start, 0.0001), 0.0, 1.0);
+}
+
+fn world_distance_fog(colour: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
+    return mix(colour, world_atmosphere.fog_color_start.rgb, world_fog_amount(position, camera));
+}
+
+fn actor_distance_fog(colour_gamma: vec3<f32>, position: vec3<f32>, camera: vec3<f32>) -> vec3<f32> {
+    let fog_gamma = tint_to_gamma(vec4(world_atmosphere.fog_color_start.rgb, 1.0)).rgb;
+    return mix(colour_gamma, fog_gamma, world_fog_amount(position, camera));
 }

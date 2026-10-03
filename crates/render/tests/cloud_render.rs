@@ -38,64 +38,6 @@ fn native_cloud_shader_validates_and_vertex_pulls_one_signed_sampling_window() {
 }
 
 #[test]
-fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
-    let source = include_str!("../src/cloud_render.rs");
-    for contract in [
-        "struct CloudPipelineKey",
-        "msaa: Msaa",
-        "hdr: bool",
-        "descriptor.multisample.count = key.msaa.samples()",
-        "ViewTarget::TEXTURE_FORMAT_HDR",
-        ".add_render_command::<Transparent3d, DrawCloudCommands>()",
-        "ViewSortedRenderPhases<Transparent3d>",
-        "phase.add(Transparent3d {",
-        "blend: Some(BlendState::ALPHA_BLENDING)",
-        "depth_write_enabled: false",
-        "depth_compare: CompareFunction::Greater,",
-        "front_face: FrontFace::Ccw",
-        "cull_mode: Some(Face::Back)",
-        "write_mask: ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE",
-        "CORE_3D_DEPTH_FORMAT",
-        "BufferBindingType::Storage { read_only: true }",
-    ] {
-        assert!(source.contains(contract), "missing {contract}");
-    }
-    assert!(!source.contains("BinnedRenderPhaseType::NonMesh"));
-}
-
-#[test]
-fn native_cloud_cache_is_per_view_and_published_before_queue() {
-    let source = include_str!("../src/cloud_render.rs");
-    let compact_source = compact(source);
-    for contract in [
-        "HashMap<Entity, CloudViewGpu>",
-        "prepared.prepared_identity == identity",
-        "!prepared.viewport.needs_rebuild(viewport)",
-        "bound_asset_identity == Some(identity)",
-        ".after(RenderSystems::ManageViews)",
-        ".before(RenderSystems::Queue)",
-        "gpu.views.retain(",
-        ".views.get(&item.entity())",
-    ] {
-        assert!(
-            compact_source.contains(&compact(contract)),
-            "missing {contract}"
-        );
-    }
-    // Both binding and drawing select the phase item's own view, even when
-    // rustfmt wraps the fluent resource-access chain across multiple lines.
-    assert_eq!(
-        compact_source.matches(".views.get(&item.entity())").count(),
-        2
-    );
-    assert_eq!(source.matches("create_buffer_with_data(").count(), 2);
-    assert_eq!(source.matches("create_bind_group(").count(), 1);
-    // Only the fixed colour uniform is updated per frame; no cloud geometry writes.
-    assert_eq!(source.matches("write_buffer(").count(), 1);
-    assert!(source.contains("write_buffer(&gpu.colour_buffer"));
-}
-
-#[test]
 fn one_sorted_item_draws_exact_quad_vertices_and_one_window_instance() {
     let source = include_str!("../src/cloud_render.rs");
     let compact_source = compact(source);
@@ -126,10 +68,11 @@ fn cloud_colour_and_fade_are_native_vertex_work_not_reinvented_fragment_weather(
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_cloud_vertices_preserve_negative_cells_subpixel_scroll_rgba_and_fade_on_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let mut source = shader();
     source.push_str(r#"
 @vertex fn probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {

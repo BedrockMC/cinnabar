@@ -115,8 +115,9 @@ fn draw(
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn production_cloud_box_culls_hidden_faces_at_each_angle_and_preserves_target_alpha() {
-    let Some(gpu) = Gpu::new() else { return };
+    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
     let all = cube();
     assert_eq!(all.len(), 6);
     let midpoint = CLOUD_CELL_BLOCKS * 0.5;
