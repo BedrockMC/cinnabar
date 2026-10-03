@@ -12,7 +12,7 @@ no server SDK, BDS script, or server sidecar is included.
 | Phase | Implemented in this branch | Remaining gate |
 | --- | --- | --- |
 | Discovery and delivery | Admitted-pack marker, Ed25519 offer and challenge verification, destination/key/scope pins, HTTPS fetch policy, digest cache, indexed ZIP verification | Real vanilla marker compatibility; optional-pack provenance in the Go handoff; CDN and hostile archive fixtures |
-| Consent | Private JSON-UI catalog, once/always/never, changed-key disclosure, persistent settings, running indicator and F9 revocation | Visual/layout/accessibility review; settings editor; controller/touch disable control |
+| Consent | Private JSON-UI catalog, join-time popup that holds the loading screen, once/always/never/not now, changed-key disclosure, persistent settings, running indicator and F9 revocation | Visual/layout/accessibility review; settings editor; controller/touch consent and disable controls |
 | Runtime | Versioned WIT, fuel and memory limits, transactional capability checks, per-bundle developer processes, bounded IPC and watchdog, typed channels and JSON-UI label preview | Restricted OS launch and compiler containment; full screen, focus/input, scene, particle and material adapters; snapshot recovery |
 | Media | Signed descriptors, authenticated HTTPS ranges, optional off-thread WebM decode, clock/timeline primitives, frame queue, retained GPU texture, bounded PCM mixer source | Live message routing, surface ownership/binding, production decoder process, device clock, resampling, efficient seeking/looping and underrun recovery |
 | Fallback | No marker means no probe/download/helper/prompt; pre-consent messages dropped before the world FIFO; ordinary session survives extension failure | Compare real packet captures; verify no-advertisement equivalence |
@@ -132,9 +132,15 @@ or hot update. Key changes require user approval. Updates take effect on rejoin.
 ## Consent, handshake and readiness
 
 1. Admit the optional pack and verify its marker locally. Do not contact its URLs.
-2. Show the host-owned JSON-UI consent screen while the menu is open. Disclose the
-   destination, key, publisher keys, bundle sizes, requested permission/budget
-   scope, origins and fallback. Warn that external origins see the user's IP.
+2. Show the host-owned JSON-UI consent popup as soon as the offer is verified. The
+   marker arrives with StartGame, so the popup opens over the join's loading screen,
+   like vanilla's join-time resource pack prompt; the loading screen and the
+   readiness boundary (loading end and `SetLocalPlayerAsInitialized`) wait for the
+   answer or the offer's expiry. The hello may therefore precede initialization; a
+   gophertunnel server defers it until then. Remembered `Always`/`Never` decisions
+   skip the popup. Disclose the destination, key, publisher keys, bundle sizes,
+   requested permission/budget scope, origins and fallback. Warn that external
+   origins see the user's IP.
 3. `Allow once` grants this connection only. `Always` stores exact destination,
    key, scope and publisher set. `Never` suppresses the destination, including
    offers with a different key. Rejoining with a broader scope prompts again.
@@ -173,12 +179,16 @@ and reload disk state. A malformed settings file disables extensions. Missing
 settings grant nothing. The media mute/autoplay preferences are stored but await
 live playback integration and a settings UI.
 
-F6 allows once, F7 always, F8 never, Escape cancels; consent buttons also support
-pointer clicks. Approval keys are enabled only after the trusted prompt renders.
-F9 immediately revokes an offered/running experience and kills its helpers. It
-leaves ordinary keyboard input alone when no experience is offered. Trusted status
-and consent come from a private JSON-UI catalog which resource packs cannot replace.
-Guest labels are rendered separately below the running indicator.
+The popup's buttons are `Allow once` (F6), `Always allow on this server` (F7),
+`Never on this server` (F8) and `Not now` (Escape; nothing is stored). It owns the
+pointer and all input while shown, so gameplay and the screens behind it cannot
+react. The approval buttons and keys stay disabled until the trusted popup has
+rendered and its scrolled disclosure has reached the end. F9 immediately revokes
+an offered/running experience and kills its helpers. It leaves ordinary keyboard
+input alone when no experience is offered. Trusted status and consent come from a
+private JSON-UI catalog which resource packs cannot replace; the popup is drawn
+with host solid fills only, so pack textures cannot restyle it either. Guest
+labels are rendered separately below the running indicator.
 
 ## Bundle container and manifest
 
