@@ -54,7 +54,7 @@ from scheduling delays caused by other local builds:
 Animation p95 is unchanged within noise (0.475 → 0.487 ms and
 0.978 → 0.973 ms). The evaluated operation counts stay at 4,836,352 and
 10,093,184, with no invalid geometry, frozen actors or budget exhaustion. Both
-runs assert all 64 / 128 bodies are drawn. The optimization removes skin scans;
+runs assert 64 / 128 body instances are published. The optimization removes skin scans;
 it does not reduce animation work or drop actors.
 
 ## Other measured candidates
@@ -93,7 +93,7 @@ samples.
 ## Always-on frame attribution
 
 `RUST_MCBE_SLOW_FRAME` reports a preceding start-to-start interval or main update
-over 20 ms, at most once per second. It prints `frame_ms`, `main_ms`,
+lasting 20 ms or more, at most once per second. It prints `frame_ms`, `main_ms`,
 `between_updates_ms`, focus, occlusion, suppressed slow-frame count, and sorted
 `main_stages` / `window_stages` durations in milliseconds. Named spans include
 world/network work, actor animation/preparation/rig building, UI preparation and
