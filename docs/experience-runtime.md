@@ -1,0 +1,247 @@
+# Server Experiences
+
+A server Experience is a WebAssembly guest that adds stateless cube blocks to the local Dragonfly
+server (`tools/localserver`) and reacts to them being placed, broken, used and disturbed. Each
+Experience runs in its own `experience-runtime` helper process, off the world goroutine; the Go
+adapter in `tools/localserver/experience` validates what the guest asks for and commits it.
+
+This file is the canonical description of the runtime's semantics. Numbers live in the sources it
+names, never here.
+
+## Running
+
+```text
+bedrock-local-server -dir <world> -addr <addr> -experiences <dir> -experience-runtime <binary>
+```
+
+`make local-server` builds both `bedrock-local-server` and `experience-runtime`
+(`cargo build -p experience-runtime --release --locked`). `-experience-runtime` is required with
+`-experiences`. Without `-experiences`, startup checks any existing installation manifest and
+refuses a world that requires Experiences. Fresh worlds create no Experience files and spawn no
+helper.
+
+Startup, all before the server listens and prints `ready`; any failure exits with an error:
+
+1. Every immediate subdirectory of `-experiences` that contains `experience.toml` is an artifact,
+   taken in byte order of the directory names.
+2. The private store opens at `<world>/experience-data`.
+3. One helper per artifact starts and loads it. Two artifacts with the same id fail startup.
+4. Every recorded Experience and block ID must still be provided. A missing definition fails
+   startup before the world opens. Additions, ordering and presentation changes are allowed.
+5. The blocks are registered with Dragonfly before `server.Config.New`, which builds the
+   resource pack from them, each Experience getting a creative group named after its id. The
+   started ids are then recorded as installed.
+
+Stdin commands, besides `pause`, `resume` and `stop`:
+
+- `pause` and `resume` also hold and release Experience dispatch and commits.
+- `experience reload <id>` reloads that Experience (see
+  [Strikes, quarantine and reload](#strikes-quarantine-and-reload)) and logs the result on
+  stderr.
+- `stop`, stdin EOF, SIGINT and SIGTERM close the server first, then the Experiences: admission
+  stops, in-flight work is cancelled, the store is flushed and the helpers are shut down.
+
+On Windows the helpers share the server's console, so Ctrl+C in that console reaches them as well
+as the server, which shuts down on it anyway. A helper that Ctrl+C ends before the adapter's
+shutdown frame may show up in the shutdown error or as a fault in the log.
+
+## Artifact
+
+An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/`:
+
+```toml
+id = "benergistics"   # owns the block namespace "benergistics:"
+version = "0.1.0"
+api = "0.1"           # server WIT major.minor
+data-schema = 1       # block-data schema
+[files]               # every other file, '/'-separated, with its lowercase hex SHA-256
+"server.wasm" = "…"
+"assets/controller.png" = "…"
+```
+
+`crates/experience-runtime/src/manifest.rs` is the authority on the manifest: the id and version
+rules, the accepted `api` and `data-schema`, and the index rules (every file indexed, no absolute
+paths, `..`, backslashes or symlinks). The hashes give integrity, not publisher trust. The id
+`minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter refuses an
+Experience with that id at registration, before anything is registered.
+
+`server.wasm` is the core module that cargo emits for `wasm32-unknown-unknown` with the WIT
+embedded by `experience-sdk`. The runtime componentizes it with `wit_component::ComponentEncoder`
+(the route `mod-host` uses) and instantiates it against the exact `server` world. A client
+component, a WASI import or any unknown import fails the load; serialized native Wasmtime
+artifacts are never accepted.
+
+### Building and packaging
+
+1. Write a `cdylib` crate that depends on `crates/experience-sdk`, implements `Experience` and
+   exports it with `export_experience!`. `examples/experiences/probe` is a complete example.
+2. `cargo build -p <crate> --target wasm32-unknown-unknown --release --locked`.
+3. Copy the module to `server.wasm` and the textures under `assets/`.
+4. Write `experience.toml` with `[files]` listing the SHA-256 of every other file.
+
+The Applied Benergistics repository's `scripts/package.ps1` (and `scripts/package.sh`) does all of
+this for its `benergistics` crate, taking the version from the crate's `Cargo.toml`, and verifies
+the result; `-VerifyOnly` checks an existing package.
+
+The runtime verifies every `[files]` hash when it loads the artifact. The adapter reads the
+texture files afterwards, when it registers the blocks, so an operator who edits an artifact while
+the server starts can get textures that were not the hashed ones. Do not change artifacts during
+startup.
+
+## WIT and semantics
+
+The contract is `crates/experience-sdk/wit/server.wit`, package
+`cinnabar:experience-server@0.1.0`, world `server`. The guest exports `register`, which runs once
+at startup and declares its blocks, and the callbacks `on-place`, `on-break`, `on-interact` and
+`on-neighbor-changed`. Every world method goes through the borrowed `callback` resource, valid for
+one callback only.
+
+WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
+(`tools/localserver/experience`) both enforce them.
+
+- **Blocks.** Stateless cubes registered at startup only: an opaque texture per material slot
+  (`*` or all six faces), full-cube collision and selection, and mining that is either
+  `unbreakable` or `breakable(hardness)`. Every block is harvestable by hand and drops itself.
+  Block ids are `<experience id>:<name>`.
+- **Callbacks.**
+  - Place: after a successful player placement.
+  - Break: after a player break, with the old id and the old data.
+  - Interact: the server consumes the interaction at once and queues the call.
+  - Neighbor: queued when a block next to one of the Experience's blocks changes.
+  - Liquids, explosions and other plugins produce no notification.
+- **Staging.** An `ok` from a mutation means staged. A guest error or a trap discards everything
+  staged; a rejected single operation leaves the staged state unchanged and the callback
+  continues. Logs are not gameplay output and survive a discarded callback.
+- **Reads.** Reads see only the anchor (the event's block) and its six orthogonal neighbors in the
+  same dimension, as they were snapshotted.
+  - `get-block` returns a snapshot position's id with staged writes applied; an unloaded position
+    is `unavailable`, one outside the snapshot `denied`, one outside the world height
+    `out-of-bounds`.
+  - `block-data` returns data only while the position holds this Experience's block (staged
+    writes applied), else `not-owned`. No data and empty data are distinct.
+- **Writes.** Writes reach the anchor and the snapshot neighbors in the anchor's chunk column.
+  - `set-block`: the current block (staged writes applied) must be air or this Experience's own,
+    else `not-owned`; the new id must be `minecraft:air` or this Experience's own, else
+    `unknown-block`. Every replacement, even with the same id, clears the position's data and
+    starts a new block generation.
+  - `set-block-data`: only on this Experience's own block in the write scope. Data over
+    `MAX_BLOCK_DATA_BYTES` is `too-large`; data over the Experience's remaining budget, which
+    each callback carries, is `quota-exceeded`.
+- **`tell`.** Only to the event's actor, else `denied`; `player-unavailable` when the event has no
+  actor. Control characters and `§` are `invalid-text`; text over `MAX_TELL_BYTES` is
+  `too-large`; at most `MAX_TELLS` per callback.
+- **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
+- **Fresh instance per callback.** Each callback runs on a new instance of the precompiled
+  component, so guest memory never survives a callback; durable state belongs in block data.
+- **Commit.** The adapter commits a result in a fresh world task, whole or not at all. If any
+  snapshotted block or data changed meanwhile, or the actor is no longer connected in that
+  world, the result is discarded as stale. Otherwise block and data ops apply, then the tells.
+- **Guest imports never call back into the live world.** Hooks on the world goroutine only
+  enqueue; a full queue drops the event and counts it.
+
+## Limits
+
+- `crates/experience-runtime/src/limits.rs` is the only source of the guest limits: fuel, epoch
+  and wall deadlines, memory, tables, instances, stack, component and manifest size, blocks per
+  Experience, host calls, staged ops and data, tells, block data, logs and the IPC frame.
+- `tools/localserver/experience/limits.go` holds the adapter's limits: load and result deadlines,
+  strikes and restarts, shutdown grace, queue and neighbor caps, flush interval, data quota and
+  texture limits. The values that the commit check enforces again mirror Rust constants;
+  `TestFrameLimitMatchesRust` and `TestCommitLimitsMatchRust` compare them with
+  `testdata/protocol/limits.json`, which the runtime writes.
+- `experience-runtime serve --report-fuel` logs the fuel each callback used.
+
+## Adapter protocol
+
+The adapter and a helper talk over the helper's stdin and stdout; the helper logs to stderr, which
+the adapter logs tagged with the Experience id. A frame is a 4-byte little-endian length and that
+many bytes of JSON, at most `MAX_FRAME_BYTES`; bytes inside messages are lowercase hex.
+
+`crates/experience-runtime/src/protocol.rs` defines every message and `PROTOCOL_VERSION`.
+`tools/localserver/experience/protocol.go` mirrors them. The golden fixtures in
+`tools/localserver/experience/testdata/protocol` come from
+`experience-runtime write-fixtures <dir>`; the Go tests decode and re-encode each one and require
+identical JSON, and reject unknown fields. A helper that answers `load` with another protocol
+version fails the load.
+
+## Private data store
+
+Block data never enters chunk NBT, so it never reaches clients. The adapter keeps it in
+`<world>/experience-data/<id>.json`, one file per Experience, keyed by dimension and position;
+each entry has a placement generation, a data revision and optional bytes. A placement or
+replacement starts a new generation without data; a write bumps the revision. Reads check that the
+live block is still the Experience's, so orphaned data is never returned. Each Experience may
+store at most `dataQuota` bytes (`limits.go`).
+
+Files are written atomically (temporary file and rename) every `flushInterval` (`limits.go`) when
+dirty, and on shutdown. **Crash window:** a crash loses up to one flush interval of data writes.
+The world and the store are saved independently, so after a crash a block can exist without its
+latest data.
+
+`_installed.json` records installed Experience IDs and their required block IDs together. Removing
+an artifact or one of its block definitions fails startup. Both lists are replaced atomically.
+
+An older ID-only manifest requires explicit migration: restore the original installed artifacts,
+then add a `"blocks"` object mapping each recorded Experience ID to all of its original block IDs
+(for example, `"blocks": {"probe": ["probe:counter"]}`). Do not infer these IDs from an updated
+artifact that may have removed definitions. Startup refuses an incomplete manifest instead of
+risking unreadable saved chunks.
+
+## Strikes, quarantine and reload
+
+The supervisor of each Experience (`supervisor.go`) runs one callback at a time within the result
+deadline. A missed deadline, garbage, an oversized frame or a helper exit is a fault: the helper is
+killed, reaped and restarted. `failed` results (trap, fuel, deadline, limit) and faults are
+strikes; a guest's `rejected` error is not. Too many strikes or restarts within their windows
+(`limits.go`) quarantine the Experience: its events are dropped without IPC, while its blocks stay
+registered and in the world, and players and other Experiences carry on.
+
+`experience reload <id>` starts a fresh helper and clears the strikes, the restart history and the
+quarantine. The fresh helper must load the same id and the same block definitions, in the same
+order, as at startup, because those are registered; only the version may change, so a reload can
+ship fixed guest code. A failed reload leaves the Experience quarantined.
+
+## Security: developer profile
+
+This is a developer profile, not a sandbox for untrusted code. Guests are confined by Wasmtime and
+the limits above, and helpers start with a cleared environment and private pipes, but helpers run
+with the server's OS user and privileges and have no OS-level sandbox. Artifact hashes give
+integrity, not publisher trust; artifacts are unsigned. Install only artifacts that you trust as
+much as the server binary. OS-level restriction of the helper is a later, separate milestone.
+
+## Version matrix
+
+These axes are versioned separately. Before 1.0, a breaking change bumps the minor version.
+
+| Axis | Version | Source |
+|---|---|---|
+| Server WIT | 0.1 | `crates/experience-sdk/wit/server.wit` |
+| IPC protocol | 1 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server manifest | `api`, `data-schema` | `crates/experience-runtime/src/manifest.rs` |
+| Client WIT and wire protocol | unchanged from PR #34 | `crates/mod-api/wit/extension.wit` |
+| Bedrock target | | `assets/bedrock-target.json` |
+
+A server artifact, its Bedrock art and a client extension are separate artifacts with separate
+authority; accepting the resource pack is never consent to client code.
+
+## Writing another adapter
+
+Another server can host the same artifacts by speaking the protocol to `experience-runtime serve`:
+
+1. Spawn one helper per artifact with a cleared environment and private pipes; forward its stderr
+   to your log.
+2. Send `load { dir }` within the load deadline and read `loaded` (or `load_failed`, after which
+   the helper exits). Check its protocol version, register its blocks before your block registry
+   freezes, and decode the textures it names.
+3. For each event, snapshot the anchor and its neighbors with each cell's id, ownership, data and
+   a token, send `callback`, and wait for `result` with the same `seq` outside your world thread.
+4. Commit a `committed` result in one world transaction, whole or not at all, after checking that
+   no token or block id changed and that the actor is still there; enforce the write scope, the
+   ownership rules and the commit limits again, since the helper is not trusted.
+5. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
+   described above.
+6. Own the store: generations, revisions, the quota and atomic flushes.
+7. Send `shutdown` on exit and kill a helper that outlives the grace period.
+
+Check your implementation against the fixtures in `tools/localserver/experience/testdata/protocol`
+and the Go adapter's tests.

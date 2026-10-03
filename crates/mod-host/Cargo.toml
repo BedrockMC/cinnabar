@@ -12,8 +12,8 @@ sha2.workspace = true
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 server-experience = { path = "../server-experience" }
-wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
-wit-component = "=0.247.0"
+wasmtime.workspace = true
+wit-component.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

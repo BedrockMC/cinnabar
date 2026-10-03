@@ -3751,6 +3751,15 @@ an actual Rust-through-core order fixture. See [the reconstruction evidence](doc
 **Incomplete parity:** the existing terrain presentation thresholds, consent UI, dimension
 transitions, and matched retail/live visual and timing evidence remain open. This packet-order
 correction does not close those broader gates. No live server was used for these corrections.
+**Dragonfly join (provisional, incomplete):** Dragonfly streams no terrain until initialized, which
+deadlocked the gate. A session whose server sent no terrain before spawn now releases once received
+work drains. The vanilla zero-terrain completion path is unconfirmed: see the reconstruction lines
+cited in [the join evidence](docs/core-join-startup.md). StartGame's vanilla data-driven
+definitions are no longer server custom blocks: the v2193 palette already holds their states,
+state for state with Dragonfly's. Vanilla tells them apart by the `minecraft` namespace
+(`Util::isVanillaNamespace` in `BlockDefinitionGroup::digestServerBlockProperties`), not by
+`vanilla_block_data`, which every definition carries (server blocks number from 10000). A server
+block's own item (no components, no item version) stacks to `Item`'s default 64.
 
 ---
 
@@ -3856,6 +3865,12 @@ remaining questions are in `docs/biome-blending.md`. This does not close
 P2.5-NATIVE-BIOME: tint-specific dispatch, graphics-setting selection, native
 neighbour-arrival remeshing and the owner's live screenshot attribution remain
 unverified. CPU palette previews are not native or GPU acceptance.
+
+Windows DX12 debug builds remain incomplete: FXC's unoptimized compilation of the
+generated biome lookup table exceeds its temporary-register limit. The GPU bounds
+regression uses optimized shaders with backend validation enabled, matching release
+shader compilation. Supporting unoptimized FXC shaders still needs a table-layout
+change; the bounds regression does not close that follow-up.
 
 
 ### World-lighting follow-up (incomplete parity)

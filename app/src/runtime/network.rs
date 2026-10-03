@@ -271,6 +271,7 @@ pub(crate) fn receive_network_events(
                 hardcore,
                 hud_rules,
                 packs,
+                terrain_before_spawn,
             } => {
                 match classify_bootstrap_generation(
                     ui_runtime.session_id(),
@@ -413,6 +414,7 @@ pub(crate) fn receive_network_events(
                     );
                 }
                 stream.begin_frame_work();
+                stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {

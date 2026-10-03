@@ -5,37 +5,18 @@ use crate::menu::{MenuField, MenuView};
 
 #[derive(Clone, Copy)]
 pub(in super::super) struct Feedback {
-    pub(super) caret: bool,
-    pub(super) selected: bool,
+    pub(super) selection: Option<[usize; 2]>,
 }
 
-#[derive(Default)]
-pub(in super::super) struct Clock {
-    previous: Option<(MenuField, String, bool)>,
-    started: f64,
-}
-
-impl Clock {
-    /// Focus and text changes restart the native caret blink interval.
-    pub(in super::super) fn update(&mut self, view: &MenuView, now: f64) -> Option<Feedback> {
-        let current = view.field.and_then(|field| {
-            let text = match field {
-                MenuField::Name => &view.name,
-                MenuField::Address => &view.address,
-                MenuField::Port => &view.port,
-                _ => return None,
-            };
-            Some((field, text.clone(), view.text_selected))
-        });
-        if current != self.previous {
-            self.started = now;
-            self.previous = current;
+impl Feedback {
+    /// Uses the launcher's editor selection; its shared caret state owns blink and placement.
+    pub(in super::super) fn from_view(view: &MenuView) -> Option<Self> {
+        match view.field? {
+            MenuField::Name | MenuField::Address | MenuField::Port => Some(Self {
+                selection: view.caret.selection,
+            }),
+            _ => None,
         }
-        self.previous.as_ref().map(|(_, _, selected)| Feedback {
-            caret: (((now - self.started).max(0.0) / json_ui::CARET_BLINK_SECONDS) as u64)
-                .is_multiple_of(2),
-            selected: *selected,
-        })
     }
 }
 

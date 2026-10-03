@@ -2574,6 +2574,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-probe"
+version = "0.1.0"
+dependencies = [
+ "experience-sdk",
+]
+
+[[package]]
+name = "experience-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "wasmtime",
+ "wat",
+ "wit-component",
+]
+
+[[package]]
+name = "experience-sdk"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

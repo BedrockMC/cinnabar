@@ -9,8 +9,15 @@ use super::super::super::menu_scroll::ScrollArea;
 use super::super::super::{
     FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect,
 };
+use super::super::menu_caret::TextSpot;
 use super::theme::{EDGE, Rgba, TEXT_DIMMEST, TEXT_SHADOW, Type};
 use crate::menu::MenuAction;
+
+/// `style`'s text scale over the frame metrics: the open font's default line is the
+/// 1.6rem body size.
+pub(super) fn text_factor(style: Type) -> f32 {
+    style.size / 1.6
+}
 
 /// A logical-pixel rect `[left, top, right, bottom]`.
 pub(super) type Bounds = [f32; 4];
@@ -37,6 +44,8 @@ pub(super) struct Canvas<'a> {
     /// Scroll offsets by view key, as the last input left them.
     pub(super) offsets: HashMap<String, f32>,
     pub(super) scrolls: Vec<ScrollArea>,
+    /// Where text fields drew their text, for placing a pressed caret.
+    pub(super) spots: Vec<TextSpot>,
     /// The clipping node drawing attaches to, and its bounds.
     clip: Option<(UiNodeId, Bounds)>,
 }
@@ -73,6 +82,7 @@ impl<'a> Canvas<'a> {
             alpha: 1.0,
             offsets: HashMap::new(),
             scrolls: Vec::new(),
+            spots: Vec::new(),
             clip: None,
         }
     }
@@ -191,8 +201,7 @@ impl<'a> Canvas<'a> {
         style: Type,
     ) -> Result<std::sync::Arc<ui::TextLayout>, UiPresentationError> {
         let mut request = self.metrics.request(value, width_64, self.font);
-        // The open font's default line is the 1.6rem body size.
-        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * style.size / 1.6) {
+        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * text_factor(style)) {
             request.scale = scale;
         }
         self.layouts
@@ -301,7 +310,7 @@ impl<'a> Canvas<'a> {
         let mut request = self
             .metrics
             .request(value, (width.max(1.0) * 64.0) as u32, self.font);
-        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * style.size / 1.6) {
+        if let Ok(scale) = UiScale::new_display(self.metrics.scale.get() * text_factor(style)) {
             request.scale = scale;
         }
         let layout = self

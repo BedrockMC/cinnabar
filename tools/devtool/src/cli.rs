@@ -93,7 +93,7 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
             println!("test runner: cargo test (install cargo-nextest for faster local tests)");
         }
     }
-    for command in verification_commands(&selection, runner) {
+    for command in verification_commands(&selection, runner, &packages) {
         println!("$ {command}");
         if !options.dry_run {
             execute(command)?;
