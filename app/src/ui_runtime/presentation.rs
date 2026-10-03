@@ -8,7 +8,7 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 use render::{
-    ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
+    ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
 use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
