@@ -1131,3 +1131,56 @@ fn toast_duration_setting_reaches_the_notification_queue() {
     assert_eq!(toasts[1].started_millis, toasts[0].expires_millis);
     assert!(toasts[0].visible_at(toasts[0].started_millis + ui::TOAST_DISPLAY_MILLIS));
 }
+
+#[test]
+fn malformed_absorption_preserves_the_last_authoritative_stat() {
+    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = UiRuntime::new(1);
+    for (sequence, current) in [(1, 4.0), (2, f32::NAN)] {
+        runtime
+            .apply_local_attributes(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: 1,
+                    fifo_sequence: sequence,
+                    local_millis: sequence,
+                    server_tick: sequence,
+                    attributes: Arc::from([protocol::ActorAttribute {
+                        name: Arc::from("minecraft:absorption"),
+                        min: 0.0,
+                        max: 20.0,
+                        current,
+                        default: Some(0.0),
+                        modifiers: Arc::from([]),
+                    }]),
+                },
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        runtime.hud().absorption(),
+        ui::BoundedStat::new_scaled(400, 2000, 100)
+    );
+}
+
+#[test]
+fn empty_offhand_content_preserves_known_equipment() {
+    let mut state = crate::ui_runtime::gameplay_hud::GameplayHudState::default();
+    let container = ContainerIdentity {
+        window_id: Some(119),
+        slot_type: None,
+        dynamic_id: None,
+    };
+    state.apply_inventory(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity { container, slot: 0 },
+        stack: stack(77),
+        storage_item: None,
+    }));
+    assert!(state.offhand_stack().is_some());
+    state.apply_inventory(&InventoryEvent::Content(InventoryContentEvent {
+        container,
+        slots: Arc::from([]),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    assert_eq!(state.offhand_stack().unwrap().network_id, 77);
+}

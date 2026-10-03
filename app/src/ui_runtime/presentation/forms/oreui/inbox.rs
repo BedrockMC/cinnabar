@@ -54,7 +54,9 @@ pub(super) fn draw(
     }
     let item_height = canvas.r(4.8);
     let pad = space(canvas, 4);
-    let mut y = top + space(canvas, 4);
+    let categories_scroll =
+        canvas.begin_scroll("inbox_categories", [menu_left, top, menu_right, bottom])?;
+    let mut y = top + space(canvas, 4) - categories_scroll.offset;
     for (index, (name, unread)) in categories.iter().enumerate() {
         let bounds = [
             menu_left + canvas.r(0.2),
@@ -89,6 +91,8 @@ pub(super) fn draw(
         y += item_height;
     }
 
+    let categories_height = y + categories_scroll.offset - top;
+    canvas.end_scroll(categories_scroll, categories_height)?;
     let [list_left, list_right] = grid.span(list_span.0, list_span.1);
     if inbox.is_empty() {
         let card = [list_left, top, list_right, top + canvas.r(16.0)];
@@ -109,7 +113,8 @@ pub(super) fn draw(
         )?;
         return Ok(());
     }
-    let mut y = top;
+    let scroll = canvas.begin_scroll("inbox_messages", [list_left, top, list_right, bottom])?;
+    let mut y = top - scroll.offset;
     for (title, unread) in [("Recent", true), ("History", false)] {
         let items: Vec<&InboxItem> = inbox.iter().filter(|item| item.unread == unread).collect();
         if items.is_empty() {
@@ -124,15 +129,22 @@ pub(super) fn draw(
             false,
         )? + space(canvas, 2);
         for item in items {
-            if y > bottom {
-                return Ok(());
+            if y + card_height(canvas) < top || y > bottom {
+                y += card_height(canvas) + space(canvas, 1);
+                continue;
             }
             y = card(canvas, view, item, [list_left, list_right], y)? + space(canvas, 1);
         }
         divider(canvas, list_left, list_right, y)?;
         y += space(canvas, 2);
     }
-    Ok(())
+    let content = y + scroll.offset - top;
+    canvas.end_scroll(scroll, content)
+}
+
+/// The fixed height shared by visible and skipped message rows.
+fn card_height(canvas: &Canvas<'_>) -> f32 {
+    canvas.r(2.0) + canvas.r(2.0) * 2.0 + space(canvas, 4) * 2.0
 }
 
 /// A compact list row: title and summary each stay on one ellipsized line.
@@ -145,7 +157,7 @@ fn card(
 ) -> Result<f32, UiPresentationError> {
     let pad = space(canvas, 4);
     let inner = span[1] - span[0] - pad * 2.0;
-    let height = canvas.r(2.0) + canvas.r(2.0) * 2.0 + pad * 2.0;
+    let height = card_height(canvas);
     let bounds = [span[0], top, span[1], top + height];
     row(canvas, view, bounds, false, None)?;
     let mut y = top + pad;

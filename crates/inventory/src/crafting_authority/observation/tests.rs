@@ -522,3 +522,18 @@ fn observer_does_not_change_normal_open_close_bytes_or_allocate_craft_request() 
     assert!(ledger.pending_request_id().is_none());
     assert!(fixture.0.probe.lock().unwrap().rows <= MAX_ROWS);
 }
+
+#[test]
+fn review_contention_during_an_action_retires_its_terminal_receipt() {
+    let owner = std::sync::Mutex::new(Probe::new());
+    let retired = std::sync::atomic::AtomicBool::new(false);
+    try_action(&owner, &retired, |probe| {
+        probe.spent[..4].fill(true);
+        try_action(&owner, &retired, |_| panic!("contending action ran"));
+        probe.terminal();
+    });
+    let probe = owner.lock().unwrap();
+    assert!(probe.retired);
+    assert!(probe.incomplete);
+    assert!(probe.spent[4]);
+}

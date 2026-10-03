@@ -53,7 +53,10 @@ fn record(
         match cell {
             Some(name) => {
                 varuint(out, 1);
-                string(out, "name");
+                let (kind, name) = name
+                    .strip_prefix("tag:")
+                    .map_or(("name", *name), |tag| ("item_tag", tag));
+                string(out, kind);
                 string(out, name);
                 varint(out, 0);
                 varint(out, 1);
@@ -741,4 +744,47 @@ fn a_held_ingredient_marks_uncraftable_recipes_as_partly_held() {
     assert!(!ledger.can_auto_craft(&log_and_cobble));
     assert!(ledger.holds_any_ingredient(&log_and_cobble));
     assert!(!ledger.holds_any_ingredient(&ring));
+}
+
+#[test]
+fn review_overlapping_ingredients_find_a_complete_assignment() {
+    let mut body = Vec::new();
+    varuint(&mut body, 0);
+    varuint(&mut body, 1);
+    record(
+        &mut body,
+        None,
+        &[Some("tag:test:wood"), Some("minecraft:oak_log")],
+        FURNACE,
+        77,
+    );
+    for _ in 2..11 {
+        varuint(&mut body, 0);
+    }
+    body.push(1);
+    let update = decode_recipe_update(&body).unwrap();
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    let recipe = catalog.crafting_handles().pop().unwrap();
+    for all in [false, true] {
+        let mut ledger = ledger(0);
+        let mut items = registry();
+        let mut entries = items.entries.to_vec();
+        for entry in &mut entries {
+            if [LOG, PLANKS].contains(&entry.network_id) {
+                entry.item_tags = Arc::from([Arc::from("test:wood")]);
+            }
+        }
+        items.entries = entries.into();
+        ledger.apply_registry(&items);
+        ledger.apply(&craft_slot(28, stack(LOG, 101, 2)));
+        ledger.apply(&craft_slot(29, stack(PLANKS, 102, 2)));
+        let result = if all {
+            ledger.begin_craft_all(&recipe)
+        } else {
+            ledger.begin_craft_into(&recipe, 1, crafting::CraftSink::Cursor)
+        };
+        assert!(result.is_ok(), "{result:?}");
+    }
 }

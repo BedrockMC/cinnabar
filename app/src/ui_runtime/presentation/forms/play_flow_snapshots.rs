@@ -14,9 +14,11 @@ use crate::menu::{
 };
 use crate::ui_runtime::UiRuntime;
 
-/// A solid-coloured PNG with a lighter band, written once per run.
+/// Writes one immutable solid-coloured fixture PNG with a lighter band.
 fn art(dir: &std::path::Path, name: &str, size: [u32; 2], color: [u8; 3]) -> String {
-    let path = dir.join(format!("{name}.png"));
+    static NEXT_ART: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let index = NEXT_ART.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = dir.join(format!("{name}-{}-{index}.png", std::process::id()));
     let image = image::RgbaImage::from_fn(size[0], size[1], |_, y| {
         let lift = if y < size[1] / 3 { 40 } else { 0 };
         image::Rgba([
@@ -615,4 +617,20 @@ fn snapshot_local_worlds() {
     shot(&menu, "local-docker-missing");
     menu.update(Input::Prompt(PromptButton::CreateFlat));
     shot(&menu, "local-create-flat-only");
+}
+
+#[test]
+fn review_artwork_fixtures_are_immutable_across_calls() {
+    let dir = std::env::temp_dir().join(format!(
+        "cinnabar-art-fixture-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let first = art(&dir, "same", [8, 8], [100, 0, 0]);
+    let expected = std::fs::read(&first).unwrap();
+    let second = art(&dir, "same", [8, 8], [0, 100, 0]);
+    assert_ne!(first, second);
+    assert_eq!(std::fs::read(first).unwrap(), expected);
+    std::fs::remove_dir_all(dir).unwrap();
 }

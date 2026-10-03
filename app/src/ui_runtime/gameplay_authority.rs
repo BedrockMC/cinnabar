@@ -456,9 +456,10 @@ impl UiRuntime {
                 }
                 // Absorption is an ordinary bounded attribute; zero is common
                 // and simply hides the golden hearts.
-                "minecraft:absorption" => {
-                    absorption = hud_adapter::attribute_stat(attribute);
-                }
+                "minecraft:absorption" => match hud_adapter::attribute_stat(attribute) {
+                    Some(stat) => absorption = Some(stat),
+                    None => self.gameplay_hud.note_odd_attribute(),
+                },
                 // Bedrock sends experience as attributes, not a dedicated packet: progress in
                 // 0.0..=1.0 and an integer level. `f32 as u32` saturates, so a stray value is bounded.
                 "minecraft:player.experience" if attribute.current.is_finite() => {
