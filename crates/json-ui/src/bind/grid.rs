@@ -26,6 +26,9 @@ impl Binder<'_> {
         let key = collection.map(|name| self.collection_key(name, scope));
         let count = grid_capacity(src)
             .unwrap_or_else(|| key.as_ref().map_or(0, |key| self.data.collection_len(key)));
+        let Some(inner) = self.expansion_scope(scope, template) else {
+            return Vec::new();
+        };
         let Some(resolved) = self.resolve_scoped(template, control, &BTreeMap::new()) else {
             self.note(format!(
                 "{}: grid template {template} unresolved",
@@ -36,8 +39,8 @@ impl Binder<'_> {
         let mut cells: Vec<Node> = (0..count)
             .map(|index| {
                 let child_scope = match (collection, &key) {
-                    (Some(name), Some(key)) => scope.enter(name, key.clone(), index),
-                    _ => scope.clone(),
+                    (Some(name), Some(key)) => inner.enter(name, key.clone(), index),
+                    _ => inner.clone(),
                 };
                 let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
                     if let Some(name) = collection {
