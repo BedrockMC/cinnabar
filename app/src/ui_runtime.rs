@@ -614,6 +614,9 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.client_packets.clear();
+        self.book_packets.clear();
+        self.screen = screen_state::ScreenState::default();
         self.experiences.reset();
         self.clear_local_abilities();
         self.server_lang = None;
