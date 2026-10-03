@@ -142,6 +142,8 @@ struct Probe {
     through: u64,
     epoch: u64,
     retired: bool,
+    terminal_deferred: bool,
+    terminal_pending: bool,
     incomplete: bool,
     pending: [Option<Source>; META_RECORDS],
     origins: [Option<Source>; 5],
@@ -165,6 +167,8 @@ impl Probe {
             through: 0,
             epoch: 0,
             retired: false,
+            terminal_deferred: false,
+            terminal_pending: false,
             incomplete: false,
             pending: [None; META_RECORDS],
             origins: [None; 5],
@@ -438,6 +442,10 @@ impl Probe {
         }
     }
     fn terminal(&mut self) {
+        if self.terminal_deferred {
+            self.terminal_pending = true;
+            return;
+        }
         let Some(capacity) = self.reserve(4) else {
             return;
         };
@@ -612,7 +620,20 @@ fn try_action(owner: &Mutex<Probe>, retired: &AtomicBool, action: impl FnOnce(&m
         return;
     }
     match owner.try_lock() {
-        Ok(mut probe) => action(&mut probe),
+        Ok(mut probe) => {
+            probe.terminal_deferred = true;
+            action(&mut probe);
+            if retired.load(Ordering::Acquire) {
+                probe.retire();
+            }
+            if probe.terminal_pending && retired.swap(true, Ordering::AcqRel) {
+                probe.retire();
+            }
+            probe.terminal_deferred = false;
+            if std::mem::take(&mut probe.terminal_pending) {
+                probe.terminal();
+            }
+        }
         Err(_) => {
             retired.store(true, Ordering::Release);
         }

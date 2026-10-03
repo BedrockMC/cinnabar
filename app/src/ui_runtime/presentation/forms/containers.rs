@@ -223,7 +223,17 @@ impl UiPresentationRuntime {
         let cache = &mut self.form_presentation.container_cache;
         let catalog = renderer.catalog();
         let drawn = renderer.draw(art, inputs, out, |env, root| {
-            ScreenCache::render(cache, catalog, reference, &context, &data, &view, root, env)
+            ScreenCache::render(
+                cache,
+                catalog,
+                reference,
+                &context,
+                &data,
+                &view,
+                root,
+                env,
+                (metrics.scale.get(), runtime.text_generation()),
+            )
         });
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view;
@@ -319,6 +329,8 @@ pub(super) struct ScreenCache {
     laid: Option<(ViewState, [f64; 2], Arc<json_ui::FormRender>)>,
     /// The open screen's live bindings across data refreshes.
     binding: json_ui::BindState,
+    /// Font scale and language tables used by the retained measurements.
+    text: (f32, [usize; 3]),
     /// Layouts run for this screen, for cache tests.
     layouts: usize,
 }
@@ -334,6 +346,7 @@ impl ScreenCache {
         view: &ViewState,
         root: [f64; 2],
         env: &json_ui::LayoutEnv,
+        text: (f32, [usize; 3]),
     ) -> Option<Arc<json_ui::FormRender>> {
         let same_screen = |cached: &Self| {
             Arc::ptr_eq(&cached.catalog, catalog)
@@ -351,10 +364,16 @@ impl ScreenCache {
                 measures: json_ui::MeasureCache::default(),
                 laid: None,
                 binding: json_ui::BindState::new(),
+                text,
                 layouts: 0,
             });
         }
         let cached = cache.as_mut()?;
+        let text_changed = cached.text != text;
+        if text_changed {
+            cached.text = text;
+            cached.measures = json_ui::MeasureCache::default();
+        }
         if cached.data.as_ref() != Some(data) {
             cached.tree = Some(json_ui::bind_screen(
                 &cached.resolved,
@@ -369,7 +388,7 @@ impl ScreenCache {
         }
         // Hover, press and focus only filter the gated nodes; scroll lays out again.
         let fresh = |(laid_view, laid_root, _): &(ViewState, [f64; 2], _)| {
-            laid_view.scroll == view.scroll && *laid_root == root
+            !text_changed && laid_view.scroll == view.scroll && *laid_root == root
         };
         if !cached.laid.as_ref().is_some_and(fresh) {
             if cached
@@ -773,4 +792,60 @@ fn held_stack(
         ));
     }
     nodes
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_container_layout_remeasures_after_language_or_scale_changes() {
+        struct Text(f64);
+        impl json_ui::TextMeasure for Text {
+            fn extent(&self, _: &str) -> [f64; 2] {
+                [self.0, 10.0]
+            }
+        }
+        struct NoTexture;
+        impl json_ui::TextureSource for NoTexture {
+            /// The measurement fixture has no image sources.
+            fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
+                None
+            }
+        }
+        let mut catalog = json_ui::Catalog::default();
+        catalog.apply_pack([("ui/_ui_defs.json", br#"{"ui_defs":["ui/chest.json"]}"#.as_slice()), ("ui/chest.json", br#"{"namespace":"chest","small_chest_screen":{"type":"screen","controls":[{"label":{"type":"label","text":"key","size":["default",10]}}]}}"#.as_slice())]);
+        let catalog = Arc::new(catalog);
+        let mut cache = None;
+        let (context, data, view) = (
+            json_ui::Context::desktop(),
+            DataSource::new(),
+            ViewState::default(),
+        );
+        for (generation, width) in [(0, 10.0), (1, 30.0)] {
+            let text = Text(width);
+            let env = json_ui::LayoutEnv {
+                text: &text,
+                textures: &NoTexture,
+            };
+            let rendered = ScreenCache::render(
+                &mut cache,
+                &catalog,
+                "chest.small_chest_screen",
+                &context,
+                &data,
+                &view,
+                [100.0; 2],
+                &env,
+                (1.0, [generation, 0, 0]),
+            )
+            .unwrap();
+            let label = rendered
+                .nodes
+                .iter()
+                .find(|node| node.name == "label")
+                .unwrap();
+            assert_eq!(label.dest.w, width);
+        }
+        assert_eq!(cache.as_ref().unwrap().layouts, 2);
+    }
 }

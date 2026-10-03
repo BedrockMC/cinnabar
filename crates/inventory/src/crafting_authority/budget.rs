@@ -459,4 +459,22 @@ mod tests {
         drop(old);
         assert_eq!(credits.used.load(Ordering::Acquire), 0);
     }
+    #[test]
+    fn registry_credits_include_retained_item_tags() {
+        use super::super::projection::RegistryOwner;
+        let credits = Arc::new(Credits {
+            maximum: 1024,
+            used: AtomicUsize::new(0),
+        });
+        let mut entry = protocol::vanilla_item_registry()[0].clone();
+        entry.item_tags = Arc::from([Arc::from("x".repeat(2048))]);
+        let event = protocol::ItemRegistryEvent {
+            entries: Arc::from([entry]),
+        };
+        assert!(
+            RegistryOwner::with_credits(&event, std::num::NonZeroU64::new(1).unwrap(), &credits)
+                .is_none()
+        );
+        assert_eq!(credits.used.load(Ordering::Acquire), 0);
+    }
 }

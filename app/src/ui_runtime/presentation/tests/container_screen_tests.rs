@@ -190,6 +190,9 @@ fn book(player_runtime: &mut crate::player_runtime::PlayerRuntime, signing: bool
         "Steve".to_owned(),
     );
     state.signing = signing;
+    if signing {
+        state.title = "Book title".to_owned();
+    }
     // The right page shows its edit controls, the left its edit button.
     state.editing = Some(1);
     runtime.open_book(state);
@@ -393,7 +396,11 @@ fn screens() -> Vec<(
         ),
         screen(
             "beacon",
-            |player_runtime| opened(player_runtime, WINDOW_TYPE_BEACON, 0),
+            |player_runtime| {
+                let mut runtime = opened(player_runtime, WINDOW_TYPE_BEACON, 0);
+                runtime.screen_state_mut().beacon = (3, 0);
+                runtime
+            },
             vec![
                 Craft(27),
                 Widget(W::BeaconEffect {
