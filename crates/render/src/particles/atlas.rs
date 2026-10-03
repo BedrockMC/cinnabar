@@ -1,7 +1,10 @@
 //! CPU-side particle texture atlas: static particle textures shelf-packed once, plus a
 //! bounded dynamic region for per-block terrain tiles uploaded on demand.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use assets::RuntimeParticleAssets;
 
@@ -11,7 +14,7 @@ const STATIC_ROWS: u32 = 512;
 pub const TILE_SLOT: u32 = 16;
 const SLOTS_PER_ROW: u32 = ATLAS_SIDE / TILE_SLOT;
 const SLOT_ROWS: u32 = (ATLAS_SIDE - STATIC_ROWS) / TILE_SLOT;
-const MAX_SLOTS: usize = (SLOTS_PER_ROW * SLOT_ROWS) as usize;
+pub(super) const MAX_SLOTS: usize = (SLOTS_PER_ROW * SLOT_ROWS) as usize;
 
 /// A texture's pixel rectangle in the atlas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +57,7 @@ pub struct ParticleAtlas {
     seq: u64,
     placements: HashMap<Box<str>, Placement>,
     tiles: HashMap<u64, (usize, u64)>,
+    pinned: HashSet<usize>,
     next_slot: usize,
     tick: u64,
 }
@@ -67,6 +71,7 @@ impl Default for ParticleAtlas {
             seq: 0,
             placements: HashMap::new(),
             tiles: HashMap::new(),
+            pinned: HashSet::new(),
             next_slot: 0,
             tick: 0,
         }
@@ -163,10 +168,27 @@ impl ParticleAtlas {
         &self.pixels
     }
 
+    /// Prevents recycling slots retained by emitters or their live particles.
+    pub(super) fn set_live_placements(&mut self, placements: impl Iterator<Item = Placement>) {
+        self.pinned.clear();
+        for placement in placements {
+            if placement.y >= STATIC_ROWS
+                && placement.width == TILE_SLOT
+                && placement.height == TILE_SLOT
+            {
+                let slot = ((placement.y - STATIC_ROWS) / TILE_SLOT * SLOTS_PER_ROW
+                    + placement.x / TILE_SLOT) as usize;
+                self.pinned.insert(slot);
+            }
+        }
+    }
+
     /// Returns the slot for a caller-keyed tile, uploading `pixels` (`size * size * 4`,
     /// nearest-resampled to the slot) on first use and recycling the least recent slot when full.
     pub fn tile(&mut self, key: u64, size: u32, pixels: &[u8]) -> Option<Placement> {
-        if size == 0 || pixels.len() != (size * size * 4) as usize {
+        let source_side = size as usize;
+        let bytes = source_side.checked_mul(source_side)?.checked_mul(4)?;
+        if size == 0 || pixels.len() != bytes {
             return None;
         }
         self.tick += 1;
@@ -178,7 +200,11 @@ impl ParticleAtlas {
                 self.next_slot += 1;
                 self.next_slot - 1
             } else {
-                let (&victim, &(slot, _)) = self.tiles.iter().min_by_key(|(_, (_, used))| *used)?;
+                let (&victim, &(slot, _)) = self
+                    .tiles
+                    .iter()
+                    .filter(|(_, (slot, _))| !self.pinned.contains(slot))
+                    .min_by_key(|(_, (_, used))| *used)?;
                 self.tiles.remove(&victim);
                 slot
             };
@@ -186,9 +212,9 @@ impl ParticleAtlas {
             let mut resampled = vec![0u8; (TILE_SLOT * TILE_SLOT * 4) as usize];
             for ty in 0..TILE_SLOT {
                 for tx in 0..TILE_SLOT {
-                    let sx = tx * size / TILE_SLOT;
-                    let sy = ty * size / TILE_SLOT;
-                    let from = ((sy * size + sx) * 4) as usize;
+                    let sx = tx as usize * source_side / TILE_SLOT as usize;
+                    let sy = ty as usize * source_side / TILE_SLOT as usize;
+                    let from = (sy * source_side + sx) * 4;
                     let to = ((ty * TILE_SLOT + tx) * 4) as usize;
                     resampled[to..to + 4].copy_from_slice(&pixels[from..from + 4]);
                 }
@@ -278,5 +304,9 @@ mod tests {
         let placement = atlas.tile(7, 32, &pixels).unwrap();
         let at = ((placement.y * ATLAS_SIDE + placement.x) * 4) as usize;
         assert_eq!(&atlas.pixels()[at..at + 4], &[1, 2, 3, 4]);
+    }
+    #[test]
+    fn review_render_particle_tile_rejects_overflowing_dimensions() {
+        assert!(ParticleAtlas::default().tile(1, 65536, &[]).is_none());
     }
 }

@@ -348,12 +348,12 @@ fn prepare_bind_group(
 fn queue_overlay(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<OverlayPipeline>,
-    gpu: Res<OverlayGpu>,
+    scene: Res<ScreenOverlayScene>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.layer_count == 0 {
+    if scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
@@ -410,7 +410,7 @@ impl<P: PhaseItem> RenderCommand<P> for SetOverlayBindGroup {
 struct DrawOverlay;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawOverlay {
-    type Param = ();
+    type Param = SRes<OverlayGpu>;
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -418,9 +418,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawOverlay {
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        _param: SystemParamItem<'w, '_, Self::Param>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
+        if gpu.into_inner().layer_count == 0 {
+            return RenderCommandResult::Skip;
+        }
         pass.draw(0..3, 0..1);
         RenderCommandResult::Success
     }
@@ -433,5 +436,39 @@ mod tests {
     #[test]
     fn uniform_matches_the_wgsl_layout() {
         assert_eq!(UNIFORM_BYTES, 16 + 8 * 32);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    use crate::queue_review_support as fixture;
+    use bevy::ecs::system::RunSystemOnce;
+    #[test]
+    fn review_render_overlay_queue_uses_current_layers() {
+        let (mut app, view) = fixture::app();
+        app.init_resource::<ScreenOverlayScene>()
+            .init_resource::<OverlayPipeline>()
+            .add_render_command::<Transparent3d, DrawOverlayCommands>();
+        app.world_mut().run_system_once(init_gpu).unwrap();
+        app.world_mut()
+            .resource_mut::<ScreenOverlayScene>()
+            .set_layers(
+                [crate::ScreenOverlayLayer {
+                    kind: crate::ScreenOverlayKind::Flat,
+                    rgb: [1.0; 3],
+                    alpha: 1.0,
+                }],
+                0.0,
+            );
+        app.world_mut().run_system_once(queue_overlay).unwrap();
+        assert_eq!(fixture::items(&app, view).len(), 1);
+        fixture::clear(&mut app, view);
+        app.world_mut().resource_mut::<OverlayGpu>().layer_count = 1;
+        app.world_mut()
+            .resource_mut::<ScreenOverlayScene>()
+            .set_layers([], 0.0);
+        app.world_mut().run_system_once(queue_overlay).unwrap();
+        assert!(fixture::items(&app, view).is_empty());
     }
 }

@@ -455,6 +455,7 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         .iter()
         .find(|(entity, _, _)| transparent_runtime.view_entity == Some(*entity))
     else {
+        runtime.requested = None;
         runtime.committed = None;
         runtime.staged = None;
         runtime.candidate_cache = None;
@@ -518,17 +519,24 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         address: address.clone(),
     };
 
-    let completed = runtime
-        .result_receiver
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .try_recv()
-        .ok();
+    if runtime.staged.as_ref().is_some_and(|staged| {
+        staged.key.view_entity != key.view_entity || staged.key.address != key.address
+    }) {
+        runtime.staged = None;
+    }
+    let completed = if runtime.staged.is_none() {
+        runtime
+            .result_receiver
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .try_recv()
+            .ok()
+    } else {
+        None
+    };
     if let Some(result) = completed {
         let next = runtime.gate.complete(result.generation);
-        if runtime.requested.as_ref() == Some(&(result.generation, result.key.clone()))
-            && result.key == key
-        {
+        if result.key.view_entity == key.view_entity && result.key.address == key.address {
             runtime.staged = Some(TransparentModelStagedSort {
                 key: result.key,
                 batches: result.batches.into(),
@@ -537,13 +545,6 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         if let Some((_generation, work)) = next {
             spawn_transparent_model_sort(runtime.result_sender.clone(), work);
         }
-    }
-    if runtime
-        .staged
-        .as_ref()
-        .is_some_and(|staged| staged.key != key)
-    {
-        runtime.staged = None;
     }
     if let Some(staged) = runtime.staged.as_mut() {
         let batches =
@@ -569,10 +570,7 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         }
     }
     if runtime.committed.as_ref() == Some(&key)
-        || runtime
-            .staged
-            .as_ref()
-            .is_some_and(|staged| staged.key == key)
+        || runtime.staged.is_some()
         || runtime
             .requested
             .as_ref()

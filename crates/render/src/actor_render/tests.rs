@@ -218,10 +218,10 @@ fn actor_shader_parses_as_wgsl() {
     let source = ACTOR_SHADER_SOURCE
         .replace(
             "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, }",
+            "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
         )
         .replace(
-            "#import cinnabar::lighting::{lit_colour, light_colour}",
+            "#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}",
             &lighting,
         );
     naga::front::wgsl::parse_str(&source).expect("actor shader parses");
