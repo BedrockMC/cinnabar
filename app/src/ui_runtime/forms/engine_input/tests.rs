@@ -136,3 +136,38 @@ fn idle_input_relays_pending_animation_end_events() {
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
     ));
 }
+
+#[test]
+fn review_pointer_release_then_press_keeps_the_second_capture() {
+    let mut presentation = mini_engine_presentation();
+    let mut runtime = pack_harness::action_form("Shop", &["Buy"]);
+    presentation
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap().clone();
+    let hit = &frame.hits[0];
+    let gui = [
+        frame.origin[0] + (hit.rect.x + 1.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + 1.0) as f32 * frame.scale,
+    ];
+    drive(
+        &mut runtime,
+        &frame,
+        EngineInput {
+            cursor: Some(UiPoint::new(gui[0], gui[1]).unwrap()),
+            keys: &ButtonInput::default(),
+            pointer: PointerButtons {
+                pressed: true,
+                released: true,
+                held: true,
+            },
+            pointer_edges: vec![false, true],
+            wheel: Vec::new(),
+            typed: Vec::new(),
+            now: 0.0,
+            animator: None,
+        },
+    );
+    assert!(runtime.server_forms().engine().view.pressed.is_some());
+}
