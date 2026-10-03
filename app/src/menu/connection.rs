@@ -350,6 +350,26 @@ pub(crate) fn drive_menu_connection(
         let packet = protocol::respawn_request_packet(runtime_id);
         let _ = session.network.send_form_packet(generation, packet);
     }
+    if menu.take_exit_request() {
+        // Exit stops the core inline, inside the shutdown watchdog's envelope.
+        session.guard.stop();
+        session.retire(&mut menu);
+        exits.write(AppExit::Success);
+        return;
+    }
+    if menu.take_disconnect_request() {
+        // A disconnect while connecting is a cancelled join, which returns to the play screen.
+        let cancelled_join = menu.is_connecting();
+        // Drop the old event receivers as well as stopping their worker: a
+        // queued transfer must not undo this explicit disconnect later this frame.
+        session.retire(&mut menu);
+        menu.mark_disconnected();
+        if cancelled_join {
+            menu.pending_connect = None;
+            menu.enter(super::MenuScreen::Play);
+        }
+        return;
+    }
     if menu.is_connecting() && in_session {
         menu.mark_connected();
     }
@@ -364,24 +384,6 @@ pub(crate) fn drive_menu_connection(
         );
     }
     poll_join(&mut commands, &mut menu, &mut session, &client_blob_cache);
-    if menu.take_disconnect_request() {
-        // A disconnect while connecting is a cancelled join, which returns to the play screen.
-        let cancelled_join = menu.is_connecting();
-        // Drop the old event receivers as well as stopping their worker: a
-        // queued transfer must not undo this explicit disconnect later this frame.
-        session.retire(&mut menu);
-        menu.mark_disconnected();
-        if cancelled_join {
-            menu.pending_connect = None;
-            menu.enter(super::MenuScreen::Play);
-        }
-    }
-    if menu.take_exit_request() {
-        // Exit stops the core inline, inside the shutdown watchdog's envelope.
-        session.guard.stop();
-        session.retire(&mut menu);
-        exits.write(AppExit::Success);
-    }
 }
 
 /// Returns a failed launcher session to the menu instead of ending the process.
@@ -789,6 +791,37 @@ mod transfer_follow_tests {
             .insert_resource(crate::local_player::InteractionOriginSnapshot::default())
             .add_systems(Update, super::drive_menu_connection);
         app
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_precedes_a_ready_join_response() {
+        let root = TempRoot::new();
+        let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 0\n");
+        let (reply, ready) = crossbeam_channel::bounded(1);
+        reply.send(Err("retired join failed".to_owned())).unwrap();
+        {
+            let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+            menu.enter(MenuScreen::Play);
+            menu.mark_connecting();
+            menu.join = Some(super::JoinAttempt {
+                generation: menu.session_generation,
+                address: "local world".to_owned(),
+                auth_cache: None,
+                local_world: true,
+                stage: super::JoinStage::Launcher(ready),
+            });
+            menu.disconnect_requested = true;
+        }
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        assert_eq!(menu.screen(), MenuScreen::Play);
+        assert!(
+            menu.message
+                .as_deref()
+                .is_none_or(|message| !message.contains("retired join"))
+        );
+        assert!(menu.join.is_none());
     }
 
     // Join frames stay short while the core starts; cancelling reaps it.
