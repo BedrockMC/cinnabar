@@ -1,0 +1,41 @@
+{
+  "type": "result",
+  "seq": 1,
+  "outcome": {
+    "type": "committed",
+    "ops": [
+      {
+        "type": "set_block",
+        "pos": {
+          "x": 13,
+          "y": 64,
+          "z": -7
+        },
+        "id": "benergistics:creative_energy_cell"
+      },
+      {
+        "type": "set_block_data",
+        "pos": {
+          "x": 12,
+          "y": 64,
+          "z": -7
+        },
+        "data": "0210ab"
+      },
+      {
+        "type": "set_block_data",
+        "pos": {
+          "x": 13,
+          "y": 64,
+          "z": -7
+        },
+        "data": null
+      },
+      {
+        "type": "tell",
+        "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+        "text": "Network online"
+      }
+    ]
+  }
+}

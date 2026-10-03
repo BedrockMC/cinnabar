@@ -109,6 +109,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         hardcore,
                         hud_rules,
                         packs,
+                        terrain_before_spawn: session.terrain_before_spawn(),
                     },
                 )
                 .await

@@ -5,6 +5,7 @@ pub struct Package {
     pub(crate) name: String,
     pub(crate) root: String,
     pub(crate) dependencies: Vec<String>,
+    pub(crate) doctest: bool,
 }
 
 impl Package {
@@ -14,14 +15,21 @@ impl Package {
             name: name.into(),
             root: normalize(root),
             dependencies: dependencies.iter().map(|name| (*name).into()).collect(),
+            doctest: false,
         }
     }
 
-    pub(crate) fn from_owned(name: String, root: String, dependencies: Vec<String>) -> Self {
+    pub(crate) fn from_owned(
+        name: String,
+        root: String,
+        dependencies: Vec<String>,
+        doctest: bool,
+    ) -> Self {
         Self {
             name,
             root: normalize(&root),
             dependencies,
+            doctest,
         }
     }
 }
