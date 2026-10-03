@@ -9,7 +9,9 @@ use crate::{
 };
 
 impl UiPresentationRuntime {
-    /// Input-absorbing screens stop gameplay independently of their background policy.
+    /// Input-absorbing screens stop gameplay independently of their background policy. A client
+    /// part's open modal is one: like a vanilla container screen it keeps the wheel, hotbar,
+    /// movement and attack/use from the player until it closes.
     pub(crate) fn absorbs_gameplay_input(
         &self,
         player_runtime: &crate::player_runtime::PlayerRuntime,
@@ -18,6 +20,7 @@ impl UiPresentationRuntime {
     ) -> bool {
         runtime.ui_focused(player_runtime)
             || (menu.is_visible() && self.menu_settings(runtime, &menu.view()).absorbs_input)
+            || self.experience_modal_open()
     }
 
     /// Every visible scene above the world must permit drawing the game behind it.

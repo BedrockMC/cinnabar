@@ -90,6 +90,15 @@ impl UiPresentationRuntime {
         }
     }
 
+    /// Whether the client part has a screen open, drawn yet or not; Escape and
+    /// `ui.close-screen` both close it.
+    pub(super) fn experience_modal_open(&self) -> bool {
+        self.form_presentation
+            .experience_modal
+            .as_ref()
+            .is_some_and(|screen| screen.template.is_some())
+    }
+
     /// Whether the last build drew the modal, which then owns pointer and keyboard.
     pub(crate) fn experience_modal_shown(&self) -> bool {
         self.form_presentation
