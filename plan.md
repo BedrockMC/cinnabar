@@ -1,5 +1,19 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
+the account control surface only lists and connects to existing Realms. Joining
+by invite or code and creating a Realm need a supported backend operation and a
+version-matched native flow reference before the button can perform that work.
+This does not close the Realm management parity gate.
+
+2026-10-03 overlapping crafting ingredients: native parity remains incomplete.
+Consume requests now find a complete assignment for recipes the existing matcher
+accepts, including overlapping tags and specific items. Ordinary and craft-all
+requests are covered by regressions. The exact native assignment order for custom
+overlapping ingredients still needs a reconstructed client controller reference;
+this fix does not close the crafting parity gate.
+
+
 2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
 WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
 Enhanced shader specialization and effect passes. The toggle is hidden, and saved
