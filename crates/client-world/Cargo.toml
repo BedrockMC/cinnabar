@@ -9,6 +9,7 @@ publish = false
 publication-test-support = []
 
 [dependencies]
+render-api = { path = "../render-api" }
 assets = { path = "../assets" }
 crossbeam-channel = "0.5"
 bytes.workspace = true

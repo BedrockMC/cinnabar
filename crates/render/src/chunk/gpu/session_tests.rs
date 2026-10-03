@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn session_reset_releases_old_publication_capacity_without_acknowledging_old_removals() {
-    let config = client_world::PublicationServiceConfig::PHASE2_GATE;
-    let allowance = client_world::PublicationAllowance::new(config);
+    let config = render_api::PublicationServiceConfig::PHASE2_GATE;
+    let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(1, 2, 0, 2, config.maximum_frame_items);
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
