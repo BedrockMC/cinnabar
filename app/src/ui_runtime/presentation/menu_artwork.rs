@@ -512,6 +512,9 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 
 /// Every downloaded artwork path the menu view can draw.
 pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    if view.screen == crate::menu::MenuScreen::Profile {
+        return profile_art(view);
+    }
     // The Servers tab shows the first experience until a server is picked.
     let shown = match view.feeds.selected_saved {
         Some(_) => None,
@@ -534,6 +537,10 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .map(|path| (path, THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
+        .chain(std::iter::once(view.feeds.profile.avatar_path.clone()))
+        .chain(std::iter::once(
+            view.feeds.profile.featured_screenshot_path.clone(),
+        ))
         .chain(selected.into_iter().flat_map(|details| {
             details
                 .screenshots
@@ -559,6 +566,32 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .collect()
 }
 
+/// Queues Profile card art first, followed by only the achievements Overview draws.
+fn profile_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    let profile = &view.feeds.profile;
+    let mut paths = vec![
+        (profile.avatar_path.clone(), MAX_ARTWORK_SIDE),
+        (profile.featured_screenshot_path.clone(), MAX_ARTWORK_SIDE),
+        (profile.picture_path.clone(), THUMBNAIL_SIDE),
+        (view.feeds.home.persona_head.clone(), THUMBNAIL_SIDE),
+    ];
+    if view.profile_tab == ui::ProfileTab::Overview
+        && profile.achievements_loaded
+        && !profile.achievements_error
+        && let Some(summary) = &profile.achievements
+    {
+        let sections = crate::menu::profile_achievements::visible_achievements(&summary.entries);
+        paths.extend(
+            sections
+                .into_iter()
+                .flatten()
+                .map(|entry| (entry.image.path.clone(), THUMBNAIL_SIDE)),
+        );
+    }
+    paths.retain(|(path, _)| !path.is_empty());
+    paths
+}
+
 /// The start screen's service art: messaging tile layers, the event badge and the persona head.
 fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
     let mut paths = vec![home.persona_head.clone()];
@@ -580,6 +613,52 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_replacement_atlas_preserves_the_portrait_fallback() {
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-profile-portrait-{}-{}.png",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, png(8, 8, [40, 80, 120, 255])).unwrap();
+        let portrait = path.to_string_lossy().into_owned();
+        let mut view = crate::menu::MenuRuntime::new(true, 2, "Fixture Player".into()).view();
+        view.auth_state = crate::menu::auth::AuthState::Authenticated;
+        view.feeds.profile.loaded = true;
+        view.feeds.profile.avatar_loaded = true;
+        view.feeds.profile.featured_screenshot_loaded = true;
+        view.feeds.home.persona_head = portrait.clone();
+        let home = ArtworkSet {
+            paths: view_paths(&view),
+            ..Default::default()
+        };
+        let mut cache = DecodeCache::default();
+        cache.decode(&cache.missing(&home), &home);
+        assert!(pack(&home, &cache, 0, true).refs.contains_key(&portrait));
+        view.screen = crate::menu::MenuScreen::Profile;
+        for tab in [ui::ProfileTab::Overview, ui::ProfileTab::Stats] {
+            view.profile_tab = tab;
+            // A missing gamerpic and a failed gamerpic decode both use the head.
+            for gamerpic in [String::new(), format!("{portrait}.missing")] {
+                view.feeds.profile.picture_path = gamerpic;
+                let profile = ArtworkSet {
+                    paths: view_paths(&view),
+                    ..Default::default()
+                };
+                cache.decode(&cache.missing(&profile), &profile);
+                let replacement = pack(&profile, &cache, 1, true);
+                assert!(
+                    replacement.refs.contains_key(&portrait),
+                    "Profile {tab:?} replaced the atlas without its portrait fallback"
+                );
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 
     /// Encodes a solid test image without any external assets.
     fn png(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {

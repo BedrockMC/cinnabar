@@ -1,10 +1,11 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
-accumulated work and follow-up fixes are committed through `588e463d`, including
-the prior dev integrations through `d03d3dbf`. Origin/dev `58141bc6` is being
-integrated with its chunk-pipeline and pack-compiler ownership split and frame
-diagnostics; final integrated verification and live acceptance remain required.
+accumulated work and follow-up fixes are committed through `6c7d3d9a`, including
+the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
+ownership split and frame diagnostics. Origin/dev `a1c5880d` is being integrated
+with the Profile and Marketplace changes; final integrated verification and a
+fresh post-integration live frame remain required.
 The user accepts the rebuilt night snow-layer colour and actor corrections.
 Current TopSnow
 `06a1b810` routes through ordinary terrain `06a07800` into AO/flat
@@ -103,6 +104,27 @@ The shader now masks biome tint without altering leaf lighting/filtering,
 carried/model routes or snowy grass variants. Fresh affected verification
 and canonical live grass/leaf acceptance are required before pushing; the
 older test totals below are pre-sync evidence, not verification of this merge.
+
+### Profile 1.26.50 (incomplete parity acceptance, 2026-10-03)
+
+Profile now has source-backed responsive card/tab geometry, independent scrolling,
+Overview friend/follower and Minecraft achievement summaries, completed achievement
+ordering, and populated Stats. The Go core builds the Xbox statistics and achievement
+requests, persona avatar and featured gallery requests; authored fixtures verify the
+contracts without owner-account requests. Missing values remain unavailable rather
+than invented zeros. Exact references are in `docs/profile-parity.md`.
+
+Full 1:1 parity remains incomplete. Dressing Room has no persona destination or hanger
+icon; screenshot gallery counts and navigation need local gallery persistence;
+followers and achievement detail destinations are missing. Minecraft suggestion order,
+persona achievement rewards and progress are not supplied by the Xbox achievement
+collection and need the additional native metadata path. Offline, privacy and user-not-found
+failures still share a generic error because the feed does not yet preserve their native
+classification. Runtime reference artwork and the exact loading animation require the
+optional OreUI originals directory; normal mode retains diagnostic fallbacks. English
+formatting needs integration with the locale system. Native fixture frames are not matched
+vanilla captures, and no overall visual parity gate is closed. No live server, remote
+machine or owner's authenticated service request was used for verification.
 
 2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
 the account control surface only lists and connects to existing Realms. Joining
