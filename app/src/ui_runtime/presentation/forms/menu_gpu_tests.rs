@@ -81,19 +81,52 @@ fn menu_frames_on_native_gpu() {
     let mut presentation = pack_harness::startup_presentation().expect("installed carriers");
     let dir = pack_harness::scratch_dir("gpu-menu");
     let mut view = play_flow_snapshots::fixture_view(&dir);
+    view.feeds.home.inbox = [
+        ("A new adventure awaits", "2026-10-03T10:00:00Z", true),
+        ("Explore the latest update", "2026-08-01T10:00:00Z", false),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (title, date, unread))| crate::menu::InboxItem {
+        instance_id: format!("offline-{i}"),
+        header: title.into(),
+        received: date.into(),
+        source: "Minecraft".into(),
+        category: "News".into(),
+        unread,
+        ..Default::default()
+    })
+    .collect();
     let mut app = app();
     let mut runtime = pack_harness::menu_runtime();
     let stats = app.world().resource::<render::UiRenderStats>().clone();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
+    let skin_pixels = image::open(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../.local")
+            .join(crate::install_layout::vanilla_pack_relative())
+            .join("textures/entity/steve.png"),
+    )
+    .ok()
+    .map(|image| image.to_rgba8().into_raw());
     for (name, screen) in [
         ("home", MenuScreen::Home),
         ("inbox", MenuScreen::Inbox),
+        ("pause", MenuScreen::Pause),
+        ("paper-doll", MenuScreen::Home),
+        ("inventory", MenuScreen::Home),
         ("play", MenuScreen::Play),
         ("servers", MenuScreen::Servers),
         ("edit", MenuScreen::AddServer),
         ("settings", MenuScreen::Settings),
         ("loading", MenuScreen::Home),
     ] {
+        if name == "inventory" {
+            runtime.toggle_inventory();
+        }
+        if name == "play" && runtime.inventory_open() {
+            runtime.toggle_inventory();
+        }
         view.screen = screen;
         view.editing = (screen == MenuScreen::AddServer).then_some(0);
         if name == "loading" {
@@ -111,18 +144,26 @@ fn menu_frames_on_native_gpu() {
         for frame in 0..40 {
             let started = Instant::now();
             presentation.sync_player_preview(
-                (name != "loading").then_some(skin.rgba8.as_ref()),
+                (name != "loading")
+                    .then_some(skin_pixels.as_deref().unwrap_or(skin.rgba8.as_ref())),
                 Default::default(),
                 name != "loading",
                 false,
                 frame as f64 * 0.016,
             );
             view.profile_icon = presentation.player_preview_icon();
+            presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
             if name != "loading" {
                 presentation.sync_menu_artwork(super::super::menu_artwork::view_paths(&view));
                 presentation.set_menu_view(Some(view.clone()));
             }
             let preview_done = Instant::now();
+            if matches!(name, "paper-doll" | "inventory") {
+                presentation.set_menu_view(None);
+                runtime.publish_player_game_mode(protocol::PlayerGameMode::Survival);
+                presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+                presentation.hud_frame_mut().paper_doll_visible = true;
+            }
             let input = presentation
                 .build(&runtime, frame * 16, SIZE, ui::DpiScale::new(1.0).unwrap())
                 .unwrap();
