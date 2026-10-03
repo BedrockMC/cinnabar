@@ -48,6 +48,7 @@ mod menu_scroll;
 pub(crate) use menu_artwork::BUILT_IN_TITLE;
 pub(crate) mod nametag_atlas;
 pub(crate) mod nametags;
+mod paper_doll;
 mod player_preview;
 mod primitives;
 mod publish;
@@ -150,6 +151,7 @@ pub struct UiPresentationRuntime {
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
     /// Stable reserved logical page for the optional preview raster.
+    paper_doll: paper_doll::PaperDoll,
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
@@ -266,6 +268,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            paper_doll: Default::default(),
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
