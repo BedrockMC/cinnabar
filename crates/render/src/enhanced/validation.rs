@@ -249,11 +249,11 @@ fn full_sky_exposure_keeps_direct_light_under_a_night_lightmap() {
 }
 
 #[test]
-fn enhanced_cameras_enforce_single_sample_depth_before_extraction() {
+fn single_sample_depth_system_resets_only_enhanced_cameras() {
     use bevy::prelude::*;
     let mut app = App::new();
-    app.init_resource::<Assets<bevy::shader::Shader>>();
-    app.add_plugins(super::EnhancedRenderPlugin);
+    // Exercise the CPU system directly while the Enhanced plugin is disabled.
+    app.add_systems(Last, super::enforce_single_sample_depth);
     let enhanced = app
         .world_mut()
         .spawn((super::EnhancedRendering::default(), Msaa::Sample4))
