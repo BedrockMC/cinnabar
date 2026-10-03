@@ -337,3 +337,59 @@ fn offhand_count_does_not_depend_on_item_icon() {
     let counted = build_vertices(&mut presentation, &runtime(22));
     assert_missing_icon_count_delta(single, counted);
 }
+
+#[test]
+fn review_carried_item_draws_after_the_recipe_panel() {
+    use crate::ui_runtime::presentation::hud_layout::{HudGeometry, HudLayout};
+    let mut runtime = personal_inventory(None);
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity {
+                window_id: None,
+                slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+                dynamic_id: None,
+            },
+            slots: Arc::from([stack(1)]),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    runtime.set_inventory_pointer_gui(Some([80.0, 120.0]));
+    runtime.screen_state_mut().book_open = true;
+    let presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let (mut nodes, mut next, mut layouts) =
+        (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
+    let mut frame = super::super::hud_layout::HudFrame::default();
+    frame.cursor_icon = Some(IconRef {
+        page: 77,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    });
+    let mut layout = HudLayout::new(
+        &mut nodes,
+        &mut next,
+        presentation.hud_textures.as_ref().unwrap(),
+        &mut layouts,
+        &presentation.font,
+        0,
+        HudGeometry::new([1280, 720], 1.0, ui::SafeArea::ZERO, Some(2)).unwrap(),
+    )
+    .unwrap();
+    layout.append(&runtime, &frame, true).unwrap();
+    let cursor = nodes
+        .iter()
+        .position(|node| {
+            matches!(
+                node.visual(),
+                ui::UiVisual::Sprite {
+                    texture_page: 77,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    assert_eq!(
+        cursor,
+        nodes.len() - 1,
+        "the recipe panel painted over the carried item"
+    );
+}
