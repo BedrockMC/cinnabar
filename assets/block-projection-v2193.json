@@ -37,6 +37,6 @@
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "9e2fcd1c173d9888433d6182c0eacebfa066a3e649cb97232052f33ec2f47b10"
+    "sha256": "d803fc25a97a44df01d4c38f537e7e244bf29335b276c74bdab81c446bc6496b"
   }
 }
