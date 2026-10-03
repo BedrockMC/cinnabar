@@ -87,3 +87,52 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
     ));
 }
+
+#[test]
+fn idle_input_relays_pending_animation_end_events() {
+    let anims = std::sync::Arc::new(json_ui::ControlAnims {
+        key: "finished".into(),
+        graph: json_ui::AnimGraph {
+            heads: vec![0],
+            nodes: vec![json_ui::AnimNode {
+                kind: json_ui::AnimKind::Wait,
+                duration: 0.01,
+                easing: json_ui::Easing::Linear,
+                from: [0.0; 4],
+                to: [0.0; 4],
+                from_expr: serde_json::Value::Null,
+                to_expr: serde_json::Value::Null,
+                play_event: None,
+                reset_event: None,
+                end_event: Some("button.menu_exit".into()),
+                destroy_at_end: None,
+                wait_until_rendered: false,
+                resettable: false,
+                scale_from_starting_alpha: false,
+                fps: 1.0,
+                frame_count: 1,
+                reversible: false,
+                vertical: false,
+                looping: false,
+                next: None,
+            }],
+        },
+        rest_alpha: 1.0,
+        rest_offset: [0.0; 2],
+        rect: [0.0, 0.0, 10.0, 10.0],
+        anchor: [0.0; 2],
+        born: None,
+        clock: None,
+        disable_fast_forward: false,
+        reset_name: None,
+        has_sprite: false,
+    });
+    let mut animator = json_ui::Animator::starting_at(0.0);
+    animator.sample(&anims, 0.0, None);
+    animator.sample(&anims, 1.0, None);
+    let mut events = Vec::new();
+    animate(&mut animator, &mut events);
+    assert!(events.iter().any(
+        |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
+    ));
+}
