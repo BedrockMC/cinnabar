@@ -36,6 +36,9 @@ mod runtime_profile;
 mod runtime_profile_trace;
 mod screen_overlay;
 mod screen_overlay_render;
+#[cfg(test)]
+#[path = "../tests/support/shader_source.rs"]
+mod shader_source;
 mod ui;
 mod ui_textures;
 
