@@ -26,6 +26,8 @@ use sim::{
 use ui::UserSettings;
 use world::ChunkKey;
 
+mod cursor_changes;
+
 #[derive(Default)]
 struct CameraCollisionFixture {
     boxes: Vec<Aabb>,

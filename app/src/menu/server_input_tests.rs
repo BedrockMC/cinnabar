@@ -27,6 +27,45 @@ struct Frame(render::UiRenderInput);
 #[derive(Resource, Default)]
 struct FrameTime(u64);
 
+#[test]
+fn idle_menu_does_not_repeat_cursor_os_notifications() {
+    let Some(mut h) = Harness::new(1.0) else {
+        return;
+    };
+    #[derive(Resource, Default)]
+    struct CursorWrites(usize);
+    h.app.init_resource::<CursorWrites>().add_systems(
+        PostUpdate,
+        |cursors: Query<(), Changed<CursorOptions>>, mut writes: ResMut<CursorWrites>| {
+            writes.0 += cursors.iter().count();
+        },
+    );
+    {
+        let mut cursor = h
+            .app
+            .world_mut()
+            .get_mut::<CursorOptions>(h.window)
+            .unwrap();
+        cursor.grab_mode = bevy::window::CursorGrabMode::Locked;
+        cursor.visible = false;
+        cursor.hit_test = false;
+    }
+    h.app.update();
+    assert_eq!(h.app.world().resource::<CursorWrites>().0, 1);
+    for focused in [true, false, true] {
+        h.app
+            .world_mut()
+            .get_mut::<Window>(h.window)
+            .unwrap()
+            .focused = focused;
+        h.app.update();
+        assert_eq!(h.app.world().resource::<CursorWrites>().0, 1);
+        let cursor = h.app.world().get::<CursorOptions>(h.window).unwrap();
+        assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::None);
+        assert!(cursor.visible && !cursor.hit_test);
+    }
+}
+
 /// Publishes through the same presentation builder after the production input system.
 fn publish(
     menu: Res<MenuRuntime>,

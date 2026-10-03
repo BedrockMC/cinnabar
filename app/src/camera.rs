@@ -708,9 +708,12 @@ fn capture_cursor(cursor: &mut CursorOptions) {
     cursor.visible = false;
 }
 
-fn release_cursor(cursor: &mut CursorOptions) {
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+/// Releases capture only when needed, avoiding Bevy's repeated OS grab notifications.
+pub(crate) fn release_cursor(cursor: &mut Mut<CursorOptions>) {
+    if cursor.grab_mode != CursorGrabMode::None || !cursor.visible {
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+    }
 }
 
 fn clear_controller_input(

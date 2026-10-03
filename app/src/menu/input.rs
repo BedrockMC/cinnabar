@@ -13,7 +13,7 @@ use bevy::{
         ButtonInput, Entity, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut,
         Resource, Single, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
+    window::{CursorOptions, PrimaryWindow, Window},
 };
 use ui::{ChatClipboard, ChatEditor, UiPoint};
 
@@ -367,8 +367,7 @@ pub(crate) fn drive_menu_input(
         gui_scale_drag.left_held = false;
         if !menu.is_visible() && menu.settings_options.value("pause_menu_on_focus_lost") != 0 {
             menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
+            crate::camera::release_cursor(&mut cursor);
         }
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
@@ -403,8 +402,7 @@ pub(crate) fn drive_menu_input(
         if keys.just_pressed(KeyCode::Escape) {
             modifiers.capture_pressed(&keys);
             menu.open_pause();
-            cursor.grab_mode = CursorGrabMode::None;
-            cursor.visible = true;
+            crate::camera::release_cursor(&mut cursor);
             keys.reset_all();
         }
         return;
@@ -422,8 +420,7 @@ pub(crate) fn drive_menu_input(
     }
 
     modifiers.capture_pressed(&keys);
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    crate::camera::release_cursor(&mut cursor);
     let pointer = window
         .cursor_position()
         .and_then(|position| UiPoint::new(position.x, position.y).ok());
