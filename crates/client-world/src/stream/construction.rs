@@ -134,6 +134,7 @@ impl WorldStream {
             runtime_assets,
             custom_block_ids: 0..0,
             id_remap: Arc::default(),
+            decode_diagnostics: Arc::default(),
             startup_terrain_announced: true,
             biome_definitions: Arc::from([]),
             resolved_biome_tints,

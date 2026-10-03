@@ -56,6 +56,7 @@ mod commit_budget;
 mod connectivity;
 mod construction;
 mod decode;
+mod decode_diagnostics;
 mod diagnostics;
 mod dirty;
 mod helpers;
@@ -283,6 +284,7 @@ pub struct WorldStream {
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
     id_remap: Arc<assets::SequentialIdRemap>,
+    decode_diagnostics: Arc<decode_diagnostics::DecodeDiagnostics>,
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,
