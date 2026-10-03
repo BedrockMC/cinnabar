@@ -76,3 +76,23 @@ fn a_second_book_commit_keeps_its_editor_until_the_first_commit_drains() {
     assert!(runtime.take_client_packet().is_some());
     assert!(runtime.take_client_packet().is_none());
 }
+
+#[test]
+fn a_retired_session_discards_its_pending_book_and_screen_packets() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.queue_client_packet(
+        protocol::book_edit_packet(0, &BookEdit::DeletePage { page: 1 }).unwrap(),
+    );
+    let mut book = BookState::new(
+        BookSource::Held(0),
+        vec!["old".into()],
+        true,
+        String::new(),
+        String::new(),
+    );
+    book.type_text(" edit");
+    runtime.open_book(book);
+    runtime.finish_book(false);
+    runtime.begin_session(2);
+    assert!(runtime.take_client_packet().is_none());
+}
