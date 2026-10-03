@@ -1065,6 +1065,8 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
 }
 
 /// Layer conflicts must resolve to the same diagnostic/primary/liquid winners.
+/// Diagnostic terrain cubes with non-solid source winners use their own center
+/// light (native terrain 0x069e5200); liquid outward-center sampling is unchanged.
 #[test]
 fn conflicting_layer_mesh_output_is_golden() {
     let mut state = 0x9e37_79b9_7f4a_7c15_u64;
@@ -1106,5 +1108,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 9_655_680_080_735_195_449);
+    assert_eq!(digest, 9_633_046_852_208_710_660);
 }

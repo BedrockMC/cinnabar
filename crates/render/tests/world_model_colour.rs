@@ -61,7 +61,8 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
     let source = format!(
         "{}\n{VERTEX}",
         shader_source::standalone(include_str!("../src/model.wgsl"), &[])
-    );
+    )
+    .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
     let records = gpu.buffer(&[0.0], wgpu::BufferUsages::STORAGE);
     let tints = gpu.buffer(
@@ -74,6 +75,13 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
         ([0.13, 0.15, 0.25], 0.4, false, 0.6),
         ([0.13, 0.15, 0.25], 0.0, true, 0.8),
     ] {
+        // A constant native byte table retains the colour-order witnesses;
+        // terrain_lightmap separately exercises nonlinear coordinate lookup.
+        let light = light.map(|channel| (channel * 255.0_f32).floor() / 255.0);
+        let table = render::LightmapInputs::default()
+            .build()
+            .map(|_| [light[0], light[1], light[2], 1.0]);
+        let lightmap = gpu.buffer(bytemuck::cast_slice(&table), wgpu::BufferUsages::UNIFORM);
         let fog = [0.5, 0.6, 0.7];
         let mut atmosphere = [0.0; 32];
         atmosphere[16..19].copy_from_slice(&fog.map(linear));
@@ -118,6 +126,10 @@ fn snow_and_other_world_models_use_native_terrain_colour_at_day_and_night() {
             wgpu::BindGroupEntry {
                 binding: 19,
                 resource: cases.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 20,
+                resource: lightmap.as_entire_binding(),
             },
         ];
         for fragment in ["fragment", "fragment_blend"] {
@@ -181,7 +193,7 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     out.frame_blend = witness.distance_frames.y * 0.5;
     out.normal = vec3(0.0, 1.0, 0.0);
     out.lighting = witness.light_texture.rgb;
-    out.native_lightmap = witness.light_texture.rgb;
+    out.native_light_levels = vec2(0.0, 15.0);
     out.native_ao_face = witness.distance_frames.z;
     out.world_position = vec3(witness.distance_frames.x, 0.0, 0.0);
     out.two_sided = 1u;

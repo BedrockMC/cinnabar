@@ -498,10 +498,10 @@ fn transparent_model_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
         .find("fn fragment_blend(")
         .expect("transparent model fragment entry point");
     let blend_body = &shader[blend_start..];
-    assert!(blend_body.contains("let lit = lit_colour("));
-    assert!(
-        blend_body.contains("return vec4(apply_distance_fog(lit, in.world_position), colour.a);")
-    );
+    assert!(blend_body.contains("return ordinary_world_model_colour(in, sampled);"));
+    assert!(shader.contains("* terrain_light_colour(in.native_light_levels)"));
+    assert!(shader.contains("mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position))"));
+    assert!(shader.contains("sampled_gamma.a));"));
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader

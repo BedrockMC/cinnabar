@@ -22,8 +22,31 @@ fn light_colour(sample: u32) -> vec3<f32> {
 
 // Current classic builder 07080cd0 stores Color::toABGR (02965e80), which
 // truncates RGB to bytes before LightTexture::getColorForUV reads them.
-fn actor_light_texel(sample: u32) -> vec3<f32> {
+fn native_light_texel(sample: u32) -> vec3<f32> {
     return floor(clamp(light_colour(sample), vec3(0.0), vec3(1.0)) * 255.0) / 255.0;
+}
+
+// Current terrain emitters pack two four-bit levels. Installed near-version
+// 1.26.51.01 RenderChunk Metal divides each by15 in the vertex shader, then
+// samples the clamp-linear16x16 byte texture in the fragment shader. Unlike
+// actors' /16 lookup, interpolate levels before this nonlinear table lookup.
+const TERRAIN_LIGHTMAP_SIDE: u32 = 1u << 4u;
+
+fn terrain_light_levels(sample: u32) -> vec2<f32> {
+    return vec2(f32(sample & 15u), f32((sample >> 4u) & 15u));
+}
+
+fn terrain_light_colour(levels: vec2<f32>) -> vec3<f32> {
+    let last = TERRAIN_LIGHTMAP_SIDE - 1u;
+    let coordinate = clamp(levels * (f32(TERRAIN_LIGHTMAP_SIDE) / f32(last)) - vec2(0.5), vec2(0.0), vec2(f32(last)));
+    let lower = vec2<u32>(floor(coordinate));
+    let upper = min(lower + vec2(1u), vec2(last));
+    let fraction = coordinate - vec2<f32>(lower);
+    return mix(
+        mix(native_light_texel(lower.x | (lower.y << 4u)), native_light_texel(upper.x | (lower.y << 4u)), fraction.x),
+        mix(native_light_texel(lower.x | (upper.y << 4u)), native_light_texel(upper.x | (upper.y << 4u)), fraction.x),
+        fraction.y,
+    );
 }
 
 // Actor constants 0213d220 use (sky, block)/16, without a half-texel bias.
@@ -35,8 +58,8 @@ fn actor_light_colour(sample: u32) -> vec3<f32> {
     let previous_block = max(block, 1u) - 1u;
     let previous_sky = max(sky, 1u) - 1u;
     return mix(
-        mix(actor_light_texel(previous_block | (previous_sky << 4u)), actor_light_texel(block | (previous_sky << 4u)), 0.5),
-        mix(actor_light_texel(previous_block | (sky << 4u)), actor_light_texel(block | (sky << 4u)), 0.5),
+        mix(native_light_texel(previous_block | (previous_sky << 4u)), native_light_texel(block | (previous_sky << 4u)), 0.5),
+        mix(native_light_texel(previous_block | (sky << 4u)), native_light_texel(block | (sky << 4u)), 0.5),
         0.5,
     );
 }

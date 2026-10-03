@@ -647,7 +647,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     for quad in transparent_quads {
         let index = lighting.len() as u32;
         let block = quad.origin().map(i32::from);
-        lighting.push(crate::lighting::bake_quad(
+        lighting.push(crate::lighting::bake_liquid_quad(
             lighting_inputs,
             block,
             quad.face(),

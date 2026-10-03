@@ -400,7 +400,12 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("sampled.a < 0.5"));
     assert_eq!(shader.matches("discard").count(), 2);
     assert!(shader.contains("material_flags & 0x30u"));
-    assert!(shader.contains("material_flags & (1u << 6u)"));
+    assert!(shader.contains("fn material_uses_overlay_mask(flags: u32)"));
+    assert!(shader.contains("return (flags & OVERLAY_MASK) != 0u;"));
+    assert!(shader.contains(&format!(
+        "const OVERLAY_MASK: u32 = {}u;",
+        assets::MATERIAL_FLAG_OVERLAY_MASK
+    )));
     assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
     assert!(shader.contains("in.biome_record,"));
     assert!(shader.contains("if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {"));
@@ -432,18 +437,16 @@ fn packed_chunk_shader_parses_and_validates() {
 }
 
 #[test]
-fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
+fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../src/lighting.wgsl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
-    for shader in [
-        include_str!("../../src/chunk.wgsl"),
-        include_str!("../../src/model.wgsl"),
-        include_str!("../../src/liquid.wgsl"),
+    for (shader, terrain_lookup) in [
+        (include_str!("../../src/chunk.wgsl"), true),
+        (include_str!("../../src/model.wgsl"), true),
+        (include_str!("../../src/liquid.wgsl"), false),
     ] {
-        assert!(shader.contains(
-            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}"
-        ));
+        assert!(shader.contains("#import cinnabar::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
         assert!(!shader.contains("fn lit_colour("));
         assert!(shader.contains("lighting: vec3<f32>"));
@@ -480,11 +483,22 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
             naga::ShaderStage::Vertex,
             "light_colour"
         ));
-        assert!(!entry_points_call_function(
-            &module,
-            naga::ShaderStage::Fragment,
-            "light_colour"
-        ));
+        assert_eq!(
+            entry_points_call_function(&module, naga::ShaderStage::Fragment, "light_colour"),
+            terrain_lookup
+        );
+        assert_eq!(
+            entry_points_call_function(
+                &module,
+                naga::ShaderStage::Fragment,
+                "terrain_light_colour"
+            ),
+            terrain_lookup
+        );
+        assert_eq!(
+            entry_points_call_function(&module, naga::ShaderStage::Vertex, "terrain_light_levels"),
+            terrain_lookup
+        );
     }
 }
 

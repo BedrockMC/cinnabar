@@ -1,5 +1,11 @@
 use std::{fs, path::PathBuf};
 
+#[path = "../src/material_shader.rs"]
+#[allow(dead_code, reason = "shared production shader substitutions")]
+mod material_shader;
+#[path = "support/shader_source.rs"]
+mod shader_source;
+
 /// Loads the same generated biome module used by the renderer.
 fn shader(name: &str) -> String {
     let source = fs::read_to_string(
@@ -52,11 +58,7 @@ fn seasonal_shader_uses_bounded_species_cells_and_direct_biome_lookup() {
             assets::seasonal_foliage_palette_index(flags, false),
         )));
     }
-    let standalone = source
-        .lines()
-        .filter(|line| !line.starts_with('#'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let standalone = shader_source::standalone(&source, &[]);
     let module = naga::front::wgsl::parse_str(&standalone).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -104,11 +106,7 @@ fn model_tints_use_the_block_position_for_every_vertex() {
 #[test]
 fn gpu_lattice_count_is_bounded_by_the_cpu_format_even_for_corrupt_words() {
     let source = shader("biome_tint.wgsl");
-    let standalone = source
-        .lines()
-        .filter(|line| !line.starts_with('#'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let standalone = shader_source::standalone(&source, &[]);
     let module = naga::front::wgsl::parse_str(&standalone).unwrap();
     let (_, count) = module
         .functions

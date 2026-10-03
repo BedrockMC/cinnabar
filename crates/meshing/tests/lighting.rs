@@ -19,6 +19,7 @@ const MODEL: u32 = 2;
 const LIQUID: u32 = 3;
 const LEAF: u32 = 4;
 const EMITTING: u32 = 5;
+const FULL_HEIGHT_SNOW: u32 = 6;
 const TEST_HASH_BASE: u32 = 0x10000;
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
@@ -162,6 +163,9 @@ fn runtime_assets_with_model_geometry(
     let mut emitting = leaf;
     emitting.flags = BlockFlags::CUBE_GEOMETRY;
     visuals.push(emitting);
+    let mut full_height_snow = visuals[SOLID as usize];
+    full_height_snow.variant = assets::BLOCK_VISUAL_VARIANT_TOP_SNOW;
+    visuals.push(full_height_snow);
     let mut light_properties = vec![assets::LightProperties::default(); visuals.len()];
     light_properties[EMITTING as usize] = assets::LightProperties::new(9, 0).unwrap();
     let hashed = (0..visuals.len() as u32)
@@ -196,11 +200,12 @@ fn runtime_assets_with_model_geometry(
 }
 
 include!("lighting/leaf_shade.rs");
+include!("lighting/snow_solid_render.rs");
 
 fn fixture() -> (RuntimeAssets, SubChunk) {
     // At the high corner of block 8,8,8, the up face sees both planar sides,
     // while the east face sees only their shared +X/+Y side.
-    (runtime_assets(), blocks(&[[9, 9, 8], [8, 9, 9]]))
+    (runtime_assets(), blocks(&[[8, 8, 8], [9, 9, 8], [8, 9, 9]]))
 }
 
 #[test]
