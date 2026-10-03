@@ -10,7 +10,9 @@ use common::{
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use experience_runtime::load::{engine, load};
-use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM, read_manifest};
+use experience_runtime::manifest::{
+    ASSETS_DIR, CLIENT_TABLE, MANIFEST_FILE, SERVER_WASM, read_manifest,
+};
 use experience_runtime::protocol::{BlockDef, Mining, Outcome, Scalar, Texture};
 use tempfile::TempDir;
 
@@ -159,6 +161,27 @@ fn wrong_api_is_refused() {
     });
     let error = refusal(dir.path());
     assert!(error.contains("unsupported api \"0.0\""), "{error}");
+}
+
+/// The probe's manifest declares a client part, which the runtime ignores whatever it holds; an
+/// unknown key outside it is still refused.
+#[test]
+fn only_the_client_table_is_ignored() {
+    let anything = probe_dir_with(|dir| {
+        edit_manifest(dir, |manifest| {
+            let client = manifest[CLIENT_TABLE].as_table_mut().unwrap();
+            client.insert("anything".to_owned(), 1.into());
+        });
+    });
+    read_manifest(anything.path()).unwrap();
+
+    let unknown = probe_dir_with(|dir| {
+        edit_manifest(dir, |manifest| {
+            manifest.insert("clients".to_owned(), toml::Table::new().into());
+        });
+    });
+    let error = refusal(unknown.path());
+    assert!(error.contains("clients"), "{error}");
 }
 
 /// The limit is inclusive: a manifest padded to exactly `MAX_MANIFEST_BYTES` is read, and one

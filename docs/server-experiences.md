@@ -237,13 +237,15 @@ not make an unimplemented presentation adapter available.
 
 `cinnabar-cxb` (`tools/cxb`) is the publisher tool. `keygen <file>` writes a new raw
 32-byte Ed25519 seed as one line of lowercase hex and never replaces a file.
-`build --manifest <toml|json> --component <wasm> --publisher-seed <file> --out
-<x.cxb>` reads `id`, `package_version`, `permissions`, `channels`, `actions`,
-`templates` and `textures` from the manifest source; each template and texture is
-read beside the source file at its bundle path. It componentizes a core module as
-`mod-host pack` does, stores
-it as `component.wasm`, signs the manifest and checks the archive with this
-crate's verifier before writing it. It prints the bundle's `sha256` and `bytes`.
+`build --experience <experience.toml> --component <wasm> --publisher-seed <file> --out
+<x.cxb>` reads the Experience's `experience.toml`
+([experience-runtime.md](experience-runtime.md#artifact)): its `id`, its `version` as
+`package_version`, and from its `[client]` table `permissions`, `channels`, `actions`,
+`templates` and `textures`. Any other key of `[client]` is refused, and a file without the table
+declares no client part; the server keys and `[files]` are the runtime's. Each template and
+texture is read beside `experience.toml` at its bundle path. It componentizes a core module as
+`mod-host pack` does, stores it as `component.wasm`, signs the manifest and checks the archive
+with this crate's verifier before writing it. It prints the bundle's `sha256` and `bytes`.
 Entries are stored with a fixed timestamp, so equal inputs give an equal digest.
 
 The cache is under the install layout's per-user
@@ -347,9 +349,11 @@ pending until all bundles finish initialization.
 ## Host capabilities and containment
 
 The component world is `server-bundle` in
-[`extension.wit`](../crates/mod-api/wit/extension.wit). Its imported interfaces use
+[`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
+`cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
+guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
 `cinnabar:server-experience@1.1.0`, defined in
-[`capabilities.wit`](../crates/mod-api/wit/deps/server-experience/capabilities.wit).
+[`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
 collection-index)` and `epoch()`. A component built against 1.0.0 still links (its
 1.0.0 imports resolve to the 1.1.0 host by semver) and exports only `init` and

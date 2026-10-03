@@ -1,6 +1,6 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
-//! The current WIT is `crates/experience-sdk/wit/server.wit`; [`v0_1`] and [`v0_2`] keep the
-//! worlds that older artifacts target.
+//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`] and [`v0_2`] keep
+//! the worlds that older artifacts target.
 
 use std::fmt;
 use std::time::Duration;
@@ -19,7 +19,7 @@ pub(crate) mod v0_1;
 pub(crate) mod v0_2;
 
 wasmtime::component::bindgen!({
-    path: "../experience-sdk/wit",
+    path: "../experience-sdk/wit/server",
     world: "server",
     imports: { default: trappable },
     with: { "cinnabar:experience-server/world-access/callback": crate::callback::CallbackRes },
@@ -32,7 +32,7 @@ use crate::callback::CallbackRes;
 
 /// The WIT that `bindgen!` reads; its `package` line is the one source of the world's name and
 /// version.
-const WIT: &str = include_str!("../../experience-sdk/wit/server.wit");
+const WIT: &str = include_str!("../../experience-sdk/wit/server/server.wit");
 
 /// A server WIT version that the runtime implements; an artifact's manifest `api` selects it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

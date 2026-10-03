@@ -71,7 +71,9 @@ also accept this component. The dedicated offline cycle/no-packets test is
 
 ## Contract and implementation
 
-`crates/mod-api/wit/extension.wit` is the single interface definition. The guest
+`crates/mod-api/wit/extension.wit` is the single interface definition of player mods. (A
+server Experience's client part is another world, `server-bundle`, which `experience-sdk`'s
+`client` feature builds; see [server-experiences.md](server-experiences.md).) The guest
 SDK uses `wit-bindgen`; the host independently generates Wasmtime bindings from
 that same file. Copy `examples/mods/hello` to start a mod, adjust its dependency
 path, and implement its generated `Guest` trait. `pack` converts the core WASM

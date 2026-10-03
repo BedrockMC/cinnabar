@@ -13,7 +13,9 @@ use wasmtime::{
 };
 
 wasmtime::component::bindgen!({
-    path: "../mod-api/wit", world: "server-bundle", imports: { default: trappable },
+    path: "../experience-sdk/wit/client",
+    world: "server-bundle",
+    imports: { default: trappable },
 });
 
 struct State {

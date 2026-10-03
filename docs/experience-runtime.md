@@ -48,13 +48,27 @@ shutdown frame may show up in the shutdown error or as a fault in the log.
 
 ## Artifact
 
-An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/`:
+An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/`. One
+`experience.toml` declares both halves of the Experience:
 
 ```toml
 id = "benergistics"   # owns the block namespace "benergistics:"
-version = "0.1.0"
+version = "0.1.0"     # of both halves; the client part's package_version
 api = "0.3"           # server WIT major.minor
 data-schema = 1       # block-data schema
+
+[client]              # the client part; the runtime ignores this table
+permissions = ["ui", "messaging"]
+actions = []          # declared action ids
+templates = []        # ui/<name>.json files, read beside experience.toml
+textures = []         # files under textures/, read beside experience.toml
+
+[[client.channels]]
+id = "benergistics.controller"
+schema = 1
+direction = "to_client"
+fields = [{ type = "integer", min = 0, max = 4294967295 }]
+
 [files]               # every other file, '/'-separated, with its lowercase hex SHA-256
 "server.wasm" = "…"
 "assets/controller.png" = "…"
@@ -67,23 +81,60 @@ no absolute paths, `..`, backslashes or symlinks). The hashes give integrity, no
 trust. The id `minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter
 refuses an Experience with that id at registration, before anything is registered.
 
+The runtime ignores `[client]`, whatever it holds, and refuses any other unknown key. The server
+half of client parts routes messages by the client part's signed manifest, never by this file,
+and `cinnabar-cxb build --experience` checks the table with the client's own verifier when it
+signs it into the `.cxb` ([Client parts](#client-parts)). The Go adapter only looks for the file
+and never parses it. A channel declaration uses the signed manifest's own spelling
+(`to_client`, `max_bytes`, `max_items`; see
+[server-experiences.md](server-experiences.md#typed-runtime-messaging-and-publication)).
+
 `server.wasm` is the core module that cargo emits for `wasm32-unknown-unknown` with the WIT
 embedded by `experience-sdk`. The runtime componentizes it with `wit_component::ComponentEncoder`
 (the route `mod-host` uses) and instantiates it against the exact `server` world of its manifest's
 `api`. A client component, a WASI import, another `api`'s world or any unknown import fails the
 load; serialized native Wasmtime artifacts are never accepted.
 
+### The author SDK
+
+`crates/experience-sdk` is one SDK for both halves, each its own component:
+
+| Feature | Module | Builds |
+|---|---|---|
+| `server` | `experience_sdk::server` | the server half: implement `Experience`, export it with `export_experience!`; WIT in `wit/server/` |
+| `client` | `experience_sdk::client` | the client part: implement `ClientPart`, export it with `export_client_part!`, send with `client::send`; WIT in `wit/client/` |
+| `declarations` | `experience_sdk::declarations` | for a build script: `generate("<path>/experience.toml")` |
+
+Both halves share `Value`, one value of a channel record, and the channel declaration types
+`Channel`, `Direction` and `Field`. The server half passes records as `server::nodes` and
+`server::values`; the client part receives and sends them as `Value`s, which the SDK carries in
+the wire's JSON form. Every feature is on by default, so the SDK's own tests and docs cover all
+of it; a crate that uses the SDK sets `default-features = false` and names what it uses.
+
+A guest takes its channels, actions and templates from `experience.toml`, so neither half
+restates one: its build script, with the SDK as a build dependency with `declarations`, calls
+`experience_sdk::declarations::generate`, and `mod experience { experience_sdk::include_declarations!(); }`
+brings in `channels` (a `Channel` constant per `[[client.channels]]`, named after its id without
+the `<id>.` prefix in upper snake case), `actions` and `templates` (`&str` constants). Two
+declarations with one name, a channel outside the namespace and a template that is not
+`ui/<name>.json` fail the build.
+
 ### Building and packaging
 
-1. Write a `cdylib` crate that depends on `crates/experience-sdk`, implements `Experience` and
-   exports it with `export_experience!`. `examples/experiences/probe` is a complete example.
-2. `cargo build -p <crate> --target wasm32-unknown-unknown --release --locked`.
-3. Copy the module to `server.wasm` and the textures under `assets/`.
-4. Write `experience.toml` with `[files]` listing the SHA-256 of every other file.
+1. Write `experience.toml` without `[files]`.
+2. Write the server half: a `cdylib` crate that depends on `crates/experience-sdk` with the
+   `server` feature and takes `experience.toml`'s declarations. `examples/experiences/probe` is a
+   complete example.
+3. Write the client part, if there is one: a `cdylib` crate with the `client` feature.
+4. `cargo build -p <crate> --target wasm32-unknown-unknown --release --locked` for each.
+5. Copy the server module to `server.wasm` and the textures under `assets/`, and write
+   `experience.toml` with `[files]` appended, listing the SHA-256 of every other file.
+6. `cinnabar-cxb build --experience experience.toml --component <client part .wasm>
+   --publisher-seed <seed file> --out <id>.cxb` signs the client part.
 
 The Applied Benergistics repository's `scripts/package.ps1` (and `scripts/package.sh`) does all of
-this for its `benergistics` crate, taking the version from the crate's `Cargo.toml`, and verifies
-the result; `-VerifyOnly` checks an existing package.
+this from its root `experience.toml`, and verifies the result; `-VerifyOnly` checks an existing
+package.
 
 The runtime verifies every `[files]` hash when it loads the artifact. The adapter reads the
 texture files afterwards, when it registers the blocks, so an operator who edits an artifact while
@@ -92,7 +143,7 @@ startup.
 
 ## WIT and semantics
 
-The contract is `crates/experience-sdk/wit/server.wit`, package
+The contract is `crates/experience-sdk/wit/server/server.wit`, package
 `cinnabar:experience-server@0.3.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks, the callbacks `on-place`, `on-break`, `on-interact` and
 `on-neighbor-changed`, `client-message` and `epoch`. Every world method goes through the borrowed
@@ -158,8 +209,9 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
   malformed input is a header that counts more items than follow it, and unlike JSON text the
   leaves stay typed and neither side runs a parser. Lists and records nest at most
   `MAX_VALUE_DEPTH` deep, a top-level one being level 1, which is the wire's `MAX_FIELD_DEPTH`;
-  a deeper payload is `too-large`. A malformed payload traps. The SDK's `Value`, `nodes` and
-  `values` build and read payloads, and `Experience::client_message` receives `Value`s.
+  a deeper payload is `too-large`. A malformed payload traps. The SDK's `Value`, `server::nodes`
+  and `server::values` build and read payloads, and `Experience::client_message` receives
+  `Value`s.
 - **`client-message`.** A typed record that a player's client part sent arrives through the same
   queue as the block callbacks, with that player as the actor, its lists and records as pre-order
   nodes like a send's. Its `callback` has no snapshot, so every block read and write is refused;
@@ -182,8 +234,9 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 ## Client parts
 
 The server half of client parts (`tools/localserver/extension`) offers each Experience's client
-part, a `.cxb` that `cinnabar-cxb build` makes, over PR #34's unchanged handshake and typed
-channels ([server-experiences.md](server-experiences.md)).
+part, a `.cxb` that `cinnabar-cxb build --experience` makes from the Experience's
+`experience.toml`, over PR #34's unchanged handshake and typed channels
+([server-experiences.md](server-experiences.md)).
 
 ```text
 bedrock-local-server … -extension-key <seed file> -extension-audience <host:port> -extension-cxb <dir>
@@ -333,10 +386,10 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.3; 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server.wit`; 0.2 and 0.1 in `crates/experience-runtime/wit/<version>/server.wit` |
+| Server WIT | 0.3; 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; 0.2 and 0.1 in `crates/experience-runtime/wit/<version>/server.wit` |
 | IPC protocol | 3 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
-| Server manifest | `api`, `data-schema` | `crates/experience-runtime/src/manifest.rs` |
-| Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/mod-api/wit/deps/server-experience/capabilities.wit`, world in `crates/mod-api/wit/extension.wit` |
+| Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
+| Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
 | Bedrock target | | `assets/bedrock-target.json` |
 

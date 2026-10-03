@@ -1,0 +1,21 @@
+// The package keeps the name and version this world had in `crates/mod-api`, so a client part
+// rebuilt against it embeds the same world.
+package cinnabar:extension@0.1.0;
+
+/// Server-scoped component; optional grants return denial through these imports. A component
+/// built against 1.0.0 (imports at 1.0.0, exporting only `init` and `dispatch`) still runs.
+world server-bundle {
+    import cinnabar:server-experience/ui@1.1.0;
+    import cinnabar:server-experience/input@1.1.0;
+    import cinnabar:server-experience/messaging@1.1.0;
+    import cinnabar:server-experience/scene@1.1.0;
+    import cinnabar:server-experience/media@1.1.0;
+    export init: func();
+    /// A typed message or host-owned input edge; no raw packet or keyboard data.
+    export dispatch: func(channel: string, record-json: list<u8>);
+    /// A declared action fired from a modal screen control while the modal has focus; the
+    /// index is the control's row in its nearest collection.
+    export action: func(id: string, collection-index: option<u32>);
+    /// The world epoch changed (a dimension change); the runtime and its state live on.
+    export epoch: func();
+}

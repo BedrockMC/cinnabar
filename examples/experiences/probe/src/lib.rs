@@ -4,20 +4,25 @@
 //! kebab-case names. `client-message` tries a block read and write, which its
 //! callback refuses, echoes the message back to the sender's client part and
 //! tells what happened. `epoch` tries the same read and write, resends a short
-//! item list and tells what happened.
+//! item list and tells what happened. Its channels come from its
+//! `experience.toml`.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use experience_sdk::{
+use experience_sdk::Value;
+use experience_sdk::server::{
     BlockChange, BlockDef, BlockPos, Callback, Experience, Face, GuestError, LogLevel, Mining,
-    PlayerId, TextureBinding, Value, WorldError, log, nodes,
+    PlayerId, TextureBinding, WorldError, log, nodes,
 };
 
+/// The declarations of `experience.toml`, which `build.rs` writes.
+mod experience {
+    experience_sdk::include_declarations!();
+}
+
+use experience::channels;
+
 const COUNTER: &str = "probe:counter";
-/// The client channel that x=19 sends the counter on.
-const COUNTER_CHANNEL: &str = "probe.counter";
-/// The client channel that x=22 and `epoch` send the item list on.
-const ITEMS_CHANNEL: &str = "probe.items";
 const AIR: &str = "minecraft:air";
 const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 const MIB: usize = 1 << 20;
@@ -93,7 +98,8 @@ impl Experience for Probe {
 
     fn epoch(ctx: &Callback, player: PlayerId) -> Result<(), GuestError> {
         let (read, write) = world_access(ctx);
-        let send = outcome(ctx.send_client(&player, ITEMS_CHANNEL, 1, &nodes(items(2))));
+        let channel = channels::ITEMS;
+        let send = outcome(ctx.send_client(&player, channel.id, channel.schema, &nodes(items(2))));
         let _ = ctx.tell(
             &player,
             &format!("epoch read {read} write {write} send {send}"),
@@ -115,7 +121,9 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         1 => {
             let _ = ctx.set_block_data(p, Some(&[1]));
             tell("staged");
-            let _ = ctx.send_client(player, COUNTER_CHANNEL, 1, &nodes(vec![Value::Integer(1)]));
+            let channel = channels::COUNTER;
+            let record = nodes(vec![Value::Integer(1)]);
+            let _ = ctx.send_client(player, channel.id, channel.schema, &record);
             // Lowers to the Wasm `unreachable` instruction.
             std::process::abort();
         }
@@ -184,30 +192,32 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         18 => return Err(GuestError::Rejected("€".repeat(2 * MIB / 3))),
         19 => match next_count(ctx, p) {
             Ok(n) => {
-                let value = Value::Integer(n.into());
-                let sent =
-                    outcome(ctx.send_client(player, COUNTER_CHANNEL, 1, &nodes(vec![value])));
+                let channel = channels::COUNTER;
+                let record = nodes(vec![Value::Integer(n.into())]);
+                let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
                 tell(&format!("count {n} {sent}"));
             }
             Err(error) => tell(&format!("error {}", error.name())),
         },
         20 => tell(outcome(ctx.send_client(
             NIL_PLAYER,
-            COUNTER_CHANNEL,
-            1,
+            channels::COUNTER.id,
+            channels::COUNTER.schema,
             &[],
         ))),
         21 => {
             let text = Value::Text("x".repeat(MIB));
             tell(outcome(ctx.send_client(
                 player,
-                COUNTER_CHANNEL,
-                1,
+                channels::COUNTER.id,
+                channels::COUNTER.schema,
                 &nodes(vec![text]),
             )));
         }
         22 => {
-            let sent = outcome(ctx.send_client(player, ITEMS_CHANNEL, 1, &nodes(items(400))));
+            let channel = channels::ITEMS;
+            let record = nodes(items(400));
+            let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
             tell(&format!("items {sent}"));
         }
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),

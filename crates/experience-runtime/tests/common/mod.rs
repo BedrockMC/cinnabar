@@ -27,7 +27,7 @@ pub const AIR: &str = "minecraft:air";
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// The WIT that guests are built against.
-const SERVER_WIT: &str = include_str!("../../../experience-sdk/wit/server.wit");
+const SERVER_WIT: &str = include_str!("../../../experience-sdk/wit/server/server.wit");
 /// The server WIT 0.1, which the runtime still accepts.
 const SERVER_WIT_0_1: &str = include_str!("../../wit/0.1/server.wit");
 /// The server WIT 0.2, which the runtime still accepts.

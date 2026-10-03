@@ -25,39 +25,73 @@ pub const COMPONENT_PATH: &str = "component.wasm";
 
 /// The publisher-written part of a manifest. Versions, the publisher key and the file index are
 /// derived, so they cannot disagree with the bundle.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct Source {
     pub id: String,
     pub package_version: String,
-    #[serde(default)]
     pub permissions: BTreeSet<Permission>,
-    #[serde(default)]
     pub channels: Vec<Channel>,
-    #[serde(default)]
     pub actions: BTreeSet<String>,
     /// JSON-UI files (`ui/<name>.json`) the modal may open, by bundle path.
-    #[serde(default)]
     pub templates: BTreeSet<String>,
     /// Images and sidecars under `textures/` the screens draw, by bundle path.
-    #[serde(default)]
     pub textures: BTreeSet<String>,
-    /// Each template's and texture's bytes, read beside the manifest source at its bundle path.
-    #[serde(skip)]
+    /// Each template's and texture's bytes, read beside `experience.toml` at its bundle path.
     pub files: BTreeMap<String, Vec<u8>>,
 }
 
+/// What a bundle takes from `experience.toml`: the Experience's id, its version as the package
+/// version, and the `[client]` table. The other keys and tables are the server artifact's.
+#[derive(Deserialize)]
+struct Experience {
+    id: String,
+    version: String,
+    client: Option<Client>,
+}
+
+/// `experience.toml`'s `[client]` table, the client part that the bundle signs.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Client {
+    #[serde(default)]
+    permissions: BTreeSet<Permission>,
+    #[serde(default)]
+    channels: Vec<Channel>,
+    #[serde(default)]
+    actions: BTreeSet<String>,
+    #[serde(default)]
+    templates: BTreeSet<String>,
+    #[serde(default)]
+    textures: BTreeSet<String>,
+}
+
 impl Source {
-    /// Reads TOML or JSON, chosen by the file extension, and the screen files it lists.
+    /// Reads the client part that the `experience.toml` at `path` declares, and the screen files
+    /// it lists.
     pub fn read(path: &Path) -> Result<Self> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let parsed = match path.extension().and_then(|extension| extension.to_str()) {
-            Some("toml") => toml::from_str(&text).map_err(anyhow::Error::from),
-            Some("json") => serde_json::from_str(&text).map_err(anyhow::Error::from),
-            _ => bail!("{}: expected a .toml or .json manifest", path.display()),
+        let Experience {
+            id,
+            version,
+            client,
+        } = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let client = client.with_context(|| {
+            format!(
+                "{}: no [client] table declares a client part",
+                path.display()
+            )
+        })?;
+        let mut source = Self {
+            id,
+            package_version: version,
+            permissions: client.permissions,
+            channels: client.channels,
+            actions: client.actions,
+            templates: client.templates,
+            textures: client.textures,
+            files: BTreeMap::new(),
         };
-        let mut source: Self = parsed.with_context(|| format!("parsing {}", path.display()))?;
         let root = path.parent().unwrap_or(Path::new("."));
         for file in source.templates.iter().chain(&source.textures) {
             let bytes = std::fs::read(root.join(file))

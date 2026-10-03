@@ -96,7 +96,8 @@ fn staged_output_at_the_transaction_boundary_round_trips_through_ipc() {
 
 /// The 1.1 test guest, its imports named from the WIT package the host binds.
 fn guest_1_1(template: &str) -> String {
-    let source = include_str!("../../../mod-api/wit/deps/server-experience/capabilities.wit");
+    let source =
+        include_str!("../../../experience-sdk/wit/client/deps/server-experience/capabilities.wit");
     let package = source
         .lines()
         .next()

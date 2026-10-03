@@ -5,7 +5,7 @@ use cinnabar_cxb::{bundle, fixtures, keys, seed_cache};
 use server_experience::crypto;
 
 const USAGE: &str = "usage: cinnabar-cxb keygen <seed-file>
-       cinnabar-cxb build --manifest <toml|json> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb>
+       cinnabar-cxb build --experience <experience.toml> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb>
        cinnabar-cxb seed-cache --cxb <bundle.cxb> --user-data <dir>
        cinnabar-cxb write-fixtures <dir>";
 
@@ -15,11 +15,11 @@ fn main() -> Result<()> {
     match args.as_slice() {
         ["keygen", path] => println!("public_key={}", keys::generate(Path::new(path))?),
         ["build", flags @ ..] => {
-            let [manifest, component, seed, out] = options(
+            let [experience, component, seed, out] = options(
                 flags,
-                ["--manifest", "--component", "--publisher-seed", "--out"],
+                ["--experience", "--component", "--publisher-seed", "--out"],
             )?;
-            let source = bundle::Source::read(Path::new(manifest))?;
+            let source = bundle::Source::read(Path::new(experience))?;
             let wasm = std::fs::read(component).with_context(|| format!("reading {component}"))?;
             let built = bundle::build(source, &wasm, &keys::read(Path::new(seed))?)?;
             std::fs::write(out, &built.bytes).with_context(|| format!("writing {out}"))?;
