@@ -285,6 +285,9 @@ pub struct WorldStream {
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
     id_remap: Arc<assets::SequentialIdRemap>,
+    /// Whether the server sent terrain before spawn; when it did not, startup
+    /// has no view to wait for until the server publishes one.
+    startup_terrain_announced: bool,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
     biome_tint_stream_id: u64,

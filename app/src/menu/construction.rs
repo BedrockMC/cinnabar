@@ -1,5 +1,6 @@
 //! Launcher state construction and persisted settings startup.
 
+use super::input::field_editor;
 use super::*;
 
 impl MenuRuntime {
@@ -57,15 +58,15 @@ impl MenuRuntime {
             server_tab: MenuServerTab::Featured,
             dialog: None,
             field: None,
-            text_selected: false,
+            caret_revision: 0,
             history: {
                 let mut history = json_ui::ScreenNav::default();
                 history.reset(MenuScreen::Home);
                 history
             },
-            name: String::new(),
-            address: String::new(),
-            port: String::new(),
+            name: field_editor(MenuField::Name),
+            address: field_editor(MenuField::Address),
+            port: field_editor(MenuField::Port),
             message,
             gui_scale_preference: gui_scale
                 .filter(|scale| *scale > 0)

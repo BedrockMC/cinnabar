@@ -973,6 +973,6 @@ mod gameplay_hud_tests;
 mod inventory_overlay_tests;
 mod inventory_transaction_tests;
 mod leniency_tests;
-mod menu_input_tests;
+pub(crate) mod menu_input_tests;
 mod mining_mode_tests;
 mod retained_bounds_tests;

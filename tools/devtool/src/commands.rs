@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::Selection;
+use crate::{Package, Selection};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestRunner {
@@ -33,8 +33,25 @@ impl fmt::Display for CommandSpec {
     }
 }
 
+/// Builds verification commands while respecting each package's Cargo doctest setting.
 #[must_use]
-pub fn verification_commands(selection: &Selection, runner: TestRunner) -> Vec<CommandSpec> {
+pub fn verification_commands(
+    selection: &Selection,
+    runner: TestRunner,
+    packages: &[Package],
+) -> Vec<CommandSpec> {
+    let doctest_filters: Vec<String> = packages
+        .iter()
+        .filter(|package| {
+            package.doctest
+                && match selection {
+                    Selection::Workspace => true,
+                    Selection::Packages(names) => names.contains(&package.name),
+                    Selection::NoPackages => false,
+                }
+        })
+        .flat_map(|package| ["-p".into(), package.name.clone()])
+        .collect();
     let mut commands = vec![
         CommandSpec::cargo(&["fmt", "--all", "--", "--check"]),
         CommandSpec::cargo(&[
@@ -54,7 +71,7 @@ pub fn verification_commands(selection: &Selection, runner: TestRunner) -> Vec<C
         Selection::NoPackages => {}
         Selection::Workspace => {
             commands.push(CommandSpec::cargo(&["check", "--workspace", "--locked"]));
-            append_tests(&mut commands, runner, &[], true);
+            append_tests(&mut commands, runner, &[], true, &doctest_filters);
             commands.push(CommandSpec::cargo(&[
                 "clippy",
                 "--workspace",
@@ -84,7 +101,7 @@ pub fn verification_commands(selection: &Selection, runner: TestRunner) -> Vec<C
                 program: "cargo".into(),
                 args: check,
             });
-            append_tests(&mut commands, runner, &filters, false);
+            append_tests(&mut commands, runner, &filters, false, &doctest_filters);
             commands.push(CommandSpec {
                 program: "cargo".into(),
                 args: clippy,
@@ -94,11 +111,13 @@ pub fn verification_commands(selection: &Selection, runner: TestRunner) -> Vec<C
     commands
 }
 
+/// Adds the selected test runner and only the doctests enabled by package metadata.
 fn append_tests(
     commands: &mut Vec<CommandSpec>,
     runner: TestRunner,
     filters: &[String],
     workspace: bool,
+    doctest_filters: &[String],
 ) {
     match runner {
         TestRunner::Cargo => {
@@ -124,12 +143,11 @@ fn append_tests(
                 program: "cargo".into(),
                 args,
             });
-            let mut args = vec!["test".into(), "--doc".into()];
-            if workspace {
-                args.push("--workspace".into());
+            if doctest_filters.is_empty() {
+                return;
             }
-            args.push("--locked".into());
-            args.extend_from_slice(filters);
+            let mut args = vec!["test".into(), "--doc".into(), "--locked".into()];
+            args.extend_from_slice(doctest_filters);
             commands.push(CommandSpec {
                 program: "cargo".into(),
                 args,
@@ -148,6 +166,7 @@ mod tests {
         let commands = verification_commands(
             &Selection::Packages(vec!["assets".into(), "render".into()]),
             TestRunner::Cargo,
+            &[],
         );
         assert_eq!(commands[0].to_string(), "cargo fmt --all -- --check");
         assert_eq!(
@@ -170,7 +189,7 @@ mod tests {
 
     #[test]
     fn workspace_selection_uses_full_workspace_commands() {
-        let commands = verification_commands(&Selection::Workspace, TestRunner::Cargo);
+        let commands = verification_commands(&Selection::Workspace, TestRunner::Cargo, &[]);
         assert_eq!(commands[2].to_string(), "cargo check --workspace --locked");
         assert_eq!(commands[3].to_string(), "cargo test --workspace --locked");
         assert_eq!(
@@ -181,7 +200,7 @@ mod tests {
 
     #[test]
     fn documentation_selection_runs_only_repository_checks() {
-        let commands = verification_commands(&Selection::NoPackages, TestRunner::Cargo);
+        let commands = verification_commands(&Selection::NoPackages, TestRunner::Cargo, &[]);
         assert_eq!(commands.len(), 2);
     }
 
@@ -190,6 +209,12 @@ mod tests {
         let commands = verification_commands(
             &Selection::Packages(vec!["world".into()]),
             TestRunner::Nextest,
+            &[crate::Package::from_owned(
+                "world".into(),
+                "crates/world".into(),
+                vec![],
+                true,
+            )],
         );
         assert_eq!(
             commands[3].to_string(),

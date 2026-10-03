@@ -10,8 +10,8 @@ use std::{borrow::Borrow, cell::RefCell, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
-    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, ViewState, bind_form_over, render_bound_gated,
+    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, HitRegion, LayoutEnv,
+    RectOut, ResolvedControl, ViewState, bind_form_over, render_bound_gated,
 };
 use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 
@@ -29,9 +29,12 @@ pub(super) mod screen_cache;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
-use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
-pub(super) use text_paint::active_codes;
+use crate::ui_runtime::{
+    ServerFormIdentity,
+    forms::{EditText, EngineFrame},
+};
 use text_paint::{Measure, TextPaint};
+pub(super) use text_paint::{UNWRAPPED_LOGICAL, active_codes, width_64};
 
 pub(crate) struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
@@ -474,17 +477,37 @@ fn render_with<R: Borrow<FormRender>>(
             painter.paint(node)?;
         }
     }
+    let origin = [inputs.safe_area.left(), inputs.safe_area.top()];
     Ok(Some(EngineFrame {
         identity,
         hits: render.hits.clone(),
         report: render.report.clone(),
         cancel_target: render.cancel_target.clone(),
-        origin: [inputs.safe_area.left(), inputs.safe_area.top()],
+        origin,
         scale: px,
         panel: render
             .root_panel
             .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
+        edit_texts: edit_texts(&render.hits, &render.nodes, origin[0], px),
     }))
+}
+
+/// Each edit box's text label as laid out: where it starts, its scale and font.
+fn edit_texts(hits: &[HitRegion], nodes: &[DrawNode], left: f32, px: f32) -> Vec<EditText> {
+    hits.iter()
+        .filter_map(|region| {
+            let (target, _) = region.widget.edit.as_ref()?.text_target.as_ref()?;
+            nodes.iter().find_map(|node| match &node.draw {
+                Draw::Text { scale, options, .. } if node.key == *target => Some(EditText {
+                    key: region.key.clone(),
+                    left: left + node.dest.x as f32 * px,
+                    scale: *scale,
+                    font: options.font_type.clone(),
+                }),
+                _ => None,
+            })
+        })
+        .collect()
 }
 
 /// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
