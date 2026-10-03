@@ -910,8 +910,8 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
                 .unwrap()
                 .commit(3)
                 .unwrap();
-            // The missing predecessor synchronously releases its ready prefix;
-            // this getter is an admission bound, not a craft-retention count.
+            // CommitOnly admission starts the ready prefix within its cooperative budget;
+            // further world-only polls must preserve the crafting observer's stale fence.
             assert!(
                 app.world()
                     .resource::<ClientWorld>()
@@ -921,18 +921,24 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
                     .remaining_admission_capacity()
                     > 0
             );
-            assert_eq!(
-                app.world()
+            // Every ready poll commits at least one routed position.
+            // Do not run app.update: it would drain the craft-retention overflow being tested.
+            for _ in 0..routed_slots {
+                if app
+                    .world()
                     .resource::<ClientWorld>()
                     .stream
                     .as_ref()
                     .unwrap()
-                    .inventory_committed_through(),
-                Some(66)
-            );
-            app.world_mut()
-                .run_system_once(reconcile_world_stream_before_physics)
-                .unwrap();
+                    .inventory_committed_through()
+                    == Some(66)
+                {
+                    break;
+                }
+                app.world_mut()
+                    .run_system_once(reconcile_world_stream_before_physics)
+                    .unwrap();
+            }
             assert!(
                 app.world()
                     .resource::<ClientWorld>()

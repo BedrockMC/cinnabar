@@ -188,6 +188,40 @@ fn replacing_geometry_rebinds_a_cached_pose_to_its_new_pivots() {
 }
 
 #[test]
+fn combined_session_pack_replacement_rebinds_cached_poses_to_new_pivots() {
+    for id in [crate::pack_rig_id(0), crate::pack_equipment_rig_id(0)] {
+        let geometry = ActorRigGeometry::synthetic_cuboid(id, [0.0; 3], [1.0; 3], 1).unwrap();
+        let mut builder = ActorRigFrameBuilder::new([geometry.clone()]).unwrap();
+        let mut input = submission(1, 1);
+        input.input.rig = id;
+        let before = builder.build(0.5, None, [input.clone()]);
+        let mut replacement = geometry;
+        replacement.bone_pivots = Arc::from([[0.25, 1.5, -0.5]]);
+        let (entities, equipment) = if id == crate::pack_rig_id(0) {
+            (vec![replacement.clone()], Vec::new())
+        } else {
+            (Vec::new(), vec![replacement.clone()])
+        };
+        assert_eq!(
+            builder.replace_session_pack_geometries(entities, equipment),
+            (Ok(()), Ok(()))
+        );
+        let after = builder.build(0.5, None, [input.clone()]);
+        assert_ne!(before.current_bones, after.current_bones, "rig {id:?}");
+        assert_eq!(
+            after.current_bones.as_ref(),
+            reference_matrices(&input.input.current_bones, &replacement.bone_pivots).unwrap(),
+            "rig {id:?}"
+        );
+        assert_eq!(
+            after.previous_bones.as_ref(),
+            reference_matrices(&input.input.previous_bones, &replacement.bone_pivots).unwrap(),
+            "rig {id:?}"
+        );
+    }
+}
+
+#[test]
 fn invalid_reset_generation_preserves_the_previous_maximum_vertex_count_behavior() {
     let geometry =
         ActorRigGeometry::synthetic_cuboid(EntityRigId(3), [0.0; 3], [1.0; 3], 1).unwrap();

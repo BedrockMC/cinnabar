@@ -12,7 +12,7 @@ const RADIUS: i32 = 8;
 const FRAME: Duration = Duration::from_millis(8);
 const REPLY_LATENCY_FRAMES: u64 = 3;
 const MESH_JOBS_PER_FRAME: usize = 64;
-const MAX_FRAMES: u64 = 4_000;
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(60);
 const BACKLOG_FRAME_LIMIT: Duration = Duration::from_millis(4);
 const NEAR_CHUNKS: f32 = 4.0;
 
@@ -149,14 +149,28 @@ impl Harness {
             .collect()
     }
 
+    /// Polls for completion without tying worker progress to the polling rate.
     fn step_until(&mut self, done: impl Fn(&Self) -> bool) {
-        for _ in 0..MAX_FRAMES {
-            if done(self) {
-                return;
-            }
+        let started = Instant::now();
+        while !done(self) {
+            self.assert_completion_deadline(started);
             self.step();
         }
-        panic!("condition not reached within {MAX_FRAMES} frames");
+    }
+
+    /// Bounds asynchronous waits and reports the network and worker state on timeout.
+    fn assert_completion_deadline(&self, started: Instant) {
+        assert!(
+            started.elapsed() < COMPLETION_TIMEOUT,
+            "condition not reached within {COMPLETION_TIMEOUT:?}: frame={} wire={} replies={} held={} mesh_changes={} staged_mesh={} stats={:?}",
+            self.frame,
+            self.wire.len(),
+            self.replies.len(),
+            self.held.len(),
+            self.stream.mesh_changes.len(),
+            self.stream.staged_mesh_completions.len(),
+            self.stream.stats(),
+        );
     }
 
     /// Queues the server's view announcement and every column around `center`, nearest first.
@@ -230,7 +244,15 @@ impl Harness {
 
     fn answer_requests(&mut self) {
         for request in self.stream.take_requests() {
-            let sent_at = Instant::now();
+            // Intentional fixture withholding tests readiness, not retry expiry. Give held
+            // replies the bounded worker-completion horizon so slow CI cannot exhaust them
+            // before the test releases them; ordinary requests keep the real response clock.
+            let sent_at = Instant::now()
+                + if self.withheld.contains(&request.chunk) {
+                    COMPLETION_TIMEOUT
+                } else {
+                    Duration::ZERO
+                };
             self.stream.record_sub_chunk_request_transport_pending(
                 request.chunk,
                 request.base_sub_chunk_y,
@@ -464,7 +486,8 @@ impl Harness {
         let mut frame_times = Vec::new();
         let mut presented_per_frame = Vec::new();
         let mut idle_frames = 0;
-        while idle_frames < 8 && self.frame - start_frame < MAX_FRAMES {
+        while idle_frames < 8 {
+            self.assert_completion_deadline(started);
             self.step();
             frame_times.push(started.elapsed());
             presented_per_frame.push(self.presented.keys().copied().collect::<BTreeSet<_>>());

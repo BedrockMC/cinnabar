@@ -6,9 +6,6 @@ use valentine::bedrock::version::v1_26_51::{
 
 use crate::MAX_PLAYER_LIST_SKIN_BYTES;
 
-/// Animated texture slots the vanilla player renderer adds to the base skin.
-pub const MAX_SKIN_ANIMATION_LAYERS: usize = 3;
-
 /// Named geometry and texture slots used by the persona render controllers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkinAnimationKind {
