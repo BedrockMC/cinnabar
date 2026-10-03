@@ -10,6 +10,9 @@ fn settings_help_uses_rating_prompt_and_licenses_scroll() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping settings_help_uses_rating_prompt_and_licenses_scroll: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut view = settings();

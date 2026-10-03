@@ -8,6 +8,9 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
     let Some(mut presentation) = super::super::forms::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping settings_storage_has_real_categories_and_confirmed_cache_delete: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let layout = crate::install_layout::scratch("storage-ui");
@@ -46,6 +49,9 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
 
 #[test]
 fn settings_storage() {
+    if super::super::forms::pack_harness::carrier().is_none() {
+        return;
+    }
     let player_runtime = crate::player_runtime::PlayerRuntime::new(1);
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned());
     menu.activate(MenuAction::SettingsSection(

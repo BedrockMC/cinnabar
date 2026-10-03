@@ -60,6 +60,9 @@ fn wheel_input_system_scrolls_the_open_chat() {
         input::mouse::AccumulatedMouseScroll, prelude::*, time::Real, window::PrimaryWindow,
     };
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping wheel_input_system_scrolls_the_open_chat: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -132,6 +135,9 @@ fn server_chat_screen_withdraws_the_java_layout_and_restores_on_removal() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping server_chat_screen_withdraws_the_java_layout_and_restores_on_removal: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);

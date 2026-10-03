@@ -122,8 +122,11 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
 /// Builds an engine HUD fixture with the supplied font.
 pub fn engine_presentation_with(font: Arc<RuntimeFontCatalog>) -> Option<UiPresentationRuntime> {
     let carrier = pack_harness::carrier()?;
-    let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).ok()?;
-    presentation.enable_json_ui(carrier).ok()?;
+    let mut presentation =
+        UiPresentationRuntime::with_hud(font, fixture_hud()).expect("build fixture HUD");
+    presentation
+        .enable_json_ui(carrier)
+        .expect("enable installed UI fixture");
     Some(presentation)
 }
 

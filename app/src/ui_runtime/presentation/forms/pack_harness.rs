@@ -19,19 +19,33 @@ pub fn startup_presentation() -> Option<UiPresentationRuntime> {
     let world = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(crate::asset_startup::DEFAULT_ASSET_PATH);
+    for path in [
+        crate::asset_startup::hud_asset_path(&world),
+        crate::asset_startup::icon_asset_path(&world),
+        crate::asset_startup::entity_asset_path(&world),
+    ] {
+        if !path.exists() {
+            eprintln!(
+                "skipping startup presentation fixture: missing {}; make assets",
+                path.display()
+            );
+            return None;
+        }
+    }
     let hud = crate::asset_startup::require_hud_assets(&world)
-        .ok()?
+        .expect("load installed HUD fixture")
         .into_runtime();
     let icons = crate::asset_startup::require_icon_assets(
         &world,
         include_str!("../../../../../assets/vanilla-source.json"),
     )
-    .ok()?
+    .expect("load installed icon fixture")
     .into_runtime();
     let entities = assets::RuntimeEntityAssets::decode(
-        &std::fs::read(crate::asset_startup::entity_asset_path(&world)).ok()?,
+        &std::fs::read(crate::asset_startup::entity_asset_path(&world))
+            .expect("read installed entity fixture"),
     )
-    .ok()?;
+    .expect("decode installed entity fixture");
     let mut presentation = UiPresentationRuntime::with_hud_and_icons(font(), hud, icons).unwrap();
     presentation.enable_json_ui(carrier()?).unwrap();
     presentation.set_form_texture_fallbacks(

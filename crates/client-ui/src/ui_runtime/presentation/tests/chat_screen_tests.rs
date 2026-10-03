@@ -143,6 +143,9 @@ fn open_chat_draws_the_java_line_with_history_and_the_hud() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping open_chat_draws_the_java_line_with_history_and_the_hud: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = gameplay_runtime(&mut player_runtime);
@@ -194,6 +197,9 @@ fn suggestions_and_usage_list_above_the_edit_box_and_hit_by_index() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping suggestions_and_usage_list_above_the_edit_box_and_hit_by_index: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -235,6 +241,9 @@ fn history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -275,6 +284,9 @@ fn closed_chat_draws_no_screen_and_hits_nothing() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping closed_chat_draws_no_screen_and_hits_nothing: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -298,6 +310,9 @@ fn chat_screen_snapshot() {
     let Some(mut presentation) =
         engine_presentation_with(super::super::forms::pack_harness::font())
     else {
+        eprintln!(
+            "skipping chat_screen_snapshot: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = gameplay_runtime(&mut player_runtime);
@@ -364,6 +379,9 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
         settings_options::{SETTINGS_OPTIONS, SettingsOptions},
     };
     let Some(mut presentation) = native_chat_presentation() else {
+        eprintln!(
+            "skipping chat_settings_popup_routes_native_controls_and_retains_the_draft: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
@@ -438,6 +456,9 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
 
     use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
     let Some(mut presentation) = native_chat_presentation() else {
+        eprintln!(
+            "skipping creator_coordinates_bind_native_copy_dropdown_and_invalid_target: fixture unavailable; requires installed local carriers (make assets)"
+        );
         return;
     };
     let mut runtime = UiRuntime::new(1);
