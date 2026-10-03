@@ -842,6 +842,48 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
 }
 
 #[test]
+fn fallback_form_preserves_host_owned_presentation_state() {
+    let runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    presentation
+        .set_experience_chrome(Some("Trusted status"), false)
+        .unwrap();
+    presentation.set_mod_label(Some("Extension label")).unwrap();
+    super::pack_harness::render(&mut presentation, &runtime, [1280, 720], 1.0);
+    assert!(presentation.form_presentation.experience.is_some());
+    assert!(presentation.form_presentation.mod_hud.is_some());
+}
+
+#[test]
+fn review_failed_menu_modal_does_not_expose_underlying_actions() {
+    use crate::menu::{MenuDialog, MenuRuntime, MenuScreen};
+    let mut presentation = mini_engine_presentation();
+    let mut view = MenuRuntime::new(true, 2, "Test".into()).view();
+    view.screen = MenuScreen::Play;
+    presentation.set_menu_view(Some(view.clone()));
+    presentation
+        .build(
+            &UiRuntime::new(1),
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(!presentation.menu_hit_targets.is_empty());
+    view.dialog = Some(MenuDialog::Exit);
+    presentation.set_menu_view(Some(view));
+    presentation
+        .build(
+            &UiRuntime::new(1),
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(presentation.menu_hit_targets.is_empty());
+}
+
+#[test]
 fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     let Some(carrier) = super::pack_harness::carrier() else {
         return;
@@ -900,43 +942,4 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
             }
         }
     }
-fn fallback_form_preserves_host_owned_presentation_state() {
-    let runtime = super::pack_harness::action_form("Menu", &["A"]);
-    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation
-        .set_experience_chrome(Some("Trusted status"), false)
-        .unwrap();
-    presentation.set_mod_label(Some("Extension label")).unwrap();
-    super::pack_harness::render(&mut presentation, &runtime, [1280, 720], 1.0);
-    assert!(presentation.form_presentation.experience.is_some());
-    assert!(presentation.form_presentation.mod_hud.is_some());
-}
-
-#[test]
-fn review_failed_menu_modal_does_not_expose_underlying_actions() {
-    use crate::menu::{MenuDialog, MenuRuntime, MenuScreen};
-    let mut presentation = mini_engine_presentation();
-    let mut view = MenuRuntime::new(true, 2, "Test".into()).view();
-    view.screen = MenuScreen::Play;
-    presentation.set_menu_view(Some(view.clone()));
-    presentation
-        .build(
-            &UiRuntime::new(1),
-            0,
-            [1280, 720],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
-    assert!(!presentation.menu_hit_targets.is_empty());
-    view.dialog = Some(MenuDialog::Exit);
-    presentation.set_menu_view(Some(view));
-    presentation
-        .build(
-            &UiRuntime::new(1),
-            0,
-            [1280, 720],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
-    assert!(presentation.menu_hit_targets.is_empty());
 }
