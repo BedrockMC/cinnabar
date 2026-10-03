@@ -1,4 +1,9 @@
-//! Shared classic skin layout conversion, used before alpha validation.
+//! Shared skin layout limits and conversion, used by admission and rendering.
+
+/// Local ceiling for the standard skin raster, including persona skins.
+pub const MAX_STANDARD_SKIN_SIDE: u32 = 512;
+/// Animated texture slots the vanilla player renderer adds to the base skin.
+pub const MAX_SKIN_ANIMATION_LAYERS: usize = 3;
 
 /// The authored square texture side for the classic skin layout.
 pub const CLASSIC_SKIN_SIDE: usize = 64;

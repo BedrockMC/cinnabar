@@ -452,7 +452,7 @@ mod tests {
         pages.extend(vec![small; UI_MODEL_ATLAS_PAGE_OFFSET + 1]);
         let base = UiTextureCatalog::new(pages, 1).unwrap();
         let mut replacements = base.pages()[base.dynamic_start()..].to_vec();
-        let skin_side = client_world::CLASSIC_SKIN_SIDE as u32;
+        let skin_side = render_api::CLASSIC_SKIN_SIDE as u32;
         replacements[UI_PLAYER_SKIN_PAGE_OFFSET] = UiTexturePage::owned(
             [skin_side; 2],
             vec![7; (skin_side * skin_side * 4) as usize].into(),
@@ -566,7 +566,7 @@ mod tests {
         ]);
         let base = UiTextureCatalog::new(pages, 1).unwrap();
         let mut replacements = base.pages()[1..].to_vec();
-        let side = client_world::CLASSIC_SKIN_SIDE as u32;
+        let side = render_api::CLASSIC_SKIN_SIDE as u32;
         replacements[UI_PLAYER_SKIN_PAGE_OFFSET] =
             UiTexturePage::owned([side; 2], vec![0; (side * side * 4) as usize].into()).unwrap();
         let resized = base.replace_dynamic(replacements).unwrap();

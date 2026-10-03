@@ -331,11 +331,11 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
         return true;
     }
     if offset == UI_PLAYER_SKIN_PAGE_OFFSET {
-        let classic = client_world::CLASSIC_SKIN_SIDE as u32;
+        let classic = render_api::CLASSIC_SKIN_SIDE as u32;
         return (width == classic && height == classic / 2)
             || (width == height
                 && width.is_power_of_two()
-                && (classic..=client_world::MAX_STANDARD_SKIN_SIDE).contains(&width));
+                && (classic..=render_api::MAX_STANDARD_SKIN_SIDE).contains(&width));
     }
     if (UI_MODEL_ATLAS_PAGE_OFFSET..UI_SESSION_ICON_PAGE_OFFSET).contains(&offset) {
         return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
