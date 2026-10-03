@@ -52,6 +52,14 @@ texture color-space equivalence and hardware MSAA coverage still require a match
 
 ## Cinnabar implementation
 
+
+Live HUD geometry resolves from the catalog that owns the current rig, including a
+server-pack catalog's separate binding index space. Its cache includes the catalog's
+source digest so another session's rig at the same index cannot reuse old vertices.
+This follows the native HUD's lookup of the actor's renderer and ordinary actor draw
+(`R:HudPlayerRenderer:655`, `:720`–`:723`). The offline regression uses original
+one-cube server rigs with different dimensions and needs no installed carrier.
+
 `player_preview/geometry.rs` emits normalized JSON-UI triangle geometry from the shared biped
 base/overlay vertices and current native view transforms. The old virtual preview dimensions
 are only the retained node's coordinate basis: there is no small intermediate framebuffer.
