@@ -292,6 +292,11 @@ sends carry the epoch it began in. An epoch control that names another session, 
 not move forward, arrives before Ready or inside a fragmented message is a
 violation.
 
+On the server, the guest's `client-message` and `epoch` callbacks (server WIT 0.4)
+get the snapshot of the player's focus, the Experience block the player last used,
+so a client part's action can change that block's data and resend its state
+([experience-runtime.md](experience-runtime.md#wit-and-semantics)).
+
 Each manifest channel contains `id`, `schema` (u16), `direction` (`to_client` or
 `to_server`), and `fields`. IDs must start with the owning package ID plus `.`.
 A channel/schema pair is unique. A payload is an ordered array of typed values:

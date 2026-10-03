@@ -16,6 +16,7 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/google/uuid"
 )
 
 // airID is the id of air, the one block that an Experience may set besides its own.
@@ -77,6 +78,10 @@ type dispatcher struct {
 	// world, whose goroutines all admit them.
 	neighborMu sync.Mutex
 	neighbors  map[*world.World]*neighborTick
+	// focusMu guards focuses, each player's focus by player UUID: the worker records and reads
+	// them, and PlayerLeft clears them.
+	focusMu sync.Mutex
+	focuses map[uuid.UUID]focus
 }
 
 // neighborTick holds the positions of the neighbor events that one Experience admitted in one
@@ -102,10 +107,10 @@ type event struct {
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and
-// an epoch are about their player alone: they have no anchor and no snapshot, and run in the
-// world that player is in.
+// an epoch are about their player: they run in the world that player is in, and have an anchor
+// and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return c.ClientMessage == nil && c.Epoch == nil
+	return (c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil
 }
 
 // dimension is a world's dimension as the store and the guest name it.
@@ -159,6 +164,7 @@ func NewHost(
 			sup:       sup,
 			events:    make(chan event, eventQueueCap),
 			neighbors: make(map[*world.World]*neighborTick),
+			focuses:   make(map[uuid.UUID]focus),
 		}
 	}
 	h.holder = &sinkHolder{h}
@@ -432,6 +438,9 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 		}
 		return
 	}
+	if ev.call.Interact != nil {
+		d.recordFocus(ev, snap)
+	}
 	outcome, err := d.sup.Call(snap.req)
 	switch {
 	case errors.Is(err, errQuarantined):
@@ -475,8 +484,9 @@ type cellState struct {
 }
 
 // snapshot reads the event's anchor and its loaded neighbors in a fresh task of the event's
-// world. A client message or an epoch has no anchor, so its snapshot holds no cell; it runs in
-// the world its actor is in at the time, which becomes the event's world.
+// world. A client message or an epoch runs in the world its actor is in at the time, which
+// becomes the event's world; its anchor is its actor's focus if that is valid there, and without
+// one its snapshot holds no cell.
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
 	if ev.call.anchored() {
@@ -486,9 +496,10 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 		return snap, nil
 	}
 	found := false
-	task := ev.actor.Do(func(tx *world.Tx, _ world.Entity) {
+	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
 		if ev.dim, found = dimensionOf(tx); found {
 			ev.w = tx.World()
+			h.focusOn(tx, d, ev, actor)
 			snap = h.read(tx, d, *ev)
 		}
 	})

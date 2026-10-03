@@ -23,6 +23,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
@@ -113,7 +114,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	accepting := make(chan struct{})
 	go func() {
 		defer close(accepting)
-		for range srv.Accept() {
+		for p := range srv.Accept() {
+			if host != nil {
+				p.Handle(quitHandler{host: host})
+			}
 		}
 	}()
 	fmt.Fprintln(stdout, "ready")
@@ -132,6 +136,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		running.Wait()
 	}
 	return closeErr
+}
+
+// quitHandler tells the Experience host when its player leaves, so the host forgets the
+// player's focus.
+type quitHandler struct {
+	player.NopHandler
+	host *experience.Host
+}
+
+func (h quitHandler) HandleQuit(p *player.Player) {
+	h.host.PlayerLeft(p.UUID())
 }
 
 // experiences are the started Experiences of -experiences: their supervisors by Experience id,

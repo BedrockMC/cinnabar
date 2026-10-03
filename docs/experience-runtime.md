@@ -144,12 +144,15 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.3.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.4.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks, the callbacks `on-place`, `on-break`, `on-interact` and
 `on-neighbor-changed`, `client-message` and `epoch`. Every world method goes through the borrowed
 `callback` resource, valid for one callback only. The runtime still runs older artifacts against
 their frozen worlds, by the manifest's `api`:
 
+- `api = "0.3"`, `crates/experience-runtime/wit/0.3/server.wit`: no `callback.focus`, so client
+  messages and epochs never have a snapshot. The adapter gives such an Experience no focus, and
+  the runtime rejects one with a focus without running it.
 - `api = "0.2"`, `crates/experience-runtime/wit/0.2/server.wit`: client messages and sends hold
   scalars only, and there is no `epoch`. A client message holding a list or record, or an epoch,
   for such an Experience is rejected without running it.
@@ -173,8 +176,8 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 - **Staging.** An `ok` from a mutation means staged. A guest error or a trap discards everything
   staged; a rejected single operation leaves the staged state unchanged and the callback
   continues. Logs are not gameplay output and survive a discarded callback.
-- **Reads.** Reads see only the anchor (the event's block) and its six orthogonal neighbors in the
-  same dimension, as they were snapshotted.
+- **Reads.** Reads see only the anchor (the event's block, or a client message's or an epoch's
+  focus) and its six orthogonal neighbors in the same dimension, as they were snapshotted.
   - `get-block` returns a snapshot position's id with staged writes applied; an unloaded position
     is `unavailable`, one outside the snapshot `denied`, one outside the world height
     `out-of-bounds`.
@@ -214,13 +217,27 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
   `Value`s.
 - **`client-message`.** A typed record that a player's client part sent arrives through the same
   queue as the block callbacks, with that player as the actor, its lists and records as pre-order
-  nodes like a send's. Its `callback` has no snapshot, so every block read and write is refused;
-  it may `tell` and `send-client` to the player, and its result commits like any other, in the
-  world the player is in when it runs.
+  nodes like a send's. Its `callback` has the snapshot of the player's focus, if any; without one
+  every block read and write is refused. It may `tell` and `send-client` to the player, and its
+  result commits like any other, in the world the player is in when it runs.
 - **`epoch`.** A player's client part moved to a new world epoch, such as another dimension, and
   kept running, so it may have missed what was sent before; the guest resends its state. The
-  callback comes through the same queue, with that player as the actor and no snapshot, and
-  acts exactly like `client-message`'s.
+  callback comes through the same queue, with that player as the actor and the snapshot of the
+  player's focus, and acts exactly like `client-message`'s.
+- **Focus.** When a player's `on-interact` runs for one of an Experience's blocks, the adapter
+  records that block, its dimension and its placement generation as the player's focus for that
+  Experience; a newer interaction replaces it, and a disconnect clears it. A `client-message` or
+  `epoch` of that player gets exactly the snapshot `on-interact` gets for the focus block: the
+  block and its six neighbors, read and written by the same rules, writes in its chunk column.
+  `callback.focus` names the block, and is none in every other callback. The focus counts as
+  none, an empty snapshot, while the block is gone or replaced (another generation), no longer
+  this Experience's, unloaded, in another dimension than the player, or farther than
+  `provisionalFocusRange` (`tools/localserver/experience/limits.go`) from the player's eyes to
+  the block's centre. That bound is provisional, labeled incomplete in `plan.md`: it should be
+  the distance at which vanilla Bedrock closes an open container's screen, which has not been
+  identified, so it is Dragonfly's survival reach for using a block. Commit and the
+  stale check are unchanged: if the focus block or its data changed after the snapshot, the
+  result is discarded.
 - **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
 - **Fresh instance per callback.** Each callback runs on a new instance of the precompiled
   component, so guest memory never survives a callback; durable state belongs in block data.
@@ -329,7 +346,10 @@ many bytes of JSON, at most `MAX_FRAME_BYTES`; bytes inside messages are lowerca
 `experience-runtime write-fixtures <dir>`; the Go tests decode and re-encode each one and require
 identical JSON, and reject unknown fields. A helper that answers `load` with another protocol
 version fails the load. A client message is a `callback` whose `call` is `client_message`, and an
-epoch one whose `call` is `epoch`; both have an empty snapshot. A staged client message is a
+epoch one whose `call` is `epoch`; both carry `focus`, the player's focus block or null, and
+have that block's snapshot with a focus and an empty one without. `loaded` carries `focus`,
+whether the Experience's world takes one; the adapter gives none to an Experience whose world
+does not. A staged client message is a
 `send_client` op. Their `scalar` values have the client wire protocol's form,
 `{"type": "integer", "value": 42}`, a list or record holding its values in an array,
 `{"type": "list", "value": [...]}`; the runtime turns them into and out of the guest's pre-order
@@ -413,7 +433,9 @@ Another server can host the same artifacts by speaking the protocol to `experien
 5. After the commit, send each `send_client` op to the actor's client part if that Experience's
    client part declares the channel; drop and count the rest. Deliver a client part's messages
    as `client_message` callbacks, and its moves to a new world epoch as `epoch` callbacks, with
-   that player as actor and an empty snapshot.
+   that player as actor. If `loaded` said the Experience takes a focus, remember the block of
+   each player's last interaction with it, and while that block is still valid give its snapshot
+   and `focus`; otherwise send an empty snapshot and a null `focus`.
 6. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
    described above.
 7. Own the store: generations, revisions, the quota and atomic flushes.

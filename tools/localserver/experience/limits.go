@@ -56,6 +56,12 @@ const maxNeighborEventsPerTick = 64
 // dropLogInterval is how often, at most, an Experience's dropped events are logged.
 const dropLogInterval = time.Second
 
+// provisionalFocusRange is the farthest, in blocks from a player's eyes to the block's centre,
+// that a player's focus counts. PROVISIONAL, labeled incomplete in plan.md: it should be the
+// distance at which vanilla Bedrock closes an open container's screen, but no vanilla reference
+// for that distance has been identified, so it is Dragonfly's survival reach for using a block.
+const provisionalFocusRange = 8.0
+
 // The commit check enforces these runtime limits again. Each must equal its Rust constant, which
 // TestCommitLimitsMatchRust checks against the limits fixture.
 const (

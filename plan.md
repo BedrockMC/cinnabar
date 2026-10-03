@@ -3998,6 +3998,10 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 - Production remote execution must remain unavailable until restricted helpers,
   compiler limits and media decoding pass independent cross-platform validation.
 - See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). The vanilla Bedrock distance at which an open
+  container's screen closes has not been identified; replace the constant once it is.
 
 - Implemented client preview: admitted marker, signed session challenge, scoped trust
   JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,
