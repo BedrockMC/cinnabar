@@ -32,7 +32,7 @@ use super::{PlatformClipboard, UiRuntime, presentation};
 
 pub use client_ui::ui_runtime::interaction::{
     ChatFlushError, dispatch_chat_ui_action, dispatch_inventory_key, flush_chat_sends,
-    flush_inventory_send, gamepad_chat_action, paste_chat_shortcut,
+    flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut, paste_chat_shortcut,
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
     suppress_gameplay_input_for_inventory,
 };
@@ -524,6 +524,29 @@ pub(crate) fn drive_chat_keyboard_input(
         consumed_gameplay = true;
         let selecting =
             modifiers.pressed(KeyCode::ShiftLeft) || modifiers.pressed(KeyCode::ShiftRight);
+        if is_chat_edit_shortcut(&modifiers) {
+            match input.key_code {
+                KeyCode::KeyA => {
+                    runtime.mutate_chat_editor(|editor| {
+                        editor.move_home(false);
+                        editor.move_end(true);
+                    });
+                    continue;
+                }
+                KeyCode::KeyC => {
+                    if let Some(selection) = runtime.chat_editor().selection() {
+                        let text = runtime.chat_editor().as_str()[selection].to_owned();
+                        if let Some(clipboard) = clipboard.as_deref_mut() {
+                            clipboard.write_text(text);
+                        } else {
+                            let _ = PlatformClipboard.write_text(text);
+                        }
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
         let pasted = if let Some(clipboard) = clipboard.as_deref_mut() {
             paste_chat_shortcut(&mut runtime, input.key_code, &modifiers, clipboard)
         } else {
