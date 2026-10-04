@@ -117,11 +117,14 @@ fn attempt_connect(
     session.runtime.experiences.select_destination(&address);
     menu.feeds.join =
         super::view::JoinProgress::new(super::launcher_core::join_kind(&address, local_world));
-    let launcher = session
-        .launcher
-        .as_deref()
-        .filter(|_| menu.is_launcher())
-        .and_then(|slot| slot.begin_join(&address, local_world, auth_cache.is_some()));
+    let launcher = session.launcher.as_deref().and_then(|slot| {
+        slot.begin_join(
+            &address,
+            local_world,
+            auth_cache.is_some(),
+            menu.is_launcher(),
+        )
+    });
     let stage = match launcher {
         Some(receiver) => JoinStage::Launcher(receiver),
         // A local world exists only behind the launcher core.
@@ -350,12 +353,13 @@ pub(crate) fn drive_menu_connection(
     let in_session = session.client_world.stream.is_some();
     let upstream_cache = client_blob_cache.enables_upstream_client_cache();
     if let Some(slot) = session.launcher.as_deref_mut() {
-        // A direct connection uses a separate game core, so its account core can
-        // follow sign-in even while the game session is active.
+        // Remote direct sessions have a separate game core. Local worlds use
+        // the account core, so sign-in must not restart it during local play.
         let idle = super::launcher_core::account_core_idle(
             menu.is_launcher(),
             menu.is_connecting(),
             in_session,
+            menu.local_world_joined,
         );
         slot.drive(
             &mut commands,
