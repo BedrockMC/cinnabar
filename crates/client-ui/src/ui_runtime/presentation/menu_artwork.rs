@@ -19,7 +19,7 @@ use image::{ImageReader, Limits, imageops::FilterType};
 
 use super::IconRef;
 
-const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+use launcher::accounts::MAX_ARTWORK_BYTES as MAX_SOURCE_BYTES;
 /// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
 const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
