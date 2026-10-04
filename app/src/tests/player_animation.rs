@@ -436,10 +436,60 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         off_hand: None,
         teleported: false,
         first_person: true,
+        view_bobbing: true,
         sneaking: false,
         sprinting: false,
         item_use: Default::default(),
     }
+}
+
+#[test]
+fn view_bobbing_toggle_stops_authored_hand_bob_but_preserves_attacks() {
+    let pack = Pack::new();
+    let entity = ENTITY.replace(
+        "\"fp_base\":\"animation.player.first_person.base_pose\"",
+        "\"fp_bob\":\"animation.test.hand_bob\",\"fp_base\":\"animation.player.first_person.base_pose\"",
+    );
+    let animation = r#"{"loop":true,"bones":{"rightarm":{"rotation":[0,0,"math.sin(query.life_time * 90) * 5 + query.modified_move_speed * 5"]}}}"#;
+    let mut animations: serde_json::Value = serde_json::from_str(ANIMATIONS).unwrap();
+    animations["animations"]["animation.test.hand_bob"] = serde_json::from_str(animation).unwrap();
+    let controllers = CONTROLLERS.replace(
+        "\"fp_base\",\"fp_swap\"",
+        "\"fp_base\",\"fp_swap\",{\"fp_bob\":\"variable.bob_animation\"}",
+    );
+    fs::write(pack.0.join("entity/player.entity.json"), entity).unwrap();
+    fs::write(
+        pack.0.join("animations/player.animation.json"),
+        animations.to_string(),
+    )
+    .unwrap();
+    fs::write(
+        pack.0
+            .join("animation_controllers/player.animation_controllers.json"),
+        controllers,
+    )
+    .unwrap();
+    let compiled = pack_compiler::compile_entity_assets(
+        &pack.0,
+        include_bytes!("../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    let entities =
+        Arc::new(RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap());
+    let mut world = stream(Arc::clone(&entities));
+    let mut feed = local_feed(None);
+    for enabled in [true, false, true, false] {
+        feed.view_bobbing = enabled;
+        for _ in 0..4 {
+            feed.position[0] += 0.2;
+            world.sync_local_player_pose(&feed);
+            world.advance_actor_interpolation_frame(1);
+        }
+        assert_eq!(turned(bone_of(&world, &entities, 1, "rightArm")), enabled);
+    }
+    world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
+    world.advance_actor_interpolation_frame(2);
+    assert!(turned(bone_of(&world, &entities, 1, "rightArm")));
 }
 
 // First person ignores the view rotation (the camera carries it) and lowers the arm only while

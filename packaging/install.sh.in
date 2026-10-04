@@ -1,0 +1,191 @@
+#!/bin/sh
+# Generated from packaging/install.sh.in and packaging/release-assets.json.
+# Install the Linux release for the current user. No sudo or FUSE is required.
+set -eu
+
+repository='@REPOSITORY@'
+checksum_asset='@CHECKSUM_ASSET@'
+linux_x86_64_asset='@LINUX_X86_64_ASSET@'
+channel=stable
+version=
+work=
+stage=
+launcher_stage=
+desktop_stage=
+icon_stage=
+
+fail() { printf 'Cinnabar: %s\n' "$*" >&2; exit 1; }
+usage() {
+    cat <<'EOF'
+Usage: install.sh [--channel stable|nightly] [--version TAG]
+
+Installs Cinnabar for the current Linux user, with an application-menu entry.
+Defaults to the latest stable GitHub release. --version selects an exact tag.
+XDG_DATA_HOME controls the app/data directory; CINNABAR_BIN_DIR controls the
+launcher directory (default: ~/.local/bin). Existing game data is preserved.
+EOF
+}
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --channel)
+            [ "$#" -gt 1 ] || fail '--channel needs stable or nightly'
+            channel=$2; shift 2 ;;
+        --version)
+            [ "$#" -gt 1 ] || fail '--version needs a release tag'
+            version=$2; shift 2
+            [ -n "$version" ] || fail '--version needs a release tag' ;;
+        -h|--help) usage; exit 0 ;;
+        *) fail "Unknown argument: $1 (use --help)" ;;
+    esac
+done
+case "$channel" in stable|nightly) ;; *) fail "Unknown channel: $channel" ;; esac
+case "$(uname -s)" in
+    Linux) ;;
+    Darwin) fail "On macOS, install the DMG from https://github.com/$repository/releases/latest" ;;
+    *) fail 'This installer supports Linux only' ;;
+esac
+case "$(uname -m)" in
+    x86_64|amd64) asset=$linux_x86_64_asset ;;
+    *) fail "No Linux release is available for $(uname -m)" ;;
+esac
+for tool in curl awk sed mktemp; do
+    command -v "$tool" >/dev/null 2>&1 || fail "Install $tool, then try again"
+done
+if command -v sha256sum >/dev/null 2>&1; then
+    digest_tool=sha256sum
+elif command -v shasum >/dev/null 2>&1; then
+    digest_tool=shasum
+else
+    fail 'Install sha256sum (coreutils) or shasum, then try again'
+fi
+[ -n "${HOME:-}" ] || fail 'HOME is unset'
+data_home=${XDG_DATA_HOME:-$HOME/.local/share}
+bin_dir=${CINNABAR_BIN_DIR:-$HOME/.local/bin}
+for path in "$data_home" "$bin_dir"; do
+    case "$path" in /*) ;; *) fail "Installation paths must be absolute: $path" ;; esac
+    case "$path" in *'
+'*) fail 'Installation paths must not contain newlines' ;; esac
+done
+
+cleanup() {
+    [ -z "$work" ] || rm -rf "$work"
+    [ -z "$stage" ] || rm -rf "$stage"
+    [ -z "$launcher_stage" ] || rm -f "$launcher_stage"
+    [ -z "$desktop_stage" ] || rm -f "$desktop_stage"
+    [ -z "$icon_stage" ] || rm -f "$icon_stage"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+work=$(mktemp -d "${TMPDIR:-/tmp}/cinnabar-install.XXXXXX")
+fetch() {
+    curl --fail --location --silent --show-error --retry 3 \
+        --connect-timeout 15 --proto '=https' --proto-redir '=https' --output "$2" "$1"
+}
+release_base="https://github.com/$repository/releases"
+if [ -z "$version" ]; then
+    if [ "$channel" = nightly ]; then
+        version=nightly
+    else
+        printf 'Finding the latest stable Cinnabar release...\n'
+        resolved=$(curl --fail --head --location --silent --show-error --retry 3 \
+            --connect-timeout 15 --proto '=https' --proto-redir '=https' --output /dev/null \
+            --write-out '%{url_effective}' "$release_base/latest") ||
+            fail 'No stable release is available, or GitHub could not be reached'
+        case "$resolved" in
+            "$release_base/tag/"*) version=${resolved#"$release_base/tag/"} ;;
+            *) fail 'GitHub did not resolve a stable release tag' ;;
+        esac
+    fi
+fi
+case "$version" in
+    ''|*[!A-Za-z0-9._-]*|.|..) fail "Invalid release tag: $version" ;;
+esac
+download_base="$release_base/download/$version"
+printf 'Downloading Cinnabar %s...\n' "$version"
+fetch "$download_base/$checksum_asset" "$work/checksums" ||
+    fail "Release $version has no checksums, or the download failed"
+expected=$(awk -v name="$asset" '
+    $2 == name || $2 == "*" name { count++; hash = $1 }
+    END {
+        if (count != 1 || length(hash) != 64 || hash !~ /^[0-9a-fA-F]+$/) exit 1
+        print tolower(hash)
+    }' "$work/checksums") || fail "Release $version has no unique valid checksum for $asset"
+fetch "$download_base/$asset" "$work/$asset" || fail "Could not download $asset"
+if [ "$digest_tool" = sha256sum ]; then
+    actual=$(sha256sum "$work/$asset" | awk '{ print $1 }')
+else
+    actual=$(shasum -a 256 "$work/$asset" | awk '{ print $1 }')
+fi
+[ "$actual" = "$expected" ] || fail 'SHA-256 mismatch; nothing was installed. Please try again'
+chmod 755 "$work/$asset"
+printf 'Verified SHA-256. Preparing the application...\n'
+(cd "$work" && "./$asset" --appimage-extract cinnabar.png > /dev/null) ||
+    fail 'Could not extract the verified AppImage; the existing install was preserved'
+[ -f "$work/squashfs-root/cinnabar.png" ] || fail 'The AppImage is missing its application icon'
+
+app_dir="$data_home/cinnabar/app"
+desktop_dir="$data_home/applications"
+icon_dir="$data_home/icons/hicolor/256x256/apps"
+mkdir -p "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir"
+for path in "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir"; do
+    [ -w "$path" ] || fail "Installation directory is not writable: $path"
+done
+stage=$(mktemp -d "$app_dir/.install.XXXXXX")
+cp "$work/$asset" "$stage/Cinnabar.AppImage"
+cp "$work/squashfs-root/cinnabar.png" "$stage/cinnabar.png"
+quote_shell() { printf "'"; printf '%s' "$1" | sed "s/'/'\\\\''/g"; printf "'"; }
+{
+    printf '#!/bin/sh\nappimage='
+    quote_shell "$app_dir/Cinnabar.AppImage"
+    cat <<'EOF'
+
+# Extract-and-run works on distributions without FUSE, including Ubuntu 24.04.
+# Set APPIMAGE_EXTRACT_AND_RUN=0 to opt into the mounted AppImage runtime.
+if [ "${APPIMAGE_EXTRACT_AND_RUN:-1}" = 0 ]; then
+    unset APPIMAGE_EXTRACT_AND_RUN
+    exec "$appimage" "$@"
+fi
+exec "$appimage" --appimage-extract-and-run "$@"
+EOF
+} > "$stage/cinnabar"
+chmod 755 "$stage/cinnabar" "$stage/Cinnabar.AppImage"
+desktop_exec=$(printf '%s' "$bin_dir/cinnabar" | sed \
+    -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/`/\\`/g' -e 's/\$/\\$/g' -e 's/%/%%/g' |
+    sed 's/\\/\\\\/g')
+desktop_icon=$(printf '%s' "$icon_dir/cinnabar.png" | sed -e 's/\\/\\\\/g')
+cat > "$stage/cinnabar.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Cinnabar
+Comment=Minecraft Bedrock client
+Exec="$desktop_exec"
+Icon=$desktop_icon
+Categories=Game;
+Terminal=false
+EOF
+# Stage each integration file on its destination filesystem before publishing.
+launcher_stage=$(mktemp "$bin_dir/.cinnabar.XXXXXX")
+desktop_stage=$(mktemp "$desktop_dir/.cinnabar.XXXXXX")
+icon_stage=$(mktemp "$icon_dir/.cinnabar.XXXXXX")
+cp "$stage/cinnabar" "$launcher_stage"
+chmod 755 "$launcher_stage"
+cp "$stage/cinnabar.desktop" "$desktop_stage"
+chmod 644 "$desktop_stage"
+cp "$stage/cinnabar.png" "$icon_stage"
+chmod 644 "$icon_stage"
+mv -f "$stage/Cinnabar.AppImage" "$app_dir/Cinnabar.AppImage"
+mv -f "$launcher_stage" "$bin_dir/cinnabar"
+mv -f "$desktop_stage" "$desktop_dir/cinnabar.desktop"
+mv -f "$icon_stage" "$icon_dir/cinnabar.png"
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "$data_home/icons/hicolor" >/dev/null 2>&1 || true
+fi
+printf 'Installed Cinnabar %s. Open Cinnabar from your application menu.\n' "$version"
+case ":$PATH:" in
+    *":$bin_dir:"*) printf 'You can also run: cinnabar\n' ;;
+    *) printf 'You can also run: '; quote_shell "$bin_dir/cinnabar"; printf '\n' ;;
+esac

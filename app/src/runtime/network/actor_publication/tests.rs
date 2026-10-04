@@ -161,6 +161,7 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
                 &physics,
                 look,
                 false,
+                true,
                 &skin,
                 client_world::LocalItemUse::Unpredicted,
             )

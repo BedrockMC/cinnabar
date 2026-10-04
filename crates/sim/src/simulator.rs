@@ -37,7 +37,8 @@ const STEP_HEIGHT: f64 = 0.5625;
 const DEFAULT_MOVEMENT_SPEED: f64 = 0.1;
 const DEFAULT_AIR_SPEED: f64 = 0.02;
 const SPRINT_AIR_SPEED: f64 = 0.026;
-const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
+/// Native total/current sprint attribute modifier, applied once on sprint entry.
+pub const SPRINT_SPEED_MULTIPLIER: f64 = 1.3;
 const SNEAK_INPUT_MULTIPLIER: f64 = 0.3;
 const CONSUMABLE_INPUT_MULTIPLIER: f64 = 0.1225;
 const INPUT_IMPULSE_MULTIPLIER: f64 = 0.98;
@@ -442,7 +443,7 @@ fn water_travel_speed(
     depth_strider: f64,
 ) -> f64 {
     let base = DEFAULT_AIR_SPEED as f32 * horizontal_speed_factor as f32;
-    let ground = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED) as f32;
+    let ground = effective_movement_speed(input);
     // Lens 0xdc3eeb0; R:w/WaterTravelSystem.cpp:73.
     f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
 }
@@ -451,6 +452,17 @@ fn water_travel_speed(
 fn depth_strider_level(level: u8, grounded: bool) -> f64 {
     let level = f32::from(level.min(DEPTH_STRIDER_MAX_LEVEL));
     f64::from(if grounded { level } else { level * 0.5 })
+}
+
+/// Reconstructs the attribute current from the simulator's pre-sprint input.
+/// Both land travel and Depth Strider read the same effective native speed.
+fn effective_movement_speed(input: &MovementInput) -> f32 {
+    let speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED) as f32;
+    if input.sprinting {
+        speed * SPRINT_SPEED_MULTIPLIER as f32
+    } else {
+        speed
+    }
 }
 
 /// Applies the current client's f32 steering products before widening retained motion.
@@ -488,10 +500,7 @@ fn ground_relative_speed(input: MovementInput, sampled: &environment::SampledEnv
     } else {
         GROUND_BASE_FRICTION / drag
     };
-    let mut speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED) as f32;
-    if input.sprinting {
-        speed *= SPRINT_SPEED_MULTIPLIER as f32;
-    }
+    let mut speed = effective_movement_speed(&input);
     speed = speed * ratio * ratio * ratio;
     if !soul_sand {
         speed *= sampled.movement.horizontal_speed_factor as f32;
