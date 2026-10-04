@@ -8,6 +8,7 @@ use meshing::cloud_viewport::{
 use meshing::{CLOUD_MASK_SIZE, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS, PackedCloudQuad};
 
 const NATIVE_CLOUD_MESH_SIZE: u16 = 64;
+const NATIVE_RENDER_CHUNK_MARGIN: f32 = 16.0;
 
 const MAX_COVERAGE_MILLIBLOCKS: u32 = 16_777_216;
 const MAX_CAMERA_POSITION_MILLIBLOCKS: i64 = 64_000_000_000;
@@ -40,7 +41,7 @@ pub fn adjusted_cloud_distance_blocks(
     } else if render_distance_blocks <= 80.0 {
         8.0
     } else {
-        16.0
+        NATIVE_RENDER_CHUNK_MARGIN
     };
     let unscaled = render_distance_blocks - margin;
     let mut adjusted = unscaled * coefficient;
@@ -55,6 +56,19 @@ pub fn adjusted_cloud_distance_blocks(
         adjusted = adjusted.min(cap);
     }
     Some(adjusted.max(40.0))
+}
+
+/// Ordinary camera distance from the server-confirmed chunk radius in blocks.
+/// Current 014c34c0 stores packet radius + one chunk in Player::mChunkRadius;
+/// 004f71b0 converts it to blocks before 04e462e0 applies its far-chunk margin.
+/// The publisher's residency radius and the selected video setting are not
+/// substitutes for this input. Optional platform admission remains separate.
+#[must_use]
+pub fn adjusted_player_render_distance_blocks(confirmed_blocks: f32) -> Option<f32> {
+    if !confirmed_blocks.is_finite() || confirmed_blocks < 0.0 {
+        return None;
+    }
+    adjusted_cloud_distance_blocks(confirmed_blocks + NATIVE_RENDER_CHUNK_MARGIN, 1.0, None)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

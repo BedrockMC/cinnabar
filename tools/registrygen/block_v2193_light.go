@@ -32,13 +32,30 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 		// Current Lens TopSnowBlock 0a5c5fb0 sets type+166 to zero. Its
 		// inherited light getter 0365cdf0 and height-specific connection
 		// component leave that value intact, unlike Dragonfly's filter=2.
-		// Ordinary IceBlock 071305c0 and FrostedIceBlock 08723f10 also
-		// set that byte to zero and use the same getter. Packed ice is
-		// deliberately excluded: its constructor sets dampening to 15.
+		// Ice constructors start at zero, but final native registrations
+		// 0dcae2a6 / 0dceb39c set type+166 to three before the inherited
+		// getter 0365cdf0 reads it. Packed/blue ice remain excluded.
 		isSnowLayer := record.Name == "minecraft:snow_layer"
 		isTransparentIce := record.Name == "minecraft:ice" || record.Name == "minecraft:frosted_ice"
-		if isSnowLayer || isTransparentIce {
-			next := current & 0x0f
+		isStillWater := record.Name == "minecraft:water"
+		isFlowingWater := record.Name == "minecraft:flowing_water"
+		if isSnowLayer || isTransparentIce || isStillWater || isFlowingWater {
+			var filter byte
+			switch {
+			case isTransparentIce:
+				filter = 3
+			case isStillWater:
+				// Final registration 0dc90eef/0dc90ef1 uses one for a
+				// current BaseGameVersion (>= native gate 1.21.130).
+				// Older level compatibility retains two; this projection
+				// targets the current registry-foundation game version.
+				filter = 1
+			case isFlowingWater:
+				// DynamicLiquidBlock final registration 0dc9150f has
+				// no version gate: still and flowing types differ.
+				filter = 2
+			}
+			next := current&0x0f | filter<<4
 			if next != current {
 				properties[index] = next
 				changed++

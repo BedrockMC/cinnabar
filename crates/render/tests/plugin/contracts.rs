@@ -425,7 +425,7 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     let shader = shader_source::preprocess(include_str!("../../src/model.wgsl"), &[]);
     let compact_plugin: String = plugin.chars().filter(|c| !c.is_whitespace()).collect();
     assert!(compact_plugin.contains(
-        "load_internal_asset!(app,MODEL_SHADER_HANDLE,\"../model.wgsl\",crate::shader_safety::from_wgsl)"
+        "load_internal_asset!(app,MODEL_SHADER_HANDLE,\"../model.wgsl\",|source,path|{crate::shader_safety::from_wgsl(crate::material_shader::source(source),path)})"
     ));
     assert!(plugin.contains("\"packed model pipeline\""));
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
@@ -501,7 +501,7 @@ fn transparent_model_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
     assert!(blend_body.contains("return ordinary_world_model_colour(in, sampled);"));
     assert!(shader.contains("* terrain_light_colour(in.native_light_levels)"));
     assert!(shader.contains("mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position))"));
-    assert!(shader.contains("sampled_gamma.a));"));
+    assert!(shader.contains("sampled_gamma.a);"));
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader

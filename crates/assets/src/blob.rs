@@ -16,8 +16,8 @@ use crate::{
     MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
     MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
     VisualKind,
     biome::{TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, validate_biome_assets},
@@ -457,6 +457,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
+            || (template.flags == MODEL_TEMPLATE_FLAG_LILY_PAD && template.quad_count != 2)
         {
             return Err(invalid("model template spans are not canonical"));
         }

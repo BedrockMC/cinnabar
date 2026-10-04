@@ -151,8 +151,8 @@ fn shipped_ice_light_dampening_distinguishes_translucent_from_packed() {
     )
     .unwrap();
     for (name, filter, expected_count) in [
-        ("minecraft:ice", 0, 1),
-        ("minecraft:frosted_ice", 0, 4),
+        ("minecraft:ice", 3, 1),
+        ("minecraft:frosted_ice", 3, 4),
         ("minecraft:packed_ice", 15, 1),
         ("minecraft:blue_ice", 15, 1),
     ] {

@@ -3,7 +3,7 @@ use meshing::{CloudFace, PackedCloudQuad};
 use render::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
     CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView, CloudQuality,
-    CloudRenderConfig, adjusted_cloud_distance_blocks,
+    CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,
 };
 
 const QUALITIES: [CloudQuality; 4] = [
@@ -12,6 +12,27 @@ const QUALITIES: [CloudQuality; 4] = [
     CloudQuality::High,
     CloudQuality::Ultra,
 ];
+
+#[test]
+fn ordinary_player_camera_includes_server_radius_margin_before_adjustment() {
+    for (confirmed, expected) in [
+        (0.0, 40.0),
+        (32.0, 45.0),
+        (48.0, 60.0),
+        (64.0, 72.0),
+        (128.0, 128.0),
+        (160.0, 160.0),
+        (256.0, 256.0),
+    ] {
+        assert_eq!(
+            adjusted_player_render_distance_blocks(confirmed),
+            Some(expected)
+        );
+    }
+    for invalid in [-1.0, 64.5, f32::NAN, f32::INFINITY, i32::MAX as f32] {
+        assert_eq!(adjusted_player_render_distance_blocks(invalid), None);
+    }
+}
 
 #[test]
 fn classic_cloud_distance_uses_native_camera_margins_and_minimum() {

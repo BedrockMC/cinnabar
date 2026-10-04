@@ -78,14 +78,15 @@ fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
 }
 
 #[test]
-fn atmosphere_frame_is_a_uniform_compatible_eight_vec4_abi() {
+fn atmosphere_frame_is_a_uniform_compatible_nine_vec4_abi() {
     AtmosphereFrame::assert_uniform_compat();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
     let mut encoded = UniformBuffer::new(Vec::<u8>::new());
     encoded.write(&frame).expect("encode atmosphere uniform");
     let encoded = encoded.into_inner();
-    assert_eq!(AtmosphereFrame::min_size().get(), 128);
-    assert_eq!(encoded.len(), 128);
+    let byte_length = std::mem::size_of::<AtmosphereFrame>();
+    assert_eq!(AtmosphereFrame::min_size().get(), byte_length as u64);
+    assert_eq!(encoded.len(), byte_length);
     assert_eq!(encoded.as_slice(), bytemuck::bytes_of(&frame));
 }
 

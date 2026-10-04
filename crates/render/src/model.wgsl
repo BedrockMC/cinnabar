@@ -10,7 +10,7 @@
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
-struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
+// ANIMATION_GPU_LAYOUT
 struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
@@ -131,6 +131,13 @@ fn rotate_cross(position: vec3<f32>, transform: u32) -> vec3<f32> {
     return rotated + vec3(0.5, 0.0, 0.5);
 }
 
+// Current lily-pad tessellator 06a33800: unsigned wrapping position hash.
+fn lily_pad_rotation(position: vec3<i32>) -> u32 {
+    let h = (bitcast<u32>(position.z) * 0x6ebfff5u) ^
+        (bitcast<u32>(position.x) * 0x2fc20fu) ^ bitcast<u32>(position.y);
+    return (((h * 0x285b825u + 11u) * h) >> 16u) & 3u;
+}
+
 @vertex
 fn vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -191,14 +198,19 @@ fn vertex(
         f32(packed_i16(template_quad_base, component + 1u)),
         f32(packed_i16(template_quad_base, component + 2u)),
     ) / 256.0;
-    template_position = rotate_cross(template_position, packed_transform >> 12u);
     let block_position = vec3<f32>(
         f32(packed_transform & 15u),
         f32((packed_transform >> 4u) & 15u),
         f32((packed_transform >> 8u) & 15u),
     );
-    let local_position = block_position + template_position;
     let origin = chunk_origins[metadata_index];
+    let is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
+    var rotation = packed_transform >> 12u;
+    if (is_lily_pad) {
+        rotation = lily_pad_rotation(origin.value.xyz + vec3<i32>(block_position));
+    }
+    template_position = rotate_cross(template_position, rotation);
+    let local_position = block_position + template_position;
     let material_id = model_templates[template_quad_base + 10u];
     let quad_flags = model_templates[template_quad_base + 11u];
     let material = positional_material(material_id, origin.value.xyz + vec3<i32>(block_position));
@@ -222,20 +234,24 @@ fn vertex(
     ) / 4096.0;
     out.current_texture = frame.current;
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
-    out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), packed_transform >> 12u) - vec3(0.5,0.0,0.5);
+    out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), rotation) - vec3(0.5,0.0,0.5);
     out.material_flags = material.flags;
     out.local_position = block_position;
     out.biome_record = u32(origin.value.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
     out.visible = is_visible;
-    out.lighting = light_colour(light_sample) * light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+    // Native 06a33800 uses white top vertices and RGB 0x0f on the reverse
+    // plane. Apply it after sampling, without another 8-bit atlas quantization.
+    let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
+    let terrain_shade = select(light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u), pad_shade, is_lily_pad);
+    out.lighting = light_colour(light_sample) * terrain_shade;
 #ifdef ENHANCED
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #else
     out.native_light_levels = terrain_light_levels(light_sample);
-    out.native_ao_face = light_ao_factor((light_sample >> 8u) & 7u) * face_shade(out.normal, (light_sample & 2048u) != 0u);
+    out.native_ao_face = terrain_shade;
 #endif
     out.two_sided = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
@@ -316,7 +332,7 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 // AO/flat 06a07d80/06a0b950. A bounded world model is not an entity material:
 // RenderChunk multiplies atlas/palette, vertex AO and lightmap in gamma RGB.
 // Encode only at our existing Bevy sRGB framebuffer boundary.
-fn ordinary_world_model_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
+fn ordinary_world_model_gamma_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
     var tint_gamma = vec3(1.0);
     let tint_kind = in.material_flags & 0x30u;
     if (tint_kind != 0u) {
@@ -324,7 +340,11 @@ fn ordinary_world_model_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> ve
     }
     let lit_gamma = ((sampled_gamma.rgb * tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a));
+    return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a);
+}
+
+fn ordinary_world_model_colour(in: VertexOutput, sampled_gamma: vec4<f32>) -> vec4<f32> {
+    return tint_to_linear(ordinary_world_model_gamma_colour(in, sampled_gamma));
 }
 #endif
 
@@ -389,7 +409,11 @@ fn fragment_blend(
     );
     return vec4(apply_distance_fog(shaded, in.world_position), colour.a);
 #else
+#ifdef NATIVE_GAMMA_BLEND
+    return ordinary_world_model_gamma_colour(in, sampled);
+#else
     return ordinary_world_model_colour(in, sampled);
+#endif
 #endif
 }
 #ifdef ENHANCED_SHADOW

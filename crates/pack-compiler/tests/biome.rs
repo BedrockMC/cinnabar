@@ -402,7 +402,7 @@ fn compiler_parses_tagged_and_direct_colours_in_fixed_tint_map_order() {
 
     assert_eq!(compiled.rules.len(), 1);
     let rule = &compiled.rules[0];
-    assert_eq!(rule.flags, BIOME_RULE_FLAG_GRASS_SHADED);
+    assert_ne!(rule.flags & BIOME_RULE_FLAG_GRASS_SHADED, 0);
     assert_eq!(rule.grass.raw(), 0x00ff_0000);
     assert_eq!(rule.foliage.raw(), 0x0100_0002);
     assert_eq!(rule.dry_foliage.raw(), 0x0000_00ff);

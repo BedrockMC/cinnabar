@@ -1,3 +1,12 @@
+/// Native liquid face separation from contacting block geometry (06a1b960).
+pub const LIQUID_FACE_INSET: f32 = 0.001;
+/// Word 2 flag: native tessellation admits the opposite winding for this face.
+pub const LIQUID_TWO_SIDED_BIT: u32 = 1 << 29;
+/// Word 2 flag: visible top emission lowered the shared liquid corner heights.
+pub const LIQUID_TOP_INSET_BIT: u32 = 1 << 30;
+/// Word 2 flag selecting the opaque depth-writing liquid route.
+pub const LIQUID_DEPTH_WRITE_BIT: u32 = 1 << 31;
+
 /// Visual medium containing the active camera eye.
 ///
 /// This is resolved from palette-native liquid layers. Unknown world data is
@@ -576,19 +585,23 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let gradient = flow_gradient(&sampler, neighbourhood, block, cell);
                 let origin = [x as u8, y as u8, z as u8];
                 let above = add(block, [0, 1, 0]);
-                if !compatible(&sampler, neighbourhood, above, cell.identity)
-                    && !sampler.solid(neighbourhood, above, Face::NegativeY)
-                {
+                let top_emitted = !compatible(&sampler, neighbourhood, above, cell.identity)
+                    && !sampler.solid(neighbourhood, above, Face::NegativeY);
+                if top_emitted {
                     let material = cell.top_material(gradient != [0, 0]);
-                    push_quad(pack(
-                        origin,
-                        Face::PositiveY,
-                        heights,
-                        material,
-                        gradient,
-                        cell.level,
-                        cell.depth_writing,
-                    ));
+                    push_quad(
+                        pack(
+                            origin,
+                            Face::PositiveY,
+                            heights,
+                            material,
+                            gradient,
+                            cell.level,
+                            cell.depth_writing,
+                        )
+                        .with_top_height_inset(true)
+                        .with_two_sided(true),
+                    );
                 }
                 for face in [
                     Face::NegativeX,
@@ -597,8 +610,10 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                     Face::PositiveZ,
                 ] {
                     let adjacent = add(block, face_offset(face));
+                    let adjacent_primary_air = primary_is_air(classifier, neighbourhood, adjacent);
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
+                        || (!cell.depth_writing && !adjacent_primary_air)
                     {
                         continue;
                     }
@@ -609,19 +624,24 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                         Face::PositiveZ => [0, heights[3], heights[2], 0],
                         _ => unreachable!(),
                     };
-                    push_quad(pack(
-                        origin,
-                        face,
-                        side_heights,
-                        cell.material(face),
-                        gradient,
-                        cell.level,
-                        cell.depth_writing,
-                    ));
+                    push_quad(
+                        pack(
+                            origin,
+                            face,
+                            side_heights,
+                            cell.material(face),
+                            gradient,
+                            cell.level,
+                            cell.depth_writing,
+                        )
+                        .with_top_height_inset(top_emitted)
+                        .with_two_sided(adjacent_primary_air),
+                    );
                 }
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
+                    && (cell.depth_writing || primary_is_air(classifier, neighbourhood, below))
                 {
                     push_quad(pack(
                         origin,
@@ -659,11 +679,32 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 quad.flow_gradient(),
                 quad.is_falling(),
             )
-            .map(|packed| packed.with_depth_write(quad.is_depth_writing()))
+            .map(|packed| {
+                packed
+                    .with_depth_write(quad.is_depth_writing())
+                    .with_top_height_inset(quad.has_top_height_inset())
+                    .with_two_sided(quad.is_two_sided())
+            })
             .expect("previously checked liquid record"),
         );
     }
     (addressed, lighting)
+}
+
+/// Classic water (06a1b960, lighting model != deferred) admits side/bottom faces
+/// only beside primary Air, even when a non-Air block has a transparent face.
+/// Other liquids retain the ordinary face mask. Side reverse winding also
+/// requires primary Air, independently of any additional liquid layer.
+fn primary_is_air(
+    classifier: BlockClassifier,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    coordinate: [i32; 3],
+) -> bool {
+    match neighbourhood.liquid_sample(0, coordinate) {
+        world::MeshSample::Block(network_value) => classifier.is_air(network_value),
+        // Preserve the existing open-boundary policy for absent primary data.
+        world::MeshSample::Open => true,
+    }
 }
 
 fn pack(

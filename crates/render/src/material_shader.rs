@@ -30,6 +30,15 @@ pub(crate) fn native_leaf_sampler_descriptor() -> wgpu::SamplerDescriptor<'stati
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
+        .replace("// ANIMATION_GPU_LAYOUT", "struct AnimationGpu { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32, uv_scale: f32 }")
+        .replace("// LIQUID_GEOMETRY_CONSTANTS", &format!(
+            "const LIQUID_FACE_INSET: f32 = {:?};\nconst LIQUID_TOP_INSET_BIT: u32 = {}u;\nconst LIQUID_DEPTH_WRITE_BIT: u32 = {}u;\nconst LIQUID_TWO_SIDED_BIT: u32 = {}u;",
+            meshing::liquid::LIQUID_FACE_INSET,
+            meshing::liquid::LIQUID_TOP_INSET_BIT,
+            meshing::liquid::LIQUID_DEPTH_WRITE_BIT,
+            meshing::liquid::LIQUID_TWO_SIDED_BIT,
+        ))
         .replace(
             "// ACTOR_SHADE_CONSTANTS",
             &format!(

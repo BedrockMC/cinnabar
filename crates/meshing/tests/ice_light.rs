@@ -26,9 +26,9 @@ impl LightBlockAccess for Shoreline {
     }
 }
 
-/// Current constructors 071305c0 / 08723f10 and getter 0365cdf0:
-/// exposed ice passes direct sky, sheltered ice accepts sideways sky, and
-/// the contents below are still lit. Packed ice deliberately blocks both.
+/// Final registrations 0dcae2a6 / 0dceb39c and getter 0365cdf0:
+/// transparent ice filters three sky levels, including sheltered sideways
+/// light; its background remains lit. Packed ice deliberately blocks both.
 #[test]
 fn shipped_ice_lights_its_interior_and_background_under_a_sand_ledge() {
     let breg = include_bytes!("../../assets/data/block-registry-v2193.bin");
@@ -71,10 +71,10 @@ fn shipped_ice_lights_its_interior_and_background_under_a_sand_ledge() {
             "minecraft:ice" | "minecraft:frosted_ice"
         );
         for (position, expected) in [
-            ([0, 1, 0], if transparent { 15 } else { 0 }),
-            ([1, 1, 0], if transparent { 14 } else { 0 }),
-            ([0, 0, 0], if transparent { 15 } else { 0 }),
-            ([1, 0, 0], if transparent { 14 } else { 0 }),
+            ([0, 1, 0], if transparent { 12 } else { 0 }),
+            ([1, 1, 0], if transparent { 9 } else { 0 }),
+            ([0, 0, 0], if transparent { 11 } else { 0 }),
+            ([1, 0, 0], if transparent { 10 } else { 0 }),
         ] {
             assert_eq!(
                 output.read_light(0, position.into(), LightChannel::Sky),

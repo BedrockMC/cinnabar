@@ -9,9 +9,11 @@ mod tests;
 pub(in crate::chunk) use command::DrawMixedTerrainCommands;
 use plan::{MixedTerrainSegment, merge_faces};
 
-// Host safety policy, not a vanilla constant. Pathological alternating streams
-// retain the old bounded fallback; that case is an explicitly open parity gate.
-const MAX_MIXED_TERRAIN_SEGMENTS_PER_FRAME: usize = 4_096;
+// A plan cannot have more segments than its admitted face references. The old
+// independent 4096 cap was reached by ordinary ice/water views and incorrectly
+// switched them to separate, non-interleaved draws. Keep the existing bounded
+// reference-work admission rather than a smaller, order-corrupting draw cap.
+const MAX_MIXED_TERRAIN_SEGMENTS_PER_FRAME: usize = DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME;
 const DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -91,6 +91,8 @@ pub const MODEL_TEMPLATE_FLAG_GATE_AXIS_Z: u32 = 1 << 8;
 pub const MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE: u32 = 1 << 9;
 /// Floor-anchored snow cuboid whose touching sides use height-aware occlusion.
 pub const MODEL_TEMPLATE_FLAG_SNOW_LAYER: u32 = 1 << 10;
+/// Native lily-pad planes use positional quarter turns and own-cell flat light.
+pub const MODEL_TEMPLATE_FLAG_LILY_PAD: u32 = 1 << 11;
 
 pub(crate) fn transparent_cube_quad_geometry_is_valid(
     index: usize,
@@ -121,6 +123,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
             | MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
             | MODEL_TEMPLATE_FLAG_SNOW_LAYER
+            | MODEL_TEMPLATE_FLAG_LILY_PAD
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

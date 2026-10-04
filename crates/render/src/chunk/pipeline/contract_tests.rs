@@ -48,6 +48,14 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
                 assert_eq!(descriptor.multisample.count, msaa.samples());
                 assert_eq!(descriptor.primitive.cull_mode, None);
+                assert_eq!(
+                    descriptor.primitive.front_face,
+                    if shader == LIQUID_SHADER_HANDLE {
+                        bevy::render::render_resource::FrontFace::Cw
+                    } else {
+                        bevy::render::render_resource::FrontFace::Ccw
+                    }
+                );
                 assert_eq!(descriptor.vertex.shader, shader);
                 let fragment_state = descriptor.fragment.as_ref().unwrap();
                 assert_eq!(fragment_state.shader, shader);
@@ -81,9 +89,17 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                     colour.format,
                     if hdr {
                         ViewTarget::TEXTURE_FORMAT_HDR
+                    } else if blended && msaa == Msaa::Off {
+                        TextureFormat::bevy_default().remove_srgb_suffix()
                     } else {
                         TextureFormat::bevy_default()
                     }
+                );
+                assert_eq!(
+                    fragment_state
+                        .shader_defs
+                        .contains(&"NATIVE_GAMMA_BLEND".into()),
+                    blended && !hdr && msaa == Msaa::Off
                 );
                 assert_eq!(colour.blend, blended.then_some(BlendState::ALPHA_BLENDING));
                 assert_eq!(
