@@ -12,19 +12,19 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        // Owned cubeless skeleton, deliberately different from the native player model.
+        // Owned cubeless fixture with the pinned native player's joint pivots.
         let skin = assets::parse_skin_geometry(
             r#"{"geometry":{"default":"geometry.emote_test"}}"#,
             r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{
                 "identifier":"geometry.emote_test","texture_width":16,"texture_height":16},"bones":[
                 {"name":"root","pivot":[0,0,0]},
-                {"name":"waist","parent":"root","pivot":[0,11,0]},
-                {"name":"body","parent":"waist","pivot":[0,22,0]},
+                {"name":"waist","parent":"root","pivot":[0,12,0]},
+                {"name":"body","parent":"waist","pivot":[0,24,0]},
                 {"name":"head","parent":"body","pivot":[0,24,0]},
-                {"name":"leftArm","parent":"body","pivot":[4,20,0]},
-                {"name":"rightArm","parent":"body","pivot":[-4,20,0]},
-                {"name":"leftLeg","parent":"root","pivot":[2,11,0]},
-                {"name":"rightLeg","parent":"root","pivot":[-2,11,0]},
+                {"name":"leftArm","parent":"body","pivot":[5,22,0]},
+                {"name":"rightArm","parent":"body","pivot":[-5,22,0]},
+                {"name":"leftLeg","parent":"root","pivot":[1.9,12,0]},
+                {"name":"rightLeg","parent":"root","pivot":[-1.9,12,0]},
                 {"name":"coat","parent":"body","pivot":[0,18,0]}]}]}"#,
         )
         .unwrap()
@@ -79,6 +79,80 @@ impl Fixture {
             .iter()
             .position(|part| part.as_ref() == name)
             .unwrap()
+    }
+}
+
+fn point(bone: BoneTransform, relative: [f32; 3]) -> [f32; 3] {
+    let rotated = rotate_vector(bone.rotation, relative);
+    std::array::from_fn(|axis| bone.translation_scale[axis] + rotated[axis])
+}
+
+fn near(a: [f32; 3], b: [f32; 3]) {
+    for axis in 0..3 {
+        assert!((a[axis] - b[axis]).abs() < 1e-4, "{a:?} != {b:?}");
+    }
+}
+
+#[test]
+fn owned_custom_emote_deep_squat_keeps_feet_and_attached_level_head() {
+    let f = Fixture::new();
+    let period = CustomEmote::Twerk.duration_seconds();
+    let mut heights = Vec::new();
+    for phase in [0.0, period / 4.0, period / 2.0, 3.0 * period / 4.0, period] {
+        let pose = sample(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
+        let body = pose.current[f.index("body")];
+        let hips = point(body, [0.0, -12.0, 0.0]);
+        assert!(hips[1] < 8.0, "the squat must lower the hips substantially");
+        near(hips, point(pose.current[f.index("waist")], [0.0; 3]));
+        let head = pose.current[f.index("head")];
+        near(point(body, [0.0; 3]), point(head, [0.0; 3]));
+        near(
+            rotate_vector(head.rotation, [0.0, 1.0, 0.0]),
+            [0.0, 1.0, 0.0],
+        );
+        heights.push(head.translation_scale[1]);
+        for name in ["leftleg", "rightleg"] {
+            let foot = point(pose.current[f.index(name)], [0.0, -12.0, 0.0]);
+            assert!(foot[1].abs() < 1e-4 && foot[2].abs() < 1e-4, "{foot:?}");
+            assert!(foot[0].abs() > 3.0, "feet must form a wide stance");
+        }
+        for (name, x) in [("leftarm", -5.0), ("rightarm", 5.0)] {
+            near(
+                point(body, [x, -2.0, 0.0]),
+                point(pose.current[f.index(name)], [0.0; 3]),
+            );
+        }
+    }
+    assert!(
+        heights[0] < heights[2] - 1.0,
+        "hip pulse must move the torso"
+    );
+    assert_eq!(heights[0], heights[4]);
+}
+
+#[test]
+fn owned_custom_emote_flat_biped_matches_native_hierarchy_and_clothing() {
+    let f = Fixture::new();
+    let mut flat = (*f.skin).clone();
+    for bone in &mut flat.bones {
+        if matches!(bone.name.as_ref(), "body" | "head" | "leftArm" | "rightArm") {
+            bone.parent = Some("root".into());
+        }
+    }
+    let flat = Fixture::from_skin(flat);
+    let period = CustomEmote::Twerk.duration_seconds();
+    for phase in [0.0, period / 4.0, period / 2.0] {
+        let native = sample(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
+        let other = sample(&flat.rig(), CustomEmote::Twerk, phase, phase).unwrap();
+        for name in &f.names {
+            let a = native.current[f.index(name)];
+            let b = other.current[flat.index(name)];
+            near(point(a, [0.0; 3]), point(b, [0.0; 3]));
+            near(
+                rotate_vector(a.rotation, [0.0, 1.0, 0.0]),
+                rotate_vector(b.rotation, [0.0, 1.0, 0.0]),
+            );
+        }
     }
 }
 

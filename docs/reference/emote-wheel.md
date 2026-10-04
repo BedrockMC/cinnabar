@@ -45,6 +45,13 @@ The listing identifies a repeating dance that stops on movement. The shared
 custom catalog owns its loop period, identifier and label; no Lunar animation
 files or Marketplace entitlement identifiers are included.
 
+The revised owned clip follows the public video's sustained deep squat, wide
+stance, level head, hands beside the thighs and hip pulse. Model-space joint
+targets rotate the torso about the hips even on independent, shoulder-pivot
+skin bones; clothing still follows its actual parent hierarchy. Root Y/Z offsets
+anchor the leg bottom-face centers through the loop. Rigid tilted foot corners
+are not articulated soles, and exact visual parity remains incomplete.
+
 Sampling resolves named bones in the player's actual geometry and applies
 channels before skeleton composition. Body, clothing/persona layers and armor
 share that pose. The native first-person hand and other actors keep their normal
@@ -68,6 +75,8 @@ tests cover saved slots/bindings, skeleton/clothing sampling, native wheel/equip
 rendering and radial hits, GUI player vertices, current-frame cancellation,
 same-frame input consumption, controller opening, session/focus retirement,
 and production actor publication with native hand/remote ownership preserved.
+Seven custom-animation tests pass, including native joint landmarks, foot-center
+anchoring, attached arms/head and equivalent flat-biped/clothing retargeting.
 Controller regressions also cover equipping/playing the left slot without
 retriggering the wheel opener, and closing-frame inventory consumption followed
 by fresh real drop/book actions.

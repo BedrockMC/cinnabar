@@ -1,7 +1,9 @@
 //! The owned emote channels reuse native named skeleton and hierarchy composition.
 use super::{
     RuntimeBone, geometry,
-    pose::{LocalDelta, compose_pose},
+    pose::{
+        compose_pose, compose_pose_with_targets, quat_from_euler, quat_multiply, rotate_vector,
+    },
 };
 use crate::{
     ActorRigSnapshot, BoneTransform,
@@ -95,64 +97,90 @@ fn pair(
     current: f64,
     leg_height: f32,
 ) -> Option<PosePair> {
+    let rest = compose_pose(bones, &[])?;
     let previous_time = previous;
-    let previous: Arc<[BoneTransform]> =
-        compose_pose(bones, &channels(bones, names, emote, previous, leg_height))?.into();
+    let previous: Arc<[BoneTransform]> = compose_pose_with_targets(
+        bones,
+        &[],
+        &targets(bones, names, &rest, emote, previous, leg_height),
+    )?
+    .into();
     let current = if previous_time == current {
         Arc::clone(&previous)
     } else {
-        compose_pose(bones, &channels(bones, names, emote, current, leg_height))?.into()
+        compose_pose_with_targets(
+            bones,
+            &[],
+            &targets(bones, names, &rest, emote, current, leg_height),
+        )?
+        .into()
     };
     Some((previous, current))
 }
 
-fn channels(
+fn targets(
     bones: &[RuntimeBone],
     names: &[Box<str>],
+    rest: &[BoneTransform],
     emote: CustomEmote,
     seconds: f64,
     leg_height: f32,
-) -> Vec<LocalDelta> {
+) -> Vec<Option<BoneTransform>> {
     match emote {
-        CustomEmote::Twerk => twerk_channels(bones, names, emote, seconds, leg_height),
+        CustomEmote::Twerk => twerk_targets(bones, names, rest, emote, seconds, leg_height),
     }
 }
 
-fn twerk_channels(
+fn twerk_targets(
     bones: &[RuntimeBone],
     names: &[Box<str>],
+    rest: &[BoneTransform],
     emote: CustomEmote,
     seconds: f64,
     leg_height: f32,
-) -> Vec<LocalDelta> {
+) -> Vec<Option<BoneTransform>> {
     let angle = (seconds.rem_euclid(emote.duration_seconds()) / emote.duration_seconds()
         * std::f64::consts::TAU) as f32;
-    let wave = angle.sin();
-    let leg_pitch = 22.0 + 6.0 * wave;
-    let spread = 20.0_f32;
+    // Owned clip from the public video: a sustained deep squat, level head and
+    // hands beside the thighs, with a hip pulse instead of a standing side sway.
+    let wave = angle.cos();
+    let leg_pitch = 52.0 + 4.0 * wave;
+    let lean = 46.0 + 7.0 * wave;
+    let spread = 15.0_f32;
     let dip = leg_height * (1.0 - leg_pitch.to_radians().cos() * spread.to_radians().cos());
-    let waist = names.iter().any(|name| name.as_ref() == "waist");
+    // Keep the leg bottom-face centers fixed in Y/Z throughout the pulse.
+    let offset = [0.0, -dip, leg_height * leg_pitch.to_radians().sin()];
+    let hips = [0.0, leg_height, 0.0];
+    let torso = quat_from_euler([-lean, 0.0, 0.0]);
     bones
         .iter()
         .zip(names)
-        .map(|(bone, name)| {
-            let mut local = LocalDelta::default();
-            if bone.parent.is_none() {
-                local.translation[1] = -dip;
+        .zip(rest)
+        .map(|((bone, name), rest)| {
+            let (rotation, tilt_position) = match name.as_ref() {
+                "waist" | "body" => (torso, true),
+                "head" => ([0.0, 0.0, 0.0, 1.0], true),
+                "leftarm" => (quat_from_euler([-8.0, 0.0, -3.0]), true),
+                "rightarm" => (quat_from_euler([-8.0, 0.0, 3.0]), true),
+                "leftleg" => (quat_from_euler([leg_pitch, 0.0, -spread]), false),
+                "rightleg" => (quat_from_euler([leg_pitch, 0.0, spread]), false),
+                _ if bone.parent.is_none() => ([0.0, 0.0, 0.0, 1.0], false),
+                _ => return None,
+            };
+            let pivot: [f32; 3] = std::array::from_fn(|axis| rest.translation_scale[axis]);
+            let pivot = if tilt_position {
+                let relative = std::array::from_fn(|axis| pivot[axis] - hips[axis]);
+                let rotated = rotate_vector(torso, relative);
+                std::array::from_fn(|axis| hips[axis] + rotated[axis])
+            } else {
+                pivot
+            };
+            let mut target = *rest;
+            target.rotation = quat_multiply(rotation, rest.rotation);
+            for axis in 0..3 {
+                target.translation_scale[axis] = pivot[axis] + offset[axis];
             }
-            match name.as_ref() {
-                "waist" => local.rotation = [30.0 + 8.0 * wave, 4.0 * angle.cos(), 2.0 * wave],
-                "body" if !waist => {
-                    local.rotation = [30.0 + 8.0 * wave, 4.0 * angle.cos(), 2.0 * wave]
-                }
-                "head" => local.rotation = [-14.0, 0.0, 0.0],
-                "leftarm" => local.rotation = [-28.0 - 5.0 * wave, 0.0, -8.0],
-                "rightarm" => local.rotation = [-28.0 - 5.0 * wave, 0.0, 8.0],
-                "leftleg" => local.rotation = [-leg_pitch, 0.0, -spread],
-                "rightleg" => local.rotation = [-leg_pitch, 0.0, spread],
-                _ => {}
-            }
-            local
+            Some(target)
         })
         .collect()
 }
