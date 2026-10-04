@@ -1,14 +1,19 @@
 # Builds the Windows payload, MSI and self-contained setup EXE. Requires WiX v5,
 # WixToolset.BootstrapperApplications.wixext v5, and ImageMagick.
 # Usage: build-installer.ps1 [-Out <dir>]. Env: CINNABAR_UPDATE_URL (optional).
-param([string]$Out = ".local/dist/windows-release", [string]$Binaries = "")
+param([string]$Out = ".local/dist/windows-release", [string]$Binaries = "",
+      [string]$Root = (Join-Path $PSScriptRoot "../.."))
 $ErrorActionPreference = "Stop"
-$root = Resolve-Path (Join-Path $PSScriptRoot "../..")
+$root = (Resolve-Path -LiteralPath $Root).Path
 $release = if ($Binaries) { (Resolve-Path -LiteralPath $Binaries).Path } else { Join-Path $root "target/release" }
 foreach ($name in "bedrock-client.exe", "bedrock-core.exe", "bedrock-local-server.exe", "assetc.exe") {
     if (-not (Test-Path (Join-Path $release $name))) { throw "missing $release\$name; run make package-binaries" }
 }
-$version = (Select-String -Path (Join-Path $root "Cargo.toml") -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+$manifest = Get-Content -LiteralPath (Join-Path $root "Cargo.toml") -Raw
+$workspace = [regex]::Match($manifest, '(?ms)^\[workspace\.package\]\s*\r?\n(.*?)(?=^\[|\z)')
+$versionMatch = [regex]::Match($workspace.Groups[1].Value, '(?m)^\s*version\s*=\s*"([^"]+)"')
+if (-not $versionMatch.Success) { throw "missing workspace.package.version in source Cargo.toml" }
+$version = $versionMatch.Groups[1].Value
 
 $outPath = [IO.Path]::GetFullPath($Out)
 New-Item -ItemType Directory -Force $outPath | Out-Null

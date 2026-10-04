@@ -18,7 +18,8 @@ import subprocess
 import sys
 
 
-ROOT = Path(__file__).resolve().parents[1]
+TOOLING = Path(__file__).resolve().parent
+ROOT = Path(os.environ.get("CINNABAR_SOURCE_ROOT", TOOLING.parent)).resolve()
 TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 
@@ -42,7 +43,7 @@ def git(*args: str, check: bool = True) -> str:
 
 
 def version(kind: str = "current", dry_run: bool = False) -> str:
-    args = [sys.executable, str(ROOT / "packaging/bump-version.py"), kind]
+    args = [sys.executable, str(TOOLING / "bump-version.py"), kind, "--root", str(ROOT)]
     if kind == "custom":
         args.extend(["--version", os.environ.get("CUSTOM_VERSION", "")])
     if dry_run:

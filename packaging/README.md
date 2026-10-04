@@ -33,6 +33,10 @@ commit, and the final job publishes the installers as a stable release rather th
 For `custom`, fill **version** with a greater plain semantic version such as `1.4.2` (no `v`
 prefix or prerelease suffix). Patch increments the last component; minor and major reset lower
 components to zero. Repository-wide release tags must be unique across branches.
+Release tooling and logos come from the exact revision of the selected workflow; the target
+branch is checked out separately for its source, binaries, manifests and assets. An older target
+branch therefore needs no copy of the new release or setup scripts. Select a workflow revision
+with these controls in **Use workflow from**, then enter the source branch in **branch**.
 
 An unsuccessful build leaves its tag unpublished. Re-run the failed jobs, or select `current`
 while that tag still points at the selected branch's HEAD, to finish it. Repeating the same custom
