@@ -4255,3 +4255,9 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+# Optional cloud texture safety
+
+Optional resource-pack cloud masks outside the current mesher's fixed dimensions
+retain the startup cloud texture instead of panicking during live application.
+Other supported pack textures still apply. High-resolution pack clouds remain
+incomplete; this fallback does not close the native cloud parity gate.
