@@ -3,6 +3,9 @@
 The inventory's `common.hover_text` custom control is rendered by retained JSON-UI
 nodes. It does not introduce a second UI renderer or embed Mojang artwork.
 
+The name line shares its resolution and native custom-name formatting with the
+selected-item HUD; see [Stack display names](item-display-names.md).
+
 ## Matched sources
 
 
