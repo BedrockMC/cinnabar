@@ -188,6 +188,7 @@ else:
                         EVENT_NAME="workflow_dispatch", DEFAULT_BRANCH="main", BUMP="current",
                         GITHUB_REF="refs/heads/main", GITHUB_SHA=self.initial,
                         GITHUB_REPOSITORY="fixture/cinnabar", GITHUB_OUTPUT=str(self.output),
+                        CINNABAR_SOURCE_ROOT=str(self.root),
                         FAKE_GH_LOG=str(self.log), FAKE_RELEASES="", FAKE_GH_ERROR="")
         self.env.pop("RELEASE_TAG", None)
 
@@ -252,6 +253,20 @@ else:
         self.assertIn(current + "\trefs/heads/release/candidate", self.refs())
         self.assertIn(self.initial + "\trefs/heads/main", self.refs())
         self.assertEqual(self.outputs()["version"], "1.3.0")
+
+    def test_control_tools_release_old_branch_without_packaging_scripts(self):
+        tooling = self.directory / "release-tools"
+        shutil.copytree(self.root / "packaging", tooling)
+        self.git("checkout", "-b", "old/branch")
+        self.git("rm", "-r", "packaging")
+        self.git("commit", "-m", "Old source without release tooling")
+        self.git("push", "origin", "old/branch")
+        env = dict(self.env, TARGET_BRANCH="old/branch", BUMP="custom", CUSTOM_VERSION="4.5.6")
+        run(sys.executable, str(tooling / "prepare-release.py"), cwd=self.root, env=env)
+        self.assertEqual(self.outputs()["version"], "4.5.6")
+        self.assertFalse((self.root / "packaging").exists())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertIn(self.initial + "\trefs/heads/main", self.refs())
 
     def test_custom_release_recovers_exact_unpublished_version(self):
         self.prepare(BUMP="custom", CUSTOM_VERSION="3.4.5")

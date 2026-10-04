@@ -20,8 +20,8 @@ class StablePublishTests(unittest.TestCase):
             root = Path(temporary)
             (root / "dist").mkdir()
             (root / "dist/installer").write_text("new")
-            (root / "packaging").mkdir()
-            (root / "packaging/release-notes.sh").write_text("exit 0\n")
+            (root / "release-tools/packaging").mkdir(parents=True)
+            (root / "release-tools/packaging/release-notes.sh").write_text("exit 0\n")
             (root / "assets").mkdir()
             (root / "assets/update-stable.json").write_text("old")
             (root / "gh").write_text('''#!/bin/bash
@@ -36,7 +36,7 @@ esac
 ''')
             (root / "gh").chmod(0o755)
             env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}",
-                       RELEASE_TAG="v-test", RUNNER_TEMP=str(root))
+                       RELEASE_TAG="v-test", RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root))
             result = subprocess.run(["bash", "-eu", "-c", script], cwd=root,
                                     env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
