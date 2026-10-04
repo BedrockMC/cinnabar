@@ -117,7 +117,7 @@ fn anchor_use_sends_click_block_success_with_the_clicked_anchor() {
             ),
         ] {
             let packets = use_packets(
-                &observed,
+                (&observed, 3_219),
                 [0.5, 65.62, 0.5],
                 trigger,
                 outcome,
@@ -143,7 +143,7 @@ fn anchor_use_sends_click_block_success_with_the_clicked_anchor() {
                 transaction.client_interact_prediction,
                 EnumsItemUseInventoryTransactionPredictedResult::Success
             );
-            assert_eq!(transaction.target_block_id, observed.target.runtime_id);
+            assert_eq!(transaction.target_block_id, 3_219);
             assert_eq!(transaction.position.x, observed.target.position[0]);
             assert_eq!(i32::from(transaction.item.id), glowstone.network_id());
             assert_eq!(transaction.item.stacksize, glowstone.count());
