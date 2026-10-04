@@ -1,4 +1,5 @@
 use super::*;
+mod gameplay;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
 fn fixture(frame: &str, text: &str) -> String {
@@ -188,6 +189,7 @@ fn environment_fixture(init: &str, frame: &str, granted: bool) -> (tempfile::Tem
         &path,
         ModGrants {
             environment: granted,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -276,4 +278,28 @@ fn default_loader_denies_environment_authority() {
     host.frame(false).unwrap();
     assert_eq!(host.time_override(), None);
     assert!(host.is_active());
+}
+
+#[test]
+fn startup_loads_companion_and_reload_keeps_current_in_memory_preferences() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("selected.component.wat");
+    let companion = path.with_extension("settings.json");
+    std::fs::write(&path, fixture("", "Initial")).unwrap();
+    std::fs::write(&companion, "{\"cps\":20}").unwrap();
+    let mut host = ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            settings: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(host.instance.settings(), "{\"cps\":20}");
+    // The pending writer may leave an older disk value while current settings are committed.
+    std::fs::write(&companion, "{\"cps\":12}").unwrap();
+    std::fs::write(&path, fixture("", "Reloaded")).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    assert_eq!(host.instance.settings(), "{\"cps\":20}");
+    assert_eq!(host.label(), Some("Reloaded"));
 }

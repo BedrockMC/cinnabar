@@ -1,4 +1,4 @@
-//! Label text through the client's own text stack: the compiled Monocraft
+//! Label text through the client's own text stack: the compiled Cinnangles Sans
 //! carrier, `ui`'s layout cache and metrics, and the engine's localization.
 //! Without a carrier, text measures with a fixed-advance fallback and paints
 //! as bars.
@@ -23,7 +23,7 @@ const FALLBACK_ADVANCE: f64 = 6.0;
 const FALLBACK_LINE: f64 = 9.0;
 
 /// The font source manifest the carrier was compiled against.
-const FONT_SOURCE_MANIFEST: &[u8] = include_bytes!("../../../assets/ui-font-source.json");
+const FONT_SOURCE_MANIFEST: &[u8] = include_bytes!("../../../assets/cinnangles-sans-source.json");
 
 pub struct Fonts {
     font: Option<CompiledFontCatalog>,
@@ -44,7 +44,7 @@ impl Default for Fonts {
 }
 
 impl Fonts {
-    /// Load a compiled font carrier built from the pinned Monocraft manifest.
+    /// Load a compiled font carrier built from the pinned Cinnangles Sans manifest.
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), String> {
         let manifest = assets::canonical_source_manifest_sha256(FONT_SOURCE_MANIFEST);
         let font = CompiledFontCatalog::decode(bytes, manifest).map_err(|e| format!("{e:?}"))?;

@@ -8,6 +8,7 @@ pub mod container_kinds;
 mod debug_overlay;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
+pub mod emote_screen;
 pub mod engine;
 pub mod experience;
 pub mod fallback;
@@ -27,6 +28,7 @@ pub mod menu_latency;
 pub mod menu_screens;
 pub mod menus;
 pub mod mod_hud;
+pub mod mod_panel;
 pub mod model;
 pub mod npc;
 pub mod oreui;
@@ -37,11 +39,13 @@ pub mod panorama;
 #[cfg(test)]
 pub mod regression_snapshots;
 pub use panorama::{built_in_faces, launcher_view};
+pub mod always_sprint_setting;
 pub mod enhanced_setting;
 pub mod graphics_expander;
 #[cfg(test)]
 pub mod play_flow_snapshots;
 pub mod play_screen;
+mod player_list;
 pub mod recipe_book;
 pub mod remote_images;
 pub mod scene_policy;
@@ -71,6 +75,7 @@ pub mod toast_screen;
 
 pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
+pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
 pub use menu_screens::menu_reference;
 pub use npc::NPC_SCREEN;
@@ -112,6 +117,8 @@ pub(super) struct FormPresentation {
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
+    player_list: Option<player_list::PlayerList>,
+    mod_panel: Option<mod_panel::ModPanel>,
     experience: Option<experience::ExperienceChrome>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
@@ -123,6 +130,7 @@ pub(super) struct FormPresentation {
     menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
+    emote: emote_screen::EmoteScreen,
     /// The bed screen's hits and pointer; carried across the per-frame reset.
     bed: oreui::BedScreen,
     /// The sign editor's cached screen; carried across the per-frame reset.
@@ -422,12 +430,15 @@ impl UiPresentationRuntime {
             logged: state.logged,
             hud: state.hud,
             mod_hud: state.mod_hud,
+            player_list: state.player_list,
+            mod_panel: state.mod_panel,
             experience: state.experience,
             container_cache: state.container_cache,
             book_cache: state.book_cache,
             ready_menu: state.ready_menu,
             menu_caret: state.menu_caret,
             chat: state.chat,
+            emote: state.emote,
             bed: state.bed,
             sign: state.sign,
             oreui_originals: state.oreui_originals,
@@ -570,6 +581,8 @@ impl UiPresentationRuntime {
 pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
     [
         SIGN_SCREEN,
+        EMOTE_SCREEN,
+        EMOTE_EQUIP_POPUP,
         NPC_SCREEN,
         toast_screen::TOAST_SCREEN,
         crate::store::SDL_SCREEN,

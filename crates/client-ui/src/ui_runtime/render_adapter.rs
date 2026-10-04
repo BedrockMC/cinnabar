@@ -72,6 +72,7 @@ pub fn adapt_ui_draw_list(
                     },
                 alpha_cutoff: vertex.alpha_cutoff,
                 model_light: vertex.model_light,
+                overlay_color: vertex.overlay_color,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -199,6 +200,7 @@ mod tests {
                     alpha_test: false,
                     alpha_cutoff: -1.0,
                     model_light: 1.0,
+                    overlay_color: [0.0; 4],
                 })
                 .collect(),
             indices: vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7],
@@ -330,6 +332,7 @@ mod tests {
                     style_flags: 0,
                     alpha_test: false,
                     model_light: 0.718_629,
+                    overlay_color: [0.8, 0.248_176, 0.0, 0.7],
                 })
                 .into(),
             vec![0, 1, 2].into(),
@@ -375,6 +378,7 @@ mod tests {
         assert_eq!(input.vertices[0].clip_z, 0.75);
         assert_eq!(input.vertices[0].clip_w, 2.0);
         assert_eq!(input.vertices[0].alpha_cutoff, 0.1);
+        assert_eq!(input.vertices[0].overlay_color, [0.8, 0.248_176, 0.0, 0.7]);
         assert_eq!(input.vertices[0].uv, [8.5, 4.5]);
         assert_eq!(
             input.vertices[0].model_light.to_bits(),

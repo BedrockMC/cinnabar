@@ -15,7 +15,7 @@ use crate::{
     MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS,
     MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
     MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
@@ -403,7 +403,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                    | MODEL_TEMPLATE_FLAG_FIRE);
             if connected_flag != 0 {
                 let Some(base_index) = connected_bases.iter().position(|&(base, flag)| {
                     base == visual.model_template as usize && flag == connected_flag
@@ -641,6 +642,19 @@ fn compiled_connected_bases(
             }
             bases.push((index, flag));
             index += 17;
+        } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
+            let Some(group) = templates.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            else {
+                return Err(invalid("fire template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, template)| {
+                template.flags != flag
+                    || template.quad_count != crate::fire_template_quad_count(offset as u32)
+            }) {
+                return Err(invalid("fire template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += crate::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }

@@ -41,6 +41,7 @@ pub struct ControlObservation {
     pub sneak_pressed: bool,
     pub sneak_held: bool,
     pub toggle_sprint: bool,
+    pub always_sprint: bool,
     pub toggle_sneak: bool,
     /// Something external forbids sprinting (hunger, item use, blindness).
     pub sprint_blocked: bool,
@@ -61,6 +62,7 @@ pub struct ControlOutput {
 pub struct ControlModes {
     sprinting: bool,
     sprint_toggled: bool,
+    was_always_sprint: bool,
     sneak_toggled: bool,
     was_moving_forward: bool,
     last_forward_press: Option<Duration>,
@@ -108,6 +110,11 @@ impl ControlModes {
             observed.sneak_held
         };
 
+        if self.was_always_sprint && !observed.always_sprint && !observed.retain_sprint {
+            self.sprinting = false;
+        }
+        self.was_always_sprint = observed.always_sprint;
+
         if observed.toggle_sprint {
             if observed.sprint_pressed {
                 self.sprint_toggled = !self.sprint_toggled;
@@ -125,7 +132,8 @@ impl ControlModes {
             if !observed.retain_sprint {
                 self.sprinting = false;
             }
-        } else if (observed.sprint_held && !observed.toggle_sprint)
+        } else if observed.always_sprint
+            || (observed.sprint_held && !observed.toggle_sprint)
             || double_tap
             || self.sprint_toggled
         {

@@ -40,6 +40,7 @@ mod present_mode;
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
+mod screen_fire;
 mod screen_overlay;
 mod screen_overlay_render;
 mod shader_safety;
@@ -170,6 +171,7 @@ pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
 };
+pub use screen_fire::ScreenFireTexture;
 pub use screen_overlay::{
     MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayKind, ScreenOverlayLayer,
     ScreenOverlayScene, ScreenOverlayTextures,

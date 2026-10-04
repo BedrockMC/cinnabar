@@ -52,6 +52,47 @@ depth/layering, scaling, colors, and the relevant live input/focus behavior, and
 must record the tested platform and visible result. If the target-platform pass
 cannot be performed, keep the change local and say it is not cleared to push.
 
+## Frame budgets
+
+Release gates are 120 Hz on the reference M3 Pro (1920×1080, 12-chunk radius) and 60 Hz on a
+low-end laptop (i5-8250U, UHD 620, 8 GB dual-channel, SSD; 1280×720, 8-chunk radius), with a
+separate 240 Hz tier. Medians and p99s in milliseconds:
+
+| Tier | Main CPU | Render CPU | GPU | Hard hitch |
+|---|---:|---:|---:|---:|
+| M3 Pro, 120 Hz | 2 / 4 | 2 / 4 | 4 / 6 | ≥ 16.67 |
+| Low-end, 60 Hz | 4 / 8 | 4 / 8 | 8 / 12 | ≥ 33.33 |
+| M3 Pro, 240 Hz | 1 / 2 | 1 / 2 | 2 / 3 | ≥ 8.33 |
+
+Other refresh rates scale the 120 Hz row by 120/H. The stages overlap in the pipeline: each must
+fit its own budget, and they are never summed. CPU time excludes intentional pacing waits. Lower
+hardware gets lower resolution or view distance, never permission to stutter.
+
+- **Hitches.** With T = 1000/H, a displayed interval over 1.5T is a hitch and one of 2T or more is
+  a hard hitch. Qualification captures allow zero hitches caused by our code; p99 grants no 1%
+  allowance. First-use shader or pipeline compilation during play is a defect: compile while
+  loading or before the object becomes visible. OS preemption is excluded only with scheduler
+  evidence. Every unexplained hitch gets a trace.
+- **Streaming.** Sustain 128 blocks/s flight (a chunk boundary every 125 ms) with 32 blocks of
+  ready terrain beyond the visible edge. Chunk request to render-ready, including GPU upload,
+  must stay at or under 125 ms p99, and a complete payload to render-ready at or under 50 ms p99,
+  with zero missed visibility deadlines and processing capacity of twice the arrival rate. Record
+  server starvation separately.
+- **Joins.** With authentication and packs cached, on a LAN server, Join click to the first
+  controllable frame with complete visible terrain takes 500 ms median and 1 s p99 on the M3 Pro,
+  and 1 s and 2 s on the low-end tier. With an empty shader cache: 4 s and 8 s p99.
+- **Captures.** Use a pinned replay of a 30-player lobby with signs, heads and banners, plus a
+  terrain-streaming route, plugged in after thermal stabilisation. Take three 120 s runs per
+  build, with cold-cache runs kept separate, capturing every frame, GPU timestamps, presentation
+  intervals and thread waits. Report p50, p99, maximum, deadline misses and hitch counts.
+- **CI.** Assert work, never milliseconds. A warm, unchanged input does zero attributable heap
+  allocations, geometry or text rebuilds, pipeline creations and redundant upload bytes. A change
+  rebuilds only its dependents, once per object per publication. Streaming queues stay bounded,
+  obsolete work is cancelled, and no chunk version is processed twice.
+- **Slow-frame trigger.** The target is 1.1T plus per-stage budget violations: 9.17 ms at 120 Hz
+  and 18.33 ms at 60 Hz. Text is rate-limited, and every event is kept in bounded telemetry. The
+  current `RUST_MCBE_SLOW_FRAME` still uses a fixed 20 ms.
+
 ## Native and performance evidence
 
 Use native Bedrock/BDS comparison when it decides a contract or closes an explicit
@@ -60,8 +101,7 @@ exact protocol fixtures over visual guesswork. Perform live acceptance only from
 firewall-approved paths above, after integration and a build at the canonical path.
 Batch equivalent captures and reuse an authoritative existing witness when it covers
 the same version, state product, camera, geometry, material, and behavior question.
-Performance claims require measured release evidence against the stated `plan.md`
-budgets; a debug screenshot, small test scene, or green unit suite is not
+Performance claims require measured release evidence against the budgets below; a debug screenshot, small test scene, or green unit suite is not
 performance acceptance.
 
 For main-thread attribution, set `RUST_MCBE_STAGE_PROFILE=1` only on an

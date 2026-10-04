@@ -13,6 +13,7 @@ use crate::tree::ResolvedControl;
 
 mod dispatch;
 mod edit;
+mod selection_wheel;
 mod slider;
 mod sound;
 mod toggle;
@@ -20,6 +21,8 @@ mod toggle;
 pub(crate) use dispatch::CARET_PROPERTY;
 pub use dispatch::{ButtonInput, Dispatch, Dispatcher, PointerInput};
 pub use edit::{CARET_BLINK_SECONDS, CARET_GLYPH, EditMeta, TextEdit, TextType};
+pub use selection_wheel::SelectionWheelMeta;
+pub(crate) use selection_wheel::visibility as wheel_visibility;
 pub(crate) use slider::SELECTED_PROPERTY as SLIDER_BOX_SELECTED;
 pub(crate) use slider::step_marks as slider_step_marks;
 pub use slider::{SliderManager, SliderMeta};
@@ -212,6 +215,7 @@ pub struct Widget {
     pub toggle: Option<ToggleMeta>,
     pub slider: Option<SliderMeta>,
     pub edit: Option<EditMeta>,
+    pub selection_wheel: Option<SelectionWheelMeta>,
     pub toggle_manager: Option<ToggleManager>,
     pub slider_manager: Option<SliderManager>,
     pub sounds: Option<SoundMeta>,
@@ -229,6 +233,7 @@ impl Widget {
             toggle: matches!(kind, "toggle" | "dropdown").then(|| ToggleMeta::read(control)),
             slider: (kind == "slider").then(|| SliderMeta::read(control)),
             edit: (kind == "edit_box").then(|| EditMeta::read(node)),
+            selection_wheel: (kind == "selection_wheel").then(|| SelectionWheelMeta::read(control)),
             toggle_manager: ToggleManager::read(control),
             slider_manager: SliderManager::read(control),
             sounds: SoundMeta::read(control, matches!(kind, "button" | "toggle" | "dropdown")),

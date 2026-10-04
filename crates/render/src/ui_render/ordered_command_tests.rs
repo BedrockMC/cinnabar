@@ -204,6 +204,7 @@ fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
         style_flags: 0,
         alpha_cutoff: -1.0,
         model_light: 1.0,
+        overlay_color: [0.0; 4],
     };
     let mut input = UiRenderInput {
         revision: 1,

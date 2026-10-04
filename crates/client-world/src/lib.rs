@@ -2,12 +2,14 @@ mod action;
 mod actor_animation;
 mod actor_store;
 mod block_entity_visuals;
+pub mod custom_emotes;
 pub mod game_mode_capabilities;
 pub mod ingestion;
 mod item;
 mod local_player_facts;
 pub mod server_position;
 
+pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
 pub use local_player_facts::{LocalPlayerFacts, LocalPlayerStat};
 
 pub use action::{
@@ -25,10 +27,10 @@ pub use actor_animation::{
 pub use actor_store::{
     ActorFluidProbe, ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice,
     BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DroppedItemView,
-    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed,
-    MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS,
-    PlayerProfile, PropertyDefault, RideSeat, RopeKind, RopeView, SeatDefaults, SeatRequirement,
-    dropped_item_copy_count, tnt_presentation,
+    FIRE_FADE_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse,
+    LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate,
+    PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault, RideSeat, RopeKind, RopeView,
+    SeatDefaults, SeatRequirement, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,

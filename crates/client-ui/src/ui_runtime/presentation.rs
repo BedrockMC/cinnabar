@@ -576,6 +576,14 @@ impl UiPresentationRuntime {
                     )?;
                     if !crosshair {
                         self.append_mod_hud(player_runtime, runtime, nodes, next, metrics, content);
+                        self.append_player_list(
+                            player_runtime,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                        )?;
                     }
                 }
                 Scene::Bed => {
@@ -603,6 +611,9 @@ impl UiPresentationRuntime {
                 }
                 Scene::Chat => {
                     self.append_chat_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
+                Scene::Emote => {
+                    self.append_emote_screen(runtime, nodes, next, metrics, content, now_millis)?;
                 }
                 Scene::Loading => {
                     if let Some(stage) = self.loading_stage {
@@ -656,6 +667,9 @@ impl UiPresentationRuntime {
         if !scenes.contains(&Scene::Chat) {
             self.close_chat_screen();
         }
+        if !scenes.contains(&Scene::Emote) {
+            self.close_emote_screen();
+        }
         if !scenes.contains(&Scene::SignEditor) {
             self.hide_sign_editor();
         }
@@ -677,6 +691,7 @@ impl UiPresentationRuntime {
             metrics,
             [content_width, content_height],
         );
+        self.append_mod_panel(runtime, &mut nodes, &mut next_id, metrics, content);
         if scenes.contains(&Scene::Gameplay)
             && stack
                 .scenes()

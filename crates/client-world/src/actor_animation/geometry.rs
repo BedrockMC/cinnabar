@@ -128,6 +128,7 @@ pub(super) fn resolve_binding(
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
+        view_context: None,
         rest: current.clone(),
         rest_completed_tick: 0,
         rest_reset_generation: 0,

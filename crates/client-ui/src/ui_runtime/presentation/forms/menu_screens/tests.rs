@@ -115,6 +115,47 @@ fn local_world_progress_opens_the_loading_screen_with_cancel() {
     );
 }
 
+// The bar binds `#loading_bar_percentage` as its `#clip_ratio`, so the share it keeps is the share done.
+#[test]
+fn local_world_download_bar_fills_with_the_bytes_done() {
+    let files = [
+        ("ui/_global_variables.json", "{}"),
+        (
+            "ui/_ui_defs.json",
+            r#"{"ui_defs":["ui/progress_screen.json"]}"#,
+        ),
+        (
+            "ui/progress_screen.json",
+            r##"{"namespace":"progress","world_convert_modal_progress_screen":{"type":"panel","size":[100,5],"controls":[{"fill":{"type":"image","texture":"textures/ui/experiencebarfull","clip_direction":"left","clip_pixelperfect":false,"bindings":[{"binding_name":"#loading_bar_percentage","binding_name_override":"#clip_ratio"}]}}]}}"##,
+        ),
+    ];
+    let catalog =
+        json_ui::Catalog::from_files(files.iter().map(|(path, text)| (*path, text.as_bytes())))
+            .unwrap();
+    let mut opening = view(MenuScreen::Play);
+    opening.local.progress = Some(crate::local_worlds::Progress {
+        stage: crate::local_worlds::Stage::DownloadingServer,
+        fraction: Some(0.882),
+        detail: "72.2 / 81.8 MB".to_owned(),
+    });
+    let screen = screen_data(&opening, &|_| None).unwrap();
+    let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
+        .control
+        .unwrap();
+    let library = json_ui::CatalogLibrary {
+        catalog: &catalog,
+        context: &screen.context,
+    };
+    let bound = json_ui::bind(&resolved, &screen.data, &library);
+    let env = json_ui::LayoutEnv {
+        text: &super::super::tests::FixedText,
+        textures: &super::super::tests::NoTextures,
+    };
+    let laid = json_ui::layout(&bound, [200.0, 100.0], &env);
+    let clipped = laid.children[0].clip_ratio.unwrap_or(0.0);
+    assert!((1.0 - clipped - 0.882).abs() < 1e-3, "clipped {clipped}");
+}
+
 #[test]
 fn pressed_buttons_map_to_menu_actions() {
     let pause = view(MenuScreen::Pause);

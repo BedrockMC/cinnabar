@@ -26,6 +26,7 @@ impl SettingsOptions {
         settings.controls.mouse_sensitivity =
             (self.value("keyboard_mouse_sensitivity") as f32 / 50.0).max(0.01);
         settings.controls.invert_mouse_y = self.value("keyboard_mouse_invert_y_axis") != 0;
+        settings.gameplay.always_sprint = self.value("always_sprint") != 0;
         settings.gameplay.default_perspective = match self.value("third_person") {
             1 => PerspectiveMode::ThirdPersonBack,
             2 => PerspectiveMode::ThirdPersonFront,
