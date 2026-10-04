@@ -43,6 +43,15 @@ effect pass, with runtime-loaded beam art, native endpoint interpolation, gradie
 and UV scroll. Session/dimension transitions use the actor store's existing
 lifetime clearing. No separate retained beam lifetime is introduced.
 
+Beam submission shares the non-player body's camera-centred candidate-cube
+admission (`R:LevelRendererCamera:14149`–`:14156`,
+`R:ActorRenderCandidates:32`–`:67`). It uses the interpolated crystal endpoint
+and the same render camera, including third-person camera displacement. A target
+near the camera cannot admit an out-of-range crystal. Rejected beams consume no
+effect submission capacity and generate no animated mesh or upload. Regression
+tests first reproduced the orphaned beam consuming the last scene slot, then
+verified all six cube faces, inclusive boundaries, corners and advancing ages.
+
 ## Respawn anchors
 
 The fixed block-interaction list omitted respawn anchors. A held glowstone block

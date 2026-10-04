@@ -10,9 +10,9 @@ use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog}
 use bevy::prelude::*;
 use render::{
     AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
-    BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape, CrystalBeamModel,
-    SceneClock, SignFace, SignModel, StaticItemPlacement, StaticItemPlacements,
-    crack_shape_from_template, item_frame_item_transform, matrix_rows,
+    BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape, SceneClock, SignFace,
+    SignModel, StaticItemPlacement, StaticItemPlacements, crack_shape_from_template,
+    item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
@@ -36,6 +36,9 @@ const MAX_SUBMISSIONS: usize = 4_096;
 const TICKS_PER_SECOND: f64 = 20.0;
 const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
+
+#[path = "system/crystal_beams.rs"]
+mod crystal_beams;
 
 /// Reads the optional block-entity carrier next to the world carrier; on absence or
 /// corruption logs once and returns a scene that draws nothing.
@@ -244,6 +247,7 @@ fn block_info(
 pub(crate) fn update_block_entity_scene(
     client_world: Res<ClientWorld>,
     actor_partial_tick: Res<ActorFramePartialTick>,
+    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
     ui: Res<UiRuntime>,
@@ -406,20 +410,14 @@ pub(crate) fn update_block_entity_scene(
             .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
             .map(|cue| cue.sequence)
     });
-    for beam in stream.crystal_beams(actor_partial_tick.0) {
-        if submissions.len() >= MAX_SUBMISSIONS {
-            break;
-        }
-        submissions.push(BlockEntitySubmission {
-            block: beam.target.map(|value| value as i32),
-            light: 1.0,
-            kind: BlockEntityKind::CrystalBeam(CrystalBeamModel {
-                target: beam.target,
-                crystal: beam.crystal,
-                age_ticks: beam.age_ticks,
-            }),
-        });
-    }
+    crystal_beams::submit(
+        &mut submissions,
+        stream.crystal_beams(actor_partial_tick.0),
+        camera
+            .single()
+            .ok()
+            .map(|(transform, _)| transform.translation),
+    );
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }
