@@ -85,6 +85,16 @@ The user requests latest-dev integration, no further tests and direct publicatio
 to dev. The final cadence change and integration have no new test-green claim.
 All local test services started for this feature are stopped.
 
+2026-10-04 Lifeboat server forms (compatibility acceptance passed): creation-body
+values, ordered button roles, trailing-close predicates, relative references and
+evaluated grid capacities now follow the native contracts. Descriptions and
+action/header controls render; eight minigame cards fit with the sidebar and
+without extra scroll rows. All 487 JSON-UI tests and the installed server-pack
+layout test pass. A fresh optimized macOS/Metal frame confirms the selector;
+the user tested Lifeboat and accepted the complete result for direct publication.
+See [the form evidence](docs/evidence/lifeboat-forms.md). Broader UI typography and
+performance parity remain open.
+
 2026-10-04 Lifeboat session palette repair (compatibility acceptance passed): a fresh
 join reproduces gray terrain and blocked movement with coherent carriers. The
 remote palette must omit vanilla data-driven definitions absent from StartGame;
