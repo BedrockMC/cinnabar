@@ -3,6 +3,29 @@ use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger, StorageWindow};
 
 impl PlayerInventoryLedger {
+    /// A legacy full-container descriptor can be zero/default on a server chest.
+    /// Resolve it only against the already-open generic window; zero remains a
+    /// real screen-input name everywhere else, and dynamic names stay distinct.
+    pub(super) fn storage_wire_identity(&self, identity: ContainerIdentity) -> ContainerIdentity {
+        if matches!(identity.slot_type, None | Some(0))
+            && identity.dynamic_id.is_none()
+            && self.storage.as_ref().is_some_and(|storage| {
+                identity.window_id == Some(storage.window_id)
+                    && matches!(
+                        storage.kind.open_cells(),
+                        Some(protocol::OpenCells::Generic(_))
+                    )
+            })
+        {
+            ContainerIdentity {
+                slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                ..identity
+            }
+        } else {
+            identity
+        }
+    }
+
     /// Even a predicted empty cell carries the owning request id in vanilla's
     /// sparse container. Bind both source and destination before the new write
     /// replaces that ownership.
