@@ -407,6 +407,14 @@ impl ViewNode for UiOverlayNode {
         (target, main, camera, resolution_override, layer): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
+        crate::screen_overlay_render::draw_before_hud(
+            graph.view_entity(),
+            target,
+            camera,
+            resolution_override,
+            context,
+            world,
+        );
         let (Some(gpu), Some(pipeline_cache), Some(composite)) = (
             world.get_resource::<UiGpu>(),
             world.get_resource::<PipelineCache>(),

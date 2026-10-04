@@ -128,7 +128,7 @@ pub(super) fn observe(
             let default = runtime
                 .base_font
                 .with_glyphs(&shifted(&atlas.glyphs), |_| true);
-            let named = atlas
+            let mut named: std::collections::BTreeMap<_, _> = atlas
                 .named
                 .iter()
                 .map(|(name, glyphs)| {
@@ -138,6 +138,8 @@ pub(super) fn observe(
                     )
                 })
                 .collect();
+            // Startup-only aliases keep their own pages when a server updates its glyph sheets.
+            named.extend(runtime.base_font.named_fonts().clone());
             Arc::new(default.with_named_fonts(named))
         },
     );

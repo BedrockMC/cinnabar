@@ -1,5 +1,6 @@
 // Full-screen camera overlays composited back to front in one pass.
-// Alphas, patterns and the procedural fallbacks are provisional and need native measurement.
+// Fire follows the native cube and admitted texture timeline. Other procedural
+// patterns remain provisional and need native measurement.
 
 struct Layer {
     // rgb tint, alpha
@@ -11,12 +12,18 @@ struct Layer {
 struct Overlays {
     // layer count, clock seconds, textures present (0/1), unused
     header: vec4<f32>,
+    // current frame, next frame, frame blend, fire present
+    fire: vec4<f32>,
+    // perspective ray scales X/Y
+    projection: vec4<f32>,
     layers: array<Layer, 8>,
 }
 
 @group(0) @binding(0) var<uniform> overlays: Overlays;
 @group(0) @binding(1) var overlay_textures: texture_2d_array<f32>;
 @group(0) @binding(2) var overlay_sampler: sampler;
+@group(0) @binding(3) var fire_textures: texture_2d_array<f32>;
+@group(0) @binding(4) var fire_sampler: sampler;
 
 const KIND_POWDER_SNOW: u32 = 1u;
 const KIND_FIRE: u32 = 2u;
@@ -53,6 +60,44 @@ fn value_noise(p: vec2<f32>) -> f32 {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+// Five cube faces, Y rotation 45 degrees, translation (0,-.5,0), scale .7.
+// Camera-ray intersection preserves perspective UVs and the open top.
+fn camera_fire(uv: vec2<f32>) -> vec4<f32> {
+    if overlays.fire.w < 0.5 {
+        return vec4<f32>(0.0);
+    }
+    let ray = vec3<f32>((uv.x * 2.0 - 1.0) * overlays.projection.x,
+                       (1.0 - uv.y * 2.0) * overlays.projection.y, 1.0);
+    let c = sqrt(0.5);
+    let direction = vec3<f32>(c * (ray.x - ray.z), ray.y, c * (ray.x + ray.z));
+    let origin = vec3<f32>(0.0, 0.5 / 0.7, 0.0);
+    let boundary = select(vec3<f32>(-1.0), vec3<f32>(1.0), direction >= vec3<f32>(0.0));
+    let divisor = select(vec3<f32>(1.0e-10), direction, abs(direction) > vec3<f32>(1.0e-10));
+    let exit = (boundary - origin) / divisor;
+    let t = min(min(exit.x, exit.y), exit.z);
+    let p = origin + direction * t;
+    var texture_uv: vec2<f32>;
+    if exit.y <= min(exit.x, exit.z) {
+        if direction.y > 0.0 {
+            return vec4<f32>(0.0);
+        }
+        texture_uv = vec2<f32>((p.x + 1.0) * 0.5, (1.0 - p.z) * 0.5);
+    } else if exit.x < exit.z {
+        texture_uv = vec2<f32>((p.z + 1.0) * 0.5, (1.0 - p.y) * 0.5);
+        if direction.x > 0.0 {
+            texture_uv = vec2<f32>(texture_uv.x, 1.0 - texture_uv.y);
+        }
+    } else {
+        texture_uv = vec2<f32>((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5);
+        if direction.z < 0.0 {
+            texture_uv = vec2<f32>(texture_uv.x, 1.0 - texture_uv.y);
+        }
+    }
+    let current = textureSampleLevel(fire_textures, fire_sampler, texture_uv, i32(overlays.fire.x), 0.0);
+    let next = textureSampleLevel(fire_textures, fire_sampler, texture_uv, i32(overlays.fire.y), 0.0);
+    return mix(current, next, overlays.fire.z);
+}
+
 // Returns rgb and coverage for one layer before its own alpha scale.
 fn shade(kind: u32, tint: vec3<f32>, uv: vec2<f32>, aspect: f32, clock: f32, textured: bool) -> vec4<f32> {
     let centred = uv - vec2<f32>(0.5);
@@ -61,10 +106,8 @@ fn shade(kind: u32, tint: vec3<f32>, uv: vec2<f32>, aspect: f32, clock: f32, tex
     if kind == KIND_POWDER_SNOW {
         result = vec4<f32>(tint, smoothstep(0.3, 0.75, round_r * 1.4));
     } else if kind == KIND_FIRE {
-        let flicker = value_noise(vec2<f32>(uv.x * 9.0, clock * 6.0));
-        let height = smoothstep(0.55 - 0.12 * flicker, 1.0, uv.y);
-        let flame = mix(vec3<f32>(1.0, 0.55, 0.1), vec3<f32>(1.0, 0.85, 0.3), uv.y);
-        result = vec4<f32>(flame * tint, height);
+        let flame = camera_fire(uv);
+        result = vec4<f32>(flame.rgb * tint, flame.a);
     } else if kind == KIND_PORTAL {
         let swirl = value_noise(uv * vec2<f32>(aspect, 1.0) * 6.0 + vec2<f32>(clock * 0.4, -clock * 0.3));
         let pulse = 0.55 + 0.45 * sin(clock * 2.0 + swirl * 6.0);

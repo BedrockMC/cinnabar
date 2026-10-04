@@ -34,11 +34,7 @@ impl SupportLink {
     }
 }
 
-/// The open fonts' actual shipped licenses, rather than vanilla's different font license.
+/// Attribution shown for the font bundled with the client.
 pub fn font_licenses() -> String {
-    [
-        include_str!("../../../../assets/licenses/Monocraft-OFL-1.1.txt"),
-        include_str!("../../../../assets/licenses/NotoSansCJK-OFL-1.1.txt"),
-    ]
-    .join("\n\n")
+    "Cinnangles Sans\n\nBundled with Cinnabar.".to_owned()
 }

@@ -2,7 +2,6 @@ use crate::local_player::FrozenLocalAvatarVisibility;
 use client_world::{ActorSnapshot, PlayerProfile};
 use render::{ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource};
 use render_model::ActorSkinPixels;
-use std::sync::Arc;
 
 /// Builds the simple actor render fixture used by publication tests.
 pub(crate) fn actor_render_source(
@@ -13,7 +12,7 @@ pub(crate) fn actor_render_source(
         protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
             width: skin.width,
             height: skin.height,
-            rgba8: Arc::clone(&skin.rgba8),
+            rgba8: skin.rgba8.clone(),
         }),
         protocol::PlayerSkin::Unavailable(_) => None,
     });

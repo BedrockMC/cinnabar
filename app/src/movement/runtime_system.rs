@@ -96,6 +96,7 @@ pub(crate) fn advance_local_physics(
             sprint: input.phase(Action::Sprint),
             sneak: input.phase(Action::Sneak),
             toggle_sprint: gameplay.toggle_sprint,
+            always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
             toggle_sneak: gameplay.toggle_sneak,
             facts,
             item_use_modifier: item_use

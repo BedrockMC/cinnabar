@@ -6,10 +6,36 @@ interface hud {
     set-label: func(text: string) -> result<_, string>;
 }
 
-/// A single local demo action, delivered only while gameplay owns input.
+/// An opt-in retained settings panel, rendered and hit-tested by the host.
+interface panel {
+    record event { id: string, value: f32 }
+    /// Bounded panel JSON; empty text removes the panel and releases its input.
+    set-content: func(json: string) -> result<_, string>;
+}
+
+/// Settings belong to the selected component's fixed companion file.
+interface settings {
+    load: func() -> result<string, string>;
+    /// Stages bounded JSON for persistence after a successful callback.
+    save: func(json: string) -> result<_, string>;
+}
+
+/// Local control edges, available only with explicit controls authority.
 interface input {
+    use panel.{event};
+    record controls {
+        seconds: f32,
+        focused: bool,
+        gameplay: bool,
+        panel-open: bool,
+        keys-pressed: list<string>,
+        events: list<event>,
+    }
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
+    read-controls: func() -> result<controls, string>;
+    /// Physical key names reserved before the ordinary gameplay router samples them.
+    reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
 
 /// Local presentation only; no world mutation or outbound packets.
@@ -18,11 +44,40 @@ interface environment {
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
 }
 
+/// Explicit local gameplay capabilities; no world mutation or packet access.
+interface gameplay {
+    record vector3 { x: f32, y: f32, z: f32 }
+    /// Remote player feet in world coordinates, without names or network access.
+    record player { runtime-id: u64, position: vector3 }
+    /// Current input-owned frame only. Angles are actor YXZ radians: yaw left, pitch up.
+    record snapshot {
+        session: u64,
+        dimension: s32,
+        eye: vector3,
+        yaw: f32,
+        pitch: f32,
+        attack-held: bool,
+        frame-seconds: f32,
+        players: list<player>,
+    }
+    /// Requires the explicit players grant; none means gameplay does not own input.
+    read-frame: func() -> result<option<snapshot>, string>;
+    /// Requires the camera grant and a current frame; commits only after frame returns.
+    rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
+    /// Bounded local actor attack range; none restores ordinary game-mode rules.
+    set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
+    /// One attack-press edge, only while the physical attack control is held.
+    pulse-attack: func() -> result<_, string>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
     import hud;
     import input;
     import environment;
+    import gameplay;
+    import panel;
+    import settings;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.

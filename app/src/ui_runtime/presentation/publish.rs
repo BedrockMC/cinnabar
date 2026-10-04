@@ -16,6 +16,7 @@ pub(crate) fn observe_mount_jump_input(
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
+    runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
 }
 
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
@@ -194,7 +195,7 @@ pub(crate) fn prepare_ui_runtime(
         &render_model::ActorSkinPixels {
             width: menu_skin.width,
             height: menu_skin.height,
-            rgba8: Arc::clone(&menu_skin.rgba8),
+            rgba8: menu_skin.rgba8.clone(),
         },
     );
     let pose = player_preview::PlayerPreviewPose::of_local_player(stream);
@@ -218,10 +219,30 @@ pub(crate) fn prepare_ui_runtime(
         && settings.value("hide_paperdoll") == 0
         && !menu_runtime.is_visible()
         && !runtime.inventory_open();
-    if hud_doll {
-        presentation.capture_hud_player(
+    let emote_preview = runtime
+        .emotes()
+        .playback()
+        .map(|playback| (playback.emote, playback.elapsed(now_millis)))
+        .or_else(|| {
+            runtime
+                .emotes()
+                .is_open()
+                .then(|| {
+                    let slots = runtime.emotes().slots();
+                    let selected = runtime
+                        .emotes()
+                        .selected_slot()
+                        .and_then(|slot| slots[slot])
+                        .or_else(|| slots.iter().copied().flatten().next())?;
+                    Some((selected, now_millis as f64 / 1_000.0))
+                })
+                .flatten()
+        });
+    if hud_doll || runtime.emotes().is_open() {
+        presentation.capture_hud_player_with_emote(
             client_world.stream.as_ref(),
             doll_state.is_some_and(|state| state.swimming),
+            emote_preview,
         );
     }
     let hide_hand = settings.value("hide_hand") != 0;
@@ -231,7 +252,10 @@ pub(crate) fn prepare_ui_runtime(
     let preview = PreviewCapture {
         skin,
         pose,
-        shown: runtime.inventory_open() || menu_runtime.is_visible() || hud_doll,
+        shown: runtime.inventory_open()
+            || menu_runtime.is_visible()
+            || hud_doll
+            || runtime.emotes().is_open(),
         hands: first_person && !hide_hand && !hand_rig.is_active(),
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
@@ -387,7 +411,7 @@ fn observe_paper_doll(
         crawling: flag(114),
         flying: physics.mode() == sim::MovementMode::Flying,
         gliding: physics.mode() == sim::MovementMode::Gliding || flag(32),
-        emoting: flag(92),
+        emoting: flag(92) || runtime.emotes().playback().is_some(),
         armor: std::array::from_fn(|slot| {
             runtime
                 .inventory_ledger(player_runtime)

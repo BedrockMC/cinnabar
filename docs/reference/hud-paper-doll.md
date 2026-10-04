@@ -58,6 +58,30 @@ center is therefore not the body midpoint. Swimming applies the native 0.8
 vertical adjustment. Original skin texels are sampled at final pixel resolution.
 The existing UI lighting implementation is described in `player-preview-rendering.md`.
 
+Burning HUD actors draw flames from the optional runtime `textures/flame_atlas`.
+Original square frames retain point-sampled texels. Authoritative on-fire metadata
+and collision-box dimensions control the geometry; extinguishing removes it.
+
+| Vanilla flame rule | Behavior |
+| --- | --- |
+| Geometry | Four quads: lower X ±0.5, Y 0–1.4; upper X ±0.45, Y 0.45–1.85, depths ±0.03. |
+| Scale | X/Z = collision width × 1.4; Y = min(width,height) × 1.4. |
+| UI depth | `-(floor(height/(width*1.4))*0.02-0.3)` before collision-box scaling. |
+| Transform | Upright shared HUD frame; body yaw/menu tilt do not rotate flames. Body and flames share `HUD_SWIM_OFFSET` of 0.8. |
+| Material | White, unlit, point sampling, depth writes and alpha cutoff 0.5; V inset 0.05 texel. |
+| Draw clock | Start at frame/countdown zero; first draw selects frame one. Decrement once per visible draw; when nonpositive, advance once and reset to two, discarding overshoot. |
+| Lifecycle | Extinguishing holds animation phase; actor replacement resets it. |
+
+The inherited player fire overlay uses red 0.8, blue zero and green
+`0.3+(0.15-0.3)*sin(2π*ticks/20)^2`. The squared pulse repeats every ten ticks.
+Hermite interpolation ramps opacity to 0.7 and fades it over the shared
+`FIRE_FADE_TICKS` duration of five ticks. Transition time uses completed actor
+ticks without render interpolation. Default hurt color `[1,0,0,0.25]` takes
+priority. RGB mixing precedes model lighting while preserving skin texels,
+sampled alpha and node alpha. UI world-light/fog clearing retains this overlay.
+The defaults apply to body and worn armor; custom controller expressions and
+held attachable overlays remain separate parity work.
+
 Home publishes the bindings which expose its loaded player and Profile button.
 Menu paper dolls use the authored model origin, inverse GUI scale and native
 `min(width/20,height/39)` scale instead of centering half the player's height.

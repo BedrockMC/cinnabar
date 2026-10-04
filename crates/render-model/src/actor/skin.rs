@@ -1,6 +1,8 @@
 //! Player skin rasters: normalization into the shared skin array and the default skin.
 use std::sync::{Arc, Mutex, OnceLock};
 
+use render_api::SkinRgba8;
+
 pub const MAX_RENDERED_PLAYERS: usize = 128;
 /// Classic skin UV layouts use this many texels per side regardless of image resolution.
 const CLASSIC_SKIN_SIDE: usize = render_api::CLASSIC_SKIN_SIDE;
@@ -13,13 +15,13 @@ pub const DEFAULT_SKIN_PROVENANCE: &str = "locally generated Cinnabar Default sk
 pub struct ActorSkinPixels {
     pub width: u32,
     pub height: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: SkinRgba8,
 }
 
 /// Pack path of the player entity's default texture, the stand-in for skins that cannot load.
 pub const DEFAULT_PLAYER_SKIN_PATH: &str = "textures/entity/steve.png";
 
-static VANILLA_DEFAULT_SKIN: OnceLock<Arc<[u8]>> = OnceLock::new();
+static VANILLA_DEFAULT_SKIN: OnceLock<SkinRgba8> = OnceLock::new();
 
 /// Installs the classic vanilla default texture once, packing it for the player array.
 pub fn install_default_player_skin(skin: Arc<[u8]>) {
@@ -27,7 +29,7 @@ pub fn install_default_player_skin(skin: Arc<[u8]>) {
     if let Some(skin) = normalize_actor_skin(&ActorSkinPixels {
         width: side,
         height: side,
-        rgba8: skin,
+        rgba8: skin.into(),
     }) {
         let _ = VANILLA_DEFAULT_SKIN.set(skin);
     }
@@ -35,17 +37,17 @@ pub fn install_default_player_skin(skin: Arc<[u8]>) {
 
 /// The vanilla Steve skin once installed, else a generated diagnostic skin.
 #[must_use]
-pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
-    static GENERATED: OnceLock<Arc<[u8]>> = OnceLock::new();
-    Arc::clone(
-        VANILLA_DEFAULT_SKIN
-            .get()
-            .unwrap_or_else(|| GENERATED.get_or_init(|| generated_default_skin().into())),
-    )
+pub fn default_actor_skin_rgba8() -> SkinRgba8 {
+    static GENERATED: OnceLock<SkinRgba8> = OnceLock::new();
+    VANILLA_DEFAULT_SKIN
+        .get()
+        .unwrap_or_else(|| GENERATED.get_or_init(|| generated_default_skin().into()))
+        .clone()
 }
 
+/// The skin resampled to the standard raster; a standard-size source keeps its allocation and hash.
 #[must_use]
-pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
+pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<SkinRgba8> {
     if !skin.width.is_power_of_two()
         || skin.width < CLASSIC_SKIN_SIDE as u32
         || skin.width > render_api::MAX_STANDARD_SKIN_SIDE
@@ -58,15 +60,18 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
     if skin.rgba8.len() != side * height * 4 {
         return None;
     }
-    if height != side {
-        return normalize_actor_skin(&ActorSkinPixels {
-            width: skin.width,
-            height: skin.width,
-            rgba8: render_api::expand_legacy_skin_rgba8(&skin.rgba8, side).into(),
-        });
-    }
+    let expanded;
+    let square: &[u8] = if height == side {
+        &skin.rgba8
+    } else {
+        expanded = render_api::expand_legacy_skin_rgba8(&skin.rgba8, side);
+        if side == STANDARD_SKIN_SIDE {
+            return Some(expanded.into());
+        }
+        &expanded
+    };
     if side == STANDARD_SKIN_SIDE {
-        return Some(Arc::clone(&skin.rgba8));
+        return Some(skin.rgba8.clone());
     }
     let mut normalized = vec![0; STANDARD_SKIN_BYTES];
     for y in 0..STANDARD_SKIN_SIDE {
@@ -75,7 +80,7 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
             let source_y = y * side / STANDARD_SKIN_SIDE;
             let source = (source_y * side + source_x) * 4;
             let target = (y * STANDARD_SKIN_SIDE + x) * 4;
-            normalized[target..target + 4].copy_from_slice(&skin.rgba8[source..source + 4]);
+            normalized[target..target + 4].copy_from_slice(&square[source..source + 4]);
         }
     }
     Some(normalized.into())
@@ -87,17 +92,17 @@ const NORMALIZED_SKIN_CACHE: usize = MAX_RENDERED_PLAYERS;
 /// [`normalize_actor_skin`] memoized by source raster, so HD and legacy skins are not resampled
 /// every frame. The entry holds its source, so a matched pointer is never a reused allocation.
 #[must_use]
-pub fn normalize_actor_skin_cached(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
+pub fn normalize_actor_skin_cached(skin: &ActorSkinPixels) -> Option<SkinRgba8> {
     if skin.width as usize == STANDARD_SKIN_SIDE && skin.height == skin.width {
         return normalize_actor_skin(skin);
     }
-    type Entry = (Arc<[u8]>, u32, u32, Option<Arc<[u8]>>);
+    type Entry = (Arc<[u8]>, u32, u32, Option<SkinRgba8>);
     static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
     let mut cache = CACHE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((.., normalized)) = cache.iter().find(|(source, width, height, _)| {
-        Arc::ptr_eq(source, &skin.rgba8) && *width == skin.width && *height == skin.height
+        Arc::ptr_eq(source, skin.rgba8.pixels()) && *width == skin.width && *height == skin.height
     }) {
         return normalized.clone();
     }
@@ -106,7 +111,7 @@ pub fn normalize_actor_skin_cached(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> 
         cache.remove(0);
     }
     cache.push((
-        Arc::clone(&skin.rgba8),
+        Arc::clone(skin.rgba8.pixels()),
         skin.width,
         skin.height,
         normalized.clone(),
@@ -188,14 +193,17 @@ mod tests {
         let hd = ActorSkinPixels {
             width: 128,
             height: 128,
-            rgba8: (0..128 * 128 * 4).map(|value| value as u8).collect(),
+            rgba8: (0..128 * 128 * 4)
+                .map(|value| value as u8)
+                .collect::<Vec<_>>()
+                .into(),
         };
         let first = normalize_actor_skin_cached(&hd).unwrap();
         assert_eq!(first, normalize_actor_skin(&hd).unwrap());
         for _ in 0..10 {
             assert!(Arc::ptr_eq(
-                &first,
-                &normalize_actor_skin_cached(&hd).unwrap()
+                first.pixels(),
+                normalize_actor_skin_cached(&hd).unwrap().pixels()
             ));
         }
         let copy = ActorSkinPixels {
@@ -203,8 +211,8 @@ mod tests {
             ..hd
         };
         assert!(!Arc::ptr_eq(
-            &first,
-            &normalize_actor_skin_cached(&copy).unwrap()
+            first.pixels(),
+            normalize_actor_skin_cached(&copy).unwrap().pixels()
         ));
     }
 

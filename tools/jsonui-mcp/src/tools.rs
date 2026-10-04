@@ -545,7 +545,7 @@ pub fn definitions() -> Value {
             "description": "Load resource packs (folders or .zip), bottom first: usually the vanilla pack, then server packs. Replaces what was loaded.",
             "inputSchema": { "type": "object", "properties": {
                 "paths": { "type": "array", "items": { "type": "string" } },
-                "font": { "type": "string", "description": "Compiled Monocraft carrier (.mcbefont) for exact text metrics" }
+                "font": { "type": "string", "description": "Compiled Cinnangles Sans carrier (.mcbefont) for exact text metrics" }
             }, "required": ["paths"] }
         },
         {

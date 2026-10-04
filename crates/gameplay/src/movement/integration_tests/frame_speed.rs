@@ -15,6 +15,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         sprint,
         sneak: Default::default(),
         toggle_sprint: false,
+        always_sprint: false,
         toggle_sneak: false,
         facts: Default::default(),
         item_use_modifier: None,
@@ -82,4 +83,60 @@ fn gameplay_frame_adopts_server_sprint_without_double_boosting() {
         expected.state(),
         "the frame owner must cancel the simulator's multiplier for effective server speed"
     );
+}
+
+#[test]
+fn always_sprint_packets_follow_processed_movement_and_stop_when_idle() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    for (index, (forward, sneak, blocked, enabled, expected)) in [
+        (1.0, false, false, true, true),
+        (0.0, false, false, true, false),
+        (1.0, false, false, true, true),
+        (1.0, true, false, true, false),
+        (1.0, false, true, true, false),
+        (1.0, false, false, true, true),
+        (1.0, false, false, false, false),
+        (-1.0, false, false, true, false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut frame = speed_frame(Default::default());
+        frame.now += Duration::from_millis(index as u64 * 50);
+        frame.movement = [0.0, forward];
+        frame.raw_movement = frame.movement;
+        frame.analogue_movement = frame.movement;
+        frame.sneak.held = sneak;
+        frame.facts.sprint_blocked = blocked;
+        frame.always_sprint = enabled;
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1)
+        ));
+        let packet = &ticker.outbox.back().unwrap().snapshot;
+        assert_eq!(
+            packet.flags.bits() & PlayerInputFlags::SPRINTING.bits() != 0,
+            expected,
+            "case {index}"
+        );
+        assert_eq!(
+            packet.flags.bits() & PlayerInputFlags::SPRINT_DOWN.bits() != 0,
+            expected,
+            "case {index}"
+        );
+        if !expected {
+            assert_eq!(
+                packet.flags.bits() & PlayerInputFlags::START_SPRINTING.bits(),
+                0,
+                "case {index}"
+            );
+        }
+    }
 }

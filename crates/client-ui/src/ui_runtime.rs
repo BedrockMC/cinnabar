@@ -5,6 +5,7 @@ pub mod book_screen;
 pub mod chat_completion;
 pub mod chat_send;
 pub mod crafting_observation;
+pub mod emotes;
 pub mod presentation_snapshot;
 pub use inventory::CraftingPreview;
 mod error;
@@ -177,6 +178,7 @@ pub struct UiRuntime {
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
     screen: screen_state::ScreenState,
+    emotes: emotes::EmoteState,
     /// Client packets the screens queue for the network flush.
     client_packets: VecDeque<protocol::Packet>,
     /// One complete book commit, bounded by the protocol page limit plus signing.
@@ -202,6 +204,7 @@ pub struct UiRuntime {
     /// Sorted usernames on the authoritative player list, the retained
     /// answer for the `@a` selector.
     known_player_names: Vec<Arc<str>>,
+    player_list_held: bool,
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: bool,
@@ -222,6 +225,7 @@ impl UiRuntime {
             inventory_open: false,
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
+            player_list_held: false,
             screen_settings: Arc::default(),
             loading_screen: false,
             hurt_pending: false,
@@ -262,6 +266,7 @@ impl UiRuntime {
             inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
             screen: screen_state::ScreenState::default(),
+            emotes: emotes::EmoteState::default(),
             client_packets: VecDeque::new(),
             book_packets: VecDeque::new(),
             last_health_drop_millis: None,
@@ -584,6 +589,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.emotes.reset();
         self.client_packets.clear();
         self.book_packets.clear();
         self.screen = screen_state::ScreenState::default();
@@ -602,6 +608,7 @@ impl UiRuntime {
         self.inventory_open = false;
         self.score_owner_names.clear();
         self.known_player_names.clear();
+        self.player_list_held = false;
         self.hud.clear();
         self.chat.clear();
         self.scoreboards.clear();

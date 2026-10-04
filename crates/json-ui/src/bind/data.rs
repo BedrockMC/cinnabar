@@ -56,6 +56,8 @@ pub struct DataSource {
     /// Native creation values inherited by the screen's created subtree.
     pub(super) creation_values: Arc<BTreeMap<String, Scalar>>,
     pub(super) globals: BTreeMap<String, Scalar>,
+    /// Controller answers selected by the originating control's `#index` bag value.
+    pub(super) indexed_globals: BTreeMap<usize, BTreeMap<String, Scalar>>,
     pub(super) collections: BTreeMap<String, SharedCollection>,
     /// Values the controller writes straight into named controls' bags.
     pub(super) controls: BTreeMap<String, BTreeMap<String, Scalar>>,
@@ -84,6 +86,21 @@ impl DataSource {
     /// Set a `global` binding value, keyed with its leading `#`.
     pub fn set_global(&mut self, name: impl Into<String>, value: Scalar) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Answer a global binding on controls whose own property bag has `#index`.
+    /// Missing indexed answers fall back to the ordinary screen-wide global.
+    pub fn set_indexed_global(&mut self, index: usize, name: impl Into<String>, value: Scalar) {
+        self.indexed_globals
+            .entry(index)
+            .or_default()
+            .insert(name.into(), value);
+    }
+
+    pub(super) fn global(&self, index: Option<usize>, name: &str) -> Option<&Scalar> {
+        index
+            .and_then(|index| self.indexed_globals.get(&index)?.get(name))
+            .or_else(|| self.globals.get(name))
     }
 
     /// Fill the native creation bag read throughout the created screen subtree.

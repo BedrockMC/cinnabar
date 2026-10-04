@@ -174,13 +174,13 @@ impl SessionController {
         self.generation
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn join_pending(&self) -> bool {
         self.join.is_some()
     }
 
     /// Installs a connecting join at the current generation.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn adopt_join(&mut self, address: &str, local_world: bool, stage: JoinStage) {
         self.join = Some(JoinAttempt {
             generation: self.generation,
@@ -197,7 +197,7 @@ impl SessionController {
         self.connecting = connecting;
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn core_mut(&mut self) -> &mut CoreProcessGuard {
         &mut self.core
     }

@@ -116,38 +116,38 @@ pub(super) fn load_entity_assets(
 pub(super) fn load_font_assets(
     world_asset_path: &Path,
 ) -> Result<LoadedFontAssets, AssetStartupError> {
-    let local_path = local_font_asset_path(world_asset_path);
-    let (path, file, source_manifest, rebuild_command) = match File::open(&local_path) {
-        Ok(file) => (
-            local_path,
-            file,
+    // An explicit local carrier wins; the bundled Cinnangles Sans carrier is the default.
+    let candidates = [
+        (
+            local_font_asset_path(world_asset_path),
             VANILLA_SOURCE_JSON,
             LOCAL_FONT_ASSETS_COMPILE_COMMAND,
         ),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            let path = font_asset_path(world_asset_path);
-            let file = match File::open(&path) {
-                Ok(file) => file,
-                Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                    return diagnostic_font_assets(path);
-                }
-                Err(source) => {
-                    return Err(AssetStartupError::FontAssetsRead {
-                        path,
-                        source,
-                        rebuild_command: FONT_ASSETS_COMPILE_COMMAND,
-                    });
-                }
-            };
-            (path, file, UI_FONT_SOURCE_JSON, FONT_ASSETS_COMPILE_COMMAND)
+        (
+            font_asset_path(world_asset_path),
+            FONT_SOURCE_JSON,
+            FONT_ASSETS_COMPILE_COMMAND,
+        ),
+    ];
+    let mut selected = None;
+    for (path, source_manifest, rebuild_command) in candidates {
+        match File::open(&path) {
+            Ok(file) => {
+                selected = Some((path, file, source_manifest, rebuild_command));
+                break;
+            }
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(AssetStartupError::FontAssetsRead {
+                    path,
+                    source,
+                    rebuild_command,
+                });
+            }
         }
-        Err(source) => {
-            return Err(AssetStartupError::FontAssetsRead {
-                path: local_path,
-                source,
-                rebuild_command: LOCAL_FONT_ASSETS_COMPILE_COMMAND,
-            });
-        }
+    }
+    let Some((path, file, source_manifest, rebuild_command)) = selected else {
+        return diagnostic_font_assets(font_asset_path(world_asset_path));
     };
     let length = file
         .metadata()

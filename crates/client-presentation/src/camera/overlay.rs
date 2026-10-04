@@ -1,5 +1,5 @@
 //! Screen-space overlay model: which full-screen layers are visible and how strongly.
-//! Alphas, ramps and warp amplitudes are provisional and need native measurement.
+//! Fire uses the native color/alpha. Other ramps and warp amplitudes remain provisional.
 
 use bevy::prelude::{Resource, Vec3};
 use sim::{Aabb, BlockPhysicsFlags, CollisionWorld, Vec3 as SimVec3};
@@ -7,7 +7,6 @@ use sim::{Aabb, BlockPhysicsFlags, CollisionWorld, Vec3 as SimVec3};
 pub const PUMPKIN_BLUR_TEXTURE: &str = "textures/misc/pumpkinblur.png";
 pub const SPYGLASS_SCOPE_TEXTURE: &str = "textures/ui/spyglass_scope.png";
 pub const PORTAL_TEXTURE: &str = "textures/blocks/portal";
-pub const FIRE_TEXTURE: &str = "textures/blocks/fire_1";
 
 const PORTAL_RISE_PER_SECOND: f32 = 0.25;
 const PORTAL_FALL_PER_SECOND: f32 = 1.0;
@@ -167,12 +166,13 @@ pub fn compute_overlays(inputs: &ScreenEffectInputs) -> Vec<OverlayLayer> {
                 texture: None,
             });
         }
-        if inputs.on_fire || inputs.head == HeadMedium::Lava {
+        if inputs.on_fire {
             layers.push(OverlayLayer {
                 kind: OverlayKind::Fire,
                 alpha: 0.9,
                 rgb: [1.0; 3],
-                texture: Some(FIRE_TEXTURE),
+                // Native resolves the fire block's destruction sprite from the active atlas.
+                texture: None,
             });
         }
         let portal = portal_alpha(inputs.portal_progress) * distortion;
@@ -261,6 +261,31 @@ pub struct VisionEffects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fire_follows_the_actor_flag_and_has_no_fixed_texture_path() {
+        let inputs = ScreenEffectInputs {
+            on_fire: true,
+            ..Default::default()
+        };
+        let layers = compute_overlays(&inputs);
+        let fire = layers
+            .iter()
+            .find(|layer| layer.kind == OverlayKind::Fire)
+            .unwrap();
+        assert_eq!(fire.alpha, 0.9);
+        assert_eq!(fire.rgb, [1.0; 3]);
+        assert_eq!(fire.texture, None);
+        let lava = ScreenEffectInputs {
+            head: HeadMedium::Lava,
+            ..Default::default()
+        };
+        assert!(
+            !compute_overlays(&lava)
+                .iter()
+                .any(|layer| layer.kind == OverlayKind::Fire)
+        );
+    }
 
     #[test]
     fn open_first_person_view_has_no_layers() {

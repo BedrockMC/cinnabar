@@ -289,6 +289,8 @@ pub struct UiVertex {
     pub color: [u8; 4],
     /// Interpolated linear model lighting, kept separate from authored sRGB tint.
     pub model_light: f32,
+    /// Native entity overlay RGB and mix amount, separate from vertex alpha.
+    pub overlay_color: [f32; 4],
     pub style_flags: u8,
     pub alpha_test: bool,
     /// Explicit sampled-texture cutoff; negative disables this material override.

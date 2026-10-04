@@ -66,8 +66,9 @@ impl Binder<'_> {
         match &binding.kind {
             Kind::Global { source, rename } => {
                 let data = self.data;
+                let index = controller_index(own);
                 self.query(control, source, rename, own, native, |name| {
-                    data.globals.get(name).cloned()
+                    data.global(index, name).cloned()
                 });
             }
             Kind::Collection {
@@ -150,6 +151,19 @@ impl Binder<'_> {
 /// A bag read as an expression's property scope.
 pub(super) struct BagScope<'a>(pub(super) &'a Bag);
 
+/// Native controller callbacks read an unsigned integral `#index` from the bag.
+pub(super) fn controller_index(bag: &Bag) -> Option<usize> {
+    bag.get("#index")?
+        .as_number()
+        .filter(|index| {
+            index.is_finite()
+                && *index >= 0.0
+                && *index <= f64::from(u32::MAX)
+                && index.fract() == 0.0
+        })
+        .map(|index| index as usize)
+}
+
 impl predicate::Bindings for BagScope<'_> {
     fn get(&self, name: &str) -> Option<Scalar> {
         self.0.get(name).cloned()
@@ -186,6 +200,11 @@ fn details(collection: &str, prefix: &str, scope: &Scope, own: &mut Bag) {
 
 /// Bag values a widget component publishes when created, before any binding.
 pub(super) fn widget_defaults(control: &ResolvedControl, own: &mut Bag) {
+    if control.control_type.as_deref() == Some("selection_wheel") {
+        // The native component's constructor publishes no hovered slice,
+        // replacing the template's initial literal before controller writes.
+        own.insert("#hover_slice".to_owned(), Scalar::Int(-1));
+    }
     if control.control_type.as_deref() == Some("scroll_view") {
         own.entry("#scrollbar_hit_bottom".to_owned())
             .or_insert(Scalar::Bool(false));

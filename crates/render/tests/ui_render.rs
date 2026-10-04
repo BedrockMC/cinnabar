@@ -4,6 +4,20 @@ mod shader_safety;
 #[path = "../src/ui_render.rs"]
 pub mod ui_render;
 
+// This standalone UI fixture installs no camera-effect scene. Production's
+// post-hand camera pass is exercised by the render library and live client.
+mod screen_overlay_render {
+    pub(crate) fn draw_before_hud(
+        _: bevy::prelude::Entity,
+        _: &bevy::render::view::ViewTarget,
+        _: &bevy::render::camera::ExtractedCamera,
+        _: Option<&bevy::camera::MainPassResolutionOverride>,
+        _: &mut bevy::render::renderer::RenderContext,
+        _: &bevy::prelude::World,
+    ) {
+    }
+}
+
 use render::EnhancedRendering;
 use std::sync::Arc;
 
@@ -57,7 +71,7 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     .validate(&module)
     .unwrap();
     assert!(source.contains("textureSample"));
-    assert!(source.contains("sample.rgb * sample.a"));
+    assert!(source.contains("model_rgb * sample.a * straight_color.a"));
     assert!(source.contains("viewport_size"));
     assert!(source.contains(&format!(
         "const STYLE_ALPHA_TEST: u32 = {}u;",
@@ -199,6 +213,22 @@ fn ui_model_light_preserves_float_vertex_values_and_rejects_invalid_multipliers(
     let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
     assert!(source.contains("@location(5) model_light: f32"));
     assert!(source.contains("straight_color.a * input.model_light"));
+}
+
+#[test]
+fn ui_model_fire_overlay_is_float_and_rejects_non_finite_channels() {
+    let mut input = fixture_draw_list(1);
+    let mut vertices = input.vertices.to_vec();
+    vertices[0].overlay_color = [0.8, 0.248_176, 0.0, 0.7];
+    input.vertices = vertices.clone().into();
+    input.validate().unwrap();
+    assert_eq!(input.vertices[0].overlay_color, vertices[0].overlay_color);
+    for channel in 0..4 {
+        vertices[0].overlay_color[channel] = f32::NAN;
+        input.vertices = vertices.clone().into();
+        assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
+        vertices[0].overlay_color[channel] = 0.0;
+    }
 }
 
 #[test]
@@ -675,6 +705,7 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
             style_flags: 0,
             alpha_cutoff: -1.0,
             model_light: 1.0,
+            overlay_color: [0.0; 4],
         })
         .collect::<Vec<_>>()
         .into();
