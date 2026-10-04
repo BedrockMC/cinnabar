@@ -77,9 +77,9 @@ fn advertised_height_controls_subchunk_requests() {
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
-    assert!(stream.is_expected_sub_chunk(SubChunkKey::new(0, 0, 0, 0)));
-    assert!(stream.is_expected_sub_chunk(SubChunkKey::new(0, 0, 1, 0)));
-    assert!(!stream.is_expected_sub_chunk(SubChunkKey::new(0, 0, -4, 0)));
+    assert!(stream.requests.is_expected(SubChunkKey::new(0, 0, 0, 0)));
+    assert!(stream.requests.is_expected(SubChunkKey::new(0, 0, 1, 0)));
+    assert!(!stream.requests.is_expected(SubChunkKey::new(0, 0, -4, 0)));
 }
 
 #[test]
