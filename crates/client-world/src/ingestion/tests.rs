@@ -4,6 +4,8 @@ use protocol::{BlockUpdateEvent, WorldEvent};
 
 use super::*;
 
+mod block_bursts;
+
 /// Admits one prepared event using the same bounded API as the coordinator.
 fn queue(state: &mut OrderedCommitState, sequence: u64, event: PreparedWorldEvent, heavy: bool) {
     state.admit(sequence, heavy, 0).unwrap();

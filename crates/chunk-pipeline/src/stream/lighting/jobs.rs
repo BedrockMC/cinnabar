@@ -375,7 +375,7 @@ impl WorldStream {
         self.remove_in_flight_light(completion.key, Some(completion.identity));
         if self.fatal_light_failure {
             self.remove_light_waiters_for(completion.key);
-            self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+            self.record_stale_light(completion.key, completion.identity, "fatal_failure");
             return;
         }
         let current = self
@@ -390,7 +390,7 @@ impl WorldStream {
                 .map(|light| light.generation())
                 == completion.identity.previous_light_generation;
         if !current {
-            self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+            self.record_stale_light(completion.key, completion.identity, "identity_changed");
             return;
         }
         let solved = match completion.result {
@@ -443,7 +443,11 @@ impl WorldStream {
         }
         if !light_levels_changed && !direct_sky_changed {
             let Some(light_revision) = completion.identity.previous_light_generation else {
-                self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+                self.record_stale_light(
+                    completion.key,
+                    completion.identity,
+                    "missing_noop_generation",
+                );
                 return;
             };
             let Some(current_direct) = self
@@ -452,7 +456,11 @@ impl WorldStream {
                 .filter(|direct| direct.light_revision == light_revision)
                 .cloned()
             else {
-                self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+                self.record_stale_light(
+                    completion.key,
+                    completion.identity,
+                    "missing_noop_provenance",
+                );
                 return;
             };
             self.light_ownership.insert(
@@ -479,7 +487,11 @@ impl WorldStream {
         }
         if !light_levels_changed && direct_sky_changed {
             let Some(light_revision) = completion.identity.previous_light_generation else {
-                self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+                self.record_stale_light(
+                    completion.key,
+                    completion.identity,
+                    "missing_provenance_generation",
+                );
                 return;
             };
             let new_direct = StoredDirectSky {
@@ -519,7 +531,11 @@ impl WorldStream {
             completion.identity.previous_light_generation,
             replacement,
         ) {
-            self.stats.stale_light_jobs = self.stats.stale_light_jobs.saturating_add(1);
+            self.record_stale_light(
+                completion.key,
+                completion.identity,
+                "commit_generation_changed",
+            );
             return;
         }
         self.light_ownership.insert(
