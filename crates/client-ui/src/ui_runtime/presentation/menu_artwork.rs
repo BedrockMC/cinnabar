@@ -528,12 +528,7 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .nth(index)
         })
         .and_then(|server| view.feeds.details.get(&server.address));
-    let thumbnails = view
-        .featured
-        .iter()
-        .chain(view.gatherings.iter())
-        .map(|server| server.image_path.clone())
-        .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
+    let portraits = std::iter::once(view.feeds.profile.picture_path.clone())
         .chain(
             view.feeds
                 .accounts
@@ -545,6 +540,11 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .filter_map(|account| account.picture_path.clone()),
         )
         .map(|path| (path, THUMBNAIL_SIDE));
+    let thumbnails = view
+        .featured
+        .iter()
+        .chain(view.gatherings.iter())
+        .map(|server| (server.image_path.clone(), THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
         .chain(std::iter::once(view.feeds.profile.avatar_path.clone()))
@@ -565,11 +565,14 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .unwrap_or_default(),
         )
         .map(|path| (path, MAX_ARTWORK_SIDE));
-    view.global_resources
-        .icons
-        .values()
-        .cloned()
-        .map(|path| (path, THUMBNAIL_SIDE))
+    portraits
+        .chain(
+            view.global_resources
+                .icons
+                .values()
+                .cloned()
+                .map(|path| (path, THUMBNAIL_SIDE)),
+        )
         .chain(thumbnails)
         .chain(full)
         .filter(|(path, _)| !path.is_empty())
@@ -623,6 +626,36 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_full_server_catalog_does_not_crowd_out_account_pictures() {
+        let mut view = crate::menu::MenuView::new(true, "Player".into());
+        view.feeds.account_active_id = Some("player".into());
+        view.feeds.accounts = vec![launcher::accounts::AccountProfile {
+            id: "player".into(),
+            gamertag: "Player".into(),
+            picture_path: Some("gamerpic.png".into()),
+        }];
+        view.featured = (0..MAX_ARTWORKS)
+            .map(|index| crate::menu::MenuServerCard {
+                name: index.to_string(),
+                address: index.to_string(),
+                caption: String::new(),
+                image_path: format!("server-{index}.png"),
+                icon: None,
+            })
+            .collect();
+        let set = ArtworkSet {
+            paths: view_paths(&view),
+            ..Default::default()
+        };
+        assert!(
+            sources(&set)
+                .iter()
+                .any(|source| source.key().0 == "gamerpic.png"),
+            "bounded atlas must retain the visible account picture"
+        );
+    }
 
     #[test]
     fn account_pictures_are_queued_when_the_picker_opens() {

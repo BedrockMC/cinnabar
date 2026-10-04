@@ -137,6 +137,37 @@ mod tests {
     }
 
     #[test]
+    fn saved_gamerpics_bind_their_file_paths_to_image_textures() {
+        let mut catalog = Catalog::default();
+        extend_catalog(&mut catalog);
+        let context = super::super::menu_screens::retail_context();
+        let root = json_ui::resolve(&catalog, "cinnabar_accounts.list", &context)
+            .control
+            .unwrap();
+        let library = json_ui::CatalogLibrary {
+            catalog: &catalog,
+            context: &context,
+        };
+        let bound = json_ui::bind(&root, &data(&manager_view()), &library);
+        fn images<'a>(control: &'a json_ui::ResolvedControl, paths: &mut Vec<&'a str>) {
+            if control.control_type.as_deref() == Some("image")
+                && let Some(path) = control
+                    .properties
+                    .get("texture")
+                    .and_then(serde_json::Value::as_str)
+            {
+                paths.push(path);
+            }
+            for child in &control.children {
+                images(child, paths);
+            }
+        }
+        let mut paths = Vec::new();
+        images(&bound, &mut paths);
+        assert_eq!(paths, ["first.png", "second.png"]);
+    }
+
+    #[test]
     fn home_portrait_uses_the_saved_xbox_picture_until_profile_arrives() {
         let mut view = manager_view();
         assert_eq!(current_picture(&view), Some("first.png"));
@@ -149,6 +180,63 @@ mod tests {
         assert_eq!(current_name(&view), "Second");
         view.feeds.profile.gamertag = "Fresh name".into();
         assert_eq!(current_name(&view), "Fresh name");
+    }
+
+    #[test]
+    fn account_picker_draws_cached_gamerpic_pixels() {
+        let Some(mut presentation) = engine_presentation() else {
+            eprintln!(
+                "skipping account gamerpic rendering test: missing local UI carrier; make assets"
+            );
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("cinnabar-gamerpic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let picture = dir.join("picture.png");
+        if let Some(source) = std::env::var_os("CINNABAR_GAMERPIC_FIXTURE") {
+            if let Err(error) = std::fs::copy(&source, &picture) {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    eprintln!(
+                        "skipping account gamerpic rendering test: missing fixture {}",
+                        std::path::Path::new(&source).display()
+                    );
+                    std::fs::remove_dir_all(dir).unwrap();
+                    return;
+                }
+                panic!("copy account gamerpic fixture: {error}");
+            }
+        } else {
+            image::RgbaImage::from_pixel(2, 2, image::Rgba([170, 40, 80, 255]))
+                .save(&picture)
+                .unwrap();
+        }
+        let mut view = manager_view();
+        let path = picture.to_string_lossy().into_owned();
+        view.feeds.accounts[0].picture_path = Some(path.clone());
+        presentation.sync_menu_artwork(super::super::super::menu_artwork::view_paths(&view));
+        presentation.finish_menu_artwork();
+        let icon = presentation
+            .menu_artwork_icon(&path)
+            .expect("decoded cached gamerpic");
+        draw_menu_actions(&player_state::PlayerState::new(1), &mut presentation, &view);
+        assert!(menu_nodes(&presentation).iter().any(|node| matches!(node.visual(), ui::UiVisual::Sprite { texture_page, uv, .. } if *texture_page == icon.page && *uv == icon.uv)), "account picture must sample its decoded artwork");
+        let input = presentation.last_input.as_ref().unwrap();
+        super::super::snapshot::write(input, "account-picker-pixels");
+        if std::env::var_os("CINNABAR_GAMERPIC_FIXTURE").is_none() {
+            let pixels = super::super::snapshot::rasterize(input);
+            assert!(
+                pixels
+                    .pixels()
+                    .filter(|pixel| pixel.0 == [170, 40, 80, 255])
+                    .count()
+                    > 100,
+                "decoded account picture must remain visible after compositing"
+            );
+        }
+        view.dialog = None;
+        draw_menu_actions(&player_state::PlayerState::new(1), &mut presentation, &view);
+        assert!(menu_nodes(&presentation).iter().any(|node| matches!(node.visual(), ui::UiVisual::Sprite { texture_page, uv, .. } if *texture_page == icon.page && *uv == icon.uv)), "Home profile must sample the cached Xbox picture");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
