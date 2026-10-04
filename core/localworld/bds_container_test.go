@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -252,5 +254,96 @@ func TestPullProgressCountsLayers(t *testing.T) {
 	}
 	if done != 2 || total != 3 {
 		t.Fatalf("progress = %d/%d", done, total)
+	}
+}
+
+func writeExecutable(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Finder-launched app's PATH has no Docker folder, so the CLI must be found in its install folders.
+func TestFindDockerSearchesInstallFoldersOutsidePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("install folders are Unix paths")
+	}
+	t.Setenv("PATH", t.TempDir())
+	home := t.TempDir()
+	dirs := dockerDirs(home)
+	for _, want := range []string{filepath.Join(home, ".orbstack", "bin"), filepath.Join(home, ".docker", "bin"), "/opt/homebrew/bin", "/Applications/Docker.app/Contents/Resources/bin"} {
+		if !slices.Contains(dirs, want) {
+			t.Fatalf("dockerDirs = %v, missing %s", dirs, want)
+		}
+	}
+	notExec, orb := filepath.Join(home, "a"), filepath.Join(home, ".orbstack", "bin")
+	writeExecutable(t, filepath.Join(notExec, "docker"), 0o600)
+	writeExecutable(t, filepath.Join(orb, "docker"), 0o700)
+	if got, ok := findDocker("docker", []string{filepath.Join(home, "missing"), notExec, orb}); !ok || got != filepath.Join(orb, "docker") {
+		t.Fatalf("findDocker = %q, %v", got, ok)
+	}
+	if _, ok := findDocker("docker", []string{notExec}); ok {
+		t.Fatal("a non-executable file must not count as docker")
+	}
+	if _, ok := findDocker(filepath.Join(home, "nope", "docker"), []string{orb}); ok {
+		t.Fatal("an explicit path must not fall back to the install folders")
+	}
+}
+
+// Docker shells out to credential helpers next to it, so its folder leads the child's PATH.
+func TestDockerCommandRunsAbsolutePathWithItsFolderOnPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("install folders are Unix paths")
+	}
+	t.Setenv("PATH", "/nonexistent")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeExecutable(t, filepath.Join(home, ".orbstack", "bin", "docker"), 0o700)
+	cmd := dockerCommand(context.Background(), "docker", nil, "info")
+	if !filepath.IsAbs(cmd.Path) {
+		t.Fatalf("docker path = %q, want absolute", cmd.Path)
+	}
+	path := envValue(cmd.Env, "PATH")
+	if first, _, _ := strings.Cut(path, string(os.PathListSeparator)); first != filepath.Dir(cmd.Path) || !strings.HasSuffix(path, "/nonexistent") {
+		t.Fatalf("PATH = %q for %s", path, cmd.Path)
+	}
+}
+
+// Core startup must not wait on `docker info`; the setup reports checking_runtime until it lands.
+func TestDetectInBackgroundReportsCheckingThenResult(t *testing.T) {
+	store := newTestStore(t)
+	release := make(chan struct{})
+	p := &Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"}
+	p.SetDetector(func(context.Context) RuntimeInfo {
+		<-release
+		return RuntimeInfo{Kind: RuntimeNone, Reason: "down", Unavailable: "docker_not_running"}
+	})
+	m := NewManager(store, Runners{}, nil)
+	m.SetSetup(p)
+	m.SetAutoBackend(true)
+	store.SetDefaultBackend(BackendBDS)
+	landed := make(chan RuntimeInfo, 1)
+	p.DetectInBackground(RuntimeInfo{Kind: RuntimeContainer, Reason: "checking"}, func(info RuntimeInfo) {
+		m.RuntimeDetected(info)
+		landed <- info
+	})
+	if st := m.Status(); st.Setup.State != SetupCheckingRuntime || st.Setup.Runtime != RuntimeContainer || st.BackendUnavailableReason != "" {
+		t.Fatalf("while probing = %+v", st.Setup)
+	}
+	close(release)
+	select {
+	case <-landed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("background probe never finished")
+	}
+	if st := m.Status(); st.Setup.State != SetupUnsupported || st.BackendUnavailableReason != "docker_not_running" {
+		t.Fatalf("after probe = %+v", st.Setup)
+	}
+	if world, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat}); err != nil || world.Backend != BackendDragonfly {
+		t.Fatalf("world = %+v, %v", world, err)
 	}
 }
