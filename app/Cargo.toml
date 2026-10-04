@@ -59,6 +59,7 @@ rustix = { version = "1", default-features = false, features = ["fs", "process",
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }
 client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline", features = ["publication-test-support"] }

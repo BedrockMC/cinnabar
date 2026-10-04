@@ -8,6 +8,9 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[path = "actor/crystal.rs"]
+mod crystal;
+
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
