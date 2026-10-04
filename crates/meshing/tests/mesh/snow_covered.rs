@@ -152,3 +152,55 @@ fn covered_snow_surface_still_culls_a_touching_shorter_snow_side() {
     assert_eq!(snow_model_mask(&mesh, [7, 8, 8]) & (1 << 1), 0);
     assert_eq!(snow_model_mask(&mesh, [8, 8, 8]) & (1 << 0), 1 << 0);
 }
+
+#[test]
+fn covered_mushroom_light_does_not_select_emitting_snow_shading() {
+    let fixture = compiled_snow_fixture();
+    let mushroom = fixture.plants.iter().copied().find(|&id| {
+        fixture.assets.resolve(NetworkIdMode::Sequential, id).light_properties().emission() > 0
+    }).expect("fixture retains brown mushroom's native emission");
+    let sample = MeshLightSample::try_new(1, 13).unwrap();
+    let classifier = BlockClassifier::new(fixture.air);
+    for &snow in &fixture.covered_layers {
+        let snow_storage = packed_storage(1, &[fixture.air, snow], &[([8, 8, 8], 1)]);
+        let snow_only = sub_chunk(vec![snow_storage.clone()]);
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let baseline = mesh_sub_chunk_with_lighting(
+                &classifier, &fixture.assets, mode, &Neighbourhood::empty(), &snow_only, &|_| sample,
+            );
+            for reverse in [false, true] {
+                let mut storages = vec![
+                    snow_storage.clone(),
+                    packed_storage(1, &[fixture.air, mushroom], &[([8, 8, 8], 1)]),
+                ];
+                if reverse { storages.reverse(); }
+                let covered = sub_chunk(storages);
+                let actual = mesh_sub_chunk_with_lighting(
+                    &classifier, &fixture.assets, mode, &Neighbourhood::empty(), &covered, &|_| sample,
+                );
+                let direct = meshing::bake_quad_lighting_with_sampler(
+                    &classifier, &fixture.assets, mode, &MeshNeighbourhood::new(&covered),
+                    &|_| sample, [8, 8, 8], Face::NegativeX,
+                    [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]],
+                );
+                assert!(direct.samples().iter().all(|value| value & (1 << 11) == 0));
+                assert_eq!(actual.cube_lighting(), baseline.cube_lighting(), "full-height snow keeps its own material shading");
+                if let Some(template) = fixture.assets.resolve(mode, snow).model_template() {
+                    let reference = actual.model_refs().iter().find(|reference| reference.words()[1] == template).unwrap();
+                    let start = reference.words()[2] as usize;
+                    let count = fixture.assets.model_templates()[template as usize].quad_count as usize;
+                    assert_eq!(&actual.model_lighting()[start..start + count], baseline.model_lighting(), "inset snow keeps its own material shading");
+                    let direct = meshing::bake_template_lighting_with_sampler(
+                        &classifier, &fixture.assets, mode, &MeshNeighbourhood::new(&covered),
+                        &|_| sample, [8, 8, 8], template, 0,
+                    ).unwrap();
+                    assert_eq!(direct, baseline.model_lighting());
+                }
+                for lighting in actual.cube_lighting().iter().chain(actual.model_lighting()) {
+                    assert!(lighting.samples().iter().all(|sample| sample & 0xf == 1), "propagated mushroom light is preserved");
+                }
+                assert!(actual.diagnostic_geometry().entries().is_empty());
+            }
+        }
+    }
+}

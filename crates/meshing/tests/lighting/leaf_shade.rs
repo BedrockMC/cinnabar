@@ -35,6 +35,26 @@ fn shade_test_chunk(mode: NetworkIdMode, placements: &[([u8; 3], u32)]) -> SubCh
 const SHADE_TEST_FACE: [[i16; 3]; 4] = [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]];
 
 #[test]
+fn emitting_surface_keeps_its_directional_shading_in_direct_and_cached_bakes() {
+    let assets = runtime_assets();
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let classifier = BlockClassifier::new(shade_network_id(mode, AIR));
+        let center = shade_test_chunk(mode, &[([8, 8, 8], EMITTING)]);
+        let neighbourhood = MeshNeighbourhood::new(&center);
+        let direct = bake_quad_lighting(
+            &classifier, &assets, mode, &neighbourhood,
+            [8, 8, 8], Face::PositiveY, SHADE_TEST_FACE,
+        );
+        assert!(direct.samples().iter().all(|sample| sample & (1 << 11) != 0));
+        let mesh = meshing::mesh_sub_chunk_in_neighbourhood(
+            &classifier, &assets, mode, &neighbourhood,
+        );
+        let index = mesh.cube_quads().iter().position(|quad| quad.face() == Face::PositiveY).unwrap();
+        assert_eq!(mesh.cube_lighting()[index], direct);
+    }
+}
+
+#[test]
 fn leaf_shade_is_independent_of_diagonal_occlusion_in_direct_and_cached_bakes() {
     let assets = runtime_assets();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {

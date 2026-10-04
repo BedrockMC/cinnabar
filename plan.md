@@ -1,11 +1,13 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
-accumulated work and follow-up fixes are committed through `6c7d3d9a`, including
+accumulated work and follow-up fixes are committed through `d17f4a79`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
-ownership split and frame diagnostics. Origin/dev `a1c5880d` is being integrated
-with the Profile and Marketplace changes; final integrated verification and a
-fresh post-integration live frame remain required.
+ownership split and frame diagnostics. Origin/dev `a1c5880d` is integrated
+with the Profile and Marketplace changes; the subsequent `d2a51dac` update is
+being integrated. Final verification and a fresh post-integration live frame
+remain required. A render binding contract still referenced the old app module
+after its extraction; its assertion now targets the actual render-setup owner.
 The user accepts the rebuilt night snow-layer colour and actor corrections.
 Current TopSnow
 `06a1b810` routes through ordinary terrain `06a07800` into AO/flat
@@ -34,6 +36,18 @@ shoreline frame at 1280x752 shows coherent snow top/side shading without the
 reported pale bands; the user manually confirms the snow looks perfect.
 This closes the reported edge regression, not exact-version/whole-renderer
 parity. The full verification gate and direct-dev publication remain pending.
+The later isolated bright snow face is reproduced with a covered emitting
+brown mushroom: our all-storage emitter query sets snow's directional shading
+bit, while native `06a07d80`/`06a0b950` read the rendered Block+a4. Cube and model
+lighting now carry the rendered contributor's admission separately from solved
+physical emission. The failing-before regression covers all snow heights,
+both storage orders, both network modes and direct/cached routes. Covered
+mushroom emission and real emitting-surface shading are retained. Live acceptance
+and final integrated checks for this follow-up are pending; it is not pushed.
+Separate incomplete partial-face parity: native `06a11a00` bilinearly evaluates
+AO colour at actual face bounds while assigning light records by full corner
+topology. The current midpoint-based corner selection does not close that gate;
+it is not bundled into this emitter-identity fix.
 The export-test allocator abort has a narrow initialized-cache representation
 fix; its 13 library and nine unchanged export tests, plus ten serial reruns,
 pass. The Go registry suite, vet, Rust light-registry tests and focused render

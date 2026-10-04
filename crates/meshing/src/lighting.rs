@@ -3,7 +3,7 @@ use std::cell::Cell;
 use assets::{MODEL_QUAD_FLAG_FACE_MASK, ModelQuad, NetworkIdMode, RuntimeAssets, VisualKind};
 use world::{MeshDependencyMask, MeshNeighbourhood, SubChunk};
 
-use crate::{BlockClassifier, Face, PackedQuadLighting};
+use crate::{BlockClassifier, ContributorResolver, Face, PackedQuadLighting};
 
 /// Temporary Phase 2.6 light inputs. Phase 2.7 replaces only these inputs.
 pub const PHASE26_BLOCK_LIGHT: u8 = 0;
@@ -117,6 +117,7 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         face,
         positions,
+        surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
 
@@ -130,10 +131,27 @@ pub(crate) trait LightingInputs {
         self.occludes(coordinate)
     }
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample;
-    /// Selects the emitting-block directional shade branch.
-    fn emits(&self, _coordinate: [i32; 3]) -> bool {
-        false
-    }
+}
+
+fn surface_emits(
+    classifier: &BlockClassifier,
+    assets: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    coordinate: [i32; 3],
+) -> bool {
+    let Some((chunk, local)) = neighbourhood.block_source(coordinate) else {
+        return false;
+    };
+    ContributorResolver::resolve_direct(*classifier, assets, network_id_mode, chunk, local)
+        .primary_network_value()
+        .is_some_and(|id| {
+            assets
+                .resolve(network_id_mode, id)
+                .light_properties()
+                .emission()
+                > 0
+        })
 }
 
 struct DirectInputs<'a, 'n, S: MeshLightSampler + ?Sized> {
@@ -172,23 +190,6 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
                 visual.flags().contains(assets::BlockFlags::LEAF_MODEL)
                     || visual.light_properties().emission() > 0
             })
-    }
-
-    fn emits(&self, coordinate: [i32; 3]) -> bool {
-        let Some((chunk, local)) = self.neighbourhood.block_source(coordinate) else {
-            return false;
-        };
-        (0..chunk.storages().len()).any(|layer| {
-            chunk
-                .runtime_id(layer, local[0], local[1], local[2])
-                .is_some_and(|id| {
-                    self.assets
-                        .resolve(self.network_id_mode, id)
-                        .light_properties()
-                        .emission()
-                        > 0
-                })
-        })
     }
 
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
@@ -267,10 +268,6 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for MeshLightingCache<'_, '_, 
         self.darkened_shades[word].get() & bit != 0
     }
 
-    fn emits(&self, coordinate: [i32; 3]) -> bool {
-        self.direct.emits(coordinate)
-    }
-
     fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
         let Some(index) = halo_index(coordinate) else {
             return self.direct.sample(coordinate);
@@ -298,8 +295,9 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     face: Face,
     positions: [[i16; 3]; 4],
+    emitting_block: bool,
 ) -> PackedQuadLighting {
-    bake_quad_with(inputs, block, face, positions, false)
+    bake_quad_with(inputs, block, face, positions, false, emitting_block)
 }
 
 pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
@@ -308,7 +306,7 @@ pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
     face: Face,
     positions: [[i16; 3]; 4],
 ) -> PackedQuadLighting {
-    bake_quad_in_plane(inputs, block, face, positions, false, true)
+    bake_quad_in_plane(inputs, block, face, positions, false, true, false)
 }
 
 /// Templates check their bounds; cube faces are known to lie on a block boundary.
@@ -318,8 +316,17 @@ pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
     face: Face,
     positions: [[i16; 3]; 4],
     check_bounds: bool,
+    emitting_block: bool,
 ) -> PackedQuadLighting {
-    bake_quad_in_plane(inputs, block, face, positions, check_bounds, false)
+    bake_quad_in_plane(
+        inputs,
+        block,
+        face,
+        positions,
+        check_bounds,
+        false,
+        emitting_block,
+    )
 }
 
 fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
@@ -329,6 +336,7 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
     positions: [[i16; 3]; 4],
     check_bounds: bool,
     liquid_outward_center: bool,
+    emitting_block: bool,
 ) -> PackedQuadLighting {
     let (normal, tangent_a, tangent_b) = face_basis(face);
     let outward = add_normal(block, normal);
@@ -348,7 +356,7 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
         block
     };
     let plane_normal = if boundary { normal } else { [0; 3] };
-    let emitter = u16::from(inputs.emits(block)) << 11;
+    let emitter = u16::from(emitting_block) << 11;
     let shade_face = u8::from(inputs.shade_darkened(outward));
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
@@ -435,6 +443,7 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         template_id,
         rotation,
+        surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
 
@@ -444,6 +453,7 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     template_id: u32,
     rotation: u32,
+    emitting_block: bool,
 ) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
     let start = template.quad_start as usize;
@@ -463,6 +473,7 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
                             quad.positions
                                 .map(|position| rotate_model_position(position, rotation)),
                             true,
+                            emitting_block,
                         )
                     },
                 )
@@ -683,12 +694,14 @@ mod tests {
             Face::NegativeX,
             positions,
             true,
+            false,
         );
         let plain = bake_quad(
             &VineOnLog { own_solid: true },
             [0, 0, 0],
             Face::NegativeX,
             positions,
+            false,
         );
         assert_eq!(attached.samples()[0] & 0xff, 9 | (12 << 4));
         assert_eq!(plain.samples()[0] & 0xff, 0);
