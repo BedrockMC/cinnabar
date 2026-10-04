@@ -16,6 +16,12 @@ directory. This notice is checked in and is not rewritten by the acquisition scr
 - Files: `assets/branding/` (`title.png`)
 - Provenance: original, generated for Cinnabar; not Mojang content.
 
+## Window and installer icon
+
+- Files: `packaging/icons/cinnabar.svg`, `assets/branding/icon.png`
+- Provenance: original Cinnabar artwork; not Mojang content. The PNG is rasterized
+  from the SVG with `magick -background none packaging/icons/cinnabar.svg -resize 256x256 assets/branding/icon.png`.
+
 ## BedSim
 
 - Source: https://github.com/oomph-ac/bedsim
