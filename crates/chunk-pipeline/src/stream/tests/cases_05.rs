@@ -592,9 +592,7 @@ fn explicit_transient_retry_preserves_older_deferred_fifo_when_outbound_reopens(
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.reserve(sequence as u64 + 10);
     }
     apply_sub_chunk_result(
         &mut stream,
@@ -607,7 +605,7 @@ fn explicit_transient_retry_preserves_older_deferred_fifo_when_outbound_reopens(
         stream.deferred_retries.push_back(key);
         stream.deferred_retry_set.insert(key);
     }
-    stream.requests.pop_front();
+    stream.requests.cancel_reservation(10);
     let normalization_before = stream.stats().normalization_errors;
 
     apply_sub_chunk_result(
@@ -616,10 +614,11 @@ fn explicit_transient_retry_preserves_older_deferred_fifo_when_outbound_reopens(
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound),
     );
 
-    let outbound_retry_y = stream.requests.iter().find_map(|slot| match slot {
-        super::OutboundRequestSlot::Ready(request) => Some(request.base_sub_chunk_y),
-        super::OutboundRequestSlot::Reserved(_) => None,
-    });
+    let outbound_retry_y = stream
+        .requests
+        .ready_requests()
+        .map(|request| request.base_sub_chunk_y)
+        .next();
     assert_eq!(outbound_retry_y, Some(keys[0].y));
     assert_eq!(stream.deferred_retries.back(), Some(&keys[1]));
     assert_eq!(
@@ -638,9 +637,7 @@ fn late_success_cancels_queued_timeout_retry() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(2);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 1 {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.reserve(sequence as u64 + 10);
     }
     stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
     assert_eq!(stream.pending_request_count(), 1);
@@ -667,16 +664,14 @@ fn eviction_purges_deadlines_retries_and_late_reply_state() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(3);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 2 {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.reserve(sequence as u64 + 10);
     }
     stream.expire_sub_chunk_deadlines(started + super::SUB_CHUNK_RESPONSE_TIMEOUT);
     assert_eq!(stream.pending_request_count(), 2);
     assert_eq!(stream.deferred_retries.len(), 1);
-    stream
-        .requests
-        .retain(|slot| matches!(slot, super::OutboundRequestSlot::Ready(_)));
+    for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY - 2 {
+        stream.requests.cancel_reservation(sequence as u64 + 10);
+    }
     let armed_retry = stream.pop_next_request().unwrap();
     acknowledge_request_sent(
         &mut stream,
@@ -711,9 +706,7 @@ fn expired_deadlines_obey_capacity_without_loss_or_overflow() {
     let (mut stream, keys, initial) = stream_with_unsent_sub_chunks(3);
     acknowledge_request_sent(&mut stream, &initial, started);
     for sequence in 0..super::OUTBOUND_REQUEST_CAPACITY {
-        stream
-            .requests
-            .push_back(super::OutboundRequestSlot::Reserved(sequence as u64 + 10));
+        stream.requests.reserve(sequence as u64 + 10);
     }
     apply_sub_chunk_result(
         &mut stream,
@@ -735,14 +728,15 @@ fn expired_deadlines_obey_capacity_without_loss_or_overflow() {
     assert_eq!(stream.stats().sub_chunk_retries_scheduled, 1);
     assert_eq!(stream.stats().normalization_errors, normalization_before);
 
-    stream.requests.pop_front();
+    stream.requests.cancel_reservation(10);
     stream.expire_sub_chunk_deadlines(deadline);
 
     assert_eq!(stream.requests.len(), super::OUTBOUND_REQUEST_CAPACITY);
-    let outbound_retry_y = stream.requests.iter().find_map(|slot| match slot {
-        super::OutboundRequestSlot::Ready(request) => Some(request.base_sub_chunk_y),
-        super::OutboundRequestSlot::Reserved(_) => None,
-    });
+    let outbound_retry_y = stream
+        .requests
+        .ready_requests()
+        .map(|request| request.base_sub_chunk_y)
+        .next();
     assert_eq!(outbound_retry_y, Some(keys[0].y));
     assert_eq!(
         stream.deferred_retries.len(),
