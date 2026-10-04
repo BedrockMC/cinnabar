@@ -14,7 +14,7 @@ sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per la
 | Target | Command | Signing (env only) |
 | --- | --- | --- |
 | macOS `.app` + DMG | `make package-macos` | `CODESIGN_IDENTITY`, `NOTARY_PROFILE` or `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_APP_PASSWORD` |
-| Windows MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
+| Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
 
 Installers also ship the pinned OFL Monocraft font at `<resources>/fonts/`, fetched by `package-*`
@@ -22,14 +22,25 @@ via `scripts/fetch-ui-font.sh`, so first-run setup can draw before any download.
 
 CI: `.github/workflows/package.yml`. Pushes to `main` replace the `nightly` prerelease (tag moved,
 assets replaced). To publish a stable release, run **Package** in GitHub Actions and choose
-`current`, `patch`, `minor`, or `major`. Manual runs use the default branch. `current` releases the
+`current`, `patch`, `minor`, `major`, or `custom`. The **branch** input accepts any existing branch;
+leave it blank to use the branch selected in Actions' **Use workflow from** menu. A version bump
+is committed to that branch, leaving other branches unchanged. These are Cinnabar app versions,
+independent of the Minecraft game/protocol version. `current` releases the
 version in `[workspace.package]`; the other choices update that version and the inherited
 workspace entries in `Cargo.lock`, commit the change, and create a matching `vX.Y.Z` tag. The
 commit and tag are pushed together before building. Every platform builds the exact prepared
 commit, and the final job publishes the installers as a stable release rather than a draft.
+For `custom`, fill **version** with a greater plain semantic version such as `1.4.2` (no `v`
+prefix or prerelease suffix). Patch increments the last component; minor and major reset lower
+components to zero. Repository-wide release tags must be unique across branches.
+Release tooling and logos come from the exact revision of the selected workflow; the target
+branch is checked out separately for its source, binaries, manifests and assets. An older target
+branch therefore needs no copy of the new release or setup scripts. Select a workflow revision
+with these controls in **Use workflow from**, then enter the source branch in **branch**.
 
 An unsuccessful build leaves its tag unpublished. Re-run the failed jobs, or select `current`
-while that tag still points at the default branch's HEAD, to finish it. Manual preparation rejects
+while that tag still points at the selected branch's HEAD, to finish it. Repeating the same custom
+version also recovers an unpublished tag at HEAD. Manual preparation rejects
 an existing release or a tag on a different commit for the version being released. Pushing a
 matching `vX.Y.Z` tag by hand also builds and publishes it; re-running that tagged workflow
 replaces its release assets. Stable runs do not cancel a running release; GitHub may replace an
@@ -40,13 +51,22 @@ outside the payload allowlist (shared with `stage-payload.sh`). Windows uses WiX
 running installer actions. DMG creation retries the transient `Resource busy` error on hosted
 macOS runners; other errors remain fatal.
 
+Windows publishes `Cinnabar-x64-setup.exe` and `Cinnabar-x64.msi`. Setup is a self-contained
+WiX Burn wizard embedding the same MSI; CI checks its embedded MSI hash against the separately
+verified package. Both install to Program Files and retain the existing machine-wide MSI upgrade
+identity, so Windows may request administrator approval. Setup, the installed executable, uninstall
+entry, Start menu and desktop shortcuts use the original `packaging/icons/cinnabar.svg` logo.
+The update manifest points to setup EXE. No Mojang artwork is embedded. Local packaging requires
+ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
+`wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
+
 Signing is optional; each missing secret yields unsigned output instead of a failure:
 
 | Name (repo secret unless noted) | Enables |
 | --- | --- |
 | `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `CODESIGN_IDENTITY` | Developer ID signing (else ad-hoc) |
 | `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarization; required once `CODESIGN_IDENTITY` is set |
-| `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes and MSI |
+| `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes, MSI, setup engine and bundle |
 | `CINNABAR_UPDATE_SIGNING_KEY` | Signed `update-stable.json` on `v*` releases (else none is published) |
 | `UPDATE_TRUSTED_KEYS` (variable) | Keys the core trusts for update manifests |
 
