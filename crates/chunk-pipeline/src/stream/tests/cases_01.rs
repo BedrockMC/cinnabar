@@ -17,6 +17,7 @@ fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
         temperature: 0.8,
         downfall: 0.4,
         snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_color: 0xff44_6688,
     }]);
 
@@ -68,6 +69,7 @@ fn stale_biome_definition_event_cannot_replace_the_committed_snapshot() {
         temperature: 0.8,
         downfall: 0.4,
         snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_color: 0xff44_6688,
     }]);
     stream
@@ -85,6 +87,7 @@ fn stale_biome_definition_event_cannot_replace_the_committed_snapshot() {
         temperature: 0.0,
         downfall: 0.0,
         snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_color: 0,
     }]);
     let error = stream
@@ -124,6 +127,7 @@ fn live_biome_resolution_commits_in_fifo_with_exact_raw_id_lookup() {
         temperature: 0.8,
         downfall: 0.4,
         snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_color: 0xff44_6688,
     }]);
 
@@ -174,6 +178,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
                     temperature: 0.8,
                     downfall: 0.4,
                     snow_foliage: 0.0,
+                    max_snow_accumulation: None,
                     map_water_color: 0xff44_6688,
                 }]),
             }),
@@ -225,6 +230,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         temperature,
         downfall: 0.4,
         snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_color: 0xff44_6688,
     };
     stream
@@ -406,6 +412,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         center: Arc::new(uniform_sub_chunk(1)),
         biomes: std::array::from_fn(|_| None),
         adjacent: std::array::from_fn(|_| None),
+        column_above: Vec::new(),
         light_halo,
     };
 

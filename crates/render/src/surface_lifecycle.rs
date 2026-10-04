@@ -30,7 +30,6 @@ fn release_orphan_targets<T: Component>(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 #[path = "../tests/support/gpu_snapshot.rs"]
 mod gpu_fixture;
 

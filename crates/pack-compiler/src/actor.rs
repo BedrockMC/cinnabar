@@ -168,8 +168,8 @@ fn decode_raster(
             pixel[3] = if pixel[3] >= 128 { 255 } else { 0 };
         }
     }
-    // The actor pipeline discards on alpha, so only binary alpha reproduces the raster;
-    // a lenient (server pack) build keeps partial alpha and lets the discard threshold decide.
+    // Neutral opacity rasters require binary alpha. A witnessed native material raster,
+    // or a lenient server-pack build, retains every alpha byte instead of quantizing it.
     (!binary_alpha
         || pixels
             .chunks_exact(4)
@@ -249,10 +249,17 @@ fn build_artwork(
                 }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
+                    let binary_alpha = !lenient
+                        && !assets::native_actor_texture_uses_color_mask(
+                            &entities.sources[source as usize],
+                        )
+                        && !assets::native_actor_texture_uses_multitexture(
+                            &entities.sources[source as usize],
+                        );
                     slot.insert(decode_raster(
                         path,
                         &read(source)?,
-                        !lenient,
+                        binary_alpha,
                         !lenient && crystal_sources.contains(&source),
                     ));
                 }
@@ -319,10 +326,17 @@ fn build_artwork(
             }
             if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                 let path = entities.sources[source as usize].path.as_ref();
+                let binary_alpha = !lenient
+                    && !assets::native_actor_texture_uses_color_mask(
+                        &entities.sources[source as usize],
+                    )
+                    && !assets::native_actor_texture_uses_multitexture(
+                        &entities.sources[source as usize],
+                    );
                 slot.insert(decode_raster(
                     path,
                     &read(source)?,
-                    !lenient,
+                    binary_alpha,
                     !lenient && crystal_sources.contains(&source),
                 ));
             }

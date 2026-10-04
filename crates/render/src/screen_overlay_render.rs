@@ -74,7 +74,7 @@ fn install(app: &mut App) {
         app,
         OVERLAY_SHADER_HANDLE,
         "screen_overlay.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)

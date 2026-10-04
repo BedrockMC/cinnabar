@@ -163,6 +163,7 @@ pub(crate) fn drive_inventory_ui_actions(
     {
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
+        runtime.screen_state_mut().pointer.reset();
         if !runtime.inventory_open() {
             runtime.screen_state_mut().book = None;
         }

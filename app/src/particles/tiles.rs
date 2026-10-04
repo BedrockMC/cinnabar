@@ -22,7 +22,7 @@ pub(super) struct BlockTile {
 }
 
 /// Converts the world tint into the gamma-space colour expected by particle Molang.
-fn linear_to_srgb(c: f32) -> f32 {
+pub(super) fn linear_to_srgb(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
     if c <= 0.003_130_8 {
         c * 12.92
@@ -99,7 +99,7 @@ fn terrain_material(
 }
 
 /// Gamma-space biome colour for a material's tint mode; white when untinted.
-fn biome_tint(stream: &WorldStream, flags: u32, block: [i32; 3]) -> [f32; 4] {
+pub(super) fn biome_tint(stream: &WorldStream, flags: u32, block: [i32; 3]) -> [f32; 4] {
     let mode = flags & MATERIAL_FLAG_TINT_MASK;
     if mode == 0 {
         return [1.0; 4];

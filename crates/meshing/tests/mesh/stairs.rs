@@ -5,6 +5,8 @@ struct CompiledStairFixture {
     cube: u32,
 }
 
+include!("stairs/native_state.rs");
+
 fn compiled_stair_fixture() -> &'static CompiledStairFixture {
     static FIXTURE: OnceLock<CompiledStairFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {

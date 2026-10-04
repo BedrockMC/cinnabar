@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use assets::{
     AssetError, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets,
+    DEFAULT_WATER_APPEARANCE_OPACITY, DEFAULT_WATER_OPACITY, DEFAULT_WATER_RGB,
     MAX_BIOME_NAME_BYTES, MAX_BIOME_RULES, TINT_MAP_BYTES, TINT_MAP_SIZE, TintMapId, TintSource,
 };
 
@@ -147,7 +148,7 @@ pub fn compile_biome_assets(
             .map(parse_direct_colour)
             .transpose()?
             .map(TintSource::direct)
-            .unwrap_or_else(|| TintSource::direct(0x44_aff5));
+            .unwrap_or_else(|| TintSource::direct(DEFAULT_WATER_RGB));
         let grass_is_shaded = appearance
             .grass
             .as_ref()
@@ -168,13 +169,16 @@ pub fn compile_biome_assets(
             temperature_bits: climate.temperature.to_bits(),
             downfall_bits: climate.downfall.to_bits(),
         };
-        if let Some(opacity) = appearance
+        let opacity = appearance
             .water
             .as_ref()
-            .and_then(|water| water.surface_opacity)
-        {
-            rule.set_water_opacity(opacity)?;
-        }
+            .map(|water| {
+                water
+                    .surface_opacity
+                    .unwrap_or(DEFAULT_WATER_APPEARANCE_OPACITY)
+            })
+            .unwrap_or(DEFAULT_WATER_OPACITY);
+        rule.set_water_opacity(opacity)?;
         rules.push(rule);
     }
     Ok(CompiledBiomeAssets {

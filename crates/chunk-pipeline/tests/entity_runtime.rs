@@ -106,6 +106,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     parent: None,
                     pivot: Some([scalar(1.0), scalar(0.0), scalar(0.0)]),
                     rotation: None,
+                    bind_pose_rotation: None,
                     mirror: None,
                     inflate: None,
                     never_render: None,
@@ -130,6 +131,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     parent: Some("root".into()),
                     pivot: Some([scalar(0.0), scalar(2.0), scalar(0.0)]),
                     rotation: None,
+                    bind_pose_rotation: None,
                     mirror: None,
                     inflate: None,
                     never_render: None,
@@ -906,3 +908,6 @@ fn review_custom_action_uses_the_server_pack_rig_catalog() {
         chunk_pipeline::RemoteActionFallback::None
     );
 }
+
+#[path = "entity_runtime/pose_defaults.rs"]
+mod pose_defaults;

@@ -136,6 +136,30 @@ fn face_only_target_skips_diagonal_but_face_neighbour_still_dirties() {
 }
 
 #[test]
+fn adding_and_removing_snow_above_face_only_grass_invalidates_lower_subchunk() {
+    let mut stream = stream();
+    // Grass at local y=15 samples a snow block at y=0 in the subchunk above.
+    let grass = SubChunkKey::new(0, 0, 0, 0);
+    let snow = SubChunkKey::new(0, 0, 1, 0);
+    stream.resident.insert(grass);
+    let now = Instant::now();
+    let mut generation = stream.mark_dirty_exact(grass, now);
+    for _mutation in ["add snow", "remove snow"] {
+        assert!(stream.register_mesh_dependency_mask(
+            grass,
+            generation,
+            MeshDependencyMask::default()
+        ));
+        stream.pending_mesh.clear();
+        stream.mark_live_mutation_changed(snow, now, false);
+        let revised = stream.revisions.dirty(grass).unwrap().revision;
+        assert_ne!(revised, generation);
+        assert!(stream.pending_mesh.contains_key(&grass));
+        generation = revised;
+    }
+}
+
+#[test]
 fn rapid_liquid_changes_coalesce_latest_generation_and_oldest_since() {
     let mut stream = stream();
     let source = SubChunkKey::new(0, 0, 0, 0);

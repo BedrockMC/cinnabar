@@ -116,6 +116,11 @@ impl PreparedResourceGeometry {
                 commands.entity(entity).remove::<GpuChunkAllocation>();
             }
         }
+        let keys: HashMap<_, _> = instances
+            .iter()
+            .map(|(entity, instance)| (instance.key, entity))
+            .collect();
+        self.models.draw_orders.remap_entities(&keys);
         if let Some(committed) = self.models.committed.as_mut() {
             let mut allocations = committed.address.allocations.to_vec();
             for allocation in &mut allocations {

@@ -74,7 +74,7 @@ fn install(app: &mut App) {
         app,
         PANORAMA_SHADER_HANDLE,
         "panorama.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)

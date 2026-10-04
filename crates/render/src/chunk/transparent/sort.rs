@@ -56,13 +56,12 @@ pub(in crate::chunk) fn sort_transparent_candidates(
     view_from_world: Mat4,
     candidates: Arc<[TransparentSortCandidate]>,
 ) -> Vec<PackedTransparentDrawRef> {
+    let metric = super::face_metric::TransparentFaceMetric::new(
+        view_from_world.inverse().transform_point3(Vec3::ZERO),
+    );
     let quad_depths = candidates
         .iter()
-        .map(|candidate| {
-            view_from_world
-                .transform_point3(Vec3::from_array(candidate.quad_centroid))
-                .z
-        })
+        .map(|candidate| metric.distance(candidate.key, Vec3::from_array(candidate.quad_centroid)))
         .collect::<Vec<_>>();
     let mut grouped = BTreeMap::<SubChunkKey, Vec<usize>>::new();
     for (index, candidate) in candidates.iter().enumerate() {
@@ -86,8 +85,8 @@ pub(in crate::chunk) fn sort_transparent_candidates(
         group.sort_by(|&left, &right| {
             let left_candidate = &candidates[left];
             let right_candidate = &candidates[right];
-            quad_depths[left]
-                .total_cmp(&quad_depths[right])
+            quad_depths[right]
+                .total_cmp(&quad_depths[left])
                 .then_with(|| left_candidate.key.cmp(&right_candidate.key))
                 .then_with(|| {
                     left_candidate

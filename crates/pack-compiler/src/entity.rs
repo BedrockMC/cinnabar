@@ -24,6 +24,7 @@ mod item_bindings;
 mod json;
 mod legacy_icons;
 mod molang;
+mod native_bind_pose;
 mod pack;
 mod sanitize;
 mod source;
@@ -163,6 +164,9 @@ pub fn compile_entity_assets_with_report(
             &mut symbols,
             &mut geometries,
         )?;
+        // Pinned vanilla samples occasionally omit a legacy cube bind transform that
+        // the shipped native base pack retains. This is never applied to session packs.
+        native_bind_pose::restore_sample_defaults(&relative_path, &bytes, &mut geometries);
         source_payloads.insert(relative_path, bytes.into_boxed_slice());
         debug_assert_eq!(source_index + 1, sources.len());
     }

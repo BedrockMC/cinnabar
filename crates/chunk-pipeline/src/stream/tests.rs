@@ -98,6 +98,8 @@ mod light_scheduler;
 mod neighbour_deadlines;
 
 mod mesh_dependency;
+mod seasonal_foliage;
+mod world_clocks;
 
 fn non_default_air_runtime_assets() -> RuntimeAssets {
     let cube = BlockVisual {
@@ -290,6 +292,7 @@ fn define_custom_biomes(stream: &mut WorldStream, ids: impl IntoIterator<Item = 
             temperature: 0.8,
             downfall: 0.4,
             snow_foliage: 0.0,
+            max_snow_accumulation: None,
             map_water_color: 0,
         })
         .collect::<Vec<_>>();

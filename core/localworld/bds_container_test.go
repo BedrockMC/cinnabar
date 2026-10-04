@@ -3,6 +3,7 @@ package localworld
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,10 +72,10 @@ func TestContainerRunnerLifecycleAndArguments(t *testing.T) {
 		"pull --platform linux/amd64 " + testImage,
 		"rm -f " + name,
 		"run --rm --name " + name + " --platform linux/amd64 -p 127.0.0.1:",
-		":19132/udp",
+		fmt.Sprintf(":%d/tcp", bdsContainerHTTPPort),
 		"-v " + filepath.Join(p.Root, "1.26.52.3") + ":/data ",
 		"-v " + filepath.Join(spec.Dir, "db") + ":/data/worlds/" + spec.World.ID,
-		"-e EULA=TRUE", "-e VERSION=1.26.52.3", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7", "-e ENABLE_BDS_V6BIND_FIX=TRUE", "-e TRANSPORT=raknet", "-e ENABLE_LAN_VISIBILITY=false",
+		"-e EULA=TRUE", "-e VERSION=1.26.52.3", "-e ONLINE_MODE=false", "-e LEVEL_TYPE=FLAT", "-e LEVEL_SEED=-7", "-e ENABLE_BDS_V6BIND_FIX=TRUE", "-e TRANSPORT=" + string(TransportNetherNetHTTP), "-e ENABLE_LAN_VISIBILITY=false",
 		"-e DIRECT_DOWNLOAD_URL=https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.26.52.3.zip",
 		"stop -t 25 " + name,
 	} {

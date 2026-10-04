@@ -428,10 +428,21 @@ impl PlayerInventoryLedger {
             .and_then(|catalog| catalog.item(creative_network_id))
             .ok_or(InventoryGestureError::InvalidRequest)?;
         // The client takes a full stack even though entries advertise one.
-        let full = self
+        let entry = self
             .negotiated_item_entry(item.stack.network_id)
-            .and_then(entry_capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
+        let full = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
+        // Native _makeCreateItemScopeCreative (26.30 RVA 0x09fdea50)
+        // declares the selected prototype before creating the full transfer.
+        let result = CraftResult {
+            identifier: Arc::clone(&entry.identifier),
+            aux: i32::try_from(item.stack.metadata)
+                .map_err(|_| InventoryGestureError::InvalidRequest)?,
+            count: item.stack.count,
+            block_runtime_id: u32::try_from(item.stack.block_runtime_id)
+                .map_err(|_| InventoryGestureError::InvalidRequest)?,
+            user_data: Arc::clone(&item.stack.extra_data),
+        };
         let target = match destination {
             CreativeDestination::Cursor => Cell::Cursor,
             CreativeDestination::Player(slot) => {
@@ -470,7 +481,7 @@ impl PlayerInventoryLedger {
                     crafts: 1,
                 },
                 StackRequestAction::CraftResultsDeprecated {
-                    results: Arc::from([]),
+                    results: Arc::from([result]),
                     crafts: 1,
                 },
                 transfer,

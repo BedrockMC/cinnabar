@@ -95,6 +95,7 @@ impl WorldStream {
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             classifier: BlockClassifier::new(air_network_id),
             startup_terrain_announced: true,
+            seasonal_foliage: seasonal_foliage::SeasonalFoliage::default(),
             pending_decode: VecDeque::new(),
             in_flight_decode_jobs: 0,
             predictions: prediction::DeferredPredictions::default(),

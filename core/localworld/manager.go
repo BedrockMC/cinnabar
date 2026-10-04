@@ -359,24 +359,46 @@ func (m *Manager) SetPaused(paused bool) error {
 
 // Target reports the local server address for the proxy, waiting out a start. ok is false when no world is open.
 func (m *Manager) Target(ctx context.Context) (address string, ok bool, err error) {
+	target, ok, err := m.ConnectionTarget(ctx)
+	return target.Address, ok, err
+}
+
+// ConnectionTarget reports the local address and transport atomically, waiting out a start.
+func (m *Manager) ConnectionTarget(ctx context.Context) (ConnectionTarget, bool, error) {
 	for {
 		m.mu.Lock()
-		state, inst, changed, failure := m.state, m.inst, m.changed, m.failure
+		state, inst, changed, failure, world := m.state, m.inst, m.changed, m.failure, m.world
 		m.mu.Unlock()
 		switch state {
 		case StateIdle:
-			return "", false, nil
+			return ConnectionTarget{}, false, nil
 		case StateRunning:
-			return inst.Address(), true, nil
+			transport := TransportRakNet
+			switch world.Backend {
+			case BackendBDS:
+				transport = TransportNetherNetHTTP
+			case BackendDragonfly:
+			default:
+				return ConnectionTarget{}, false, fmt.Errorf("local world uses unsupported backend %q", world.Backend)
+			}
+			target := ConnectionTarget{Address: inst.Address(), Transport: transport}
+			if world.Backend == BackendBDS {
+				if lan, ok := inst.(interface{ LANAddress() string }); ok && lan.LANAddress() != "" {
+					target.Transport = TransportNetherNetLAN
+					target.LANAddress = lan.LANAddress()
+					target.LevelName = world.ID
+				}
+			}
+			return target, true, nil
 		case StateFailed:
-			return "", false, fmt.Errorf("local world unavailable: %s", failure)
+			return ConnectionTarget{}, false, fmt.Errorf("local world unavailable: %s", failure)
 		case StateStopping:
-			return "", false, errors.New("local world is closing")
+			return ConnectionTarget{}, false, errors.New("local world is closing")
 		}
 		select {
 		case <-changed:
 		case <-ctx.Done():
-			return "", false, ctx.Err()
+			return ConnectionTarget{}, false, ctx.Err()
 		}
 	}
 }

@@ -13,7 +13,7 @@ const HALO_CELLS: usize = HALO_WIDTH * HALO_WIDTH * HALO_WIDTH;
 // operations while retaining a scale-relative, finite comparison window.
 const SIMULTANEOUS_CROSSING_ULPS: u64 = 8;
 
-/// Authoritative collision-shape intercept for a block interaction ray.
+/// Authoritative selection-shape intercept for a block interaction ray.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockHit {
     /// Absolute block coordinates in the active dimension.
@@ -22,7 +22,7 @@ pub struct BlockHit {
     pub face: u8,
     /// Finite block-local intercept coordinates, each clamped to `[0, 1]`.
     pub hit_local: Vec3,
-    /// Runtime ID whose authoritative collision shape was intercepted.
+    /// Runtime ID whose authoritative selection shape was intercepted.
     pub runtime_id: u32,
     /// Finite physical distance from the origin along the normalized ray.
     pub distance: f64,
@@ -52,7 +52,7 @@ impl PaletteWorld<'_> {
         self.block_interaction_ray_with_identity(origin, direction, max_distance, None)
     }
 
-    /// Finds the nearest collision-shape intercept along a caller-bounded ray.
+    /// Finds the nearest selection-shape intercept along a caller-bounded ray.
     ///
     /// `expected_identity` must cover every column whose collision data could
     /// occlude the result. Missing or changed data fails closed.

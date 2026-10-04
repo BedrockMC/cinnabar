@@ -3,7 +3,7 @@ use meshing::{CloudFace, PackedCloudQuad};
 use render::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCoverageSemantics,
     CloudGeometryDiagnostic, CloudGeometryDiagnosticError, CloudMatchingView, CloudQuality,
-    CloudRenderConfig,
+    CloudRenderConfig, adjusted_cloud_distance_blocks, adjusted_player_render_distance_blocks,
 };
 
 const QUALITIES: [CloudQuality; 4] = [
@@ -12,6 +12,85 @@ const QUALITIES: [CloudQuality; 4] = [
     CloudQuality::High,
     CloudQuality::Ultra,
 ];
+
+#[test]
+fn ordinary_player_camera_includes_server_radius_margin_before_adjustment() {
+    for (confirmed, expected) in [
+        (0.0, 40.0),
+        (32.0, 45.0),
+        (48.0, 60.0),
+        (64.0, 72.0),
+        (128.0, 128.0),
+        (160.0, 160.0),
+        (256.0, 256.0),
+    ] {
+        assert_eq!(
+            adjusted_player_render_distance_blocks(confirmed),
+            Some(expected)
+        );
+    }
+    for invalid in [-1.0, 64.5, f32::NAN, f32::INFINITY, i32::MAX as f32] {
+        assert_eq!(adjusted_player_render_distance_blocks(invalid), None);
+    }
+}
+
+#[test]
+fn classic_cloud_distance_uses_native_camera_margins_and_minimum() {
+    for (blocks, expected) in [
+        (0.0, 40.0),
+        (32.0, 40.0),
+        (64.0, 60.0),
+        (65.0, 57.0),
+        (80.0, 72.0),
+        (81.0, 65.0),
+        (128.0, 112.0),
+        (256.0, 240.0),
+    ] {
+        assert_eq!(
+            adjusted_cloud_distance_blocks(blocks, 1.0, None),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn classic_cloud_distance_preserves_caller_and_conditional_platform_coefficients() {
+    assert_eq!(
+        adjusted_cloud_distance_blocks(128.0, 2.0, None),
+        Some(224.0)
+    );
+    assert_eq!(adjusted_cloud_distance_blocks(128.0, 0.5, None), Some(56.0));
+    assert_eq!(adjusted_cloud_distance_blocks(128.0, 0.0, None), Some(40.0));
+    assert_eq!(
+        adjusted_cloud_distance_blocks(128.0, 2.0, Some(0.5)),
+        Some(56.0)
+    );
+    assert_eq!(
+        adjusted_cloud_distance_blocks(128.0, 0.5, Some(2.0)),
+        Some(56.0)
+    );
+    assert_eq!(
+        adjusted_cloud_distance_blocks(128.0, 2.0, Some(0.0)),
+        Some(40.0)
+    );
+}
+
+#[test]
+fn classic_cloud_distance_does_not_upload_non_finite_or_non_native_inputs() {
+    for blocks in [-1.0, 64.5, f32::NAN, f32::INFINITY, i32::MAX as f32] {
+        assert_eq!(adjusted_cloud_distance_blocks(blocks, 1.0, None), None);
+    }
+    for coefficient in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+        assert_eq!(
+            adjusted_cloud_distance_blocks(128.0, coefficient, None),
+            None
+        );
+        assert_eq!(
+            adjusted_cloud_distance_blocks(128.0, 1.0, Some(coefficient)),
+            None
+        );
+    }
+}
 
 #[test]
 fn native_quality_records_are_exact_and_default_to_high() {

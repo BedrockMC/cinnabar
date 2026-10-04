@@ -8,8 +8,12 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[path = "actor/color_mask.rs"]
+mod color_mask;
 #[path = "actor/crystal.rs"]
 mod crystal;
+#[path = "actor/multitexture.rs"]
+mod multitexture;
 
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);

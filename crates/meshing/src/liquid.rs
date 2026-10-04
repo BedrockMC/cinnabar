@@ -1,3 +1,12 @@
+/// Native liquid face separation from contacting block geometry (06a1b960).
+pub const LIQUID_FACE_INSET: f32 = 0.001;
+/// Word 2 flag: native tessellation admits the opposite winding for this face.
+pub const LIQUID_TWO_SIDED_BIT: u32 = 1 << 29;
+/// Word 2 flag: visible top emission lowered the shared liquid corner heights.
+pub const LIQUID_TOP_INSET_BIT: u32 = 1 << 30;
+/// Word 2 flag selecting the opaque depth-writing liquid route.
+pub const LIQUID_DEPTH_WRITE_BIT: u32 = 1 << 31;
+
 /// Visual medium containing the active camera eye.
 ///
 /// This is resolved from palette-native liquid layers. Unknown world data is
@@ -64,8 +73,8 @@ use std::cell::{Cell, RefCell};
 
 use assets::{
     BlockFace, BlockFlags, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
-    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, NetworkIdMode, RuntimeAssets,
-    VisualKind,
+    MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::MeshNeighbourhood;
 
@@ -129,6 +138,11 @@ impl LiquidPart {
 #[derive(Clone, Copy)]
 struct OcclusionPart {
     occludes: bool,
+    /// A full cube can block the liquid sampler without hiding a liquid face.
+    /// Native flow reads Material.blocksMotion (RVA 0x0395d2f0), while height
+    /// samples exclude cube-shaped neighbours (RVA 0x06a9cf80). In particular,
+    /// transparent ice is not an air sample or a downhill opening.
+    full_cube: bool,
     /// Bit per face: the primary occludes and that face's material is opaque.
     opaque_faces: u8,
 }
@@ -140,6 +154,16 @@ impl OcclusionPart {
             .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
         Self {
             occludes: occluder.is_some(),
+            full_cube: contributors.primary_entry().is_some_and(|entry| {
+                entry.kind == VisualKind::Cube
+                    || (entry.kind == VisualKind::Model
+                        && assets
+                            .model_templates()
+                            .get(entry.model_template as usize)
+                            .is_some_and(|template| {
+                                template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+                            }))
+            }),
             opaque_faces: occluder.map_or(0, |entry| {
                 Face::ALL
                     .into_iter()
@@ -161,6 +185,7 @@ const LIQUID_KNOWN: u16 = 1 << 14;
 const LIQUID_PRESENT: u16 = 1 << 13;
 const OCCLUSION_KNOWN: u16 = 1 << 12;
 const OCCLUDES: u16 = 1 << 11;
+const FULL_CUBE: u16 = 1 << 10;
 
 /// Mesh-job sampler that memoizes each halo cell's facts on first use; flow,
 /// corner-height and face checks revisit the same cells many times. The two
@@ -254,6 +279,9 @@ impl<'chunk, 'assets> Sampler<'chunk, 'assets> {
             if part.occludes {
                 updated |= OCCLUDES;
             }
+            if part.full_cube {
+                updated |= FULL_CUBE;
+            }
         }
         self.facts[index].set(updated);
         Some(updated)
@@ -295,8 +323,9 @@ trait LiquidSampler {
             Some(_) => self
                 .occlusion_part(neighbourhood, coordinate)
                 .is_none_or(|occlusion| {
-                    !(occlusion.occludes
-                        && contacting_faces.iter().all(|&face| occlusion.opaque(face)))
+                    !(occlusion.full_cube
+                        || (occlusion.occludes
+                            && contacting_faces.iter().all(|&face| occlusion.opaque(face))))
                 }),
         }
     }
@@ -349,6 +378,7 @@ impl LiquidSampler for Sampler<'_, '_> {
         let flags = self.flags(neighbourhood, index, coordinate, OCCLUSION_KNOWN)?;
         (flags & NO_SOURCE == 0).then_some(OcclusionPart {
             occludes: flags & OCCLUDES != 0,
+            full_cube: flags & FULL_CUBE != 0,
             opaque_faces: flags as u8,
         })
     }
@@ -559,19 +589,23 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let gradient = flow_gradient(&sampler, neighbourhood, block, cell);
                 let origin = [x as u8, y as u8, z as u8];
                 let above = add(block, [0, 1, 0]);
-                if !compatible(&sampler, neighbourhood, above, cell.identity)
-                    && !sampler.solid(neighbourhood, above, Face::NegativeY)
-                {
+                let top_emitted = !compatible(&sampler, neighbourhood, above, cell.identity)
+                    && !sampler.solid(neighbourhood, above, Face::NegativeY);
+                if top_emitted {
                     let material = cell.top_material(gradient != [0, 0]);
-                    push_quad(pack(
-                        origin,
-                        Face::PositiveY,
-                        heights,
-                        material,
-                        gradient,
-                        cell.level,
-                        cell.depth_writing,
-                    ));
+                    push_quad(
+                        pack(
+                            origin,
+                            Face::PositiveY,
+                            heights,
+                            material,
+                            gradient,
+                            cell.level,
+                            cell.depth_writing,
+                        )
+                        .with_top_height_inset(true)
+                        .with_two_sided(true),
+                    );
                 }
                 for face in [
                     Face::NegativeX,
@@ -580,8 +614,10 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                     Face::PositiveZ,
                 ] {
                     let adjacent = add(block, face_offset(face));
+                    let adjacent_primary_air = primary_is_air(classifier, neighbourhood, adjacent);
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
+                        || (!cell.depth_writing && !adjacent_primary_air)
                     {
                         continue;
                     }
@@ -592,19 +628,24 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                         Face::PositiveZ => [0, heights[3], heights[2], 0],
                         _ => unreachable!(),
                     };
-                    push_quad(pack(
-                        origin,
-                        face,
-                        side_heights,
-                        cell.material(face),
-                        gradient,
-                        cell.level,
-                        cell.depth_writing,
-                    ));
+                    push_quad(
+                        pack(
+                            origin,
+                            face,
+                            side_heights,
+                            cell.material(face),
+                            gradient,
+                            cell.level,
+                            cell.depth_writing,
+                        )
+                        .with_top_height_inset(top_emitted)
+                        .with_two_sided(adjacent_primary_air),
+                    );
                 }
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
+                    && (cell.depth_writing || primary_is_air(classifier, neighbourhood, below))
                 {
                     push_quad(pack(
                         origin,
@@ -626,7 +667,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     for quad in transparent_quads {
         let index = lighting.len() as u32;
         let block = quad.origin().map(i32::from);
-        lighting.push(crate::lighting::bake_quad(
+        lighting.push(crate::lighting::bake_liquid_quad(
             lighting_inputs,
             block,
             quad.face(),
@@ -642,11 +683,32 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 quad.flow_gradient(),
                 quad.is_falling(),
             )
-            .map(|packed| packed.with_depth_write(quad.is_depth_writing()))
+            .map(|packed| {
+                packed
+                    .with_depth_write(quad.is_depth_writing())
+                    .with_top_height_inset(quad.has_top_height_inset())
+                    .with_two_sided(quad.is_two_sided())
+            })
             .expect("previously checked liquid record"),
         );
     }
     (addressed, lighting)
+}
+
+/// Classic water (06a1b960, lighting model != deferred) admits side/bottom faces
+/// only beside primary Air, even when a non-Air block has a transparent face.
+/// Other liquids retain the ordinary face mask. Side reverse winding also
+/// requires primary Air, independently of any additional liquid layer.
+fn primary_is_air(
+    classifier: BlockClassifier,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    coordinate: [i32; 3],
+) -> bool {
+    match neighbourhood.liquid_sample(0, coordinate) {
+        world::MeshSample::Block(network_value) => classifier.is_air(network_value),
+        // Preserve the existing open-boundary policy for absent primary data.
+        world::MeshSample::Open => true,
+    }
 }
 
 fn pack(

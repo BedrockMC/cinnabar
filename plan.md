@@ -1,5 +1,149 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-03 current checkpoint (in progress; locally committed, not pushed):
+accumulated work and follow-up fixes are committed through `97dccfb3`, including
+the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
+ownership split and frame diagnostics. Origin/dev `a1c5880d` is integrated
+with the Profile and Marketplace changes; `d2a51dac` is also integrated.
+The subsequent `8d3ca7c5` update is integrated in `f024d9ec`. Final verification and a fresh post-integration live frame
+remain required. A render binding contract still referenced the old app module
+after its extraction; its assertion now targets the actual render-setup owner.
+The user accepts the rebuilt night snow-layer colour and actor corrections.
+Current TopSnow
+`06a1b810` routes through ordinary terrain `06a07800` into AO/flat
+`06a07d80`/`06a0b950`. The real model-fragment Metal regression reproduced
+white snow at 101 versus native 33 before the fix; actual ordinary entry points
+now pass day/night/fog/animation/AO witnesses, and a fresh canonical live frame
+retains dark purple snow and readable terrain. Enhanced is unchanged.
+Players and mobs now use native gamma material order, byte-truncated bilinear
+light-table sampling and vertex-stage posed-normal shading. The actual actor
+fragment GPU witness passes all 36 cases; the canonical client rebuilt and the
+user accepts the live actor correction. FancyOff, dimension shade signs and
+exact pinned native galleries remain separate incomplete gates. For the new
+pale snow-layer edge report, pinned TopSnow constructor `0a5c5fb0`, component
+builder `0a5c70c0` and inherited light getter establish zero light dampening
+and non-solid shading at every height. Registry regeneration changes exactly
+the 16 snow states and preserves their emission. Native AO `069e5200` now
+drives distinct centre/tangential sample planes; full snow remains geometrically
+occluding but not solid for AO. The mesh regressions and 225 meshing tests pass.
+Ordinary terrain now interpolates light levels before fragment-stage bilinear
+lookup; actual cube/model GPU witnesses fail before and pass after the change.
+The `/15` shader lookup contract is corroborated by installed near-version
+Metal, not a pinned-version shader dump; exact-version parity remains incomplete.
+Actor `/16`, Enhanced and the existing valid-water witness are unchanged.
+The corrected carrier and canonical integrated client rebuilt. A fresh Metal
+shoreline frame at 1280x752 shows coherent snow top/side shading without the
+reported pale bands; the user manually confirms the snow looks perfect.
+This closes the reported edge regression, not exact-version/whole-renderer
+parity. The full verification gate and direct-dev publication remain pending.
+The later isolated bright snow face is reproduced with a covered emitting
+brown mushroom: our all-storage emitter query sets snow's directional shading
+bit, while native `06a07d80`/`06a0b950` read the rendered Block+a4. Cube and model
+lighting now carry the rendered contributor's admission separately from solved
+physical emission. The failing-before regression covers all snow heights,
+both storage orders, both network modes and direct/cached routes. Covered
+mushroom emission and real emitting-surface shading are retained. The canonical
+integrated client rebuilt and the user accepts the live mushroom correction.
+Final integrated checks remain pending; it is not pushed. The previous final
+gate reached clippy and failed on test-only unnecessary Vecs and a duplicate
+dead-code attribute after upstream integration; these are repaired and the
+complete gate still needs its successful final run.
+The new opaque ice/dark shoreline wedge report has a real carrier witness:
+ice was CUTOUT despite source alpha 190/255. Native IceBlock `071305c0` selects
+layer 3, inherited color is RGBA (1,1,1,1), and `06a07800`/`069e5200` retain
+ordinary cube AO. Reviewed ice/frosted-ice rules now supersede stale fallback
+geometry and alpha metadata; unrelated provisional families are unchanged.
+Real registry identities reproduce wrong CUTOUT and zero transparent mesh faces
+before the fix; compiler and meshing suites now pass. The rebuilt pinned carrier
+has BLEND ice and frosted-ice materials and preserves source alpha. Existing AO,
+transparent depth writes, daytime/nighttime and snow behavior are unchanged.
+Fresh canonical live shoreline acceptance and final integrated checks remain
+open; this does not claim whole-renderer or exact-version gallery parity.
+The user rejects the first ice frame: restoring BLEND alone was insufficient.
+The shipped LREG also incorrectly gave ordinary ice and all four frosted ages
+filter 15. Current constructors `071305c0` / `08723f10`, matching executable
+vtable slots and inherited getter `0365cdf0` establish filter zero; packed ice
+deliberately remains 15. A shipped-registry shoreline solver witness reproduces
+zero sky inside and below ice before the fix, and now preserves direct sky 15
+and sheltered lateral sky 14. Exactly five light records are regenerated with
+coherent manifest pins, leaving snow, packed/blue ice, texture alpha and AO
+unchanged. The world carrier is rebuilt; fresh client/frame and final integrated
+verification remain pending. This follow-up is not pushed or visually accepted.
+Separate incomplete partial-face parity: native `06a11a00` bilinearly evaluates
+AO colour at actual face bounds while assigning light records by full corner
+topology. The current midpoint-based corner selection does not close that gate;
+it is not bundled into this emitter-identity fix.
+The export-test allocator abort has a narrow initialized-cache representation
+fix; its 13 library and nine unchanged export tests, plus ten serial reruns,
+pass. The Go registry suite, vet, Rust light-registry tests and focused render
+CPU/actor GPU suites pass. These are focused results, not the final integrated
+gate. Direct-dev publication is still pending, without a PR or video.
+
+2026-10-03 night/weather integration checkpoint (local, not pushed): ordinary
+ambient admission and separate terrain skyDarken are rebuilt and the app suite
+passes2296 tests,25 ignored. Fresh Metal frames show readable dark canopy/logs,
+neutral gray snow sky and retained clear daytime rendering. A later user frame
+still shows snow-layer faces too bright relative to ordinary cubes; that route
+remains open, so publication is held. The full workspace gate passed formatting,
+architecture and compile, then stopped at jsonui-editor export SIGABRT; it is
+not reported green. Remote dev advanced again to52196199 while tests ran and
+will be integrated before final verification/publication. Both server cycles
+were restored true and the unchanged BDS remains on127.0.0.1:19132. No video.
+
+2026-10-03 final sync and handoff (in progress; local, uncommitted, not pushed):
+remote dev is integrated through `e0349351`, including the newly merged plant
+first-hit/destroy-effects and HUD owning-rig fixes. Local snow/shrub bounds,
+ambient foliage and inherited animal bind metadata remain intact. The user
+confirmed daytime grass and leaves look correct after the alpha-mask repair,
+but the matched nighttime fixture is still too dark: shaded canopy, logs and
+ground lose visible detail. Night lighting remains open and publication is
+held pending its native lightmap input audit and live recheck; daytime
+acceptance does not close the broader exact-version foliage gates below.
+The canonical client and Go core rebuilt successfully after this final sync.
+BDS is running on loopback 19132 with eight slots for manual testing. Fresh
+integrated verification passed formatting, architecture and workspace check;
+the app suite exposed one drag-gesture reset regression (2293 passed, one
+failed, 25 ignored). Fresh presses now cancel stale distribution before slot
+collection; a subsequent app suite passed (2296 passed, 25 ignored), before
+the final night/weather publisher changes and last dev sync. The final gate
+must still be rerun. At the user's explicit request,
+publication will be a direct commit
+to dev, without a PR or recording. Existing local frame/source witnesses and
+the manual acceptance are retained; no Mojang assets enter git.
+
+2026-10-03 nighttime and snow-sky follow-up (in progress; uncommitted, not
+pushed): both native and Rust brightness are 50%. Current caller04fe3f20
+enables the two ambient .96*C+.03 stages in lightmap07080cd0; our publisher
+incorrectly left that flag false. Its new publisher regression failed before
+the repair. Native skyDarken02606a70, consumed by0707ffb0, also has a distinct
+.2 night floor and +.2 twilight bias, weathered by precipitation fog and
+interpolated thunder. Terrain now receives that separate input; the accepted
+clear-sky/cloud curve is unchanged. Snowy skies now receive the omitted native
+06c326f0 rain admission (current rain>.2) and fog*4 pull toward day-weighted
+.5 gray, before thunder and camera glare. Constants were checked against the
+pinned 1.26.50.26 binary, not inferred from the screenshots. Current rain stays
+separate from interpolated rain; the CPU view composes the gray target through
+the linear thunder transform before glare, retaining the 128-byte GPU ABI.
+Live BDS time query and Rust extrapolation agreed at daytime18149. A live rebuilt
+night/day/snow comparison and fresh final verification are required. Minor
+native byte-lightmap quantization and fragment lightmap interpolation remain
+independent incomplete parity gates; they are not called fixed by this repair.
+
+2026-10-03 dev integration and grass-side regression (in progress; local,
+uncommitted, not pushed): preserved all local parity work in a recoverable
+snapshot and fast-forwarded to remote dev `7251e86e` (377 commits). Rendering,
+seasonal admission and the live split-gesture fixes are integrated with its
+new render-api/player-runtime/inventory owners. The user confirmed the leaf
+regression fixed but reported olive grass-side dirt. The new gamma cube path
+had dropped the side's alpha tint-mask contract. Current atlas overlay
+08119570 and installed near-version 1.26.51.01 opaque RenderChunk Metal both
+establish gamma RGB mixing by source alpha and opaque output. The actual GPU
+regression failed before the repair (alpha-zero dirt channel 73 vs 93).
+The shader now masks biome tint without altering leaf lighting/filtering,
+carried/model routes or snowy grass variants. Fresh affected verification
+and canonical live grass/leaf acceptance are required before pushing; the
+older test totals below are pre-sync evidence, not verification of this merge.
+
 ### Profile 1.26.50 (incomplete parity acceptance, 2026-10-03)
 
 Profile now has source-backed responsive card/tab geometry, independent scrolling,
@@ -44,6 +188,229 @@ requests are covered by regressions. The exact native assignment order for custo
 overlapping ingredients still needs a reconstructed client controller reference;
 this fix does not close the crafting parity gate.
 
+2026-10-03 leaf density, atmosphere and daylight-clock audit (in progress;
+local, uncommitted, not pushed): current LeavesBlock 07139b00/07139b90 and
+non-seasonal leaves 08f0cfc0 select an opaque deep layer from the six primary
+neighbours, while outer fancy leaves remain two-sided cutouts. Shared planes
+follow current Occluder 06a043a0. Generated world-only selectors retain covered,
+exposed, deep and outer leaves without changing inventory art; world carrier
+version 12 rejects former selectors/mips and missing leaf face metadata. Native world palette channels
+are doubled without clamping (installed near-version RenderChunk Metal), unlike
+the particle consumer 04ea8cc0. The seasonal GPU palette now preserves extended
+float values. World-only UNORM views preserve native gamma-space filtering,
+without another allocation/upload or changing carried/nonleaf SRGB sampling.
+Current TextureAtlas::updateTextureAtUVs08119570 and _buildAtlasMips establish
+direct byte-space box averages from the original image at every mip, without
+premultiplication or coverage correction. The former mip producer weakened
+fully covered alpha255 to170; in the audited spruce bilinear footprint it
+reduced cutoff coverage from native79% to21%. Separate/deduplicated world leaf
+layers now preserve native mips and clone animation timelines, with original
+shared/carried bytes unchanged and all page/timeline bounds enforced. Four CPU,
+four compiler and two real GPU sampling regressions pass. Installed near-version
+1.26.51.01 RenderChunk Metal corroborates cutoff.5 and the gamma palette/output;
+active A2C/MSAA and broader cached-solid occluder equivalence remain open.
+Server-pack replacement leaves still use the shared old mip producer in
+block_overlay.rs; that independent route is incomplete. The MCBEAS12 canonical
+rebuild has now been compared live against installed near-version vanilla at two
+fixed angles of the reported spruce fixture; exact-version foliage parity stays
+open, independently of this regression check.
+
+The user's latest matched spruce views also identified missing shading, face
+orientation and sampler contracts. Current BlockType::getShadeBrightness0365c200
+assigns primary leaves/emitting blocks .2 independently of cached solid occlusion.
+AmbientOcclusionCalculator069e5200 averages outward/side/diagonal shade and raises
+average*face-coefficient to the authored exponent before vertex interpolation;
+solid side tests alone decide the diagonal fallback. Direct/cached lighting
+regressions and all 134 mesh tests pass with leaf shade admission. Current cube
+06a0d430..06a180d0 reverses opposing face U axes, Down V, and applies pack-authored
+isotropic rotations with wrapping world coordinates. The compiler now carries
+per-face isotropic flags and AO exponents (pinned spruce .80); carried choices
+remain unchanged. Unsupported custom exponents fail explicitly rather than
+silently quantizing; arbitrary custom exponent support remains incomplete.
+Leaf quads stay block-local to preserve rotations and clamped texture edges.
+Current atlas binding068e09d0 uses Dragon0x155; conversion0db42940 and native
+D3D sampler0f875fd0 establish nearest min/mag, linear mip and clamp UVW. The
+leaf-only sampler reuses the existing UNORM views with no texture allocation.
+Ordinary cube lighting also now follows the native gamma product: exact atlas
+creation08118020/upload0cc45300 and installed near-version opaque RenderChunk
+Metal corroborate that this is not a leaf-only exception. Ordinary cube input
+is converted back from the retained sRGB sampler before lighting; carried,
+model, actor, UI and enhanced routes remain untouched. Broader nonleaf atlas
+mip/filter parity and fragment lightmap-UV interpolation remain incomplete.
+Integrated native sampler/colour/UV GPU and shader-isolation tests pass. The
+canonical debug client and assets were rebuilt and restarted; fresh unpaused
+Mac/Metal frames at two authoritative matching cameras show the backing log now
+dark, with coherent canopy shading/orientation and substantially closer density.
+Evidence is local in `.local/dev/leaf-native-v12-acceptance.md`; different window
+aspects and installed native 1.26.51.01 are recorded, not called pixel-identical
+or version-exact acceptance. Server time/weather cycles have been restored.
+The full verification rerun caught an exact-float assertion in the falling-leaf
+white-colour test (one ULP below one after sRGB transfer); it now checks the
+clamp and one-ULP bound without changing production colour code. The subsequent
+app suite passed (2280 tests, 23 ignored); the remaining workspace and doc-tests
+passed separately (4502 tests, 67 ignored, exit 0). Full verify-affected returned
+exit 1 for the protocol offline transfer harness's transient ConnectionClosed;
+both immediate exact-test reruns passed without a protocol implementation change.
+Formatting and architecture rechecks passed. Final workspace/all-target clippy
+with -D warnings and the last GPU filtering/plugin test rerun passed (exit 0),
+as did the canonical client rebuild after lint-only cleanup. Broad foliage
+density/colour gates stay open.
+
+The first sky slice follows current buildSkyMesh 04ea6ea0/renderSky 04e34e40's
+Y256/radius2000 decagon fan, orbital builder 04e99330's fixed UV basis and
+28.08/18.924-degree sun/moon diameters, renderSunAndMoon 04e3a330's sampled
+alpha/rain scaling, and installed Stars' blend. Real GPU tests cover these
+contracts. Star brightness uses current 06c32c30, including its native trig
+lookup and weather-before-clamp order. Current getSunIntensity06c32df0 and the
+camera callers establish narrow camera-alignment glare (.9 threshold), broad
+fog/sunrise alignment (.35), full-precision trig and independent weather-fog
+attenuation. Sky/cloud colour subtract narrow glare*.2, not rain*.2. Air fog
+uses the separate precipitation-lattice accumulator, fullcosf day brightness,
+RG.94+.06 / B.91+.09 night floors and broad sunrise blend, without a guessed
+thunder tint. The WeatherRenderer accumulator starts at zero (current ctor
+04e58f50), updates previousRain*.5 across27 admitting biome cells, clamps
+sum*.2 then smooths .99/.01 at20Hz (04e30120). Unknown climates are skipped;
+mixed rain/snow float addition order and custom-dimension weather admission
+remain incomplete. Camera-local ambient exposure/collector remains incomplete.
+Classic cloud tessellation now follows current064a0e80's finite64-cell window,
+per-texel RGBA, outward face winding and native back-face culling. Current
+06916350/0cc1e1b0 establish RGB-only writes and strict reverse-Z Greater.
+OptionRegistry023f8120 proves Fancy selects alpha blend/depth-write off.
+Current preRenderParameters supplies distance coefficient1; camera adjustment
+04e462e0 subtracts its piecewise margin (256blocks ->240), minimum40. Classic
+DistanceControl reads that scalar unchanged, not quality*3. Conditional platform
+caps remain an admission gap. Eight real GPU/cloud contract tests and ten
+cloud-config tests pass. Exact gamma render-target blending for clouds/stars and
+live matched-view acceptance remain open. LevelRenderer's local cloud clock is separate from named
+daylight (04fd5020); constructor 04fc4260 proves zero initialization. Session
+recreation mapping and bounded stall catch-up remain provisional.
+
+SyncWorldClocks is decoded and admitted using its generated packet ID, then
+published in FIFO row order. Native clock registration 05d94880/05dc68a0 and
+lookup 05d96270 establish the pre-registered hashed Overworld identity; names
+cannot redirect it. Signed time, independent pause and equal-integer updates
+are retained. StartGame elapsed world age is no longer used as daylight:
+current 014de920 stores it separately from registry clock state. Five protocol
+and 39 app environment tests pass after the canonical-ID fix, including local
+renderer-clock independence. Native client simulation tick/pause/stall cadence,
+cycle-disabled bootstrap linkage remain open. The canonical offline BDS run
+and user testing confirmed clock updates; diagnostics retain the named clock
+anchor, including doDaylightCycle=false, independently of local cloud motion.
+
+2026-10-02 creative inventory disconnect follow-up (test-green; local,
+uncommitted): synced remote `dev` at `f3dbc76a` while preserving the local
+rendering/BDS changes. The failed session ended on a remote NetherNet channel
+close, not a Rust panic. Named vanilla
+CraftingContainerManagerController::_makeCreateItemScopeCreative (26.30 RVA
+0x09fdea50) and the result-action constructor (RVA 0x0a2a8400) declare the
+selected catalog prototype before transferring a full stack. Our creative path
+sent an empty result list. Two regressions failed against that implementation;
+the request now retains the catalog item's identity, count, aux, block runtime
+id and user data. The user confirmed the crash is gone; the rebuilt offline BDS
+session logged Accepted creative takes, placements and gathers. This does not
+close general creative-inventory parity; final integrated verification remains open.
+
+2026-10-02 incremental inventory dragging, spawn eggs and baby polar bears
+(in progress; local, uncommitted, not pushed): primary/secondary drags now apply
+and rebalance each newly visited cell before release, preserving destination
+baselines and chaining pending request IDs. The native split witness is named
+26.30 ContainerManagerController::_handleSplitMultiple (RVA 09fc20d0).
+The before-fix pointer regression failed; 215 inventory-focused tests then passed.
+Spawn eggs resolve actor spawn_egg declarations to item routes; all 86 pinned
+retail eggs passed the in-memory compiled-icon lookup. Legacy controller aliases
+are lowered to controller__<alias> per named 26.30 upgrade_v1_8_to_v1_10
+(RVA 03718f90), preventing an adult move clip bypassing the pinned polar-bear
+!query.is_baby gate. Three roots tests, 33 entity integration tests and the real
+pinned polar regression passed. Canonical carriers/client and held-button/live
+visual acceptance remain open. Modern stair corner/raw-direction handling and
+snowy-leaf conditions/falling-leaf particles are additional in-progress gates.
+
+2026-10-02 follow-up inventory/rendering regressions (local, uncommitted,
+not pushed): BDS accepted the first two drag slots, then rejected a third-slot
+request with status 50: its second Place named the first donor's positive ID as
+the new destination ID. The named 26.30 `_transfer` (09fbce90) opens/closes an
+individual item-stack request scope when no outer scope is active; split
+handling has no outer scope. Rebalancing now stages one request per transfer,
+binding the next transfer to the prior sparse-cell request ID. Whole-hover
+admission is atomic on queue/identity failure. Retained cursor remainder excludes
+items added from outside the gesture; failed or interrupted drags are cancelled.
+Native container canSet restrictions and contribution correction/clamping remain
+incomplete. On 2026-10-03 the user tested the canonical build and confirmed
+multi-slot splitting works. The same offline BDS session recorded 199 Accepted
+inventory responses, with no rejected response during that test. This closes the
+reported multi-slot regression, not the broader container parity gates. The
+tested debug client SHA-256 is
+`a0b55fed11b6e0dfc4e3fea4e7dd90e2e35acdaca197a2c08b0597f60242f744`.
+
+Trader llama adult rasters were rejected for fractional alpha and native three
+samplers were incorrectly drawn independently. Content-pinned material policy
+and one GPU three-sampler draw now implement the native RGB mixes; exact pinned
+controller/texture witnesses and installed 1.26.51 material/shader (near-version)
+are distinguished. Pinned adult/baby x four variants, raster admission and shader
+validation pass; live geometry/depth/material acceptance remains open. Snow-top
+crack/highlight bias now follows model winding, and stair overlays use resolved
+variant rotation. Current Bush and named 26.30 DeadBush bounds have focused tests.
+Native stair wire outlines intentionally remain full cubes. Fence/gate outline
+height, plant random-offset and cutout-highlight parity remain incomplete.
+
+2026-10-03 animal/foliage follow-up (local, uncommitted, not pushed): native
+same-identifier geometry history retains the llama body's older cube-only +90 X
+bind when the modern downloaded sample omits it. Named Geometry::_parseBones
+(26.30 02e39370) and JsonValueHierarchy::get (097d4110) prove missing-field
+fallback; current load/inheritance entry points corroborate the history, while
+the current bones-parser body is unavailable. The repair is source-digest pinned,
+does not rotate the bone or its children, and preserves custom/explicit binds.
+Pinned sample and torso bounds regressions pass. The canonical debug build
+`58f1b5c0c575686b5e317c0c53828d7f5aa1d6d604c139cbe34390162fae1bdc`
+includes rebuilt carriers; the user confirmed llamas and polar bears now render
+correctly. The pinned baby-bear runtime test confirms its separate model, body
+rest pose and adult-animation gate. This closes those reported regressions, not
+general animal parity. The newly reported missing wolf tail is caused by absent
+`query.tail_angle`, not missing geometry. Its local implementation follows the
+current callback 025036b0 -> Wolf::getTailAngle 020e5b30: angry overrides tame,
+otherwise tame health fraction or the wild angle, in radians without frame
+interpolation. Four focused query tests and one pinned-carrier full-pose test
+pass (wild, tame/full and half health, angry and baby). This fix is not yet in
+the running build and its live rendering gate remains open. Missing/invalid
+tame HEALTH and custom actor identifiers use a finite conservative fallback;
+those incomplete inputs do not establish broader native query parity.
+
+2026-10-02 snowy leaves/ambient foliage (in progress; local, uncommitted,
+not pushed): current SeasonsRenderer palette generation (04ea9540) and native
+foliage policy route covered/exposed species cells separately. World leaf
+materials now retain that distinction without changing carried leaf art. Live
+biome data carries snow_foliage and optional maximum snow accumulation; invalid
+optional maxima are counted/skipped, not fatal. Palette snow blending and
+half-intensity RGBA8 quantization follow the native consumer. Full-height
+shelter snapshots and lower-column invalidation are bounded by resident world
+data; TopSnow delegates a non-air extra layer's replaceability before testing
+its own layer height, while uncovered eight-layer snow shelters. Shared tests
+cover uniform/mixed primary and extra storage, cross-section shelters and carried
+leaf isolation. This gate is
+INCOMPLETE: the current eligibility uses base biome temperature, not the native
+altitude/regional noise and generator/version-dependent threshold; general
+BlockReplaceableComponent coverage beyond the identified native ground plants
+and liquids is not complete. The user confirmed native leaves gradually whiten
+as weather changes. Current client row-update RVA 0149bf80 has now been identified;
+its weather-driven accumulation/melt and native previous/current rain tick
+samples are implemented and test-green, but not yet running. Palette-only GPU
+refresh keeps dense biome IDs and mesh identity unchanged. Built-in Overworld
+weather admission is constructor-backed; custom dimension admission, climate-row
+deduplication/cap handling and the renderer's lifetime across reconnects remain
+incomplete. Positional climate is a separate eligibility gate, not an input to
+this native row-update formula. Registry/dimension changes preserve the clock;
+fresh-session clock reset is provisional until native renderer recreation is proved.
+Native animateTick/LeavesBlock ambient particle sampling, independent fixed-tick
+cadence and cached biome-tinted emission are in the canonical build above and
+passed 18 focused tests; live visibility is still open. Specialized leaf families
+and broader block animateTick callbacks remain incomplete. Falling-leaf parity
+is not closed by seasonal palette tests. A read-only emission audit corroborated
+manual position plus authored shape (named 26.30 03b8b740/03b87780/03bff690),
+so the current caller's block-center and pinned shape offsets were not changed.
+Opt-in bounded DEBUG admission counters distinguish samples, eligible leaves,
+roll hits, below-material admission, returned emitter IDs and a lower bound on
+actual particle-count increases. Their instrumented adaptive-sampler workload
+is diagnostic evidence, not an uninstrumented performance/parity witness.
 
 2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
 WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
@@ -57,9 +424,131 @@ clipping, layering and colours; the Enhanced control was absent. Settings clicks
 scrolling, hover focus and Escape navigation worked. This checks the disable,
 not gameplay performance or the unresolved GPU fault.
 
+2026-10-02 native comparison follow-up (in progress; local and uncommitted,
+not pushed): both real Minecraft and Rust now join the same offline official BDS
+world through NetherNet, with the conventional loopback endpoint retained.
+Rust's production LAN route uses advertised offline admission and the server
+nonce; actual Minecraft Login/spawn passes. Anonymous HTTP still correctly
+fails server identity policy. The user confirmed thin-block picking, covered
+vegetation and the earlier snow fixes, but reported missing seed sprites,
+ordinary grass sides under snow, detached pig bodies and flashing lake water.
+The seed crosswalk now records four explicit components from the installed
+iOS 1.26.51 item archive; current Item::initClient RVA 0x027cc050 establishes
+component-icon loading. This is labeled a near-version asset witness, not an
+exact-version executable gate. Seed sprite/carrier tests pass. Missing cube
+pivots now use the uninflated box center in both entity and skin parsing, matching
+the named Geometry parser and official schema; real pig/cow/sheep model tests
+pass. Rebuilt carriers and live Metal/Retina frames show seeds in the inventory,
+hotbar and hand, connected cold pig/cow bodies, and snowy grass sides. Current
+GrassBlock::calcVariant RVA 0x0712a5e0 selects the alternate side for TopSnow,
+Snow and PowderSnow directly above; per-coordinate greedy merging and upper
+sub-chunk invalidation retain that choice. Server-pack alternate remapping and
+the complete animal/state product remain incomplete.
+Water fixes distinguish transparent full-cube liquid obstacles from air samples
+(current flow RVA 0x0395d2f0; height RVA 0x06a9cf80) and retain native terrain
+depth writes/RGB-only writes (current material parser RVA 0x0530ac40, with the
+installed 1.26.51 material as a near-version witness). A real frame-order hazard
+was also found: Queue captured old water partitions before PrepareResources
+replaced their snapshot. Geometry and both sort publications now precede Queue;
+the production schedule regression checks deferred allocations and four changing
+partitions through draw. The integrated lake regression now passes actual
+sideways movement and several corrected camera angles on official BDS: ordinary
+ice and water retain their surfaces, with zero address/reference/segment-budget
+fallbacks in the mixed-order diagnostics. Final-build input/captures also verify
+seed icons through inventory close/reopen, and a controlled plain-grass -> snow
+-> plain-grass fixture verifies both sides of the live material update. Standalone Go tests, vet and the actual Rust
+offline-core login harness pass after recording an already-pinned transitive
+dependency in core's own module files; no dependency version changed. The latest
+water-integrated build passes the complete Rust workspace suite (including
+required native Enhanced GPU tests), strict all-target Clippy, formatting and
+architecture. This same live build completed ten minutes of advancing Metal frames without a new GPU
+report; this is smoke evidence, not permanent stability or performance acceptance.
+The broader animal gallery found sheep rejected by the binary-alpha actor-art
+filter: their native low-alpha dye-mask texels are not opacity. The content-pinned
+native mask route now passes focused tests, the complete integrated workspace,
+strict Clippy, architecture and the actual rebuilt-carrier page regression. Live
+baby faces are visible, but the user caught a still-missing adult face before
+visual acceptance: the legacy wool geometry's derived head replaces rather than
+appends the sheared base head's cubes. Native Geometry::_parseBones (named 26.30,
+RVA 0x02e39370) appends cubes unless reset is authored. The shared inherited-cube
+merge fix and adult face/snout live acceptance remain in progress. Native sheep
+dye palette, complete gamma/lighting/overlay order and arbitrary RGBA zero-sentinel
+handling remain incomplete.
+
+Ordinary terrain-blend model/water faces now share the current native perspective
+metric (sorter RVA 0x01efa4a0, comparator 0x01f0e470); ordinary Ice and water use
+layer 3 (ctors 0x071305c0, 0x0395a220, 0x0395eea0). A per-chunk combined draw
+planner retains exact uploaded model-order witnesses, including candidate-arena
+entity remapping, and indexes the committed water snapshot. It emits contiguous
+runs without per-face phase items or a shader fork. Safety policy limits new CPU
+planning to the existing per-frame reference count and all mixed draws to 4,096
+segments per frame; the CPU limit is separate from the shared GPU upload budget.
+The exceptional separate-stream fallback remains incomplete. Full native parity
+is not claimed: deferred/enhanced water's separate layer, orthographic ordering,
+reverse-winding distance bias and face culling, native equal-distance enumeration,
+global inter-chunk ordering, complex noncube motion barriers and the complete
+shader/fog/flow-UV contract remain open. The reported moving-camera lake regression
+passes; this does not close these wider parity gates.
+
+2026-10-02 live snow/plant/animal follow-up (in progress; local, uncommitted,
+not pushed): the integrated client was reopened on the existing offline official
+BDS world. The reported fern/short-grass/flower/mushroom diagnostic cubes have
+valid compiled crossed models; the contributor resolver rejected native covered
+TopSnow plus vegetation as conflicting solids. A bounded two-contributor path
+now retains snow occlusion and the plant's own render layer. Native TopSnow
+tessellation is current RVA `0x06a1b810`; visual height is `0x0a5c6d40`.
+Separate vanilla selection bounds now target passable plants and thin snow
+without changing movement collision. Selection random offsets remain incomplete.
+Animal fixes now retain cube-local bind-pose rotations and include native bone
+defaults in Molang `this`. The polar-bear sample omission is repaired only for
+the exact pinned source digest: the installed iOS 1.26.51 archive is a near-version
+asset witness; the transform contract is current 1.26.50.26 C++. The full Rust
+workspace suite (including Enhanced GPU validation), strict all-target Clippy,
+formatting and architecture pass, and required carriers/canonical client were
+rebuilt. An MCBEENT4 bounded preflight regression found during integration is
+fixed and its actual rebuilt carrier round-trip passes. Live frames/input remain
+pending; no visual or stability gate closes. Local BDS now has an explicit
+fixed host-port option for the requested conventional port. HTTP NetherNet
+responds but the actual identityless transport probe is rejected with native
+error 37 despite offline mode; this is not successful offline acceptance. The
+documented LAN signaling path is under investigation, with discovery mapping
+kept on loopback and separated from real Minecraft's occupied discovery port.
+The Rust client remains closed; all changes are uncommitted and the existing
+world is retained.
+
 2026-10-02 Enhanced startup crash: incomplete. Offline native Metal validation
 passes a populated graph and 120-frame lobby actor replay, but the reported
 post-join crash is not reproduced. See `docs/reference/enhanced-startup-validation.md`.
+
+2026-10-02 dev resync (test-green uncommitted, not pushed): fast-forwarded `dev`
+from `a1b0e289` through upstream `502ee525` and restored the uncommitted snow,
+GPU-safety and BDS multiplayer fixes. The block-entity shader conflict retains
+upstream's selection extraction/opaque-phase reset and the checked constructor.
+A recovery stash preserves the pre-sync work. Focused tests, the full workspace
+suite (requiring the new native offscreen Enhanced GPU test), formatting,
+strict all-target Clippy and architecture pass. Runtime assets and the canonical
+client were rebuilt. The game was not relaunched; the previous native smoke
+witness does not validate this newly integrated build. Snow's blended fallback
+and height-aware face culling are corrected, but the full native angle gallery
+and covered-vegetation parity remain incomplete. No visual or stability gate closes.
+
+2026-10-02 macOS stability (in progress; no acceptance gate closed): repeated
+Apple M3 Pro/macOS 26.3 GPU events attribute firmware-detected lockups to
+`bedrock-client`; subsequent WindowServer watchdog panics and AGX-blocked
+threads explain the whole-host freezes. Cinnabar's custom shader constructors
+now enable Bevy/wgpu runtime bounds and loop checks instead of the unchecked
+default. The shared biome shader bounds its data-driven loop by the existing
+CPU lattice limit and guards descriptor/payload/lattice spans and weights.
+Metal uses the existing validated direct chunk draw path until indirect
+submission clears a native stability gate. These are concrete safety fixes
+and an isolation workaround, not proof of which GPU command caused the hangs.
+Focused tests, the full workspace suite, formatting, strict all-target Clippy,
+architecture, Go tests/vet and the canonical rebuild pass. A bounded native
+Metal/Retina BDS smoke run exercises actual walking, server camera corrections
+and chunk loads with report/frame/memory monitoring. Prolonged repeated-session
+stability and isolated causal attribution remain required.
+Snow geometry/material corrections and BDS multiplayer changes remain local
+while this stability gate takes priority. See docs/reviews/macos-gpu-lockup.md.
 
 2026-10-01 Enhanced rendering: opt-in non-parity extension; Vanilla remains the
 persisted default. This work never closes a vanilla parity gate. T0 adds the
@@ -4374,3 +4863,85 @@ Optional resource-pack cloud masks outside the current mesher's fixed dimensions
 retain the startup cloud texture instead of panicking during live application.
 Other supported pack textures still apply. High-resolution pack clouds remain
 incomplete; this fallback does not close the native cloud parity gate.
+
+### Ordinary water rendering continuation (incomplete parity acceptance)
+
+Current-client liquid tessellation 06a1b960 does not use terrain ambient occlusion;
+its side and bottom faces repeat one outward light sample. The top still uses our
+existing sample admission and maximum until native Type+0x15c's independent
+brightness-admission property can be carried: native smooth top lighting rounds
+four samples from the above plane, not terrain's maximum or solid-render gate.
+
+Ordinary transparent alpha distance now derives independently of profile fog and
+cloud fade from current camera 04e40a10 and uniform producers 04e47ed0/04ed6730.
+The above-water formula uses the builder's adjusted render-distance input. Native
+optional platform-cap admission and the underwater/no-FrameBuilder branch remain
+incomplete; these changes do not close the overall water visual parity gate.
+
+Ordinary blended terrain now preserves the native gamma/UNORM framebuffer blend
+(RendererSettings 007b10b0, format mapping 0x57, RenderChunk Transparent Metal)
+without reordering the shared transparent phase. Native liquid inward winding and
+selective reverse-face admission follow 06a1b960/06a0d430 and 01ee0990: original
+faces use CW, exposed tops and primary-air sides admit the flagged reverse face,
+and bottoms do not. Production GPU geometry, material and six-face raster tests
+pass. Mixed terrain's segment cap now uses the existing bounded reference budget
+instead of falling back at 4,096 segments in an ordinary ocean view.
+
+Live user checks accept flowing water over ice and its previous flicker fix.
+Nighttime ocean visibility is reported correct; daytime submerged scenery is
+still too dark. Both clients use 50% brightness. The visual gate remains open
+while tracing native client skylight mode/heightmaps and submerged receiver light;
+no speculative global opacity or brightness adjustment closes this gate.
+
+The follow-up traced the actual current WATER draw, not just camera fields:
+MeshContext.x is zero (05bd2210/06878a80/068e09d0), and the uploaded
+FogAndDistanceControl.w comes from camera+5dc minus seven through 04e47ed0.
+Confirmed chunk radius is stored on the native Player with one extra chunk
+(014c34c0); after the native camera margin, a confirmed ten-chunk radius uses
+160 blocks, not 144. Classic water side/bottom contacts are suppressed whenever
+the neighbour's primary block is non-Air (06a1b960), including non-solid plants
+and transparent cubes. Focused camera, contact and liquid raster tests pass.
+
+Daytime-depth investigation found a separate registry mismatch in the final
+native registrations, which override constructor defaults. Current concrete
+BaseGameVersion >= native compatibility gate 1.21.130 sets still water's filter
+to one (0dc90eef/0dc90ef1), while flowing water stays at two (0dc9150f). Ice and
+all frosted ages finish at three (0dcae2a6/0dceb39c), not their constructor zero.
+The current light projection and rebuilt local world carrier now use those
+values. Shipped-carrier regressions verify every water depth/falling state and
+the full eight-deep ocean column: still water retains sky seven at the floor's
+outward sample instead of zero. Ordinary Fancy still seeds from the normal
+water-including heightmap (037cab20/037cbdb0); no shader brightness workaround
+was added. The Go and Rust focused tests pass, and the user has accepted the
+rebuilt daytime ocean visibility. The live StartGame version is `*`: current
+parser 00293820 marks byte seven as wildcard, and final registration 0dc90ed2
+jumps directly to filter one for that wildcard. Only concrete older versions
+retain filter two; dynamic compatibility selection for those remains incomplete.
+Ice/water edge appearance and lily-pad rendering are new open visual gates;
+the accepted daylight lighting values remain unchanged while tracing them.
+
+### Ocean rendering checkpoint (2026-10-04; incomplete ice acceptance)
+
+The user has accepted lily pads in the live macOS Metal ocean world. Current
+native tessellation 06a33800 supplies two opposite planes at 1/64 block, with
+the position-hashed rotation and pack-authored fixed tint retained. The copied
+material does not recolour shared atlas images; the underside applies native
+15/255 shading continuously in the shader. Focused compiler, meshing, shader
+and Metal rotation tests pass. The rebuilt carrier and canonical Rust client
+were exercised on the original BDS seed -7289507175626565880 on UDP 19132.
+
+Native transparent-cube opposing-face UV axes now follow 06a11a00, 06a180d0
+and 06a0d430. Native transparent sorting packs the emitted-vertex centroid in
+chunk-local space to ten bits at 1/32-block precision (07bf8430/07bf8830).
+The ordering metric now reproduces that packing without altering geometry.
+Four regressions failed before the change and all eight focused metric tests
+pass afterward. This is a source-backed ordering correction, not evidence
+that the user's ice-edge artifact is resolved.
+
+The latest paired live screenshots still show extra bright upright ice faces
+through the foreground ice next to the ocean. A separate user witness shows
+angle-dependent dark bands on opaque blocks at straight-on views. Both remain
+open and under investigation; ordinary ice opacity, accepted water lighting,
+and accepted lily-pad appearance have not been adjusted to conceal them.
+The user explicitly requests publishing this checkpoint directly to dev before
+continuing those fixes. This checkpoint does not close full rendering parity.

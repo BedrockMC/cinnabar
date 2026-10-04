@@ -1,11 +1,11 @@
 use std::cell::OnceCell;
 
 use assets::{
-    BlockFlags, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode,
-    RuntimeAssets, VisualKind,
+    BlockFlags, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_WALL, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::MeshNeighbourhood;
 
@@ -109,6 +109,41 @@ pub(crate) fn model_template_flags(visuals: &RuntimeAssets, entry: ResolvedPalet
         .then(|| visuals.model_templates().get(entry.model_template as usize))
         .flatten()
         .map_or(0, |template| template.flags)
+}
+
+/// Native half-cuboid occlusion removes a whole touching side only when the
+/// floor-anchored neighbour reaches at least as high. Never use it for an inset
+/// top or a bottom touching a shorter layer below.
+pub(crate) fn snow_side_is_covered(
+    visuals: &RuntimeAssets,
+    entry: ResolvedPaletteEntry,
+    neighbour: ResolvedPaletteEntry,
+    face: Face,
+) -> bool {
+    if matches!(face, Face::NegativeY | Face::PositiveY) {
+        return false;
+    }
+    match (snow_top(visuals, entry), snow_top(visuals, neighbour)) {
+        (Some(top), Some(neighbour_top)) => neighbour_top >= top,
+        _ => false,
+    }
+}
+
+fn snow_top(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> Option<i16> {
+    if model_template_flags(visuals, entry) != MODEL_TEMPLATE_FLAG_SNOW_LAYER {
+        return None;
+    }
+    let template = visuals
+        .model_templates()
+        .get(entry.model_template as usize)?;
+    let start = template.quad_start as usize;
+    let end = start.checked_add(template.quad_count as usize)?;
+    let top = visuals.model_quads().get(start..end)?.iter().find(|quad| {
+        model_quad_cull_face((quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4, 0)
+            == Some(Face::PositiveY)
+    })?;
+    let height = top.positions.first()?[1];
+    (height > 0 && top.positions.iter().all(|position| position[1] == height)).then_some(height)
 }
 
 fn select_stair_template<'a>(

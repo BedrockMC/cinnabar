@@ -139,12 +139,12 @@ fn different_materials_split_coplanar_runs_but_still_cull_internal_faces() {
 }
 
 #[test]
-fn asymmetric_internal_culling_uses_ordered_occluder_facts_and_keeps_leaf_pairs() {
+fn asymmetric_internal_culling_uses_ordered_occluders_and_one_leaf_shared_plane() {
     let cases = [
         (OPAQUE_A, OPAQUE_B, false, false, 10),
         (OPAQUE_A, LEAF_A, true, false, 11),
         (LEAF_A, OPAQUE_A, false, true, 11),
-        (LEAF_A, LEAF_B, true, true, 12),
+        (LEAF_A, LEAF_B, true, false, 11),
         (DIAGNOSTIC, LEAF_A, true, true, 12),
         (DIAGNOSTIC, OPAQUE_A, false, true, 11),
     ];
@@ -200,6 +200,14 @@ fn asymmetric_boundary_culling_matches_internal_semantics_on_every_face() {
 
     for (face, current_coordinate, neighbour_coordinate) in boundaries {
         for (source, neighbour_value, expected) in pairs {
+            let expected = if source == LEAF_A
+                && neighbour_value == LEAF_B
+                && matches!(face, Face::NegativeX | Face::PositiveY | Face::NegativeZ)
+            {
+                expected - 1
+            } else {
+                expected
+            };
             let sub = blocks(source, &[current_coordinate]);
             let neighbour = blocks(neighbour_value, &[neighbour_coordinate]);
             let neighbourhood = neighbourhood_for(face, &neighbour);
@@ -666,7 +674,7 @@ fn uniform_solid_fast_path_merges_planes_and_respects_boundary_neighbours() {
 }
 
 #[test]
-fn uniform_leaf_meshes_every_slice_plane_and_is_cave_open() {
+fn uniform_non_deep_leaf_keeps_one_shared_plane_and_is_cave_open() {
     let mesh = mesh(
         &classifier(),
         NetworkIdMode::Sequential,
@@ -674,12 +682,16 @@ fn uniform_leaf_meshes_every_slice_plane_and_is_cave_open() {
         &uniform(LEAF_A),
     );
 
-    assert_eq!(mesh.quad_count(), 96);
-    assert!(
-        mesh.quads()
-            .iter()
-            .all(|quad| quad.width() == 16 && quad.height() == 16)
-    );
+    // Native leaf shade darkens interior vertices independently of solid-face
+    // culling. AO splits greedy spans at the boundary, but face-cell coverage
+    // still contains exactly one shared plane per adjacent leaf pair.
+    let face_cells: usize = mesh
+        .quads()
+        .iter()
+        .map(|quad| usize::from(quad.width()) * usize::from(quad.height()))
+        .sum();
+    assert_eq!(face_cells, (3 * 16 + 3) * 16 * 16);
+    assert!(mesh.quad_count() > 3 * 16 + 3);
     assert!(mesh.quads().iter().all(|quad| quad.material_id() == LEAF_A));
     assert!(mesh.connectivity().is_all_connected());
     assert_eq!(size_of::<PackedQuad>(), 8);
@@ -750,7 +762,11 @@ fn emitted_diagnostic_quads_retain_hash_and_resolved_sequential_identity() {
 
     assert_eq!(
         mesh.diagnostic_geometry().entries(),
-        &[meshing::DiagnosticGeometryCount::new(Some(DIAGNOSTIC), 7, 6)]
+        &[meshing::DiagnosticGeometryCount::new(
+            Some(DIAGNOSTIC),
+            7,
+            6
+        )]
     );
 }
 

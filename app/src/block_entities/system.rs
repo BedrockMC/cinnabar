@@ -210,10 +210,10 @@ fn crack_shape(
     shapes
         .entry(runtime_id)
         .or_insert_with(|| {
-            assets
-                .resolve(mode, runtime_id)
+            let visual = assets.resolve(mode, runtime_id);
+            visual
                 .model_template()
-                .and_then(|template| crack_shape_from_template(assets, template))
+                .and_then(|template| crack_shape_from_template(assets, template, visual.variant()))
                 .unwrap_or_default()
         })
         .clone()

@@ -154,6 +154,28 @@ pub(in crate::stream) fn sample_resident_light(
     }
 }
 
+#[cfg(test)]
+mod covered_emission_tests {
+    use super::*;
+
+    #[test]
+    fn covered_mushroom_keeps_its_physical_emission_in_both_layer_orders() {
+        for ids in [[1_u8, 2], [2, 1]] {
+            let mut bytes = vec![8, ids.len() as u8];
+            for id in ids {
+                bytes.extend([1, id << 1]); // Uniform network palette, signed varint ID.
+            }
+            let chunk = SubChunk::decode(&bytes, &world::RawBlockIds { air: 0 });
+            assert_eq!(
+                sample_resident_light(&chunk, [8, 8, 8], BlockClassifier::new(0), |id| {
+                    SolverLightProperties::new(u8::from(id == 2), 0).unwrap()
+                }),
+                LightBlockSample::Resident(SolverLightProperties::new(1, 0).unwrap()),
+            );
+        }
+    }
+}
+
 impl LightBlockAccess for LightBlockSnapshot {
     fn sample(&self, position: BlockPos) -> LightBlockSample {
         let (key, [x, y, z]) = split_light_position(self.dimension, position);

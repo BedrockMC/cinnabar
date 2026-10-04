@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}
+#import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -12,9 +12,8 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 25 packed words. Its Rust contract
-// is 100 bytes; a WGSL struct containing vec4 rows would round the array stride
-// to 112 bytes under storage-buffer layout rules.
+// ActorGpuInstance is read as packed words; the loader substitutes its Rust layout stride.
+// A WGSL struct containing vec4 rows would pad the array differently.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
@@ -37,6 +36,8 @@ struct VertexOutput {
     @location(7) @interpolate(flat) uv_wrap: u32,
     @location(8) @interpolate(flat) light: u32,
     @location(9) world_position: vec3<f32>,
+    @location(10) @interpolate(flat) multitexture_layers: vec2<u32>,
+    @location(11) native_lighting: vec3<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -75,7 +76,7 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 25u;
+    let instance_base = instance_index * ACTOR_GPU_INSTANCE_WORDS;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -89,6 +90,8 @@ fn actor_vertex(
     out.tint = instance_words[instance_base + 18u];
     out.overlay = unpack4x8unorm(overlay_rgba8);
     out.light = instance_words[instance_base + 24u];
+    out.native_lighting = vec3(1.0);
+    out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
     let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
@@ -150,6 +153,7 @@ fn actor_vertex(
         dot(instance_row(instance_base, 1u).xyz, posed_normal),
         dot(instance_row(instance_base, 2u).xyz, posed_normal),
     ));
+    out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a);
     out.valid = 1u;
     return out;
 }
@@ -167,24 +171,34 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (input.uv_wrap != 0u) {
         uv = fract(uv);
     }
-    var color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer));
-    if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
+    // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
+    // decode before dye/overlay products, then transfer once at the output.
+    var color = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.skin_layer)));
+    let color_mask_material = material_class.y != 0u;
+    let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
+    if (!color_mask_material && !multitexture_material && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
     }
-    // Dye multiplies only fully opaque texels; partially transparent texels are untinted overlay.
-    if (input.tint != 0u && color.a > 0.99) {
-        color = vec4(color.rgb * pow(unpack4x8unorm(input.tint).rgb, vec3(2.2)), color.a);
+    if (input.tint != 0u) {
+        let change_color = unpack4x8unorm(input.tint);
+        let dye = change_color.rgb;
+        if (color_mask_material) {
+            // Native entity_change_color: alpha weights dye, never coverage/opacity. The
+            // material has no alpha test and the pipeline has no blending, with depth writes.
+            color = vec4(mix(color.rgb, color.rgb * dye, color.a), color.a * change_color.a);
+        } else if (!multitexture_material && color.a > 0.99) {
+            color = vec4(color.rgb * dye, color.a);
+        }
     }
-    // Zero retains the explicit unlit material override.
-    if ((input.light & 0x80000000u) != 0u) {
-        color = vec4(
-            lit_colour(
-                color.rgb,
-                light_colour(input.light),
-            ),
-            color.a,
-        );
+    if (multitexture_material) {
+        // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
+        // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
+        let tex1 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.x)));
+        let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
+        color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
-    // The hurt/death overlay blends after the dye and light.
-    return vec4(world_distance_fog(mix(color.rgb, input.overlay.rgb, input.overlay.a), input.world_position, view.world_position), color.a);
+    // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
+    // shading preserves its interpolation and the explicit zero/unlit override.
+    let lit_gamma = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.native_lighting;
+    return tint_to_linear(vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a));
 }

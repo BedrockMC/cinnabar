@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use assets::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv,
-    RuntimeEntityAssets,
+    MAX_ENTITY_GEOMETRY_CUBES, RuntimeEntityAssets,
 };
 
 use crate::{BlockEntityAtlas, SkullKind};
@@ -13,8 +13,14 @@ use super::{
     MAX_RENDER_BONES_PER_ACTOR,
 };
 
+#[cfg(test)]
+#[path = "inherited_cube_tests.rs"]
+mod inherited_cube_tests;
 #[path = "material.rs"]
 mod material;
+#[cfg(test)]
+#[path = "quadruped_geometry_tests.rs"]
+mod quadruped_geometry_tests;
 #[cfg(test)]
 #[path = "skin_geometry_tests.rs"]
 mod skin_geometry_tests;
@@ -85,7 +91,7 @@ pub(super) fn geometry_from_geometry_index(
             continue;
         }
         for cube in &bone.cubes {
-            super::geometry::append_entity_cube_vertices(
+            super::geometry::append_entity_bone_cube_vertices(
                 &mut vertices,
                 cube,
                 bone_index as u32,
@@ -94,8 +100,7 @@ pub(super) fn geometry_from_geometry_index(
                     .get(geometry_index)
                     .map(|geometry| (geometry.texture_width, geometry.texture_height))
                     .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?,
-                bone.mirror.unwrap_or(false),
-                bone.inflate.map_or(0.0, |inflate| inflate.get()),
+                bone,
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
@@ -124,13 +129,12 @@ pub fn skin_geometry(
             continue;
         }
         for cube in &bone.cubes {
-            super::geometry::append_entity_cube_vertices(
+            super::geometry::append_entity_bone_cube_vertices(
                 &mut vertices,
                 cube,
                 bone_index as u32,
                 texture_size,
-                bone.mirror.unwrap_or(false),
-                bone.inflate.map_or(0.0, |inflate| inflate.get()),
+                bone,
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
@@ -270,28 +274,56 @@ pub(super) fn resolve_geometry_bones(
     }
     chain.reverse();
     let mut merged: Vec<EntityGeometryBone> = Vec::new();
+    let mut cube_count = 0;
     for index in chain {
-        for child in assets
+        let children = &assets
             .geometries()
             .get(index)
             .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?
-            .bones
-            .iter()
-        {
-            if let Some(existing) = merged
-                .iter_mut()
-                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
-            {
-                overlay_geometry_bone(existing, child);
-            } else {
-                merged.push(child.clone());
-            }
-        }
+            .bones;
+        append_geometry_bones(&mut merged, &mut cube_count, children)?;
     }
     Ok(merged)
 }
 
-fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
+fn append_geometry_bones(
+    merged: &mut Vec<EntityGeometryBone>,
+    cube_count: &mut usize,
+    children: &[EntityGeometryBone],
+) -> Result<(), ActorRigGeometryError> {
+    for child in children {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
+        {
+            let other_cubes = *cube_count - existing.cubes.len();
+            let new_count =
+                overlay_geometry_bone(existing, child, MAX_ENTITY_GEOMETRY_CUBES - other_cubes)?;
+            *cube_count = other_cubes + new_count;
+        } else {
+            let new_count = cube_count
+                .checked_add(child.cubes.len())
+                .filter(|count| *count <= MAX_ENTITY_GEOMETRY_CUBES)
+                .ok_or(ActorRigGeometryError::CatalogCapacity)?;
+            if merged.len() >= MAX_RENDER_BONES_PER_ACTOR {
+                return Err(ActorRigGeometryError::BoneCount);
+            }
+            // Check the cumulative model budget before cloning any authored cubes.
+            merged.push(child.clone());
+            *cube_count = new_count;
+        }
+    }
+    Ok(())
+}
+
+fn overlay_geometry_bone(
+    base: &mut EntityGeometryBone,
+    child: &EntityGeometryBone,
+    maximum_cubes: usize,
+) -> Result<usize, ActorRigGeometryError> {
+    let cube_count = base
+        .append_inherited_cubes(child, maximum_cubes)
+        .ok_or(ActorRigGeometryError::CatalogCapacity)?;
     if child.binding.is_some() {
         base.binding.clone_from(&child.binding);
     }
@@ -303,6 +335,9 @@ fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBo
     }
     if child.rotation.is_some() {
         base.rotation = child.rotation;
+    }
+    if child.bind_pose_rotation.is_some() {
+        base.bind_pose_rotation = child.bind_pose_rotation;
     }
     if child.mirror.is_some() {
         base.mirror = child.mirror;
@@ -318,7 +353,6 @@ fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBo
     }
     // `reset` drops the cubes a bone inherited; it is how derived geometries hide a bone.
     if child.reset == Some(true) {
-        base.cubes = Box::default();
         base.texture_meshes = Box::default();
     }
     if !child.texture_meshes.is_empty() {
@@ -329,16 +363,14 @@ fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBo
             .cloned()
             .collect();
     }
-    if !child.cubes.is_empty() {
-        base.cubes.clone_from(&child.cubes);
-    }
+    Ok(cube_count)
 }
 
 #[cfg(test)]
 mod tests {
     use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv};
 
-    use super::overlay_geometry_bone;
+    use super::{MAX_ENTITY_GEOMETRY_CUBES, overlay_geometry_bone};
 
     #[test]
     fn catalog_planes_preserve_untextured_back_faces() {
@@ -391,6 +423,7 @@ mod tests {
             parent: None,
             pivot: None,
             rotation: None,
+            bind_pose_rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,
@@ -402,15 +435,27 @@ mod tests {
     #[test]
     fn reset_drops_inherited_cubes_but_a_plain_overlay_keeps_them() {
         let mut kept = bone(None, 2);
-        overlay_geometry_bone(&mut kept, &bone(None, 0));
+        overlay_geometry_bone(&mut kept, &bone(None, 0), MAX_ENTITY_GEOMETRY_CUBES).unwrap();
         assert_eq!(kept.cubes.len(), 2);
+        overlay_geometry_bone(&mut kept, &bone(None, 1), MAX_ENTITY_GEOMETRY_CUBES).unwrap();
+        assert_eq!(
+            kept.cubes.len(),
+            3,
+            "ordinary child cubes append, not replace"
+        );
 
         let mut hidden = bone(None, 2);
-        overlay_geometry_bone(&mut hidden, &bone(Some(true), 0));
+        overlay_geometry_bone(&mut hidden, &bone(Some(true), 0), MAX_ENTITY_GEOMETRY_CUBES)
+            .unwrap();
         assert!(hidden.cubes.is_empty());
 
         let mut replaced = bone(None, 2);
-        overlay_geometry_bone(&mut replaced, &bone(Some(true), 1));
+        overlay_geometry_bone(
+            &mut replaced,
+            &bone(Some(true), 1),
+            MAX_ENTITY_GEOMETRY_CUBES,
+        )
+        .unwrap();
         assert_eq!(replaced.cubes.len(), 1);
     }
 }
