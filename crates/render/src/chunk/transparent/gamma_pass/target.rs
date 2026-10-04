@@ -10,7 +10,7 @@ pub(super) struct GammaTarget {
 }
 
 pub(super) fn admitted(hdr: bool, msaa: Msaa, enhanced: bool) -> bool {
-    !hdr && msaa == Msaa::Off && !(crate::ENHANCED_RENDERING_ENABLED && enhanced)
+    !hdr && msaa == Msaa::Off && !(render_model::ENHANCED_RENDERING_ENABLED && enhanced)
 }
 
 type GammaTargetViews<'w, 's> = Query<

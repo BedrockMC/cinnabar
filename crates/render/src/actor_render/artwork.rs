@@ -43,7 +43,7 @@ impl GpuArtwork {
         self.identity = Some(identity);
         let limits = device.limits();
         let bytes = pages.pages.iter().try_fold(
-            crate::actor::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES,
+            render_model::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES,
             |total, page| total.checked_add(page.rgba8.len()),
         );
         if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES

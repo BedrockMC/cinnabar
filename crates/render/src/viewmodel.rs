@@ -175,7 +175,7 @@ impl ViewmodelScene {
     /// icon. Ambiguous or clipped/rewritten geometry leaves GPU admission off.
     pub fn bind_cpu_fallback(
         &mut self,
-        input: &crate::ui::UiRenderInput,
+        input: &render_model::UiRenderInput,
         page: u32,
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
@@ -190,7 +190,7 @@ impl ViewmodelScene {
     /// Bind the original rotated held-item quad only for validated cube geometry.
     pub fn bind_cube_cpu_fallback(
         &mut self,
-        input: &crate::ui::UiRenderInput,
+        input: &render_model::UiRenderInput,
         page: u32,
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
@@ -203,7 +203,7 @@ impl ViewmodelScene {
     }
     fn bind_fallback(
         &mut self,
-        input: &crate::ui::UiRenderInput,
+        input: &render_model::UiRenderInput,
         page: u32,
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
@@ -228,7 +228,7 @@ impl ViewmodelScene {
         for batch in input
             .batches
             .iter()
-            .filter(|b| b.texture_page == page && b.blend_mode == crate::ui::UI_BLEND_ALPHA)
+            .filter(|b| b.texture_page == page && b.blend_mode == render_model::UI_BLEND_ALPHA)
         {
             if batch.first_index % 3 != 0 || batch.index_count % 3 != 0 {
                 self.clear(gate);
@@ -323,7 +323,7 @@ fn oriented_rectangle([a, b, c, d]: [[f32; 2]; 4]) -> bool {
             <= tolerance * tolerance * u.length_squared().max(v.length_squared())
 }
 
-fn quad_intersects_scissor(points: [[f32; 2]; 4], scissor: crate::ui::UiScissor) -> bool {
+fn quad_intersects_scissor(points: [[f32; 2]; 4], scissor: render_model::UiScissor) -> bool {
     let min = points
         .into_iter()
         .map(Vec2::from)

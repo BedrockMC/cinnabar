@@ -1,6 +1,6 @@
 use super::super::{snapshot, tests::mini_engine_presentation};
 use super::*;
-use render::UiRenderInput;
+use render_model::UiRenderInput;
 use ui::DpiScale;
 
 fn panel() -> Panel {

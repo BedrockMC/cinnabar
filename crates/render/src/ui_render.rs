@@ -11,7 +11,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::ExtractResourcePlugin,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_resource::{
             AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
             BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
@@ -54,12 +54,20 @@ pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_o
 use pipeline::UiPipelineKey;
 use shader::UiViewportUniform;
 
-use crate::ui::{
+use render_model::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
     UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
 };
 #[cfg(test)]
-use crate::ui::{UiRenderReject, UiScissor};
+use render_model::{UiRenderReject, UiScissor};
+
+/// Main-world holder of the published [`UiRenderScene`], cloned into the render world.
+#[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+pub struct UiRenderSceneResource(pub UiRenderScene);
+
+/// The [`UiRenderStats`] handle both worlds share.
+#[derive(Resource, Clone, Debug, Default, Deref, DerefMut)]
+pub struct UiRenderStatsResource(pub UiRenderStats);
 
 const UI_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7cfb904c-c8cf-4dd2-9214-7d208ce454e7");
 
@@ -80,9 +88,9 @@ impl Plugin for UiRenderPlugin {
 struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
-    app.init_resource::<UiRenderScene>()
+    app.init_resource::<UiRenderSceneResource>()
         .init_resource::<UiGlintSettings>()
-        .init_resource::<UiRenderStats>();
+        .init_resource::<UiRenderStatsResource>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -90,9 +98,9 @@ fn install_ui_render(app: &mut App) {
         install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.add_plugins((
-        ExtractResourcePlugin::<UiRenderScene>::default(),
+        ExtractResourcePlugin::<UiRenderSceneResource>::default(),
         ExtractResourcePlugin::<UiGlintSettings>::default(),
     ));
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
@@ -213,11 +221,11 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
 }
 
 pub(crate) fn prepare_ui_resources(
-    scene: Res<UiRenderScene>,
+    scene: Res<UiRenderSceneResource>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<UiGpu>,
-    stats: Res<UiRenderStats>,
+    stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
     (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
 ) {
@@ -695,7 +703,7 @@ impl UiRenderHarness {
     }
 
     #[must_use]
-    pub fn stats(&self) -> crate::ui::UiRenderStatsSnapshot {
+    pub fn stats(&self) -> render_model::UiRenderStatsSnapshot {
         self.stats.snapshot()
     }
 }

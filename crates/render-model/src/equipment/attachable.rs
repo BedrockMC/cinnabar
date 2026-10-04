@@ -4,7 +4,7 @@
 //! bone; each bone turns about its authored pivot by its literal offset, rotation, and scale.
 
 use crate::RenderBoneTransform;
-use bevy::math::{Quat, Vec3};
+use glam::{Quat, Vec3};
 
 /// A bone's literal channels: offset in pixels, rotation in degrees, per-axis scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,7 +32,7 @@ pub fn attach(
     channels: BoneChannels,
 ) -> Option<RenderBoneTransform> {
     let [rx, ry, rz, rw] = hand.rotation;
-    let hand_rotation = Quat::from_vec4(bevy::math::Vec4::new(rx, ry, rz, rw).try_normalize()?);
+    let hand_rotation = Quat::from_vec4(glam::Vec4::new(rx, ry, rz, rw).try_normalize()?);
     let hand_scale = hand.translation_scale[3] * hand.axis_scale[0];
     let [x, y, z] = channels.translation;
     let offset = Vec3::new(-x, y, z) / 16.0;

@@ -33,8 +33,8 @@ fn retained_world() -> World {
             0,
         )]),
         textures: Arc::new(
-            crate::UiTextureCatalog::new(
-                vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
+            render_model::UiTextureCatalog::new(
+                vec![render_model::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
                 1,
             )
             .unwrap(),
@@ -42,9 +42,9 @@ fn retained_world() -> World {
     };
     let mut scene = UiRenderScene::default();
     scene
-        .publish(input, world.resource::<UiRenderStats>())
+        .publish(input, world.resource::<UiRenderStatsResource>())
         .unwrap();
-    world.insert_resource(scene);
+    world.insert_resource(UiRenderSceneResource(scene));
     world.run_system_once(prepare_ui_resources).unwrap();
     world
 }
@@ -59,10 +59,14 @@ fn retained_publication_rejects_conflicting_identity_and_missing_buffers() {
     assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
 
     let mut world = retained_world();
-    let input = world.resource::<UiRenderScene>().input.clone().unwrap();
+    let input = world
+        .resource::<UiRenderSceneResource>()
+        .input
+        .clone()
+        .unwrap();
     let mut conflict = (*input).clone();
     conflict.viewport_size = [640, 480];
-    world.resource_mut::<UiRenderScene>().input = Some(Arc::new(conflict));
+    world.resource_mut::<UiRenderSceneResource>().input = Some(Arc::new(conflict));
     world.run_system_once(prepare_ui_resources).unwrap();
     assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
 }

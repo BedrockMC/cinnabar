@@ -67,7 +67,7 @@ fn item_and_artwork_refreshes_retain_pack_geometry() {
     assert!(
         world
             .resource::<ActorRenderScene>()
-            .contains_geometry(render::pack_rig_id(0))
+            .contains_geometry(render_model::pack_rig_id(0))
     );
     for artwork_changed in [false, true] {
         if artwork_changed {
@@ -105,14 +105,14 @@ fn item_and_artwork_refreshes_retain_pack_geometry() {
     assert!(
         world
             .resource::<ActorRenderScene>()
-            .contains_geometry(render::pack_rig_id(0))
+            .contains_geometry(render_model::pack_rig_id(0))
     );
     world.resource_mut::<ClientWorld>().pack_entities = None;
     publish(&mut world);
     assert!(
         !world
             .resource::<ActorRenderScene>()
-            .contains_geometry(render::pack_rig_id(0))
+            .contains_geometry(render_model::pack_rig_id(0))
     );
 }
 
@@ -153,19 +153,20 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
     );
     let mut pack = session_pack(entities.clone());
     Arc::get_mut(&mut pack).unwrap().equipment = Some(fixture_equipment());
-    let equipment = render::pack_equipment_rig_id(
-        render::find_geometry_index(&entities, "geometry.example").unwrap(),
+    let equipment = render_model::pack_equipment_rig_id(
+        render_model::find_geometry_index(&entities, "geometry.example").unwrap(),
     );
     let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
     scene.replace_pack_entities(Some(&entities)).unwrap();
     scene.reset();
-    let filler_count = render::MAX_ACTOR_RIG_VERTICES - scene.frame().rig.geometry_vertices.len();
+    let filler_count =
+        render_model::MAX_ACTOR_RIG_VERTICES - scene.frame().rig.geometry_vertices.len();
     scene.replace_pack_entities(None).unwrap();
-    let filler_id = render::item_mesh_rig_id(0);
+    let filler_id = render_model::item_mesh_rig_id(0);
     let filler = |count| {
-        render::ActorRigGeometry::new(
+        render_model::ActorRigGeometry::new(
             filler_id,
-            vec![render::ActorRigVertex::default(); count],
+            vec![render_model::ActorRigVertex::default(); count],
             vec![[0.0; 3]],
         )
         .unwrap()
@@ -176,7 +177,7 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
     assert!(
         world
             .resource::<ActorRenderScene>()
-            .contains_geometry(render::pack_rig_id(0))
+            .contains_geometry(render_model::pack_rig_id(0))
     );
     assert!(
         !world
@@ -214,7 +215,7 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
     assert!(
         world
             .resource::<ActorRenderScene>()
-            .contains_geometry(render::pack_rig_id(0))
+            .contains_geometry(render_model::pack_rig_id(0))
     );
 }
 
@@ -248,7 +249,7 @@ fn same_artwork(actual: &ActorArtworkPages, expected: &ActorArtworkPages) {
     assert_eq!(actual.identity(), expected.identity());
     assert_eq!(actual.pages(), expected.pages());
     assert_eq!(actual.rejected_bindings(), expected.rejected_bindings());
-    let rig = render::pack_rig_id(0);
+    let rig = render_model::pack_rig_id(0);
     assert_eq!(actual.route(rig), expected.route(rig));
     assert_eq!(
         actual.variant_location(rig, 0),

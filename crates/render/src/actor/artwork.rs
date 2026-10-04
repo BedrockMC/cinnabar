@@ -1,7 +1,7 @@
 //! Immutable startup artwork pages. Pixel decoding and hashing never run per frame.
-use super::{EntityRigId, MAX_RENDERED_PLAYERS, STANDARD_SKIN_BYTES};
 use assets::RuntimeActorCatalog;
 use bevy::prelude::Resource;
+use render_model::{EntityRigId, MAX_RENDERED_PLAYERS, STANDARD_SKIN_BYTES};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -417,7 +417,10 @@ impl ActorArtworkPages {
                 continue;
             };
             location.pose_mode = binding.pose_mode;
-            routes.insert(super::pack_rig_id(binding.geometry_candidate), location);
+            routes.insert(
+                render_model::pack_rig_id(binding.geometry_candidate),
+                location,
+            );
             accepted += 1;
         }
         self.rejected_bindings += bindings.len() - accepted;
@@ -473,7 +476,7 @@ impl ActorArtworkPages {
     /// rig `rig`; `None` when the rig has no artwork or the source was not built.
     pub fn variant_location(&self, rig: EntityRigId, source: u32) -> Option<ActorArtworkLocation> {
         let route = self.route(rig)?;
-        let sources = if super::rig::is_pack_rig_id(rig) {
+        let sources = if render_model::is_pack_rig_id(rig) {
             &self.pack_source_locations
         } else {
             &self.source_locations
@@ -510,16 +513,16 @@ impl ActorArtworkPages {
         if !self.valid_multitexture(location) {
             return false;
         }
-        if super::rig::is_equipment_rig_id(rig) {
+        if render_model::is_equipment_rig_id(rig) {
             return self.equipment.contains(&(location.page, location.layer));
         }
-        let variants = if super::rig::is_pack_rig_id(rig) {
+        let variants = if render_model::is_pack_rig_id(rig) {
             &self.pack_locations
         } else {
             &self.entity_locations
         };
         // A controller's own geometry draws any entity texture of its catalog.
-        if super::rig::is_layer_geometry_rig_id(rig) {
+        if render_model::is_layer_geometry_rig_id(rig) {
             return variants.contains(&(location.page, location.layer));
         }
         match self.route(rig) {
@@ -740,15 +743,13 @@ mod tests {
         let pages = ActorArtworkPages::default()
             .with_pack_artwork(&[texture(2)], &[binding(5, 0), binding(6, 9)]);
         assert_eq!(pages.pages().len(), 1);
-        let location = pages.route(crate::actor::pack_rig_id(5)).unwrap();
-        assert!(pages.valid(crate::actor::pack_rig_id(5), location));
-        assert_eq!(pages.route(crate::actor::pack_rig_id(6)), None);
-        assert!(!crate::actor::rig::is_equipment_rig_id(
-            crate::actor::pack_rig_id(5)
+        let location = pages.route(render_model::pack_rig_id(5)).unwrap();
+        assert!(pages.valid(render_model::pack_rig_id(5), location));
+        assert_eq!(pages.route(render_model::pack_rig_id(6)), None);
+        assert!(!render_model::is_equipment_rig_id(
+            render_model::pack_rig_id(5)
         ));
-        assert!(crate::actor::rig::is_pack_rig_id(
-            crate::actor::pack_rig_id(5)
-        ));
+        assert!(render_model::is_pack_rig_id(render_model::pack_rig_id(5)));
         assert_eq!(pages.rejected_bindings(), 1);
         assert_ne!(pages.identity(), [0; 32]);
     }
@@ -775,7 +776,7 @@ mod tests {
         };
         let pages = ActorArtworkPages::default()
             .with_pack_artwork(&[texture(4, 1), texture(9, 2)], &[binding]);
-        let rig = crate::actor::pack_rig_id(0);
+        let rig = render_model::pack_rig_id(0);
         let variant = pages.variant_location(rig, 9).unwrap();
         assert_eq!((variant.page(), variant.layer()), (1, 1));
         assert!(pages.valid(rig, variant));
@@ -808,7 +809,7 @@ mod tests {
         assert_eq!((first.page(), second.page()), (1, 1));
         assert_eq!((first.layer(), second.layer()), (0, 1));
         assert_eq!(locations[2].unwrap().page(), 2);
-        let equipment_rig = crate::actor::equipment_rig_id(3);
+        let equipment_rig = render_model::equipment_rig_id(3);
         assert!(pages.valid(equipment_rig, first));
         let unknown = ActorArtworkLocation { layer: 9, ..first };
         assert!(!pages.valid(equipment_rig, unknown));

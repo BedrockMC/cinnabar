@@ -42,7 +42,7 @@ pub const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../../assets/branding
 
 #[derive(Default)]
 pub(super) struct MenuArtworkAtlas {
-    pub(super) pages: Vec<render::UiTexturePage>,
+    pub(super) pages: Vec<render_model::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
 }
 
@@ -88,7 +88,7 @@ pub(super) struct Packed {
         expect(dead_code, reason = "only tests wait for the final atlas")
     )]
     complete: bool,
-    pub(super) pages: Vec<render::UiTexturePage>,
+    pub(super) pages: Vec<render_model::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
 }
 
@@ -248,7 +248,7 @@ impl Source {
     }
 }
 
-const WHOLE_PAGE: u32 = render::UI_ART_PAGE_SIDE - GUTTER * 2;
+const WHOLE_PAGE: u32 = render_model::UI_ART_PAGE_SIDE - GUTTER * 2;
 
 impl DecodeCache {
     fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
@@ -347,7 +347,7 @@ fn title() -> Option<&'static Artwork> {
 /// Shelf-packs `set`'s decoded art into art pages numbered from 0; what is
 /// not decoded yet or does not fit is left out.
 fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
-    let side = render::UI_ART_PAGE_SIDE;
+    let side = render_model::UI_ART_PAGE_SIDE;
     let rest: Vec<(String, &Artwork)> = sources(set)
         .iter()
         .filter_map(|source| {
@@ -379,7 +379,7 @@ fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packe
             y = GUTTER;
             shelf = 0;
         }
-        if page >= render::MAX_UI_ART_PAGES {
+        if page >= render_model::MAX_UI_ART_PAGES {
             break;
         }
         while buffers.len() <= page {
@@ -406,7 +406,7 @@ fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packe
     let pages = buffers
         .into_iter()
         .map(|pixels| {
-            render::UiTexturePage::owned([side, side], Arc::from(pixels))
+            render_model::UiTexturePage::owned([side, side], Arc::from(pixels))
                 .expect("art pages have exact checked dimensions")
         })
         .collect();

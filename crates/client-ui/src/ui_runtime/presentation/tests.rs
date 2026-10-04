@@ -7,7 +7,7 @@ use protocol::{
     ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
     ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, UiEvent,
 };
-use render::{UiRenderScene, UiRenderStats};
+use render_model::{UiRenderScene, UiRenderStats};
 use sha2::{Digest, Sha256};
 use ui::BoundedStat;
 
@@ -108,7 +108,7 @@ fn unchanged_frames_skip_tree_layout_and_draw_list() {
 
 #[test]
 fn maximum_page_font_is_rejected_before_appending_the_solid_layer() {
-    let font = fixture_font_with_page_count(render::MAX_UI_TEXTURE_LAYERS as usize);
+    let font = fixture_font_with_page_count(render_model::MAX_UI_TEXTURE_LAYERS as usize);
     assert!(matches!(
         UiPresentationRuntime::new(font),
         Err(UiPresentationError::InvalidFontTexture)

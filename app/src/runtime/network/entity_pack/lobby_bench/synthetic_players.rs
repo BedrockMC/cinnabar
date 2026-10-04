@@ -16,7 +16,7 @@ fn add_players(world: &mut World, players: u64) {
     let stream = client.stream.as_mut().unwrap();
     let mut sequence = 0;
     for index in 0..players {
-        let mut pixels = vec![200; render::STANDARD_SKIN_BYTES];
+        let mut pixels = vec![200; render_model::STANDARD_SKIN_BYTES];
         pixels[..3].copy_from_slice(&index.to_le_bytes()[..3]);
         pixels[3] = 255;
         let runtime_id = index + 100;
@@ -33,8 +33,8 @@ fn add_players(world: &mut World, players: u64) {
                         username: "offline benchmark".into(),
                         verified: true,
                         skin: PlayerSkin::Standard(StandardSkin {
-                            width: render::STANDARD_SKIN_SIDE as u32,
-                            height: render::STANDARD_SKIN_SIDE as u32,
+                            width: render_model::STANDARD_SKIN_SIDE as u32,
+                            height: render_model::STANDARD_SKIN_SIDE as u32,
                             rgba8: pixels.into(),
                             cape: None,
                             geometry: None,
@@ -192,7 +192,10 @@ fn synthetic_player_lobby_bench() {
         }
     }
     let drawn = world.resource::<ActorRenderFrame>().rig.instances.len();
-    assert_eq!(drawn, (players as usize).min(render::MAX_RENDERED_PLAYERS));
+    assert_eq!(
+        drawn,
+        (players as usize).min(render_model::MAX_RENDERED_PLAYERS)
+    );
     eprintln!(
         "PLAYER_LOBBY_BENCH players={players} moving={moving} frames={SAMPLE_FRAMES} drawn={}",
         drawn
