@@ -13,7 +13,7 @@
         "bindings": [{"binding_type": "collection", "binding_collection_name": "cinnabar_accounts", "binding_name": "#account_picture"}]
       }},
       {"name": {
-        "type": "label", "size": ["100%-44px", 30], "anchor_from": "left_middle", "anchor_to": "left_middle", "offset": [39, -1], "layer": 10,
+        "type": "label", "size": ["100%-44px", 10], "anchor_from": "left_middle", "anchor_to": "left_middle", "offset": [39, -1], "layer": 10,
         "text": "#account_name", "text_alignment": "left", "color": [0.15, 0.15, 0.15],
         "bindings": [{"binding_type": "collection", "binding_collection_name": "cinnabar_accounts", "binding_name": "#account_name"}]
       }}
