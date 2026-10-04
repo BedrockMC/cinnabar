@@ -4,7 +4,7 @@ use super::{
     ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped,
 };
 use crate::RenderBoneTransform;
-use bevy::math::{Quat, Vec3};
+use glam::{Quat, Vec3};
 
 /// Builds a hand bone with identity rotation for placement assertions.
 fn bone(translation: [f32; 3], scale: f32) -> RenderBoneTransform {

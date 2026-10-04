@@ -28,7 +28,7 @@ impl UiPresentationRuntime {
         &self,
         visual: u32,
         source_manifest_sha256: [u8; 32],
-    ) -> Option<render::DroppedItemCube> {
+    ) -> Option<render_model::DroppedItemCube> {
         let catalog = self.icon_catalog.as_deref()?;
         if catalog.source_manifest_sha256() != source_manifest_sha256 {
             return None;
@@ -44,7 +44,7 @@ impl UiPresentationRuntime {
     }
 }
 
-fn carried_cube(sprite: &assets::IconSprite) -> Option<render::DroppedItemCube> {
+fn carried_cube(sprite: &assets::IconSprite) -> Option<render_model::DroppedItemCube> {
     use assets::{BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE};
     if [sprite.width, sprite.height] != BLOCK_ITEM_SHEET_SIZE
         || sprite.rgba8.len() != usize::from(sprite.width) * usize::from(sprite.height) * 4
@@ -62,10 +62,10 @@ fn carried_cube(sprite: &assets::IconSprite) -> Option<render::DroppedItemCube> 
         }
         std::sync::Arc::from(pixels)
     });
-    Some(render::DroppedItemCube {
+    Some(render_model::DroppedItemCube {
         tile: u32::from(BLOCK_ITEM_FACE_SIDE),
         faces,
-        tints: [render::OPAQUE_WHITE; 6],
+        tints: [render_model::OPAQUE_WHITE; 6],
     })
 }
 
@@ -134,7 +134,7 @@ mod tests {
         let cube = carried_cube(&sprite).unwrap();
         for (face, pixels) in cube.faces.iter().enumerate() {
             assert_eq!(pixels.as_ref(), tiles[face].rgba8.as_ref());
-            assert_eq!(cube.tints[face], render::OPAQUE_WHITE);
+            assert_eq!(cube.tints[face], render_model::OPAQUE_WHITE);
         }
         assert!(carried_cube(&tiles[0]).is_none());
     }

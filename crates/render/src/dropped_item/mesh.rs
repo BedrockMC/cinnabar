@@ -1,7 +1,8 @@
-use crate::item_geometry::{
-    ItemVertex, cube_vertices, extruded_sprite_vertices, held_sprite_vertices,
-};
 use bytemuck::{Pod, Zeroable};
+use render_model::{
+    ActorRigVertex, OPAQUE_WHITE, extruded_sprite_vertices, held_sprite_vertices,
+    textured_cube_vertices,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
@@ -19,8 +20,6 @@ pub struct ItemMeshVertex {
 pub const ITEM_MESH_VERTEX_BYTES: usize = std::mem::size_of::<ItemMeshVertex>();
 const _: () = assert!(ITEM_MESH_VERTEX_BYTES == 40);
 
-pub const OPAQUE_WHITE: u32 = 0xffff_ffff;
-
 /// Builds a unit cube centred on the origin; face `i` samples `layers[i]` over a `tile`-texel
 /// square inside a `layer_side` layer and is multiplied by `colors[i]`.
 #[must_use]
@@ -34,7 +33,7 @@ pub fn cube_mesh(
         return None;
     }
     let extent = tile as f32 / layer_side as f32;
-    let vertices = cube_vertices([[0.0, 0.0, extent, extent]; 6]);
+    let vertices = textured_cube_vertices([[0.0, 0.0, extent, extent]; 6]);
     // Six vertices per face, in face order.
     Some(
         vertices
@@ -72,7 +71,7 @@ pub fn extruded_sprite_mesh(
     )
 }
 
-fn paint(vertex: &ItemVertex, layer: u32, color: u32) -> ItemMeshVertex {
+fn paint(vertex: &ActorRigVertex, layer: u32, color: u32) -> ItemMeshVertex {
     ItemMeshVertex {
         position: vertex.position,
         uv: vertex.uv,
