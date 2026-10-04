@@ -5,7 +5,7 @@ use json_ui::{
 };
 use serde_json::json;
 
-use crate::harness::*;
+use crate::interaction::harness::*;
 
 // T1/T2: a click flips a plain toggle's retained state and its visual state.
 #[test]

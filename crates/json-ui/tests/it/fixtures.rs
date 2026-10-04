@@ -3,7 +3,7 @@
 //! they protect inheritance, substitution,
 //! `ignored` removal, and factory recording.
 
-mod support;
+use crate::support;
 
 use std::path::PathBuf;
 

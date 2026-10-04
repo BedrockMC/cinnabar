@@ -2,7 +2,7 @@
 //! The `.local` pack is gitignored, so tests that need it skip (not fail) when it is
 //! absent; the synthetic tests always run and pin the deterministic layout maths.
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

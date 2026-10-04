@@ -1,6 +1,6 @@
 //! Reference checks against the real vanilla screens, with visible skips when the pack is absent.
 
-mod support;
+use crate::support;
 
 use json_ui::{Catalog, Context, ResolvedControl};
 
