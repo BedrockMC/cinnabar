@@ -20,6 +20,7 @@ mod resolution;
 mod resolve_snapshot;
 mod screens;
 mod scroll;
+mod selection_wheel;
 mod server_pack;
 mod support;
 mod tooltip;

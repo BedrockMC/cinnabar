@@ -63,10 +63,8 @@ pub struct OutlineFontConfig {
 impl Default for OutlineFontConfig {
     fn default() -> Self {
         Self {
-            // Monocraft's outline coordinates are all multiples of 60 font
-            // units against a 1080-unit em, so one design pixel is 60 units
-            // and 1080/60 = 18 is the smallest pixel height that lands every
-            // edge on a texel boundary. Off-grid heights split design pixels
+            // The reviewed pixel grid uses 18 px/em so each design pixel lands
+            // on a stable texel boundary. Off-grid heights split design pixels
             // across texels and render uneven stems.
             pixel_height: 18,
             atlas_side: 1_024,
@@ -250,7 +248,7 @@ fn rasterize_checked(
     // one. A pixel font whose design grid does not divide its em exactly would
     // otherwise land a fraction of a texel out per glyph, and that drift
     // accumulates across a line until a glyph sits a whole pixel from where it
-    // belongs. Exact grids like Monocraft's round to themselves.
+    // belongs. Exact pixel grids round to themselves.
     let source_advance_64 =
         f64::from(metrics.advance_width).round() * FIXED_POINT_DENOMINATOR as f64;
     if !source_advance_64.is_finite()

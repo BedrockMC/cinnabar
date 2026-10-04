@@ -27,6 +27,7 @@ pub(crate) fn configure(app: &mut App) {
             (
                 render::begin_stage_span::<AUDIO_STAGE>,
                 ingest_audio_events,
+                drive_inventory_audio,
                 drive_local_motion,
                 drive_ambience,
                 drive_weather_and_particles,
@@ -37,8 +38,25 @@ pub(crate) fn configure(app: &mut App) {
                 render::end_stage_span::<AUDIO_STAGE>,
             )
                 .chain()
+                .after(crate::ui_runtime::drive_world_inventory_keys)
                 .after(crate::named_audio::drain_live_named_audio),
         );
+}
+
+pub(crate) fn drive_inventory_audio(
+    mut player_runtime: ResMut<crate::player_runtime::PlayerRuntime>,
+    world: Res<ClientWorld>,
+    view: Res<LocalViewPose>,
+    engine: ResMut<AudioEngine>,
+) {
+    client_presentation::audio::inventory::drive_inventory_audio(
+        &mut player_runtime,
+        client_presentation::observations::WorldObservation {
+            stream: world.stream.as_ref(),
+        },
+        view,
+        engine,
+    );
 }
 
 /// Borrows current owner facts and forwards them at the existing system boundary.

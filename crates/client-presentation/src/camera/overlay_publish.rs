@@ -1,4 +1,4 @@
-//! Publishes the overlay stack to the renderer and loads the two vanilla overlay textures, degrading to procedural art.
+//! Publishes camera overlays, using admitted block art for fire and optional mask images.
 
 use std::{
     path::{Path, PathBuf},
@@ -7,11 +7,11 @@ use std::{
 
 use bevy::{
     log::warn,
-    prelude::{Res, ResMut, Time},
+    prelude::{Local, Projection, Query, Res, ResMut, Time, With},
 };
 use render::{
-    SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayKind, ScreenOverlayLayer, ScreenOverlayScene,
-    ScreenOverlayTextures,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenFireTexture,
+    ScreenOverlayKind, ScreenOverlayLayer, ScreenOverlayScene, ScreenOverlayTextures,
 };
 
 use super::overlay::{OverlayKind, OverlayLayer, ScreenOverlays};
@@ -84,14 +84,49 @@ pub fn load_overlay_textures(scene: Option<ResMut<ScreenOverlayScene>>) {
     scene.set_textures(textures.map(Arc::new));
 }
 
+fn pinned_fire_state() -> Option<u32> {
+    assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .ok()?
+    .iter()
+    .find(|state| state.name.as_ref() == "minecraft:fire")
+    .map(|state| state.sequential_id)
+}
+
 pub fn publish_screen_overlays(
     time: Res<Time>,
     overlays: Res<ScreenOverlays>,
     scene: Option<ResMut<ScreenOverlayScene>>,
+    textures: Option<Res<ChunkTextureAssets>>,
+    cameras: Query<&Projection, With<super::FlyCamera>>,
+    mut fire_source: Local<Option<(ChunkTextureAssetIdentity, u32)>>,
 ) {
     let Some(mut scene) = scene else {
         return;
     };
+    if let Some(textures) = textures {
+        let identity = textures.identity();
+        if fire_source
+            .as_ref()
+            .is_none_or(|source| source.0 != identity)
+        {
+            let state = fire_source
+                .as_ref()
+                .map(|source| source.1)
+                .or_else(pinned_fire_state);
+            if let Some(state) = state {
+                scene.set_fire_texture(
+                    ScreenFireTexture::from_assets(textures.assets(), state).map(Arc::new),
+                );
+                *fire_source = Some((identity, state));
+            }
+        }
+    }
+    if let Some(Projection::Perspective(projection)) = cameras.iter().next() {
+        scene.set_fire_projection(projection.fov, projection.aspect_ratio);
+    }
     scene.set_layers(
         overlays.layers.iter().map(render_layer),
         time.elapsed_secs(),
@@ -101,6 +136,11 @@ pub fn publish_screen_overlays(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_fire_binding_uses_the_active_pinned_registry_protocol() {
+        assert!(pinned_fire_state().is_some());
+    }
 
     #[test]
     fn every_overlay_kind_maps_to_a_shader_pattern() {

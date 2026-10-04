@@ -38,12 +38,8 @@ BEHAVIOR_PACK_DIR ?= $(patsubst %/resource_pack,%/behavior_pack,$(PACK_DIR))
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
 HUD_PACK_DIR ?= $(PACK_DIR)
-UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json
-UI_FONT_DIR ?= .local/assets/ui-font/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9
-UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf
-UI_FONT_FALLBACK_DIR ?= .local/assets/ui-font/f8d157532fbfaeda587e826d4cd5b21a49186f7c
-UI_FONT_FALLBACK_SOURCE ?= $(UI_FONT_FALLBACK_DIR)/NotoSansCJKsc-Regular.otf
-FONT_ASSET_NOTICES ?= $(dir $(FONT_ASSET_BLOB))ui-font-notices.txt
+FONT_SOURCE_MANIFEST ?= assets/cinnangles-sans-source.json
+FONT_SOURCE ?= assets/fonts/CinnanglesSans.ttf
 BEDROCK_TARGET_MANIFEST ?= assets/bedrock-target.json
 BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2193.bin
 LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin
@@ -57,8 +53,8 @@ ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
 ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent
 ENTITY_ASSET_REPORT ?= .local/assets/compiled/entity-assets.json
-FONT_ASSET_BLOB ?= .local/assets/compiled/ui-monocraft-v1.mcbefont
-FONT_ASSET_REPORT ?= .local/assets/compiled/ui-monocraft-font-assets.json
+FONT_ASSET_BLOB ?= .local/assets/compiled/ui-cinnangles-sans-v1.mcbefont
+FONT_ASSET_REPORT ?= .local/assets/compiled/ui-cinnangles-sans-font-assets.json
 LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
@@ -97,7 +93,7 @@ REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck
 WORLD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- compile --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --registry "$(BLOCK_REGISTRY)" --light-registry "$(LIGHT_REGISTRY)" --biome-registry "$(BIOME_REGISTRY)" --out "$(ASSET_BLOB)"
 ATMOSPHERE_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- atmosphere --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)") --out "$(ATMOSPHERE_BLOB)" --report "$(ATMOSPHERE_REPORT)"
 ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ENTITY_ASSET_BLOB)" --report "$(ENTITY_ASSET_REPORT)"
-FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets --font "$(UI_FONT_SOURCE)" --fallback-font "$(UI_FONT_FALLBACK_SOURCE)" --source-manifest "$(UI_FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
+FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --font "$(FONT_SOURCE)" --source-manifest "$(FONT_SOURCE_MANIFEST)" --out "$(FONT_ASSET_BLOB)" --report "$(FONT_ASSET_REPORT)"
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- lang-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LANG_ASSET_BLOB)" --report "$(LANG_ASSET_REPORT)"
@@ -147,7 +143,7 @@ help:
 	@echo make particle-assets - Compile particle effect json and particle textures carrier
 	@echo make ui-assets        - Pack pinned JSON-UI textures, sidecars, and raw ui json carrier
 	@echo make block-entity-assets - Pack block-entity model textures and the pinned block-entity inventory
-	@echo make font-assets     - Fetch and compile the pinned open-licensed Monocraft UI font
+	@echo make font-assets     - Compile the bundled Cinnangles Sans UI font
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
@@ -174,14 +170,14 @@ registry-foundation-check:
 
 JSONUI_EDITOR_OUT ?= target/jsonui-editor-site
 
-jsonui-editor: $(UI_FONT_SOURCE) $(UI_FONT_DIR)/LICENSE
-	bash tools/jsonui-editor/build.sh "$(abspath $(JSONUI_EDITOR_OUT))" "$(abspath $(UI_FONT_SOURCE))"
+jsonui-editor: $(FONT_SOURCE)
+	bash tools/jsonui-editor/build.sh "$(abspath $(JSONUI_EDITOR_OUT))" "$(abspath $(FONT_SOURCE))"
 	@echo Serve it locally with: python3 -m http.server --directory $(JSONUI_EDITOR_OUT) 8000
 	@echo then open http://localhost:8000/
 
 vanilla-assets: $(PACK_SENTINEL)
 
-assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT) $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT) $(AUDIO_BANK_BLOB) $(AUDIO_BANK_REPORT)
+assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT) $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT) $(AUDIO_BANK_BLOB) $(AUDIO_BANK_REPORT)
 assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 assets: $(EQUIPMENT_ASSET_BLOB) $(EQUIPMENT_ASSET_REPORT)
 assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
@@ -237,7 +233,7 @@ atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
 entity-assets: $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT)
 
-font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES)
+font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)
 
 font-assets-local:
 	$(LOCAL_FONT_ASSET_COMPILE)
@@ -261,13 +257,6 @@ audio-bank: $(AUDIO_BANK_BLOB) $(AUDIO_BANK_REPORT)
 audio-pcm-assets: $(AUDIO_PCM_BLOB) $(AUDIO_PCM_REPORT)
 
 icon-assets: $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT)
-
-$(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE: $(UI_FONT_SOURCE_MANIFEST)
-ifeq ($(OS),Windows_NT)
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-ui-font.ps1
-else
-	bash scripts/fetch-ui-font.sh
-endif
 
 physics-assets: $(PHYSICS_REGISTRY)
 	$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_INSTALL) && $(PHYSICS_REGISTRY_CHECK) )
@@ -294,16 +283,11 @@ $(ENTITY_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MA
 $(ENTITY_ASSET_REPORT): $(ENTITY_ASSET_BLOB)
 	$(RUN_IF_ASSET_REPORT_STALE) || $(ENTITY_ASSET_COMPILE)
 
-$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE
+$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(FONT_SOURCE_MANIFEST) $(FONT_SOURCE)
 	$(FONT_ASSET_COMPILE)
 
 $(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)
 	$(RUN_IF_ASSET_REPORT_STALE) || $(FONT_ASSET_COMPILE)
-
-# Notices are published before the carrier. Their earlier timestamp is valid;
-# only their absence needs recovery after the carrier has been checked/rebuilt.
-$(FONT_ASSET_NOTICES): | $(FONT_ASSET_BLOB)
-	$(FONT_ASSET_COMPILE)
 
 $(HUD_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(HUD_SOURCE_MANIFEST)
 	$(HUD_ASSET_COMPILE)
@@ -389,14 +373,14 @@ package-binaries:
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
-package-macos: package-binaries $(UI_FONT_SOURCE)
+package-macos: package-binaries $(FONT_SOURCE)
 	bash packaging/macos/build-app.sh
 	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar.app
 	bash packaging/macos/make-dmg.sh .local/dist/macos-release/Cinnabar.app .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
 	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
 
-package-windows: package-binaries $(UI_FONT_SOURCE)
+package-windows: package-binaries $(FONT_SOURCE)
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
 
-package-linux: package-binaries $(UI_FONT_SOURCE)
+package-linux: package-binaries $(FONT_SOURCE)
 	bash packaging/linux/build-appimage.sh

@@ -155,6 +155,40 @@ installs no mod resource or update system.
 Required vanilla carriers remain required. The extension adds no protocol types
 or dependencies on gameplay state to the component host.
 
+## Personal controls and interaction
+
+Three additional per-component grants are opt-in: `CINNABAR_MOD_CONTROLS=1`,
+`CINNABAR_MOD_INTERACTION=1` and `CINNABAR_MOD_SETTINGS=1`.
+They are developer extension capabilities and do not change the vanilla client.
+
+`panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
+choices. It uses the host's JSON-UI engine; guests cannot provide templates or
+binding expressions. Optional sections organize controls into category tabs and
+cards; omitting them keeps a flat panel. `input.read-controls` supplies current-window physical key
+edges and panel events. `input.reserve-keys` prevents selected bindings reaching
+gameplay. The panel's `toggle_key` opens or closes it before the ordinary input
+sample; Escape closes it. Other absorbing screens and lost focus close it, release
+input, and suppress gameplay output. Removing or quarantining a guest releases
+the panel and its reservations.
+
+`gameplay.set-attack-reach` requests a current-frame actor selection/admission
+range up to `mod_api::MAX_ENTITY_REACH_BLOCKS`. It preserves obstruction checks
+and normal attack transactions; the server still decides whether a hit is valid.
+`gameplay.pulse-attack` requests one press only while the captured semantic Attack
+action is physically held. Neither operation synthesizes OS input. These requests
+commit after a successful guest callback and expire each frame.
+
+`settings.load/save` reads or atomically replaces only the selected component's
+`.settings.json` companion. JSON objects and file reads are bounded by
+`mod_api::MAX_SETTINGS_BYTES`; there is no guest-selected filesystem path.
+Successful callbacks commit settings in memory immediately. One worker coalesces
+atomic disk writes, reports failures separately, and flushes the last value on exit.
+
+With an explicit component and controls grant, `CINNABAR_MOD_FONT` may select a
+bounded local outline font for the personal panel. It is rasterized once at startup
+into a private atlas alias with filtered sampling. Panel sizing follows display DPI
+independently of the game GUI scale; vanilla and server glyph ownership are preserved.
+
 ## Verification and limits
 
 ```sh

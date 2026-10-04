@@ -7,6 +7,19 @@
 use assets::{RegistryRecord, TOP_SNOW_LAYER_COUNT};
 use sim::{Aabb, Vec3};
 
+impl super::PhysicsCollisionRegistries {
+    /// Invisible barriers expose their selection overlay only to Creative players.
+    pub fn selection_overlay_visible(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+        game_mode: Option<protocol::PlayerGameMode>,
+    ) -> bool {
+        self.block_identifier(mode, runtime_id) != Some("minecraft:barrier")
+            || game_mode == Some(protocol::PlayerGameMode::Creative)
+    }
+}
+
 /// Visual bounds for plants; `BlockType::clip` picks these independently
 /// of movement collision.
 pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {

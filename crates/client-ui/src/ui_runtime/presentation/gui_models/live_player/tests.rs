@@ -178,3 +178,121 @@ fn hud_uses_the_session_player_geometry_and_refreshes_between_catalogs() {
         assert!((width - expected).abs() < 1e-4, "{width} != {expected}");
     }
 }
+
+#[test]
+fn hud_fire_follows_authoritative_burning_metadata_and_clears_after_session_end() {
+    let catalog = player_catalog(8);
+    let mut stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+    for (sequence, flags, burning) in [(2, 1, true), (3, 2, false), (4, 1, true)] {
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                    protocol::ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 1,
+                        metadata: Arc::from([protocol::ActorMetadata {
+                            key: 0,
+                            value: protocol::ActorMetadataValue::Flags(flags),
+                        }]),
+                        properties: Arc::from([]),
+                        tick: sequence,
+                    },
+                )),
+            )
+            .unwrap();
+        presentation.capture_hud_player(Some(&stream), false);
+        assert_eq!(
+            presentation.gui_models.live_player.fire_size.is_some(),
+            burning
+        );
+    }
+    presentation.capture_hud_player(Some(&stream), true);
+    assert_eq!(
+        presentation.gui_models.live_player.outer_y,
+        super::super::super::player_preview::HUD_SWIM_OFFSET
+    );
+    presentation.capture_hud_player(None, false);
+    assert!(presentation.gui_models.live_player.fire_size.is_none());
+    assert_eq!(presentation.gui_models.live_player.outer_y, 0.0);
+}
+
+#[test]
+fn hud_fire_color_uses_completed_actor_ticks_and_fades_after_extinguishing() {
+    let catalog = player_catalog(8);
+    let mut stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+    let set_fire = |stream: &mut chunk_pipeline::WorldStream, sequence, flags| {
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                    protocol::ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 1,
+                        metadata: Arc::from([protocol::ActorMetadata {
+                            key: 0,
+                            value: protocol::ActorMetadataValue::Flags(flags),
+                        }]),
+                        properties: Arc::from([]),
+                        tick: sequence,
+                    },
+                )),
+            )
+            .unwrap();
+    };
+    set_fire(&mut stream, 2, 1);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert_eq!(
+        presentation.gui_models.live_player.overlay_color,
+        [0.8, 0.3, 0.0, 0.0]
+    );
+    stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert_eq!(
+        presentation.gui_models.live_player.overlay_color,
+        [0.8, 0.15, 0.0, 0.7]
+    );
+    let steady = presentation.gui_models.live_player.overlay_color;
+    presentation.capture_hud_player(Some(&stream), false);
+    assert_eq!(
+        presentation.gui_models.live_player.overlay_color, steady,
+        "render frames do not advance on_fire_time"
+    );
+    stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert!((presentation.gui_models.live_player.overlay_color[1] - 0.3).abs() < 1e-6);
+    set_fire(&mut stream, 3, 0);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert!(presentation.gui_models.live_player.fire_size.is_none());
+    assert_eq!(
+        presentation.gui_models.live_player.overlay_color,
+        [0.8, 0.3, 0.0, 0.7]
+    );
+    stream.advance_actor_interpolation_ticks(2);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert!((presentation.gui_models.live_player.overlay_color[3] - 0.4536).abs() < 1e-6);
+    stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS - 2);
+    presentation.capture_hud_player(Some(&stream), false);
+    assert_eq!(presentation.gui_models.live_player.overlay_color, [0.0; 4]);
+    set_fire(&mut stream, 4, 1);
+    stream.advance_actor_interpolation_ticks(client_world::FIRE_FADE_TICKS);
+    stream
+        .submit(
+            5,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+                runtime_id: 1,
+                kind: protocol::ActorStatusKind::Hurt,
+                data: 0,
+            })),
+        )
+        .unwrap();
+    presentation.capture_hud_player(Some(&stream), false);
+    assert_eq!(
+        presentation.gui_models.live_player.overlay_color,
+        [1.0, 0.0, 0.0, 0.25]
+    );
+}

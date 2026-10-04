@@ -14,6 +14,10 @@ pub(super) struct LivePlayer {
     geometry: Option<ActorRigGeometry>,
     pub(super) vertices: Vec<ActorVertex>,
     pub(super) parts: [Option<Affine3A>; 6],
+    pub(super) fire_size: Option<[f32; 2]>,
+    pub(super) outer_y: f32,
+    pub(super) overlay_color: [f32; 4],
+    pub(super) fire: super::fire::FirePlayback,
 }
 
 impl UiPresentationRuntime {
@@ -33,14 +37,40 @@ impl UiPresentationRuntime {
         swimming: bool,
         emote: Option<(client_world::CustomEmote, f64)>,
     ) {
+        let fire_frames = self.gui_models.fire.frames.len();
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.parts = [None; 6];
+        live.fire_size = None;
+        live.outer_y = if swimming {
+            super::super::player_preview::HUD_SWIM_OFFSET
+        } else {
+            0.0
+        };
+        live.overlay_color = [0.0; 4];
         let Some(stream) = stream else {
             live.source = None;
+            live.fire = Default::default();
             return;
         };
         let id = stream.local_player_runtime_id();
+        live.fire_size = stream.authority().actor(id).and_then(|actor| {
+            live.fire.observe(
+                (
+                    stream.authority().actor_session_id(),
+                    id,
+                    actor.spawn_revision,
+                ),
+                actor.is_on_fire(),
+                fire_frames,
+            );
+            live.overlay_color = super::fire::native_player_overlay(actor);
+            if !actor.is_on_fire() {
+                return None;
+            }
+            let (min, max) = actor.bounding_box()?;
+            Some([max[0] - min[0], max[1] - min[1]])
+        });
         let Some(rig) = stream.authority().actor_rig(id) else {
             return;
         };
@@ -56,11 +86,7 @@ impl UiPresentationRuntime {
             return;
         };
         let basis = Affine3A::from_scale(Vec3::new(-1., 1., -1.));
-        let swim_offset = if swimming {
-            0.8 / super::super::player_preview::PLAYER_MODEL_SCALE
-        } else {
-            0.0
-        };
+        let swim_offset = live.outer_y / super::super::player_preview::PLAYER_MODEL_SCALE;
         let offset = Affine3A::from_translation(Vec3::Y * swim_offset);
         let actor_scale = Affine3A::from_scale(
             Vec3::from_array(rig.axis_scale)

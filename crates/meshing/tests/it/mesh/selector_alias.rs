@@ -80,8 +80,10 @@ fn write_selector_alias_cube_render_pack(root: &Path) {
 fn compiled_selector_alias_cube_fixture() -> &'static CompiledSelectorAliasCubeFixture {
     static FIXTURE: OnceLock<CompiledSelectorAliasCubeFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode selector-alias registry");
+        let records = read_registry(include_bytes!(
+            "../../../../assets/data/block-registry-v1001.bin"
+        ))
+        .expect("decode selector-alias registry");
         let air = records
             .iter()
             .find(|record| record.name.as_ref() == "minecraft:air")
@@ -132,7 +134,9 @@ fn compiled_selector_alias_cube_fixture() -> &'static CompiledSelectorAliasCubeF
                 assert_eq!(visual.kind(), VisualKind::Cube);
                 assert_eq!(
                     visual.flags(),
-                    BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+                    BlockFlags::CUBE_GEOMETRY
+                        | BlockFlags::OCCLUDES_FULL_FACE
+                        | BlockFlags::FIRE_TOP_SUPPORT
                 );
                 assert!(visual.model_template().is_none());
             }

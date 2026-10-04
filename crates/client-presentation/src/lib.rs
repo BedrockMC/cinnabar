@@ -25,3 +25,6 @@ pub use plugin::ClientPresentationPlugin;
 
 #[cfg(test)]
 mod molang_conformance_tests;
+
+#[cfg(test)]
+mod perspective_head_tests;
