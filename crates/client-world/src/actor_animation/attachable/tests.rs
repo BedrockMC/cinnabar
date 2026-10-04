@@ -104,6 +104,7 @@ fn compiled_fixture() -> CompiledEntityAssets {
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
             keyframe_count: 1,
+            rotation_relative_to_entity: false,
         }]
         .into_boxed_slice(),
         animation_keyframes: vec![EntityAnimationKeyframe {

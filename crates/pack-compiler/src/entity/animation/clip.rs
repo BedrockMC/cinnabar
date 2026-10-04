@@ -61,12 +61,24 @@ pub(super) fn compile_clip_for_geometry(
             let bone = bone.as_object().ok_or_else(|| {
                 ClipCompileError::Invalid(invalid("animation bone must be an object"))
             })?;
+            let rotation_relative_to_entity = bone
+                .get("relative_to")
+                .and_then(|relative| relative.get("rotation"))
+                .and_then(Value::as_str)
+                == Some("entity");
+            // A frame-only bone still changes its orientation frame, even without angles.
+            let neutral_rotation =
+                rotation_relative_to_entity.then(|| serde_json::json!([0.0, 0.0, 0.0]));
             for (field, property) in [
                 ("position", EntityAnimationProperty::Translation),
                 ("rotation", EntityAnimationProperty::Rotation),
                 ("scale", EntityAnimationProperty::Scale),
             ] {
-                let Some(value) = bone.get(field) else {
+                let Some(value) = bone.get(field).or_else(|| {
+                    neutral_rotation
+                        .as_ref()
+                        .filter(|_| property == EntityAnimationProperty::Rotation)
+                }) else {
                     continue;
                 };
                 let first_keyframe = local_keyframes.len() as u32;
@@ -101,6 +113,7 @@ pub(super) fn compile_clip_for_geometry(
                     property,
                     first_keyframe,
                     keyframe_count: local_keyframes.len() as u32 - first_keyframe,
+                    rotation_relative_to_entity,
                 });
             }
         }
