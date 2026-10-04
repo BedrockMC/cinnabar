@@ -475,6 +475,22 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        if self.account_change_pending()
+            && matches!(
+                action,
+                MenuAction::PlaySaved(_)
+                    | MenuAction::PlayFeatured(_)
+                    | MenuAction::PlayGathering(_)
+                    | MenuAction::PlayRealm(_)
+                    | MenuAction::PlayFriend(_)
+                    | MenuAction::PlayLocalWorld(_)
+                    | MenuAction::OpenLiveEvent
+                    | MenuAction::LocalWorld(_)
+            )
+        {
+            self.message = Some("Please wait for the account change to finish.".into());
+            return;
+        }
         if let Some(index) = self
             .focus_actions()
             .iter()
@@ -778,6 +794,10 @@ impl MenuRuntime {
 
     /// Queues a join to `address` for the session controller.
     pub(crate) fn request_connect(&mut self, address: String) {
+        if self.account_change_pending() {
+            self.message = Some("Please wait for the account change to finish.".into());
+            return;
+        }
         if address.trim().is_empty() {
             self.message = Some("That server has no address.".to_owned());
             return;
