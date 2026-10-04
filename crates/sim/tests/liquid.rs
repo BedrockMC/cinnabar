@@ -769,3 +769,46 @@ fn pose_swimming_uses_the_depth_strider_water_travel_speed() {
         travelled(0)
     );
 }
+
+#[test]
+fn depth_strider_reads_effective_sprint_and_custom_speed_once_in_both_water_modes() {
+    let world = FluidWorld {
+        facts: water_facts(),
+    };
+    for mode in [sim::MovementMode::Walking, sim::MovementMode::Swimming] {
+        for grounded in [false, true] {
+            for depth_strider in [0, 1, 3] {
+                let travelled = |sprinting, movement_speed| {
+                    let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+                    state.on_ground = grounded;
+                    Simulator::default()
+                        .tick(
+                            &mut state,
+                            MovementInput {
+                                forward: 1.0,
+                                mode,
+                                sprinting,
+                                depth_strider,
+                                movement_speed: Some(f64::from(movement_speed)),
+                                ..MovementInput::default()
+                            },
+                            &world,
+                        )
+                        .unwrap()
+                        .movement
+                        .z
+                };
+                let custom = 0.12_f32;
+                let effective = custom * sim::SPRINT_SPEED_MULTIPLIER as f32;
+                assert_eq!(
+                    travelled(true, custom),
+                    travelled(false, effective),
+                    "{mode:?}, grounded={grounded}, Depth Strider={depth_strider}"
+                );
+                if depth_strider > 0 {
+                    assert!(travelled(true, custom) > travelled(false, custom));
+                }
+            }
+        }
+    }
+}
