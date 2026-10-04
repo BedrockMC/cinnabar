@@ -45,7 +45,7 @@ impl UiPresentationRuntime {
                     .elements
                     .iter()
                     .filter_map(|element| match element {
-                        MenuElement::Button { text } => Some(Arc::clone(text)),
+                        MenuElement::Button { text, .. } => Some(Arc::clone(text)),
                         _ => None,
                     })
                     .collect();

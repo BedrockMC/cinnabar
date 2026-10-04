@@ -35,18 +35,7 @@ pub(super) fn engine_model(
                             .button_images
                             .get(index)
                             .and_then(Option::as_ref)
-                            .and_then(|image| match image {
-                                FormButtonImage::Path(path) => {
-                                    Some(ButtonImage::Path(path.to_string()))
-                                }
-                                FormButtonImage::Url(url) => match remote(url) {
-                                    RemoteState::Ready(_) => {
-                                        Some(ButtonImage::Url(url.to_string()))
-                                    }
-                                    RemoteState::Loading => Some(ButtonImage::Loading),
-                                    RemoteState::Failed => None,
-                                },
-                            }),
+                            .and_then(|image| engine_image(image, remote)),
                     })
                 })
                 .collect(),
@@ -58,9 +47,9 @@ pub(super) fn engine_model(
                 .elements
                 .iter()
                 .map(|element| match element {
-                    MenuElement::Button { text } => ActionElement::Button(FormButton {
+                    MenuElement::Button { text, image } => ActionElement::Button(FormButton {
                         text: text.to_string(),
-                        image: None,
+                        image: image.as_ref().and_then(|image| engine_image(image, remote)),
                     }),
                     MenuElement::Label(text) => ActionElement::Label(text.to_string()),
                     MenuElement::Header(text) => ActionElement::Header(text.to_string()),
@@ -92,6 +81,20 @@ pub(super) fn engine_model(
         // NPC dialogue draws through its own screen, not a form template.
         ServerFormModel::NpcDialogue(_) | ServerFormModel::Unsupported(_) => return None,
     })
+}
+
+fn engine_image(
+    image: &FormButtonImage,
+    remote: &dyn Fn(&str) -> RemoteState,
+) -> Option<ButtonImage> {
+    match image {
+        FormButtonImage::Path(path) => Some(ButtonImage::Path(path.to_string())),
+        FormButtonImage::Url(url) => match remote(url) {
+            RemoteState::Ready(_) => Some(ButtonImage::Url(url.to_string())),
+            RemoteState::Loading => Some(ButtonImage::Loading),
+            RemoteState::Failed => None,
+        },
+    }
 }
 
 fn custom_element(
@@ -211,6 +214,51 @@ fn number_text(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decorated_menu_button_images_use_the_shared_engine_route() {
+        let model = ServerFormModel::ElementMenu(protocol::ElementMenuForm {
+            title: Arc::from("Menu"),
+            content: Arc::from(""),
+            elements: vec![
+                MenuElement::Header(Arc::from("Header")),
+                MenuElement::Button {
+                    text: Arc::from("Path"),
+                    image: Some(FormButtonImage::Path(Arc::from("textures/items/apple"))),
+                },
+                MenuElement::Button {
+                    text: Arc::from("Url"),
+                    image: Some(FormButtonImage::Url(Arc::from(
+                        "https://example.invalid/image",
+                    ))),
+                },
+            ]
+            .into(),
+        });
+        let state = FormEngineState::for_model(&model);
+        for (remote, expected) in [
+            (RemoteState::Loading, Some(ButtonImage::Loading)),
+            (
+                RemoteState::Ready(Arc::from([])),
+                Some(ButtonImage::Url("https://example.invalid/image".to_owned())),
+            ),
+            (RemoteState::Failed, None),
+        ] {
+            let Some(FormModel::Action(form)) =
+                engine_model(&model, &state, &|_| None, &|_| remote.clone())
+            else {
+                panic!("action form");
+            };
+            assert!(matches!(&form.elements[0], ActionElement::Header(_)));
+            assert!(
+                matches!(&form.elements[1], ActionElement::Button(FormButton { image: Some(ButtonImage::Path(path)), .. }) if path == "textures/items/apple")
+            );
+            let ActionElement::Button(button) = &form.elements[2] else {
+                panic!("url button");
+            };
+            assert_eq!(button.image, expected);
+        }
+    }
 
     #[test]
     fn whole_slider_values_drop_the_fraction() {
