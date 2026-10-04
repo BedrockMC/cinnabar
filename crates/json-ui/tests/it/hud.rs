@@ -3,7 +3,7 @@
 
 #[path = "support/java_pack.rs"]
 mod java_pack;
-mod support;
+use crate::support;
 
 use std::path::PathBuf;
 

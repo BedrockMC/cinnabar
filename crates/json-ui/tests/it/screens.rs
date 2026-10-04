@@ -1,7 +1,7 @@
 //! Container screens against the real vanilla templates. The `.local` pack is
 //! gitignored, so reference tests name missing fixtures and skip when absent.
 
-mod support;
+use crate::support;
 
 use json_ui::{
     Catalog, CollectionItem, Context, DataSource, Draw, LayoutEnv, Scalar, TextMeasure,

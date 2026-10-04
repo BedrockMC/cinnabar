@@ -2,7 +2,7 @@
 //! unpacked resource packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest
 //! first). Missing fixture inputs are reported and skipped; packs are never committed.
 
-mod support;
+use crate::support;
 
 use std::path::Path;
 

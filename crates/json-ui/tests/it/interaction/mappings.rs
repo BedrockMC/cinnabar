@@ -3,7 +3,7 @@
 use json_ui::{InputMode, MappingScope, PointerInput, ScreenEvent};
 use serde_json::json;
 
-use crate::harness::*;
+use crate::interaction::harness::*;
 
 // I1: a pressed mapping from any source fires over the control.
 #[test]

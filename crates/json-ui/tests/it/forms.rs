@@ -3,7 +3,7 @@
 //! Assertions are structural (instance counts, order, presence of image/text nodes,
 //! content sizing) — never pixels.
 
-mod support;
+use crate::support;
 
 use json_ui::{
     ActionElement, ActionForm, ButtonImage, Catalog, Context, CustomElement, CustomForm, Draw,
