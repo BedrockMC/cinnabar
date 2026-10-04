@@ -73,7 +73,7 @@ use crate::{
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
         telemetry::{
             AcceptanceRuntimeConfig, frame_limited_winit_settings, publish_runtime_stage_profile,
-            record_metrics_and_title, send_player_auth_inputs, update_visibility_diagnostics,
+            record_metrics, send_player_auth_inputs, update_visibility_diagnostics,
         },
         visibility::{
             AppMetrics, CaveVisibilityCache, DiagnosticQuads, apply_added_chunk_visibility,
@@ -293,7 +293,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
         finish_acceptance_run
             .after(ClientFrameSet::NetworkSend)
             .after(ClientFrameSet::UiPublication)
-            .after(record_metrics_and_title)
+            .after(record_metrics)
             .after(recover_menu_session_failure),
     );
     app
@@ -357,7 +357,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 #[cfg(feature = "acceptance")]
                 drive_model_witness,
                 apply_runtime_vsync_setting,
-                record_metrics_and_title,
+                record_metrics,
                 publish_runtime_stage_profile,
             )
                 .chain()
@@ -728,11 +728,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: if connection_requested {
-                        format!("{} | connecting", launcher::PRODUCT_NAME)
-                    } else {
-                        launcher::PRODUCT_NAME.to_owned()
-                    },
+                    title: launcher::PRODUCT_NAME.to_owned(),
                     present_mode,
                     ..default()
                 }),

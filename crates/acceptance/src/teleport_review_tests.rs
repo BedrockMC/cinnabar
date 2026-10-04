@@ -33,6 +33,7 @@ fn review_chunks_received_before_move_commit_are_measured() {
         &WorldEvent::SubChunks(SubChunkBatchEvent {
             dimension: 0,
             entries: vec![SubChunkEntryEvent {
+                diagnostics: None,
                 position: [65, -4, 65],
                 result: SubChunkResult::AllAir,
             }],
