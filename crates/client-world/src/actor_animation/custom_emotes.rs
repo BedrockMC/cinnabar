@@ -144,14 +144,35 @@ fn twerk_targets(
     // Owned clip from the public video: a sustained deep squat, level head and
     // hands beside the thighs, with a hip pulse instead of a standing side sway.
     let wave = angle.cos();
-    let leg_pitch = 52.0 + 4.0 * wave;
-    let lean = 46.0 + 7.0 * wave;
-    let spread = 15.0_f32;
-    let dip = leg_height * (1.0 - leg_pitch.to_radians().cos() * spread.to_radians().cos());
-    // Keep the leg bottom-face centers fixed in Y/Z throughout the pulse.
-    let offset = [0.0, -dip, leg_height * leg_pitch.to_radians().sin()];
+    let base_pitch = 52.0_f32.to_radians();
+    let base_spread = 15.0_f32.to_radians();
+    let base_lean = 46.0_f32.to_radians();
+    let leg_pitch = base_pitch + (4.0 * wave).to_radians();
+    // Counter the leg pitch with spread so the stance does not slide sideways.
+    let lateral = base_pitch.cos() * base_spread.sin();
+    let spread = (lateral / leg_pitch.cos()).clamp(-1.0, 1.0).asin();
+    let hip_height = leg_height * leg_pitch.cos() * spread.cos();
+    let base_hip_height = leg_height * base_pitch.cos() * base_spread.cos();
+    let torso_height = names
+        .iter()
+        .position(|name| name.as_ref() == "body")
+        .map_or(leg_height, |index| {
+            rest[index].translation_scale[1] - leg_height
+        });
+    // Keep shoulders/head at a fixed height. Tilting torso and legs in phase
+    // lifts the whole upper body like a repeated jump instead of rocking hips.
+    let shoulder_height = base_hip_height + torso_height * base_lean.cos();
+    let lean = if torso_height > f32::EPSILON {
+        ((shoulder_height - hip_height) / torso_height)
+            .clamp(-1.0, 1.0)
+            .acos()
+    } else {
+        base_lean
+    };
+    // Keep the leg bottom-face centers fixed in all three axes throughout the pulse.
+    let offset = [0.0, hip_height - leg_height, leg_height * leg_pitch.sin()];
     let hips = [0.0, leg_height, 0.0];
-    let torso = quat_from_euler([-lean, 0.0, 0.0]);
+    let torso = quat_from_euler([-lean.to_degrees(), 0.0, 0.0]);
     bones
         .iter()
         .zip(names)
@@ -162,8 +183,14 @@ fn twerk_targets(
                 "head" => ([0.0, 0.0, 0.0, 1.0], true),
                 "leftarm" => (quat_from_euler([-8.0, 0.0, -3.0]), true),
                 "rightarm" => (quat_from_euler([-8.0, 0.0, 3.0]), true),
-                "leftleg" => (quat_from_euler([leg_pitch, 0.0, -spread]), false),
-                "rightleg" => (quat_from_euler([leg_pitch, 0.0, spread]), false),
+                "leftleg" => (
+                    quat_from_euler([leg_pitch.to_degrees(), 0.0, -spread.to_degrees()]),
+                    false,
+                ),
+                "rightleg" => (
+                    quat_from_euler([leg_pitch.to_degrees(), 0.0, spread.to_degrees()]),
+                    false,
+                ),
                 _ if bone.parent.is_none() => ([0.0, 0.0, 0.0, 1.0], false),
                 _ => return None,
             };
