@@ -56,7 +56,7 @@ impl Process {
                     }
                 };
                 // A failed start is the helper's last word.
-                let started = matches!(reply, Reply::Committed(_));
+                let started = matches!(reply, Reply::Committed { .. });
                 if responses.send(Ok(reply)).is_err() || !started {
                     return;
                 }

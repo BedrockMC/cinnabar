@@ -187,7 +187,10 @@ traps, runs out of fuel, panics or breaks a host rule with a failure reply namin
 bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
 `panic`, `trap`, `refused` or `startup`) and a reason of at most
 `MAX_FAILURE_REASON_BYTES`: the error chain with the guest backtrace, control characters
-removed. The callback publishes nothing and the helper runs on a fresh instance of the
+removed, and the fuel it consumed. A committed reply also carries its callback's fuel,
+which the client logs at debug level with the bundle and callback, and
+`mod_host::server::BundleHost::last_fuel_used` reports the same in process. The callback
+publishes nothing and the helper runs on a fresh instance of the
 component, so the guest's memory starts over; the helper says so on its stderr. The
 client logs each failure at WARN and counts it as a strike; `MAX_GUEST_STRIKES` within
 `GUEST_STRIKE_WINDOW_MS` (`server_experience::policy`, mirroring the server adapter's

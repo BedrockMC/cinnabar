@@ -105,7 +105,7 @@ impl Event {
 
 impl Event {
     /// The guest export that receives this event.
-    fn callback(&self) -> &'static str {
+    pub fn callback(&self) -> &'static str {
         match self {
             Event::Message { .. } => "dispatch",
             Event::Action { .. } => "action",
@@ -118,8 +118,9 @@ impl Event {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Reply {
-    /// The callback returned; its output, to publish whole.
-    Committed(Transaction),
+    /// The callback returned; its output, to publish whole, and the fuel it consumed of its
+    /// `CALLBACK_FUEL`.
+    Committed { transaction: Transaction, fuel: u64 },
     /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
     /// a fresh instance of the guest; after a failed start it exits.
     Failed(CallFailure),
@@ -151,6 +152,9 @@ pub struct CallFailure {
     pub callback: String,
     pub kind: FailureKind,
     pub reason: String,
+    /// The fuel the callback consumed before it failed, of its `CALLBACK_FUEL`; none for a
+    /// failed start.
+    pub fuel: Option<u64>,
 }
 
 impl CallFailure {
@@ -183,6 +187,7 @@ impl CallFailure {
             callback: callback.to_owned(),
             kind,
             reason,
+            fuel: None,
         }
     }
 }
@@ -364,14 +369,23 @@ pub fn serve_developer() -> Result<()> {
             return Err(error);
         }
     };
-    let init = Reply::Committed(host.take_transaction());
+    let init = Reply::Committed {
+        transaction: host.take_transaction(),
+        fuel: host.last_fuel_used(),
+    };
     answer(&mut output, init, &bundle, "init")?;
     loop {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
         let callback = request.event.callback();
         let reply = match host.dispatch(&request.event, request.epoch) {
-            Ok(transaction) => Reply::Committed(transaction),
-            Err(error) => Reply::Failed(CallFailure::of(&bundle, callback, &error)),
+            Ok(transaction) => Reply::Committed {
+                transaction,
+                fuel: host.last_fuel_used(),
+            },
+            Err(error) => Reply::Failed(CallFailure {
+                fuel: Some(host.last_fuel_used()),
+                ..CallFailure::of(&bundle, callback, &error)
+            }),
         };
         answer(&mut output, reply, &bundle, callback)?;
     }

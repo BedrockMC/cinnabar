@@ -37,9 +37,12 @@ impl Worker for FakeWorker {
         if let Some(failure) = self.failure.take() {
             return Some(Ok(Reply::Failed(failure)));
         }
-        self.response
-            .take()
-            .map(|transaction| Ok(Reply::Committed(transaction)))
+        self.response.take().map(|transaction| {
+            Ok(Reply::Committed {
+                transaction,
+                fuel: 1,
+            })
+        })
     }
     /// Records delivered events and completes them on the next poll, in the dispatch's epoch,
     /// or fails them when the test asks.
@@ -50,6 +53,7 @@ impl Worker for FakeWorker {
                 callback: "dispatch".into(),
                 kind: FailureKind::Panic,
                 reason: "wasm trap: wasm `unreachable` instruction executed".into(),
+                fuel: Some(1),
             });
             self.dispatched.push(request.event);
             return Ok(());
@@ -153,6 +157,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     epoch: 1,
                     strikes: VecDeque::new(),
                     stopped: None,
+                    callback: "init",
                 },
             )
         })
@@ -677,6 +682,7 @@ fn a_failed_start_stops_the_part() {
         callback: "init".into(),
         kind: FailureKind::Startup,
         reason: "import not found".into(),
+        fuel: None,
     });
     live.poll(1, 0).unwrap();
     assert!(live.ready);

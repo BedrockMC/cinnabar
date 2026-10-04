@@ -223,6 +223,8 @@ pub struct BundleHost {
     linker: Linker<State>,
     component: Component,
     active: bool,
+    /// Fuel the last `init` or callback consumed.
+    last_fuel: u64,
 }
 
 impl BundleHost {
@@ -278,13 +280,16 @@ impl BundleHost {
         let mut linker = Linker::new(&engine);
         ServerBundle::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
         let (store, exports) = Self::start(&linker, &component, owner, capabilities, epoch)?;
-        Ok(Self {
+        let mut host = Self {
             store,
             exports,
             linker,
             component,
             active: true,
-        })
+            last_fuel: 0,
+        };
+        host.last_fuel = host.fuel_used();
+        Ok(host)
     }
 
     /// A fresh store and instance of `component` that has run `init`, its output staged.
@@ -344,12 +349,25 @@ impl BundleHost {
         state.epoch = epoch;
         state.begin_output()?;
         self.store.set_fuel(CALLBACK_FUEL)?;
-        if let Err(error) = self.call(event) {
+        let called = self.call(event);
+        self.last_fuel = self.fuel_used();
+        if let Err(error) = called {
             self.store.data_mut().commands.clear();
             self.restart();
             return Err(error);
         }
         Ok(self.take_transaction())
+    }
+
+    /// The fuel that the last `init` or callback consumed, of the `CALLBACK_FUEL` each gets; a
+    /// failed callback's included, which is all of it when it ran out.
+    pub fn last_fuel_used(&self) -> u64 {
+        self.last_fuel
+    }
+
+    /// The fuel the current store has consumed since its fuel was last set.
+    fn fuel_used(&self) -> u64 {
+        CALLBACK_FUEL - self.store.get_fuel().unwrap_or(0).min(CALLBACK_FUEL)
     }
 
     /// Replaces the instance with a fresh one after a failed callback, or quarantines the bundle

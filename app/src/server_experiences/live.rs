@@ -40,6 +40,8 @@ struct Instance<H> {
     strikes: VecDeque<u64>,
     /// Why the client part was stopped, which the trusted status says; it runs no more.
     stopped: Option<&'static str>,
+    /// The guest export of its pending callback, for the log.
+    callback: &'static str,
 }
 
 impl<H> Instance<H> {
@@ -142,6 +144,7 @@ impl<H: Worker> Live<H> {
                     epoch,
                     strikes: VecDeque::new(),
                     stopped: None,
+                    callback: "init",
                 },
             );
         }
@@ -189,7 +192,15 @@ impl<H: Worker> Live<H> {
             };
             instance.busy = false;
             let transaction = match result {
-                Ok(Reply::Committed(transaction)) => transaction,
+                Ok(Reply::Committed { transaction, fuel }) => {
+                    bevy::log::debug!(
+                        bundle = %instance.owner.bundle,
+                        callback = instance.callback,
+                        fuel,
+                        "client part callback committed"
+                    );
+                    transaction
+                }
                 Ok(Reply::Failed(failure)) => {
                     failed(instance, &mut self.budget, &failure, now_ms);
                     continue;
@@ -290,13 +301,12 @@ impl<H: Worker> Live<H> {
                 let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
                 self.budget.dispatch(&instance.owner)?;
                 if let Some(helper) = &mut instance.helper {
-                    helper.dispatch(Dispatch {
-                        event: Event::Message {
-                            channel: message.channel,
-                            record: serde_json::to_vec(&message.payload)?,
-                        },
-                        epoch,
-                    })?;
+                    let event = Event::Message {
+                        channel: message.channel,
+                        record: serde_json::to_vec(&message.payload)?,
+                    };
+                    instance.callback = event.callback();
+                    helper.dispatch(Dispatch { event, epoch })?;
                     instance.busy = true;
                     instance.epoch = epoch;
                 }
@@ -352,6 +362,7 @@ impl<H: Worker> Live<H> {
                 self.epoch,
             )?);
             instance.epoch = self.epoch;
+            instance.callback = "init";
         }
         Ok(())
     }
@@ -410,6 +421,7 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
         bundle = %failure.bundle,
         callback = %failure.callback,
         kind = ?failure.kind,
+        fuel = ?failure.fuel,
         reason = %failure.reason,
         "client part callback failed; its output was dropped"
     );

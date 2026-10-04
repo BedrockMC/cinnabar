@@ -96,6 +96,7 @@ impl<H: Worker> Live<H> {
             };
             let event = instance.events.pop_front().expect("events checked");
             self.budget.dispatch(&instance.owner)?;
+            instance.callback = event.callback();
             helper.dispatch(Dispatch { event, epoch })?;
             instance.busy = true;
             instance.epoch = epoch;

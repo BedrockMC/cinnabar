@@ -13,7 +13,7 @@ use mod_host::helper::{CallFailure, Dispatch, Event, FailureKind, Helper, Reply}
 use server_experience::{
     manifest::{Permission, Scope},
     policy::{DEVELOPER_ENV, MAX_GUEST_MEMORY, MAX_MESSAGE_BYTES},
-    runtime::{Capabilities, Command, Principal},
+    runtime::{CALLBACK_FUEL, Capabilities, Command, Principal},
     screen,
 };
 
@@ -113,13 +113,14 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
 fn failure(reply: Reply) -> CallFailure {
     match reply {
         Reply::Failed(failure) => failure,
-        Reply::Committed(transaction) => panic!("committed {transaction:?}"),
+        Reply::Committed { transaction, .. } => panic!("committed {transaction:?}"),
     }
 }
 
 fn count(reply: Reply) -> i64 {
     match reply {
-        Reply::Committed(transaction) => match transaction.commands.as_slice() {
+        Reply::Committed { transaction, fuel } => match transaction.commands.as_slice() {
+            _ if fuel == 0 || fuel >= CALLBACK_FUEL => panic!("used {fuel} fuel"),
             [Command::Collection { rows, .. }] => match rows[0]["#count"] {
                 screen::Value::Integer(count) => count,
                 ref other => panic!("{other:?}"),
@@ -153,7 +154,7 @@ fn wait_log(helper: &mut Helper, needle: &str) -> Vec<String> {
 #[test]
 fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
     let mut helper = spawn(terminal_component());
-    assert!(matches!(reply(&mut helper), Reply::Committed(_)));
+    assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
     assert_eq!(count(call(&mut helper, "terminal.count")), 2);
 
@@ -169,6 +170,7 @@ fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
 
     let fuel = failure(call(&mut helper, "terminal.spin"));
     assert_eq!(fuel.kind, FailureKind::Fuel);
+    assert_eq!(fuel.fuel, Some(CALLBACK_FUEL));
     assert!(fuel.reason.contains("fuel"), "{}", fuel.reason);
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
 }
@@ -185,6 +187,7 @@ fn a_failed_start_answers_with_its_reason() {
     let failure = failure(reply(&mut helper));
     assert_eq!(failure.kind, FailureKind::Startup);
     assert_eq!(failure.callback, "init");
+    assert_eq!(failure.fuel, None);
     assert!(
         failure
             .reason

@@ -378,3 +378,15 @@ fn fuel_exhaustion_fails_its_call_and_the_guest_restarts() {
     );
     assert_eq!(count(&mut host), 1);
 }
+
+/// Each callback reports the fuel it consumed, a failed one included: all of it when it ran out.
+#[test]
+fn the_fuel_each_callback_used_is_reported() {
+    let mut host = terminal();
+    assert!(host.last_fuel_used() > 0, "init");
+    count(&mut host);
+    let used = host.last_fuel_used();
+    assert!(0 < used && used < CALLBACK_FUEL, "{used}");
+    host.dispatch(&on("terminal.spin"), 1).unwrap_err();
+    assert_eq!(host.last_fuel_used(), CALLBACK_FUEL);
+}
