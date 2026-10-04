@@ -47,6 +47,7 @@ pub mod recipe_book;
 pub mod remote_images;
 pub mod scene_policy;
 pub mod server_pack;
+mod accounts;
 pub mod settings_account;
 pub mod settings_chat;
 pub mod settings_controls;

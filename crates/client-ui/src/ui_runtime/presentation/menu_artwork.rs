@@ -534,6 +534,16 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         .chain(view.gatherings.iter())
         .map(|server| server.image_path.clone())
         .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
+        .chain(
+            view.feeds
+                .accounts
+                .iter()
+                .filter(|account| {
+                    view.dialog == Some(crate::menu::MenuDialog::Accounts)
+                        || view.feeds.account_active_id.as_deref() == Some(account.id.as_str())
+                })
+                .filter_map(|account| account.picture_path.clone()),
+        )
         .map(|path| (path, THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
@@ -613,6 +623,28 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_pictures_are_queued_when_the_picker_opens() {
+        let mut view = crate::menu::MenuView::new(true, "First".into());
+        view.feeds.account_active_id = Some("first".into());
+        view.feeds.accounts = ["first", "second"]
+            .map(|id| launcher::accounts::AccountProfile {
+                id: id.into(),
+                gamertag: id.into(),
+                picture_path: Some(format!("{id}.png")),
+            })
+            .into();
+        let paths = view_paths(&view);
+        assert!(paths.iter().any(|(path, _)| path == "first.png"));
+        assert!(!paths.iter().any(|(path, _)| path == "second.png"));
+        view.dialog = Some(crate::menu::MenuDialog::Accounts);
+        assert!(
+            view_paths(&view)
+                .iter()
+                .any(|(path, _)| path == "second.png")
+        );
+    }
 
     #[test]
     fn profile_replacement_atlas_preserves_the_portrait_fallback() {

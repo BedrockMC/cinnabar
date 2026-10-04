@@ -51,6 +51,7 @@ pub(crate) struct LauncherCoreSlot {
     core: Option<LauncherCore>,
     /// Sign-in mode whose spawn failed; retried only once the mode changes.
     failed: Option<bool>,
+    retiring: Option<crossbeam_channel::Receiver<()>>,
 }
 
 struct LauncherCore {
@@ -58,6 +59,7 @@ struct LauncherCore {
     _directory: SessionDirectoryGuard,
     socket_dir: PathBuf,
     authenticated: bool,
+    auth_cache: Option<PathBuf>,
     /// Account and local-world clients are attached once the game socket is up.
     attached: bool,
 }
@@ -73,6 +75,15 @@ impl LauncherCoreSlot {
         upstream_client_cache: bool,
         mut worlds: Option<&mut LocalWorlds>,
     ) {
+        if let Some(retiring) = &self.retiring {
+            if matches!(
+                retiring.try_recv(),
+                Err(crossbeam_channel::TryRecvError::Empty)
+            ) {
+                return;
+            }
+            self.retiring = None;
+        }
         if self.core.as_mut().is_some_and(|core| core._guard.exited()) {
             bevy::log::warn!("launcher core exited; reconnecting its control clients when idle");
             self.retire(commands, menu, worlds.as_deref_mut());
@@ -81,11 +92,64 @@ impl LauncherCoreSlot {
         if self.core.is_none() && std::mem::take(&mut menu.feeds.profile_refresh_requested) {
             self.failed = None;
         }
+        if idle
+            && menu.accounts.operation.is_some()
+            && menu
+                .auth_process
+                .as_ref()
+                .is_none_or(|p| p.cleanup_complete())
+        {
+            let job = menu.account_operation_job();
+            if let Some(mut old) = self.core.take() {
+                commands.remove_resource::<LauncherAccount>();
+                if let Some(worlds) = worlds.as_deref_mut() {
+                    worlds.detach();
+                }
+                menu.control_auth = None;
+                menu.accounts.skip_control = true;
+                let mut guard = std::mem::take(&mut old._guard);
+                guard.stop_detached(move || {
+                    drop(old);
+                    job();
+                });
+            } else {
+                let _ = std::thread::Builder::new()
+                    .name("account-switch".into())
+                    .spawn(job);
+            }
+            self.failed = None;
+            return;
+        }
+        if menu.accounts.work.is_some() {
+            return;
+        }
         if idle && !menu.sign_in_in_flight() {
             let auth_cache = menu.launcher_auth_cache();
             let wanted = auth_cache.is_some();
             let current = self.core.as_ref().map(|core| core.authenticated);
-            if current != Some(wanted) && self.failed != Some(wanted) {
+            let path_changed = self
+                .core
+                .as_ref()
+                .is_some_and(|core| core.auth_cache != auth_cache);
+            if path_changed && self.core.is_some() && menu.accounts.pending_ready {
+                let mut old = self.core.take().expect("account core");
+                commands.remove_resource::<LauncherAccount>();
+                if let Some(worlds) = worlds.as_deref_mut() {
+                    worlds.detach();
+                }
+                menu.control_auth = None;
+                menu.accounts.skip_control = true;
+                menu.feeds.profile = Default::default();
+                let (done, retired) = crossbeam_channel::bounded(1);
+                self.retiring = Some(retired);
+                let mut guard = std::mem::take(&mut old._guard);
+                guard.stop_detached(move || {
+                    drop(old);
+                    let _ = done.send(());
+                });
+                return;
+            }
+            if (current != Some(wanted) || path_changed) && self.failed != Some(wanted) {
                 self.retire(commands, menu, worlds.as_deref_mut());
                 match LauncherCore::spawn(
                     &menu.layout,
@@ -131,6 +195,8 @@ impl LauncherCoreSlot {
                 worlds.detach();
             }
             menu.control_auth = None;
+            menu.accounts.skip_control = true;
+            menu.feeds.profile = Default::default();
         }
     }
 
@@ -193,6 +259,7 @@ impl LauncherCore {
             _directory: directory,
             socket_dir,
             authenticated: auth_cache.is_some(),
+            auth_cache: auth_cache.map(Path::to_path_buf),
             attached: false,
         })
     }
@@ -317,6 +384,11 @@ pub(super) fn target_for(address: &str) -> ConnectTarget {
 impl MenuRuntime {
     /// The validated sign-in's auth cache, for the launcher core and joins.
     pub(crate) fn launcher_auth_cache(&self) -> Option<PathBuf> {
+        if self.feeds.account_adding && self.accounts.pending_ready {
+            return Some(
+                launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache(),
+            );
+        }
         account::validated_auth_cache(
             &self.layout,
             self.auth_process.as_ref().map(AuthSupervisor::state),
@@ -355,9 +427,11 @@ mod tests {
                 _directory: directory,
                 socket_dir: socket_dir.clone(),
                 authenticated: false,
+                auth_cache: None,
                 attached: true,
             }),
             failed: None,
+            retiring: None,
         };
         let mut menu = MenuRuntime::new_with_layout(
             false,
