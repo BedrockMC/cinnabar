@@ -181,7 +181,7 @@ pub enum InventoryGestureError {
 #[derive(Debug, Clone)]
 pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
-    /// Server truth only; predictions never write here.
+    /// Server truth; gesture predictions never write here, only throws that empty a slot.
     confirmed: Cells,
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,

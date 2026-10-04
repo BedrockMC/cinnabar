@@ -297,7 +297,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
 
 /// Runs after block use so a press that interacted with a block starts no item use.
 pub(crate) fn produce_item_use(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: ResMut<crate::player_runtime::PlayerRuntime>,
     context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
@@ -385,6 +385,12 @@ pub(crate) fn produce_item_use(
         duration,
         |packets| context.network.send_inventory_packets(packets),
     );
+    if let Some((slot, revision)) = runtime.take_emptied_slot() {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .settle_use_emptied_slot(slot, revision);
+    }
 }
 
 /// `releaseUsing` checks the offhand for either projectile first, then inventory
