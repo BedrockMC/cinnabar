@@ -30,6 +30,8 @@ pub struct UiRenderVertex {
     pub alpha_cutoff: f32,
     /// Native linear model lighting, interpolated without byte-color quantization.
     pub model_light: f32,
+    /// Native entity overlay RGB and its mix amount, without byte quantization.
+    pub overlay_color: [f32; 4],
 }
 
 #[repr(C)]
@@ -176,6 +178,7 @@ impl UiRenderInput {
                 || vertex.alpha_cutoff > 1.0
                 || !vertex.model_light.is_finite()
                 || vertex.model_light < 0.0
+                || !vertex.overlay_color.iter().all(|value| value.is_finite())
         }) {
             return Err(UiRenderRejectReason::NonFiniteVertex);
         }

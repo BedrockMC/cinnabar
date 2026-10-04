@@ -20,7 +20,7 @@ struct Selected {
     metrics: Option<fontdue::Metrics>,
 }
 
-/// Monocraft-compatible primary artwork plus a bounded, secondary CJK provider.
+/// Primary outline artwork plus a bounded, secondary CJK provider.
 /// All selected alpha/metadata buffers are admitted before the first raster call.
 pub fn compile_outline_font_with_fallback(
     primary_path: &Path,
