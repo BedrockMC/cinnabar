@@ -13,12 +13,10 @@ use bevy::{
 use ui::{DpiScale, UiPoint, UiVisual};
 
 use super::*;
-use crate::ui_runtime::{
+use crate::ui_runtime::presentation::forms::pack_harness;
+use client_ui::ui_runtime::{
     UiRuntime,
-    presentation::{
-        UiPresentationRuntime,
-        forms::{pack_harness, snapshot},
-    },
+    presentation::{UiPresentationRuntime, forms::snapshot},
 };
 
 #[derive(Resource)]

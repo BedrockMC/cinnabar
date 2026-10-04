@@ -26,10 +26,10 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.add_plugins(client_presentation::ClientPresentationPlugin)
-        .add_message::<crate::runtime::audio::SequencedAudioEvent>()
+        .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
-        .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
+        .init_resource::<client_ui::ui_runtime::presentation::PreparedUiPublication>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)

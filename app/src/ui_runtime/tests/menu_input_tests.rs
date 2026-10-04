@@ -11,11 +11,9 @@ use bevy::{
 
 use crate::{
     menu::{MenuAction, MenuClipboard, MenuField, MenuRuntime, MenuScreen, drive_menu_input},
-    ui_runtime::{
-        UiRuntime,
-        presentation::{UiPresentationRuntime, tests::fixture_font},
-    },
+    ui_runtime::presentation::tests::fixture_font,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},

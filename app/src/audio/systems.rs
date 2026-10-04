@@ -7,13 +7,14 @@ use crate::{
     local_player::LocalViewPose,
     movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     particles::ParticleInbox,
-    runtime::{audio::SequencedAudioEvent, world::ClientWorld},
+    runtime::world::ClientWorld,
 };
 use bevy::prelude::{App, IntoScheduleConfigs, Local, MessageReader, Res, ResMut, Time, Update};
 use client_presentation::audio::{
     local::LocalMotion,
     systems::{AmbientState, IngestState, UiSoundCue, pump_audio},
 };
+use client_presentation::audio_ingress::SequencedAudioEvent;
 use render::{ParticleSystem, PrecipitationMix};
 use std::collections::HashSet;
 const AUDIO_STAGE: usize = render::RuntimeStage::Audio as usize;

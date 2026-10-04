@@ -65,6 +65,9 @@ fn remote_projectile_motion_replaces_the_retained_velocity() {
             }),
         )
         .unwrap();
-    assert_eq!(stream.actor(77).unwrap().velocity, [0.5, 0.2, -0.75]);
+    assert_eq!(
+        stream.authority().actor(77).unwrap().velocity,
+        [0.5, 0.2, -0.75]
+    );
     assert!(stream.take_committed_controls().is_empty());
 }

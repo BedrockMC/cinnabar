@@ -10,11 +10,8 @@ use mod_host::{ModGrants, ModHost};
 
 use crate::environment::VisualTimeOverride;
 
-use crate::{
-    app::ClientFrameSet,
-    menu::MenuRuntime,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
-};
+use crate::{app::ClientFrameSet, menu::MenuRuntime};
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
 const DEMO_KEY: KeyCode = KeyCode::F8;

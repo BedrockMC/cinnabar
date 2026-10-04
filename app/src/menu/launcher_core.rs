@@ -277,8 +277,8 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
 pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
 
 /// The kind of join `address` starts, for its progress titles.
-pub(super) fn join_kind(address: &str, local_world: bool) -> super::view::JoinKind {
-    use super::view::JoinKind;
+pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::JoinKind {
+    use launcher::menu::view::JoinKind;
     match target_for(address) {
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,

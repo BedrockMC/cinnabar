@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use assets::{BLOCK_VISUAL_VARIANT_SEASONAL_LEAF, BlockFlags};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use render::{ParticleSystem, ParticleView};
 
 use super::world_adapter::StreamParticleWorld;

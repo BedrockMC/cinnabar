@@ -13,22 +13,24 @@ use crate::{
     acceptance::AcceptanceRun,
     app::{ClientBlobCacheOwner, ClientFrameSet, configure_client_frame_schedule},
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameSample},
-    metrics::MetricsCollector,
     movement::{
         LocalPhysicsController, MovementSource, MovementTicker, PhysicsMovementSample,
         ProcessedMovementState,
     },
     runtime::{
-        network::{NetworkControlEvent, NetworkFailureOrigin, drain_network_controls},
-        network::{NetworkHandle, ResourcePackAdmissionState},
+        network::{
+            NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, ResourcePackAdmissionState,
+            drain_network_controls,
+        },
         shutdown::record_fatal_error,
         telemetry::send_player_auth_inputs,
         visibility::AppMetrics,
         world::ClientWorld,
     },
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
+use diagnostics::metrics::MetricsCollector;
 
 #[derive(Resource)]
 struct DelayedTerminal(Option<tokio::sync::mpsc::Sender<NetworkControlEvent>>);

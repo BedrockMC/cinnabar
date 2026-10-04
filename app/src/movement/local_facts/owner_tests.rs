@@ -2,6 +2,7 @@
 use crate::movement::GameplayWorldView;
 use crate::player_runtime::PlayerRuntime;
 use bevy::prelude::*;
+use gameplay::movement::control_modes::SPRINT_HUNGER_FLOOR;
 use gameplay::movement::local_facts::{LocalMovementFacts, read};
 use gameplay::test_support::DEPTH_STRIDER_ENCHANTMENT_ID;
 use inventory::inventory_ledger::{
@@ -11,7 +12,7 @@ use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, Network
 use std::sync::Arc;
 
 #[derive(Resource)]
-struct Stream(client_world::WorldStream);
+struct Stream(chunk_pipeline::WorldStream);
 
 #[derive(Resource, Default)]
 struct Observed(Option<LocalMovementFacts>);
@@ -118,7 +119,7 @@ fn sample(player: Res<PlayerRuntime>, stream: Res<Stream>, mut observed: ResMut<
 #[test]
 fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
     let player = player();
-    let stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -166,7 +167,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
 #[test]
 fn swimming_food_gate_uses_native_floor_and_flight_permission() {
     let mut player = player();
-    let stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -175,7 +176,7 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
         air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    assert!(read(Some(&player), &stream, false).swim_hunger_blocked);
+    assert!(read(Some(&player), &GameplayWorldView(&stream), false).swim_hunger_blocked);
     for (food, blocked) in [
         (SPRINT_HUNGER_FLOOR, true),
         (SPRINT_HUNGER_FLOOR + 1, false),
@@ -191,7 +192,7 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
                 modifiers: Arc::from([]),
             });
         assert_eq!(
-            read(Some(&player), &stream, true).swim_hunger_blocked,
+            read(Some(&player), &GameplayWorldView(&stream), true).swim_hunger_blocked,
             blocked
         );
     }
@@ -208,5 +209,5 @@ fn swimming_food_gate_uses_native_floor_and_flight_permission() {
             default: Some(20.0),
             modifiers: Arc::from([]),
         });
-    assert!(!read(Some(&player), &stream, false).swim_hunger_blocked);
+    assert!(!read(Some(&player), &GameplayWorldView(&stream), false).swim_hunger_blocked);
 }

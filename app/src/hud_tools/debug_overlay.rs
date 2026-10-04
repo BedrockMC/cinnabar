@@ -3,11 +3,10 @@
 use bevy::{prelude::*, time::Real};
 
 use crate::{
-    local_player::LocalPlayerFrameCarrier,
-    movement::PhysicsCollisionRegistries,
+    local_player::LocalPlayerFrameCarrier, movement::PhysicsCollisionRegistries,
     runtime::world::ClientWorld,
-    ui_runtime::presentation::{DebugLines, UiPresentationRuntime},
 };
+use client_ui::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
 
 /// How far the targeted-block ray reaches.
 const TARGET_RANGE_BLOCKS: f64 = 20.0;

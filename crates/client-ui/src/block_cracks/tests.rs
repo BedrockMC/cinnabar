@@ -1,4 +1,5 @@
-use client_world::{CommittedUiEvent, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::CommittedUiEvent;
 use protocol::{BlockCrackAction, WorldBootstrap, WorldEvent};
 
 use super::*;

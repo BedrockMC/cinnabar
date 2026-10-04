@@ -148,7 +148,7 @@ fn publisher_cohort_is_exposed_only_after_fifo_commit() {
         dimension: 0,
         center: [100, 0],
         radius: 16,
-        publisher_geometry: Some(super::PublisherViewGeometry {
+        publisher_geometry: Some(client_world::PublisherViewGeometry {
             center_blocks: [1_600, 0],
             radius_blocks: 256,
         }),
@@ -187,7 +187,7 @@ fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
         dimension: 0,
         center: [100, 0],
         radius: 16,
-        publisher_geometry: Some(super::PublisherViewGeometry {
+        publisher_geometry: Some(client_world::PublisherViewGeometry {
             center_blocks: [1_600, 0],
             radius_blocks: 256,
         }),
@@ -230,7 +230,7 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         dimension: 0,
         center: [0, 0],
         radius: 16,
-        publisher_geometry: Some(super::PublisherViewGeometry {
+        publisher_geometry: Some(client_world::PublisherViewGeometry {
             center_blocks: [0, 0],
             radius_blocks: 256,
         }),
@@ -532,7 +532,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
             dimension: 0,
             center: [0, 0],
             radius: 17,
-            publisher_geometry: Some(super::PublisherViewGeometry {
+            publisher_geometry: Some(client_world::PublisherViewGeometry {
                 center_blocks: [0, 0],
                 radius_blocks: 272,
             }),
