@@ -4,7 +4,7 @@ Cinnabar is a Rust Bedrock client plus a Go core. Every system (UI, rendering, c
 
 | Load this | When |
 | --- | --- |
-| `docs/agents/multi-agent-workflow.md` | Worktrees, build limits, verify-before-push |
+| `docs/agents/multi-agent-workflow.md` | Worktrees, build limits, checks |
 | `docs/agents/live-testing.md` | Running the client or BDS, capturing frames, closing a visual/performance gate |
 
 ## Performance: as fast as we can make it
@@ -45,7 +45,11 @@ Keep comments to one or two lines that say what the code can't. Never restate si
 
 ## Branches and landing
 
-`dev` is the default and release branch; releases are tagged from it. Land work through a PR into `dev`. It merges once its code review is clean and its CI is green. Before pushing, run `cargo run -p devtool --locked -- verify-affected --base origin/dev` (fmt, the architecture gate, clippy and nextest, scoped to the affected crates); CI runs the full matrix, so don't run full-workspace sweeps locally. If you push to `dev` directly, run that check first. A scheduled CI job tests `dev` every 30 minutes, and the pusher fixes a red result immediately.
+`dev` is the default and release branch; releases are tagged from it. Land work through a PR into `dev`: compile the crates you touched (`cargo check --tests -p …`), push, and open the PR straight away. CI's full matrix and code review run in parallel on it and are the gate; fix what they report in new commits, and merge once review is clean and CI is green. Don't repeat CI locally: no clippy, nextest or `verify-affected` ladders for PR work, and never full-workspace sweeps. A direct push to `dev` has no PR CI, so run `cargo run -p devtool --locked -- verify-affected --base origin/dev` once before it. A scheduled CI job tests `dev` every 30 minutes, and the pusher fixes a red result immediately.
+
+## Parallel work: minimise bottlenecks
+
+When many agents run at once, compiling is the scarce resource. Route every cargo command through the shared build-slot limiter, run each check once, and hand verification to CI as early as possible instead of queueing local re-checks. Never hold a build slot or lock while waiting on another. Details are in `docs/agents/multi-agent-workflow.md`.
 
 ## Gophertunnel
 
