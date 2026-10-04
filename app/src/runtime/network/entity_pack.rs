@@ -227,3 +227,6 @@ mod scene_report;
 
 #[cfg(test)]
 mod projectile_report;
+
+#[cfg(test)]
+mod mob_motion_report;
