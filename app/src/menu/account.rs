@@ -1,5 +1,6 @@
 use std::process::{Command, Stdio};
 
+use super::view::MenuProfile;
 use super::*;
 
 /// Waits for an exiting helper on a thread so the frame never blocks on it; it
@@ -29,10 +30,6 @@ const SIGN_IN_PAGE: &str = "https://login.live.com/oauth20_remoteconnect.srf?otc
 impl MenuRuntime {
     fn start_catalog(&mut self) {
         if self.catalog_started || !self.visible || self.connecting {
-            return;
-        }
-        if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
-            self.start_sign_in();
             return;
         }
         if self.auth_attempted && self.auth_process.is_none() {
@@ -82,10 +79,22 @@ impl MenuRuntime {
     /// process (which would overwrite them with other join addresses) stays off.
     pub(super) fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        // Cached validation also runs when a signed-out account core is already
+        // attached, as happens before opening the menu in a direct session.
+        if self.visible
+            && !self.connecting
+            && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
+        {
+            self.start_sign_in();
+        }
         self.open_sign_in_page();
         if core_feeds {
             self.stop_catalog();
             return;
+        }
+        if self.screen == MenuScreen::Profile && !self.feeds.profile.loaded {
+            self.feeds.profile = MenuProfile::unavailable();
+            launcher_account::profile_worker::log_unavailable("worker_unavailable");
         }
         self.start_catalog();
         let Some(child) = self.catalog_process.as_ref() else {
