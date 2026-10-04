@@ -2,9 +2,7 @@ use crate::shader_safety;
 use crate::shader_source;
 // Every shader validates, not just parses: naga's parser accepts colliding varying locations
 // and reserved identifiers that fail pipeline creation at runtime and silently skip the pass.
-use render as ui;
 
-use crate::nametag;
 use crate::nametag_shader;
 use crate::ui_shader;
 
@@ -122,4 +120,3 @@ fn review_render_world_actor_fragments_read_shared_fog() {
         assert!(!info.get_entry_point(fragment)[fog].is_empty());
     }
 }
-use crate::material_shader;

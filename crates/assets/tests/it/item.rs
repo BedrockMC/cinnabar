@@ -7,7 +7,6 @@ use assets::{
 
 use assets as entity;
 use assets as item;
-pub use assets::AssetError;
 
 use entity::{CompiledEntityAssets as CompiledEntityAssetsV4, RuntimeEntityAssets};
 use item::{

@@ -1,6 +1,5 @@
 use assets as entity;
 use assets as item;
-pub use assets::AssetError;
 
 #[path = "entity/bind_pose.rs"]
 mod bind_pose;

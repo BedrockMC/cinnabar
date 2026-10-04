@@ -2,7 +2,6 @@
 //! that leave the record's sub-chunk: at face edges, and in derivative helper lanes that
 //! extrapolate past the horizon. Those must tint like the block that owns the face and never
 //! address words outside the record.
-use crate::material_shader;
 use crate::shader_source;
 
 use std::{

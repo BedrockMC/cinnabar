@@ -140,4 +140,3 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
         "highlight must brighten the backing block"
     );
 }
-use crate::material_shader;

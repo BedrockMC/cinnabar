@@ -1,6 +1,5 @@
 //! Execute the production liquid geometry/UV functions on the native GPU.
 use crate::gpu_snapshot;
-use crate::material_shader;
 use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu, RasterState};

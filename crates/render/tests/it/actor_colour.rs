@@ -1,6 +1,5 @@
 //! Numeric native entity witnesses through the real production actor fragment.
 use crate::gpu_snapshot;
-use crate::material_shader;
 use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu};

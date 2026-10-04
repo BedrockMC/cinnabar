@@ -1,6 +1,5 @@
 //! Actual ordinary water fragments over a submerged receiver, not alpha strings.
 use crate::gpu_snapshot;
-use crate::material_shader;
 use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu, RasterState};

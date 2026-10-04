@@ -3,7 +3,6 @@
 #[allow(dead_code, reason = "reuse the production quad index order")]
 mod chunk_constants;
 use crate::gpu_snapshot;
-use crate::material_shader;
 use crate::shader_source;
 
 use bevy::math::{Mat4, Vec3};

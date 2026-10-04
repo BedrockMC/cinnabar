@@ -1,5 +1,3 @@
-use crate::fixture_input;
-
 #[path = "compiler/support.rs"]
 mod support;
 
