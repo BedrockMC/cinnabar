@@ -1,12 +1,6 @@
-#[path = "../src/action.rs"]
-#[allow(dead_code)]
-mod action;
-#[path = "../src/geometry.rs"]
-#[allow(dead_code)]
-mod geometry;
-#[path = "../src/settings.rs"]
-#[allow(dead_code)]
-mod settings;
+use crate::action_src as action;
+use crate::geometry;
+use crate::settings;
 
 use action::{PointerPhase, UiAction, UiLimits};
 use geometry::{DpiScale, SafeArea, UiPoint, UiRect, UiScale};
