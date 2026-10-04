@@ -1,5 +1,11 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-04 F5 head flick correction — **Incomplete visual/native acceptance**:
+first-person and third-person pose histories are separated at the view switch.
+A local-only pose refresh handles frames without a tick, preserves simulation
+and animation time, and invalidates bone conversion caches. Two synthetic
+regressions cover tick and between-tick switches; Windows verification is pending.
+
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
 local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
