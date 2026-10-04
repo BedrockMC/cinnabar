@@ -433,7 +433,9 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         Command::VanillaPack {
             source_manifest,
             accept_eula,
-        } => vanilla_pack_command::acquire(&source_manifest, accept_eula)?,
+        } => {
+            vanilla_pack_command::acquire(&source_manifest, &std::env::current_dir()?, accept_eula)?
+        }
         Command::AnimationInventory {
             pack,
             source_manifest,
