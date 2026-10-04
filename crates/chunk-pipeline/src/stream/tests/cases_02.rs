@@ -317,7 +317,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    let pending_mesh_count = stream.pending_mesh.len();
+    let pending_mesh_count = stream.mesh_jobs.pending.len();
     let mesh_change_count = stream.mesh_changes.len();
     let connectivity_generation = stream.connectivity_generation;
 
@@ -391,7 +391,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
             event: protocol::UiEvent::HudRules(_),
         }
     )));
-    assert_eq!(stream.pending_mesh.len(), pending_mesh_count);
+    assert_eq!(stream.mesh_jobs.pending.len(), pending_mesh_count);
     assert_eq!(stream.mesh_changes.len(), mesh_change_count);
     assert_eq!(stream.connectivity_generation, connectivity_generation);
 }
@@ -561,7 +561,7 @@ fn request_mode_biome_arrival_dirties_vertical_diagonal_blend_dependents() {
         generation,
         MeshDependencyMask::default(),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream
         .submit(
@@ -572,7 +572,7 @@ fn request_mode_biome_arrival_dirties_vertical_diagonal_blend_dependents() {
     complete_pending_decode_jobs(&mut stream);
 
     assert!(
-        stream.pending_mesh.contains_key(&neighbour),
+        stream.mesh_jobs.pending.contains_key(&neighbour),
         "a newly committed biome column must invalidate a vertical diagonal tint halo"
     );
 }
@@ -627,7 +627,7 @@ fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
         generation,
         MeshDependencyMask::default(),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     let mut replacement_payload = block_payload.to_vec();
     replacement_payload.extend(biome_payload(0, 43));
@@ -646,7 +646,7 @@ fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
     complete_pending_decode_jobs(&mut stream);
 
     assert!(
-        stream.pending_mesh.contains_key(&diagonal),
+        stream.mesh_jobs.pending.contains_key(&diagonal),
         "an inline biome replacement must invalidate a diagonal tint halo independently of AO"
     );
 }
@@ -689,11 +689,11 @@ fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() 
         generation,
         MeshDependencyMask::default(),
     ));
-    stream.pending_mesh.clear();
+    stream.mesh_jobs.pending.clear();
 
     stream.evict_column(ChunkKey::new(0, 1, 1));
 
-    assert!(stream.pending_mesh.contains_key(&center));
+    assert!(stream.mesh_jobs.pending.contains_key(&center));
 }
 
 #[test]
@@ -731,7 +731,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
         assert!(stream.resident.contains(&key), "missing resident air y={y}");
         assert!(stream.known_air.contains(&key), "missing known air y={y}");
         assert!(
-            stream.pending_light.contains_key(&key),
+            stream.lighting.jobs.pending.contains_key(&key),
             "unscheduled light y={y}"
         );
     }
@@ -765,7 +765,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
     let requested = SubChunkKey::from_chunk(chunk, -4);
     assert!(!stream.resident.contains(&requested));
     assert!(!stream.known_air.contains(&requested));
-    assert!(stream.is_expected_sub_chunk(requested));
+    assert!(stream.requests.is_expected(requested));
     for y in -3..=19 {
         assert!(
             stream
@@ -963,7 +963,7 @@ fn newer_inline_chunk_is_validated_after_fifo_blocked_publisher_update_commits()
     complete_pending_decode_jobs(&mut stream);
 
     let key = SubChunkKey::new(0, 100, -4, 0);
-    assert_eq!(stream.publisher_center, Some([1_600, 64, 0]));
+    assert_eq!(stream.publisher.center, Some([1_600, 64, 0]));
     assert!(stream.resident.contains(&key) || stream.known_air.contains(&key));
 }
 
@@ -1004,7 +1004,7 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
         ..target
     }
     .classifier_columns();
-    stream.required_columns = target_columns.clone();
+    stream.publisher.required_columns = target_columns.clone();
     let missing = *target_columns.last().unwrap();
     let source = ChunkKey::new(0, 0, 0);
     stream.loaded_columns.insert(source);
