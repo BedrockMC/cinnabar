@@ -69,7 +69,12 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
                 return None;
             }
             let (top, bottom) = split(cube, height * 0.5)?;
-            let (bottom, foot) = split(&bottom, foot_height)?;
+            // Put the ankle inside the foot volume, rather than on its exposed
+            // top face. A rotated shin otherwise opens a wedge between the two
+            // rigid cuboids even though their joint centers remain connected.
+            // Reuse the original skin rows in the overlap; the sole stays intact.
+            let (_, foot) = split(&bottom, foot_height * 2.0)?;
+            let (bottom, _) = split(&bottom, foot_height)?;
             upper.push(top);
             lower.push(bottom);
             feet.push(foot);
@@ -110,7 +115,7 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
     model.bones = bones.into();
     let mut digest = Sha256::new();
     digest.update(source.digest);
-    digest.update(b"cinnabar:render-only-knees-and-ankles:v2");
+    digest.update(b"cinnabar:render-only-knees-and-ankles:v3");
     model.digest = digest.finalize().into();
     Some(model)
 }

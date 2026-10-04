@@ -139,6 +139,30 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
             let origin = cube.origin.map(Scalar::get);
             let size = cube.size.map(Scalar::get);
             let pivot = snapshot.rest[ankle].translation_scale;
+            // The ankle must be buried inside the textured foot, so rotating
+            // the shin cannot expose a sliced-off foot at its joint center.
+            assert!(origin[1] < pivot[1]);
+            assert!(origin[1] + size[1] > pivot[1]);
+            let overlap = point(shin, [0.0, -3.0, 0.0]);
+            let local = [
+                overlap[0] - foot.translation_scale[0],
+                overlap[1] - foot.translation_scale[1],
+                overlap[2] - foot.translation_scale[2],
+            ];
+            for axis in 0..3 {
+                let (min, max) = if axis == 0 {
+                    (-origin[0] - size[0] - pivot[0], -origin[0] - pivot[0])
+                } else {
+                    (
+                        origin[axis] - pivot[axis],
+                        origin[axis] + size[axis] - pivot[axis],
+                    )
+                };
+                assert!(
+                    local[axis] > min && local[axis] < max,
+                    "shin must overlap the foot throughout playback: {local:?}"
+                );
+            }
             for (x, z) in [
                 (0.0, 0.0),
                 (size[0], 0.0),

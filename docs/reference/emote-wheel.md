@@ -82,8 +82,12 @@ and production actor publication with native hand/remote ownership preserved.
 Eleven custom-animation tests pass, including native joint landmarks, foot-center
 anchoring, attached arms/head and equivalent flat-biped/clothing retargeting.
 The twist regression also checks level head ownership and planted feet.
-Knee regressions check connected equal-length thigh/shin segments, planted feet,
+Knee regressions check connected thigh/shin segments, planted feet,
 steady head height, texture cropping, mirroring, clothing and source immutability.
+The user accepted the faster hip pulse but reported a sliced-looking ankle seam.
+The local correction keeps the ankle inside overlapping textured foot/shin
+volumes, with a full-loop overlap regression and unchanged sole corners.
+Its rendered appearance awaits user verification.
 Controller regressions also cover equipping/playing the left slot without
 retriggering the wheel opener, and closing-frame inventory consumption followed
 by fresh real drop/book actions.

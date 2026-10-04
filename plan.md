@@ -24,14 +24,17 @@ and simulation skeletons remain unchanged. Eleven animation tests pass;
 exact Lunar/native parity remains incomplete.
 The user accepted the installed knee revision; the next local adjustment speeds
 up playback and increases vertical pelvis travel while keeping shoulders/head
-steady and foot centers planted. It awaits installation and user verification.
+steady and foot centers planted. The user accepted the installed faster motion.
 The accompanying foot correction adds emote-only ankle joints, keeps the entire
 sole level, and anchors all four sole corners rather than only the foot center.
+The user reported an exposed ankle seam. The next local mesh correction embeds
+the ankle inside overlapping, original-textured foot/shin volumes; the timing
+and pelvis motion remain unchanged. Visual acceptance of that correction is pending.
 Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, eleven
 animation tests, eleven emote UI tests and twenty-five app emote checks. The
 1280x720 software-rendered wheel/equip frames were inspected for readable text
 and geometry. The user accepted the installed wheel and knee revision; the
-latest speed/vertical-motion change still needs user verification. The animation
+latest ankle-seam correction still needs user verification. The animation
 revision is local and not pushed.
 Strict affected-package clippy passes. Required affected verification reaches
 the existing ice/water liquid-face test failure after formatting, architecture
