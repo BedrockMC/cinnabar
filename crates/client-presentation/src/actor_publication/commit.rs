@@ -6,6 +6,15 @@ use render::{ActorRenderFrame, ActorRuntimeWitness};
 #[derive(Resource, Default)]
 pub struct PreparedActorPublication(pub(super) Option<PendingActorPublication>);
 
+impl PreparedActorPublication {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn submissions(&self) -> Option<&[render::ActorRigSubmission]> {
+        self.0
+            .as_ref()
+            .map(|pending| pending.batch.submissions.as_slice())
+    }
+}
+
 pub(super) struct PendingActorPublication {
     pub(super) batch: ActorPresentationBatch,
     pub(super) partial_tick: f32,

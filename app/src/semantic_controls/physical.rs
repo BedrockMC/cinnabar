@@ -77,11 +77,17 @@ pub(crate) fn finalize_semantic_input_after_ui_authority(
     mut runtime: ResMut<SemanticInputRuntime>,
     mut route: ResMut<SemanticRouteState>,
     mut published: ResMut<SemanticInputSnapshot>,
+    emote_input: Option<Res<crate::ui_runtime::emotes::EmoteInputConsumed>>,
 ) {
     let routed = std::mem::take(&mut route.routed);
     if !routed {
         published.clear();
         return;
+    }
+    if emote_input.is_some_and(|consumed| consumed.0) {
+        // Raw devices were sampled before the wheel could open and close. Retire
+        // that owned sample through the router's normal UI release/quarantine.
+        runtime.release_all(semantic_input::ReleaseReason::UiFocusTaken);
     }
     match runtime.finalize_routed_input() {
         Ok(snapshot) => published.replace(snapshot),

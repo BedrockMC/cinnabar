@@ -233,10 +233,20 @@ pub(super) fn compose_pose(
     bones: &[RuntimeBone],
     local: &[LocalDelta],
 ) -> Option<Vec<BoneTransform>> {
+    compose_pose_with_targets(bones, local, &[])
+}
+
+/// Retarget named joints in model space while composing their clothing and other children.
+/// Callers validate the complete hierarchy with an untargeted composition first.
+pub(super) fn compose_pose_with_targets(
+    bones: &[RuntimeBone],
+    local: &[LocalDelta],
+    targets: &[Option<BoneTransform>],
+) -> Option<Vec<BoneTransform>> {
     let mut transforms = vec![None; bones.len()];
     let mut visiting = vec![false; bones.len()];
     for index in 0..bones.len() {
-        compose_bone(index, bones, local, &mut transforms, &mut visiting)?;
+        compose_bone(index, bones, local, targets, &mut transforms, &mut visiting)?;
     }
     transforms.into_iter().collect()
 }
@@ -245,6 +255,7 @@ fn compose_bone(
     index: usize,
     bones: &[RuntimeBone],
     local: &[LocalDelta],
+    targets: &[Option<BoneTransform>],
     transforms: &mut [Option<BoneTransform>],
     visiting: &mut [bool],
 ) -> Option<BoneTransform> {
@@ -255,6 +266,20 @@ fn compose_bone(
         return None;
     }
     visiting[index] = true;
+    if let Some(target) = targets.get(index).copied().flatten() {
+        if target
+            .rotation
+            .iter()
+            .chain(target.translation_scale.iter())
+            .chain(target.axis_scale.iter())
+            .any(|value| !value.is_finite())
+        {
+            return None;
+        }
+        visiting[index] = false;
+        transforms[index] = Some(target);
+        return Some(target);
+    }
     let bone = bones.get(index)?;
     let delta = local.get(index).copied().unwrap_or_default();
     // Owner-name binding clears defaults; an explicit expression keeps ModelPart defaults.
@@ -288,7 +313,7 @@ fn compose_bone(
     // Authored X and Y angles turn against the right-hand rule in the mirrored frame.
     let rotation = quat_from_euler([-x, -y, z]);
     let transform = if let Some(parent_index) = bone.parent {
-        let parent = compose_bone(parent_index, bones, local, transforms, visiting)?;
+        let parent = compose_bone(parent_index, bones, local, targets, transforms, visiting)?;
         let parent_scale = total_scale(&parent);
         let scaled = std::array::from_fn(|axis| translation[axis] * parent_scale[axis]);
         let rotated = rotate_vector(parent.rotation, scaled);
@@ -360,7 +385,7 @@ pub(super) fn quat_from_euler(rotation: [f32; 3]) -> [f32; 4] {
     ]
 }
 
-fn quat_multiply(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+pub(super) fn quat_multiply(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     [
         a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
         a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
@@ -369,7 +394,7 @@ fn quat_multiply(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-fn rotate_vector(rotation: [f32; 4], vector: [f32; 3]) -> [f32; 3] {
+pub(super) fn rotate_vector(rotation: [f32; 4], vector: [f32; 3]) -> [f32; 3] {
     let qvector = [vector[0], vector[1], vector[2], 0.0];
     let inverse = [-rotation[0], -rotation[1], -rotation[2], rotation[3]];
     let result = quat_multiply(quat_multiply(rotation, qvector), inverse);

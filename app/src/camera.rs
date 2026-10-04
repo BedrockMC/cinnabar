@@ -28,6 +28,11 @@ pub use client_presentation::camera::{
 use client_presentation::camera::{fov, look, overlay_publish};
 mod facts;
 mod presentation;
+
+/// Optional developer camera input, after physical look and before movement.
+#[cfg(feature = "local-mods")]
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModCameraInputSet;
 /// Spawns and drives one [`Camera3d`] fly camera.
 pub struct FlyCameraPlugin {
     auto_fly: bool,
@@ -107,6 +112,14 @@ impl Plugin for FlyCameraPlugin {
                     .after(resolve_camera_pose)
                     .in_set(ClientFrameSet::Camera),
             ),
+        );
+        #[cfg(feature = "local-mods")]
+        app.configure_sets(
+            Update,
+            ModCameraInputSet
+                .in_set(FlyCameraUpdateSet)
+                .after(update_look)
+                .before(update_movement),
         );
     }
 }
