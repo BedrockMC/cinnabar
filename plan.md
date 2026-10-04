@@ -1,5 +1,23 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-04 F3 diagnostics (user-accepted developer feature): the supplied Java
+19w05a screenshot is the requested styling reference. F3 is available by default,
+hidden at startup, and the window title contains only the shared product name.
+JSON-UI draws player/world/movement/render/queue diagnostics and target-state
+rows during gameplay; other screens hide the overlay without resetting F3.
+Coordinates use player feet, including third person. A fixed row budget keeps
+font size stable as values change; text sits one GUI pixel lower in each strip.
+Live data refreshes every frame at the user's request; FPS and frame timing use
+a short aggregation window. Data meanings and styling are documented in
+`docs/reference/f3-debug-overlay.md`; this does not close a Bedrock parity gate.
+The updated client built and joined an isolated offline BDS world on local port
+19132 as DebugTest. The user accepts the rendered follow-up on macOS/Metal at
+2560x1440 physical resolution, DPI 2, GUI scale 5. Before the final cadence change,
+all eight focused JSON-UI overlay tests, formatting and architecture checks passed.
+The user requests latest-dev integration, no further tests and direct publication
+to dev. The final cadence change and integration have no new test-green claim.
+All local test services started for this feature are stopped.
+
 2026-10-04 Lifeboat skylight investigation (incomplete): the supplied session
 trace confirms zero solved sky light but does not identify the blocked input.
 Offline chunk-pipeline fixtures already produce sky light 15 when inline upper

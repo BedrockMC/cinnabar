@@ -11,9 +11,10 @@ use attribution::DiagnosticAttributionLogState;
 pub(crate) use attribution::refresh_diagnostic_attribution;
 
 #[cfg(feature = "acceptance")]
+use bevy::prelude::{Transform, With};
+#[cfg(feature = "acceptance")]
 use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
 use std::{
-    collections::VecDeque,
     fmt::Write as _,
     time::{Duration, Instant},
 };
@@ -22,9 +23,8 @@ use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore},
     ecs::system::SystemParam,
     log::info,
-    prelude::{EulerRot, Local, Quat, Query, Res, ResMut, Time, Transform, Vec3, Window, With},
+    prelude::{EulerRot, Local, Quat, Query, Res, ResMut, Time, Vec3},
     time::Real,
-    window::{CursorOptions, PrimaryWindow},
     winit::{UpdateMode, WinitSettings},
 };
 #[cfg(feature = "acceptance")]
@@ -42,6 +42,8 @@ use world::SubChunkKey;
 
 mod visibility_snapshot;
 
+#[cfg(feature = "acceptance")]
+use crate::camera::FlyCamera;
 use crate::{
     acceptance::{
         markers::{
@@ -51,7 +53,7 @@ use crate::{
         },
         mutation::write_stdout_marker,
     },
-    camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
+    camera::{THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
     local_player::LocalPlayerFrameCarrier,
     metrics::{
         GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
@@ -73,7 +75,6 @@ use crate::{
     semantic_controls::SemanticInputSnapshot,
 };
 
-const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const VISIBILITY_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
 const OPAQUE_3D_GPU_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/main_opaque_pass_3d/elapsed_gpu");
@@ -127,15 +128,7 @@ pub(crate) fn frame_limited_winit_settings(frame_cap: Option<u32>, strict: bool)
 }
 
 #[derive(Default)]
-pub(crate) struct RollingFps {
-    pub(crate) frame_times: VecDeque<Duration>,
-    pub(crate) elapsed: Duration,
-}
-
-#[derive(Default)]
 pub(crate) struct MetricsSamplingState {
-    pub(crate) title_elapsed: Duration,
-    pub(crate) rolling_fps: RollingFps,
     pub(crate) last_marked_transparent_sort_generation: u64,
     pub(crate) last_gpu_measurement_time: Option<Instant>,
     pub(crate) visibility_elapsed: Duration,
@@ -149,47 +142,6 @@ pub(crate) struct MetricsSamplingState {
 }
 
 pub(crate) use diagnostics::AcceptanceRuntimeConfig;
-
-impl RollingFps {
-    pub(crate) fn record(&mut self, frame_time: Duration) {
-        if frame_time.is_zero() {
-            return;
-        }
-        self.frame_times.push_back(frame_time);
-        self.elapsed += frame_time;
-        while self.elapsed > Duration::from_secs(1) {
-            let Some(oldest) = self.frame_times.pop_front() else {
-                break;
-            };
-            self.elapsed = self.elapsed.saturating_sub(oldest);
-        }
-    }
-
-    pub(crate) fn value(&self) -> f64 {
-        if self.elapsed.is_zero() {
-            return 0.0;
-        }
-        self.frame_times.len() as f64 / self.elapsed.as_secs_f64()
-    }
-}
-
-pub(crate) fn status_title(
-    camera: &Transform,
-    resident_sub_chunks: usize,
-    visible_sub_chunks: usize,
-    captured: bool,
-    fps: f64,
-) -> String {
-    let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
-    format!(
-        "{product} | {fps:.1} FPS | pos {:.2} {:.2} {:.2} | yaw {yaw:.2} pitch {pitch:.2} | chunks {visible_sub_chunks}/{resident_sub_chunks} | {}",
-        camera.translation.x,
-        camera.translation.y,
-        camera.translation.z,
-        if captured { "captured" } else { "released" },
-        product = launcher::PRODUCT_NAME,
-    )
-}
 
 #[cfg(feature = "acceptance")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,7 +383,7 @@ pub(crate) fn update_visibility_diagnostics(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn record_metrics_and_title(
+pub(crate) fn record_metrics(
     time: Res<Time<Real>>,
     mut client_world: ResMut<ClientWorld>,
     #[cfg(feature = "acceptance")] acceptance: Res<AcceptanceRun>,
@@ -445,8 +397,7 @@ pub(crate) fn record_metrics_and_title(
     visibility_diagnostics: Res<VisibilityDiagnostics>,
     runtime_config: Res<AcceptanceRuntimeConfig>,
     #[cfg(feature = "acceptance")] chunks: Query<&ChunkRenderInstance>,
-    camera: Query<&Transform, With<FlyCamera>>,
-    mut window: Query<(&mut Window, &CursorOptions), With<PrimaryWindow>>,
+    #[cfg(feature = "acceptance")] camera: Query<&Transform, With<FlyCamera>>,
     mut sampling: Local<MetricsSamplingState>,
 ) {
     let _timer = render_metrics
@@ -480,7 +431,6 @@ pub(crate) fn record_metrics_and_title(
     }
     let frame_time = time.delta();
     metrics.0.record_frame(frame_time);
-    sampling.rolling_fps.record(frame_time);
     metrics.0.record_asset_counters(
         client_world.missing_asset_count(),
         diagnostic_quads.0.total(),
@@ -857,31 +807,6 @@ pub(crate) fn record_metrics_and_title(
     let error_delta = cumulative_counter_delta(total_errors, client_world.reported_decode_errors);
     metrics.0.add_decode_errors(error_delta);
     client_world.reported_decode_errors = total_errors;
-
-    sampling.title_elapsed += time.delta();
-    if sampling.title_elapsed < TITLE_REFRESH_INTERVAL {
-        return;
-    }
-    sampling.title_elapsed = Duration::ZERO;
-    let (Ok(camera), Ok((mut window, cursor))) = (camera.single(), window.single_mut()) else {
-        return;
-    };
-    let resident = client_world
-        .stream
-        .as_ref()
-        .map_or(0, |stream| stream.stats().resident_sub_chunks);
-    let mut title = status_title(
-        camera,
-        resident,
-        cache.visible_rendered,
-        camera::input_is_active(&window, cursor),
-        sampling.rolling_fps.value(),
-    );
-    if let Some(error) = &client_world.fatal_error {
-        title.push_str(" | ERROR: ");
-        title.push_str(error);
-    }
-    window.title = title;
 }
 
 pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStageProfiler>>) {
