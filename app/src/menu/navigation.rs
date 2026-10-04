@@ -51,6 +51,9 @@ impl MenuRuntime {
             self.store_snapshot = None;
         }
         self.screen = screen;
+        if screen == MenuScreen::Profile {
+            self.feeds.profile_refresh_requested = true;
+        }
         self.focused = 0;
         self.hovered = None;
         self.field = None;
