@@ -70,6 +70,7 @@ const MAX_STALE_RECLAIMS_PER_STARTUP: usize = 64;
 enum SessionKind {
     Direct,
     Connect,
+    Account,
 }
 
 /// Owner marker persisted inside a bound session directory.
@@ -96,8 +97,8 @@ struct SessionDirId {
 
 /// Parses the strict session-directory grammar.
 ///
-/// Anything outside `direct-<pid>` / `connect-<pid>-<generation>` returns
-/// `None`, including empty segments, signs, overflow, and extra segments.
+/// Only direct sessions, numbered connections and numbered account cores are owned.
+/// Empty segments, signs, overflow and extra segments are rejected.
 fn parse_session_dir_name(name: &str) -> Option<SessionDirId> {
     let (kind, rest) = name
         .strip_prefix("direct-")
@@ -105,10 +106,14 @@ fn parse_session_dir_name(name: &str) -> Option<SessionDirId> {
         .or_else(|| {
             name.strip_prefix("connect-")
                 .map(|rest| (SessionKind::Connect, rest))
+        })
+        .or_else(|| {
+            name.strip_prefix("account-")
+                .map(|rest| (SessionKind::Account, rest))
         })?;
     let (pid_text, generation_text) = match kind {
         SessionKind::Direct => (rest, None),
-        SessionKind::Connect => {
+        SessionKind::Connect | SessionKind::Account => {
             let (pid_text, generation_text) = rest.split_once('-')?;
             (pid_text, Some(generation_text))
         }
