@@ -205,7 +205,7 @@ fn make_assets_and_client_refresh_the_entity_carrier_and_report() {
 }
 
 #[test]
-fn make_builds_the_pinned_open_font_for_default_launch() {
+fn make_builds_the_pinned_cinnangles_font_for_default_launch() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let makefile = fs::read_to_string(root.join("Makefile"))
         .unwrap()
@@ -217,26 +217,22 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
     assert!(
         attributes
             .lines()
-            .any(|line| line == "assets/ui-font-source.json text eol=lf"),
-        "the hashed UI-font manifest must retain LF bytes in fresh Windows checkouts"
+            .any(|line| line == "assets/cinnangles-sans-source.json text eol=lf"),
+        "the hashed Cinnangles Sans manifest must retain LF bytes in fresh Windows checkouts"
     );
 
     for contract in [
-        "UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json",
-        "UI_FONT_DIR ?= .local/assets/ui-font/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9",
-        "UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf",
-        "UI_FONT_FALLBACK_DIR ?= .local/assets/ui-font/f8d157532fbfaeda587e826d4cd5b21a49186f7c",
-        "UI_FONT_FALLBACK_SOURCE ?= $(UI_FONT_FALLBACK_DIR)/NotoSansCJKsc-Regular.otf",
-        "FONT_ASSET_NOTICES ?= $(dir $(FONT_ASSET_BLOB))ui-font-notices.txt",
-        "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-monocraft-v1.mcbefont",
-        "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-monocraft-font-assets.json",
+        "FONT_SOURCE_MANIFEST ?= assets/cinnangles-sans-source.json",
+        "FONT_SOURCE ?= assets/fonts/CinnanglesSans.ttf",
+        "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-cinnangles-sans-v1.mcbefont",
+        "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-cinnangles-sans-font-assets.json",
         "LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
         "LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json",
         "FONT_PACK_DIR ?= .local/assets/font-source",
         concat!(
-            "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets ",
-            "--font \"$(UI_FONT_SOURCE)\" --fallback-font \"$(UI_FONT_FALLBACK_SOURCE)\" ",
-            "--source-manifest \"$(UI_FONT_SOURCE_MANIFEST)\" ",
+            "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets ",
+            "--font \"$(FONT_SOURCE)\" ",
+            "--source-manifest \"$(FONT_SOURCE_MANIFEST)\" ",
             "--out \"$(FONT_ASSET_BLOB)\" --report \"$(FONT_ASSET_REPORT)\""
         ),
         concat!(
@@ -244,12 +240,10 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
             "--pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
             "--out \"$(LOCAL_FONT_ASSET_BLOB)\" --report \"$(LOCAL_FONT_ASSET_REPORT)\""
         ),
-        "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES)",
+        "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
         "font-assets-local:",
-        "$(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE: $(UI_FONT_SOURCE_MANIFEST)",
-        "$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE",
+        "$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(FONT_SOURCE_MANIFEST) $(FONT_SOURCE)",
         "$(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)",
-        "$(FONT_ASSET_NOTICES): | $(FONT_ASSET_BLOB)\n\t$(FONT_ASSET_COMPILE)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
     ] {
         assert!(
@@ -449,15 +443,6 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let block = fixture_file(&temporary, "block.bin");
     let light = fixture_file(&temporary, "light.bin");
     let biome = fixture_file(&temporary, "biome.bin");
-    let font_manifest = fixture_file(&temporary, "font-source.json");
-    let font_dir = temporary.join("primary-font");
-    let fallback_dir = temporary.join("fallback-font");
-    fs::create_dir_all(&font_dir).unwrap();
-    fs::create_dir_all(&fallback_dir).unwrap();
-    let font_source = fixture_file(&font_dir, "font.ttf");
-    let fallback_source = fixture_file(&fallback_dir, "fallback.otf");
-    fixture_file(&font_dir, "LICENSE");
-    fixture_file(&fallback_dir, "LICENSE");
     let physics = fixture_file(&temporary, "physics.bin");
     let block_data_sentinel = fixture_file(&temporary, "protocol_info.json");
     let world = temporary.join("world.mcbea");
@@ -469,7 +454,6 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let actor_report = temporary.join("actor.json");
     let font = temporary.join("font.mcbefont");
     let font_report = temporary.join("font.json");
-    let font_notices = temporary.join("font-notices.txt");
     let hud = temporary.join("hud.mcbehud");
     let hud_report = temporary.join("hud.json");
     let lang = temporary.join("lang.mcbelang");
@@ -508,14 +492,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("ENTITY_ASSET_REPORT={}", make_path(&entity_report)),
         format!("ACTOR_ASSET_BLOB={}", make_path(&actor)),
         format!("ACTOR_ASSET_REPORT={}", make_path(&actor_report)),
-        format!("UI_FONT_DIR={}", make_path(&font_dir)),
-        format!("UI_FONT_FALLBACK_DIR={}", make_path(&fallback_dir)),
-        format!("UI_FONT_SOURCE={}", make_path(&font_source)),
-        format!("UI_FONT_FALLBACK_SOURCE={}", make_path(&fallback_source)),
-        format!("UI_FONT_SOURCE_MANIFEST={}", make_path(&font_manifest)),
         format!("FONT_ASSET_BLOB={}", make_path(&font)),
         format!("FONT_ASSET_REPORT={}", make_path(&font_report)),
-        format!("FONT_ASSET_NOTICES={}", make_path(&font_notices)),
         format!("HUD_ASSET_BLOB={}", make_path(&hud)),
         format!("BLOCK_DATA_SENTINEL={}", make_path(&block_data_sentinel)),
         format!("HUD_ASSET_REPORT={}", make_path(&hud_report)),
@@ -564,7 +542,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "FONT_ASSET_COMPILE",
             "font",
             &log,
-            &[&font, &font_report, &font_notices],
+            &[&font, &font_report],
         ),
         producer_assignment("HUD_ASSET_COMPILE", "hud", &log, &[&hud, &hud_report]),
         producer_assignment("LANG_ASSET_COMPILE", "lang", &log, &[&lang, &lang_report]),
@@ -648,7 +626,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let position = |label: &str| labels.iter().position(|entry| entry == label).unwrap();
     assert!(position("entity") < position("actor"));
     assert!(position("actor") < position("launch"));
-    assert!(actor.is_file() && actor_report.is_file() && font_notices.is_file());
+    assert!(actor.is_file() && actor_report.is_file() && font.is_file() && font_report.is_file());
     assert_eq!(
         labels
             .into_iter()

@@ -113,6 +113,7 @@ fn app() -> App {
         },
     })
     .init_resource::<ResultSnapshot>()
+    .insert_resource(finalized_input(false))
     .insert_resource(LocalViewPose::new(Vec3::ZERO, Quat::IDENTITY))
     .insert_resource(ClientWorld {
         stream: Some(stream()),
@@ -120,6 +121,44 @@ fn app() -> App {
     })
     .add_systems(Update, capture);
     app
+}
+
+fn finalized_input(attack_held: bool) -> SemanticInputSnapshot {
+    let mut runtime = crate::semantic_controls::SemanticInputRuntime::default();
+    let snapshot = runtime
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_buttons: if attack_held { vec![1] } else { Vec::new() },
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    SemanticInputSnapshot::from_finalized(snapshot)
+}
+
+#[test]
+fn missing_finalized_input_blocks_gameplay_even_with_world_and_camera_authority() {
+    let mut app = app();
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_some());
+
+    app.insert_resource(SemanticInputSnapshot::default());
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+    app.world_mut().remove_resource::<SemanticInputSnapshot>();
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+
+    app.insert_resource(finalized_input(true));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<ResultSnapshot>()
+            .0
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.attack_held)
+    );
 }
 
 #[test]

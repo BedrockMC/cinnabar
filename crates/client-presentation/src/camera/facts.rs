@@ -2,15 +2,13 @@
 
 use crate::local_player::LocalViewPose;
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use bevy::prelude::{Res, ResMut, Resource};
-use protocol::{AbilitiesUpdate, AbilityLayersEvidence, ActorMetadataValue};
+use protocol::{AbilitiesUpdate, AbilityLayersEvidence};
 
 use super::{fov::CameraFovInputs, presentation::ScreenEffectFacts};
 
-const FLAGS_METADATA_KEY: u32 = 0;
-const ACTOR_FLAG_ON_FIRE: u32 = 0;
 const ABILITY_FLYING_BIT: u32 = 1 << 9;
 const BOW_IDENTIFIER: &str = "minecraft:bow";
 const SPYGLASS_IDENTIFIER: &str = "minecraft:spyglass";
@@ -39,13 +37,6 @@ impl ItemUseClock {
     pub const fn held_seconds(&self) -> f32 {
         self.held_seconds
     }
-}
-
-fn metadata_flag(metadata: &HashMap<u32, ActorMetadataValue>, bit: u32) -> bool {
-    matches!(
-        metadata.get(&FLAGS_METADATA_KEY),
-        Some(ActorMetadataValue::Flags(flags)) if flags & (1_u64 << bit) != 0
-    )
 }
 
 /// True when some received ability layer both defines and enables flying.
@@ -77,7 +68,7 @@ pub fn collect_screen_effect_facts(
 
     facts.on_fire = stream
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        .is_some_and(|actor| metadata_flag(&actor.metadata, ACTOR_FLAG_ON_FIRE));
+        .is_some_and(client_world::ActorSnapshot::is_on_fire);
 
     facts.in_portal = match (stream, collisions) {
         (Some(stream), Some(collisions)) => {
@@ -152,16 +143,6 @@ mod tests {
                 declared_layers: 99
             }
         )));
-    }
-
-    #[test]
-    fn on_fire_reads_the_primary_flag_word() {
-        let mut metadata = HashMap::new();
-        assert!(!metadata_flag(&metadata, ACTOR_FLAG_ON_FIRE));
-        metadata.insert(0, ActorMetadataValue::Flags(1));
-        assert!(metadata_flag(&metadata, ACTOR_FLAG_ON_FIRE));
-        metadata.insert(0, ActorMetadataValue::Flags(2));
-        assert!(!metadata_flag(&metadata, ACTOR_FLAG_ON_FIRE));
     }
 
     #[test]

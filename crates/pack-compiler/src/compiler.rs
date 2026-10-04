@@ -402,16 +402,17 @@ fn compile_pack_inner(
             }
         }
         let aquatic_faces;
-        let faces: &[BlockFace] = if is_kelp(record) || is_liquid(record) {
-            &BlockFace::ALL
-        } else if is_aquatic_cross(record) {
-            aquatic_faces = aquatic_cross_faces(record).unwrap_or([BlockFace::Up; 2]);
-            &aquatic_faces
-        } else if is_terrestrial_cross(record) {
-            &[cross_texture_face(record)]
-        } else {
-            &BlockFace::ALL
-        };
+        let faces: &[BlockFace] =
+            if is_kelp(record) || is_liquid(record) || visuals::fire::is_record(record) {
+                &BlockFace::ALL
+            } else if is_aquatic_cross(record) {
+                aquatic_faces = aquatic_cross_faces(record).unwrap_or([BlockFace::Up; 2]);
+                &aquatic_faces
+            } else if is_terrestrial_cross(record) {
+                &[cross_texture_face(record)]
+            } else {
+                &BlockFace::ALL
+            };
         for &face in faces {
             if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
                 descriptor_keys

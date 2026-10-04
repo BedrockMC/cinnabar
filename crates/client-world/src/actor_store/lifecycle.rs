@@ -92,6 +92,7 @@ impl ActorStore {
             synthetic_local_uuid: None,
             synthetic_local_revision: 0,
             local_first_person: false,
+            local_view_dirty: false,
             local_view_bobbing: true,
             local_hands: [None, None],
             camera_rotation: [0.0; 2],
@@ -130,6 +131,7 @@ impl ActorStore {
         if runtime_id == 0 {
             return;
         }
+        self.local_view_dirty |= self.local_first_person != feed.first_person;
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];

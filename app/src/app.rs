@@ -582,6 +582,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
+    #[cfg(feature = "local-mods")]
+    let font_runtime = crate::modding::font::with_optional_font(font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -605,6 +607,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation
         .set_gui_models(&loaded_assets.runtime, &entity_runtime)
         .context("prepare native GUI model geometry and original texture pages")?;
+    ui_presentation
+        .set_gui_fire_texture(
+            particle_assets
+                .as_deref()
+                .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE)),
+        )
+        .context("prepare native HUD actor flame texture frames")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
@@ -745,6 +754,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .disable::<TerminalCtrlCHandlerPlugin>(),
     );
     app.add_plugins(FxaaPlugin);
+    app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir: layout.screenshots_dir(),

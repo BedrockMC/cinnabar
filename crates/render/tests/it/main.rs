@@ -30,6 +30,7 @@ mod biome_tint_bounds;
 mod block_selection;
 mod block_selection_native;
 mod block_selection_snapshot;
+mod camera_fire;
 mod cloud_config;
 mod cloud_render;
 mod item_particle_lighting;

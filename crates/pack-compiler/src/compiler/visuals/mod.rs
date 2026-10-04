@@ -16,6 +16,8 @@ pub(in crate::compiler) mod exact;
 pub(in crate::compiler) mod fallback;
 pub(in crate::compiler) mod farmland;
 pub(in crate::compiler) mod fences;
+pub(in crate::compiler) mod fire;
+pub(in crate::compiler) mod fire_admission;
 pub(in crate::compiler) mod flowerbed;
 pub(in crate::compiler) mod gates;
 pub(in crate::compiler) mod geometry;

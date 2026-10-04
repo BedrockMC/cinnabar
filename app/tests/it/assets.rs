@@ -202,7 +202,7 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
 }
 
 fn synthetic_font_blob(seed: u8) -> Box<[u8]> {
-    synthetic_font_blob_with_manifest(seed, canonical_ui_font_source_manifest_sha256())
+    synthetic_font_blob_with_manifest(seed, canonical_cinnangles_font_source_manifest_sha256())
 }
 
 fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box<[u8]> {
@@ -231,8 +231,8 @@ fn canonical_vanilla_source_manifest_sha256() -> [u8; 32] {
     Sha256::digest(source.as_bytes()).into()
 }
 
-fn canonical_ui_font_source_manifest_sha256() -> [u8; 32] {
-    let source = include_str!("../../../assets/ui-font-source.json").replace("\r\n", "\n");
+fn canonical_cinnangles_font_source_manifest_sha256() -> [u8; 32] {
+    let source = include_str!("../../../assets/cinnangles-sans-source.json").replace("\r\n", "\n");
     Sha256::digest(source.as_bytes()).into()
 }
 
@@ -565,7 +565,7 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     assert_eq!(ATMOSPHERE_COMPILE_COMMAND, "make atmosphere-assets");
     assert_eq!(ENTITY_ASSETS_FILENAME, "vanilla-v1.mcbeent");
     assert_eq!(ENTITY_ASSETS_COMPILE_COMMAND, "make entity-assets");
-    assert_eq!(FONT_ASSETS_FILENAME, "ui-monocraft-v1.mcbefont");
+    assert_eq!(FONT_ASSETS_FILENAME, "ui-cinnangles-sans-v1.mcbefont");
     assert_eq!(FONT_ASSETS_COMPILE_COMMAND, "make font-assets");
     assert_eq!(LOCAL_FONT_ASSETS_FILENAME, "vanilla-v1.mcbefont");
     assert_eq!(
@@ -582,7 +582,7 @@ fn documented_commands_target_only_ignored_local_asset_paths() {
     );
     assert_eq!(
         font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
-        PathBuf::from(".local/assets/compiled/ui-monocraft-v1.mcbefont")
+        PathBuf::from(".local/assets/compiled/ui-cinnangles-sans-v1.mcbefont")
     );
     assert_eq!(
         local_font_asset_path(Path::new(DEFAULT_ASSET_PATH)),
@@ -711,7 +711,7 @@ fn missing_font_carrier_uses_the_bounded_builtin_diagnostic_font() {
 }
 
 #[test]
-fn explicit_local_font_carrier_takes_precedence_without_replacing_monocraft() {
+fn explicit_local_font_carrier_takes_precedence_without_replacing_cinnangles() {
     let directory = temporary_directory("local-font-precedence");
     let path = directory.join("custom-world.mcbea");
     fs::write(&path, synthetic_blob()).unwrap();
@@ -721,8 +721,8 @@ fn explicit_local_font_carrier_takes_precedence_without_replacing_monocraft() {
     )
     .unwrap();
     fs::write(entity_asset_path(&path), synthetic_entity_blob(0x7e)).unwrap();
-    let monocraft_path = font_asset_path(&path);
-    fs::write(&monocraft_path, synthetic_font_blob(0x7f)).unwrap();
+    let cinnangles_path = font_asset_path(&path);
+    fs::write(&cinnangles_path, synthetic_font_blob(0x7f)).unwrap();
     let local_path = path.with_file_name("vanilla-v1.mcbefont");
     fs::write(
         &local_path,
@@ -733,8 +733,43 @@ fn explicit_local_font_carrier_takes_precedence_without_replacing_monocraft() {
     let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
     assert_eq!(loaded.fonts.selected_path(), local_path);
     assert!(
-        monocraft_path.is_file(),
-        "the Monocraft fallback must remain intact"
+        cinnangles_path.is_file(),
+        "the Cinnangles Sans default must remain intact"
+    );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn bundled_cinnangles_font_carrier_is_bound_to_its_manifest() {
+    let directory = temporary_directory("cinnangles-font-precedence");
+    let path = directory.join("custom-world.mcbea");
+    fs::write(&path, synthetic_blob()).unwrap();
+    fs::write(
+        atmosphere_asset_path(&path),
+        synthetic_atmosphere_blob(0x7d),
+    )
+    .unwrap();
+    fs::write(entity_asset_path(&path), synthetic_entity_blob(0x7e)).unwrap();
+    let cinnangles_path = font_asset_path(&path);
+    fs::write(
+        &cinnangles_path,
+        synthetic_font_blob_with_manifest(0x81, canonical_cinnangles_font_source_manifest_sha256()),
+    )
+    .unwrap();
+
+    let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
+    assert_eq!(loaded.fonts.selected_path(), cinnangles_path);
+
+    // A Cinnangles carrier built from any other source fails closed instead of falling back.
+    fs::write(
+        &cinnangles_path,
+        synthetic_font_blob_with_manifest(0x82, canonical_vanilla_source_manifest_sha256()),
+    )
+    .unwrap();
+    let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
+    assert!(
+        error.to_string().contains(FONT_ASSETS_COMPILE_COMMAND),
+        "{error}"
     );
     fs::remove_dir_all(directory).unwrap();
 }

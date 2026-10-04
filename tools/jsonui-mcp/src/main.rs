@@ -35,7 +35,7 @@ fn main() {
     }
 }
 
-/// `--font <carrier>`: the compiled Monocraft carrier text measures and draws with.
+/// `--font <carrier>`: the compiled Cinnangles Sans carrier text measures and draws with.
 fn font_argument() -> Option<String> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {

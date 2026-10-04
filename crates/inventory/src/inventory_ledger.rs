@@ -198,6 +198,7 @@ pub struct PlayerInventoryLedger {
     /// Bundle contents by dynamic container id.
     bundles: BTreeMap<u32, Vec<NetworkItemStack>>,
     queue: VecDeque<PendingRequest>,
+    pending_world_drops: usize,
     next_request_id: i32,
     session_generation: u64,
     next_open_generation: u64,
@@ -230,6 +231,7 @@ impl Default for PlayerInventoryLedger {
             enchant_options: None,
             bundles: BTreeMap::new(),
             queue: VecDeque::new(),
+            pending_world_drops: 0,
             next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,
