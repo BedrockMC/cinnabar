@@ -180,7 +180,7 @@ impl InstallLayout {
         self.user_data_root.join("prepare")
     }
 
-    /// Bundled scripts, manifests, registries and `assetc` used by first-run preparation.
+    /// Bundled manifests, registries and `assetc` used by first-run preparation.
     #[must_use]
     pub fn prep_kit(&self) -> PathBuf {
         self.resource_root.join("prep-kit")

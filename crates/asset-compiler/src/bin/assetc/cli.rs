@@ -294,4 +294,13 @@ pub(super) enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Download (when missing), verify and unpack the pinned sample pack below `.local/assets`.
+    VanillaPack {
+        /// Tracked manifest pinning the pack; its paths resolve against the current directory.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Confirms acceptance of the Minecraft EULA.
+        #[arg(long)]
+        accept_eula: bool,
+    },
 }
