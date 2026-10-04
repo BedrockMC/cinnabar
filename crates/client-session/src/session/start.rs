@@ -73,9 +73,9 @@ pub fn spawn_network<P: Send + 'static>(
                 let Some((preparation, game_data, packs)) = run_blocking_or_cancel(
                     move || {
                         let preparation = crate::prepare_session_packs(handoff, &game_data);
-                        // An abandoned preparation skips the compile.
-                        let packs = (!*cancelled.borrow())
-                            .then(|| prepare_presentation(&preparation, &game_data));
+                        let packs = unless_cancelled(&cancelled, || {
+                            prepare_presentation(&preparation, &game_data)
+                        });
                         (preparation, game_data, packs)
                     },
                     &mut shutdown_rx,
@@ -313,6 +313,31 @@ mod tests {
         let _ = release.send(());
         thread.join().unwrap();
         ended.expect("the network thread outlived its cancelled preparation");
+    }
+
+    // Shutdown must not wait on the watch channel while a compile is running.
+    #[test]
+    fn shutdown_returns_while_presentation_compiles() {
+        let (shutdown, cancelled) = watch::channel(false);
+        let (started, compiling) = std::sync::mpsc::channel();
+        let (release, blocked) = std::sync::mpsc::channel::<()>();
+        let worker = thread::spawn(move || {
+            unless_cancelled(&cancelled, || {
+                started.send(()).unwrap();
+                blocked.recv().is_ok()
+            })
+        });
+        compiling.recv().unwrap();
+        let (sent, shutdown_done) = std::sync::mpsc::channel();
+        let notifier = thread::spawn(move || {
+            shutdown.send_replace(true);
+            sent.send(()).unwrap();
+        });
+        let returned = shutdown_done.recv_timeout(std::time::Duration::from_secs(5));
+        release.send(()).unwrap();
+        assert_eq!(worker.join().unwrap(), Some(true));
+        notifier.join().unwrap();
+        returned.expect("shutdown blocked behind the running compile");
     }
 
     #[tokio::test]
