@@ -29,6 +29,35 @@ fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
 }
 
 #[test]
+fn high_resolution_optional_clouds_cannot_reach_the_fixed_size_mesher() {
+    use assets::AtmosphereRole;
+    let size = meshing::CLOUD_MASK_SIZE * 4;
+    let image = image::RgbaImage::from_pixel(size, size, image::Rgba([255; 4]));
+    let mut png = Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let path = "textures/environment/clouds.png";
+    let decoded = decode_pack_texture(&view(&[(path, png.get_ref())]), path).unwrap();
+    assert!(!supports_texture_dimensions(
+        AtmosphereRole::Clouds,
+        decoded.width,
+        decoded.height
+    ));
+    assert!(!supports_texture_dimensions(
+        AtmosphereRole::Clouds,
+        meshing::CLOUD_MASK_SIZE,
+        size
+    ));
+    assert!(supports_texture_dimensions(
+        AtmosphereRole::Clouds,
+        meshing::CLOUD_MASK_SIZE,
+        meshing::CLOUD_MASK_SIZE
+    ));
+    for role in [AtmosphereRole::Sun, AtmosphereRole::MoonPhases] {
+        assert!(supports_texture_dimensions(role, size, size));
+    }
+}
+
+#[test]
 fn fog_overrides_skip_unknown_media_and_nonfinite_or_reversed_distances() {
     let json = serde_json::json!({"minecraft:fog_settings": {"description": {"identifier":"test:fog"}, "distance": {
         "air": {"fog_start": 2, "fog_end": 4, "fog_color":"#112233", "render_distance_type":"fixed"},

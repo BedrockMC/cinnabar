@@ -82,6 +82,15 @@ fn prepare_atmosphere(
         let Some(decoded) = decode_pack_texture(view, &texture.source_path) else {
             continue;
         };
+        if !supports_texture_dimensions(texture.role, decoded.width, decoded.height) {
+            bevy::log::warn!(
+                path = %texture.source_path,
+                width = decoded.width,
+                height = decoded.height,
+                "optional cloud texture exceeds the current mesh contract; retaining base clouds"
+            );
+            continue;
+        }
         digest.update(&decoded.rgba8);
         textures.push(AtmosphereTexture {
             width: decoded.width,
@@ -137,6 +146,12 @@ fn prepare_atmosphere(
             base.clone()
         }
     }
+}
+
+/// Optional packs must not publish cloud masks the fixed-size mesher cannot consume.
+fn supports_texture_dimensions(role: assets::AtmosphereRole, width: u32, height: u32) -> bool {
+    role != assets::AtmosphereRole::Clouds
+        || (width == meshing::CLOUD_MASK_SIZE && height == meshing::CLOUD_MASK_SIZE)
 }
 
 /// Preserves pack priority when definitions in different files reuse an identifier.
