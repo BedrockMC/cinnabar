@@ -1,9 +1,13 @@
 mod decode;
 mod id_remap;
 mod overlay;
+mod server_defined_blocks;
 
 pub use id_remap::SequentialIdRemap;
 pub use overlay::{BlockOverlay, MaterialOverride};
+pub use server_defined_blocks::{
+    ServerDefinedBlock, server_defined_blocks, server_defined_blocks_for_registry,
+};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

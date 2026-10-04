@@ -116,6 +116,34 @@ fn tint_rgba(flags: u32) -> u32 {
     rope_color(r, g, b)
 }
 
+fn item_block_id(stream: &WorldStream, visual: ItemVisualRoute) -> Option<(NetworkIdMode, u32)> {
+    match visual {
+        ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0)),
+        ItemVisualRoute::RetainedBlock { block_runtime_id } => Some((
+            stream.network_id_mode(),
+            stream.resolve_block_network_id(u32::from_ne_bytes(block_runtime_id.to_ne_bytes())),
+        )),
+        _ => None,
+    }
+}
+
+fn entity_block_id(
+    stream: &WorldStream,
+    kind: &BlockEntityKind,
+) -> Option<(NetworkIdMode, u32, f32)> {
+    match kind {
+        BlockEntityKind::Falling { block_runtime_id } => Some((
+            stream.network_id_mode(),
+            stream.resolve_block_network_id(u32::from_ne_bytes(block_runtime_id.to_ne_bytes())),
+            FALLING_BLOCK_SCALE,
+        )),
+        BlockEntityKind::PrimedTnt { visual } => match visual {
+            ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0, 1.0)),
+            _ => None,
+        },
+    }
+}
+
 /// Builds a unit cube from a cube-kind block's six face textures, or `None` for other kinds.
 fn block_cube(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<DroppedItemCube> {
     let block = assets.resolve(mode, id);
@@ -237,7 +265,6 @@ impl DroppedItemPublisher<'_, '_> {
             icons.session_icon_generation(),
         );
         let assets = self.textures.as_ref().map(|textures| textures.assets());
-        let mode = stream.network_id_mode();
         let mut instances = Vec::new();
 
         let dropped = stream.authority().dropped_items(partial_tick);
@@ -252,13 +279,7 @@ impl DroppedItemPublisher<'_, '_> {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
-            let block_id = match view.item.visual {
-                ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0)),
-                ItemVisualRoute::RetainedBlock { block_runtime_id } => {
-                    u32::try_from(block_runtime_id).ok().map(|id| (mode, id))
-                }
-                _ => None,
-            };
+            let block_id = item_block_id(stream, view.item.visual);
             let cube = block_id.zip(assets).and_then(|((mode, id), assets)| {
                 Self::carried_block_model(cache, icons, assets, mode, id)
                     .or_else(|| Self::block_model(cache, assets, mode, id))
@@ -345,17 +366,8 @@ impl DroppedItemPublisher<'_, '_> {
 
         if let Some(assets) = assets {
             for view in stream.authority().block_entities(partial_tick) {
-                let (id_mode, id, base_scale) = match &view.kind {
-                    BlockEntityKind::Falling { block_runtime_id } => {
-                        let Ok(id) = u32::try_from(*block_runtime_id) else {
-                            continue;
-                        };
-                        (mode, id, FALLING_BLOCK_SCALE)
-                    }
-                    BlockEntityKind::PrimedTnt { visual } => match visual {
-                        ItemVisualRoute::BlockItem(id) => (NetworkIdMode::Sequential, id.0, 1.0),
-                        _ => continue,
-                    },
+                let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind) else {
+                    continue;
                 };
                 let Some(model) = Self::block_model(cache, assets, id_mode, id) else {
                     continue;
@@ -417,6 +429,10 @@ impl DroppedItemPublisher<'_, '_> {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "dropped_items/tests.rs"]
+mod palette_tests;
 
 #[cfg(test)]
 mod tests {
