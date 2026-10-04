@@ -1,10 +1,6 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
@@ -384,9 +380,7 @@ pub(crate) fn update_block_entity_scene(
                                 entry.insert(fresh);
                                 entry.into_mut()
                             }
-                            std::collections::hash_map::Entry::Vacant(entry) => {
-                                entry.insert(fresh)
-                            }
+                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(fresh),
                         }
                     }
                 };

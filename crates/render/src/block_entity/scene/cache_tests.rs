@@ -380,7 +380,7 @@ fn review_render_atlas_snapshot_does_not_block_mob_installation() {
 #[test]
 fn lobby_block_entity_frame_cost() {
     use crate::block_entity::{
-        banner::{BannerLayer, BannerMount, BannerModel},
+        banner::{BannerLayer, BannerModel, BannerMount},
         skull::{SkullKind, SkullModel, SkullMount},
     };
     if std::env::var_os("CINNABAR_LOBBY_BENCH").is_none() {
@@ -394,7 +394,12 @@ fn lobby_block_entity_frame_cost() {
         return;
     };
     let assets = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
-    for (signs, banners, walking) in [(80, 0, false), (80, 24, false), (160, 24, false), (80, 0, true)] {
+    for (signs, banners, walking) in [
+        (80, 0, false),
+        (80, 24, false),
+        (160, 24, false),
+        (80, 0, true),
+    ] {
         let mut scene = BlockEntityScene::default();
         scene.install_assets(&assets);
         let mut samples = Vec::new();
