@@ -234,8 +234,10 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
   this Experience's, unloaded, in another dimension than the player, or farther than
   `provisionalFocusRange` (`tools/localserver/experience/limits.go`) from the player's eyes to
   the block's centre. That bound is provisional, labeled incomplete in `plan.md`: it should be
-  the distance at which vanilla Bedrock closes an open container's screen, which has not been
-  identified, so it is Dragonfly's survival reach for using a block. Commit and the
+  the distance at which vanilla Bedrock closes an open container's screen, the player's pick
+  range (`GameMode::getPickRange`, per input mode, survival or creative) from the eyes to the
+  block's centre. The reconstruction does not give those constants, so it is Dragonfly's
+  survival reach for using a block. Commit and the
   stale check are unchanged: if the focus block or its data changed after the snapshot, the
   result is discarded.
 - **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
