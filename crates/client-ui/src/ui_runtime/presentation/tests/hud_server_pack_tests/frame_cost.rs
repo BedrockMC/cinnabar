@@ -81,7 +81,8 @@ fn lobby_ui_publication_cost() {
         eprintln!("LOBBY_PUBLICATION skipped: set CINNABAR_LOBBY_BENCH=1");
         return;
     }
-    let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
+    let compiled =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
     let read = |name: &str| std::fs::read(compiled.join(name)).ok();
     let (Some(hud), Some(icons), Some(carrier)) = (
         read("vanilla-v1.mcbehud"),
@@ -162,7 +163,9 @@ fn lobby_ui_publication_cost() {
                     fifo_sequence: 200 + line,
                     local_millis: 0,
                     server_tick: None,
-                    event: chat_event(&format!("§7[§bMember§7] §fPlayer{line}§7: hello lobby {line}")),
+                    event: chat_event(&format!(
+                        "§7[§bMember§7] §fPlayer{line}§7: hello lobby {line}"
+                    )),
                 },
             )
             .unwrap();

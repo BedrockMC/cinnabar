@@ -273,15 +273,11 @@ impl CellPool {
         if canvas.len() != cell_width * cell_height * 4 {
             return None;
         }
-        let slot = self
-            .keys
-            .iter()
-            .position(Option::is_none)
-            .or_else(|| {
-                (0..self.keys.len())
-                    .filter(|slot| self.last_used[*slot] < self.frame_start)
-                    .min_by_key(|slot| self.last_used[*slot])
-            })?;
+        let slot = self.keys.iter().position(Option::is_none).or_else(|| {
+            (0..self.keys.len())
+                .filter(|slot| self.last_used[*slot] < self.frame_start)
+                .min_by_key(|slot| self.last_used[*slot])
+        })?;
         let column = slot % self.columns;
         let row = slot / self.columns;
         for line in 0..cell_height {
@@ -407,7 +403,10 @@ mod tests {
         for key in 0..TEXT_SLOT_COUNT as u64 {
             text.text_slot(key, || panic!("a hit must not rasterize"));
         }
-        assert!(text.text_slot(TEXT_SLOT_COUNT as u64, || canvas(2)).is_none());
+        assert!(
+            text.text_slot(TEXT_SLOT_COUNT as u64, || canvas(2))
+                .is_none()
+        );
         assert_eq!(text.revision(), revision);
     }
 
