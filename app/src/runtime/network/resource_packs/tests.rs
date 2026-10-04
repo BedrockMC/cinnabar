@@ -137,6 +137,164 @@ fn files_pack(files: &[(&str, &[u8])]) -> resource_pack::LayeredPackView {
     ))
 }
 
+#[test]
+fn ui_index_loads_custom_paths_and_extensions() {
+    let path = "custom/inventory.uidx";
+    let view = files_pack(&[
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["custom/inventory.uidx"]}"#,
+        ),
+        (
+            path,
+            br#"{"namespace":"custom","inventory":{"type":"panel"}}"#,
+        ),
+        ("custom/unlisted.uidx", b"unlisted data"),
+    ]);
+    let pack = super::collect_server_ui(&view).unwrap();
+    assert!(pack.ui_layers[0].iter().any(|(name, _)| name == path));
+    assert!(
+        !pack.ui_layers[0]
+            .iter()
+            .any(|(name, _)| name == "custom/unlisted.uidx")
+    );
+    let mut catalog = json_ui::Catalog::default();
+    catalog.apply_pack(
+        pack.ui_layers[0]
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    );
+    assert!(catalog.lookup("custom", "inventory").is_some());
+}
+
+#[test]
+fn ui_custom_definition_overrides_across_layers_without_relisting() {
+    let path = "custom/inventory.uidx";
+    let lower = archive(
+        1,
+        &[
+            (
+                "ui/_ui_defs.json",
+                br#"{"ui_defs":["custom/inventory.uidx"]}"#,
+            ),
+            (
+                path,
+                br#"{"namespace":"custom","inventory":{"type":"panel","size":[10,10]}}"#,
+            ),
+        ],
+    );
+    let upper = archive(
+        2,
+        &[(
+            path,
+            br#"{"namespace":"custom","inventory":{"size":[20,20]}}"#,
+        )],
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![lower, upper]),
+    ));
+    let pack = super::collect_server_ui(&view).unwrap();
+    assert!(pack.ui_layers[1].iter().any(|(name, _)| name == path));
+    let mut catalog = json_ui::Catalog::default();
+    for files in &pack.ui_layers {
+        catalog.apply_pack(
+            files
+                .iter()
+                .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+        );
+    }
+    assert_eq!(
+        catalog.lookup("custom", "inventory").unwrap().props["size"],
+        serde_json::json!([20, 20])
+    );
+}
+
+#[test]
+fn ui_reload_tracks_declared_documents_and_external_art() {
+    use super::super::pack_reload_diff::{Changes, Subscriber, compile};
+    for changed in [
+        "custom/inventory.uidx",
+        "assets/gui/inventory.png",
+        "assets/gui/inventory.json",
+    ] {
+        let inputs = |value| {
+            files_pack(&[
+                (
+                    "ui/_ui_defs.json",
+                    br#"{"ui_defs":["custom/inventory.uidx"]}"#,
+                ),
+                (
+                    "custom/inventory.uidx",
+                    if changed == "custom/inventory.uidx" {
+                        value
+                    } else {
+                        b"{}"
+                    },
+                ),
+                (
+                    "assets/gui/inventory.png",
+                    if changed == "assets/gui/inventory.png" {
+                        value
+                    } else {
+                        b"pixels"
+                    },
+                ),
+                (
+                    "assets/gui/inventory.json",
+                    if changed == "assets/gui/inventory.json" {
+                        value
+                    } else {
+                        b"{}"
+                    },
+                ),
+            ])
+        };
+        let before = inputs(b"before");
+        let mut dependencies = Default::default();
+        compile(
+            Subscriber::Ui,
+            &before.shared_stack(),
+            &mut dependencies,
+            super::collect_server_ui,
+        );
+        let previous = super::PackApplication {
+            admission: resource_pack::PackAdmission::Validated(before.shared_stack()),
+            dependencies,
+            ..Default::default()
+        };
+        assert!(
+            Changes::between(inputs(b"after").stack(), Some(&previous)).ui,
+            "{changed}"
+        );
+    }
+}
+
+#[test]
+fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
+    use super::super::pack_reload_diff::{Changes, Subscriber, compile};
+    let before = files_pack(&[("assets/gui/inventory.png", b"pixels")]);
+    let mut dependencies = Default::default();
+    compile(
+        Subscriber::Ui,
+        &before.shared_stack(),
+        &mut dependencies,
+        super::collect_server_ui,
+    );
+    let previous = super::PackApplication {
+        admission: resource_pack::PackAdmission::Validated(before.shared_stack()),
+        dependencies,
+        ..Default::default()
+    };
+    for (added, changed) in [("assets/gui/new.png", true), ("texts/en_US.lang", false)] {
+        let after = files_pack(&[("assets/gui/inventory.png", b"pixels"), (added, b"new")]);
+        assert_eq!(
+            Changes::between(after.stack(), Some(&previous)).ui,
+            changed,
+            "{added}"
+        );
+    }
+}
+
 // A cancelled session's late preparation must not replace the live session's sounds.
 #[test]
 fn preparing_packs_leaves_sound_publication_to_bootstrap() {
