@@ -97,8 +97,12 @@ fn near(a: [f32; 3], b: [f32; 3]) {
 fn owned_custom_emote_deep_squat_keeps_feet_and_attached_level_head() {
     let f = Fixture::new();
     let period = CustomEmote::Twerk.duration_seconds();
-    let mut heights = Vec::new();
-    for phase in [0.0, period / 4.0, period / 2.0, 3.0 * period / 4.0, period] {
+    let first = sample(&f.rig(), CustomEmote::Twerk, 0.0, 0.0).unwrap();
+    let head_height = first.current[f.index("head")].translation_scale[1];
+    let first_hip = point(first.current[f.index("body")], [0.0, -12.0, 0.0]);
+    let mut hip_travel = 0.0_f32;
+    for step in 0..=32 {
+        let phase = period * f64::from(step) / 32.0;
         let pose = sample(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
         let body = pose.current[f.index("body")];
         let hips = point(body, [0.0, -12.0, 0.0]);
@@ -110,11 +114,16 @@ fn owned_custom_emote_deep_squat_keeps_feet_and_attached_level_head() {
             rotate_vector(head.rotation, [0.0, 1.0, 0.0]),
             [0.0, 1.0, 0.0],
         );
-        heights.push(head.translation_scale[1]);
+        assert!(
+            (head.translation_scale[1] - head_height).abs() < 1e-4,
+            "shoulders and head must not hop during the hip pulse"
+        );
+        hip_travel = hip_travel.max((hips[2] - first_hip[2]).abs());
         for name in ["leftleg", "rightleg"] {
             let foot = point(pose.current[f.index(name)], [0.0, -12.0, 0.0]);
             assert!(foot[1].abs() < 1e-4 && foot[2].abs() < 1e-4, "{foot:?}");
             assert!(foot[0].abs() > 3.0, "feet must form a wide stance");
+            near(foot, point(first.current[f.index(name)], [0.0, -12.0, 0.0]));
         }
         for (name, x) in [("leftarm", -5.0), ("rightarm", 5.0)] {
             near(
@@ -123,11 +132,7 @@ fn owned_custom_emote_deep_squat_keeps_feet_and_attached_level_head() {
             );
         }
     }
-    assert!(
-        heights[0] < heights[2] - 1.0,
-        "hip pulse must move the torso"
-    );
-    assert_eq!(heights[0], heights[4]);
+    assert!(hip_travel > 0.5, "the hips must still rock forward/back");
 }
 
 #[test]

@@ -49,7 +49,9 @@ The revised owned clip follows the public video's sustained deep squat, wide
 stance, level head, hands beside the thighs and hip pulse. Model-space joint
 targets rotate the torso about the hips even on independent, shoulder-pivot
 skin bones; clothing still follows its actual parent hierarchy. Root Y/Z offsets
-anchor the leg bottom-face centers through the loop. Rigid tilted foot corners
+anchor the leg bottom-face centers through the loop. Torso counter-tilt keeps
+shoulder/head height steady as the pelvis rocks; varying spread keeps the foot
+centers fixed laterally as well. Rigid tilted foot corners
 are not articulated soles, and exact visual parity remains incomplete.
 
 Sampling resolves named bones in the player's actual geometry and applies

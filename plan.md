@@ -11,6 +11,8 @@ limits are recorded in [docs/reference/emote-wheel.md](docs/reference/emote-whee
 Exact Lunar keyframes/assets and full native animation parity are not verified.
 The revised clip follows the reference video's deeper squat and hip pulse,
 retargets both native and independent skin joints, and anchors foot centers.
+The pelvis rocks under steady shoulders/head, avoiding a whole-body jumping
+pulse; stance compensation keeps foot centers fixed on all three axes.
 Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, seven
 animation tests, the native-carrier wheel/preview tests, and twelve production
 input/actor regressions. The 1280x720 software-rendered wheel/equip frames were
