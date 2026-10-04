@@ -35,7 +35,12 @@ const LOCAL_SERVER: &str = if cfg!(windows) {
     "bedrock-local-server"
 };
 
-/// Present only in launcher runs; holds the core once started.
+/// Allows account-core changes during direct play, while protecting launcher-owned games.
+pub(super) fn account_core_idle(launcher: bool, connecting: bool, in_session: bool) -> bool {
+    !connecting && (!launcher || !in_session)
+}
+
+/// Holds the account core in every startup mode, including direct connections.
 #[derive(Default, Resource)]
 pub(crate) struct LauncherCoreSlot {
     core: Option<LauncherCore>,
@@ -63,6 +68,9 @@ impl LauncherCoreSlot {
         upstream_client_cache: bool,
         mut worlds: Option<&mut LocalWorlds>,
     ) {
+        if self.core.is_none() && std::mem::take(&mut menu.feeds.profile_refresh_requested) {
+            self.failed = None;
+        }
         if idle && !menu.sign_in_in_flight() {
             let auth_cache = menu.launcher_auth_cache();
             let wanted = auth_cache.is_some();
@@ -294,6 +302,18 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_core_idle_keeps_direct_play_independent_from_account_startup() {
+        for launcher in [false, true] {
+            assert!(account_core_idle(launcher, false, false));
+            for in_session in [false, true] {
+                assert!(!account_core_idle(launcher, true, in_session));
+            }
+        }
+        assert!(account_core_idle(false, false, true));
+        assert!(!account_core_idle(true, false, true));
+    }
 
     // A missing launcher socket is an error, not a panic on a timer built outside the runtime.
     #[test]
