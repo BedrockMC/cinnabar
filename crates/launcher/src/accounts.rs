@@ -8,6 +8,33 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
+/// The shared download and local-copy bound for catalog and Xbox profile artwork.
+pub const MAX_ARTWORK_BYTES: usize =
+    artwork_byte_limit(include_bytes!("../../../core/catalog/artwork_limit.txt"));
+
+const fn artwork_byte_limit(bytes: &[u8]) -> usize {
+    let mut limit = 0usize;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'0'..=b'9' => {
+                limit = match limit.checked_mul(10) {
+                    Some(limit) => limit,
+                    None => panic!("embedded artwork byte limit overflow"),
+                };
+                limit = match limit.checked_add((bytes[index] - b'0') as usize) {
+                    Some(limit) => limit,
+                    None => panic!("embedded artwork byte limit overflow"),
+                };
+            }
+            b'\r' | b'\n' => {}
+            _ => panic!("invalid embedded artwork byte limit"),
+        }
+        index += 1;
+    }
+    assert!(limit > 0, "invalid embedded artwork byte limit");
+    limit
+}
 const DERIVED_SUFFIX: &str = include_str!("../../../core/authcache/derived_suffix.txt");
 const PICTURE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "bmp"];
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -260,27 +287,39 @@ impl AccountStore {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(error),
         };
-        if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
+        if !metadata.is_file() || metadata.len() > MAX_ARTWORK_BYTES as u64 {
             return Ok(());
         }
         let mut bytes = Vec::new();
         File::open(path)?
-            .take(MAX_FILE_BYTES + 1)
+            .take(MAX_ARTWORK_BYTES as u64 + 1)
             .read_to_end(&mut bytes)?;
-        if bytes.is_empty() || bytes.len() as u64 > MAX_FILE_BYTES {
+        if bytes.is_empty() || bytes.len() as u64 > MAX_ARTWORK_BYTES as u64 {
             return Ok(());
         }
-        let extension = path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .filter(|extension| PICTURE_EXTENSIONS.contains(extension))
-            .unwrap_or(PICTURE_EXTENSIONS[0]);
+        let Some(extension) = picture_extension(&bytes) else {
+            return Ok(());
+        };
         let target = self
             .directory
             .join(format!("{}-picture.{extension}", profile.id));
-        write_private(&target, &bytes)?;
+        write_private_bounded(&target, &bytes, MAX_ARTWORK_BYTES as u64)?;
         profile.picture_path = Some(target.to_string_lossy().into_owned());
         Ok(())
+    }
+}
+
+fn picture_extension(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("jpg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("gif")
+    } else if bytes.starts_with(b"BM") {
+        Some("bmp")
+    } else {
+        None
     }
 }
 
@@ -474,8 +513,12 @@ fn protect_windows(path: &Path) -> io::Result<()> {
 }
 
 fn read_private(path: &Path) -> io::Result<Vec<u8>> {
+    read_private_bounded(path, MAX_FILE_BYTES)
+}
+
+fn read_private_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path)?;
-    if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
+    if !metadata.is_file() || metadata.len() > limit {
         return Err(invalid("unsafe account cache file"));
     }
     #[cfg(unix)]
@@ -486,10 +529,8 @@ fn read_private(path: &Path) -> io::Result<Vec<u8>> {
         }
     }
     let mut bytes = Vec::new();
-    File::open(path)?
-        .take(MAX_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_FILE_BYTES {
+    File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
         return Err(invalid("account cache is too large"));
     }
     Ok(bytes)
@@ -518,11 +559,17 @@ fn remove_optional(path: &Path) -> io::Result<()> {
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if bytes.is_empty() || bytes.len() as u64 > MAX_FILE_BYTES {
+    write_private_bounded(path, bytes, MAX_FILE_BYTES)
+}
+
+fn write_private_bounded(path: &Path, bytes: &[u8], limit: u64) -> io::Result<()> {
+    if bytes.is_empty() || bytes.len() as u64 > limit {
         return Err(invalid("account cache is too large"));
     }
-    if read_optional(path)?.as_deref() == Some(bytes) {
-        return Ok(());
+    match read_private_bounded(path, limit) {
+        Ok(previous) if previous == bytes => return Ok(()),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
     }
     let parent = path
         .parent()
@@ -560,6 +607,39 @@ fn invalid(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn png_fixture() -> Vec<u8> {
+        let hex = "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c63f8cfc0f01f00050001ff89993d1d0000000049454e44ae426082";
+        (0..hex.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn png_with_metadata(payload_size: usize) -> Vec<u8> {
+        let mut png = png_fixture();
+        let end = png.split_off(png.len() - 12);
+        let mut payload = b"Padding\0".to_vec();
+        payload.resize(payload_size, b'x');
+        png.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        let chunk_start = png.len();
+        png.extend_from_slice(b"tEXt");
+        png.extend_from_slice(&payload);
+        let mut crc = u32::MAX;
+        for byte in &png[chunk_start..] {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        png.extend_from_slice(&(!crc).to_be_bytes());
+        png.extend_from_slice(&end);
+        png
+    }
 
     struct Fixture {
         directory: PathBuf,
@@ -652,7 +732,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.sign_in(&fixture.store.active_cache, "one");
         let source = fixture.directory.join("gamerpic.png");
-        fs::write(&source, b"picture fixture").unwrap();
+        fs::write(&source, png_fixture()).unwrap();
         let first = fixture
             .store
             .remember_current("1", "First", source.to_str())
@@ -718,7 +798,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.sign_in(&fixture.store.active_cache, "one");
         let source = fixture.directory.join("gamerpic.png");
-        fs::write(&source, b"picture fixture").unwrap();
+        fs::write(&source, png_fixture()).unwrap();
         let profile = fixture
             .store
             .remember_current("1", "First", source.to_str())
@@ -728,7 +808,7 @@ mod tests {
         assert_eq!(restarted.list().unwrap(), vec![profile.clone()]);
         assert_eq!(
             fs::read(profile.picture_path.unwrap()).unwrap(),
-            b"picture fixture"
+            png_fixture()
         );
         assert!(
             fixture
@@ -753,6 +833,79 @@ mod tests {
         assert!(fixture.store.activate("42").is_err());
         assert_eq!(fixture.active_generation(), "one");
         assert_eq!(fixture.store.list().unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn cached_picture_larger_than_credentials_is_preserved_with_its_detected_format() {
+        let fixture = Fixture::new();
+        fixture.sign_in(&fixture.store.active_cache, "one");
+        let source = fixture.directory.join("gamerpic.img");
+        let bytes = png_with_metadata(MAX_FILE_BYTES as usize + 1);
+        assert!(bytes.len() > MAX_FILE_BYTES as usize && bytes.len() <= MAX_ARTWORK_BYTES);
+        fs::write(&source, &bytes).unwrap();
+        let profile = fixture
+            .store
+            .remember_current("1", "First", source.to_str())
+            .unwrap();
+        let target = Path::new(profile.picture_path.as_ref().unwrap());
+        assert_eq!(target.extension().unwrap(), "png");
+        assert_eq!(fs::read(target).unwrap(), bytes);
+        let profile_again = fixture
+            .store
+            .remember_current("1", "First", source.to_str())
+            .unwrap();
+        assert_eq!(profile_again, profile);
+        fs::remove_file(&source).unwrap();
+        assert_eq!(fixture.store.list().unwrap(), vec![profile]);
+    }
+
+    #[test]
+    fn unsupported_or_oversized_pictures_do_not_replace_saved_art() {
+        let fixture = Fixture::new();
+        fixture.sign_in(&fixture.store.active_cache, "one");
+        let source = fixture.directory.join("gamerpic.img");
+        fs::write(&source, png_fixture()).unwrap();
+        let original = fixture
+            .store
+            .remember_current("1", "First", source.to_str())
+            .unwrap();
+        fs::write(&source, b"unsupported image data").unwrap();
+        assert_eq!(
+            fixture
+                .store
+                .remember_current("1", "First", source.to_str())
+                .unwrap(),
+            original
+        );
+        File::create(&source)
+            .unwrap()
+            .set_len(MAX_ARTWORK_BYTES as u64 + 1)
+            .unwrap();
+        assert_eq!(
+            fixture
+                .store
+                .remember_current("1", "First", source.to_str())
+                .unwrap(),
+            original
+        );
+        assert_eq!(
+            fs::read(original.picture_path.unwrap()).unwrap(),
+            png_fixture()
+        );
+    }
+
+    #[test]
+    fn cached_picture_formats_follow_image_signatures() {
+        for (signature, extension) in [
+            (&b"\x89PNG\r\n\x1a\n"[..], "png"),
+            (&b"\xff\xd8\xff"[..], "jpg"),
+            (&b"GIF87a"[..], "gif"),
+            (&b"GIF89a"[..], "gif"),
+            (&b"BM"[..], "bmp"),
+        ] {
+            assert_eq!(picture_extension(signature), Some(extension));
+        }
+        assert_eq!(picture_extension(b"unsupported"), None);
     }
 
     #[cfg(unix)]
