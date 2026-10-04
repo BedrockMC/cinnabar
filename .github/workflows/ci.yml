@@ -159,6 +159,10 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: 1
         run: python3 -m unittest discover -s packaging/tests -p 'test_*.py'
+      - name: Test and build the download page
+        run: |
+          node --test website/tests/app.test.cjs
+          python3 website/build.py
       - name: Test DMG retry and cleanup
         run: bash packaging/tests/make-dmg.sh
       - name: Test MSI payload extraction
