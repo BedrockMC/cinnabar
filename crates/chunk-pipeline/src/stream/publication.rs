@@ -252,6 +252,10 @@ impl WorldStream {
     pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
         self.authority.block_entities(partial_tick)
     }
+    /// End crystal beams with interpolated endpoints and actor animation age.
+    pub fn crystal_beams(&self, partial_tick: f32) -> Vec<crate::CrystalBeamView> {
+        self.authority.crystal_beams(partial_tick)
+    }
     /// Fishing lines and leads with interpolated endpoints.
     pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
         self.authority.ropes(partial_tick)
