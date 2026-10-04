@@ -1,7 +1,7 @@
 //! The `serve` session over real pipes: the runtime binary loads an artifact, answers each
 //! callback with its result, and exits with the code that the end of the session calls for.
 
-mod common;
+use crate::common;
 
 use std::io::{self, Read, Write};
 use std::path::Path;

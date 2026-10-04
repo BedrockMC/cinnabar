@@ -1,7 +1,7 @@
 //! Callbacks on the probe guest: what each behavior stages and how each call ends. The probe
 //! selects a behavior by the interacted block's x; `p(x)` is that block and `up(x)` the one above.
 
-mod common;
+use crate::common;
 
 use common::{
     ACTOR, AIR, COUNTER, callback, cell, client_message, interact, outcome, p, send, tell, up,

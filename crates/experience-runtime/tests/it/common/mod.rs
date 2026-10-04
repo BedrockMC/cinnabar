@@ -1,7 +1,6 @@
 //! Builds guest crates for wasm32 and assembles them into temporary server artifacts, and builds
 //! the probe's callback requests. The probe selects a behavior by the interacted block's x; `p(x)`
 //! is that block and `up(x)` the one above.
-#![allow(dead_code, reason = "each test binary uses only some of these helpers")]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,9 +26,9 @@ pub const AIR: &str = "minecraft:air";
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// The WIT that guests are built against.
-const SERVER_WIT: &str = include_str!("../../../experience-sdk/wit/server.wit");
+const SERVER_WIT: &str = include_str!("../../../../experience-sdk/wit/server.wit");
 /// The server WIT 0.1, which the runtime still accepts.
-const SERVER_WIT_0_1: &str = include_str!("../../wit/0.1/server.wit");
+const SERVER_WIT_0_1: &str = include_str!("../../../wit/0.1/server.wit");
 
 /// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
 /// Each export takes the canonical ABI's flattening of its WIT signature, and returns a pointer

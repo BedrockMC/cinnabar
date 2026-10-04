@@ -1,7 +1,7 @@
 //! Containment: each limit stops a guest that runs away, in a callback or in `register`, and what
 //! stays within the limits still commits.
 
-mod common;
+use crate::common;
 
 use std::time::{Duration, Instant};
 
