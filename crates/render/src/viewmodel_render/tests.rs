@@ -256,12 +256,12 @@ fn actual_missing_current_view_coverage_revokes_prior_completion() {
     world.insert_resource(gate.clone());
     let coverage = crate::ui_render::UiHandCoverage::default();
     coverage.clear();
-    let batch = crate::ui::UiRenderBatch::new(
+    let batch = render_model::UiRenderBatch::new(
         0,
-        crate::ui::UiScissor::new(0, 0, 640, 480),
+        render_model::UiScissor::new(0, 0, 640, 480),
         0,
         6,
-        crate::ui::UI_BLEND_ALPHA,
+        render_model::UI_BLEND_ALPHA,
     );
     let render_view = Entity::from_raw_u32(1).unwrap();
     gate.select(None);

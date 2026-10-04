@@ -5,9 +5,12 @@ use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin, SkinRgba8};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
-    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_bounds_are_visible,
-    actor_rig_submission_is_visible, default_actor_skin_rgba8, pack_overlay_rgba8,
+    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_overlay_rgba8,
+};
+use render_model::{
+    ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    default_actor_skin_rgba8,
 };
 
 mod admission;
@@ -332,7 +335,7 @@ pub fn local_diagnostic_presentation(
     let mut bones = pivots.map(|pivot| RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     });
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
@@ -704,11 +707,13 @@ fn player_route_and_skin(
     let skin = profile
         .filter(|profile| profile.unique_id == actor.unique_id)
         .and_then(|profile| match &profile.skin {
-            PlayerSkin::Standard(skin) => render::normalize_actor_skin_cached(&ActorSkinPixels {
-                width: skin.width,
-                height: skin.height,
-                rgba8: skin.rgba8.clone(),
-            }),
+            PlayerSkin::Standard(skin) => {
+                render_model::normalize_actor_skin_cached(&ActorSkinPixels {
+                    width: skin.width,
+                    height: skin.height,
+                    rgba8: skin.rgba8.clone(),
+                })
+            }
             PlayerSkin::Unavailable(_) => None,
         })
         .unwrap_or_else(default_actor_skin_rgba8);

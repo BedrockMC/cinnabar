@@ -6,7 +6,7 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 #[path = "scene/cache.rs"]
 mod cache;
-use cache::CachedSubmission;
+use cache::{CachedSubmission, PreviousFragments};
 
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
@@ -132,13 +132,24 @@ pub struct BlockEntityFrame {
     pub additive: Arc<[BlockEntityVertex]>,
 }
 
-/// Static atlas pixels plus dimensions for GPU upload.
+/// Static atlas pixels plus dimensions for GPU upload; a new size means a new texture.
 #[derive(Debug)]
 pub struct BlockEntityAtlasImage {
     pub identity: [u8; 32],
     pub size: [u32; 2],
     pub static_height: u32,
     pub static_rgba8: Arc<[u8]>,
+}
+
+impl BlockEntityAtlasImage {
+    fn of(atlas: &BlockEntityAtlas) -> Self {
+        Self {
+            identity: atlas.identity(),
+            size: atlas.size(),
+            static_height: atlas.static_height(),
+            static_rgba8: Arc::clone(atlas.static_rgba8()),
+        }
+    }
 }
 
 #[derive(Debug, Default, Resource)]
@@ -152,8 +163,8 @@ pub struct BlockEntityScene {
     rejected_quads: u64,
     /// Inputs of the current frame when it holds no clock-driven kind; unchanged inputs reuse it.
     reusable: Option<(Vec<CrackInstance>, Vec<BlockEntitySubmission>)>,
-    /// Static geometry in submission order, limited to the vertices accepted by the last frame.
-    cached_submissions: Vec<Option<CachedSubmission>>,
+    /// Static geometry in the last frame's submission order; see [`PreviousFragments`].
+    cached_submissions: Vec<Option<Box<CachedSubmission>>>,
     #[cfg(test)]
     static_rebuilds: usize,
 }
@@ -161,12 +172,7 @@ pub struct BlockEntityScene {
 impl BlockEntityScene {
     pub fn install_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) {
         let atlas = BlockEntityAtlas::from_assets(assets);
-        self.image = Some(Arc::new(BlockEntityAtlasImage {
-            identity: atlas.identity(),
-            size: atlas.size(),
-            static_height: atlas.static_height(),
-            static_rgba8: Arc::clone(atlas.static_rgba8()),
-        }));
+        self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.text = Some(DynamicCells::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
@@ -198,7 +204,17 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.text_slot(key, make)?;
+        let text = self.text.as_mut()?;
+        let slot = text.text_slot(key, make)?;
+        let pages = text.text_pages();
+        let atlas = self.atlas.as_mut()?;
+        if atlas.text_pages() != pages {
+            // A taller atlas renormalizes every UV, so no cached geometry survives.
+            Arc::make_mut(atlas).set_text_pages(pages);
+            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
+            self.reusable = None;
+            self.cached_submissions.clear();
+        }
         self.atlas.as_ref()?.text_cell(slot)
     }
 
@@ -220,12 +236,7 @@ impl BlockEntityScene {
             return;
         };
         atlas.append_textures(mobs.textures());
-        self.image = Some(Arc::new(BlockEntityAtlasImage {
-            identity: atlas.identity(),
-            size: atlas.size(),
-            static_height: atlas.static_height(),
-            static_rgba8: Arc::clone(atlas.static_rgba8()),
-        }));
+        self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
         self.mobs = mobs;
         self.reusable = None;
         self.cached_submissions.clear();
@@ -237,6 +248,10 @@ impl BlockEntityScene {
         cracks: &[CrackInstance],
         submissions: &[BlockEntitySubmission],
     ) -> &BlockEntityFrame {
+        // This frame's text and map rects are all requested before its update.
+        if let Some(text) = self.text.as_mut() {
+            text.begin_frame();
+        }
         let (Some(atlas), Some(text)) = (self.atlas.as_ref(), self.text.as_ref()) else {
             return &self.frame;
         };
@@ -256,15 +271,16 @@ impl BlockEntityScene {
             .any(|submission| submission.kind.is_clock_driven()))
         .then(|| (cracks.to_vec(), submissions.to_vec()));
         let mut builder = MeshBuilder::new(atlas.size());
-        self.cached_submissions
-            .resize_with(submissions.len(), || None);
-        for (submission, cached) in submissions.iter().zip(&mut self.cached_submissions) {
+        let mut previous_fragments =
+            PreviousFragments::new(std::mem::take(&mut self.cached_submissions));
+        for submission in submissions {
             let is_static = !submission.kind.is_clock_driven();
             if is_static
-                && let Some(previous) = cached.as_ref()
+                && let Some(previous) = previous_fragments.take(submission)
                 && previous.matches(submission, &builder)
             {
                 previous.append_to(&mut builder);
+                self.cached_submissions.push(Some(previous));
                 continue;
             }
             let start = cache::vertex_counts(&builder);
@@ -277,13 +293,19 @@ impl BlockEntityScene {
                 submission,
                 clock,
             );
-            *cached = is_static.then(|| {
+            if is_static {
                 #[cfg(test)]
                 {
                     self.static_rebuilds += 1;
                 }
-                CachedSubmission::capture(submission, start, rejected_before, &builder)
-            });
+                self.cached_submissions
+                    .push(Some(Box::new(CachedSubmission::capture(
+                        submission,
+                        start,
+                        rejected_before,
+                        &builder,
+                    ))));
+            }
         }
         BlockEntityLight::Scalar(1.0).apply(&mut builder);
         for crack in cracks {

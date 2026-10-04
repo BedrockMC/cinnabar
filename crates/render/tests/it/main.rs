@@ -3,12 +3,6 @@ mod gpu_snapshot;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;
-#[path = "../../src/nametag.rs"]
-#[allow(
-    dead_code,
-    reason = "shader adapter shares record definitions; depth state is tested by pipeline tests"
-)]
-pub mod nametag;
 #[path = "../../src/nametag_render/shader.rs"]
 mod nametag_shader;
 #[path = "../../src/shader_safety.rs"]
@@ -18,9 +12,6 @@ mod shader_safety;
 mod shader_source;
 #[path = "../../src/ui_render/shader.rs"]
 mod ui_shader;
-
-// `ui_shader` resolves `crate::ui` the way the library root does.
-use render as ui;
 
 mod actor_colour;
 mod actor_rig;

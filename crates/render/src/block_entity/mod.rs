@@ -57,6 +57,6 @@ pub use scene::{
 pub use selection::{BlockSelectionFrame, BlockSelectionTarget};
 pub use shulker::{ShulkerModel, shulker_color_from_block_name};
 pub use sign::{SignFace, SignModel, SignMount};
-pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees};
+pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
 pub use spawner::SpawnerModel;
 pub use statue::{Oxidation, StatueModel, StatuePose};

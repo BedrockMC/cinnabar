@@ -21,7 +21,7 @@ fn png(size: [u32; 2], color: [u8; 4]) -> Vec<u8> {
 fn frame(
     player_runtime: &player_state::PlayerState,
     presentation: &mut UiPresentationRuntime,
-) -> render::UiRenderInput {
+) -> render_model::UiRenderInput {
     presentation
         .build(
             player_runtime,
@@ -86,7 +86,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
 fn settled(
     player_runtime: &player_state::PlayerState,
     presentation: &mut UiPresentationRuntime,
-) -> render::UiRenderInput {
+) -> render_model::UiRenderInput {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         frame(player_runtime, presentation);

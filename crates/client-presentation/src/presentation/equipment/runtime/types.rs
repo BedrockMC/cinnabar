@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use render::{ActorArtworkLocation, ActorRigSubmission, EntityRigId};
+use render::{ActorArtworkLocation, ActorRigSubmission};
+use render_model::EntityRigId;
 
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]

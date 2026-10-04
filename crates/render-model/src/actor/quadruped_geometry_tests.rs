@@ -1,6 +1,6 @@
 use super::*;
 
-fn bounds(vertices: &[super::super::rig::ActorRigVertex]) -> ([f32; 3], [f32; 3]) {
+fn bounds(vertices: &[super::super::ActorRigVertex]) -> ([f32; 3], [f32; 3]) {
     let min = std::array::from_fn(|axis| {
         vertices
             .iter()

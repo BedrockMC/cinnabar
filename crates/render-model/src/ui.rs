@@ -4,7 +4,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use bytemuck::{Pod, Zeroable};
 
 pub const MAX_UI_VERTICES: usize = 262_144;
@@ -244,7 +243,7 @@ impl fmt::Display for UiRenderReject {
 
 impl std::error::Error for UiRenderReject {}
 
-#[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct UiRenderScene {
     pub revision: u64,
     pub input: Option<Arc<UiRenderInput>>,
@@ -330,7 +329,8 @@ pub struct UiRenderStatsSnapshot {
     pub rejection_count: u64,
 }
 
-#[derive(Resource, Clone, Debug, Default)]
+/// Shared handle: clones observe and update the same snapshot.
+#[derive(Clone, Debug, Default)]
 pub struct UiRenderStats {
     inner: Arc<Mutex<UiRenderStatsSnapshot>>,
 }
@@ -344,7 +344,7 @@ impl UiRenderStats {
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
-    pub(crate) fn update(&self, update: impl FnOnce(&mut UiRenderStatsSnapshot)) {
+    pub fn update(&self, update: impl FnOnce(&mut UiRenderStatsSnapshot)) {
         update(
             &mut self
                 .inner

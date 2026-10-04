@@ -30,6 +30,7 @@ dependencies = [
  "diagnostics",
  "protocol",
  "render",
+ "render-model",
  "semantic-input",
  "serde",
  "serde_json",
@@ -581,6 +582,7 @@ dependencies = [
  "protocol",
  "rayon",
  "render",
+ "render-model",
  "reqwest",
  "resource-pack",
  "rodio",
@@ -1789,6 +1791,7 @@ dependencies = [
  "protocol",
  "render",
  "render-api",
+ "render-model",
  "resource-pack",
  "rodio",
  "semantic-input",
@@ -1843,8 +1846,8 @@ dependencies = [
  "player-state",
  "protocol",
  "rayon",
- "render",
  "render-api",
+ "render-model",
  "reqwest",
  "resource-pack",
  "semantic-input",
@@ -2476,7 +2479,7 @@ dependencies = [
  "client-ui",
  "meshing",
  "protocol",
- "render",
+ "render-model",
  "serde",
  "serde_json",
  "world",
@@ -5390,6 +5393,7 @@ dependencies = [
  "particles",
  "rayon",
  "render-api",
+ "render-model",
  "serde_json",
  "sha2",
  "tempfile",
@@ -5400,6 +5404,21 @@ dependencies = [
 [[package]]
 name = "render-api"
 version = "0.1.4"
+
+[[package]]
+name = "render-model"
+version = "0.1.4"
+dependencies = [
+ "assets",
+ "bytemuck",
+ "glam",
+ "pack-compiler",
+ "render-api",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "world",
+]
 
 [[package]]
 name = "renderdoc-sys"

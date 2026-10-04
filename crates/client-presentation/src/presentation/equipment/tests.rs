@@ -4,8 +4,9 @@ use assets::IconSprite;
 use bevy::math::{Quat, Vec3};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId, EquipmentRaster, RenderBoneTransform,
+    ActorRigSubmission, EquipmentRaster,
 };
+use render_model::{EntityRigId, RenderBoneTransform};
 
 use super::{
     armor::{bone_map, hidden_bone, pack_tint, remap_pose},
@@ -29,7 +30,7 @@ fn bone(translation: [f32; 3], scale: f32) -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], scale],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 

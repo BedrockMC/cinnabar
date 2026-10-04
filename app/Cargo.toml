@@ -54,6 +54,7 @@ resource-pack = { path = "../crates/resource-pack" }
 server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
 render = { path = "../crates/render" }
+render-model = { path = "../crates/render-model" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
 sim = { path = "../crates/sim" }

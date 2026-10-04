@@ -1,7 +1,7 @@
 //! Native material contracts missing from the current entity carrier.
 use assets::{EntityAssetKind, RuntimeEntityAssets};
 
-use super::super::{geometry::ONE_SIDED_BACK_UV, rig::ActorRigVertex};
+use super::super::{ActorRigVertex, ONE_SIDED_BACK_UV};
 
 /// 26.50 vanilla `arrow:entity_alphatest` inherits `entity_nocull`'s DisableCulling.
 /// The native shader samples the same UV on both sides of each authored quad.

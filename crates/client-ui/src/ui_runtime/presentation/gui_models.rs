@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
-use render::UiTexturePage;
+use render_model::UiTexturePage;
 use ui::{UiMesh, UiNode, UiVisual};
 
 use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, player_preview};
@@ -21,9 +21,9 @@ pub mod test_support;
 mod tests;
 
 /// Reserved dynamic page offsets: original skin, then bounded model-source atlases.
-pub(super) const SKIN_PAGE: usize = render::UI_PLAYER_SKIN_PAGE_OFFSET;
-pub(super) const MODEL_PAGE: usize = render::UI_MODEL_ATLAS_PAGE_OFFSET;
-pub(super) const MODEL_PAGES: usize = render::MAX_UI_MODEL_ATLAS_PAGES;
+pub(super) const SKIN_PAGE: usize = render_model::UI_PLAYER_SKIN_PAGE_OFFSET;
+pub(super) const MODEL_PAGE: usize = render_model::UI_MODEL_ATLAS_PAGE_OFFSET;
+pub(super) const MODEL_PAGES: usize = render_model::MAX_UI_MODEL_ATLAS_PAGES;
 
 pub(super) type IconKey = (u16, [u16; 4]);
 pub(super) fn icon_key(icon: IconRef) -> IconKey {
@@ -62,7 +62,7 @@ impl UiPresentationRuntime {
         let first = (self.textures.dynamic_start() + MODEL_PAGE) as u16;
         let mut atlas = atlas::Atlas::new(first, MODEL_PAGES);
         let mut sources = BTreeMap::new();
-        let ordinary = render::equipment::blocks::collect(world, entities);
+        let ordinary = render_model::equipment::blocks::collect(world, entities);
         for (visual, index) in ordinary.by_visual {
             sources.insert(visual, ordinary.sheets[index].clone());
         }

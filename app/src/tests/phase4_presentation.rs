@@ -9,8 +9,11 @@ use client_world::{
 use protocol::{ActorKind, PlayerSkin, StandardSkin};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, STANDARD_SKIN_BYTES,
+    ActorRigSubmission,
+};
+use render_model::{
+    EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    STANDARD_SKIN_BYTES,
 };
 use semantic_input::PerspectiveMode;
 
@@ -38,7 +41,7 @@ fn render_bone() -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 
@@ -91,8 +94,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,
-            width: render::STANDARD_SKIN_SIDE as u32,
-            height: render::STANDARD_SKIN_SIDE as u32,
+            width: render_model::STANDARD_SKIN_SIDE as u32,
+            height: render_model::STANDARD_SKIN_SIDE as u32,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
         }),
     }
