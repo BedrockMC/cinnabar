@@ -729,9 +729,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: if connection_requested {
-                        "Rust MCBE | connecting".to_owned()
+                        format!("{} | connecting", launcher::PRODUCT_NAME)
                     } else {
-                        "Rust MCBE | Cinnabar".to_owned()
+                        launcher::PRODUCT_NAME.to_owned()
                     },
                     present_mode,
                     ..default()
